@@ -21,6 +21,8 @@ public interface LiveUploadMapper
 
     public int deleteLiveUploadByIds(Long[] uploadIds);
 
+    public int deleteDailyReportByUploadIds(Long[] uploadIds);
+
     public List<LiveUpload> selectLiveUploadByIds(Long[] uploadIds);
 
     public int updateAiResult(@Param("uploadId") Long uploadId,

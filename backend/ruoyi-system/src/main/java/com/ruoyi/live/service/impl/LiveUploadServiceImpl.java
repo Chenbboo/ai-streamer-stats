@@ -77,7 +77,11 @@ public class LiveUploadServiceImpl implements ILiveUploadService
             throw new ServiceException("目标日期已有该主播的日报，不能覆盖");
         }
 
-        uploadMapper.updateDailyReportBizDateByUploadId(uploadId, bizDate);
+        int reportRows = uploadMapper.updateDailyReportBizDateByUploadId(uploadId, bizDate);
+        if ("2".equals(upload.getAiStatus()) && reportRows != 1)
+        {
+            throw new ServiceException("已确认汇报缺少对应日报，无法安全修正日期");
+        }
         return uploadMapper.updateBizDateById(uploadId, bizDate);
     }
 
@@ -87,6 +91,7 @@ public class LiveUploadServiceImpl implements ILiveUploadService
     {
         // 先查出文件路径,删库成功后删磁盘文件
         List<LiveUpload> records = uploadMapper.selectLiveUploadByIds(uploadIds);
+        uploadMapper.deleteDailyReportByUploadIds(uploadIds);
         int rows = uploadMapper.deleteLiveUploadByIds(uploadIds);
         if (rows > 0)
         {
