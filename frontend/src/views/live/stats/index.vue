@@ -189,7 +189,7 @@
               </div>
               <template v-if="chatMessages[item.streamerId]">
                 <div v-for="(msg, idx) in chatMessages[item.streamerId]" :key="idx" :class="['ai-msg', msg.role === 'user' ? 'ai-msg-user' : 'ai-msg-ai']">
-                  <div class="ai-msg-content" v-html="msg.content"></div>
+                  <div class="ai-msg-content">{{ msg.content }}</div>
                 </div>
               </template>
               <div v-if="chatLoading[item.streamerId]" class="ai-msg ai-msg-ai ai-typing">
@@ -452,15 +452,18 @@ function getDailyKpiPct(daily, dailyKpi) {
 }
 
 function getForecastPct(card) {
+  const monthlyKpi = getStreamerKpi(card.streamerId, 'giftMonthly')
+  if (!monthlyKpi || monthlyKpi <= 0) return '--'
   if (!card.monthlyXu || card.monthlyXu === 0) return '0.0'
   const dayOfMonth = today.getDate()
   const dailyAvg = card.monthlyXu / dayOfMonth
-  const forecast = Math.min(100, dailyAvg * 26 / 10000 * 100)
+  const forecast = Math.min(100, dailyAvg * 26 / monthlyKpi * 100)
   return forecast.toFixed(1)
 }
 
 function getForecastClass(card) {
   const pct = parseFloat(getForecastPct(card))
+  if (Number.isNaN(pct)) return ''
   if (pct >= 100) return 'forecast-good'
   if (pct >= 70) return 'forecast-warn'
   return 'forecast-danger'
@@ -582,13 +585,6 @@ async function getChatMessages(streamerId) {
 
 function isChatLoading(streamerId) {
   return chatLoading[streamerId] || false
-}
-
-function renderMarkdown(text) {
-  if (!text) return ''
-  return text
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n/g, '<br>')
 }
 
 async function sendChat(streamerId) {
@@ -1373,6 +1369,7 @@ section {
   max-width: 85%;
   font-size: 13px;
   line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .ai-typing {
