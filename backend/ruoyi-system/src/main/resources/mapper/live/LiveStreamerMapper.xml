@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.live.mapper.LiveStreamerMapper">
+
+    <resultMap type="LiveStreamer" id="LiveStreamerResult">
+        <id     property="streamerId"   column="streamer_id"/>
+        <result property="userId"       column="user_id"/>
+        <result property="tiktokHandle" column="tiktok_handle"/>
+        <result property="stageName"    column="stage_name"/>
+        <result property="status"       column="status"/>
+        <result property="createBy"     column="create_by"/>
+        <result property="createTime"   column="create_time"/>
+        <result property="updateBy"     column="update_by"/>
+        <result property="updateTime"   column="update_time"/>
+        <result property="remark"       column="remark"/>
+    </resultMap>
+
+    <sql id="selectStreamerVo">
+        select streamer_id, user_id, tiktok_handle, stage_name, status, create_by, create_time, update_by, update_time, remark
+        from live_streamer
+    </sql>
+
+    <select id="selectLiveStreamerList" parameterType="LiveStreamer" resultMap="LiveStreamerResult">
+        <include refid="selectStreamerVo"/>
+        <where>
+            <if test="streamerId != null">
+                and streamer_id = #{streamerId}
+            </if>
+            <if test="stageName != null and stageName != ''">
+                and stage_name like concat('%', #{stageName}, '%')
+            </if>
+            <if test="status != null and status != ''">
+                and status = #{status}
+            </if>
+        </where>
+        order by streamer_id
+    </select>
+
+    <select id="selectLiveStreamerById" parameterType="Long" resultMap="LiveStreamerResult">
+        <include refid="selectStreamerVo"/>
+        where streamer_id = #{streamerId}
+    </select>
+
+    <select id="selectLiveStreamerByUserId" parameterType="Long" resultMap="LiveStreamerResult">
+        <include refid="selectStreamerVo"/>
+        where user_id = #{userId}
+    </select>
+
+    <insert id="insertLiveStreamer" parameterType="LiveStreamer" useGeneratedKeys="true" keyProperty="streamerId">
+        insert into live_streamer (user_id, tiktok_handle, stage_name, status, create_by, create_time, remark)
+        values (#{userId}, #{tiktokHandle}, #{stageName}, #{status}, #{createBy}, sysdate(), #{remark})
+    </insert>
+
+    <update id="updateLiveStreamer" parameterType="LiveStreamer">
+        update live_streamer
+        <set>
+            <if test="tiktokHandle != null">tiktok_handle = #{tiktokHandle},</if>
+            <if test="stageName != null and stageName != ''">stage_name = #{stageName},</if>
+            <if test="status != null and status != ''">status = #{status},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            update_by = #{updateBy},
+            update_time = sysdate()
+        </set>
+        where streamer_id = #{streamerId}
+    </update>
+
+    <delete id="deleteLiveStreamerByIds" parameterType="String">
+        update live_streamer set status = '1' where streamer_id in
+        <foreach item="streamerId" collection="array" open="(" separator="," close=")">
+            #{streamerId}
+        </foreach>
+    </delete>
+
+</mapper>

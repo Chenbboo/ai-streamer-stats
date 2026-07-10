@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.live.mapper.LiveUploadMapper">
+
+    <resultMap type="LiveUpload" id="LiveUploadResult">
+        <id     property="uploadId"     column="upload_id"/>
+        <result property="bizDate"      column="biz_date"/>
+        <result property="streamerId"   column="streamer_id"/>
+        <result property="stageName"    column="stage_name"/>
+        <result property="uploadType"   column="upload_type"/>
+        <result property="filePath"     column="file_path"/>
+        <result property="rawText"      column="raw_text"/>
+        <result property="aiStatus"     column="ai_status"/>
+        <result property="aiResult"     column="ai_result"/>
+        <result property="uploadBy"     column="upload_by"/>
+        <result property="uploadByName" column="upload_by_name"/>
+        <result property="createTime"   column="create_time"/>
+        <result property="updateTime"   column="update_time"/>
+    </resultMap>
+
+    <sql id="selectUploadVo">
+        select u.upload_id, u.biz_date, u.streamer_id, s.stage_name, u.upload_type, u.file_path,
+               u.raw_text, u.ai_status, u.ai_result, u.upload_by, su.nick_name as upload_by_name,
+               u.create_time, u.update_time
+        from live_upload u
+        left join live_streamer s on s.streamer_id = u.streamer_id
+        left join sys_user su on su.user_id = u.upload_by
+    </sql>
+
+    <sql id="listWhere">
+        <where>
+            <if test="beginDate != null and beginDate != ''">
+                and u.biz_date &gt;= #{beginDate}
+            </if>
+            <if test="endDate != null and endDate != ''">
+                and u.biz_date &lt;= #{endDate}
+            </if>
+            <if test="streamerId != null">
+                and u.streamer_id = #{streamerId}
+            </if>
+            <if test="uploadType != null and uploadType != ''">
+                and u.upload_type = #{uploadType}
+            </if>
+            <if test="aiStatus != null and aiStatus != ''">
+                and u.ai_status = #{aiStatus}
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectLiveUploadList" parameterType="LiveUpload" resultMap="LiveUploadResult">
+        <include refid="selectUploadVo"/>
+        <include refid="listWhere"/>
+        order by u.biz_date desc, u.upload_id desc
+    </select>
+
+    <select id="selectLiveUploadById" parameterType="Long" resultMap="LiveUploadResult">
+        <include refid="selectUploadVo"/>
+        where u.upload_id = #{uploadId}
+    </select>
+
+    <select id="selectLiveUploadByIds" resultMap="LiveUploadResult">
+        <include refid="selectUploadVo"/>
+        where u.upload_id in
+        <foreach collection="array" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </select>
+
+    <select id="selectDailySummary" parameterType="LiveUpload" resultType="com.ruoyi.live.domain.LiveDailySummary">
+        select date_format(u.biz_date, '%Y-%m-%d') as bizDate,
+               u.streamer_id as streamerId,
+               s.stage_name as stageName,
+               sum(case when u.upload_type = '1' then 1 else 0 end) as giftCount,
+               sum(case when u.upload_type = '2' then 1 else 0 end) as chatCount,
+               sum(case when u.upload_type = '3' then 1 else 0 end) as reportCount
+        from live_upload u
+        left join live_streamer s on s.streamer_id = u.streamer_id
+        <include refid="listWhere"/>
+        group by u.biz_date, u.streamer_id, s.stage_name
+        order by u.biz_date desc, u.streamer_id
+    </select>
+
+    <insert id="insertLiveUpload" parameterType="LiveUpload" useGeneratedKeys="true" keyProperty="uploadId">
+        insert into live_upload (biz_date, streamer_id, upload_type, file_path, raw_text, ai_status, upload_by, create_time)
+        values (#{bizDate}, #{streamerId}, #{uploadType}, #{filePath}, #{rawText}, '0', #{uploadBy}, sysdate())
+    </insert>
+
+    <delete id="deleteLiveUploadByIds">
+        delete from live_upload where upload_id in
+        <foreach collection="array" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </delete>
+
+    <update id="updateAiResult">
+        update live_upload
+        set ai_status = #{aiStatus},
+            ai_result = #{aiResult},
+            update_time = sysdate()
+        where upload_id = #{uploadId}
+    </update>
+
+    <insert id="insertCustomerIfAbsent">
+        insert into live_customer (streamer_id, nickname, badge, first_seen_date, last_seen_date, create_by, create_time)
+        values (#{upload.streamerId}, #{nickname}, #{badge}, #{upload.bizDate}, #{upload.bizDate}, #{upload.updateBy}, sysdate())
+        on duplicate key update
+            badge = if(badge = '', values(badge), badge),
+            last_seen_date = values(last_seen_date),
+            update_by = #{upload.updateBy},
+            update_time = sysdate()
+    </insert>
+
+    <select id="selectCustomerIdByNickname" resultType="Long">
+        select customer_id
+        from live_customer
+        where nickname = #{nickname} and streamer_id = #{streamerId} and merged_into_id is null
+        limit 1
+    </select>
+
+    <insert id="upsertGiftRecord">
+        insert into live_gift_record (biz_date, streamer_id, customer_id, xu, rank_no, upload_id,
+                                      confirm_status, ai_confidence, create_time, update_by, update_time)
+        values (#{upload.bizDate}, #{upload.streamerId}, #{customerId}, #{xu}, #{rankNo}, #{upload.uploadId},
+                '1', '1', sysdate(), #{upload.updateBy}, sysdate())
+        on duplicate key update
+            xu = values(xu),
+            rank_no = values(rank_no),
+            upload_id = values(upload_id),
+            confirm_status = '1',
+            update_by = #{upload.updateBy},
+            update_time = sysdate()
+    </insert>
+
+    <insert id="upsertChatContact">
+        insert into live_chat_contact (biz_date, streamer_id, customer_id, upload_id, has_interaction, create_time)
+        values (#{upload.bizDate}, #{upload.streamerId}, #{customerId}, #{upload.uploadId}, #{hasInteraction}, sysdate())
+        on duplicate key update
+            upload_id = values(upload_id),
+            has_interaction = greatest(has_interaction, values(has_interaction))
+    </insert>
+
+    <insert id="upsertDailyReport">
+        insert into live_daily_report (biz_date, streamer_id, total_xu, raw_text, upload_id, create_time, update_by, update_time)
+        values (#{upload.bizDate}, #{upload.streamerId}, #{totalXu}, #{rawText}, #{upload.uploadId}, sysdate(), #{upload.updateBy}, sysdate())
+        on duplicate key update
+            total_xu = values(total_xu),
+            raw_text = values(raw_text),
+            upload_id = values(upload_id),
+            update_by = #{upload.updateBy},
+            update_time = sysdate()
+    </insert>
+
+</mapper>

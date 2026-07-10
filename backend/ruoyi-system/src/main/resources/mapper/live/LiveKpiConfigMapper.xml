@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.live.mapper.LiveKpiConfigMapper">
+
+    <resultMap type="com.ruoyi.live.domain.LiveKpiConfig" id="LiveKpiConfigResult">
+        <result property="kpiId" column="kpi_id"/>
+        <result property="streamerId" column="streamer_id"/>
+        <result property="kpiYear" column="kpi_year"/>
+        <result property="kpiMonth" column="kpi_month"/>
+        <result property="giftDaily" column="gift_daily"/>
+        <result property="giftMonthly" column="gift_monthly"/>
+        <result property="newFanDaily" column="new_fan_daily"/>
+        <result property="newFanMonthly" column="new_fan_monthly"/>
+        <result property="chatDaily" column="chat_daily"/>
+        <result property="chatMonthly" column="chat_monthly"/>
+        <result property="newTipDaily" column="new_tip_daily"/>
+        <result property="newTipMonthly" column="new_tip_monthly"/>
+        <result property="createBy" column="create_by"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateBy" column="update_by"/>
+        <result property="updateTime" column="update_time"/>
+    </resultMap>
+
+    <select id="selectKpiConfigList" parameterType="com.ruoyi.live.domain.LiveKpiConfig" resultMap="LiveKpiConfigResult">
+        select kpi_id, streamer_id, kpi_year, kpi_month, gift_daily, gift_monthly,
+               new_fan_daily, new_fan_monthly, chat_daily, chat_monthly,
+               new_tip_daily, new_tip_monthly, create_by, create_time, update_by, update_time
+        from live_kpi_config
+        <where>
+            <if test="streamerId != null">
+                and streamer_id = #{streamerId}
+            </if>
+            <if test="kpiYear != null">
+                and kpi_year = #{kpiYear}
+            </if>
+            <if test="kpiMonth != null">
+                and kpi_month = #{kpiMonth}
+            </if>
+        </where>
+        order by case when streamer_id is null then 0 else 1 end, kpi_year desc, kpi_month desc
+    </select>
+
+    <select id="selectKpiConfig" resultMap="LiveKpiConfigResult">
+        select kpi_id, streamer_id, kpi_year, kpi_month, gift_daily, gift_monthly,
+               new_fan_daily, new_fan_monthly, chat_daily, chat_monthly,
+               new_tip_daily, new_tip_monthly, create_by, create_time, update_by, update_time
+        from live_kpi_config
+        where kpi_year = #{year} and kpi_month = #{month}
+          and ((#{streamerId} is null and streamer_id is null) or streamer_id = #{streamerId})
+        limit 1
+    </select>
+
+    <insert id="insertKpiConfig" parameterType="com.ruoyi.live.domain.LiveKpiConfig" useGeneratedKeys="true" keyProperty="kpiId">
+        insert into live_kpi_config (streamer_id, kpi_year, kpi_month, gift_daily, gift_monthly,
+                                     new_fan_daily, new_fan_monthly, chat_daily, chat_monthly,
+                                     new_tip_daily, new_tip_monthly, create_by, create_time)
+        values (#{streamerId}, #{kpiYear}, #{kpiMonth}, #{giftDaily}, #{giftMonthly},
+                #{newFanDaily}, #{newFanMonthly}, #{chatDaily}, #{chatMonthly},
+                #{newTipDaily}, #{newTipMonthly}, #{createBy}, sysdate())
+    </insert>
+
+    <update id="updateKpiConfig" parameterType="com.ruoyi.live.domain.LiveKpiConfig">
+        update live_kpi_config
+        <set>
+            <if test="giftDaily != null">gift_daily = #{giftDaily},</if>
+            <if test="giftMonthly != null">gift_monthly = #{giftMonthly},</if>
+            <if test="newFanDaily != null">new_fan_daily = #{newFanDaily},</if>
+            <if test="newFanMonthly != null">new_fan_monthly = #{newFanMonthly},</if>
+            <if test="chatDaily != null">chat_daily = #{chatDaily},</if>
+            <if test="chatMonthly != null">chat_monthly = #{chatMonthly},</if>
+            <if test="newTipDaily != null">new_tip_daily = #{newTipDaily},</if>
+            <if test="newTipMonthly != null">new_tip_monthly = #{newTipMonthly},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            update_time = sysdate()
+        </set>
+        where kpi_id = #{kpiId}
+    </update>
+
+    <delete id="deleteKpiConfigByIds">
+        delete from live_kpi_config where kpi_id in
+        <foreach item="kpiId" collection="array" open="(" separator="," close=")">
+            #{kpiId}
+        </foreach>
+    </delete>
+
+</mapper>

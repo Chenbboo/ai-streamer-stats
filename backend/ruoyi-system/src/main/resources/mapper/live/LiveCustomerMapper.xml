@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.live.mapper.LiveCustomerMapper">
+
+    <select id="selectCustomerList" resultType="com.ruoyi.live.domain.LiveCustomer">
+        select customer_id as customerId, streamer_id as streamerId, nickname, profile_url as profileUrl, avatar_path as avatarPath,
+               badge, merged_into_id as mergedIntoId, first_seen_date as firstSeenDate, last_seen_date as lastSeenDate
+        from live_customer
+        where merged_into_id is null
+        <if test="nickname != null and nickname != ''">
+            and nickname like concat('%', #{nickname}, '%')
+        </if>
+        <if test="streamerId != null">
+            and streamer_id = #{streamerId}
+        </if>
+        order by customer_id
+    </select>
+
+    <select id="selectCustomerById" resultType="com.ruoyi.live.domain.LiveCustomer">
+        select customer_id as customerId, streamer_id as streamerId, nickname, profile_url as profileUrl, avatar_path as avatarPath,
+               badge, merged_into_id as mergedIntoId, first_seen_date as firstSeenDate, last_seen_date as lastSeenDate
+        from live_customer where customer_id = #{customerId}
+    </select>
+
+    <select id="selectCustomerByNicknameAndStreamer" resultType="com.ruoyi.live.domain.LiveCustomer">
+        select customer_id as customerId, streamer_id as streamerId, nickname, profile_url as profileUrl, avatar_path as avatarPath,
+               badge, merged_into_id as mergedIntoId, first_seen_date as firstSeenDate, last_seen_date as lastSeenDate
+        from live_customer where nickname = #{nickname} and streamer_id = #{streamerId} and merged_into_id is null
+    </select>
+
+    <update id="updateGiftCustomerId">
+        update live_gift_record set customer_id = #{newId} where customer_id = #{oldId}
+    </update>
+
+    <update id="updateChatCustomerId">
+        update live_chat_contact set customer_id = #{newId} where customer_id = #{oldId}
+    </update>
+
+    <update id="markCustomerMerged">
+        update live_customer set merged_into_id = #{newId} where customer_id = #{oldId}
+    </update>
+
+    <insert id="insertAlias">
+        insert into live_customer_alias (customer_id, nickname, source_type, first_seen_date, last_seen_date)
+        values (#{customerId}, #{nickname}, #{sourceType},
+                (select first_seen_date from live_customer where customer_id = #{customerId}),
+                (select last_seen_date from live_customer where customer_id = #{customerId}))
+    </insert>
+
+    <delete id="deleteCustomerById">
+        delete from live_customer where customer_id = #{customerId} and merged_into_id is not null
+    </delete>
+
+</mapper>
