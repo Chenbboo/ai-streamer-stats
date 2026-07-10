@@ -1,6 +1,7 @@
 package com.ruoyi.web.controller.live;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -8,6 +9,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -131,6 +133,32 @@ public class LiveUploadController extends BaseController
         record.setUploadBy(SecurityUtils.getUserId());
         uploadService.insertLiveUpload(record);
         return success();
+    }
+
+    /**
+     * 修正工作汇报日期，同时移动其已确认入库的日报。
+     */
+    @PreAuthorize("@ss.hasPermi('live:upload:add')")
+    @Log(title = "工作汇报日期修正", businessType = BusinessType.UPDATE)
+    @PutMapping("/{uploadId}/biz-date")
+    public AjaxResult correctReportBizDate(@PathVariable Long uploadId, @RequestParam String bizDate)
+    {
+        Date targetDate = DateUtils.parseDate(bizDate);
+        if (targetDate == null)
+        {
+            return error("日期格式不正确");
+        }
+        LiveUpload upload = uploadService.selectLiveUploadById(uploadId);
+        if (upload == null)
+        {
+            return error("上传记录不存在");
+        }
+        LiveStreamer own = getOwnStreamerIfRestricted();
+        if (own != null && !own.getStreamerId().equals(upload.getStreamerId()))
+        {
+            return error("无权修正其他主播的汇报");
+        }
+        return toAjax(uploadService.correctReportBizDate(uploadId, targetDate));
     }
 
     /**

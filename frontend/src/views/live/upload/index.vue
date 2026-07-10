@@ -129,8 +129,9 @@
             </el-table-column>
             <el-table-column :label="$t('upload.uploader')" prop="uploadByName" width="120" />
             <el-table-column :label="$t('upload.uploadTime')" prop="createTime" width="170" />
-            <el-table-column :label="$t('common.action')" width="90" align="center">
+            <el-table-column :label="$t('common.action')" width="150" align="center">
               <template #default="{ row }">
+                <el-button v-if="row.uploadType === '3'" v-hasPermi="['live:upload:add']" link type="primary" icon="Edit" @click="handleCorrectDate(row)">修正日期</el-button>
                 <el-button v-hasPermi="['live:upload:remove']" link type="danger" icon="Delete" @click="handleDelete(row)">{{ $t('common.delete') }}</el-button>
               </template>
             </el-table-column>
@@ -148,6 +149,7 @@
               </div>
               <div class="record-footer">
                 <el-tag :type="statusTag(row.aiStatus)">{{ statusLabel(row.aiStatus) }}</el-tag>
+                <el-button v-if="row.uploadType === '3'" v-hasPermi="['live:upload:add']" link type="primary" icon="Edit" @click="handleCorrectDate(row)">修正日期</el-button>
                 <el-button v-hasPermi="['live:upload:remove']" link type="danger" icon="Delete" @click="handleDelete(row)">{{ $t('common.delete') }}</el-button>
               </div>
             </div>
@@ -161,7 +163,7 @@
 </template>
 
 <script setup name="LiveUpload">
-import { listUpload, dailySummary, uploadImages, submitReport, delUpload, listStreamers } from '@/api/live/upload'
+import { listUpload, dailySummary, uploadImages, submitReport, correctReportDate, delUpload, listStreamers } from '@/api/live/upload'
 
 const { proxy } = getCurrentInstance()
 const baseApi = import.meta.env.VITE_APP_BASE_API
@@ -291,6 +293,20 @@ function resetQuery() {
 function handleDelete(row) {
   proxy.$modal.confirm('确认删除这条上传记录吗?文件将一并删除').then(() => delUpload(row.uploadId)).then(() => {
     proxy.$modal.msgSuccess('删除成功')
+    handleQuery()
+  }).catch(() => {})
+}
+
+function handleCorrectDate(row) {
+  proxy.$prompt('请输入正确的业务日期', '修正汇报日期', {
+    inputValue: row.bizDate,
+    inputPlaceholder: 'YYYY-MM-DD',
+    inputPattern: /^\d{4}-\d{2}-\d{2}$/,
+    inputErrorMessage: '请输入 YYYY-MM-DD 格式的日期',
+    confirmButtonText: '确认修正',
+    cancelButtonText: '取消'
+  }).then(({ value }) => correctReportDate(row.uploadId, value)).then(() => {
+    proxy.$modal.msgSuccess('汇报日期已修正')
     handleQuery()
   }).catch(() => {})
 }

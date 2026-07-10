@@ -37,6 +37,15 @@ export function submitReport(data) {
   })
 }
 
+// 修正工作汇报日期
+export function correctReportDate(uploadId, bizDate) {
+  return request({
+    url: '/live/upload/' + uploadId + '/biz-date',
+    method: 'put',
+    params: { bizDate }
+  })
+}
+
 // 删除上传记录
 export function delUpload(uploadIds) {
   return request({

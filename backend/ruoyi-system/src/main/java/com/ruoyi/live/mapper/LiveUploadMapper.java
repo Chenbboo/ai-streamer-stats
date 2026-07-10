@@ -1,6 +1,7 @@
 package com.ruoyi.live.mapper;
 
 import java.util.List;
+import java.util.Date;
 import org.apache.ibatis.annotations.Param;
 import com.ruoyi.live.domain.LiveDailySummary;
 import com.ruoyi.live.domain.LiveUpload;
@@ -25,6 +26,15 @@ public interface LiveUploadMapper
     public int updateAiResult(@Param("uploadId") Long uploadId,
                               @Param("aiStatus") String aiStatus,
                               @Param("aiResult") String aiResult);
+
+    public int updateBizDateById(@Param("uploadId") Long uploadId, @Param("bizDate") Date bizDate);
+
+    public int countDailyReportConflict(@Param("streamerId") Long streamerId,
+                                        @Param("uploadId") Long uploadId,
+                                        @Param("bizDate") Date bizDate);
+
+    public int updateDailyReportBizDateByUploadId(@Param("uploadId") Long uploadId,
+                                                  @Param("bizDate") Date bizDate);
 
     public int insertCustomerIfAbsent(@Param("nickname") String nickname,
                                       @Param("badge") String badge,

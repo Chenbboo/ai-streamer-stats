@@ -1,6 +1,7 @@
 package com.ruoyi.live.service;
 
 import java.util.List;
+import java.util.Date;
 import com.ruoyi.live.domain.LiveDailySummary;
 import com.ruoyi.live.domain.LiveUpload;
 
@@ -16,6 +17,9 @@ public interface ILiveUploadService
     public List<LiveDailySummary> selectDailySummary(LiveUpload upload);
 
     public int insertLiveUpload(LiveUpload upload);
+
+    /** 修正已提交工作汇报的业务日期，并同步对应日报。 */
+    public int correctReportBizDate(Long uploadId, Date bizDate);
 
     /**
      * 删除上传记录,同时删除磁盘文件

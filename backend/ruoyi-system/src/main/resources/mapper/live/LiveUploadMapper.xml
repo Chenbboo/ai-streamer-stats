@@ -98,6 +98,28 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where upload_id = #{uploadId}
     </update>
 
+    <update id="updateBizDateById">
+        update live_upload
+        set biz_date = #{bizDate},
+            update_time = sysdate()
+        where upload_id = #{uploadId}
+    </update>
+
+    <select id="countDailyReportConflict" resultType="int">
+        select count(*)
+        from live_daily_report
+        where streamer_id = #{streamerId}
+          and biz_date = #{bizDate}
+          and (upload_id is null or upload_id != #{uploadId})
+    </select>
+
+    <update id="updateDailyReportBizDateByUploadId">
+        update live_daily_report
+        set biz_date = #{bizDate},
+            update_time = sysdate()
+        where upload_id = #{uploadId}
+    </update>
+
     <insert id="insertCustomerIfAbsent">
         insert into live_customer (streamer_id, nickname, badge, first_seen_date, last_seen_date, create_by, create_time)
         values (#{upload.streamerId}, #{nickname}, #{badge}, #{upload.bizDate}, #{upload.bizDate}, #{upload.updateBy}, sysdate())

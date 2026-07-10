@@ -1,6 +1,7 @@
 package com.ruoyi.live.service.impl;
 
 import java.io.File;
+import java.util.Date;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -56,6 +57,28 @@ public class LiveUploadServiceImpl implements ILiveUploadService
     public int insertLiveUpload(LiveUpload upload)
     {
         return uploadMapper.insertLiveUpload(upload);
+    }
+
+    @Override
+    @Transactional
+    public int correctReportBizDate(Long uploadId, Date bizDate)
+    {
+        LiveUpload upload = uploadMapper.selectLiveUploadById(uploadId);
+        if (upload == null)
+        {
+            throw new ServiceException("上传记录不存在");
+        }
+        if (!LiveUpload.TYPE_REPORT.equals(upload.getUploadType()))
+        {
+            throw new ServiceException("只有工作汇报可以修正日期");
+        }
+        if (uploadMapper.countDailyReportConflict(upload.getStreamerId(), uploadId, bizDate) > 0)
+        {
+            throw new ServiceException("目标日期已有该主播的日报，不能覆盖");
+        }
+
+        uploadMapper.updateDailyReportBizDateByUploadId(uploadId, bizDate);
+        return uploadMapper.updateBizDateById(uploadId, bizDate);
     }
 
     @Override
