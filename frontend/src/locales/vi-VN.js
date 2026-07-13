@@ -190,6 +190,8 @@ export default {
     newTip: 'Tiền tip mới',
     daily: 'Ngày',
     dailyKPI: 'KPI ngày',
+    range: 'Khoảng',
+    rangeKPI: 'KPI khoảng',
     monthly: 'Tháng',
     growth: 'Tăng trưởng',
     kpiComplete: 'Hoàn thành KPI',

@@ -190,6 +190,8 @@ export default {
     newTip: '新增用户打赏',
     daily: '日',
     dailyKPI: '日KPI',
+    range: '区间',
+    rangeKPI: '区间KPI',
     monthly: '月',
     growth: '增长率',
     kpiComplete: 'KPI完成',

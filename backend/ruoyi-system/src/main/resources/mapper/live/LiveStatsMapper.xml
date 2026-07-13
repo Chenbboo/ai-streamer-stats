@@ -126,7 +126,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         left join (
             select streamer_id, sum(total_xu) as xu
             from live_daily_report
-            where biz_date between #{beginDate} and #{endDate}
+            where biz_date between date_format(#{endDate}, '%Y-%m-01') and #{endDate}
             group by streamer_id
         ) monthly on monthly.streamer_id = s.streamer_id
         -- 送礼 KPI：始终按截止日期所在自然月累计，不受自定义区间起始日影响
@@ -142,7 +142,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                    count(distinct case when c.first_seen_date = #{endDate} then c.customer_id end) as daily,
                    count(distinct case when c.first_seen_date between #{beginDate} and #{endDate} then c.customer_id end) as weekly,
                    count(distinct case when c.first_seen_date between date_sub(#{beginDate}, interval (datediff(#{endDate}, #{beginDate}) + 1) day) and date_sub(#{beginDate}, interval 1 day) then c.customer_id end) as lastWeek,
-                   count(distinct case when c.first_seen_date between #{beginDate} and #{endDate} then c.customer_id end) as monthly
+                    count(distinct case when c.first_seen_date between date_format(#{endDate}, '%Y-%m-01') and #{endDate} then c.customer_id end) as monthly
             from live_customer c
             where c.merged_into_id is null
               and exists (select 1 from live_chat_contact cc where cc.customer_id = c.customer_id and cc.streamer_id = c.streamer_id)
@@ -154,7 +154,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                    count(distinct case when fi.first_interaction_date = #{endDate} then fi.customer_id end) as daily,
                    count(distinct case when fi.first_interaction_date between #{beginDate} and #{endDate} then fi.customer_id end) as weekly,
                    count(distinct case when fi.first_interaction_date between date_sub(#{beginDate}, interval (datediff(#{endDate}, #{beginDate}) + 1) day) and date_sub(#{beginDate}, interval 1 day) then fi.customer_id end) as lastWeek,
-                   count(distinct case when fi.first_interaction_date between #{beginDate} and #{endDate} then fi.customer_id end) as monthly
+                    count(distinct case when fi.first_interaction_date between date_format(#{endDate}, '%Y-%m-01') and #{endDate} then fi.customer_id end) as monthly
             from (
                 select cc.streamer_id, cc.customer_id, min(cc.biz_date) as first_interaction_date
                 from live_chat_contact cc
@@ -171,14 +171,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             select nf.streamer_id,
                    count(distinct case when nf.first_gift_date = #{endDate} then nf.customer_id end) as daily,
                    count(distinct case when nf.first_gift_date between #{beginDate} and #{endDate} then nf.customer_id end) as weekly,
-                   count(distinct case when nf.first_gift_date between #{beginDate} and #{endDate} then nf.customer_id end) as monthly,
+                    count(distinct case when nf.first_gift_date between date_format(#{endDate}, '%Y-%m-01') and #{endDate} then nf.customer_id end) as monthly,
                    sum(case when nf.first_gift_date = #{endDate}
                               and gr.biz_date = #{endDate} then gr.xu else 0 end) as dailyAmount,
                     sum(case when nf.first_gift_date between #{beginDate} and #{endDate}
                                and gr.biz_date = nf.first_gift_date then gr.xu else 0 end) as weeklyAmount,
                     sum(case when nf.first_gift_date between date_sub(#{beginDate}, interval (datediff(#{endDate}, #{beginDate}) + 1) day) and date_sub(#{beginDate}, interval 1 day)
                                and gr.biz_date = nf.first_gift_date then gr.xu else 0 end) as lastWeekAmount,
-                    sum(case when nf.first_gift_date between #{beginDate} and #{endDate}
+                    sum(case when nf.first_gift_date between date_format(#{endDate}, '%Y-%m-01') and #{endDate}
                                and gr.biz_date = nf.first_gift_date then gr.xu else 0 end) as monthlyAmount
             from (
                 select streamer_id, customer_id, min(biz_date) as first_gift_date
@@ -498,17 +498,20 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                    -- 红色：月累计>1000 且该客户最后一天有打赏无互动
                    sum(case when x.month_total >= 1000 and x.last_gift_has_chat = 0 and x.last_day_is_yellow = 0 and x.last_day_is_orange = 0 and x.has_follow = 0 then 1 else 0 end) as red,
                    -- 绿色：月累计>1000 且该客户最后一天有打赏有互动
-                   sum(case when x.month_total >= 1000 and x.last_gift_has_chat = 1 and x.last_day_is_yellow = 0 and x.last_day_is_orange = 0 then 1 else 0 end) as green,
+                    sum(case when x.month_total >= 1000 and (
+                        x.last_gift_has_chat = 1
+                        or x.last_day_is_yellow = 1
+                        or x.last_day_is_orange = 1
+                    ) then 1 else 0 end) as green,
                    -- 紫色：月累计>1000、最后一天无互动，但主播已关注等待回关
                    sum(case when x.month_total >= 1000 and x.last_gift_has_chat = 0 and x.last_day_is_yellow = 0 and x.last_day_is_orange = 0 and x.has_follow = 1 then 1 else 0 end) as purple,
                    -- 黄色：出现过黄色（无打赏有互动）
-                   sum(case when x.last_day_is_yellow = 1 then 1 else 0 end) as yellow,
+                     sum(case when x.month_total &lt; 1000 and x.last_day_is_yellow = 1 then 1 else 0 end) as yellow,
                    -- 橙色：出现过橙色（有建联无互动）
-                   sum(case when x.last_day_is_orange = 1 then 1 else 0 end) as orange,
+                     sum(case when x.month_total &lt; 1000 and x.last_day_is_orange = 1 then 1 else 0 end) as orange,
                    sum(case when
-                       (x.month_total >= 1000 and x.last_gift_has_chat = 0 and x.last_day_is_yellow = 0 and x.last_day_is_orange = 0)
-                       or (x.month_total >= 1000 and x.last_gift_has_chat = 1 and x.last_day_is_yellow = 0 and x.last_day_is_orange = 0)
-                       or x.last_day_is_yellow = 1 or x.last_day_is_orange = 1
+                        x.month_total >= 1000
+                        or (x.month_total &lt; 1000 and (x.last_day_is_yellow = 1 or x.last_day_is_orange = 1))
                        then 1 else 0 end) as total
             from (
                 select c.streamer_id, c.customer_id,

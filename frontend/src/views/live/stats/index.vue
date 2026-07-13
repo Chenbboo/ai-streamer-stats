@@ -35,8 +35,8 @@
             <div class="sc-section">
               <div class="sc-section-title">{{ $t('stats.gift') }}</div>
               <div class="sc-fields sc-fields-5">
-                <div><div class="sc-stat-label">{{ $t('stats.daily') }}</div><div class="sc-stat-val">{{ fmt(card.dailyXu) }}</div></div>
-                <div><div class="sc-stat-label">{{ $t('stats.dailyKPI') }}</div><div class="sc-stat-val">{{ getDailyKpiPct(card.dailyXu, getStreamerKpi(card.streamerId, 'giftDaily')) }}%</div></div>
+                <div><div class="sc-stat-label">{{ isCustomRange ? $t('stats.range') : $t('stats.daily') }}</div><div class="sc-stat-val">{{ fmt(isCustomRange ? card.weeklyXu : card.dailyXu) }}</div></div>
+                <div><div class="sc-stat-label">{{ isCustomRange ? $t('stats.rangeKPI') : $t('stats.dailyKPI') }}</div><div class="sc-stat-val">{{ isCustomRange ? getRangeKpiPct(card.streamerId, card.weeklyXu, 'giftDaily', 'giftMonthly') : getDailyKpiPct(card.dailyXu, getStreamerKpi(card.streamerId, 'giftDaily')) }}%</div></div>
                 <div><div class="sc-stat-label">{{ $t('stats.monthly') }}</div><div class="sc-stat-val">{{ fmt(card.monthlyXu) }}</div></div>
                 <div><div class="sc-stat-label">{{ $t('stats.growth') }}</div><div class="sc-stat-val" :class="getWowClass(card)">{{ getWowPct(card) }}</div></div>
                 <div><div class="sc-stat-label">{{ $t('stats.monthlyKpiComplete') }}</div><div class="sc-stat-val">{{ getMonthlyKpiPct(card.kpiMonthXu, getStreamerKpi(card.streamerId, 'giftMonthly')) }}%</div></div>
@@ -46,8 +46,8 @@
             <div class="sc-section">
               <div class="sc-section-title">{{ $t('stats.newFans') }}</div>
               <div class="sc-fields sc-fields-5">
-                <div><div class="sc-stat-label">{{ $t('stats.daily') }}</div><div class="sc-stat-val">{{ fmt(card.newFanDaily) }}</div></div>
-                <div><div class="sc-stat-label">{{ $t('stats.dailyKPI') }}</div><div class="sc-stat-val">{{ getDailyKpiPct(card.newFanDaily, getStreamerKpi(card.streamerId, 'newFanDaily')) }}%</div></div>
+                <div><div class="sc-stat-label">{{ isCustomRange ? $t('stats.range') : $t('stats.daily') }}</div><div class="sc-stat-val">{{ fmt(isCustomRange ? card.newFanWeekly : card.newFanDaily) }}</div></div>
+                <div><div class="sc-stat-label">{{ isCustomRange ? $t('stats.rangeKPI') : $t('stats.dailyKPI') }}</div><div class="sc-stat-val">{{ isCustomRange ? getRangeKpiPct(card.streamerId, card.newFanWeekly, 'newFanDaily', 'newFanMonthly') : getDailyKpiPct(card.newFanDaily, getStreamerKpi(card.streamerId, 'newFanDaily')) }}%</div></div>
                 <div><div class="sc-stat-label">{{ $t('stats.monthly') }}</div><div class="sc-stat-val">{{ fmt(card.newFanMonthly) }}</div></div>
                 <div><div class="sc-stat-label">{{ $t('stats.growth') }}</div><div class="sc-stat-val">{{ getGrowthRate(card.newFanWeekly, card.newFanLastWeek) }}</div></div>
                 <div><div class="sc-stat-label">{{ $t('stats.kpiComplete') }}</div><div class="sc-stat-val">{{ getMonthlyKpiPct(card.newFanMonthly, getStreamerKpi(card.streamerId, 'newFanMonthly')) }}%</div></div>
@@ -57,8 +57,8 @@
             <div class="sc-section">
               <div class="sc-section-title">{{ $t('stats.newChat') }}</div>
               <div class="sc-fields sc-fields-5">
-                <div><div class="sc-stat-label">{{ $t('stats.daily') }}</div><div class="sc-stat-val">{{ fmt(card.chatDaily) }}</div></div>
-                <div><div class="sc-stat-label">{{ $t('stats.dailyKPI') }}</div><div class="sc-stat-val">{{ getDailyKpiPct(card.chatDaily, getStreamerKpi(card.streamerId, 'chatDaily')) }}%</div></div>
+                <div><div class="sc-stat-label">{{ isCustomRange ? $t('stats.range') : $t('stats.daily') }}</div><div class="sc-stat-val">{{ fmt(isCustomRange ? card.chatWeekly : card.chatDaily) }}</div></div>
+                <div><div class="sc-stat-label">{{ isCustomRange ? $t('stats.rangeKPI') : $t('stats.dailyKPI') }}</div><div class="sc-stat-val">{{ isCustomRange ? getRangeKpiPct(card.streamerId, card.chatWeekly, 'chatDaily', 'chatMonthly') : getDailyKpiPct(card.chatDaily, getStreamerKpi(card.streamerId, 'chatDaily')) }}%</div></div>
                 <div><div class="sc-stat-label">{{ $t('stats.monthly') }}</div><div class="sc-stat-val">{{ fmt(card.chatMonthly) }}</div></div>
                 <div><div class="sc-stat-label">{{ $t('stats.growth') }}</div><div class="sc-stat-val">{{ getGrowthRate(card.chatWeekly, card.chatLastWeek) }}</div></div>
                 <div><div class="sc-stat-label">{{ $t('stats.kpiComplete') }}</div><div class="sc-stat-val">{{ getMonthlyKpiPct(card.chatMonthly, getStreamerKpi(card.streamerId, 'chatMonthly')) }}%</div></div>
@@ -68,8 +68,8 @@
             <div class="sc-section">
               <div class="sc-section-title">{{ $t('stats.newTip') }}</div>
               <div class="sc-fields sc-fields-5">
-                <div><div class="sc-stat-label">{{ $t('stats.daily') }}</div><div class="sc-stat-val">{{ fmt(card.newTipDailyAmount) }}</div></div>
-                <div><div class="sc-stat-label">{{ $t('stats.dailyKPI') }}</div><div class="sc-stat-val">{{ getDailyKpiPct(card.newTipDailyAmount, getStreamerKpi(card.streamerId, 'newTipDaily')) }}%</div></div>
+                <div><div class="sc-stat-label">{{ isCustomRange ? $t('stats.range') : $t('stats.daily') }}</div><div class="sc-stat-val">{{ fmt(isCustomRange ? card.newTipWeeklyAmount : card.newTipDailyAmount) }}</div></div>
+                <div><div class="sc-stat-label">{{ isCustomRange ? $t('stats.rangeKPI') : $t('stats.dailyKPI') }}</div><div class="sc-stat-val">{{ isCustomRange ? getRangeKpiPct(card.streamerId, card.newTipWeeklyAmount, 'newTipDaily', 'newTipMonthly') : getDailyKpiPct(card.newTipDailyAmount, getStreamerKpi(card.streamerId, 'newTipDaily')) }}%</div></div>
                 <div><div class="sc-stat-label">{{ $t('stats.monthly') }}</div><div class="sc-stat-val"><span class="clickable" @click="openNewTippersDialog(card.streamerId)">{{ fmt(card.newTipMonthlyAmount) }}</span></div></div>
                 <div><div class="sc-stat-label">{{ $t('stats.growth') }}</div><div class="sc-stat-val">{{ getGrowthRate(card.newTipWeeklyAmount, card.newTipLastWeekAmount) }}</div></div>
                 <div><div class="sc-stat-label">{{ $t('stats.kpiComplete') }}</div><div class="sc-stat-val">{{ getMonthlyKpiPct(card.newTipMonthlyAmount, getStreamerKpi(card.streamerId, 'newTipMonthly')) }}%</div></div>
@@ -587,6 +587,19 @@ function getDailyKpiPct(daily, dailyKpi) {
   return Math.round(daily / dailyKpi * 100)
 }
 
+function getRangeKpiPct(streamerId, actual, dailyMetric, monthlyMetric) {
+  const target = getRangeMonths().reduce((total, period) => {
+    const config = rangeKpiConfigs.value[`${period.year}-${period.month}-${streamerId}`]
+    if (!config) return total
+    const dailyKpi = Number(config[dailyMetric] || 0)
+    if (dailyKpi > 0) return total + dailyKpi * period.days
+    const monthlyKpi = Number(config[monthlyMetric] || 0)
+    return monthlyKpi > 0 ? total + monthlyKpi * period.days / period.daysInMonth : total
+  }, 0)
+  if (target <= 0) return '--'
+  return Math.round(Number(actual || 0) / target * 100)
+}
+
 function getForecastPct(card) {
   const monthlyKpi = getStreamerKpi(card.streamerId, 'giftMonthly')
   if (!monthlyKpi || monthlyKpi <= 0) return '--'
@@ -598,16 +611,7 @@ function getForecastPct(card) {
 }
 
 function getIntervalKpiPct(card) {
-  const intervalKpi = getRangeMonths().reduce((total, period) => {
-    const config = rangeKpiConfigs.value[`${period.year}-${period.month}-${card.streamerId}`]
-    if (!config) return total
-    const dailyKpi = Number(config.giftDaily || 0)
-    if (dailyKpi > 0) return total + dailyKpi * period.days
-    const monthlyKpi = Number(config.giftMonthly || 0)
-    return monthlyKpi > 0 ? total + monthlyKpi * period.days / period.daysInMonth : total
-  }, 0)
-  if (intervalKpi <= 0) return '--'
-  return Math.round(Number(card.monthlyXu || 0) / intervalKpi * 100)
+  return getRangeKpiPct(card.streamerId, card.weeklyXu, 'giftDaily', 'giftMonthly')
 }
 
 function disableFutureDate(date) {
