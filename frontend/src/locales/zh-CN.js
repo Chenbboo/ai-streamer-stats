@@ -194,6 +194,7 @@ export default {
     growth: '增长率',
     kpiComplete: 'KPI完成',
     monthEndForecast: '月底 {n}%',
+    rangeKpiComplete: '区间 KPI {n}%',
     vsLastWeek: 'vs 上周同期',
     flat: '持平',
     up: '▲ +{n}%',

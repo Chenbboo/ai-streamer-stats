@@ -26,7 +26,7 @@
         <div class="sec-title">{{ $t('stats.section01') }}</div>
         <div class="streamer-row">
           <div class="sc" v-for="card in cardDetails" :key="card.streamerId" :style="'--c:' + getStreamerColor(card.streamerId)">
-            <div class="forecast-badge" :class="getForecastClass(card)">{{ $t('stats.monthEndForecast', { n: getForecastPct(card) }) }}</div>
+            <div class="forecast-badge" :class="getForecastClass(card)">{{ isCustomRange ? $t('stats.rangeKpiComplete', { n: getIntervalKpiPct(card) }) : $t('stats.monthEndForecast', { n: getForecastPct(card) }) }}</div>
             <div class="sc-name">{{ card.stageName }}</div>
             <div class="sc-diamond">{{ fmt(card.weeklyXu) }}</div>
             <div class="sc-wow" :class="getWowClass(card)">{{ getWowText(card) }}</div>
@@ -421,23 +421,27 @@ const chatRefs = reactive({})
 
 // KPI 配置（按主播）
 const kpiConfigs = ref({})
+const rangeKpiConfigs = ref({})
 
 // 加载 KPI 配置
 async function loadKpiConfig() {
   try {
-    const year = cutoffDay.value.getFullYear()
-    const month = cutoffDay.value.getMonth() + 1
-    const res = await listKpiConfig({ kpiYear: year, kpiMonth: month })
-    if (res.rows && res.rows.length > 0) {
-      // 按主播ID分组
-      const configs = {}
-      res.rows.forEach(c => {
-        if (c.streamerId) {
+    const months = getRangeMonths()
+    const responses = await Promise.all(months.map(item => listKpiConfig({ kpiYear: item.year, kpiMonth: item.month })))
+    const configs = {}
+    const rangeConfigs = {}
+    responses.forEach((res, index) => {
+      const period = months[index]
+      ;(res.rows || []).forEach(c => {
+        if (!c.streamerId) return
+        rangeConfigs[`${period.year}-${period.month}-${c.streamerId}`] = c
+        if (period.year === cutoffDay.value.getFullYear() && period.month === cutoffDay.value.getMonth() + 1) {
           configs[c.streamerId] = c
         }
       })
-      kpiConfigs.value = configs
-    }
+    })
+    kpiConfigs.value = configs
+    rangeKpiConfigs.value = rangeConfigs
   } catch (e) {
     console.error('加载 KPI 配置失败:', e)
   }
@@ -447,6 +451,28 @@ async function loadKpiConfig() {
 function getStreamerKpi(streamerId, metric) {
   const config = kpiConfigs.value[streamerId]
   return config ? (config[metric] || 0) : 0
+}
+
+function getRangeMonths() {
+  const start = new Date(`${query.beginDate}T00:00:00`)
+  const end = new Date(`${query.endDate}T00:00:00`)
+  const months = []
+  const cursor = new Date(start.getFullYear(), start.getMonth(), 1)
+  while (cursor <= end) {
+    const year = cursor.getFullYear()
+    const month = cursor.getMonth() + 1
+    const monthEnd = new Date(year, month, 0)
+    const segmentStart = start > cursor ? start : cursor
+    const segmentEnd = end < monthEnd ? end : monthEnd
+    months.push({
+      year,
+      month,
+      days: Math.floor((segmentEnd - segmentStart) / 86400000) + 1,
+      daysInMonth: monthEnd.getDate()
+    })
+    cursor.setMonth(cursor.getMonth() + 1)
+  }
+  return months
 }
 
 // 初始化主播聊天数据
@@ -571,6 +597,19 @@ function getForecastPct(card) {
   return forecast.toFixed(1)
 }
 
+function getIntervalKpiPct(card) {
+  const intervalKpi = getRangeMonths().reduce((total, period) => {
+    const config = rangeKpiConfigs.value[`${period.year}-${period.month}-${card.streamerId}`]
+    if (!config) return total
+    const dailyKpi = Number(config.giftDaily || 0)
+    if (dailyKpi > 0) return total + dailyKpi * period.days
+    const monthlyKpi = Number(config.giftMonthly || 0)
+    return monthlyKpi > 0 ? total + monthlyKpi * period.days / period.daysInMonth : total
+  }, 0)
+  if (intervalKpi <= 0) return '--'
+  return Math.round(Number(card.monthlyXu || 0) / intervalKpi * 100)
+}
+
 function disableFutureDate(date) {
   return formatDate(date) > maxCutoffDate
 }
@@ -616,7 +655,7 @@ function applyCustomRange() {
 }
 
 function getForecastClass(card) {
-  const pct = parseFloat(getForecastPct(card))
+  const pct = parseFloat(isCustomRange.value ? getIntervalKpiPct(card) : getForecastPct(card))
   if (Number.isNaN(pct)) return ''
   if (pct >= 100) return 'forecast-good'
   if (pct >= 70) return 'forecast-warn'

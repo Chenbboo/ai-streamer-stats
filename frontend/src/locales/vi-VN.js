@@ -194,6 +194,7 @@ export default {
     growth: 'Tăng trưởng',
     kpiComplete: 'Hoàn thành KPI',
     monthEndForecast: 'Cuối tháng {n}%',
+    rangeKpiComplete: 'KPI khoảng {n}%',
     vsLastWeek: 'vs tuần trước',
     flat: 'Giữ nguyên',
     up: '▲ +{n}%',
