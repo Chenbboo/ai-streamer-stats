@@ -567,7 +567,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                 from live_customer c
                 where c.merged_into_id is null
                   and (
-                      exists (select 1 from live_gift_record gr where gr.customer_id = c.customer_id and gr.streamer_id = c.streamer_id and gr.biz_date between #{beginDate} and #{endDate} and gr.xu >= 1000)
+                      (select coalesce(sum(gr.xu), 0) from live_gift_record gr where gr.customer_id = c.customer_id and gr.streamer_id = c.streamer_id and gr.biz_date between #{beginDate} and #{endDate}) >= 1000
                       or exists (select 1 from live_chat_contact cc where cc.customer_id = c.customer_id and cc.streamer_id = c.streamer_id and cc.biz_date between #{beginDate} and #{endDate})
                   )
             ) x
