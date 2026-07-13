@@ -39,7 +39,7 @@
                 <div><div class="sc-stat-label">{{ $t('stats.dailyKPI') }}</div><div class="sc-stat-val">{{ getDailyKpiPct(card.dailyXu, getStreamerKpi(card.streamerId, 'giftDaily')) }}%</div></div>
                 <div><div class="sc-stat-label">{{ $t('stats.monthly') }}</div><div class="sc-stat-val">{{ fmt(card.monthlyXu) }}</div></div>
                 <div><div class="sc-stat-label">{{ $t('stats.growth') }}</div><div class="sc-stat-val" :class="getWowClass(card)">{{ getWowPct(card) }}</div></div>
-                <div><div class="sc-stat-label">{{ $t('stats.kpiComplete') }}</div><div class="sc-stat-val">{{ getMonthlyKpiPct(card.monthlyXu, getStreamerKpi(card.streamerId, 'giftMonthly')) }}%</div></div>
+                <div><div class="sc-stat-label">{{ $t('stats.monthlyKpiComplete') }}</div><div class="sc-stat-val">{{ getMonthlyKpiPct(card.kpiMonthXu, getStreamerKpi(card.streamerId, 'giftMonthly')) }}%</div></div>
               </div>
             </div>
             <!-- 新增粉丝 -->

@@ -78,6 +78,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                coalesce(weekly.xu, 0) as weeklyXu,
                coalesce(lastWeek.xu, 0) as lastWeekXu,
                coalesce(monthly.xu, 0) as monthlyXu,
+               coalesce(kpiMonth.xu, 0) as kpiMonthXu,
                -- 新增粉丝：日/周/月（首次出现）
                coalesce(newFans.daily, 0) as newFanDaily,
                coalesce(newFans.weekly, 0) as newFanWeekly,
@@ -128,6 +129,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             where biz_date between #{beginDate} and #{endDate}
             group by streamer_id
         ) monthly on monthly.streamer_id = s.streamer_id
+        -- 送礼 KPI：始终按截止日期所在自然月累计，不受自定义区间起始日影响
+        left join (
+            select streamer_id, sum(total_xu) as xu
+            from live_daily_report
+            where biz_date between date_format(#{endDate}, '%Y-%m-01') and #{endDate}
+            group by streamer_id
+        ) kpiMonth on kpiMonth.streamer_id = s.streamer_id
         -- 新增粉丝：首次出现的客户（只统计有聊天记录的）
         left join (
             select c.streamer_id,
