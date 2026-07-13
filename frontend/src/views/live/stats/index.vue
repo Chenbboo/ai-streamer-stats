@@ -657,6 +657,7 @@ function applyCustomRange() {
 function getForecastClass(card) {
   const pct = parseFloat(isCustomRange.value ? getIntervalKpiPct(card) : getForecastPct(card))
   if (Number.isNaN(pct)) return ''
+  if (isCustomRange.value) return pct >= 100 ? 'forecast-good' : 'forecast-danger'
   if (pct >= 100) return 'forecast-good'
   if (pct >= 70) return 'forecast-warn'
   return 'forecast-danger'
