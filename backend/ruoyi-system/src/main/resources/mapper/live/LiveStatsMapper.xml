@@ -454,9 +454,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
               where gr_d.customer_id = c.customer_id and gr_d.streamer_id = c.streamer_id
                 and gr_d.biz_date between #{beginDate} and #{endDate}
           )
-          and (select coalesce(sum(gr_total.xu), 0) from live_gift_record gr_total
-               where gr_total.customer_id = c.customer_id and gr_total.streamer_id = c.streamer_id
-                 and gr_total.biz_date between #{beginDate} and #{endDate}) >= 1000
           and not exists (
               select 1 from live_chat_contact cc
               where cc.customer_id = c.customer_id and cc.streamer_id = c.streamer_id
