@@ -60,8 +60,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                s.stage_name as stageName,
                sum(r.total_xu) as totalXu
         from live_daily_report r
-        left join live_streamer s on s.streamer_id = r.streamer_id
-        where r.biz_date between #{beginDate} and #{endDate}
+        inner join live_streamer s on s.streamer_id = r.streamer_id
+        where s.status = '0'
+          and r.biz_date between #{beginDate} and #{endDate}
         <if test="streamerId != null">
             and r.streamer_id = #{streamerId}
         </if>
