@@ -234,7 +234,7 @@ export default {
     newTippers: 'Người tip mới',
     newTippersSub: 'Tip lần đầu tháng này · {count} người',
     firstTipDate: 'Ngày tip đầu tiên',
-    monthlyTip: 'Tip tháng'
+    monthlyTip: 'Tip ngày đầu'
   },
   // KPI 配置
   kpi: {

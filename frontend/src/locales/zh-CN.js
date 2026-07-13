@@ -234,7 +234,7 @@ export default {
     newTippers: '新增打赏用户',
     newTippersSub: '本月首次打赏 · 共 {count} 人',
     firstTipDate: '首笔打赏日',
-    monthlyTip: '月累计打赏'
+    monthlyTip: '首日打赏'
   },
   // KPI 配置
   kpi: {

@@ -140,38 +140,25 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
               and exists (select 1 from live_chat_contact cc where cc.customer_id = c.customer_id and cc.streamer_id = c.streamer_id)
             group by c.streamer_id
         ) newFans on newFans.streamer_id = s.streamer_id
-        -- 新增互动：同一日/周/月新增粉丝中，已产生互动的客户
+        -- 新增互动：客户首次产生有效互动的日期落在对应统计周期内
         left join (
-            select c.streamer_id,
-                   count(distinct case when c.first_seen_date = #{endDate}
-                         and exists (select 1 from live_chat_contact cc
-                                     where cc.customer_id = c.customer_id and cc.streamer_id = c.streamer_id
-                                       and cc.has_interaction = 1 and cc.biz_date = #{endDate})
-                         then c.customer_id end) as daily,
-                   count(distinct case when c.first_seen_date between #{beginDate} and #{endDate}
-                         and exists (select 1 from live_chat_contact cc
-                                     where cc.customer_id = c.customer_id and cc.streamer_id = c.streamer_id
-                                       and cc.has_interaction = 1
-                                       and cc.biz_date between #{beginDate} and #{endDate})
-                         then c.customer_id end) as weekly,
-                   count(distinct case when c.first_seen_date between date_sub(#{beginDate}, interval (datediff(#{endDate}, #{beginDate}) + 1) day) and date_sub(#{beginDate}, interval 1 day)
-                         and exists (select 1 from live_chat_contact cc
-                                     where cc.customer_id = c.customer_id and cc.streamer_id = c.streamer_id
-                                       and cc.has_interaction = 1
-                                       and cc.biz_date between date_sub(#{beginDate}, interval (datediff(#{endDate}, #{beginDate}) + 1) day) and date_sub(#{beginDate}, interval 1 day))
-                         then c.customer_id end) as lastWeek,
-                   count(distinct case when c.first_seen_date between #{beginDate} and #{endDate}
-                         and exists (select 1 from live_chat_contact cc
-                                     where cc.customer_id = c.customer_id and cc.streamer_id = c.streamer_id
-                                       and cc.has_interaction = 1
-                                       and cc.biz_date between #{beginDate} and #{endDate})
-                         then c.customer_id end) as monthly
-            from live_customer c
-            where c.merged_into_id is null
-              and exists (select 1 from live_chat_contact cc where cc.customer_id = c.customer_id and cc.streamer_id = c.streamer_id)
-            group by c.streamer_id
+            select fi.streamer_id,
+                   count(distinct case when fi.first_interaction_date = #{endDate} then fi.customer_id end) as daily,
+                   count(distinct case when fi.first_interaction_date between #{beginDate} and #{endDate} then fi.customer_id end) as weekly,
+                   count(distinct case when fi.first_interaction_date between date_sub(#{beginDate}, interval (datediff(#{endDate}, #{beginDate}) + 1) day) and date_sub(#{beginDate}, interval 1 day) then fi.customer_id end) as lastWeek,
+                   count(distinct case when fi.first_interaction_date between #{beginDate} and #{endDate} then fi.customer_id end) as monthly
+            from (
+                select cc.streamer_id, cc.customer_id, min(cc.biz_date) as first_interaction_date
+                from live_chat_contact cc
+                join live_customer c on c.customer_id = cc.customer_id
+                                   and c.streamer_id = cc.streamer_id
+                                   and c.merged_into_id is null
+                where cc.has_interaction = 1
+                group by cc.streamer_id, cc.customer_id
+            ) fi
+            group by fi.streamer_id
         ) chat on chat.streamer_id = s.streamer_id
-        -- 新增用户打赏：首次打赏在对应周期，金额统计该周期内累计打赏
+        -- 新增用户打赏：首次打赏在对应周期，金额只统计首次打赏当天，保证月累计等于每日新增金额之和
         left join (
             select nf.streamer_id,
                    count(distinct case when nf.first_gift_date = #{endDate} then nf.customer_id end) as daily,
@@ -179,17 +166,20 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                    count(distinct case when nf.first_gift_date between #{beginDate} and #{endDate} then nf.customer_id end) as monthly,
                    sum(case when nf.first_gift_date = #{endDate}
                               and gr.biz_date = #{endDate} then gr.xu else 0 end) as dailyAmount,
-                   sum(case when nf.first_gift_date between #{beginDate} and #{endDate}
-                              and gr.biz_date between #{beginDate} and #{endDate} then gr.xu else 0 end) as weeklyAmount,
-                   sum(case when nf.first_gift_date between date_sub(#{beginDate}, interval (datediff(#{endDate}, #{beginDate}) + 1) day) and date_sub(#{beginDate}, interval 1 day)
-                              and gr.biz_date between date_sub(#{beginDate}, interval (datediff(#{endDate}, #{beginDate}) + 1) day) and date_sub(#{beginDate}, interval 1 day) then gr.xu else 0 end) as lastWeekAmount,
-                   sum(case when nf.first_gift_date between #{beginDate} and #{endDate}
-                              and gr.biz_date between #{beginDate} and #{endDate} then gr.xu else 0 end) as monthlyAmount
+                    sum(case when nf.first_gift_date between #{beginDate} and #{endDate}
+                               and gr.biz_date = nf.first_gift_date then gr.xu else 0 end) as weeklyAmount,
+                    sum(case when nf.first_gift_date between date_sub(#{beginDate}, interval (datediff(#{endDate}, #{beginDate}) + 1) day) and date_sub(#{beginDate}, interval 1 day)
+                               and gr.biz_date = nf.first_gift_date then gr.xu else 0 end) as lastWeekAmount,
+                    sum(case when nf.first_gift_date between #{beginDate} and #{endDate}
+                               and gr.biz_date = nf.first_gift_date then gr.xu else 0 end) as monthlyAmount
             from (
                 select streamer_id, customer_id, min(biz_date) as first_gift_date
                 from live_gift_record gr
                 group by gr.streamer_id, gr.customer_id
             ) nf
+            join live_customer c on c.customer_id = nf.customer_id
+                               and c.streamer_id = nf.streamer_id
+                               and c.merged_into_id is null
             join live_gift_record gr on gr.streamer_id = nf.streamer_id and gr.customer_id = nf.customer_id
             group by nf.streamer_id
         ) newTippers on newTippers.streamer_id = s.streamer_id
@@ -233,7 +223,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                c.nickname,
                c.badge,
                ft.first_gift_date as firstTipDate,
-               sum(gr.xu) as totalXu
+               sum(case when gr.biz_date = ft.first_gift_date then gr.xu else 0 end) as totalXu
         from (
             select streamer_id, customer_id, min(biz_date) as first_gift_date
             from live_gift_record
@@ -245,6 +235,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where ft.first_gift_date between #{beginDate} and #{endDate}
           and gr.biz_date between #{beginDate} and #{endDate}
           and ft.streamer_id = #{streamerId}
+          and c.merged_into_id is null
         group by c.customer_id, c.nickname, c.badge, ft.first_gift_date
         order by totalXu desc
     </select>
