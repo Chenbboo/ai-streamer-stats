@@ -3,8 +3,15 @@
     <!-- Header -->
     <header class="report-header">
       <div class="eyebrow">Weekly Report · {{ $t('stats.weeklyReport') }}</div>
-      <h1>{{ $t('stats.weekNumber', { n: currentWeek }) }}</h1>
-      <div class="period">{{ $t('stats.dataAsOf', { date: today }) }}</div>
+      <h1>{{ isCustomRange ? $t('stats.customRangeTitle') : $t('stats.weekNumber', { n: currentWeek }) }}</h1>
+      <div class="period">{{ isCustomRange ? $t('stats.dataRange', { begin: query.beginDate, end: query.endDate }) : $t('stats.dataAsOf', { date: todayStr }) }}</div>
+      <div class="cutoff-controls">
+        <el-button circle icon="ArrowLeft" :aria-label="$t('stats.previousDay')" @click="shiftCutoff(-1)" />
+        <el-date-picker v-model="cutoffDate" type="date" value-format="YYYY-MM-DD" :clearable="false" :disabled-date="disableFutureDate" @change="applyCutoffDate" />
+        <el-button circle icon="ArrowRight" :aria-label="$t('stats.nextDay')" :disabled="cutoffDate >= maxCutoffDate" @click="shiftCutoff(1)" />
+        <el-button size="small" @click="resetCutoffDate">{{ $t('stats.yesterday') }}</el-button>
+        <el-date-picker v-model="customDateRange" class="custom-range-picker" type="daterange" value-format="YYYY-MM-DD" :clearable="true" :disabled-date="disableFutureDate" :start-placeholder="$t('stats.startDate')" :end-placeholder="$t('stats.endDate')" @change="applyCustomRange" />
+      </div>
       <div class="meta-row">
         <span class="chip">{{ $t('stats.streamerCount', { n: streamers.length }) }}</span>
         <span class="chip">{{ $t('stats.weeklyDiamond', { n: fmt(overview.totalXu) }) }}</span>
@@ -134,6 +141,10 @@
                 <div><div class="weiji-label">{{ $t('stats.green') }}</div><div class="weiji-val">{{ w.green }} <span class="weiji-pct">{{ getWeijiPct(w.green, w.total) }}%</span></div></div>
               </div>
               <div class="weiji-stat">
+                <div class="weiji-dot purple"></div>
+                <div><div class="weiji-label">{{ $t('stats.followPending') }}</div><div class="weiji-val" style="color:#7c3aed">{{ w.purple }} <span class="weiji-pct">{{ getWeijiPct(w.purple, w.total) }}%</span></div></div>
+              </div>
+              <div class="weiji-stat">
                 <div class="weiji-dot yellow"></div>
                 <div><div class="weiji-label">{{ $t('stats.yellow') }}</div><div class="weiji-val">{{ w.yellow }} <span class="weiji-pct">{{ getWeijiPct(w.yellow, w.total) }}%</span></div></div>
               </div>
@@ -160,6 +171,10 @@
               <div class="weiji-stat">
                 <div class="weiji-dot green"></div>
                 <div><div class="weiji-label">{{ $t('stats.green') }}</div><div class="weiji-val">{{ w.green }} <span class="weiji-pct">{{ getWeijiPct(w.green, w.total) }}%</span></div></div>
+              </div>
+              <div class="weiji-stat">
+                <div class="weiji-dot purple"></div>
+                <div><div class="weiji-label">{{ $t('stats.followPending') }}</div><div class="weiji-val" style="color:#7c3aed">{{ w.purple }} <span class="weiji-pct">{{ getWeijiPct(w.purple, w.total) }}%</span></div></div>
               </div>
               <div class="weiji-stat">
                 <div class="weiji-dot yellow"></div>
@@ -330,14 +345,19 @@ const handleTrendResize = () => {
   }
 }
 
-const today = new Date()
-today.setDate(today.getDate() - 1)
-const currentWeek = Math.ceil(today.getDate() / 7) || 1
-const todayStr = (today.getMonth() + 1) + '月' + today.getDate() + '日'
+const yesterday = new Date()
+yesterday.setDate(yesterday.getDate() - 1)
+const maxCutoffDate = formatDate(yesterday)
+const cutoffDate = ref(maxCutoffDate)
+const cutoffDay = computed(() => new Date(`${cutoffDate.value}T00:00:00`))
+const currentWeek = computed(() => Math.ceil(cutoffDay.value.getDate() / 7) || 1)
+const todayStr = computed(() => (cutoffDay.value.getMonth() + 1) + '月' + cutoffDay.value.getDate() + '日')
 
-const defaultEnd = formatDate(today)
-const defaultBegin = formatDate(new Date(today.getFullYear(), today.getMonth(), 1))
+const defaultEnd = cutoffDate.value
+const defaultBegin = formatDate(new Date(cutoffDay.value.getFullYear(), cutoffDay.value.getMonth(), 1))
 const dateRange = ref([defaultBegin, defaultEnd])
+const customDateRange = ref([])
+const isCustomRange = computed(() => customDateRange.value && customDateRange.value.length === 2)
 
 const query = reactive({
   beginDate: defaultBegin,
@@ -362,8 +382,8 @@ const kpiConfigs = ref({})
 // 加载 KPI 配置
 async function loadKpiConfig() {
   try {
-    const year = today.getFullYear()
-    const month = today.getMonth() + 1
+    const year = cutoffDay.value.getFullYear()
+    const month = cutoffDay.value.getMonth() + 1
     const res = await listKpiConfig({ kpiYear: year, kpiMonth: month })
     if (res.rows && res.rows.length > 0) {
       // 按主播ID分组
@@ -455,10 +475,54 @@ function getForecastPct(card) {
   const monthlyKpi = getStreamerKpi(card.streamerId, 'giftMonthly')
   if (!monthlyKpi || monthlyKpi <= 0) return '--'
   if (!card.monthlyXu || card.monthlyXu === 0) return '0.0'
-  const dayOfMonth = today.getDate()
+  const dayOfMonth = cutoffDay.value.getDate()
   const dailyAvg = card.monthlyXu / dayOfMonth
   const forecast = Math.min(100, dailyAvg * 26 / monthlyKpi * 100)
   return forecast.toFixed(1)
+}
+
+function disableFutureDate(date) {
+  return formatDate(date) > maxCutoffDate
+}
+
+function shiftCutoff(days) {
+  const next = new Date(`${cutoffDate.value}T00:00:00`)
+  next.setDate(next.getDate() + days)
+  const nextDate = formatDate(next)
+  if (nextDate <= maxCutoffDate) {
+    cutoffDate.value = nextDate
+    applyCutoffDate()
+  }
+}
+
+function resetCutoffDate() {
+  cutoffDate.value = maxCutoffDate
+  applyCutoffDate()
+}
+
+function applyCutoffDate() {
+  const selected = cutoffDay.value
+  query.beginDate = formatDate(new Date(selected.getFullYear(), selected.getMonth(), 1))
+  query.endDate = cutoffDate.value
+  dateRange.value = [query.beginDate, query.endDate]
+  customDateRange.value = []
+  loadKpiConfig()
+  loadData()
+  loadWeijiData()
+}
+
+function applyCustomRange() {
+  if (!customDateRange.value || customDateRange.value.length !== 2) {
+    applyCutoffDate()
+    return
+  }
+  query.beginDate = customDateRange.value[0]
+  query.endDate = customDateRange.value[1]
+  cutoffDate.value = query.endDate
+  dateRange.value = [query.beginDate, query.endDate]
+  loadKpiConfig()
+  loadData()
+  loadWeijiData()
 }
 
 function getForecastClass(card) {
@@ -496,7 +560,7 @@ async function loadCardDetails() {
   const details = []
   for (const card of cards.value) {
     try {
-      const res = await streamerCardDetail(card.streamerId)
+      const res = await streamerCardDetail(card.streamerId, query.beginDate, query.endDate)
       if (res.data && res.data.length > 0) {
         details.push(res.data[0])
       }
@@ -535,18 +599,16 @@ function renderTrend() {
 }
 
 async function openHighValueDialog(streamerId) {
-  const month = query.beginDate.substring(0, 7)
   try {
-    const res = await highValueUsers(streamerId, month)
+    const res = await highValueUsers(streamerId, query.beginDate, query.endDate)
     highValueDialog.data = res.data || []
     highValueDialog.open = true
   } catch (e) { console.error(e) }
 }
 
 async function openNewTippersDialog(streamerId) {
-  const month = query.beginDate.substring(0, 7)
   try {
-    const res = await newTippers(streamerId, month)
+    const res = await newTippers(streamerId, query.beginDate, query.endDate)
     newTippersDialog.data = res.data || []
     newTippersDialog.open = true
   } catch (e) { console.error(e) }
@@ -559,15 +621,15 @@ loadWeijiData()
 
 async function loadWeijiData() {
   try {
-    const dayRes = await weijiStats()
+    const dayRes = await weijiStats(cutoffDate.value)
     weijiDayStats.value = dayRes.data || []
   } catch (e) { console.error(e) }
   try {
-    const monthRes = await weijiMonthStats()
+    const monthRes = await weijiMonthStats(query.beginDate, cutoffDate.value)
     weijiMonthStatsData.value = monthRes.data || []
   } catch (e) { console.error(e) }
   try {
-    const advRes = await adviceData()
+    const advRes = await adviceData(query.beginDate, query.endDate)
     adviceList.value = advRes.data || []
     // 初始化每个主播的聊天数据
     adviceList.value.forEach(item => initChat(item.streamerId))
@@ -682,16 +744,11 @@ async function openWeijiDetail(streamerId, mode) {
 
   let beginDate, endDate
   if (mode === 'day') {
-    const yesterday = new Date()
-    yesterday.setDate(yesterday.getDate() - 1)
-    beginDate = formatDate(yesterday)
+    beginDate = cutoffDate.value
     endDate = beginDate
   } else {
-    const today = new Date()
-    const end = new Date(today)
-    end.setDate(end.getDate() - 1)
-    endDate = formatDate(end)
-    beginDate = end.getFullYear() + '-' + String(end.getMonth() + 1).padStart(2, '0') + '-01'
+    endDate = cutoffDate.value
+    beginDate = query.beginDate
   }
 
   try {
@@ -761,7 +818,24 @@ h1 {
 .period {
   font-size: 14px;
   color: #555550;
+  margin-bottom: 10px;
+}
+
+.cutoff-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 20px;
+}
+
+.cutoff-controls :deep(.el-date-editor) {
+  width: 150px;
+}
+
+.cutoff-controls :deep(.custom-range-picker) {
+  flex: 0 0 480px;
+  width: 480px !important;
+  max-width: 100%;
 }
 
 .meta-row {
@@ -1209,6 +1283,7 @@ section {
 
 .weiji-dot.red { background: #DC2626; }
 .weiji-dot.green { background: #2D8C2D; }
+.weiji-dot.purple { background: #7C3AED; }
 .weiji-dot.yellow { background: #E6C300; }
 .weiji-dot.orange { background: #E67E22; }
 
@@ -1435,6 +1510,10 @@ section {
   .meta-row {
     flex-wrap: wrap;
     gap: 6px;
+  }
+
+  .cutoff-controls {
+    flex-wrap: wrap;
   }
 
   .chip {

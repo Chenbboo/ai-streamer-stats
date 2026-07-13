@@ -34,6 +34,13 @@
               </el-upload>
             </el-form-item>
           </el-col>
+          <el-col :xs="24" :md="12">
+            <el-form-item :label="$t('upload.followScreenshot')">
+              <el-upload v-model:file-list="followFiles" :auto-upload="false" multiple accept="image/*" list-type="picture-card">
+                <el-icon><Plus /></el-icon>
+              </el-upload>
+            </el-form-item>
+          </el-col>
         </el-row>
         <el-form-item :label="$t('upload.reportText')">
           <el-input v-model="form.rawText" type="textarea" :rows="2" :placeholder="$t('upload.reportPlaceholder')" />
@@ -164,13 +171,16 @@
 
 <script setup name="LiveUpload">
 import { listUpload, dailySummary, uploadImages, submitReport, correctReportDate, delUpload, listStreamers } from '@/api/live/upload'
+import { useI18n } from 'vue-i18n'
 
 const { proxy } = getCurrentInstance()
+const { t } = useI18n()
 const baseApi = import.meta.env.VITE_APP_BASE_API
 
 const streamers = ref([])
 const giftFiles = ref([])
 const chatFiles = ref([])
+const followFiles = ref([])
 const submitting = ref(false)
 const loading = ref(false)
 const activeTab = ref('daily')
@@ -196,7 +206,8 @@ const query = reactive({
 const typeOptions = [
   { value: '1', label: '打赏榜截图' },
   { value: '2', label: '聊天截图' },
-  { value: '3', label: '汇报文本' }
+  { value: '3', label: '汇报文本' },
+  { value: '4', label: t('upload.followScreenshot') }
 ]
 
 function typeLabel(v) {
@@ -214,8 +225,9 @@ async function handleSubmit() {
   if (!form.streamerId) return proxy.$modal.msgError('请选择主播')
   const hasGift = giftFiles.value.length > 0
   const hasChat = chatFiles.value.length > 0
+  const hasFollow = followFiles.value.length > 0
   const hasReport = form.rawText && form.rawText.trim() !== ''
-  if (!hasGift && !hasChat && !hasReport) return proxy.$modal.msgError('请至少填写一项内容')
+  if (!hasGift && !hasChat && !hasFollow && !hasReport) return proxy.$modal.msgError('请至少填写一项内容')
 
   submitting.value = true
   try {
@@ -226,6 +238,10 @@ async function handleSubmit() {
     if (hasChat) {
       await doUploadImages('2', chatFiles.value)
       chatFiles.value = []
+    }
+    if (hasFollow) {
+      await doUploadImages('4', followFiles.value)
+      followFiles.value = []
     }
     if (hasReport) {
       await submitReport({ bizDate: form.bizDate, streamerId: form.streamerId, rawText: form.rawText.trim() })

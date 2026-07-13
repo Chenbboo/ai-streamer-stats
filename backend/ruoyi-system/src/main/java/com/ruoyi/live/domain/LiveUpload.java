@@ -17,6 +17,8 @@ public class LiveUpload extends BaseEntity
     public static final String TYPE_CHAT = "2";
     /** 上传类型:汇报文本 */
     public static final String TYPE_REPORT = "3";
+    /** 上传类型:关注截图 */
+    public static final String TYPE_FOLLOW = "4";
 
     /** 上传ID */
     private Long uploadId;
@@ -31,7 +33,7 @@ public class LiveUpload extends BaseEntity
     /** 主播艺名(联查显示用) */
     private String stageName;
 
-    /** 类型(1打赏榜截图 2聊天截图 3汇报文本) */
+    /** 类型(1打赏榜截图 2聊天截图 3汇报文本 4关注截图) */
     private String uploadType;
 
     /** 文件路径 */

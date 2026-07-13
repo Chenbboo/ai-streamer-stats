@@ -72,7 +72,7 @@ public class LiveUploadController extends BaseController
     }
 
     /**
-     * 批量上传截图(打赏榜/聊天)
+     * 批量上传截图(打赏榜/聊天/关注)
      */
     @PreAuthorize("@ss.hasPermi('live:upload:add')")
     @Log(title = "直播数据上传", businessType = BusinessType.INSERT)
@@ -82,7 +82,9 @@ public class LiveUploadController extends BaseController
                                 @RequestParam("uploadType") String uploadType,
                                 @RequestParam("files") MultipartFile[] files) throws Exception
     {
-        if (!LiveUpload.TYPE_GIFT.equals(uploadType) && !LiveUpload.TYPE_CHAT.equals(uploadType))
+        if (!LiveUpload.TYPE_GIFT.equals(uploadType)
+                && !LiveUpload.TYPE_CHAT.equals(uploadType)
+                && !LiveUpload.TYPE_FOLLOW.equals(uploadType))
         {
             return error("截图类型不正确");
         }

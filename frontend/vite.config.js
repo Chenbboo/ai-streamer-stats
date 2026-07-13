@@ -50,6 +50,8 @@ export default defineConfig(({ mode, command }) => {
         '/dev-api': {
           target: baseUrl,
           changeOrigin: true,
+          timeout: 300000,
+          proxyTimeout: 300000,
           rewrite: (p) => p.replace(/^\/dev-api/, '')
         },
          // springdoc proxy

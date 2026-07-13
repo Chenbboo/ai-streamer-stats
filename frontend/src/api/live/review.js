@@ -19,7 +19,8 @@ export function recognizeUpload(uploadId) {
   return request({
     url: '/live/review/recognize/' + uploadId,
     method: 'post',
-    timeout: 120000
+    // 识别失败时后端会额外请求一次模型修复 JSON，需覆盖两次模型调用的等待时间。
+    timeout: 300000
   })
 }
 

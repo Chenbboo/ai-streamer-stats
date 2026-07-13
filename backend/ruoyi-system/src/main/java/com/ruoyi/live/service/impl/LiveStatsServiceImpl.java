@@ -109,21 +109,21 @@ public class LiveStatsServiceImpl implements ILiveStatsService
     }
 
     @Override
-    public List<Map<String, Object>> getStreamerCardDetail(Long streamerId)
+    public List<Map<String, Object>> getStreamerCardDetail(Long streamerId, String beginDate, String endDate)
     {
-        return statsMapper.selectStreamerCardDetail(streamerId);
+        return statsMapper.selectStreamerCardDetail(streamerId, beginDate, endDate);
     }
 
     @Override
-    public List<Map<String, Object>> getHighValueUsers(Long streamerId, String month)
+    public List<Map<String, Object>> getHighValueUsers(Long streamerId, String beginDate, String endDate)
     {
-        return statsMapper.selectHighValueUsers(streamerId, month);
+        return statsMapper.selectHighValueUsers(streamerId, beginDate, endDate);
     }
 
     @Override
-    public List<Map<String, Object>> getNewTippers(Long streamerId, String month)
+    public List<Map<String, Object>> getNewTippers(Long streamerId, String beginDate, String endDate)
     {
-        return statsMapper.selectNewTippers(streamerId, month);
+        return statsMapper.selectNewTippers(streamerId, beginDate, endDate);
     }
 
     @Override
@@ -163,9 +163,9 @@ public class LiveStatsServiceImpl implements ILiveStatsService
     }
 
     @Override
-    public List<Map<String, Object>> getAdviceData()
+    public List<Map<String, Object>> getAdviceData(String beginDate, String endDate)
     {
-        List<Map<String, Object>> dataList = statsMapper.selectAdviceData();
+        List<Map<String, Object>> dataList = statsMapper.selectAdviceData(beginDate, endDate);
         for (Map<String, Object> item : dataList)
         {
             long monthlyXu = longValue(item.get("monthlyXu"));

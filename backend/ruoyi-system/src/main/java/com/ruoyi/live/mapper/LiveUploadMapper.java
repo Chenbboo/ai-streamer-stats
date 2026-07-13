@@ -23,6 +23,8 @@ public interface LiveUploadMapper
 
     public int deleteDailyReportByUploadIds(Long[] uploadIds);
 
+    public int deleteFollowRecordByUploadIds(Long[] uploadIds);
+
     public List<LiveUpload> selectLiveUploadByIds(Long[] uploadIds);
 
     public int updateAiResult(@Param("uploadId") Long uploadId,
@@ -52,6 +54,10 @@ public interface LiveUploadMapper
     public int upsertChatContact(@Param("upload") LiveUpload upload,
                                  @Param("customerId") Long customerId,
                                  @Param("hasInteraction") Integer hasInteraction);
+
+    public int upsertFollowRecord(@Param("upload") LiveUpload upload,
+                                  @Param("customerId") Long customerId,
+                                  @Param("followStatus") String followStatus);
 
     public int upsertDailyReport(@Param("upload") LiveUpload upload,
                                 @Param("totalXu") Integer totalXu,

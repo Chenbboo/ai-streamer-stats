@@ -95,6 +95,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <foreach collection="array" item="id" open="(" separator="," close=")">#{id}</foreach>
     </delete>
 
+    <delete id="deleteFollowRecordByUploadIds">
+        delete from live_follow_record where upload_id in
+        <foreach collection="array" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </delete>
+
     <update id="updateAiResult">
         update live_upload
         set ai_status = #{aiStatus},
@@ -162,6 +167,15 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         on duplicate key update
             upload_id = values(upload_id),
             has_interaction = greatest(has_interaction, values(has_interaction))
+    </insert>
+
+    <insert id="upsertFollowRecord">
+        insert into live_follow_record (biz_date, streamer_id, customer_id, upload_id, follow_status, create_time, update_time)
+        values (#{upload.bizDate}, #{upload.streamerId}, #{customerId}, #{upload.uploadId}, #{followStatus}, sysdate(), sysdate())
+        on duplicate key update
+            upload_id = values(upload_id),
+            follow_status = values(follow_status),
+            update_time = sysdate()
     </insert>
 
     <insert id="upsertDailyReport">

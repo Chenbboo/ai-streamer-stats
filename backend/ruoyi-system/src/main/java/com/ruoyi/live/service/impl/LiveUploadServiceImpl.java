@@ -92,6 +92,7 @@ public class LiveUploadServiceImpl implements ILiveUploadService
         // 先查出文件路径,删库成功后删磁盘文件
         List<LiveUpload> records = uploadMapper.selectLiveUploadByIds(uploadIds);
         uploadMapper.deleteDailyReportByUploadIds(uploadIds);
+        uploadMapper.deleteFollowRecordByUploadIds(uploadIds);
         int rows = uploadMapper.deleteLiveUploadByIds(uploadIds);
         if (rows > 0)
         {
@@ -196,6 +197,10 @@ public class LiveUploadServiceImpl implements ILiveUploadService
             String rawText = result.path("rawText").asText(upload.getRawText());
             uploadMapper.upsertDailyReport(upload, totalXu, rawText);
         }
+        else if (LiveUpload.TYPE_FOLLOW.equals(upload.getUploadType()))
+        {
+            confirmFollow(upload, result);
+        }
         else
         {
             throw new ServiceException("上传类型不正确");
@@ -275,6 +280,33 @@ public class LiveUploadServiceImpl implements ILiveUploadService
         if (saved == 0)
         {
             throw new ServiceException("聊天截图识别结果没有可入库的客户昵称");
+        }
+    }
+
+    private void confirmFollow(LiveUpload upload, JsonNode result)
+    {
+        JsonNode items = result.path("items");
+        if (!items.isArray() || items.size() == 0)
+        {
+            throw new ServiceException("关注关系识别结果不能为空");
+        }
+        int saved = 0;
+        for (JsonNode item : items)
+        {
+            String nickname = item.path("nickname").asText("").trim();
+            if (StringUtils.isEmpty(nickname)) continue;
+            String followStatus = item.path("followStatus").asText("pending");
+            uploadMapper.insertCustomerIfAbsent(nickname, item.path("badge").asText(""), upload);
+            Long customerId = uploadMapper.selectCustomerIdByNickname(nickname, upload.getStreamerId());
+            if (customerId != null)
+            {
+                uploadMapper.upsertFollowRecord(upload, customerId, followStatus);
+                saved++;
+            }
+        }
+        if (saved == 0)
+        {
+            throw new ServiceException("关注关系识别结果没有可匹配的客户昵称");
         }
     }
 

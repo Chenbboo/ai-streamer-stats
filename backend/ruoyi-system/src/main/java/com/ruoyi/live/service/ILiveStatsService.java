@@ -7,11 +7,11 @@ public interface ILiveStatsService
 {
     public Map<String, Object> getWeeklyStats(String beginDate, String endDate, Long streamerId);
 
-    public List<Map<String, Object>> getStreamerCardDetail(Long streamerId);
+    public List<Map<String, Object>> getStreamerCardDetail(Long streamerId, String beginDate, String endDate);
 
-    public List<Map<String, Object>> getHighValueUsers(Long streamerId, String month);
+    public List<Map<String, Object>> getHighValueUsers(Long streamerId, String beginDate, String endDate);
 
-    public List<Map<String, Object>> getNewTippers(Long streamerId, String month);
+    public List<Map<String, Object>> getNewTippers(Long streamerId, String beginDate, String endDate);
 
     public List<Map<String, Object>> getWeijiStats(String statDate);
 
@@ -19,7 +19,7 @@ public interface ILiveStatsService
 
     public List<Map<String, Object>> getWeijiDetail(Long streamerId, String beginDate, String endDate);
 
-    public List<Map<String, Object>> getAdviceData();
+    public List<Map<String, Object>> getAdviceData(String beginDate, String endDate);
 
     public List<Map<String, Object>> getRecentChatRecords(Long streamerId, int limit);
 

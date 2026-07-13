@@ -50,37 +50,35 @@ public class LiveStatsController extends BaseController
 
     @PreAuthorize("@ss.hasPermi('live:stats:list')")
     @GetMapping("/streamer-card")
-    public AjaxResult streamerCard(Long streamerId)
+    public AjaxResult streamerCard(Long streamerId, String beginDate, String endDate)
     {
+        LocalDate end = StringUtils.isEmpty(endDate) ? LocalDate.now().minusDays(1) : LocalDate.parse(endDate);
+        LocalDate begin = StringUtils.isEmpty(beginDate) ? end.withDayOfMonth(1) : LocalDate.parse(beginDate);
         LiveStreamer own = getOwnStreamerIfRestricted();
         Long effectiveStreamerId = own == null ? streamerId : own.getStreamerId();
-        return AjaxResult.success(statsService.getStreamerCardDetail(effectiveStreamerId));
+        return AjaxResult.success(statsService.getStreamerCardDetail(effectiveStreamerId, begin.toString(), end.toString()));
     }
 
     @PreAuthorize("@ss.hasPermi('live:stats:list')")
     @GetMapping("/high-value-users")
-    public AjaxResult highValueUsers(Long streamerId, String month)
+    public AjaxResult highValueUsers(Long streamerId, String beginDate, String endDate)
     {
-        if (StringUtils.isEmpty(month))
-        {
-            month = LocalDate.now().toString().substring(0, 7);
-        }
+        LocalDate end = StringUtils.isEmpty(endDate) ? LocalDate.now().minusDays(1) : LocalDate.parse(endDate);
+        LocalDate begin = StringUtils.isEmpty(beginDate) ? end.withDayOfMonth(1) : LocalDate.parse(beginDate);
         LiveStreamer own = getOwnStreamerIfRestricted();
         Long effectiveStreamerId = own == null ? streamerId : own.getStreamerId();
-        return AjaxResult.success(statsService.getHighValueUsers(effectiveStreamerId, month));
+        return AjaxResult.success(statsService.getHighValueUsers(effectiveStreamerId, begin.toString(), end.toString()));
     }
 
     @PreAuthorize("@ss.hasPermi('live:stats:list')")
     @GetMapping("/new-tippers")
-    public AjaxResult newTippers(Long streamerId, String month)
+    public AjaxResult newTippers(Long streamerId, String beginDate, String endDate)
     {
-        if (StringUtils.isEmpty(month))
-        {
-            month = LocalDate.now().toString().substring(0, 7);
-        }
+        LocalDate end = StringUtils.isEmpty(endDate) ? LocalDate.now().minusDays(1) : LocalDate.parse(endDate);
+        LocalDate begin = StringUtils.isEmpty(beginDate) ? end.withDayOfMonth(1) : LocalDate.parse(beginDate);
         LiveStreamer own = getOwnStreamerIfRestricted();
         Long effectiveStreamerId = own == null ? streamerId : own.getStreamerId();
-        return AjaxResult.success(statsService.getNewTippers(effectiveStreamerId, month));
+        return AjaxResult.success(statsService.getNewTippers(effectiveStreamerId, begin.toString(), end.toString()));
     }
 
     @PreAuthorize("@ss.hasPermi('live:stats:list')")
@@ -130,11 +128,13 @@ public class LiveStatsController extends BaseController
 
     @PreAuthorize("@ss.hasPermi('live:stats:list')")
     @GetMapping("/advice")
-    public AjaxResult advice()
+    public AjaxResult advice(String beginDate, String endDate)
     {
+        LocalDate end = StringUtils.isEmpty(endDate) ? LocalDate.now().minusDays(1) : LocalDate.parse(endDate);
+        LocalDate begin = StringUtils.isEmpty(beginDate) ? end.withDayOfMonth(1) : LocalDate.parse(beginDate);
         LiveStreamer own = getOwnStreamerIfRestricted();
         Long streamerId = own == null ? null : own.getStreamerId();
-        List<Map<String, Object>> data = statsService.getAdviceData();
+        List<Map<String, Object>> data = statsService.getAdviceData(begin.toString(), end.toString());
         if (streamerId != null)
         {
             data = data.stream().filter(d -> streamerId.equals(d.get("streamerId"))).collect(java.util.stream.Collectors.toList());
@@ -257,7 +257,8 @@ public class LiveStatsController extends BaseController
     private String buildBasicContext(Long streamerId)
     {
         StringBuilder sb = new StringBuilder();
-        List<Map<String, Object>> details = statsService.getStreamerCardDetail(streamerId);
+        LocalDate end = LocalDate.now().minusDays(1);
+        List<Map<String, Object>> details = statsService.getStreamerCardDetail(streamerId, end.withDayOfMonth(1).toString(), end.toString());
         if (!details.isEmpty())
         {
             Map<String, Object> d = details.get(0);
@@ -402,7 +403,8 @@ public class LiveStatsController extends BaseController
             }
             else if ("query_daily_trend".equals(functionName))
             {
-                List<Map<String, Object>> data = statsService.getStreamerCardDetail(streamerId);
+                LocalDate end = LocalDate.now().minusDays(1);
+                List<Map<String, Object>> data = statsService.getStreamerCardDetail(streamerId, end.withDayOfMonth(1).toString(), end.toString());
                 if (!data.isEmpty())
                 {
                     Map<String, Object> d = data.get(0);

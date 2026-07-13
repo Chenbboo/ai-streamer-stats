@@ -8,27 +8,27 @@ export function weeklyStats(query) {
   })
 }
 
-export function streamerCardDetail(streamerId) {
+export function streamerCardDetail(streamerId, beginDate, endDate) {
   return request({
     url: '/live/stats/streamer-card',
     method: 'get',
-    params: { streamerId }
+    params: { streamerId, beginDate, endDate }
   })
 }
 
-export function highValueUsers(streamerId, month) {
+export function highValueUsers(streamerId, beginDate, endDate) {
   return request({
     url: '/live/stats/high-value-users',
     method: 'get',
-    params: { streamerId, month }
+    params: { streamerId, beginDate, endDate }
   })
 }
 
-export function newTippers(streamerId, month) {
+export function newTippers(streamerId, beginDate, endDate) {
   return request({
     url: '/live/stats/new-tippers',
     method: 'get',
-    params: { streamerId, month }
+    params: { streamerId, beginDate, endDate }
   })
 }
 
@@ -56,9 +56,10 @@ export function weijiDetail(streamerId, beginDate, endDate) {
   })
 }
 
-export function adviceData() {
+export function adviceData(beginDate, endDate) {
   return request({
     url: '/live/stats/advice',
-    method: 'get'
+    method: 'get',
+    params: { beginDate, endDate }
   })
 }

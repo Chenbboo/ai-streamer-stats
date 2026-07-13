@@ -29,6 +29,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                new_tip_daily, new_tip_monthly, create_by, create_time, update_by, update_time
         from live_kpi_config
         <where>
+            <if test="kpiId != null">
+                and kpi_id = #{kpiId}
+            </if>
             <if test="streamerId != null">
                 and streamer_id = #{streamerId}
             </if>

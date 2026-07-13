@@ -34,78 +34,73 @@
         </el-form-item>
       </el-form>
 
-      <el-table v-loading="loading" :data="rows">
-        <el-table-column :label="$t('review.content')" width="110" align="center">
-          <template #default="{ row }">
-            <el-image
-              v-if="row.filePath"
-              :src="baseApi + row.filePath"
-              :preview-src-list="[baseApi + row.filePath]"
-              preview-teleported
-              fit="cover"
-              class="thumb"
-            />
-            <span v-else class="report-text">{{ row.rawText }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column :label="$t('review.date')" prop="bizDate" width="110" />
-        <el-table-column :label="$t('review.streamer')" prop="stageName" width="120" />
-        <el-table-column :label="$t('review.type')" width="120">
+      <el-table v-loading="loading" :data="groupRows">
+        <el-table-column label="日期" prop="bizDate" width="120" />
+        <el-table-column label="主播" prop="stageName" min-width="150" />
+        <el-table-column label="内容类型" width="140">
           <template #default="{ row }">{{ typeLabel(row.uploadType) }}</template>
         </el-table-column>
-        <el-table-column :label="$t('review.recognizeStatus')" width="120" align="center">
+        <el-table-column label="图片/汇报数" width="130" align="center">
+          <template #default="{ row }">{{ row.count }}</template>
+        </el-table-column>
+        <el-table-column label="处理进度" min-width="280">
           <template #default="{ row }">
-            <el-tag v-if="row._recognizing" type="primary" effect="plain">
-              <el-icon class="is-loading" style="margin-right: 4px"><Loading /></el-icon>{{ $t('review.recognizing') }}
-            </el-tag>
-            <el-tag v-else :type="statusTag(row.aiStatus)">{{ statusLabel(row.aiStatus) }}</el-tag>
+            <el-tag v-if="row.pendingCount" type="info" effect="plain">待识别 {{ row.pendingCount }}</el-tag>
+            <el-tag v-if="row.recognizedCount" type="warning" effect="plain" class="status-gap">待确认 {{ row.recognizedCount }}</el-tag>
+            <el-tag v-if="row.confirmedCount" type="success" effect="plain" class="status-gap">已入库 {{ row.confirmedCount }}</el-tag>
+            <el-tag v-if="row.failedCount" type="danger" effect="plain" class="status-gap">失败 {{ row.failedCount }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column :label="$t('review.recognizeSummary')" min-width="260">
+        <el-table-column :label="$t('common.action')" width="130" fixed="right" align="center">
           <template #default="{ row }">
-            <span v-if="row.aiResult">{{ resultSummary(row) }}</span>
-            <span v-else class="muted">{{ $t('review.notRecognized') }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column :label="$t('common.action')" width="280" fixed="right">
-          <template #default="{ row }">
-            <el-button
-              v-hasPermi="['live:review:edit']"
-              link
-              type="primary"
-              :icon="row._recognizing ? 'Loading' : 'MagicStick'"
-              :loading="row._recognizing"
-              :disabled="row.aiStatus === '2' || row.aiStatus === '4' || row._recognizing"
-              @click="handleMock(row)"
-            >
-              {{ row._recognizing ? $t('review.recognizing') + '...' : $t('review.aiRecognize') }}
-            </el-button>
-            <el-button
-              v-hasPermi="['live:review:edit']"
-              link
-              type="primary"
-              icon="Edit"
-              :disabled="!row.aiResult || row.aiStatus === '2'"
-              @click="openEditor(row)"
-            >
-              {{ $t('review.correct') }}
-            </el-button>
-            <el-button
-              v-hasPermi="['live:review:confirm']"
-              link
-              type="success"
-              icon="Check"
-              :disabled="row.aiStatus !== '1'"
-              @click="handleConfirm(row)"
-            >
-              {{ $t('review.confirm入库') }}
-            </el-button>
+            <el-button link type="primary" icon="View" @click="openGroup(row)">进入任务组</el-button>
           </template>
         </el-table-column>
       </el-table>
-
-      <pagination v-show="total > 0" v-model:page="query.pageNum" v-model:limit="query.pageSize" :total="total" @pagination="loadList" />
     </el-card>
+
+    <el-dialog v-model="groupDialog.open" :title="groupDialog.title" width="1180px" append-to-body destroy-on-close>
+      <div class="group-toolbar">
+        <el-radio-group v-model="groupDialog.filter" size="small">
+          <el-radio-button label="all">全部 {{ groupItems.length }}</el-radio-button>
+          <el-radio-button label="pending">待识别 {{ groupPendingCount }}</el-radio-button>
+          <el-radio-button label="failed">失败 {{ groupFailedCount }}</el-radio-button>
+          <el-radio-button label="recognized">待确认 {{ groupRecognizedCount }}</el-radio-button>
+        </el-radio-group>
+        <div class="group-toolbar-actions">
+          <el-button v-hasPermi="['live:review:edit']" type="primary" icon="MagicStick" :loading="groupDialog.batchRecognizing" :disabled="groupPendingCount + groupFailedCount === 0" @click="batchRecognize">
+            批量识别 {{ groupPendingCount + groupFailedCount }} 张
+          </el-button>
+          <el-button v-hasPermi="['live:review:confirm']" type="success" icon="Check" :disabled="selectedGroupItems.length === 0" @click="confirmSelected">确认选中 {{ selectedGroupItems.length }} 张</el-button>
+        </div>
+      </div>
+      <el-progress v-if="groupDialog.batchRecognizing" :percentage="groupDialog.progress" :status="groupDialog.failed ? 'exception' : undefined" style="margin-bottom: 14px" />
+      <el-table :data="filteredGroupItems" max-height="560" @selection-change="selectedGroupItems = $event">
+        <el-table-column type="selection" width="48" :selectable="row => row.aiStatus === '1'" />
+        <el-table-column label="图片" width="96" align="center">
+          <template #default="{ row }">
+            <el-image v-if="row.filePath" :src="baseApi + row.filePath" :preview-src-list="[baseApi + row.filePath]" preview-teleported fit="cover" class="thumb" />
+            <span v-else class="report-text">{{ row.rawText }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="110" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row._recognizing" type="primary" effect="plain"><el-icon class="is-loading"><Loading /></el-icon> 识别中</el-tag>
+            <el-tag v-else :type="statusTag(row.aiStatus)">{{ statusLabel(row.aiStatus) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column :label="$t('review.recognizeSummary')" min-width="380">
+          <template #default="{ row }"><span v-if="row.aiResult">{{ resultSummary(row) }}</span><span v-else class="muted">{{ $t('review.notRecognized') }}</span></template>
+        </el-table-column>
+        <el-table-column :label="$t('common.action')" width="220" fixed="right">
+          <template #default="{ row }">
+            <el-button v-hasPermi="['live:review:edit']" link type="primary" :loading="row._recognizing" :disabled="row.aiStatus === '2' || row._recognizing" @click="handleMock(row)">{{ row._recognizing ? '识别中' : $t('review.aiRecognize') }}</el-button>
+            <el-button v-hasPermi="['live:review:edit']" link type="primary" icon="Edit" :disabled="!row.aiResult || row.aiStatus === '2'" @click="openEditor(row)">{{ $t('review.correct') }}</el-button>
+            <el-button v-hasPermi="['live:review:confirm']" link type="success" icon="Check" :disabled="row.aiStatus !== '1'" @click="handleConfirm(row)">{{ $t('review.confirm入库') }}</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
 
     <el-dialog v-model="editor.open" :title="$t('review.correctTitle')" width="860px" append-to-body>
       <div v-if="editor.row" class="editor-meta">
@@ -187,6 +182,16 @@
         <el-button class="add-row-btn" icon="Plus" @click="addItem">{{ $t('review.addCustomer') }}</el-button>
       </template>
 
+      <template v-else-if="editor.form.type === 'follow'">
+        <el-table :data="editor.form.items" border>
+          <el-table-column :label="$t('review.nickname')" min-width="180"><template #default="{ row }"><el-input v-model="row.nickname" :placeholder="$t('review.nicknamePlaceholder')" /></template></el-table-column>
+          <el-table-column :label="$t('review.followAccount')" min-width="180"><template #default="{ row }"><el-input v-model="row.account" :placeholder="$t('review.followAccountPlaceholder')" /></template></el-table-column>
+          <el-table-column :label="$t('review.followStatus')" width="180"><template #default="{ row }"><el-select v-model="row.followStatus" style="width: 150px"><el-option :label="$t('review.followPending')" value="pending" /><el-option :label="$t('review.followMutual')" value="mutual" /><el-option :label="$t('review.followNone')" value="none" /></el-select></template></el-table-column>
+          <el-table-column label="操作" width="80" align="center"><template #default="{ $index }"><el-button link type="danger" icon="Delete" @click="removeItem($index)" /></template></el-table-column>
+        </el-table>
+        <el-button class="add-row-btn" icon="Plus" @click="addItem">增加客户</el-button>
+      </template>
+
       <template v-else>
         <el-form label-width="90px">
           <el-form-item :label="$t('review.totalXu')">
@@ -251,11 +256,22 @@ const dateRange = ref([])
 
 const query = reactive({
   pageNum: 1,
-  pageSize: 10,
+  pageSize: 1000,
   streamerId: undefined,
   uploadType: undefined,
   aiStatus: undefined
 })
+
+const groupDialog = reactive({
+  open: false,
+  key: '',
+  title: '',
+  filter: 'all',
+  batchRecognizing: false,
+  progress: 0,
+  failed: false
+})
+const selectedGroupItems = ref([])
 
 const editor = reactive({
   open: false,
@@ -280,7 +296,8 @@ const merge = reactive({
 const typeOptions = computed(() => [
   { value: '1', label: t('upload.giftScreenshot') },
   { value: '2', label: t('upload.chatScreenshot') },
-  { value: '3', label: t('upload.reportText') }
+  { value: '3', label: t('upload.reportText') },
+  { value: '4', label: t('upload.followScreenshot') }
 ])
 
 const statusOptions = computed(() => [
@@ -321,6 +338,9 @@ function defaultResult(row) {
   if (row.uploadType === '2') {
     return { type: 'chat', items: [] }
   }
+  if (row.uploadType === '4') {
+    return { type: 'follow', items: [] }
+  }
   return { type: 'report', totalXu: 0, rawText: row.rawText || '' }
 }
 
@@ -328,6 +348,9 @@ function resultSummary(row) {
   const result = parseResult(row)
   if (row.uploadType === '3') {
     return `总流水 ${Number(result.totalXu || 0).toLocaleString()}，可校正汇报文本`
+  }
+  if (row.uploadType === '4') {
+    return (Array.isArray(result.items) ? result.items : []).map(item => `${item.nickname || '未命名'}：${item.followStatus || 'pending'}`).join('、') || '暂无关注关系'
   }
   const items = Array.isArray(result.items) ? result.items : []
   if (!items.length) {
@@ -352,6 +375,49 @@ function buildParams() {
   return p
 }
 
+function groupKey(row) {
+  return [row.streamerId, row.bizDate, row.uploadType].join('-')
+}
+
+const groupRows = computed(() => {
+  const groups = new Map()
+  rows.value.forEach(row => {
+    const key = groupKey(row)
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        streamerId: row.streamerId,
+        stageName: row.stageName,
+        bizDate: row.bizDate,
+        uploadType: row.uploadType,
+        count: 0,
+        pendingCount: 0,
+        recognizedCount: 0,
+        confirmedCount: 0,
+        failedCount: 0
+      })
+    }
+    const group = groups.get(key)
+    group.count += 1
+    if (row.aiStatus === '2') group.confirmedCount += 1
+    else if (row.aiStatus === '1') group.recognizedCount += 1
+    else if (row.aiStatus === '3') group.failedCount += 1
+    else group.pendingCount += 1
+  })
+  return Array.from(groups.values()).sort((a, b) => (b.bizDate + b.stageName).localeCompare(a.bizDate + a.stageName))
+})
+
+const groupItems = computed(() => rows.value.filter(row => groupKey(row) === groupDialog.key))
+const groupPendingCount = computed(() => groupItems.value.filter(row => row.aiStatus === '0').length)
+const groupFailedCount = computed(() => groupItems.value.filter(row => row.aiStatus === '3').length)
+const groupRecognizedCount = computed(() => groupItems.value.filter(row => row.aiStatus === '1').length)
+const filteredGroupItems = computed(() => {
+  if (groupDialog.filter === 'pending') return groupItems.value.filter(row => row.aiStatus === '0')
+  if (groupDialog.filter === 'failed') return groupItems.value.filter(row => row.aiStatus === '3')
+  if (groupDialog.filter === 'recognized') return groupItems.value.filter(row => row.aiStatus === '1')
+  return groupItems.value
+})
+
 async function loadList() {
   loading.value = true
   try {
@@ -361,6 +427,16 @@ async function loadList() {
   } finally {
     loading.value = false
   }
+}
+
+function openGroup(group) {
+  groupDialog.key = group.key
+  groupDialog.title = `${group.stageName} · ${group.bizDate} · ${typeLabel(group.uploadType)}`
+  groupDialog.filter = 'all'
+  groupDialog.progress = 0
+  groupDialog.failed = false
+  selectedGroupItems.value = []
+  groupDialog.open = true
 }
 
 function handleQuery() {
@@ -388,6 +464,57 @@ function handleMock(row) {
   })
 }
 
+async function runWithConcurrency(items, limit, handler) {
+  let nextIndex = 0
+  async function worker() {
+    while (nextIndex < items.length) {
+      const item = items[nextIndex]
+      nextIndex += 1
+      await handler(item)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+}
+
+async function batchRecognize() {
+  const targets = groupItems.value.filter(row => row.aiStatus === '0' || row.aiStatus === '3')
+  if (!targets.length) return
+  groupDialog.batchRecognizing = true
+  groupDialog.progress = 0
+  groupDialog.failed = false
+  let completed = 0
+  try {
+    await runWithConcurrency(targets, 2, async row => {
+      row._recognizing = true
+      try {
+        await recognizeUpload(row.uploadId)
+      } catch (e) {
+        groupDialog.failed = true
+      } finally {
+        row._recognizing = false
+        completed += 1
+        groupDialog.progress = Math.round(completed * 100 / targets.length)
+      }
+    })
+    await loadList()
+    proxy.$modal.msgSuccess(groupDialog.failed ? '批量识别完成，部分图片失败' : '批量识别完成')
+  } finally {
+    groupDialog.batchRecognizing = false
+  }
+}
+
+async function confirmSelected() {
+  const targets = selectedGroupItems.value.filter(row => row.aiStatus === '1')
+  if (!targets.length) return
+  try {
+    await proxy.$modal.confirm(`确认将选中的 ${targets.length} 张图片写入统计表吗？`)
+    await runWithConcurrency(targets, 3, row => confirmReview(row.uploadId))
+    proxy.$modal.msgSuccess('选中图片已确认入库')
+    selectedGroupItems.value = []
+    await loadList()
+  } catch (e) {}
+}
+
 function openEditor(row) {
   const result = parseResult(row)
   editor.row = row
@@ -395,9 +522,11 @@ function openEditor(row) {
   editor.form.items = Array.isArray(result.items) ? result.items.map((item, index) => ({
     rankNo: Number(item.rankNo || index + 1),
     nickname: item.nickname || '',
+    account: item.account || '',
     badge: item.badge || '',
     xu: Number(item.xu || 0),
     messageCount: Number(item.messageCount || 0),
+    followStatus: item.followStatus || 'pending',
     messages: Array.isArray(item.messages) ? item.messages.map(m => ({
       sender: m.sender || 'customer',
       messageType: m.messageType || 'text',
@@ -413,9 +542,11 @@ function addItem() {
   editor.form.items.push({
     rankNo: editor.form.items.length + 1,
     nickname: '',
+    account: '',
     badge: '',
     xu: 0,
     messageCount: 0,
+    followStatus: 'pending',
     messages: editor.form.type === 'chat' ? [{ sender: 'customer', messageType: 'text', content: '' }] : []
   })
 }
@@ -438,9 +569,11 @@ function buildAiResult() {
       const base = {
         rankNo: Number(item.rankNo || index + 1),
         nickname: item.nickname.trim(),
+        account: item.account || '',
         badge: item.badge || '',
         xu: Number(item.xu || 0),
         messageCount: Number(item.messageCount || 0),
+        followStatus: item.followStatus || 'pending',
         confidence: 'manual'
       }
       if (editor.form.type === 'chat' && Array.isArray(item.messages)) {
@@ -566,6 +699,24 @@ function handleMerge() {
   color: #909399;
 }
 
+.status-gap {
+  margin-left: 6px;
+}
+
+.group-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.group-toolbar-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .editor-meta {
   display: flex;
   gap: 12px;
@@ -600,5 +751,16 @@ function handleMerge() {
 .chat-customer-header {
   display: flex;
   align-items: center;
+}
+
+@media (max-width: 768px) {
+  .group-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .group-toolbar-actions {
+    width: 100%;
+  }
 }
 </style>

@@ -22,13 +22,17 @@ public interface LiveStatsMapper
                                                          @Param("endDate") String endDate,
                                                          @Param("streamerId") Long streamerId);
 
-    public List<Map<String, Object>> selectStreamerCardDetail(@Param("streamerId") Long streamerId);
+    public List<Map<String, Object>> selectStreamerCardDetail(@Param("streamerId") Long streamerId,
+                                                               @Param("beginDate") String beginDate,
+                                                               @Param("endDate") String endDate);
 
     public List<Map<String, Object>> selectHighValueUsers(@Param("streamerId") Long streamerId,
-                                                           @Param("month") String month);
+                                                           @Param("beginDate") String beginDate,
+                                                           @Param("endDate") String endDate);
 
     public List<Map<String, Object>> selectNewTippers(@Param("streamerId") Long streamerId,
-                                                       @Param("month") String month);
+                                                       @Param("beginDate") String beginDate,
+                                                       @Param("endDate") String endDate);
 
     public List<Map<String, Object>> selectWeijiStats(@Param("statDate") String statDate);
 
@@ -39,7 +43,8 @@ public interface LiveStatsMapper
                                                         @Param("beginDate") String beginDate,
                                                         @Param("endDate") String endDate);
 
-    public List<Map<String, Object>> selectAdviceData();
+    public List<Map<String, Object>> selectAdviceData(@Param("beginDate") String beginDate,
+                                                       @Param("endDate") String endDate);
 
     public List<Map<String, Object>> selectRecentChatRecords(@Param("streamerId") Long streamerId, @Param("limit") int limit);
 
