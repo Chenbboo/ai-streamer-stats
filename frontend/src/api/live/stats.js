@@ -63,3 +63,11 @@ export function adviceData(beginDate, endDate) {
     params: { beginDate, endDate }
   })
 }
+
+export function customerMaintenanceMatrix(beginDate, endDate, streamerId) {
+  return request({
+    url: '/live/stats/customer-maintenance-matrix',
+    method: 'get',
+    params: { beginDate, endDate, streamerId }
+  })
+}

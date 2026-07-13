@@ -548,4 +548,62 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where s.status = '0'
         order by s.streamer_id
     </select>
+
+    <!-- 客户每日维护矩阵：一行客户一天，仅返回区间内实际有打赏或建联的数据。 -->
+    <select id="selectCustomerMaintenanceMatrix" resultType="map">
+        select c.customer_id as customerId,
+               c.nickname,
+               c.badge,
+               c.streamer_id as streamerId,
+               s.stage_name as stageName,
+               d.biz_date as bizDate,
+               coalesce(g.giftXu, 0) as giftXu,
+               coalesce(ch.hasInteraction, 0) as hasInteraction,
+               coalesce(ch.hasContact, 0) as hasContact,
+               coalesce(fr.hasPendingFollow, 0) as hasPendingFollow,
+               coalesce(t.totalXu, 0) as totalXu
+        from (
+            select streamer_id, customer_id, biz_date
+            from live_gift_record
+            where biz_date between #{beginDate} and #{endDate}
+            union
+            select streamer_id, customer_id, biz_date
+            from live_chat_contact
+            where biz_date between #{beginDate} and #{endDate}
+        ) d
+        join live_customer c on c.customer_id = d.customer_id and c.streamer_id = d.streamer_id
+        join live_streamer s on s.streamer_id = d.streamer_id
+        left join (
+            select streamer_id, customer_id, biz_date, sum(xu) as giftXu
+            from live_gift_record
+            where biz_date between #{beginDate} and #{endDate}
+            group by streamer_id, customer_id, biz_date
+        ) g on g.streamer_id = d.streamer_id and g.customer_id = d.customer_id and g.biz_date = d.biz_date
+        left join (
+            select streamer_id, customer_id, biz_date,
+                   max(has_interaction) as hasInteraction,
+                   1 as hasContact
+            from live_chat_contact
+            where biz_date between #{beginDate} and #{endDate}
+            group by streamer_id, customer_id, biz_date
+        ) ch on ch.streamer_id = d.streamer_id and ch.customer_id = d.customer_id and ch.biz_date = d.biz_date
+        left join (
+            select streamer_id, customer_id, biz_date, 1 as hasPendingFollow
+            from live_follow_record
+            where biz_date between #{beginDate} and #{endDate}
+              and follow_status = 'pending'
+        ) fr on fr.streamer_id = d.streamer_id and fr.customer_id = d.customer_id and fr.biz_date = d.biz_date
+        left join (
+            select streamer_id, customer_id, sum(xu) as totalXu
+            from live_gift_record
+            where biz_date between #{beginDate} and #{endDate}
+            group by streamer_id, customer_id
+        ) t on t.streamer_id = d.streamer_id and t.customer_id = d.customer_id
+        where c.merged_into_id is null
+          and s.status = '0'
+        <if test="streamerId != null">
+            and d.streamer_id = #{streamerId}
+        </if>
+        order by totalXu desc, c.nickname, d.biz_date
+    </select>
 </mapper>

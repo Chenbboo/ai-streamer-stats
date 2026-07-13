@@ -143,6 +143,17 @@ public class LiveStatsController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('live:stats:list')")
+    @GetMapping("/customer-maintenance-matrix")
+    public AjaxResult customerMaintenanceMatrix(String beginDate, String endDate, Long streamerId)
+    {
+        LocalDate end = StringUtils.isEmpty(endDate) ? LocalDate.now().minusDays(1) : LocalDate.parse(endDate);
+        LocalDate begin = StringUtils.isEmpty(beginDate) ? end.withDayOfMonth(1) : LocalDate.parse(beginDate);
+        LiveStreamer own = getOwnStreamerIfRestricted();
+        Long effectiveStreamerId = own == null ? streamerId : own.getStreamerId();
+        return AjaxResult.success(statsService.getCustomerMaintenanceMatrix(begin.toString(), end.toString(), effectiveStreamerId));
+    }
+
+    @PreAuthorize("@ss.hasPermi('live:stats:list')")
     @PostMapping("/chat")
     public void chat(@RequestBody Map<String, Object> body, HttpServletResponse response) throws Exception
     {

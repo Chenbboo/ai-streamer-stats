@@ -11,6 +11,7 @@
         <el-button circle icon="ArrowRight" :aria-label="$t('stats.nextDay')" :disabled="cutoffDate >= maxCutoffDate" @click="shiftCutoff(1)" />
         <el-button size="small" @click="resetCutoffDate">{{ $t('stats.yesterday') }}</el-button>
         <el-date-picker v-model="customDateRange" class="custom-range-picker" type="daterange" value-format="YYYY-MM-DD" :clearable="true" :disabled-date="disableFutureDate" :start-placeholder="$t('stats.startDate')" :end-placeholder="$t('stats.endDate')" @change="applyCustomRange" />
+        <el-button icon="Grid" @click="openMaintenanceMatrix">{{ $t('stats.customerMaintenanceMatrix') }}</el-button>
       </div>
       <div class="meta-row">
         <span class="chip">{{ $t('stats.streamerCount', { n: streamers.length }) }}</span>
@@ -307,13 +308,54 @@
         </div>
       </div>
     </div>
+
+    <div class="modal-overlay" :class="{show: matrixDialog.open}" @click="matrixDialog.open = false">
+      <div class="modal-box matrix-modal" @click.stop>
+        <div class="modal-header">
+          <div>
+            <div class="modal-title">{{ $t('stats.customerMaintenanceMatrix') }}</div>
+            <div class="modal-sub">{{ query.beginDate }} 至 {{ query.endDate }} · {{ matrixRows.length }} {{ $t('stats.customers') }}</div>
+          </div>
+          <button class="modal-close" @click="matrixDialog.open = false">&times;</button>
+        </div>
+        <div class="matrix-toolbar">
+          <el-select v-model="matrixDialog.streamerId" clearable :placeholder="$t('stats.allStreamers')" @change="loadMaintenanceMatrix">
+            <el-option v-for="streamer in streamers" :key="streamer.streamerId" :label="streamer.stageName" :value="streamer.streamerId" />
+          </el-select>
+          <div class="matrix-legend">
+            <span><i class="matrix-dot red"></i>{{ $t('stats.red') }}</span>
+            <span><i class="matrix-dot green"></i>{{ $t('stats.green') }}</span>
+            <span><i class="matrix-dot purple"></i>{{ $t('stats.followPending') }}</span>
+            <span><i class="matrix-dot yellow"></i>{{ $t('stats.yellow') }}</span>
+            <span><i class="matrix-dot orange"></i>{{ $t('stats.orange') }}</span>
+          </div>
+        </div>
+        <div v-loading="matrixDialog.loading" class="matrix-scroll">
+          <table class="matrix-table">
+            <thead>
+              <tr><th>{{ $t('stats.fanName') }}</th><th>{{ $t('stats.badge') }}</th><th>{{ $t('stats.monthlyGift') }}</th><th v-if="!matrixDialog.streamerId">{{ $t('stats.streamer') }}</th><th v-for="date in matrixDates" :key="date">{{ matrixDateLabel(date) }}</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in matrixRows" :key="row.key">
+                <td class="matrix-name">{{ row.nickname }}</td>
+                <td>{{ row.badge || '--' }}</td>
+                <td class="mono">{{ fmt(row.totalXu) }}</td>
+                <td v-if="!matrixDialog.streamerId">{{ row.stageName }}</td>
+                <td v-for="date in matrixDates" :key="date" :class="['matrix-cell', matrixCellState(row.days[date])]" :title="matrixCellTitle(row.days[date])">{{ matrixCellValue(row.days[date]) }}</td>
+              </tr>
+              <tr v-if="matrixRows.length === 0"><td :colspan="matrixDates.length + (matrixDialog.streamerId ? 3 : 4)" class="matrix-empty">{{ $t('common.noData') }}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup name="LiveStats">
 import * as echarts from 'echarts'
 import { useI18n } from 'vue-i18n'
-import { weeklyStats, streamerCardDetail, highValueUsers, newTippers, weijiStats, weijiMonthStats, weijiDetail, adviceData } from '@/api/live/stats'
+import { weeklyStats, streamerCardDetail, highValueUsers, newTippers, weijiStats, weijiMonthStats, weijiDetail, adviceData, customerMaintenanceMatrix } from '@/api/live/stats'
 import { getToken } from '@/utils/auth'
 import { listStreamers } from '@/api/live/upload'
 import { listKpiConfig, addKpiConfig, updateKpiConfig } from '@/api/live/kpi'
@@ -368,6 +410,7 @@ const query = reactive({
 const highValueDialog = reactive({ open: false, data: [] })
 const newTippersDialog = reactive({ open: false, data: [] })
 const weijiDetailDialog = reactive({ open: false, data: [], title: '' })
+const matrixDialog = reactive({ open: false, loading: false, streamerId: undefined, data: [] })
 const weijiDayStats = ref([])
 const weijiMonthStatsData = ref([])
 const adviceList = ref([])
@@ -423,6 +466,53 @@ function formatDate(date) {
 }
 
 function fmt(n) { return n ? Number(n).toLocaleString() : '0' }
+
+const matrixDates = computed(() => {
+  const dates = []
+  const current = new Date(`${query.beginDate}T00:00:00`)
+  const end = new Date(`${query.endDate}T00:00:00`)
+  while (current <= end) {
+    dates.push(formatDate(current))
+    current.setDate(current.getDate() + 1)
+  }
+  return dates
+})
+
+const matrixRows = computed(() => {
+  const rows = new Map()
+  matrixDialog.data.forEach(item => {
+    const key = `${item.streamerId}-${item.customerId}`
+    if (!rows.has(key)) rows.set(key, { key, nickname: item.nickname, badge: item.badge, stageName: item.stageName, totalXu: item.totalXu, days: {} })
+    rows.get(key).days[item.bizDate] = item
+  })
+  return Array.from(rows.values()).sort((a, b) => Number(b.totalXu || 0) - Number(a.totalXu || 0))
+})
+
+function matrixDateLabel(date) {
+  const [, month, day] = date.split('-')
+  return `${Number(month)}/${Number(day)}`
+}
+
+function matrixCellState(item) {
+  if (!item) return 'blank'
+  if (Number(item.giftXu) > 0 && Number(item.hasInteraction) === 1) return 'green'
+  if (Number(item.giftXu) > 0 && Number(item.hasPendingFollow) === 1) return 'purple'
+  if (Number(item.giftXu) > 0) return 'red'
+  if (Number(item.hasInteraction) === 1) return 'yellow'
+  if (Number(item.hasContact) === 1) return 'orange'
+  return 'blank'
+}
+
+function matrixCellValue(item) {
+  return item && Number(item.giftXu) > 0 ? fmt(item.giftXu) : ''
+}
+
+function matrixCellTitle(item) {
+  if (!item) return t('stats.matrixSilent')
+  const state = matrixCellState(item)
+  const labels = { red: t('stats.red'), green: t('stats.green'), purple: t('stats.followPending'), yellow: t('stats.yellow'), orange: t('stats.orange'), blank: t('stats.matrixSilent') }
+  return `${labels[state]}${Number(item.giftXu) > 0 ? ` · ${fmt(item.giftXu)} Xu` : ''}`
+}
 
 function getStreamerColor(streamerId) {
   return STREAMER_COLORS[streamerId] || '#999'
@@ -612,6 +702,23 @@ async function openNewTippersDialog(streamerId) {
     newTippersDialog.data = res.data || []
     newTippersDialog.open = true
   } catch (e) { console.error(e) }
+}
+
+async function openMaintenanceMatrix() {
+  matrixDialog.open = true
+  await loadMaintenanceMatrix()
+}
+
+async function loadMaintenanceMatrix() {
+  matrixDialog.loading = true
+  try {
+    const res = await customerMaintenanceMatrix(query.beginDate, query.endDate, matrixDialog.streamerId)
+    matrixDialog.data = res.data || []
+  } catch (e) {
+    console.error(e)
+  } finally {
+    matrixDialog.loading = false
+  }
 }
 
 listStreamers().then(res => { streamers.value = res.data || [] })
@@ -1227,6 +1334,93 @@ section {
 
 .modal-body tr:last-child td { border-bottom: none; }
 .modal-body tr:hover td { background: rgba(0,0,0,0.015); }
+
+.matrix-modal {
+  width: min(1500px, 96vw);
+  max-height: 88vh;
+}
+
+.matrix-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 0 24px 14px;
+}
+
+.matrix-toolbar :deep(.el-select) { width: 180px; }
+
+.matrix-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: #555550;
+  font-size: 11px;
+}
+
+.matrix-legend span { display: inline-flex; align-items: center; gap: 5px; }
+
+.matrix-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.matrix-dot.red, .matrix-cell.red { background: #fecaca; color: #991b1b; }
+.matrix-dot.green, .matrix-cell.green { background: #bbf7d0; color: #166534; }
+.matrix-dot.purple, .matrix-cell.purple { background: #ddd6fe; color: #6d28d9; }
+.matrix-dot.yellow, .matrix-cell.yellow { background: #fef08a; color: #854d0e; }
+.matrix-dot.orange, .matrix-cell.orange { background: #fed7aa; color: #9a3412; }
+
+.matrix-dot.red { background: #ef4444; }
+.matrix-dot.green { background: #22c55e; }
+.matrix-dot.purple { background: #7c3aed; }
+.matrix-dot.yellow { background: #eab308; }
+.matrix-dot.orange { background: #f97316; }
+
+.matrix-scroll {
+  overflow: auto;
+  max-height: calc(88vh - 150px);
+  border-top: 1px solid rgba(0,0,0,0.08);
+}
+
+.matrix-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+}
+
+.matrix-table th,
+.matrix-table td {
+  min-width: 62px;
+  height: 38px;
+  padding: 6px 8px;
+  border-right: 1px solid rgba(0,0,0,0.08);
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.matrix-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f4f5f3;
+  color: #555550;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+}
+
+.matrix-table th:first-child,
+.matrix-table td:first-child { position: sticky; left: 0; z-index: 1; min-width: 150px; text-align: left; background: #fff; }
+.matrix-table th:first-child { z-index: 3; background: #f4f5f3; }
+.matrix-table .matrix-cell { font-family: 'DM Mono', monospace; font-size: 11px; cursor: default; }
+.matrix-table .matrix-cell.blank { background: #fff; color: transparent; }
+.matrix-name { font-weight: 600; color: #1a1a18; }
+.matrix-empty { color: #99998f; padding: 28px !important; }
 
 .mono {
   font-family: 'DM Mono', monospace;

@@ -212,6 +212,12 @@ public class LiveStatsServiceImpl implements ILiveStatsService
         return dataList;
     }
 
+    @Override
+    public List<Map<String, Object>> getCustomerMaintenanceMatrix(String beginDate, String endDate, Long streamerId)
+    {
+        return statsMapper.selectCustomerMaintenanceMatrix(beginDate, endDate, streamerId);
+    }
+
     private long longValue(Object value)
     {
         if (value == null) return 0;

@@ -46,6 +46,10 @@ public interface LiveStatsMapper
     public List<Map<String, Object>> selectAdviceData(@Param("beginDate") String beginDate,
                                                        @Param("endDate") String endDate);
 
+    public List<Map<String, Object>> selectCustomerMaintenanceMatrix(@Param("beginDate") String beginDate,
+                                                                       @Param("endDate") String endDate,
+                                                                       @Param("streamerId") Long streamerId);
+
     public List<Map<String, Object>> selectRecentChatRecords(@Param("streamerId") Long streamerId, @Param("limit") int limit);
 
     public List<Map<String, Object>> selectRecentTipRecords(@Param("streamerId") Long streamerId, @Param("limit") int limit);
