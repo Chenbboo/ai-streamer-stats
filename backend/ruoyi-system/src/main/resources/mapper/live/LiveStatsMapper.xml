@@ -497,16 +497,20 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         left join (
             select x.streamer_id,
                    -- 红色：月累计>1000 且该客户最后一天有打赏无互动
-                   sum(case when x.month_total >= 1000 and x.last_gift_has_chat = 0 and x.last_day_is_yellow = 0 and x.has_follow = 0 then 1 else 0 end) as red,
+                   sum(case when x.month_total >= 1000 and x.last_gift_has_chat = 0 and x.last_day_is_yellow = 0 and x.last_day_is_orange = 0 and x.has_follow = 0 then 1 else 0 end) as red,
                    -- 绿色：月累计>1000 且该客户最后一天有打赏有互动
-                   sum(case when x.month_total >= 1000 and x.last_gift_has_chat = 1 and x.last_day_is_yellow = 0 then 1 else 0 end) as green,
+                   sum(case when x.month_total >= 1000 and x.last_gift_has_chat = 1 and x.last_day_is_yellow = 0 and x.last_day_is_orange = 0 then 1 else 0 end) as green,
                    -- 紫色：月累计>1000、最后一天无互动，但主播已关注等待回关
-                   sum(case when x.month_total >= 1000 and x.last_gift_has_chat = 0 and x.last_day_is_yellow = 0 and x.has_follow = 1 then 1 else 0 end) as purple,
+                   sum(case when x.month_total >= 1000 and x.last_gift_has_chat = 0 and x.last_day_is_yellow = 0 and x.last_day_is_orange = 0 and x.has_follow = 1 then 1 else 0 end) as purple,
                    -- 黄色：出现过黄色（无打赏有互动）
                    sum(case when x.last_day_is_yellow = 1 then 1 else 0 end) as yellow,
                    -- 橙色：出现过橙色（有建联无互动）
-                   sum(case when x.month_total = 0 and x.ever_yellow = 0 and x.ever_orange = 1 then 1 else 0 end) as orange,
-                   sum(case when x.month_total >= 1000 or x.ever_yellow = 1 or x.ever_orange = 1 then 1 else 0 end) as total
+                   sum(case when x.last_day_is_orange = 1 then 1 else 0 end) as orange,
+                   sum(case when
+                       (x.month_total >= 1000 and x.last_gift_has_chat = 0 and x.last_day_is_yellow = 0 and x.last_day_is_orange = 0)
+                       or (x.month_total >= 1000 and x.last_gift_has_chat = 1 and x.last_day_is_yellow = 0 and x.last_day_is_orange = 0)
+                       or x.last_day_is_yellow = 1 or x.last_day_is_orange = 1
+                       then 1 else 0 end) as total
             from (
                 select c.streamer_id, c.customer_id,
                     -- 月累计打赏
@@ -547,6 +551,24 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                               )
                         )
                     then 1 else 0 end as last_day_is_yellow,
+                    case when
+                        coalesce((select max(cc.biz_date) from live_chat_contact cc
+                            where cc.customer_id = c.customer_id and cc.streamer_id = c.streamer_id
+                              and cc.biz_date between #{beginDate} and #{endDate}), '1000-01-01')
+                        > coalesce((select max(gr.biz_date) from live_gift_record gr
+                            where gr.customer_id = c.customer_id and gr.streamer_id = c.streamer_id
+                              and gr.biz_date between #{beginDate} and #{endDate}), '1000-01-01')
+                        and exists (
+                            select 1 from live_chat_contact cc
+                            where cc.customer_id = c.customer_id and cc.streamer_id = c.streamer_id
+                              and cc.has_interaction = 0
+                              and cc.biz_date = (
+                                  select max(cc2.biz_date) from live_chat_contact cc2
+                                  where cc2.customer_id = c.customer_id and cc2.streamer_id = c.streamer_id
+                                    and cc2.biz_date between #{beginDate} and #{endDate}
+                              )
+                        )
+                    then 1 else 0 end as last_day_is_orange,
                     -- 是否出现过黄色（本月无打赏有互动）
                     case when exists (
                         select 1 from live_chat_contact cc
