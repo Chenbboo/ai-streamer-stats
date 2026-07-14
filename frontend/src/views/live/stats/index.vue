@@ -1112,10 +1112,16 @@ section {
 
 .sc-fields-5 .sc-stat-label {
   font-size: 7px;
+  color: #6B7178;
+  font-weight: 500;
 }
 
 .sc-fields-5 .sc-stat-val {
-  font-size: 8px;
+  font-family: 'Noto Sans SC', sans-serif;
+  font-size: 9px;
+  font-weight: 600;
+  color: #252A30;
+  font-variant-numeric: tabular-nums;
 }
 
 .sc-stat-label {
@@ -1828,7 +1834,7 @@ section {
   }
 
   .sc-fields-5 .sc-stat-val {
-    font-size: 7px;
+    font-size: 8px;
   }
 
   .chart-box {
