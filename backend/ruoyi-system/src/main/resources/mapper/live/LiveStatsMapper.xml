@@ -78,6 +78,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                coalesce(daily.xu, 0) as dailyXu,
                coalesce(weekly.xu, 0) as weeklyXu,
                coalesce(lastWeek.xu, 0) as lastWeekXu,
+               coalesce(currentWeek.xu, 0) as currentWeekXu,
+               coalesce(currentLastWeek.xu, 0) as currentLastWeekXu,
                coalesce(monthly.xu, 0) as monthlyXu,
                coalesce(kpiMonth.xu, 0) as kpiMonthXu,
                -- 新增粉丝：日/周/月（首次出现）
@@ -122,7 +124,20 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             from live_daily_report
             where biz_date between date_sub(#{beginDate}, interval (datediff(#{endDate}, #{beginDate}) + 1) day) and date_sub(#{beginDate}, interval 1 day)
             group by streamer_id
-        ) lastWeek on lastWeek.streamer_id = s.streamer_id
+         ) lastWeek on lastWeek.streamer_id = s.streamer_id
+         left join (
+             select streamer_id, sum(total_xu) as xu
+             from live_daily_report
+             where biz_date between date_sub(#{endDate}, interval weekday(#{endDate}) day) and #{endDate}
+             group by streamer_id
+         ) currentWeek on currentWeek.streamer_id = s.streamer_id
+         left join (
+             select streamer_id, sum(total_xu) as xu
+             from live_daily_report
+             where biz_date between date_sub(date_sub(#{endDate}, interval weekday(#{endDate}) day), interval 7 day)
+                                 and date_sub(date_sub(#{endDate}, interval weekday(#{endDate}) day), interval 1 day)
+             group by streamer_id
+         ) currentLastWeek on currentLastWeek.streamer_id = s.streamer_id
         -- 送礼：月
         left join (
             select streamer_id, sum(total_xu) as xu

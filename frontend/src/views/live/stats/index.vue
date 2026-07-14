@@ -28,7 +28,7 @@
           <div class="sc" v-for="card in cardDetails" :key="card.streamerId" :style="'--c:' + getStreamerColor(card.streamerId)">
             <div class="forecast-badge" :class="getForecastClass(card)">{{ isCustomRange ? $t('stats.rangeKpiComplete', { n: getIntervalKpiPct(card) }) : $t('stats.monthEndForecast', { n: getForecastPct(card) }) }}</div>
             <div class="sc-name">{{ card.stageName }}</div>
-            <div class="sc-diamond">{{ fmt(card.weeklyXu) }}</div>
+            <div class="sc-diamond">{{ fmt(getPrimaryXu(card)) }}</div>
             <div class="sc-wow" :class="getWowClass(card)">{{ getWowText(card) }}</div>
             <hr class="sc-divider">
             <!-- 送礼 -->
@@ -549,9 +549,19 @@ function getWowClass(card) {
   return wow > 0 ? 'up' : wow < 0 ? 'dn' : ''
 }
 
+function getPrimaryXu(card) {
+  return isCustomRange.value ? card.weeklyXu : card.currentWeekXu
+}
+
+function getComparisonXu(card) {
+  return isCustomRange.value ? card.lastWeekXu : card.currentLastWeekXu
+}
+
 function getWowRate(card) {
-  if (!card.lastWeekXu || card.lastWeekXu === 0) return card.weeklyXu > 0 ? 100 : 0
-  return Math.round((card.weeklyXu - card.lastWeekXu) / card.lastWeekXu * 100)
+  const current = Number(getPrimaryXu(card) || 0)
+  const previous = Number(getComparisonXu(card) || 0)
+  if (!previous) return current > 0 ? 100 : 0
+  return Math.round((current - previous) / previous * 100)
 }
 
 function getWowText(card) {
