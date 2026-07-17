@@ -34,17 +34,20 @@ public interface LiveStatsMapper
                                                        @Param("beginDate") String beginDate,
                                                        @Param("endDate") String endDate);
 
-    public List<Map<String, Object>> selectWeijiStats(@Param("statDate") String statDate);
+    public List<Map<String, Object>> selectWeijiStats(@Param("statDate") String statDate,
+                                                       @Param("streamerId") Long streamerId);
 
     public List<Map<String, Object>> selectWeijiMonthStats(@Param("beginDate") String beginDate,
-                                                            @Param("endDate") String endDate);
+                                                            @Param("endDate") String endDate,
+                                                            @Param("streamerId") Long streamerId);
 
     public List<Map<String, Object>> selectWeijiDetail(@Param("streamerId") Long streamerId,
                                                         @Param("beginDate") String beginDate,
                                                         @Param("endDate") String endDate);
 
     public List<Map<String, Object>> selectAdviceData(@Param("beginDate") String beginDate,
-                                                       @Param("endDate") String endDate);
+                                                       @Param("endDate") String endDate,
+                                                       @Param("streamerId") Long streamerId);
 
     public List<Map<String, Object>> selectCustomerMaintenanceMatrix(@Param("beginDate") String beginDate,
                                                                        @Param("endDate") String endDate,

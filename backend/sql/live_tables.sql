@@ -78,7 +78,8 @@ create table live_gift_record (
   primary key (gift_id),
   unique key uk_date_streamer_customer (biz_date, streamer_id, customer_id),
   key idx_customer (customer_id),
-  key idx_date (biz_date)
+  key idx_date (biz_date),
+  key idx_streamer_customer_date (streamer_id, customer_id, biz_date)
 ) engine=innodb auto_increment=100 default charset=utf8mb4 collate=utf8mb4_unicode_ci comment='鎵撹祻鏄庣粏琛?鏃ョ矑搴?';
 
 -- 5. 鑱婂ぉ浜掑姩琛?涓€鏈?涓绘挱脳瀹㈡埛脳鏃ユ湡涓€鏉?璇佹槑褰撳ぉ璺熻繘杩?
@@ -93,7 +94,8 @@ create table live_chat_contact (
   create_time     datetime,
   primary key (contact_id),
   unique key uk_date_streamer_customer (biz_date, streamer_id, customer_id),
-  key idx_customer (customer_id)
+  key idx_customer (customer_id),
+  key idx_streamer_customer_date_interaction (streamer_id, customer_id, biz_date, has_interaction)
 ) engine=innodb auto_increment=100 default charset=utf8mb4 collate=utf8mb4_unicode_ci comment='鑱婂ぉ浜掑姩琛?鏃ョ矑搴?';
 
 -- 6. 鑱婂ぉ娑堟伅琛?浜屾湡:閫愭潯娑堟伅,渚?AI 鏈堝害璇勪及;涓€鏈熷缓琛ㄤ笉鍐欏叆)

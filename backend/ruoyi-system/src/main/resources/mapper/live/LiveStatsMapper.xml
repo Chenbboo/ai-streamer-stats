@@ -351,6 +351,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             group by x.streamer_id
         ) stats on stats.streamer_id = s.streamer_id
         where s.status = '0'
+        <include refid="streamerFilter"/>
         order by s.streamer_id
     </select>
 
@@ -444,6 +445,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             group by c.streamer_id
         ) weiji on weiji.streamer_id = s.streamer_id
         where s.status = '0'
+        <include refid="streamerFilter"/>
         order by s.streamer_id
     </select>
 
@@ -614,6 +616,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             group by x.streamer_id
         ) stats on stats.streamer_id = s.streamer_id
         where s.status = '0'
+        <include refid="streamerFilter"/>
         order by s.streamer_id
     </select>
 

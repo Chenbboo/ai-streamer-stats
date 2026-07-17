@@ -13,13 +13,13 @@ public interface ILiveStatsService
 
     public List<Map<String, Object>> getNewTippers(Long streamerId, String beginDate, String endDate);
 
-    public List<Map<String, Object>> getWeijiStats(String statDate);
+    public List<Map<String, Object>> getWeijiStats(String statDate, Long streamerId);
 
-    public List<Map<String, Object>> getWeijiMonthStats(String beginDate, String endDate);
+    public List<Map<String, Object>> getWeijiMonthStats(String beginDate, String endDate, Long streamerId);
 
     public List<Map<String, Object>> getWeijiDetail(Long streamerId, String beginDate, String endDate);
 
-    public List<Map<String, Object>> getAdviceData(String beginDate, String endDate);
+    public List<Map<String, Object>> getAdviceData(String beginDate, String endDate, Long streamerId);
 
     public List<Map<String, Object>> getCustomerMaintenanceMatrix(String beginDate, String endDate, Long streamerId);
 

@@ -11,5 +11,6 @@ create table if not exists live_follow_record (
   primary key (follow_id),
   unique key uk_date_streamer_customer (biz_date, streamer_id, customer_id),
   key idx_customer (customer_id),
-  key idx_date (biz_date)
+  key idx_date (biz_date),
+  key idx_streamer_customer_date_status (streamer_id, customer_id, biz_date, follow_status)
 ) engine=innodb default charset=utf8mb4 comment='客户关注关系记录';

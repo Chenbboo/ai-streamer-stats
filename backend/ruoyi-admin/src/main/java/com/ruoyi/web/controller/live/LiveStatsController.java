@@ -91,12 +91,7 @@ public class LiveStatsController extends BaseController
         }
         LiveStreamer own = getOwnStreamerIfRestricted();
         Long streamerId = own == null ? null : own.getStreamerId();
-        List<Map<String, Object>> data = statsService.getWeijiStats(date);
-        if (streamerId != null)
-        {
-            data = data.stream().filter(d -> streamerId.equals(d.get("streamerId"))).collect(java.util.stream.Collectors.toList());
-        }
-        return AjaxResult.success(data);
+        return AjaxResult.success(statsService.getWeijiStats(date, streamerId));
     }
 
     @PreAuthorize("@ss.hasPermi('live:stats:list')")
@@ -107,12 +102,7 @@ public class LiveStatsController extends BaseController
         LocalDate begin = StringUtils.isEmpty(beginDate) ? end.withDayOfMonth(1) : LocalDate.parse(beginDate);
         LiveStreamer own = getOwnStreamerIfRestricted();
         Long streamerId = own == null ? null : own.getStreamerId();
-        List<Map<String, Object>> data = statsService.getWeijiMonthStats(begin.toString(), end.toString());
-        if (streamerId != null)
-        {
-            data = data.stream().filter(d -> streamerId.equals(d.get("streamerId"))).collect(java.util.stream.Collectors.toList());
-        }
-        return AjaxResult.success(data);
+        return AjaxResult.success(statsService.getWeijiMonthStats(begin.toString(), end.toString(), streamerId));
     }
 
     @PreAuthorize("@ss.hasPermi('live:stats:list')")
@@ -134,12 +124,7 @@ public class LiveStatsController extends BaseController
         LocalDate begin = StringUtils.isEmpty(beginDate) ? end.withDayOfMonth(1) : LocalDate.parse(beginDate);
         LiveStreamer own = getOwnStreamerIfRestricted();
         Long streamerId = own == null ? null : own.getStreamerId();
-        List<Map<String, Object>> data = statsService.getAdviceData(begin.toString(), end.toString());
-        if (streamerId != null)
-        {
-            data = data.stream().filter(d -> streamerId.equals(d.get("streamerId"))).collect(java.util.stream.Collectors.toList());
-        }
-        return AjaxResult.success(data);
+        return AjaxResult.success(statsService.getAdviceData(begin.toString(), end.toString(), streamerId));
     }
 
     @PreAuthorize("@ss.hasPermi('live:stats:list')")

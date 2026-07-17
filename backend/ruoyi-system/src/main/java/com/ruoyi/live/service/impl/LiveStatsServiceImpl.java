@@ -127,15 +127,15 @@ public class LiveStatsServiceImpl implements ILiveStatsService
     }
 
     @Override
-    public List<Map<String, Object>> getWeijiStats(String statDate)
+    public List<Map<String, Object>> getWeijiStats(String statDate, Long streamerId)
     {
-        return statsMapper.selectWeijiStats(statDate);
+        return statsMapper.selectWeijiStats(statDate, streamerId);
     }
 
     @Override
-    public List<Map<String, Object>> getWeijiMonthStats(String beginDate, String endDate)
+    public List<Map<String, Object>> getWeijiMonthStats(String beginDate, String endDate, Long streamerId)
     {
-        return statsMapper.selectWeijiMonthStats(beginDate, endDate);
+        return statsMapper.selectWeijiMonthStats(beginDate, endDate, streamerId);
     }
 
     @Override
@@ -163,9 +163,9 @@ public class LiveStatsServiceImpl implements ILiveStatsService
     }
 
     @Override
-    public List<Map<String, Object>> getAdviceData(String beginDate, String endDate)
+    public List<Map<String, Object>> getAdviceData(String beginDate, String endDate, Long streamerId)
     {
-        List<Map<String, Object>> dataList = statsMapper.selectAdviceData(beginDate, endDate);
+        List<Map<String, Object>> dataList = statsMapper.selectAdviceData(beginDate, endDate, streamerId);
         for (Map<String, Object> item : dataList)
         {
             long monthlyXu = longValue(item.get("monthlyXu"));

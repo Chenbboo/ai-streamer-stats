@@ -698,16 +698,13 @@ async function loadData() {
 }
 
 async function loadCardDetails() {
-  const details = []
-  for (const card of cards.value) {
-    try {
-      const res = await streamerCardDetail(card.streamerId, query.beginDate, query.endDate)
-      if (res.data && res.data.length > 0) {
-        details.push(res.data[0])
-      }
-    } catch (e) { console.error(e) }
+  try {
+    const res = await streamerCardDetail(query.streamerId, query.beginDate, query.endDate)
+    cardDetails.value = res.data || []
+  } catch (e) {
+    console.error(e)
+    cardDetails.value = []
   }
-  cardDetails.value = details
 }
 
 function renderTrend() {
