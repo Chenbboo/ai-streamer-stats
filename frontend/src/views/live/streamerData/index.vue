@@ -110,6 +110,23 @@
                 <td>{{ number(row.newTipWeeklyAmount) }}</td>
                 <td>{{ number(row.newTipMonthlyAmount) }}</td>
               </tr>
+              <tr class="total-row">
+                <th class="sticky-col streamer-name">合计</th>
+                <td>{{ total(rangeRows, 'weeklyXu') }}</td>
+                <td>{{ total(rangeRows, 'monthlyXu') }}</td>
+                <td></td><td></td><td></td>
+                <td>{{ total(rangeRows, 'newFanWeekly') }}</td>
+                <td>{{ total(rangeRows, 'newFanMonthly') }}</td>
+                <td></td><td></td>
+                <td>{{ total(rangeRows, 'chatWeekly') }}</td>
+                <td>{{ total(rangeRows, 'chatMonthly') }}</td>
+                <td></td><td></td>
+                <td>{{ total(rangeRows, 'maintenanceTotal') }}</td>
+                <td>{{ total(rangeRows, 'maintenanceRed') }}</td>
+                <td>{{ total(rangeRows, 'maintenanceGood') }}</td>
+                <td>{{ total(rangeRows, 'newTipWeeklyAmount') }}</td>
+                <td>{{ total(rangeRows, 'newTipMonthlyAmount') }}</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -170,6 +187,28 @@
 
                 <td>{{ number(row.newTipDailyAmount) }}</td>
                 <td>{{ number(row.newTipMonthlyAmount) }}</td>
+              </tr>
+              <tr class="total-row">
+                <th class="sticky-col streamer-name">合计</th>
+                <td>{{ total(group.rows, 'dailyXu') }}</td>
+                <td></td><td></td>
+                <td>{{ total(group.rows, 'monthlyXu') }}</td>
+                <td></td><td></td>
+                <td>{{ total(group.rows, 'newFanDaily') }}</td>
+                <td></td><td></td>
+                <td>{{ total(group.rows, 'newFanMonthly') }}</td>
+                <td></td>
+                <td>{{ total(group.rows, 'chatDaily') }}</td>
+                <td></td><td></td>
+                <td>{{ total(group.rows, 'chatMonthly') }}</td>
+                <td></td>
+                <td>{{ total(group.rows, 'monthHighValue') }}</td>
+                <td>{{ total(group.rows, 'monthNoInteraction') }}</td>
+                <td>{{ total(group.rows, 'monthMaintained') }}</td>
+                <td>{{ total(group.rows, 'dailyNoInteraction') }}</td>
+                <td>{{ total(group.rows, 'dailyMaintained') }}</td>
+                <td>{{ total(group.rows, 'newTipDailyAmount') }}</td>
+                <td>{{ total(group.rows, 'newTipMonthlyAmount') }}</td>
               </tr>
             </tbody>
           </table>
@@ -355,6 +394,10 @@ function number(value, slashZero = true) {
   return n.toLocaleString('zh-CN')
 }
 
+function total(rows, key) {
+  return (rows || []).reduce((sum, row) => sum + Number(row[key] || 0), 0).toLocaleString('zh-CN')
+}
+
 function formatDate(value) {
   const [, month, day] = value.split('-')
   return `${Number(month)}月${Number(day)}日`
@@ -451,6 +494,8 @@ th:last-child, td:last-child { border-right: 0; }
 td.cell-good, td.cell-warn, td.cell-bad, td.cell-care { font-weight: 700; }
 .range-table .range-metric-cell { background: #d9e8f7; font-weight: 700; }
 .range-table .monthly-kpi-cell { background: #fff1b8; font-weight: 700; }
+.total-row th, .total-row td { border-top: 2px solid #343a40; background: #eef1f4; font-weight: 800; }
+.total-row .streamer-name { background: #eef1f4; }
 .compact th, .compact td { height: 30px; padding-top: 3px; padding-bottom: 3px; }
 @media (max-width: 900px) {
   .daily-page { padding: 18px 12px 36px; }
