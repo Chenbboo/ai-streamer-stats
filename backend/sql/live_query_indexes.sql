@@ -26,7 +26,7 @@ set @ddl = (
     and index_name = 'idx_streamer_customer_date_interaction'
 );
 prepare stmt from @ddl;
-execute stmt;
+execute stmt;       
 deallocate prepare stmt;
 
 set @ddl = (

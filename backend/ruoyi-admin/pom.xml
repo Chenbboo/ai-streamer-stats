@@ -37,6 +37,12 @@
             <version>1.6.2</version>
         </dependency>
 
+         <!-- javax.annotation (Java 11+ 兼容) -->
+        <dependency>
+            <groupId>javax.annotation</groupId>
+            <artifactId>javax.annotation-api</artifactId>
+        </dependency>
+
          <!-- Mysql驱动包 -->
         <dependency>
             <groupId>mysql</groupId>

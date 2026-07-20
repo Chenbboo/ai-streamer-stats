@@ -23,7 +23,10 @@ export function uploadImages(data) {
   return request({
     url: '/live/upload/img',
     method: 'post',
-    headers: { 'Content-Type': 'multipart/form-data' },
+    headers: {
+      'Content-Type': 'multipart/form-data',
+      repeatSubmit: false
+    },
     data
   })
 }
