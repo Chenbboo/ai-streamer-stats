@@ -3,12 +3,16 @@ package com.ruoyi.live.service.impl;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.live.mapper.LiveStatsMapper;
 import com.ruoyi.live.service.ILiveStatsService;
 
@@ -216,6 +220,149 @@ public class LiveStatsServiceImpl implements ILiveStatsService
     public List<Map<String, Object>> getCustomerMaintenanceMatrix(String beginDate, String endDate, Long streamerId)
     {
         return statsMapper.selectCustomerMaintenanceMatrix(beginDate, endDate, streamerId);
+    }
+
+    @Override
+    public List<Map<String, Object>> getStreamerDailyList(String beginDate, String endDate, Long streamerId)
+    {
+        LocalDate begin = LocalDate.parse(beginDate);
+        LocalDate end = LocalDate.parse(endDate);
+        if (begin.isAfter(end))
+        {
+            throw new ServiceException("开始日期不能晚于结束日期");
+        }
+        if (!begin.withDayOfMonth(1).equals(end.withDayOfMonth(1)))
+        {
+            throw new ServiceException("主播数据列表一次只能查看一个自然月");
+        }
+        if (ChronoUnit.DAYS.between(begin, end) >= 31)
+        {
+            throw new ServiceException("查询日期不能超过31天");
+        }
+
+        String monthBegin = begin.withDayOfMonth(1).toString();
+        List<Map<String, Object>> maintenance = statsMapper.selectCustomerMaintenanceMatrix(monthBegin, endDate, streamerId);
+        maintenance.sort(Comparator.comparing(row -> LocalDate.parse(stringValue(row.get("bizDate")))));
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (LocalDate date = begin; !date.isAfter(end); date = date.plusDays(1))
+        {
+            String dateText = date.toString();
+            List<Map<String, Object>> rows = statsMapper.selectStreamerCardDetail(streamerId, dateText, dateText);
+            for (Map<String, Object> row : rows)
+            {
+                Long rowStreamerId = Long.valueOf(stringValue(row.get("streamerId")));
+                row.putAll(calculateMaintenance(maintenance, rowStreamerId, date));
+            }
+
+            Map<String, Object> day = new LinkedHashMap<>();
+            day.put("bizDate", dateText);
+            day.put("rows", rows);
+            result.add(day);
+        }
+        return result;
+    }
+
+    private Map<String, Object> calculateMaintenance(List<Map<String, Object>> records, Long streamerId, LocalDate cutoff)
+    {
+        Map<String, MaintenanceState> customers = new HashMap<>();
+        for (Map<String, Object> record : records)
+        {
+            if (!streamerId.equals(Long.valueOf(stringValue(record.get("streamerId")))))
+            {
+                continue;
+            }
+            LocalDate bizDate = LocalDate.parse(stringValue(record.get("bizDate")));
+            if (bizDate.isAfter(cutoff))
+            {
+                break;
+            }
+
+            String customerId = stringValue(record.get("customerId"));
+            MaintenanceState state = customers.computeIfAbsent(customerId, key -> new MaintenanceState());
+            long giftXu = longValue(record.get("giftXu"));
+            boolean hasInteraction = intValue(record.get("hasInteraction")) == 1;
+            boolean hasContact = intValue(record.get("hasContact")) == 1;
+            boolean hasPendingFollow = intValue(record.get("hasPendingFollow")) == 1;
+
+            state.totalXu += giftXu;
+            if (giftXu > 0)
+            {
+                state.lastGiftDate = bizDate;
+                state.lastGiftHasInteraction = hasInteraction;
+                if (bizDate.equals(cutoff))
+                {
+                    state.giftToday = true;
+                    state.todayHasInteraction = hasInteraction;
+                    state.todayHasPendingFollow = hasPendingFollow;
+                }
+            }
+            if (hasContact)
+            {
+                state.lastContactDate = bizDate;
+            }
+            if (hasPendingFollow)
+            {
+                state.hasPendingFollow = true;
+            }
+        }
+
+        int monthHighValue = 0;
+        int monthNoInteraction = 0;
+        int monthMaintained = 0;
+        int dailyNoInteraction = 0;
+        int dailyMaintained = 0;
+        for (MaintenanceState state : customers.values())
+        {
+            if (state.totalXu < 1000)
+            {
+                continue;
+            }
+            monthHighValue++;
+            boolean contactedAfterLastGift = state.lastContactDate != null && state.lastGiftDate != null
+                    && state.lastContactDate.isAfter(state.lastGiftDate);
+            boolean unmaintained = !state.lastGiftHasInteraction && !contactedAfterLastGift && !state.hasPendingFollow;
+            if (unmaintained)
+            {
+                monthNoInteraction++;
+            }
+            else
+            {
+                monthMaintained++;
+            }
+
+            if (state.giftToday)
+            {
+                if (!state.todayHasInteraction && !state.todayHasPendingFollow)
+                {
+                    dailyNoInteraction++;
+                }
+                else
+                {
+                    dailyMaintained++;
+                }
+            }
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("monthHighValue", monthHighValue);
+        result.put("monthNoInteraction", monthNoInteraction);
+        result.put("monthMaintained", monthMaintained);
+        result.put("dailyNoInteraction", dailyNoInteraction);
+        result.put("dailyMaintained", dailyMaintained);
+        return result;
+    }
+
+    private static class MaintenanceState
+    {
+        private long totalXu;
+        private LocalDate lastGiftDate;
+        private LocalDate lastContactDate;
+        private boolean lastGiftHasInteraction;
+        private boolean hasPendingFollow;
+        private boolean giftToday;
+        private boolean todayHasInteraction;
+        private boolean todayHasPendingFollow;
     }
 
     private long longValue(Object value)

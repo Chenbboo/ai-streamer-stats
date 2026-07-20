@@ -23,6 +23,8 @@ public interface ILiveStatsService
 
     public List<Map<String, Object>> getCustomerMaintenanceMatrix(String beginDate, String endDate, Long streamerId);
 
+    public List<Map<String, Object>> getStreamerDailyList(String beginDate, String endDate, Long streamerId);
+
     public List<Map<String, Object>> getRecentChatRecords(Long streamerId, int limit);
 
     public List<Map<String, Object>> getRecentTipRecords(Long streamerId, int limit);

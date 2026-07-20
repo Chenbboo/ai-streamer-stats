@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>主播每日数据看板 - 格式预览</title>
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #667085;
+      --line: #bcc5d3;
+      --line-strong: #263244;
+      --surface: #ffffff;
+      --page: #f4f6f9;
+      --header: #dce8f8;
+      --header-strong: #c8daf2;
+      --green: #b8df34;
+      --green-text: #234b16;
+      --yellow: #ffd84d;
+      --yellow-text: #604700;
+      --red: #f35b5b;
+      --red-text: #6c1111;
+      --blue: #aec7ed;
+      --blue-text: #18345d;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--page);
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      letter-spacing: 0;
+    }
+
+    button, input { font: inherit; }
+
+    .page-header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 16px 22px;
+      border-bottom: 1px solid #d8dee8;
+      background: rgba(255, 255, 255, 0.97);
+    }
+
+    .title-wrap h1 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.35;
+    }
+
+    .title-wrap p {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .toolbar label {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .toolbar select,
+    .toolbar button {
+      height: 34px;
+      border: 1px solid #c8d0dc;
+      border-radius: 4px;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    .toolbar select { padding: 0 30px 0 10px; }
+    .toolbar button { padding: 0 12px; cursor: pointer; }
+    .toolbar button:hover { border-color: #5579a9; color: #315d96; }
+
+    .content { padding: 18px 20px 32px; }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(150px, 1fr));
+      gap: 1px;
+      max-width: 760px;
+      margin-bottom: 14px;
+      overflow: hidden;
+      border: 1px solid #d8dee8;
+      border-radius: 6px;
+      background: #d8dee8;
+    }
+
+    .summary-item {
+      min-height: 66px;
+      padding: 11px 14px;
+      background: #fff;
+    }
+
+    .summary-item span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .summary-item strong {
+      display: block;
+      margin-top: 5px;
+      font-size: 20px;
+      line-height: 1;
+    }
+
+    .legend {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      margin: 0 0 14px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+    .swatch { width: 11px; height: 11px; border: 1px solid rgba(0,0,0,.12); }
+    .swatch.green { background: var(--green); }
+    .swatch.yellow { background: var(--yellow); }
+    .swatch.red { background: var(--red); }
+    .swatch.blue { background: var(--blue); }
+
+    .date-section {
+      margin-bottom: 18px;
+      border: 1px solid var(--line-strong);
+      background: var(--surface);
+    }
+
+    .date-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 38px;
+      padding: 7px 10px;
+      border-bottom: 1px solid var(--line-strong);
+      background: #fff;
+    }
+
+    .date-heading h2 {
+      margin: 0;
+      font-size: 15px;
+    }
+
+    .date-heading span {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .table-scroll {
+      max-width: 100%;
+      overflow-x: auto;
+      scrollbar-color: #9aa7b9 #edf0f4;
+    }
+
+    table {
+      width: 100%;
+      min-width: 1880px;
+      border-collapse: separate;
+      border-spacing: 0;
+      table-layout: fixed;
+      font-size: 11px;
+    }
+
+    th, td {
+      height: 34px;
+      padding: 4px 5px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      text-align: center;
+      vertical-align: middle;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+    th:last-child, td:last-child { border-right: 0; }
+
+    thead th {
+      color: #243247;
+      background: var(--header);
+      font-weight: 700;
+      line-height: 1.25;
+    }
+
+    thead .group-row th {
+      height: 31px;
+      border-bottom-color: var(--line-strong);
+      background: var(--header-strong);
+      font-size: 12px;
+    }
+
+    thead .group-row .group-gem { background: #d8e6f8; }
+    thead .group-row .group-fan { background: #dcebd4; }
+    thead .group-row .group-chat { background: #d9e9ef; }
+    thead .group-row .group-care { background: #d9e3f4; }
+    thead .group-row .group-gift { background: #e5def2; }
+
+    .sticky-name {
+      position: sticky;
+      left: 0;
+      z-index: 4;
+      width: 104px;
+      min-width: 104px;
+      background: #fff;
+      box-shadow: 2px 0 0 rgba(38, 50, 68, .18);
+    }
+
+    thead .sticky-name { z-index: 8; background: var(--header-strong); }
+
+    tbody .sticky-name {
+      padding-left: 9px;
+      text-align: left;
+      font-weight: 700;
+    }
+
+    tbody tr:hover td:not(.status-green):not(.status-yellow):not(.status-red):not(.status-blue) {
+      background: #f5f8fc;
+    }
+
+    .group-end { border-right: 2px solid var(--line-strong); }
+    .metric { font-variant-numeric: tabular-nums; }
+    .muted { color: #98a2b3; }
+
+    .status-green { background: var(--green); color: var(--green-text); font-weight: 700; }
+    .status-yellow { background: var(--yellow); color: var(--yellow-text); font-weight: 700; }
+    .status-red { background: var(--red); color: var(--red-text); font-weight: 700; }
+    .status-blue { background: var(--blue); color: var(--blue-text); font-weight: 700; }
+
+    .compact th, .compact td { height: 27px; padding-top: 2px; padding-bottom: 2px; }
+
+    .empty-note {
+      display: none;
+      padding: 40px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    @media (max-width: 760px) {
+      .page-header { align-items: flex-start; padding: 13px 14px; }
+      .page-header, .toolbar { flex-direction: column; }
+      .toolbar { width: 100%; align-items: stretch; gap: 7px; }
+      .toolbar select, .toolbar button { width: 100%; }
+      .content { padding: 12px 10px 24px; }
+      .summary { grid-template-columns: repeat(2, minmax(130px, 1fr)); max-width: none; }
+      .legend { flex-wrap: wrap; gap: 8px 13px; }
+      .date-heading { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header class="page-header">
+    <div class="title-wrap">
+      <h1>主播每日数据看板</h1>
+      <p>格式预览 · 演示数据不代表真实业务结果</p>
+    </div>
+    <div class="toolbar">
+      <label for="date-filter">查看日期</label>
+      <select id="date-filter" aria-label="查看日期">
+        <option value="all">全部日期</option>
+        <option value="2026-07-13">7月13日</option>
+        <option value="2026-07-14">7月14日</option>
+      </select>
+      <button id="density-toggle" type="button">紧凑显示</button>
+    </div>
+  </header>
+
+  <main class="content">
+    <section class="summary" aria-label="预览摘要">
+      <div class="summary-item"><span>展示日期</span><strong>2</strong></div>
+      <div class="summary-item"><span>主播数量</span><strong>6</strong></div>
+      <div class="summary-item"><span>指标模块</span><strong>5</strong></div>
+      <div class="summary-item"><span>数据口径</span><strong>日 / 月</strong></div>
+    </section>
+
+    <div class="legend" aria-label="颜色说明">
+      <span class="legend-item"><i class="swatch green"></i>完成良好</span>
+      <span class="legend-item"><i class="swatch yellow"></i>接近目标</span>
+      <span class="legend-item"><i class="swatch red"></i>未完成</span>
+      <span class="legend-item"><i class="swatch blue"></i>需重点维护</span>
+    </div>
+
+    <div id="tables"></div>
+    <div id="empty-note" class="empty-note">该日期暂无演示数据</div>
+  </main>
+
+  <script>
+    const groups = [
+      {
+        name: '钻石', className: 'group-gem',
+        columns: ['当日收礼', '当日完成率', '当日指标完成', '月度累计钻石', '月度KPI完成', '预计月底完成']
+      },
+      {
+        name: '新增粉丝', className: 'group-fan',
+        columns: ['当日新增粉丝', '当日完成率', '当日指标完成', '月度累计新增粉丝', '月度KPI完成']
+      },
+      {
+        name: '新增粉丝互动', className: 'group-chat',
+        columns: ['当日新增互动人数', '当日完成率', '当日指标完成', '月度累计新增互动', '月度KPI完成']
+      },
+      {
+        name: '粉丝维护（送礼 > 1000钻）', className: 'group-care',
+        columns: ['月送钻>1000', '当月有打赏无互动', '当月有打赏有互动', '当日有打赏无互动', '当日有打赏有互动']
+      },
+      {
+        name: '新增粉丝送礼', className: 'group-gift',
+        columns: ['当日新增粉丝送礼', '新增粉丝月度打赏']
+      }
+    ];
+
+    const names = ['Zhenzhen', 'Xixi', 'Mina', 'Naomi', 'Rynna', 'Vivan'];
+    const dates = [
+      { date: '2026-07-13', label: '7月13日', seed: 13 },
+      { date: '2026-07-14', label: '7月14日', seed: 14 }
+    ];
+
+    const totalColumns = groups.reduce((sum, group) => sum + group.columns.length, 0);
+
+    function formatNumber(value) {
+      return new Intl.NumberFormat('zh-CN').format(value);
+    }
+
+    function percentClass(value) {
+      if (value >= 100) return 'status-green';
+      if (value >= 80) return 'status-yellow';
+      return 'status-red';
+    }
+
+    function createRows(seed) {
+      return names.map((name, index) => {
+        const dailyGift = index === 2 ? 0 : (seed * 1379 + index * 2881) % 118000;
+        const giftRate = index === 2 ? 0 : Math.round((dailyGift / (5500 + index * 700)) * 10) / 10;
+        const fans = index === 2 ? 0 : (seed + index * 3) % 18;
+        const fanRate = Math.round((fans / (6 + index % 3)) * 1000) / 10;
+        const chats = Math.max(0, fans - (index % 3));
+        const chatRate = Math.round((chats / (4 + index % 2)) * 1000) / 10;
+        const noChatMonth = index === 2 ? 0 : (seed + index) % 6;
+        const hasChatMonth = index === 2 ? 0 : (seed * 2 + index) % 8;
+        return {
+          name,
+          cells: [
+            { value: dailyGift ? formatNumber(dailyGift) : '/', type: 'plain' },
+            { value: giftRate ? giftRate + '%' : '/', type: giftRate ? percentClass(giftRate) : 'plain' },
+            { value: giftRate >= 100 ? '✓' : '×', type: giftRate >= 100 ? 'status-yellow' : 'status-red' },
+            { value: dailyGift ? formatNumber(dailyGift + seed * 9200) : '/', type: 'plain' },
+            { value: dailyGift ? Math.min(100, Math.round((dailyGift + seed * 9200) / 4300) / 10) + '%' : '0.0%', type: dailyGift ? 'status-green' : 'plain' },
+            { value: dailyGift ? Math.min(100, Math.round(giftRate * 1.4 * 10) / 10) + '%' : '/', type: 'plain' },
+
+            { value: fans || '/', type: 'plain' },
+            { value: fans ? fanRate + '%' : '/', type: fans ? percentClass(fanRate) : 'plain' },
+            { value: fanRate >= 100 ? '✓' : '×', type: fanRate >= 100 ? 'status-yellow' : 'status-red' },
+            { value: fans ? fans + seed * 4 : '/', type: 'plain' },
+            { value: fans ? Math.round((fans + seed * 4) / 1.5) + '%' : '0.0%', type: 'status-green' },
+
+            { value: chats || '/', type: 'plain' },
+            { value: chats ? chatRate + '%' : '/', type: chats ? percentClass(chatRate) : 'plain' },
+            { value: chatRate >= 100 ? '✓' : '×', type: chatRate >= 100 ? 'status-yellow' : 'status-red' },
+            { value: chats ? chats + seed * 3 : '/', type: 'plain' },
+            { value: chats ? Math.round((chats + seed * 3) / 1.2) + '%' : '0.0%', type: 'status-green' },
+
+            { value: noChatMonth + hasChatMonth, type: 'plain' },
+            { value: noChatMonth, type: noChatMonth >= 3 ? 'status-blue' : 'plain' },
+            { value: hasChatMonth, type: 'plain' },
+            { value: index % 4, type: index % 4 > 1 ? 'status-blue' : 'plain' },
+            { value: (index + seed) % 3, type: 'plain' },
+
+            { value: dailyGift ? formatNumber((dailyGift + index * 711) % 25000) : '/', type: 'plain' },
+            { value: dailyGift ? formatNumber(dailyGift + seed * 3150) : '0', type: 'plain' }
+          ]
+        };
+      });
+    }
+
+    function createTable(dateInfo) {
+      const section = document.createElement('section');
+      section.className = 'date-section';
+      section.dataset.date = dateInfo.date;
+
+      const heading = document.createElement('div');
+      heading.className = 'date-heading';
+      heading.innerHTML = `<h2>${dateInfo.label}</h2><span>当日表现、月累计与维护状态</span>`;
+      section.appendChild(heading);
+
+      const scroll = document.createElement('div');
+      scroll.className = 'table-scroll';
+      const table = document.createElement('table');
+
+      const groupHeaders = groups.map(group =>
+        `<th class="${group.className} group-end" colspan="${group.columns.length}">${group.name}</th>`
+      ).join('');
+      const columnHeaders = groups.flatMap(group => group.columns.map((column, index) =>
+        `<th class="${index === group.columns.length - 1 ? 'group-end' : ''}">${column}</th>`
+      )).join('');
+
+      table.innerHTML = `
+        <colgroup>
+          <col style="width:104px">
+          ${Array.from({ length: totalColumns }, () => '<col style="width:76px">').join('')}
+        </colgroup>
+        <thead>
+          <tr class="group-row"><th class="sticky-name" rowspan="2">主播</th>${groupHeaders}</tr>
+          <tr>${columnHeaders}</tr>
+        </thead>
+        <tbody></tbody>
+      `;
+
+      const tbody = table.querySelector('tbody');
+      createRows(dateInfo.seed).forEach(row => {
+        const tr = document.createElement('tr');
+        const cells = row.cells.map((cell, index) => {
+          const groupEndIndexes = [5, 10, 15, 20, 22];
+          const classes = ['metric', cell.type !== 'plain' ? cell.type : '', groupEndIndexes.includes(index) ? 'group-end' : '']
+            .filter(Boolean).join(' ');
+          return `<td class="${classes}">${cell.value}</td>`;
+        }).join('');
+        tr.innerHTML = `<td class="sticky-name">${row.name}</td>${cells}`;
+        tbody.appendChild(tr);
+      });
+
+      scroll.appendChild(table);
+      section.appendChild(scroll);
+      return section;
+    }
+
+    const tables = document.getElementById('tables');
+    dates.forEach(dateInfo => tables.appendChild(createTable(dateInfo)));
+
+    const filter = document.getElementById('date-filter');
+    const emptyNote = document.getElementById('empty-note');
+    filter.addEventListener('change', () => {
+      let visibleCount = 0;
+      document.querySelectorAll('.date-section').forEach(section => {
+        const visible = filter.value === 'all' || section.dataset.date === filter.value;
+        section.style.display = visible ? '' : 'none';
+        if (visible) visibleCount += 1;
+      });
+      emptyNote.style.display = visibleCount ? 'none' : 'block';
+    });
+
+    const densityButton = document.getElementById('density-toggle');
+    densityButton.addEventListener('click', () => {
+      const compact = document.body.classList.toggle('compact');
+      densityButton.textContent = compact ? '舒适显示' : '紧凑显示';
+    });
+  </script>
+</body>
+</html>

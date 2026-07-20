@@ -71,3 +71,11 @@ export function customerMaintenanceMatrix(beginDate, endDate, streamerId) {
     params: { beginDate, endDate, streamerId }
   })
 }
+
+export function streamerDailyList(beginDate, endDate, streamerId) {
+  return request({
+    url: '/live/stats/streamer-daily-list',
+    method: 'get',
+    params: { beginDate, endDate, streamerId }
+  })
+}
