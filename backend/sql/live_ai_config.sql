@@ -30,6 +30,10 @@ select 'Live AI Timeout', 'live.ai.timeout', '60', 'N', 'admin', sysdate(), 'vis
 where not exists (select 1 from sys_config where config_key = 'live.ai.timeout');
 
 insert into sys_config(config_name, config_key, config_value, config_type, create_by, create_time, remark)
+select 'Live AI Primary Timeout', 'live.ai.primary.timeout', '60', 'N', 'admin', sysdate(), 'primary recognition model timeout seconds'
+where not exists (select 1 from sys_config where config_key = 'live.ai.primary.timeout');
+
+insert into sys_config(config_name, config_key, config_value, config_type, create_by, create_time, remark)
 select 'Live AI Chat Enabled', 'live.ai.chat.enabled', 'true', 'N', 'admin', sysdate(), 'true=enable stats chat'
 where not exists (select 1 from sys_config where config_key = 'live.ai.chat.enabled');
 

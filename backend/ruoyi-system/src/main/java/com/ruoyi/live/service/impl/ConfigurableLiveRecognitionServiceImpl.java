@@ -143,7 +143,7 @@ public class ConfigurableLiveRecognitionServiceImpl implements ILiveRecognitionS
     {
         try
         {
-            int timeout = Integer.parseInt(configValue("live.ai.timeout", "60")) * 1000;
+            int timeout = modelTimeoutSeconds(request) * 1000;
             HttpURLConnection connection = (HttpURLConnection) new URL(endpoint).openConnection();
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(timeout);
@@ -176,6 +176,18 @@ public class ConfigurableLiveRecognitionServiceImpl implements ILiveRecognitionS
         }
     }
 
+    private int modelTimeoutSeconds(Map<String, Object> request)
+    {
+        String model = String.valueOf(request.get("model"));
+        String fallbackModel = configValue("live.ai.fallback.model", "");
+        if (StringUtils.isNotEmpty(fallbackModel) && fallbackModel.equalsIgnoreCase(model))
+        {
+            return Integer.parseInt(configValue("live.ai.fallback.timeout",
+                    configValue("live.ai.timeout", "60")));
+        }
+        return Integer.parseInt(configValue("live.ai.primary.timeout", "60"));
+    }
+
     /** Prefer JSON mode where the configured compatible provider supports it. */
     private String callChatWithJsonMode(String endpoint, String apiKey, Map<String, Object> request)
     {
@@ -188,10 +200,22 @@ public class ConfigurableLiveRecognitionServiceImpl implements ILiveRecognitionS
         }
         catch (ServiceException e)
         {
-            // Some OpenAI-compatible providers do not implement response_format.
+            if (!isUnsupportedJsonMode(e))
+            {
+                throw e;
+            }
+            // Some OpenAI-compatible providers explicitly reject response_format.
             request.remove("response_format");
             return callModel(endpoint, apiKey, request);
         }
+    }
+
+    private boolean isUnsupportedJsonMode(ServiceException exception)
+    {
+        String message = StringUtils.defaultString(exception.getMessage()).toLowerCase();
+        return message.contains("response_format")
+                || message.contains("json_object")
+                || message.contains("json mode");
     }
 
     private List<Map<String, Object>> buildResponsesInput(LiveUpload upload)
