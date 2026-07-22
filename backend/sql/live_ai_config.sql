@@ -14,6 +14,10 @@ select 'Live AI Model', 'live.ai.model', 'gpt-4o-mini', 'N', 'admin', sysdate(),
 where not exists (select 1 from sys_config where config_key = 'live.ai.model');
 
 insert into sys_config(config_name, config_key, config_value, config_type, create_by, create_time, remark)
+select 'Live AI Fallback Model', 'live.ai.fallback.model', 'Qwen/Qwen3-VL-30B-A3B-Instruct', 'N', 'admin', sysdate(), 'retry this model when the primary recognition model fails'
+where not exists (select 1 from sys_config where config_key = 'live.ai.fallback.model');
+
+insert into sys_config(config_name, config_key, config_value, config_type, create_by, create_time, remark)
 select 'Live AI API Key', 'live.ai.apiKey', '', 'N', 'admin', sysdate(), 'vision model API key'
 where not exists (select 1 from sys_config where config_key = 'live.ai.apiKey');
 

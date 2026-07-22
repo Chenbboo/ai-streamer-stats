@@ -16,6 +16,8 @@ import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.common.config.RuoYiConfig;
@@ -31,6 +33,7 @@ import com.ruoyi.system.service.ISysConfigService;
 public class ConfigurableLiveRecognitionServiceImpl implements ILiveRecognitionService
 {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final Logger log = LoggerFactory.getLogger(ConfigurableLiveRecognitionServiceImpl.class);
 
     private static final String PROVIDER_MOCK = "mock";
     private static final String PROVIDER_OPENAI_RESPONSES = "openai-responses";
@@ -59,17 +62,53 @@ public class ConfigurableLiveRecognitionServiceImpl implements ILiveRecognitionS
             return mockRecognize(upload);
         }
 
+        String primaryModel = configValue("live.ai.model", defaultModel(provider));
+        try
+        {
+            return recognizeWithProvider(upload, provider, apiKey, primaryModel);
+        }
+        catch (ServiceException primaryError)
+        {
+            String fallbackModel = configValue("live.ai.fallback.model", "");
+            if (StringUtils.isEmpty(fallbackModel) || fallbackModel.equalsIgnoreCase(primaryModel))
+            {
+                throw primaryError;
+            }
+
+            log.warn("Primary AI model {} failed for upload {}, retrying with fallback model {}: {}",
+                    primaryModel, upload.getUploadId(), fallbackModel, primaryError.getMessage());
+            try
+            {
+                return recognizeWithProvider(upload, provider, apiKey, fallbackModel);
+            }
+            catch (ServiceException fallbackError)
+            {
+                log.error("Fallback AI model {} also failed for upload {}: {}",
+                        fallbackModel, upload.getUploadId(), fallbackError.getMessage());
+                throw new ServiceException("Primary and fallback AI models failed. Primary: "
+                        + primaryError.getMessage() + "; fallback: " + fallbackError.getMessage());
+            }
+        }
+    }
+
+    private String defaultModel(String provider)
+    {
+        return PROVIDER_OPENAI_RESPONSES.equalsIgnoreCase(provider) || "openai".equalsIgnoreCase(provider)
+                ? "gpt-5.5" : "gpt-4o-mini";
+    }
+
+    private String recognizeWithProvider(LiveUpload upload, String provider, String apiKey, String model)
+    {
         if (PROVIDER_OPENAI_RESPONSES.equalsIgnoreCase(provider) || "openai".equalsIgnoreCase(provider))
         {
-            return recognizeWithResponsesApi(upload, apiKey);
+            return recognizeWithResponsesApi(upload, apiKey, model);
         }
         if (PROVIDER_OPENAI_COMPATIBLE_CHAT.equalsIgnoreCase(provider)
                 || "compatible".equalsIgnoreCase(provider)
                 || "chat-completions".equalsIgnoreCase(provider))
         {
-            return recognizeWithChatCompletions(upload, apiKey);
+            return recognizeWithChatCompletions(upload, apiKey, model);
         }
-
         throw new ServiceException("Unsupported AI provider: " + provider);
     }
 
@@ -79,10 +118,9 @@ public class ConfigurableLiveRecognitionServiceImpl implements ILiveRecognitionS
         return "true".equalsIgnoreCase(value) || "1".equals(value);
     }
 
-    private String recognizeWithResponsesApi(LiveUpload upload, String apiKey)
+    private String recognizeWithResponsesApi(LiveUpload upload, String apiKey, String model)
     {
         String endpoint = configValue("live.ai.baseUrl", "https://api.openai.com/v1/responses");
-        String model = configValue("live.ai.model", "gpt-5.5");
         Map<String, Object> request = new HashMap<>();
         request.put("model", model);
         request.put("input", buildResponsesInput(upload));
@@ -90,10 +128,9 @@ public class ConfigurableLiveRecognitionServiceImpl implements ILiveRecognitionS
         return parseAndNormalizeJson(upload, callModel(endpoint, apiKey, request), "responses", endpoint, apiKey, model);
     }
 
-    private String recognizeWithChatCompletions(LiveUpload upload, String apiKey)
+    private String recognizeWithChatCompletions(LiveUpload upload, String apiKey, String model)
     {
         String endpoint = configValue("live.ai.baseUrl", "https://api.openai.com/v1/chat/completions");
-        String model = configValue("live.ai.model", "gpt-4o-mini");
         Map<String, Object> request = new HashMap<>();
         request.put("model", model);
         request.put("messages", buildChatMessages(upload));
@@ -257,6 +294,8 @@ public class ConfigurableLiveRecognitionServiceImpl implements ILiveRecognitionS
                     + "Group messages by customer nickname. Include ALL visible messages, do not summarize. "
                     + "For text messages: set messageType='text', put the text in content. "
                     + "For video/image/audio messages: look at the thumbnail, describe what you see in content (e.g. '[视频:主播在跳舞]', '[图片:自拍]'). "
+                    + "Only read top-level chat bubbles. Never transcribe text inside a shared post, image, video preview, or media thumbnail. "
+                    + "Treat each complete media preview as one message and describe it briefly. "
                     + "Set messageType to 'video'/'image'/'audio' accordingly. "
                     + "Every message must be a complete JSON object: close content with a double quote, then close the message object before the next array item. "
                     + "Escape double quotes and backslashes inside content strings.";
