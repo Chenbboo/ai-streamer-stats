@@ -20,6 +20,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.ruoyi.common.config.RuoYiConfig;
 import com.ruoyi.common.constant.Constants;
 import com.ruoyi.common.exception.ServiceException;
@@ -99,17 +101,120 @@ public class ConfigurableLiveRecognitionServiceImpl implements ILiveRecognitionS
 
     private String recognizeWithProvider(LiveUpload upload, String provider, String apiKey, String model)
     {
+        String result;
         if (PROVIDER_OPENAI_RESPONSES.equalsIgnoreCase(provider) || "openai".equalsIgnoreCase(provider))
         {
-            return recognizeWithResponsesApi(upload, apiKey, model);
+            result = recognizeWithResponsesApi(upload, apiKey, model);
         }
-        if (PROVIDER_OPENAI_COMPATIBLE_CHAT.equalsIgnoreCase(provider)
+        else if (PROVIDER_OPENAI_COMPATIBLE_CHAT.equalsIgnoreCase(provider)
                 || "compatible".equalsIgnoreCase(provider)
                 || "chat-completions".equalsIgnoreCase(provider))
         {
-            return recognizeWithChatCompletions(upload, apiKey, model);
+            result = recognizeWithChatCompletions(upload, apiKey, model);
         }
-        throw new ServiceException("Unsupported AI provider: " + provider);
+        else
+        {
+            throw new ServiceException("Unsupported AI provider: " + provider);
+        }
+        return validateRecognitionResult(upload, result);
+    }
+
+    private String validateRecognitionResult(LiveUpload upload, String result)
+    {
+        if (!LiveUpload.TYPE_FOLLOW.equals(upload.getUploadType()) || StringUtils.isEmpty(upload.getStageName()))
+        {
+            return result;
+        }
+        try
+        {
+            JsonNode root = OBJECT_MAPPER.readTree(result);
+            JsonNode items = root.path("items");
+            if (!root.isObject() || !items.isArray())
+            {
+                throw new ServiceException("AI follow result has no valid customer list");
+            }
+
+            ArrayNode validItems = OBJECT_MAPPER.createArrayNode();
+            for (JsonNode itemNode : items)
+            {
+                if (!itemNode.isObject())
+                {
+                    continue;
+                }
+                ObjectNode item = (ObjectNode) itemNode;
+                String nickname = item.path("nickname").asText("").trim();
+                String account = item.path("account").asText("").trim();
+                if (isLikelyStreamerName(nickname, upload.getStageName()))
+                {
+                    if (StringUtils.isNotEmpty(account) && !isLikelyStreamerName(account, upload.getStageName()))
+                    {
+                        log.warn("Follow recognition replaced streamer-like nickname {} with account {} for upload {}",
+                                nickname, account, upload.getUploadId());
+                        item.put("nickname", account);
+                        item.put("confidence", "low");
+                    }
+                    else
+                    {
+                        log.warn("Follow recognition rejected streamer-like customer {} for upload {}",
+                                nickname, upload.getUploadId());
+                        continue;
+                    }
+                }
+                validItems.add(item);
+            }
+
+            if (validItems.size() == 0)
+            {
+                throw new ServiceException("AI follow result incorrectly identified the streamer as the customer");
+            }
+            ((ObjectNode) root).set("items", validItems);
+            return OBJECT_MAPPER.writeValueAsString(root);
+        }
+        catch (ServiceException e)
+        {
+            throw e;
+        }
+        catch (Exception e)
+        {
+            throw new ServiceException("Unable to validate AI follow result: " + e.getMessage());
+        }
+    }
+
+    private boolean isLikelyStreamerName(String candidate, String streamerName)
+    {
+        String left = comparableName(candidate);
+        String right = comparableName(streamerName);
+        if (left.length() < 4 || right.length() < 4)
+        {
+            return left.equals(right) && left.length() > 0;
+        }
+        return left.equals(right) || editDistance(left, right) <= 1;
+    }
+
+    private String comparableName(String value)
+    {
+        return StringUtils.defaultString(value).toLowerCase().replaceAll("[^\\p{L}]", "");
+    }
+
+    private int editDistance(String left, String right)
+    {
+        int[] previous = new int[right.length() + 1];
+        for (int j = 0; j <= right.length(); j++)
+        {
+            previous[j] = j;
+        }
+        for (int i = 1; i <= left.length(); i++)
+        {
+            int[] current = new int[right.length() + 1];
+            current[0] = i;
+            for (int j = 1; j <= right.length(); j++)
+            {
+                int replace = previous[j - 1] + (left.charAt(i - 1) == right.charAt(j - 1) ? 0 : 1);
+                current[j] = Math.min(Math.min(previous[j] + 1, current[j - 1] + 1), replace);
+            }
+            previous = current;
+        }
+        return previous[right.length()];
     }
 
     private boolean isEnabled()
@@ -326,7 +431,11 @@ public class ConfigurableLiveRecognitionServiceImpl implements ILiveRecognitionS
         }
         else if (LiveUpload.TYPE_FOLLOW.equals(upload.getUploadType()))
         {
-            instruction += ". For follow relationship screenshots: identify the customer nickname or account and determine the relationship. "
+            instruction += ". For follow relationship screenshots: the current streamer is '"
+                    + StringUtils.defaultString(upload.getStageName()) + "'. "
+                    + "Never return the streamer, the logged-in account, or a close spelling variant of the streamer as a customer. "
+                    + "The customer is the profile being viewed in the main profile area; read its nickname and @account. "
+                    + "Identify the customer nickname or account and determine the relationship. "
                     + "Use followStatus='pending' when the streamer has followed/requested the customer but the customer has not followed back, "
                     + "'mutual' when both follow each other, and 'none' when the streamer has not followed the customer. "
                     + "Return one item per visible customer profile and do not guess an account that is not visible.";
