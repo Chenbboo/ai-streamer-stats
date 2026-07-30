@@ -52,6 +52,7 @@ export default {
     upload: 'Tải ảnh lên',
     review: 'Kiểm duyệt nhận dạng',
     stats: 'Thống kê dữ liệu',
+    jewelryErp: 'ERP trang sức',
     kpi: 'Cấu hình KPI',
     streamer: 'Quản lý streamer',
     system: 'Cài đặt hệ thống',

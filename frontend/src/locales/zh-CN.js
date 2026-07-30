@@ -52,6 +52,7 @@ export default {
     upload: '图片上传',
     review: '识别校正',
     stats: '数据统计',
+    jewelryErp: '珠宝ERP',
     kpi: 'KPI配置',
     streamer: '主播管理',
     system: '系统设置',
