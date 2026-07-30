@@ -1,12 +1,15 @@
 package com.ruoyi.web.controller.jewelry;
 
+import java.net.URLEncoder;
 import java.util.HashMap;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import javax.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -22,6 +25,7 @@ import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.jewelry.domain.JewelryDocument;
 import com.ruoyi.jewelry.mapper.JewelryErpMapper;
+import com.ruoyi.jewelry.service.JewelryDocumentExcelService;
 import com.ruoyi.jewelry.service.IJewelryErpService;
 import com.ruoyi.system.service.ISysUserService;
 
@@ -32,6 +36,7 @@ public class JewelryErpController extends BaseController
     @Autowired private IJewelryErpService service;
     @Autowired private JewelryErpMapper mapper;
     @Autowired private ISysUserService userService;
+    @Autowired private JewelryDocumentExcelService documentExcelService;
 
     @PreAuthorize("@ss.hasPermi('jewelry:overview:list')")
     @GetMapping("/dashboard")
@@ -220,6 +225,32 @@ public class JewelryErpController extends BaseController
         List<JewelryDocument> rows = service.listDocuments(query);
         if (isMakerOnly()) redactDocumentFinance(rows);
         return getDataTable(rows);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:add')")
+    @GetMapping("/document/import-template")
+    public void documentImportTemplate(@RequestParam String docType, HttpServletResponse response) throws Exception
+    {
+        byte[] content = documentExcelService.createTemplate(docType);
+        String fileName = URLEncoder.encode("珠宝单据导入模板-" + docType + ".xlsx", "UTF-8").replace("+", "%20");
+        response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        response.setCharacterEncoding("UTF-8");
+        response.setHeader("Content-Disposition", "attachment;filename*=UTF-8''" + fileName);
+        response.setContentLength(content.length);
+        response.getOutputStream().write(content);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:add')")
+    @PostMapping("/document/import-preview")
+    public AjaxResult documentImportPreview(@RequestParam String docType,
+        @RequestParam("file") MultipartFile file) throws Exception
+    {
+        if (file == null || file.isEmpty()) return error("请选择Excel文件");
+        if (file.getSize() > 5L * 1024 * 1024) return error("Excel文件不能超过5MB");
+        String name = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase();
+        if (!name.endsWith(".xlsx") && !name.endsWith(".xls")) return error("仅支持xls和xlsx文件");
+        return success(documentExcelService.preview(docType, file.getInputStream(),
+            hasPermission("jewelry:product:add")));
     }
 
     @PreAuthorize("@ss.hasPermi('jewelry:document:list')")

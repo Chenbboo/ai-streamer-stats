@@ -15,6 +15,17 @@ export const updateJewelryStockWarningDays = (days) => request({ url: '/jewelry/
 export const listJewelryDocuments = (params) => request({ url: '/jewelry/document/list', method: 'get', params })
 export const getJewelryDocument = (id) => request({ url: `/jewelry/document/${id}`, method: 'get' })
 export const saveJewelryDocument = (data) => request({ url: '/jewelry/document', method: 'post', data })
+export const downloadJewelryDocumentImportTemplate = (docType) => request({
+  url: '/jewelry/document/import-template', method: 'get', params: { docType }, responseType: 'blob'
+})
+export const previewJewelryDocumentImport = (docType, file) => {
+  const data = new FormData()
+  data.append('file', file)
+  return request({
+    url: '/jewelry/document/import-preview', method: 'post', params: { docType }, data,
+    headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false }, timeout: 60000
+  })
+}
 export const submitJewelryDocument = (id) => request({ url: `/jewelry/document/${id}/submit`, method: 'post' })
 export const withdrawJewelryDocument = (id) => request({ url: `/jewelry/document/${id}/withdraw`, method: 'post' })
 export const createJewelryReversal = (id) => request({ url: `/jewelry/document/${id}/reverse`, method: 'post' })
