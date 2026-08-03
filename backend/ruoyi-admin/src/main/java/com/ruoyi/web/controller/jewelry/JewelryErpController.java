@@ -263,7 +263,7 @@ public class JewelryErpController extends BaseController
         @RequestParam("file") MultipartFile file) throws Exception
     {
         if (file == null || file.isEmpty()) return error("请选择Excel文件");
-        if (file.getSize() > 20L * 1024 * 1024) return error("Excel文件不能超过20MB");
+        if (file.getSize() > 200L * 1024 * 1024) return error("Excel文件不能超过200MB");
         String name = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase();
         if (!name.endsWith(".xlsx") && !name.endsWith(".xls")) return error("仅支持xls和xlsx文件");
         if ("PURCHASE_IN".equals(docType) && !name.endsWith(".xlsx"))
