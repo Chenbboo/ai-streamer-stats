@@ -604,8 +604,8 @@ public class JewelryDocumentExcelService
     private EmbeddedImage validateEmbeddedImage(byte[] data, String extension)
     {
         if (!"png".equalsIgnoreCase(extension) && !"jpg".equalsIgnoreCase(extension)
-            && !"jpeg".equalsIgnoreCase(extension))
-            return EmbeddedImage.error("商品图片仅支持JPG、JPEG和PNG");
+            && !"jpeg".equalsIgnoreCase(extension) && !"webp".equalsIgnoreCase(extension))
+            return EmbeddedImage.error("商品图片仅支持JPG、JPEG、PNG和WEBP");
         if (data == null || data.length == 0 || data.length > MAX_SOURCE_IMAGE_BYTES)
             return EmbeddedImage.error("商品图片不能为空且源图不能超过50MB");
         try

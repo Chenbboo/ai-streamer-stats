@@ -32,6 +32,10 @@
             <span>支持通过 Excel 批量填充，导入后仍可修改</span>
           </div>
           <div class="item-toolbar-actions">
+            <div v-if="importProgress.active" class="excel-compress-progress">
+              <span>{{ importProgress.text }}</span>
+              <el-progress :percentage="importProgress.percentage" :stroke-width="5" :show-text="false" />
+            </div>
             <el-button icon="Download" @click="downloadImportTemplate">下载模板</el-button>
             <el-upload action="#" :accept="form.docType==='PURCHASE_IN'?'.xlsx':'.xls,.xlsx'" :auto-upload="false" :show-file-list="false"
               :on-change="handleImportFile">
@@ -125,6 +129,9 @@
         <el-tag type="success">可导入 {{ importPreview.validCount || 0 }} 行</el-tag>
         <el-tag v-if="importPreview.newProductCount" type="warning">新商品 {{ importPreview.newProductCount }} 个</el-tag>
         <el-tag :type="importPreview.errorCount ? 'danger' : 'info'">错误 {{ importPreview.errorCount || 0 }} 行</el-tag>
+        <el-tag v-if="importCompression?.compressed" type="info">
+          本地压缩 {{ formatFileSize(importCompression.originalSize) }} → {{ formatFileSize(importCompression.outputSize) }}
+        </el-tag>
         <span v-if="importPreview.errorCount">请修正 Excel 中的错误后重新上传。</span>
       </div>
       <el-table :data="importPreview.rows || []" border max-height="520">
@@ -168,10 +175,13 @@
 <script setup name="JewelryDocument">
 import {saveAs} from 'file-saver'
 import {listJewelryDocuments,getJewelryDocument,saveJewelryDocument,submitJewelryDocument,withdrawJewelryDocument,createJewelryReversal,listJewelryProducts,listJewelryProductOptions,listJewelrySuppliers,saveJewelryProduct,downloadJewelryDocumentImportTemplate,previewJewelryDocumentImport} from '@/api/jewelry/erp'
+import {compressXlsxImages,formatFileSize} from '@/utils/xlsxImageCompressor'
 import useUserStore from '@/store/modules/user'
 const {proxy}=getCurrentInstance(),rows=ref([]),total=ref(0),loading=ref(false),dialog=ref(false),readonly=ref(false),products=ref([]),suppliers=ref([]),salesDocuments=ref([])
 const productDialog=ref(false),productSaving=ref(false),productFormRef=ref(),activeProductRow=ref(null)
 const importDialog=ref(false),importLoading=ref(false),applyingImport=ref(false),importPreview=ref({})
+const importCompression=ref(null)
+const importProgress=reactive({active:false,percentage:0,text:''})
 const blankQuickProduct=()=>({sku:'',productName:'',productType:'FINISHED',category:'',specification:'',imageUrl:'',imageUrls:'',unit:'件',warningQty:5,status:'0',defaultPackFee:0,defaultShipFee:0,defaultCertFee:0})
 const quickProduct=reactive(blankQuickProduct())
 const productRules={sku:[{required:true,message:'请输入SKU',trigger:'blur'}],productName:[{required:true,message:'请输入商品名称',trigger:'blur'}]}
@@ -224,11 +234,33 @@ async function downloadImportTemplate(){
 async function handleImportFile(uploadFile){
   if(!uploadFile?.raw)return
   importLoading.value=true
+  importCompression.value=null
   try{
-    const r=await previewJewelryDocumentImport(form.docType,uploadFile.raw)
+    let importFile=uploadFile.raw
+    if(form.docType==='PURCHASE_IN'&&String(importFile.name||'').toLowerCase().endsWith('.xlsx')){
+      importProgress.active=true
+      importProgress.percentage=0
+      importProgress.text='准备压缩'
+      const compression=await compressXlsxImages(importFile,progress=>Object.assign(importProgress,progress))
+      importFile=compression.file
+      importCompression.value=compression
+      if(compression.compressed){
+        proxy.$modal.msgSuccess(`本地压缩完成：${formatFileSize(compression.originalSize)} → ${formatFileSize(compression.outputSize)}，处理 ${compression.compressed} 张图片`)
+      }
+      if(compression.skipped){
+        proxy.$modal.msgWarning(`${compression.skipped} 张图片未能压缩，已保留原图`)
+      }
+      importProgress.text='正在上传并校验'
+    }
+    const r=await previewJewelryDocumentImport(form.docType,importFile)
     importPreview.value=r.data||{}
     importDialog.value=true
-  }finally{importLoading.value=false}
+  }catch(error){
+    proxy.$modal.msgError(error?.message||'Excel 导入失败')
+  }finally{
+    importLoading.value=false
+    importProgress.active=false
+  }
 }
 async function applyImportRows(){
   if(Number(importPreview.value.errorCount)>0)return
@@ -290,11 +322,11 @@ async function sourceChanged(id){
   form.taxRate=0
   form.items=(source.items||[]).map(item=>({...blankItem(),productId:item.productId,qty:1,unitPrice:Number(item.unitPrice||0),unitCost:Number(item.unitCost||0),packFee:0,shipFee:Number(item.shipFee||0),certFee:Number(item.certFee||0),sourceItemId:item.itemId}))
 }
-function typeChanged(){form.items=[blankItem()];form.supplierId=null;form.supplierNameSnapshot='';form.salesChannel='';form.platformRate=0;form.commissionRate=0;form.taxRate=0;form.returnReason='';form.sourceDocumentId=null;form.unlinkedReason='';importPreview.value={}}
+function typeChanged(){form.items=[blankItem()];form.supplierId=null;form.supplierNameSnapshot='';form.salesChannel='';form.platformRate=0;form.commissionRate=0;form.taxRate=0;form.returnReason='';form.sourceDocumentId=null;form.unlinkedReason='';importPreview.value={};importCompression.value=null}
 async function save(){if(!form.items.length||form.items.some(x=>!x.productId)){proxy.$modal.msgError('请完整选择商品');return}if(needsSupplier.value&&!form.supplierId){proxy.$modal.msgError('请选择供应商');return}if(needsSalesChannel.value&&!form.salesChannel.trim()){proxy.$modal.msgError('请填写销售渠道');return}if(needsReason.value&&!form.returnReason.trim()){proxy.$modal.msgError(`请填写${reasonLabel.value}`);return}if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&!form.unlinkedReason.trim()){proxy.$modal.msgError('未关联原销售单时必须填写原因');return}await saveJewelryDocument(form);proxy.$modal.msgSuccess('草稿已保存');dialog.value=false;load()}
 async function submit(row){await proxy.$modal.confirm(`确认提交单据 ${row.docNo}？`);await submitJewelryDocument(row.documentId);proxy.$modal.msgSuccess('已提交');load()}
 async function withdraw(row){await proxy.$modal.confirm(`确认撤回单据 ${row.docNo}？`);await withdrawJewelryDocument(row.documentId);proxy.$modal.msgSuccess('已撤回');load()}
 async function reverse(row){await proxy.$modal.confirm(`确认对单据 ${row.docNo} 发起整单红冲？红冲单审核通过后入账。`);await createJewelryReversal(row.documentId);proxy.$modal.msgSuccess('红冲草稿已生成');load()}
 preload();load()
 </script>
-<style scoped>.sheet{border:1px solid #cfd5dc}.sheet-head{display:grid;grid-template-columns:repeat(6,minmax(150px,1fr));gap:12px;padding:14px;background:#f4f6f8}.sheet-head :deep(.el-form-item){margin:0}.sheet-head :deep(.el-input-number),.sheet-head :deep(.el-select),.sheet-head :deep(.el-date-editor){width:100%}.item-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-top:1px solid #d9dee5;background:#fafbfc}.item-toolbar>div:first-child{display:flex;align-items:baseline;gap:10px}.item-toolbar b{color:#334155;font-size:14px}.item-toolbar span{color:#8490a0;font-size:12px}.item-toolbar-actions{display:flex;align-items:center;gap:8px}.item-table{border-left:0;border-right:0}.item-table :deep(.el-input-number){width:100%;min-width:0}.product-picker{display:flex;align-items:center;gap:8px}.product-picker .el-select{flex:1;min-width:0}.product-picker .el-button{flex:none}.add-line{margin:12px}.document-total{display:flex;justify-content:flex-end;gap:28px;padding:12px 16px;border-top:1px solid #d9dee5;background:#f8fafc;color:#475569}.document-total b{color:#111827}.loss,.document-total .loss,.document-total .loss b{color:#dc2626;font-weight:700}.sheet-foot{padding:12px 14px 0;border-top:1px solid #d9dee5}.import-summary{display:flex;align-items:center;gap:10px;margin-bottom:14px}.import-summary span:last-child{color:#7c8796}.import-error{color:#c2413a}@media(max-width:1200px){.sheet-head{grid-template-columns:repeat(3,1fr)}}@media(max-width:760px){.sheet-head{grid-template-columns:1fr}.item-toolbar{align-items:stretch;flex-direction:column;gap:10px}.item-toolbar>div:first-child{align-items:flex-start;flex-direction:column;gap:2px}.product-picker{align-items:stretch;flex-direction:column}.document-total{justify-content:flex-start;flex-wrap:wrap;gap:12px 20px}}</style>
+<style scoped>.sheet{border:1px solid #cfd5dc}.sheet-head{display:grid;grid-template-columns:repeat(6,minmax(150px,1fr));gap:12px;padding:14px;background:#f4f6f8}.sheet-head :deep(.el-form-item){margin:0}.sheet-head :deep(.el-input-number),.sheet-head :deep(.el-select),.sheet-head :deep(.el-date-editor){width:100%}.item-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-top:1px solid #d9dee5;background:#fafbfc}.item-toolbar>div:first-child{display:flex;align-items:baseline;gap:10px}.item-toolbar b{color:#334155;font-size:14px}.item-toolbar span{color:#8490a0;font-size:12px}.item-toolbar-actions{display:flex;align-items:center;gap:8px}.excel-compress-progress{display:flex!important;flex-direction:column;align-items:stretch!important;gap:4px!important;width:180px}.excel-compress-progress span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.excel-compress-progress :deep(.el-progress){width:100%}.item-table{border-left:0;border-right:0}.item-table :deep(.el-input-number){width:100%;min-width:0}.product-picker{display:flex;align-items:center;gap:8px}.product-picker .el-select{flex:1;min-width:0}.product-picker .el-button{flex:none}.add-line{margin:12px}.document-total{display:flex;justify-content:flex-end;gap:28px;padding:12px 16px;border-top:1px solid #d9dee5;background:#f8fafc;color:#475569}.document-total b{color:#111827}.loss,.document-total .loss,.document-total .loss b{color:#dc2626;font-weight:700}.sheet-foot{padding:12px 14px 0;border-top:1px solid #d9dee5}.import-summary{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}.import-summary span:last-child{color:#7c8796}.import-error{color:#c2413a}@media(max-width:1200px){.sheet-head{grid-template-columns:repeat(3,1fr)}}@media(max-width:760px){.sheet-head{grid-template-columns:1fr}.item-toolbar{align-items:stretch;flex-direction:column;gap:10px}.item-toolbar>div:first-child{align-items:flex-start;flex-direction:column;gap:2px}.item-toolbar-actions{flex-wrap:wrap}.excel-compress-progress{width:100%}.product-picker{align-items:stretch;flex-direction:column}.document-total{justify-content:flex-start;flex-wrap:wrap;gap:12px 20px}}</style>
