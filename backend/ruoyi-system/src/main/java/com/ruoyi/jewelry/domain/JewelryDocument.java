@@ -3,6 +3,7 @@ package com.ruoyi.jewelry.domain;
 import java.math.BigDecimal;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.ruoyi.common.core.domain.BaseEntity;
 
@@ -32,6 +33,9 @@ public class JewelryDocument extends BaseEntity
     private BigDecimal totalCost;
     private BigDecimal totalProfit;
     private String riskStatus;
+    private BigDecimal laborFee;
+    private BigDecimal processingFee;
+    private BigDecimal otherFee;
     private Long creatorUserId;
     private String creatorName;
     private Long firstReviewerUserId;
@@ -41,6 +45,7 @@ public class JewelryDocument extends BaseEntity
     private String rejectReason;
     private Integer version;
     private List<JewelryDocumentItem> items;
+    private Map<String, Object> newOutputProduct;
 
     public Long getDocumentId() { return documentId; }
     public void setDocumentId(Long documentId) { this.documentId = documentId; }
@@ -84,6 +89,12 @@ public class JewelryDocument extends BaseEntity
     public void setTotalProfit(BigDecimal totalProfit) { this.totalProfit = totalProfit; }
     public String getRiskStatus() { return riskStatus; }
     public void setRiskStatus(String riskStatus) { this.riskStatus = riskStatus; }
+    public BigDecimal getLaborFee() { return laborFee; }
+    public void setLaborFee(BigDecimal laborFee) { this.laborFee = laborFee; }
+    public BigDecimal getProcessingFee() { return processingFee; }
+    public void setProcessingFee(BigDecimal processingFee) { this.processingFee = processingFee; }
+    public BigDecimal getOtherFee() { return otherFee; }
+    public void setOtherFee(BigDecimal otherFee) { this.otherFee = otherFee; }
     public Long getCreatorUserId() { return creatorUserId; }
     public void setCreatorUserId(Long creatorUserId) { this.creatorUserId = creatorUserId; }
     public String getCreatorName() { return creatorName; }
@@ -102,4 +113,6 @@ public class JewelryDocument extends BaseEntity
     public void setVersion(Integer version) { this.version = version; }
     public List<JewelryDocumentItem> getItems() { return items; }
     public void setItems(List<JewelryDocumentItem> items) { this.items = items; }
+    public Map<String, Object> getNewOutputProduct() { return newOutputProduct; }
+    public void setNewOutputProduct(Map<String, Object> newOutputProduct) { this.newOutputProduct = newOutputProduct; }
 }

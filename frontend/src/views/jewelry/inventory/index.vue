@@ -177,8 +177,8 @@ const readonly = ref(false)
 const itemKeyword = ref('')
 const statuses = [
   { value: 'DRAFT', label: '草稿' },
-  { value: 'PENDING_FIRST', label: '待一审' },
-  { value: 'PENDING_SECOND', label: '待复核' },
+  { value: 'PENDING_FIRST', label: '待审核' },
+  { value: 'PENDING_SECOND', label: '待审核' },
   { value: 'POSTED', label: '已入账' },
   { value: 'REJECTED', label: '已驳回' },
   { value: 'REVERSED', label: '已红冲' }

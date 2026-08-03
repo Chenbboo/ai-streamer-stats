@@ -1,8 +1,15 @@
 package com.ruoyi.jewelry.service;
 
 import java.io.ByteArrayOutputStream;
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -13,20 +20,34 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import javax.imageio.ImageIO;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.DataFormatter;
+import org.apache.poi.ss.usermodel.DataValidation;
+import org.apache.poi.ss.usermodel.DataValidationConstraint;
+import org.apache.poi.ss.usermodel.DataValidationHelper;
 import org.apache.poi.ss.usermodel.FillPatternType;
 import org.apache.poi.ss.usermodel.Font;
 import org.apache.poi.ss.usermodel.FormulaEvaluator;
 import org.apache.poi.ss.usermodel.IndexedColors;
+import org.apache.poi.ss.usermodel.Name;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.usermodel.WorkbookFactory;
+import org.apache.poi.ss.util.CellRangeAddressList;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.xssf.usermodel.XSSFClientAnchor;
+import org.apache.poi.xssf.usermodel.XSSFDrawing;
+import org.apache.poi.xssf.usermodel.XSSFPicture;
+import org.apache.poi.xssf.usermodel.XSSFPictureData;
+import org.apache.poi.xssf.usermodel.XSSFShape;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import com.ruoyi.common.config.RuoYiConfig;
+import com.ruoyi.common.constant.Constants;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.jewelry.mapper.JewelryErpMapper;
 
@@ -34,6 +55,8 @@ import com.ruoyi.jewelry.mapper.JewelryErpMapper;
 public class JewelryDocumentExcelService
 {
     private static final int MAX_ROWS = 500;
+    private static final int MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+    private static final String IMAGE_HEADER = "商品图片";
     private static final Set<String> SUPPORTED_TYPES = Collections.unmodifiableSet(
         new HashSet<String>(Arrays.asList("PURCHASE_IN", "SALES_OUT", "STOCK_ADJUST")));
 
@@ -61,6 +84,54 @@ public class JewelryDocumentExcelService
                 cell.setCellStyle(headerStyle);
                 data.setColumnWidth(i, Math.max(14, headers[i].length() + 4) * 256);
             }
+            if ("PURCHASE_IN".equals(docType))
+            {
+                Integer typeColumn = findHeader(headers, "商品类型（新商品必填）");
+                if (typeColumn != null)
+                {
+                    Sheet options = workbook.createSheet("模板选项");
+                    options.createRow(0).createCell(0).setCellValue("散件");
+                    options.createRow(1).createCell(0).setCellValue("成品");
+                    Name productTypeOptions = workbook.createName();
+                    productTypeOptions.setNameName("ProductTypeOptions");
+                    productTypeOptions.setRefersToFormula("'模板选项'!$A$1:$A$2");
+                    workbook.setSheetHidden(workbook.getSheetIndex(options), true);
+
+                    DataValidationHelper validationHelper = data.getDataValidationHelper();
+                    DataValidationConstraint constraint =
+                        validationHelper.createFormulaListConstraint("ProductTypeOptions");
+                    CellRangeAddressList addressList =
+                        new CellRangeAddressList(1, MAX_ROWS, typeColumn, typeColumn);
+                    DataValidation validation = validationHelper.createValidation(constraint, addressList);
+                    validation.setSuppressDropDownArrow(true);
+                    validation.setShowErrorBox(true);
+                    validation.setShowPromptBox(true);
+                    validation.createPromptBox("商品类型", "请从下拉列表中选择“散件”或“成品”");
+                    validation.createErrorBox("商品类型不正确", "请从下拉列表中选择“散件”或“成品”");
+                    data.addValidationData(validation);
+
+                    CellStyle typeStyle = workbook.createCellStyle();
+                    typeStyle.setFillForegroundColor(IndexedColors.LIGHT_YELLOW.getIndex());
+                    typeStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+                    for (int rowIndex = 1; rowIndex <= 20; rowIndex++)
+                    {
+                        Row typeRow = data.getRow(rowIndex);
+                        if (typeRow == null) typeRow = data.createRow(rowIndex);
+                        typeRow.createCell(typeColumn).setCellStyle(typeStyle);
+                    }
+                }
+                Integer imageColumn = findHeader(headers, IMAGE_HEADER);
+                if (imageColumn != null)
+                {
+                    data.setColumnWidth(imageColumn, 18 * 256);
+                    for (int i = 1; i <= 20; i++)
+                    {
+                        Row imageRow = data.getRow(i);
+                        if (imageRow == null) imageRow = data.createRow(i);
+                        imageRow.setHeightInPoints(72);
+                    }
+                }
+            }
             data.createFreezePane(0, 1);
 
             Sheet guide = workbook.createSheet("填写说明");
@@ -84,6 +155,8 @@ public class JewelryDocumentExcelService
         requireSupported(docType);
         try (Workbook workbook = WorkbookFactory.create(input))
         {
+            if ("PURCHASE_IN".equals(docType) && !(workbook instanceof XSSFWorkbook))
+                throw new ServiceException("采购入库含商品图片时仅支持xlsx格式");
             if (workbook.getNumberOfSheets() == 0) throw new ServiceException("Excel中没有工作表");
             Sheet sheet = workbook.getSheetAt(0);
             Row headerRow = sheet.getRow(0);
@@ -96,6 +169,9 @@ public class JewelryDocumentExcelService
             {
                 if (!columns.containsKey(required)) throw new ServiceException("Excel缺少必填列：" + required);
             }
+            Map<Integer, EmbeddedImage> embeddedImages = "PURCHASE_IN".equals(docType)
+                ? extractEmbeddedImages((XSSFSheet) sheet, columns.get(IMAGE_HEADER))
+                : Collections.<Integer, EmbeddedImage>emptyMap();
 
             Map<String, Map<String, Object>> products = loadProducts();
             List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
@@ -128,6 +204,40 @@ public class JewelryDocumentExcelService
                 {
                     if (!allowNewProduct) errors.add("当前账号无权新增商品档案");
                     if (string(row.get("productName")).isEmpty()) errors.add("新商品必须填写商品名称");
+                    String productType = normalizeProductType(string(row.get("productType")));
+                    if (productType == null) errors.add("新商品类型必须填写散件或成品");
+                    else row.put("productType", productType);
+                }
+                if (!newProduct && "PURCHASE_IN".equals(docType))
+                {
+                    String inputType = string(row.get("productType"));
+                    String currentType = string(product.get("productType"));
+                    if (!inputType.isEmpty())
+                    {
+                        String normalized = normalizeProductType(inputType);
+                        if (normalized == null) errors.add("商品类型只能填写散件或成品");
+                        else if (!normalized.equals(currentType)) errors.add("已有SKU的商品类型与商品档案不一致");
+                    }
+                    row.put("productType", currentType);
+                }
+                if ("PURCHASE_IN".equals(docType))
+                {
+                    EmbeddedImage embedded = embeddedImages.get(integer(row.get("rowNumber")) - 1);
+                    if (embedded != null && embedded.error != null) errors.add(embedded.error);
+                    String existingImage = product == null ? "" :
+                        defaultString(string(product.get("imageUrl")), firstImage(string(product.get("imageUrls"))));
+                    if (embedded == null && existingImage.isEmpty()) errors.add("商品图片不能为空");
+                    if (embedded != null && embedded.error == null)
+                    {
+                        String imageUrl = storeEmbeddedImage(embedded);
+                        row.put("imageUrl", imageUrl);
+                        row.put("imageUrls", imageUrl);
+                    }
+                    else if (!existingImage.isEmpty())
+                    {
+                        row.put("imageUrl", existingImage);
+                        row.put("imageUrls", existingImage);
+                    }
                 }
                 validateNumbers(docType, row, product, errors);
                 if (product != null)
@@ -177,6 +287,7 @@ public class JewelryDocumentExcelService
         if ("PURCHASE_IN".equals(docType))
         {
             row.put("productName", value(source, columns, "商品名称（新商品必填）", formatter, evaluator).trim());
+            row.put("productType", value(source, columns, "商品类型（新商品必填）", formatter, evaluator).trim());
             row.put("category", value(source, columns, "分类", formatter, evaluator).trim());
             row.put("specification", value(source, columns, "规格", formatter, evaluator).trim());
             row.put("unit", defaultString(value(source, columns, "单位", formatter, evaluator).trim(), "件"));
@@ -302,7 +413,8 @@ public class JewelryDocumentExcelService
     private String[] headers(String docType)
     {
         if ("PURCHASE_IN".equals(docType))
-            return new String[] { "SKU", "商品名称（新商品必填）", "分类", "规格", "单位", "数量", "采购单价" };
+            return new String[] { "SKU", "商品名称（新商品必填）", "商品类型（新商品必填）",
+                "分类", "规格", "单位", "数量", "采购单价", IMAGE_HEADER };
         if ("SALES_OUT".equals(docType))
             return new String[] { "SKU", "数量", "成交单价", "包装费/件", "物流费/件", "鉴定费/件" };
         return new String[] { "SKU", "实盘数量", "调整原因" };
@@ -317,7 +429,10 @@ public class JewelryDocumentExcelService
     {
         if ("PURCHASE_IN".equals(docType))
             return new String[] { "一行填写一个SKU，数量必须为正整数。", "已有SKU只需填写SKU、数量和采购单价。",
-                "新SKU必须填写商品名称；确认导入时系统会先创建商品档案。", "单次最多500行，禁止重复SKU。" };
+                "新SKU必须填写商品名称和商品类型，商品类型只能填写“散件”或“成品”。",
+                "每行只能在“商品图片”列插入一张JPG或PNG图片；已有档案图片的SKU可不重复插图。",
+                "图片应完整放在对应单元格内，并设置为随单元格移动和调整大小。",
+                "确认导入时系统会先创建商品档案。单次最多500行，禁止重复SKU。" };
         if ("SALES_OUT".equals(docType))
             return new String[] { "一行填写一个SKU，SKU必须已存在。", "销售数量不能超过当前可用库存。",
                 "费用均按每件填写，未发生费用时填写0。", "单次最多500行，禁止重复SKU。" };
@@ -328,6 +443,132 @@ public class JewelryDocumentExcelService
     private void requireSupported(String docType)
     {
         if (!SUPPORTED_TYPES.contains(docType)) throw new ServiceException("当前单据类型暂不支持Excel导入");
+    }
+
+    private Integer findHeader(String[] headers, String target)
+    {
+        for (int i = 0; i < headers.length; i++) if (target.equals(headers[i])) return i;
+        return null;
+    }
+
+    private String normalizeProductType(String value)
+    {
+        if ("散件".equals(value) || "PART".equalsIgnoreCase(value)) return "PART";
+        if ("成品".equals(value) || "FINISHED".equalsIgnoreCase(value)) return "FINISHED";
+        return null;
+    }
+
+    private String firstImage(String values)
+    {
+        if (values == null) return "";
+        for (String value : values.split(",")) if (!value.trim().isEmpty()) return value.trim();
+        return "";
+    }
+
+    private Map<Integer, EmbeddedImage> extractEmbeddedImages(XSSFSheet sheet, Integer imageColumn)
+    {
+        Map<Integer, EmbeddedImage> images = new HashMap<Integer, EmbeddedImage>();
+        XSSFDrawing drawing = sheet.getDrawingPatriarch();
+        if (drawing == null || imageColumn == null) return images;
+        for (XSSFShape shape : drawing.getShapes())
+        {
+            if (!(shape instanceof XSSFPicture)) continue;
+            XSSFPicture picture = (XSSFPicture) shape;
+            XSSFClientAnchor anchor = picture.getClientAnchor();
+            if (anchor == null || anchor.getRow1() < 1) continue;
+            int rowIndex = anchor.getRow1();
+            if (anchor.getCol1() != imageColumn)
+            {
+                images.put(rowIndex, EmbeddedImage.error("图片必须放在该行的“商品图片”单元格中"));
+                continue;
+            }
+            if (images.containsKey(rowIndex))
+            {
+                images.put(rowIndex, EmbeddedImage.error("每行只能插入一张商品图片"));
+                continue;
+            }
+            XSSFPictureData pictureData = picture.getPictureData();
+            byte[] data = pictureData == null ? null : pictureData.getData();
+            String extension = pictureData == null ? "" : pictureData.suggestFileExtension();
+            if (!"png".equalsIgnoreCase(extension) && !"jpg".equalsIgnoreCase(extension)
+                && !"jpeg".equalsIgnoreCase(extension))
+            {
+                images.put(rowIndex, EmbeddedImage.error("商品图片仅支持JPG、JPEG和PNG"));
+            }
+            else if (data == null || data.length == 0 || data.length > MAX_IMAGE_BYTES)
+            {
+                images.put(rowIndex, EmbeddedImage.error("商品图片不能为空且单张不能超过5MB"));
+            }
+            else
+            {
+                try
+                {
+                    if (ImageIO.read(new ByteArrayInputStream(data)) == null)
+                        images.put(rowIndex, EmbeddedImage.error("商品图片内容无法识别"));
+                    else
+                        images.put(rowIndex, new EmbeddedImage(data,
+                            "jpeg".equalsIgnoreCase(extension) ? "jpg" : extension.toLowerCase(Locale.ROOT), null));
+                }
+                catch (Exception e)
+                {
+                    images.put(rowIndex, EmbeddedImage.error("商品图片内容无法识别"));
+                }
+            }
+        }
+        return images;
+    }
+
+    private String storeEmbeddedImage(EmbeddedImage image)
+    {
+        try
+        {
+            String profile = RuoYiConfig.getProfile();
+            if (profile == null || profile.trim().isEmpty()) throw new ServiceException("系统上传目录未配置");
+            String datePath = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd"));
+            Path profileRoot = Paths.get(profile).toAbsolutePath().normalize();
+            Path directory = profileRoot.resolve(Paths.get("jewelry", "import", datePath)).normalize();
+            if (!directory.startsWith(profileRoot)) throw new ServiceException("商品图片保存路径不正确");
+            Files.createDirectories(directory);
+            String filename = sha256(image.data) + "." + image.extension;
+            Path target = directory.resolve(filename);
+            if (!Files.exists(target)) Files.write(target, image.data);
+            return Constants.RESOURCE_PREFIX + "/jewelry/import/" + datePath + "/" + filename;
+        }
+        catch (ServiceException e)
+        {
+            throw e;
+        }
+        catch (Exception e)
+        {
+            throw new ServiceException("保存Excel商品图片失败：" + e.getMessage());
+        }
+    }
+
+    private String sha256(byte[] data) throws Exception
+    {
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(data);
+        StringBuilder hex = new StringBuilder(digest.length * 2);
+        for (byte value : digest) hex.append(String.format("%02x", value & 0xff));
+        return hex.toString();
+    }
+
+    private static class EmbeddedImage
+    {
+        private final byte[] data;
+        private final String extension;
+        private final String error;
+
+        private EmbeddedImage(byte[] data, String extension, String error)
+        {
+            this.data = data;
+            this.extension = extension;
+            this.error = error;
+        }
+
+        private static EmbeddedImage error(String message)
+        {
+            return new EmbeddedImage(null, null, message);
+        }
     }
 
     private String normalizeSku(String value) { return value == null ? "" : value.trim().toUpperCase(Locale.ROOT); }

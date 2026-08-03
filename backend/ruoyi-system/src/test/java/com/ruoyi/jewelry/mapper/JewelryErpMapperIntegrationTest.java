@@ -32,6 +32,8 @@ import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.ruoyi.jewelry.domain.JewelryDocument;
+
 class JewelryErpMapperIntegrationTest
 {
     private DataSource dataSource;
@@ -122,6 +124,23 @@ class JewelryErpMapperIntegrationTest
             stringValue("select reject_user_name from jewelry_document where document_id=1"));
         assertEquals("wrong quantity",
             stringValue("select reject_reason from jewelry_document where document_id=1"));
+    }
+
+    @Test
+    void pendingDocumentFilterIncludesLegacySecondReview()
+    {
+        insertDocument(1L, "DOC-PENDING", "PURCHASE_IN", "PENDING_FIRST", null);
+        insertDocument(2L, "DOC-LEGACY", "PURCHASE_IN", "PENDING_SECOND", null);
+        insertDocument(3L, "DOC-POSTED", "PURCHASE_IN", "POSTED", null);
+
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            JewelryDocument query = new JewelryDocument();
+            query.setStatus("PENDING");
+
+            assertEquals(2, mapper.selectDocumentList(query).size());
+        }
     }
 
     @Test

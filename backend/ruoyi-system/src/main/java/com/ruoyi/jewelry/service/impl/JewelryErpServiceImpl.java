@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.common.exception.ServiceException;
@@ -27,7 +28,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(6);
     private static final Set<String> EDITABLE_DOCUMENT_TYPES = Collections.unmodifiableSet(
         new HashSet<String>(Arrays.asList("PURCHASE_IN", "SALES_OUT", "SUPPLIER_RETURN",
-            "CUSTOMER_RETURN", "RETURN_INSPECT", "STOCK_ADJUST")));
+            "CUSTOMER_RETURN", "RETURN_INSPECT", "STOCK_ADJUST", "ASSEMBLY")));
 
     @Autowired
     private JewelryErpMapper mapper;
@@ -39,6 +40,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     @Transactional
     public int saveProduct(Map<String, Object> product)
     {
+        String productImage = singleImage(product.get("imageUrls"));
+        if (productImage.isEmpty()) productImage = singleImage(product.get("imageUrl"));
+        product.put("imageUrls", productImage);
+        product.put("imageUrl", productImage);
         int rows;
         if (product.get("productId") == null)
         {
@@ -91,6 +96,18 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     }
 
     @Override
+    public JewelryDocument getDocumentForDisplay(Long documentId)
+    {
+        JewelryDocument document = getDocument(documentId);
+        if ("ASSEMBLY".equals(document.getDocType())
+            && ("PENDING_FIRST".equals(document.getStatus()) || "PENDING_SECOND".equals(document.getStatus())))
+        {
+            refreshAssemblyCosts(document, false, false);
+        }
+        return document;
+    }
+
+    @Override
     @Transactional
     public JewelryDocument saveDocument(JewelryDocument document, Long userId, String userName)
     {
@@ -102,6 +119,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         {
             prepareStockAdjustment(document);
         }
+        prepareInlineAssemblyOutput(document, userName);
         validateDocument(document);
         calculateDocument(document);
         document.setUpdateBy(userName);
@@ -118,6 +136,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         else
         {
             JewelryDocument current = requireDocument(document.getDocumentId());
+            if (!text(current.getDocType()).equals(text(document.getDocType())))
+            {
+                throw new ServiceException("单据类型创建后不允许修改");
+            }
             if ("REVERSAL".equals(current.getDocType()))
             {
                 throw new ServiceException("红冲单明细不允许修改");
@@ -139,10 +161,83 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         }
         for (JewelryDocumentItem item : document.getItems())
         {
+            if ("PURCHASE_IN".equals(document.getDocType()))
+            {
+                item.setImageUrls(singleImage(item.getImageUrls()));
+            }
             item.setDocumentId(document.getDocumentId());
             mapper.insertDocumentItem(item);
+            if ("PURCHASE_IN".equals(document.getDocType()) && !text(item.getImageUrls()).isEmpty())
+            {
+                String firstImage = item.getImageUrls().split(",")[0].trim();
+                mapper.updateProductImagesIfEmpty(item.getProductId(), firstImage, item.getImageUrls(), userName);
+            }
         }
         return getDocument(document.getDocumentId());
+    }
+
+    private void prepareInlineAssemblyOutput(JewelryDocument document, String userName)
+    {
+        Map<String, Object> product = document.getNewOutputProduct();
+        if (product == null || product.isEmpty()) return;
+        if (!"ASSEMBLY".equals(document.getDocType()))
+            throw new ServiceException("只有组装单可以同时新建成品档案");
+        if (document.getItems() == null || document.getItems().isEmpty())
+            throw new ServiceException("组装单明细不能为空");
+
+        JewelryDocumentItem output = null;
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            if (!"OUTPUT".equals(item.getItemRole())) continue;
+            if (output != null) throw new ServiceException("组装单必须且只能有一个成品产出");
+            output = item;
+        }
+        if (output == null) throw new ServiceException("请填写组装成品信息");
+        if (output.getProductId() != null) throw new ServiceException("新建成品不能同时选择已有成品");
+
+        String sku = text(product.get("sku") == null ? null : String.valueOf(product.get("sku"))).trim();
+        String name = text(product.get("productName") == null ? null : String.valueOf(product.get("productName"))).trim();
+        if (sku.isEmpty() || name.isEmpty()) throw new ServiceException("新成品的SKU和商品名称不能为空");
+
+        String productImage = singleImage(product.get("imageUrls"));
+        if (productImage.isEmpty()) productImage = singleImage(output.getImageUrls());
+        product.remove("productId");
+        product.put("sku", sku);
+        product.put("productName", name);
+        product.put("productType", "FINISHED");
+        product.put("category", textValue(product.get("category")));
+        product.put("specification", textValue(product.get("specification")));
+        product.put("imageUrl", productImage);
+        product.put("imageUrls", productImage);
+        product.put("unit", textValue(product.get("unit")).isEmpty() ? "件" : textValue(product.get("unit")));
+        product.put("defaultPackFee", ZERO);
+        product.put("defaultShipFee", ZERO);
+        product.put("defaultCertFee", ZERO);
+        product.put("warningQty", nonNegativeValue(product.get("warningQty"), 5));
+        product.put("status", "0");
+        product.put("createBy", userName);
+        product.put("remark", textValue(product.get("remark")));
+        try
+        {
+            mapper.insertProduct(product);
+        }
+        catch (DuplicateKeyException ex)
+        {
+            throw new ServiceException("SKU已存在，请更换SKU或选择已有成品");
+        }
+        Long productId = longValue(product.get("productId"));
+        if (productId <= 0) throw new ServiceException("新成品档案创建失败");
+        mapper.ensureStock(productId);
+        output.setProductId(productId);
+        if (text(output.getImageUrls()).isEmpty()) output.setImageUrls(productImage);
+        document.setNewOutputProduct(null);
+    }
+
+    private String singleImage(Object value)
+    {
+        String images = value == null ? "" : text(String.valueOf(value));
+        if (images.isEmpty()) return "";
+        return images.split(",")[0].trim();
     }
 
     @Override
@@ -161,6 +256,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         if ("REVERSAL".equals(source.getDocType()))
         {
             throw new ServiceException("红冲单不能再次红冲");
+        }
+        if ("ASSEMBLY".equals(source.getDocType()))
+        {
+            throw new ServiceException("组装单暂不支持整单红冲，请通过库存调整处理差异");
         }
         if (mapper.countReversalBySource(sourceDocumentId) > 0)
         {
@@ -192,6 +291,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         reversal.setTotalCost(money(source.getTotalCost()).negate().setScale(2, RoundingMode.HALF_UP));
         reversal.setTotalProfit(money(source.getTotalProfit()).negate().setScale(2, RoundingMode.HALF_UP));
         reversal.setRiskStatus("NORMAL");
+        reversal.setLaborFee(ZERO);
+        reversal.setProcessingFee(ZERO);
+        reversal.setOtherFee(ZERO);
         reversal.setCreatorUserId(userId);
         reversal.setCreatorName(userName);
         reversal.setCreateBy(userName);
@@ -230,6 +332,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         {
             validateStockAdjustmentSnapshot(document);
         }
+        if ("ASSEMBLY".equals(document.getDocType()))
+        {
+            refreshAssemblyCosts(document, true, false);
+        }
         reserve(document);
         changeStatus(document, "DRAFT", "PENDING_FIRST", userId, userName, null, null);
         mapper.insertEvent(documentId, "SUBMIT", "DRAFT", "PENDING_FIRST", userId, userName, "");
@@ -242,7 +348,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         JewelryDocument document = getDocument(documentId);
         if (!"PENDING_FIRST".equals(document.getStatus()))
         {
-            throw new ServiceException("只有待一审单据可以撤回");
+            throw new ServiceException("只有待审核单据可以撤回");
         }
         if (!userId.equals(document.getCreatorUserId()))
         {
@@ -255,24 +361,26 @@ public class JewelryErpServiceImpl implements IJewelryErpService
 
     @Override
     @Transactional
-    public void approve(Long documentId, String comment, Long userId, String userName)
+    public void approve(Long documentId, String comment, BigDecimal expectedTotalCost, Long userId, String userName)
     {
         JewelryDocument document = getDocument(documentId);
         ensureReviewer(document, userId);
-        if ("PENDING_FIRST".equals(document.getStatus()))
+        String pendingStatus = document.getStatus();
+        if (!"PENDING_FIRST".equals(pendingStatus) && !"PENDING_SECOND".equals(pendingStatus))
         {
-            changeStatus(document, "PENDING_FIRST", "PENDING_SECOND", userId, userName, null, 1);
-            mapper.insertApproval(documentId, 1, "PASS", userId, userName, text(comment));
-            mapper.insertEvent(documentId, "FIRST_APPROVE", "PENDING_FIRST", "PENDING_SECOND", userId, userName, text(comment));
-            return;
+            throw new ServiceException("当前单据不在待审核状态");
         }
-        if (!"PENDING_SECOND".equals(document.getStatus()))
+        if ("ASSEMBLY".equals(document.getDocType()))
         {
-            throw new ServiceException("当前单据不在待复核状态");
-        }
-        if (userId.equals(document.getFirstReviewerUserId()))
-        {
-            throw new ServiceException("一审与复核不能由同一人完成");
+            refreshAssemblyCosts(document, true, true);
+            if (expectedTotalCost == null)
+            {
+                throw new ServiceException("请先刷新并确认最新组装成本");
+            }
+            if (money(expectedTotalCost).compareTo(money(document.getTotalCost())) != 0)
+            {
+                throw new ServiceException("组装成本已变化，请刷新单据后重新确认");
+            }
         }
         if ("REVERSAL".equals(document.getDocType()))
         {
@@ -284,9 +392,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         {
             post(document, userId, userName);
         }
-        changeStatus(document, "PENDING_SECOND", "POSTED", userId, userName, null, 2);
-        mapper.insertApproval(documentId, 2, "PASS", userId, userName, text(comment));
-        mapper.insertEvent(documentId, "SECOND_APPROVE", "PENDING_SECOND", "POSTED", userId, userName, text(comment));
+        int stage = "PENDING_FIRST".equals(pendingStatus) ? 1 : 2;
+        changeStatus(document, pendingStatus, "POSTED", userId, userName, null, stage);
+        mapper.insertApproval(documentId, stage, "PASS", userId, userName, text(comment));
+        mapper.insertEvent(documentId, "APPROVE", pendingStatus, "POSTED", userId, userName, text(comment));
     }
 
     @Override
@@ -304,10 +413,6 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             throw new ServiceException("驳回原因不能为空");
         }
         int stage = "PENDING_FIRST".equals(document.getStatus()) ? 1 : 2;
-        if (stage == 2 && userId.equals(document.getFirstReviewerUserId()))
-        {
-            throw new ServiceException("一审与复核不能由同一人完成");
-        }
         release(document);
         changeStatus(document, document.getStatus(), "REJECTED", userId, userName, comment, null);
         mapper.insertApproval(documentId, stage, "REJECT", userId, userName, comment);
@@ -337,15 +442,42 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         validateRate(document.getCommissionRate(), "达人佣金率");
         validateRate(document.getTaxRate(), "税率");
         Set<Long> productIds = new HashSet<Long>();
+        int assemblyOutputs = 0;
+        int assemblyComponents = 0;
         for (JewelryDocumentItem item : document.getItems())
         {
             if (item.getProductId() == null) throw new ServiceException("请选择商品");
             if (!productIds.add(item.getProductId())) throw new ServiceException("同一商品不能在一张单据中重复出现");
             Map<String, Object> product = mapper.selectProductById(item.getProductId());
             if (product == null) throw new ServiceException("商品不存在或已删除");
+            if (!"0".equals(String.valueOf(product.get("status"))))
+                throw new ServiceException("商品已停用，不能继续使用");
             item.setSkuSnapshot(String.valueOf(product.get("sku")));
             item.setProductNameSnapshot(String.valueOf(product.get("productName")));
+            if (item.getItemRole() == null || item.getItemRole().trim().isEmpty()) item.setItemRole("NORMAL");
             item.setQty(nonNegative(item.getQty()));
+            if ("ASSEMBLY".equals(document.getDocType()))
+            {
+                Map<String, Object> stock = mapper.selectStockForUpdate(item.getProductId());
+                if (stock == null) throw new ServiceException("商品库存记录不存在");
+                if ("OUTPUT".equals(item.getItemRole()))
+                {
+                    assemblyOutputs++;
+                    if (!"FINISHED".equals(String.valueOf(product.get("productType"))))
+                        throw new ServiceException("组装产出必须选择成品商品");
+                }
+                else if ("COMPONENT".equals(item.getItemRole()))
+                {
+                    assemblyComponents++;
+                    if (!"PART".equals(String.valueOf(product.get("productType"))))
+                        throw new ServiceException("组装投入只能选择散件商品");
+                    item.setUnitCost(decimal(stock.get("avgCost")));
+                }
+                else
+                {
+                    throw new ServiceException("组装明细角色不正确");
+                }
+            }
             if ("SALES_OUT".equals(document.getDocType()) || "SUPPLIER_RETURN".equals(document.getDocType()))
             {
                 Map<String, Object> stock = mapper.selectStockForUpdate(item.getProductId());
@@ -413,10 +545,67 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             if (!"RETURN_INSPECT".equals(document.getDocType()) && !"STOCK_ADJUST".equals(document.getDocType())
                 && item.getQty() <= 0) throw new ServiceException("商品数量必须大于0");
         }
+        if ("ASSEMBLY".equals(document.getDocType()))
+        {
+            if (assemblyOutputs != 1) throw new ServiceException("组装单必须且只能有一个成品产出");
+            if (assemblyComponents < 1) throw new ServiceException("组装单至少需要一个散件投入");
+            if (money(document.getLaborFee()).signum() < 0 || money(document.getProcessingFee()).signum() < 0
+                || money(document.getOtherFee()).signum() < 0)
+                throw new ServiceException("组装费用不能小于0");
+        }
+    }
+
+    private void refreshAssemblyCosts(JewelryDocument document, boolean validateState, boolean lockStock)
+    {
+        int outputs = 0;
+        int components = 0;
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            Map<String, Object> product = mapper.selectProductById(item.getProductId());
+            if (product == null)
+            {
+                if (validateState) throw new ServiceException("组装商品不存在或已删除");
+                continue;
+            }
+            String role = text(item.getItemRole());
+            if ("OUTPUT".equals(role))
+            {
+                outputs++;
+                if (validateState && !"FINISHED".equals(String.valueOf(product.get("productType"))))
+                    throw new ServiceException(item.getProductNameSnapshot() + " 已不再是成品，不能完成组装");
+            }
+            else if ("COMPONENT".equals(role))
+            {
+                components++;
+                if (validateState && !"PART".equals(String.valueOf(product.get("productType"))))
+                    throw new ServiceException(item.getProductNameSnapshot() + " 已不再是散件，不能完成组装");
+                Map<String, Object> costSource = lockStock ? mapper.selectStockForUpdate(item.getProductId()) : product;
+                if (costSource == null)
+                    throw new ServiceException(item.getProductNameSnapshot() + " 的库存记录不存在");
+                item.setUnitCost(decimal(costSource.get("avgCost")));
+            }
+            else if (validateState)
+            {
+                throw new ServiceException("组装明细角色不正确");
+            }
+            if (validateState && !"0".equals(String.valueOf(product.get("status"))))
+                throw new ServiceException(item.getProductNameSnapshot() + " 已停用，不能完成组装");
+        }
+        if (validateState && (outputs != 1 || components < 1))
+            throw new ServiceException("组装单必须有一个成品产出和至少一个散件投入");
+        calculateAssembly(document);
     }
 
     private void calculateDocument(JewelryDocument document)
     {
+        document.setLaborFee(money(document.getLaborFee()));
+        document.setProcessingFee(money(document.getProcessingFee()));
+        document.setOtherFee(money(document.getOtherFee()));
+        if ("ASSEMBLY".equals(document.getDocType()))
+        {
+            calculateAssembly(document);
+            return;
+        }
         int totalQty = 0;
         BigDecimal totalAmount = ZERO;
         BigDecimal totalCost = ZERO;
@@ -507,6 +696,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             int rows = 1;
             if (isOutbound(document.getDocType()))
                 rows = mapper.reserveOutbound(item.getProductId(), item.getQty());
+            else if ("ASSEMBLY".equals(document.getDocType()) && "COMPONENT".equals(item.getItemRole()))
+                rows = mapper.reserveOutbound(item.getProductId(), item.getQty());
             else if ("STOCK_ADJUST".equals(document.getDocType()) && item.getAdjustmentQty() < 0)
                 rows = mapper.reserveOutbound(item.getProductId(), -item.getAdjustmentQty());
             else if ("RETURN_INSPECT".equals(document.getDocType()))
@@ -526,6 +717,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         {
             int rows = 1;
             if (isOutbound(document.getDocType()))
+                rows = mapper.releaseOutbound(item.getProductId(), item.getQty());
+            else if ("ASSEMBLY".equals(document.getDocType()) && "COMPONENT".equals(item.getItemRole()))
                 rows = mapper.releaseOutbound(item.getProductId(), item.getQty());
             else if ("STOCK_ADJUST".equals(document.getDocType()) && item.getAdjustmentQty() < 0)
                 rows = mapper.releaseOutbound(item.getProductId(), -item.getAdjustmentQty());
@@ -584,6 +777,19 @@ public class JewelryErpServiceImpl implements IJewelryErpService
 
     private void post(JewelryDocument document, Long userId, String userName)
     {
+        if ("ASSEMBLY".equals(document.getDocType()))
+        {
+            for (JewelryDocumentItem item : document.getItems())
+            {
+                if ("COMPONENT".equals(item.getItemRole()))
+                {
+                    Map<String, Object> stock = mapper.selectStockForUpdate(item.getProductId());
+                    if (stock == null) throw new ServiceException("商品库存记录不存在");
+                    item.setUnitCost(decimal(stock.get("avgCost")));
+                }
+            }
+            calculateAssembly(document);
+        }
         for (JewelryDocumentItem item : document.getItems())
         {
             Map<String, Object> stock = mapper.selectStockForUpdate(item.getProductId());
@@ -686,14 +892,45 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                         .divide(BigDecimal.valueOf(onHand), 6, RoundingMode.HALF_UP);
                 }
             }
+            else if ("ASSEMBLY".equals(document.getDocType()))
+            {
+                if ("COMPONENT".equals(item.getItemRole()))
+                {
+                    if (before < qty || reserved < qty)
+                        throw new ServiceException(item.getProductNameSnapshot() + " 散件库存不足");
+                    onHand -= qty;
+                    reserved -= qty;
+                    item.setUnitCost(beforeAvg);
+                    item.setCostAmount(beforeAvg.multiply(BigDecimal.valueOf(qty)).setScale(2, RoundingMode.HALF_UP));
+                }
+                else if ("OUTPUT".equals(item.getItemRole()))
+                {
+                    BigDecimal incomingCost = money(item.getUnitCost()).multiply(BigDecimal.valueOf(qty));
+                    avg = weightedAverage(before, beforeAvg, qty, incomingCost);
+                    onHand += qty;
+                    item.setCostAmount(incomingCost.setScale(2, RoundingMode.HALF_UP));
+                }
+                mapper.updateDocumentItemCost(item);
+            }
             persistStockChange(document, item, stock, onHand, reserved, inspection, inspectionReserved,
-                defect, defectReserved, avg, inspectionCost, defectCost, document.getDocType(), userId, userName);
+                defect, defectReserved, avg, inspectionCost, defectCost,
+                "ASSEMBLY".equals(document.getDocType())
+                    ? ("OUTPUT".equals(item.getItemRole()) ? "ASSEMBLY_OUTPUT" : "ASSEMBLY_CONSUME")
+                    : document.getDocType(),
+                userId, userName);
         }
         refreshDocumentFinancials(document);
     }
 
     private void refreshDocumentFinancials(JewelryDocument document)
     {
+        if ("ASSEMBLY".equals(document.getDocType()))
+        {
+            calculateAssembly(document);
+            mapper.updateDocumentFinancials(document);
+            for (JewelryDocumentItem item : document.getItems()) mapper.updateDocumentItemCost(item);
+            return;
+        }
         int totalQty = 0;
         BigDecimal totalAmount = ZERO;
         BigDecimal totalCost = ZERO;
@@ -716,6 +953,54 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         else
             document.setRiskStatus("NORMAL");
         mapper.updateDocumentFinancials(document);
+    }
+
+    private void calculateAssembly(JewelryDocument document)
+    {
+        BigDecimal componentCost = ZERO;
+        JewelryDocumentItem output = null;
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            if ("OUTPUT".equals(item.getItemRole()))
+            {
+                output = item;
+                continue;
+            }
+            BigDecimal cost = money(item.getUnitCost());
+            item.setUnitPrice(ZERO);
+            clearNonSalesFees(item);
+            item.setAmount(ZERO.setScale(2));
+            item.setCostAmount(cost.multiply(BigDecimal.valueOf(nonNegative(item.getQty())))
+                .setScale(2, RoundingMode.HALF_UP));
+            item.setProfitAmount(ZERO.setScale(2));
+            item.setProfitRate(ZERO);
+            componentCost = componentCost.add(item.getCostAmount());
+        }
+        if (output == null || nonNegative(output.getQty()) <= 0)
+            throw new ServiceException("组装单缺少有效成品产出");
+        BigDecimal fees = money(document.getLaborFee()).add(money(document.getProcessingFee()))
+            .add(money(document.getOtherFee()));
+        BigDecimal total = componentCost.add(fees).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal unitCost = total.divide(BigDecimal.valueOf(output.getQty()), 6, RoundingMode.HALF_UP);
+        output.setUnitPrice(ZERO);
+        output.setUnitCost(unitCost);
+        clearNonSalesFees(output);
+        output.setAmount(ZERO.setScale(2));
+        output.setCostAmount(total);
+        output.setProfitAmount(ZERO.setScale(2));
+        output.setProfitRate(ZERO);
+        document.setTotalQty(output.getQty());
+        document.setTotalAmount(ZERO.setScale(2));
+        document.setTotalCost(total);
+        document.setTotalProfit(ZERO.setScale(2));
+        document.setRiskStatus("NORMAL");
+    }
+
+    private void clearNonSalesFees(JewelryDocumentItem item)
+    {
+        item.setPackFee(ZERO);
+        item.setShipFee(ZERO);
+        item.setCertFee(ZERO);
     }
 
     private void postReversal(JewelryDocument reversal, Long userId, String userName)
@@ -971,6 +1256,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         else if ("CUSTOMER_RETURN".equals(type)) prefix = "SH";
         else if ("RETURN_INSPECT".equals(type)) prefix = "ZJ";
         else if ("STOCK_ADJUST".equals(type)) prefix = "PD";
+        else if ("ASSEMBLY".equals(type)) prefix = "ZZ";
         else if ("REVERSAL".equals(type)) prefix = "HC";
         else prefix = "JE";
         return prefix + new SimpleDateFormat("yyyyMMddHHmmssSSS").format(new Date());
@@ -991,6 +1277,13 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         return item.getQty();
     }
     private int nonNegative(Integer value) { return value == null ? 0 : Math.max(0, value); }
+    private int nonNegativeValue(Object value, int defaultValue)
+    {
+        if (value == null || String.valueOf(value).trim().isEmpty()) return defaultValue;
+        try { return Math.max(0, Integer.parseInt(String.valueOf(value))); }
+        catch (NumberFormatException ex) { throw new ServiceException("库存预警值必须是整数"); }
+    }
+    private String textValue(Object value) { return value == null ? "" : String.valueOf(value).trim(); }
     private String text(String value) { return value == null ? "" : value; }
     private BigDecimal money(BigDecimal value) { return value == null ? ZERO : value.setScale(6, RoundingMode.HALF_UP); }
     private BigDecimal decimal(Object value) { return value == null ? ZERO : new BigDecimal(String.valueOf(value)); }

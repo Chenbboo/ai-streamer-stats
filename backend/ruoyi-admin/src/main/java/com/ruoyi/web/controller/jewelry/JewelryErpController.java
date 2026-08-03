@@ -131,6 +131,15 @@ public class JewelryErpController extends BaseController
         return getDataTable(rows);
     }
 
+    @PreAuthorize("@ss.hasPermi('jewelry:product:list')")
+    @GetMapping("/product/options")
+    public AjaxResult productOptions(@RequestParam Map<String, Object> query)
+    {
+        List<Map<String, Object>> rows = service.listProducts(query);
+        if (isMakerOnly()) removeKeys(rows, "avgCost");
+        return success(rows);
+    }
+
     @PreAuthorize("@ss.hasAnyPermi('jewelry:product:add,jewelry:product:edit')")
     @PostMapping("/product")
     public AjaxResult saveProduct(@RequestBody Map<String, Object> body)
@@ -140,6 +149,11 @@ public class JewelryErpController extends BaseController
         if (!editing && !hasPermission("jewelry:product:add")) return error("无权新增商品档案");
         if (string(body.get("sku")).isEmpty() || string(body.get("productName")).isEmpty())
             return error("SKU和商品名称不能为空");
+        String productType = defaultString(body.get("productType"), "FINISHED");
+        if (!Arrays.asList("PART", "FINISHED").contains(productType)) return error("商品类型不正确");
+        body.put("productType", productType);
+        body.put("imageUrl", string(body.get("imageUrl")));
+        body.put("imageUrls", string(body.get("imageUrls")));
         body.put(editing ? "updateBy" : "createBy", SecurityUtils.getUsername());
         body.put("status", defaultString(body.get("status"), "0"));
         return toAjax(service.saveProduct(body));
@@ -236,6 +250,9 @@ public class JewelryErpController extends BaseController
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         response.setCharacterEncoding("UTF-8");
         response.setHeader("Content-Disposition", "attachment;filename*=UTF-8''" + fileName);
+        response.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+        response.setHeader("Pragma", "no-cache");
+        response.setDateHeader("Expires", 0);
         response.setContentLength(content.length);
         response.getOutputStream().write(content);
     }
@@ -246,9 +263,11 @@ public class JewelryErpController extends BaseController
         @RequestParam("file") MultipartFile file) throws Exception
     {
         if (file == null || file.isEmpty()) return error("请选择Excel文件");
-        if (file.getSize() > 5L * 1024 * 1024) return error("Excel文件不能超过5MB");
+        if (file.getSize() > 20L * 1024 * 1024) return error("Excel文件不能超过20MB");
         String name = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase();
         if (!name.endsWith(".xlsx") && !name.endsWith(".xls")) return error("仅支持xls和xlsx文件");
+        if ("PURCHASE_IN".equals(docType) && !name.endsWith(".xlsx"))
+            return error("采购入库模板包含商品图片，仅支持xlsx文件");
         return success(documentExcelService.preview(docType, file.getInputStream(),
             hasPermission("jewelry:product:add")));
     }
@@ -257,7 +276,7 @@ public class JewelryErpController extends BaseController
     @GetMapping("/document/{id}")
     public AjaxResult document(@PathVariable Long id)
     {
-        JewelryDocument document = service.getDocument(id);
+        JewelryDocument document = service.getDocumentForDisplay(id);
         if (isMakerOnly() && !SecurityUtils.getUserId().equals(document.getCreatorUserId()))
         {
             return error("无权查看其他制单员的单据");
@@ -270,6 +289,19 @@ public class JewelryErpController extends BaseController
     @PostMapping("/document")
     public AjaxResult saveDocument(@RequestBody JewelryDocument document)
     {
+        boolean editing = document.getDocumentId() != null;
+        if (editing && !hasPermission("jewelry:document:edit"))
+            return error("无权修改已有单据");
+        if (!editing && !hasPermission("jewelry:document:add"))
+            return error("无权新建单据");
+        boolean assembly = "ASSEMBLY".equals(document.getDocType());
+        if (editing)
+        {
+            JewelryDocument current = service.getDocument(document.getDocumentId());
+            assembly = assembly || "ASSEMBLY".equals(current.getDocType());
+        }
+        if (assembly && !hasPermission("jewelry:assembly:add"))
+            return error("无权新建或修改组装单");
         JewelryDocument saved = service.saveDocument(document, SecurityUtils.getUserId(), SecurityUtils.getUsername());
         if (isMakerOnly()) redactDocumentFinance(saved);
         return success(saved);
@@ -302,7 +334,9 @@ public class JewelryErpController extends BaseController
     @PostMapping("/approval/{id}/approve")
     public AjaxResult approve(@PathVariable Long id, @RequestBody(required = false) Map<String, Object> body)
     {
+        Object expectedCost = body == null ? null : body.get("expectedTotalCost");
         service.approve(id, body == null ? "" : string(body.get("comment")),
+            expectedCost == null ? null : decimal(expectedCost),
             SecurityUtils.getUserId(), SecurityUtils.getUsername());
         return success();
     }

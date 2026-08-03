@@ -7,9 +7,11 @@ public class JewelryDocumentItem
     private Long itemId;
     private Long documentId;
     private Long productId;
+    private String itemRole;
     private Long sourceItemId;
     private String skuSnapshot;
     private String productNameSnapshot;
+    private String imageUrls;
     private Integer qty;
     private Integer goodQty;
     private Integer defectQty;
@@ -33,12 +35,16 @@ public class JewelryDocumentItem
     public void setDocumentId(Long documentId) { this.documentId = documentId; }
     public Long getProductId() { return productId; }
     public void setProductId(Long productId) { this.productId = productId; }
+    public String getItemRole() { return itemRole; }
+    public void setItemRole(String itemRole) { this.itemRole = itemRole; }
     public Long getSourceItemId() { return sourceItemId; }
     public void setSourceItemId(Long sourceItemId) { this.sourceItemId = sourceItemId; }
     public String getSkuSnapshot() { return skuSnapshot; }
     public void setSkuSnapshot(String skuSnapshot) { this.skuSnapshot = skuSnapshot; }
     public String getProductNameSnapshot() { return productNameSnapshot; }
     public void setProductNameSnapshot(String productNameSnapshot) { this.productNameSnapshot = productNameSnapshot; }
+    public String getImageUrls() { return imageUrls; }
+    public void setImageUrls(String imageUrls) { this.imageUrls = imageUrls; }
     public Integer getQty() { return qty; }
     public void setQty(Integer qty) { this.qty = qty; }
     public Integer getGoodQty() { return goodQty; }

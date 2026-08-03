@@ -24,6 +24,9 @@
         <result property="totalCost" column="total_cost"/>
         <result property="totalProfit" column="total_profit"/>
         <result property="riskStatus" column="risk_status"/>
+        <result property="laborFee" column="labor_fee"/>
+        <result property="processingFee" column="processing_fee"/>
+        <result property="otherFee" column="other_fee"/>
         <result property="creatorUserId" column="creator_user_id"/>
         <result property="creatorName" column="creator_name"/>
         <result property="firstReviewerUserId" column="first_reviewer_user_id"/>
@@ -40,9 +43,11 @@
         <id property="itemId" column="item_id"/>
         <result property="documentId" column="document_id"/>
         <result property="productId" column="product_id"/>
+        <result property="itemRole" column="item_role"/>
         <result property="sourceItemId" column="source_item_id"/>
         <result property="skuSnapshot" column="sku_snapshot"/>
         <result property="productNameSnapshot" column="product_name_snapshot"/>
+        <result property="imageUrls" column="image_urls"/>
         <result property="qty" column="qty"/>
         <result property="goodQty" column="good_qty"/>
         <result property="defectQty" column="defect_qty"/>
@@ -108,7 +113,8 @@
     </insert>
 
     <select id="selectProductList" resultType="java.util.LinkedHashMap">
-        select p.product_id productId,p.sku,p.product_name productName,p.category,p.specification,p.image_url imageUrl,
+        select p.product_id productId,p.sku,p.product_name productName,p.product_type productType,
+               p.category,p.specification,p.image_url imageUrl,p.image_urls imageUrls,
                p.unit,p.default_pack_fee defaultPackFee,p.default_ship_fee defaultShipFee,
                p.default_cert_fee defaultCertFee,p.warning_qty warningQty,p.status,p.remark,
                coalesce(s.on_hand_qty,0) onHandQty,coalesce(s.reserved_out_qty,0) reservedOutQty,
@@ -120,12 +126,13 @@
                 and (p.sku like concat('%',#{keyword},'%') or p.product_name like concat('%',#{keyword},'%'))
             </if>
             <if test="status != null and status != ''">and p.status=#{status}</if>
+            <if test="productType != null and productType != ''">and p.product_type=#{productType}</if>
         </where>
         order by p.product_id desc
     </select>
     <select id="selectProductById" resultType="java.util.LinkedHashMap">
-        select p.product_id productId,p.sku,p.product_name productName,p.category,p.specification,
-               p.image_url imageUrl,p.unit,p.default_pack_fee defaultPackFee,
+        select p.product_id productId,p.sku,p.product_name productName,p.product_type productType,
+               p.category,p.specification,p.image_url imageUrl,p.image_urls imageUrls,p.unit,p.default_pack_fee defaultPackFee,
                p.default_ship_fee defaultShipFee,p.default_cert_fee defaultCertFee,
                p.warning_qty warningQty,p.status,p.remark,coalesce(s.avg_cost,0) avgCost,
                coalesce(s.on_hand_qty,0) onHandQty,coalesce(s.reserved_out_qty,0) reservedOutQty
@@ -134,16 +141,24 @@
         where p.product_id=#{productId}
     </select>
     <insert id="insertProduct" useGeneratedKeys="true" keyProperty="productId">
-        insert into jewelry_product(sku,product_name,category,specification,image_url,unit,default_pack_fee,
+        insert into jewelry_product(sku,product_name,product_type,category,specification,image_url,image_urls,unit,default_pack_fee,
           default_ship_fee,default_cert_fee,warning_qty,status,create_by,create_time,remark)
-        values(#{sku},#{productName},#{category},#{specification},#{imageUrl},#{unit},#{defaultPackFee},
+        values(#{sku},#{productName},#{productType},#{category},#{specification},#{imageUrl},#{imageUrls},#{unit},#{defaultPackFee},
           #{defaultShipFee},#{defaultCertFee},#{warningQty},#{status},#{createBy},sysdate(),#{remark})
     </insert>
     <update id="updateProduct">
-        update jewelry_product set product_name=#{productName},category=#{category},specification=#{specification},
-          image_url=#{imageUrl},unit=#{unit},default_pack_fee=#{defaultPackFee},default_ship_fee=#{defaultShipFee},
+        update jewelry_product set product_name=#{productName},product_type=#{productType},
+          category=#{category},specification=#{specification},image_url=#{imageUrl},image_urls=#{imageUrls},
+          unit=#{unit},default_pack_fee=#{defaultPackFee},default_ship_fee=#{defaultShipFee},
           default_cert_fee=#{defaultCertFee},warning_qty=#{warningQty},status=#{status},
           update_by=#{updateBy},update_time=sysdate(),remark=#{remark}
+        where product_id=#{productId}
+    </update>
+    <update id="updateProductImagesIfEmpty">
+        update jewelry_product
+        set image_url=case when image_url is null or image_url='' then #{imageUrl} else image_url end,
+            image_urls=case when image_urls is null or image_urls='' then #{imageUrls} else image_urls end,
+            update_by=#{userName},update_time=sysdate()
         where product_id=#{productId}
     </update>
     <insert id="ensureStock">
@@ -288,8 +303,8 @@
           coalesce((select sum(inspection_qty) from jewelry_stock),0) inspectionQty,
           coalesce((select round(sum(on_hand_qty*avg_cost+inspection_cost_amount+defect_cost_amount),2)
             from jewelry_stock),0) stockAmount,
-          (select count(*) from jewelry_document where status='PENDING_FIRST') pendingFirstCount,
-          (select count(*) from jewelry_document where status='PENDING_SECOND') pendingSecondCount,
+          (select count(*) from jewelry_document where status in ('PENDING_FIRST','PENDING_SECOND')) pendingFirstCount,
+          0 pendingSecondCount,
           (select count(*) from jewelry_stock s
              join jewelry_product p on p.product_id=s.product_id
              where p.status='0'
@@ -337,7 +352,10 @@
         <where>
             <if test="docNo != null and docNo != ''">and doc_no like concat('%',#{docNo},'%')</if>
             <if test="docType != null and docType != ''">and doc_type=#{docType}</if>
-            <if test="status != null and status != ''">and status=#{status}</if>
+            <choose>
+                <when test="status == 'PENDING'">and status in ('PENDING_FIRST','PENDING_SECOND')</when>
+                <when test="status != null and status != ''">and status=#{status}</when>
+            </choose>
             <if test="creatorUserId != null">and creator_user_id=#{creatorUserId}</if>
         </where>
         order by document_id desc
@@ -366,11 +384,13 @@
     <insert id="insertDocument" useGeneratedKeys="true" keyProperty="documentId">
         insert into jewelry_document(doc_no,doc_type,biz_date,status,supplier_id,supplier_name_snapshot,sales_channel,
           external_no,influencer_name,platform_rate,commission_rate,tax_rate,return_reason,source_document_id,
-          unlinked_reason,total_qty,total_amount,total_cost,total_profit,risk_status,creator_user_id,creator_name,
+          unlinked_reason,total_qty,total_amount,total_cost,total_profit,risk_status,
+          labor_fee,processing_fee,other_fee,creator_user_id,creator_name,
           create_by,create_time,remark)
         values(#{docNo},#{docType},#{bizDate},#{status},#{supplierId},#{supplierNameSnapshot},#{salesChannel},
           #{externalNo},#{influencerName},#{platformRate},#{commissionRate},#{taxRate},#{returnReason},
           #{sourceDocumentId},#{unlinkedReason},#{totalQty},#{totalAmount},#{totalCost},#{totalProfit},#{riskStatus},
+          #{laborFee},#{processingFee},#{otherFee},
           #{creatorUserId},#{creatorName},#{createBy},sysdate(),#{remark})
     </insert>
     <update id="updateDocument">
@@ -380,6 +400,7 @@
           tax_rate=#{taxRate},return_reason=#{returnReason},source_document_id=#{sourceDocumentId},
           unlinked_reason=#{unlinkedReason},total_qty=#{totalQty},total_amount=#{totalAmount},total_cost=#{totalCost},
           total_profit=#{totalProfit},risk_status=#{riskStatus},status='DRAFT',
+          labor_fee=#{laborFee},processing_fee=#{processingFee},other_fee=#{otherFee},
           first_reviewer_user_id=null,first_reviewer_name='',
           second_reviewer_user_id=null,second_reviewer_name='',
           reject_user_id=null,reject_user_name='',reject_reason='',
@@ -395,10 +416,10 @@
     </update>
     <delete id="deleteDocumentItems">delete from jewelry_document_item where document_id=#{documentId}</delete>
     <insert id="insertDocumentItem" useGeneratedKeys="true" keyProperty="itemId">
-        insert into jewelry_document_item(document_id,product_id,source_item_id,sku_snapshot,product_name_snapshot,
+        insert into jewelry_document_item(document_id,product_id,item_role,source_item_id,sku_snapshot,product_name_snapshot,image_urls,
           qty,good_qty,defect_qty,system_qty,counted_qty,adjustment_qty,unit_price,unit_cost,pack_fee,ship_fee,
           cert_fee,amount,cost_amount,profit_amount,profit_rate,line_reason)
-        values(#{documentId},#{productId},#{sourceItemId},#{skuSnapshot},#{productNameSnapshot},#{qty},#{goodQty},
+        values(#{documentId},#{productId},#{itemRole},#{sourceItemId},#{skuSnapshot},#{productNameSnapshot},#{imageUrls},#{qty},#{goodQty},
           #{defectQty},#{systemQty},#{countedQty},#{adjustmentQty},#{unitPrice},#{unitCost},#{packFee},#{shipFee},
           #{certFee},#{amount},#{costAmount},#{profitAmount},#{profitRate},#{lineReason})
     </insert>
