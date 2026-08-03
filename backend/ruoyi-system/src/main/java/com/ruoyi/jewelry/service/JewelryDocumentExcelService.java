@@ -3,6 +3,10 @@ package com.ruoyi.jewelry.service;
 import java.io.ByteArrayOutputStream;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,10 +21,21 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageOutputStream;
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.apache.poi.openxml4j.opc.PackagePart;
+import org.apache.poi.openxml4j.opc.PackageRelationship;
+import org.apache.poi.openxml4j.opc.PackagingURIHelper;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.DataFormatter;
@@ -44,6 +59,9 @@ import org.apache.poi.xssf.usermodel.XSSFPicture;
 import org.apache.poi.xssf.usermodel.XSSFPictureData;
 import org.apache.poi.xssf.usermodel.XSSFShape;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.ruoyi.common.config.RuoYiConfig;
@@ -56,7 +74,14 @@ public class JewelryDocumentExcelService
 {
     private static final int MAX_ROWS = 500;
     private static final int MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+    private static final int MAX_SOURCE_IMAGE_BYTES = 50 * 1024 * 1024;
+    private static final int MAX_IMAGE_DIMENSION = 1600;
     private static final String IMAGE_HEADER = "商品图片";
+    private static final Pattern CELL_IMAGE_FORMULA =
+        Pattern.compile("DISPIMG\\(\\\"([^\\\"]+)\\\"", Pattern.CASE_INSENSITIVE);
+    private static final String CELL_IMAGES_PART = "/xl/cellimages.xml";
+    private static final String RELATIONSHIP_NAMESPACE =
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
     private static final Set<String> SUPPORTED_TYPES = Collections.unmodifiableSet(
         new HashSet<String>(Arrays.asList("PURCHASE_IN", "SALES_OUT", "STOCK_ADJUST")));
 
@@ -468,9 +493,9 @@ public class JewelryDocumentExcelService
     private Map<Integer, EmbeddedImage> extractEmbeddedImages(XSSFSheet sheet, Integer imageColumn)
     {
         Map<Integer, EmbeddedImage> images = new HashMap<Integer, EmbeddedImage>();
+        if (imageColumn == null) return images;
         XSSFDrawing drawing = sheet.getDrawingPatriarch();
-        if (drawing == null || imageColumn == null) return images;
-        for (XSSFShape shape : drawing.getShapes())
+        if (drawing != null) for (XSSFShape shape : drawing.getShapes())
         {
             if (!(shape instanceof XSSFPicture)) continue;
             XSSFPicture picture = (XSSFPicture) shape;
@@ -488,34 +513,161 @@ public class JewelryDocumentExcelService
                 continue;
             }
             XSSFPictureData pictureData = picture.getPictureData();
-            byte[] data = pictureData == null ? null : pictureData.getData();
-            String extension = pictureData == null ? "" : pictureData.suggestFileExtension();
-            if (!"png".equalsIgnoreCase(extension) && !"jpg".equalsIgnoreCase(extension)
-                && !"jpeg".equalsIgnoreCase(extension))
+            images.put(rowIndex, validateEmbeddedImage(
+                pictureData == null ? null : pictureData.getData(),
+                pictureData == null ? "" : pictureData.suggestFileExtension()));
+        }
+        extractCellImages(sheet, imageColumn, images);
+        return images;
+    }
+
+    private void extractCellImages(XSSFSheet sheet, int imageColumn, Map<Integer, EmbeddedImage> images)
+    {
+        try
+        {
+            PackagePart cellImagesPart = sheet.getWorkbook().getPackage().getPart(
+                PackagingURIHelper.createPartName(CELL_IMAGES_PART));
+            if (cellImagesPart == null) return;
+            Map<String, EmbeddedImage> imagesById = readCellImages(cellImagesPart);
+            for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++)
             {
-                images.put(rowIndex, EmbeddedImage.error("商品图片仅支持JPG、JPEG和PNG"));
-            }
-            else if (data == null || data.length == 0 || data.length > MAX_IMAGE_BYTES)
-            {
-                images.put(rowIndex, EmbeddedImage.error("商品图片不能为空且单张不能超过5MB"));
-            }
-            else
-            {
-                try
+                Row row = sheet.getRow(rowIndex);
+                Cell cell = row == null ? null : row.getCell(imageColumn);
+                if (cell == null || cell.getCellType() != org.apache.poi.ss.usermodel.CellType.FORMULA) continue;
+                Matcher matcher = CELL_IMAGE_FORMULA.matcher(cell.getCellFormula());
+                if (!matcher.find()) continue;
+                if (images.containsKey(rowIndex))
                 {
-                    if (ImageIO.read(new ByteArrayInputStream(data)) == null)
-                        images.put(rowIndex, EmbeddedImage.error("商品图片内容无法识别"));
-                    else
-                        images.put(rowIndex, new EmbeddedImage(data,
-                            "jpeg".equalsIgnoreCase(extension) ? "jpg" : extension.toLowerCase(Locale.ROOT), null));
+                    images.put(rowIndex, EmbeddedImage.error("每行只能插入一张商品图片"));
+                    continue;
                 }
-                catch (Exception e)
-                {
-                    images.put(rowIndex, EmbeddedImage.error("商品图片内容无法识别"));
-                }
+                EmbeddedImage image = imagesById.get(matcher.group(1));
+                images.put(rowIndex, image == null
+                    ? EmbeddedImage.error("单元格图片数据不存在") : image);
             }
         }
-        return images;
+        catch (Exception e)
+        {
+            throw new ServiceException("解析Excel单元格图片失败：" + e.getMessage());
+        }
+    }
+
+    private Map<String, EmbeddedImage> readCellImages(PackagePart cellImagesPart) throws Exception
+    {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+        factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+        Document document;
+        try (InputStream input = cellImagesPart.getInputStream())
+        {
+            document = factory.newDocumentBuilder().parse(input);
+        }
+        Map<String, EmbeddedImage> result = new HashMap<String, EmbeddedImage>();
+        NodeList cellImages = document.getElementsByTagNameNS("*", "cellImage");
+        for (int i = 0; i < cellImages.getLength(); i++)
+        {
+            Element cellImage = (Element) cellImages.item(i);
+            Element properties = firstElement(cellImage, "cNvPr");
+            Element blip = firstElement(cellImage, "blip");
+            if (properties == null || blip == null) continue;
+            String imageId = properties.getAttribute("name");
+            String relationshipId = blip.getAttributeNS(RELATIONSHIP_NAMESPACE, "embed");
+            PackageRelationship relationship = cellImagesPart.getRelationship(relationshipId);
+            if (imageId.isEmpty() || relationship == null) continue;
+            PackagePart imagePart = cellImagesPart.getRelatedPart(relationship);
+            String filename = imagePart.getPartName().getName();
+            String extension = filename.substring(filename.lastIndexOf('.') + 1);
+            byte[] data;
+            try (InputStream input = imagePart.getInputStream(); ByteArrayOutputStream output = new ByteArrayOutputStream())
+            {
+                byte[] buffer = new byte[8192];
+                int count;
+                while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                data = output.toByteArray();
+            }
+            result.put(imageId, validateEmbeddedImage(data, extension));
+        }
+        return result;
+    }
+
+    private Element firstElement(Element parent, String localName)
+    {
+        NodeList nodes = parent.getElementsByTagNameNS("*", localName);
+        return nodes.getLength() == 0 ? null : (Element) nodes.item(0);
+    }
+
+    private EmbeddedImage validateEmbeddedImage(byte[] data, String extension)
+    {
+        if (!"png".equalsIgnoreCase(extension) && !"jpg".equalsIgnoreCase(extension)
+            && !"jpeg".equalsIgnoreCase(extension))
+            return EmbeddedImage.error("商品图片仅支持JPG、JPEG和PNG");
+        if (data == null || data.length == 0 || data.length > MAX_SOURCE_IMAGE_BYTES)
+            return EmbeddedImage.error("商品图片不能为空且源图不能超过50MB");
+        try
+        {
+            BufferedImage source = ImageIO.read(new ByteArrayInputStream(data));
+            if (source == null) return EmbeddedImage.error("商品图片内容无法识别");
+            if (data.length > MAX_IMAGE_BYTES || source.getWidth() > MAX_IMAGE_DIMENSION
+                || source.getHeight() > MAX_IMAGE_DIMENSION)
+                return normalizeImage(source);
+            return new EmbeddedImage(data,
+                "jpeg".equalsIgnoreCase(extension) ? "jpg" : extension.toLowerCase(Locale.ROOT), null);
+        }
+        catch (Exception e)
+        {
+            return EmbeddedImage.error("商品图片内容无法识别");
+        }
+    }
+
+    private EmbeddedImage normalizeImage(BufferedImage source) throws Exception
+    {
+        double scale = Math.min(1D, Math.min((double) MAX_IMAGE_DIMENSION / source.getWidth(),
+            (double) MAX_IMAGE_DIMENSION / source.getHeight()));
+        int width = Math.max(1, (int) Math.round(source.getWidth() * scale));
+        int height = Math.max(1, (int) Math.round(source.getHeight() * scale));
+        BufferedImage target = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = target.createGraphics();
+        try
+        {
+            graphics.setColor(Color.WHITE);
+            graphics.fillRect(0, 0, width, height);
+            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            graphics.drawImage(source, 0, 0, width, height, null);
+        }
+        finally
+        {
+            graphics.dispose();
+        }
+        Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpg");
+        if (!writers.hasNext()) throw new ServiceException("系统缺少JPG图片编码器");
+        ImageWriter writer = writers.next();
+        try (ByteArrayOutputStream output = new ByteArrayOutputStream();
+            ImageOutputStream imageOutput = ImageIO.createImageOutputStream(output))
+        {
+            writer.setOutput(imageOutput);
+            ImageWriteParam parameter = writer.getDefaultWriteParam();
+            if (parameter.canWriteCompressed())
+            {
+                parameter.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+                parameter.setCompressionQuality(0.88F);
+            }
+            writer.write(null, new javax.imageio.IIOImage(target, null, null), parameter);
+            writer.dispose();
+            byte[] normalized = output.toByteArray();
+            if (normalized.length > MAX_IMAGE_BYTES)
+                return EmbeddedImage.error("商品图片压缩后仍超过5MB");
+            return new EmbeddedImage(normalized, "jpg", null);
+        }
+        finally
+        {
+            writer.dispose();
+        }
     }
 
     private String storeEmbeddedImage(EmbeddedImage image)
