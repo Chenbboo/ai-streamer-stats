@@ -257,7 +257,7 @@ insert into sys_menu(
   is_frame, is_cache, menu_type, visible, status, perms, icon,
   create_by, create_time, update_by, update_time, remark, menu_name_vi
 ) values
-(3000, '珠宝ERP', 0, 5, 'jewelry', null, '', '', 1, 0, 'M', '0', '0', '', 'shopping', 'admin', sysdate(), '', null, '珠宝ERP业务目录', 'ERP trang sức'),
+(3000, '唐勃珠宝库存管理', 0, 5, 'jewelry', null, '', '', 1, 0, 'M', '0', '0', '', 'shopping', 'admin', sysdate(), '', null, '唐勃珠宝库存管理业务目录', 'Quản lý kho trang sức Tangbo'),
 (3001, '人员管理', 3000, 1, 'staff', 'jewelry/staff/index', '', '', 1, 0, 'C', '0', '0', 'jewelry:staff:list', 'peoples', 'admin', sysdate(), '', null, 'ERP人员管理', 'Nhân sự ERP'),
 (3002, 'ERP概览', 3000, 2, 'overview', 'jewelry/overview/index', '', '', 1, 0, 'C', '0', '0', 'jewelry:overview:list', 'dashboard', 'admin', sysdate(), '', null, '珠宝ERP概览', 'Tổng quan ERP'),
 (3003, '商品档案', 3000, 3, 'product', 'jewelry/product/index', '', '', 1, 0, 'C', '0', '0', 'jewelry:product:list', 'shopping', 'admin', sysdate(), '', null, '珠宝商品档案', 'Sản phẩm'),
