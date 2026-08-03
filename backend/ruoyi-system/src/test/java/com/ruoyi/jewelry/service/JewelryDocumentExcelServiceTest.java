@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.awt.image.BufferedImage;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,6 +16,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import javax.imageio.ImageIO;
 
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
@@ -114,6 +116,26 @@ class JewelryDocumentExcelServiceTest
     }
 
     @Test
+    void purchasePreviewNormalizesLargeEmbeddedImageToWebp() throws Exception
+    {
+        when(mapper.selectProductList(any())).thenReturn(Collections.emptyList());
+        new RuoYiConfig().setProfile(tempDir.toString());
+
+        Map<String, Object> result = service.preview("PURCHASE_IN", purchaseWorkbookWithImage(
+            new Object[] { "NEW-WEBP", "测试吊坠", "成品", "吊坠", "18K", "件", 1, 3000, "" },
+            largePng()), true);
+
+        assertEquals(0, result.get("errorCount"));
+        String imageUrl = String.valueOf(rows(result).get(0).get("imageUrl"));
+        assertTrue(imageUrl.endsWith(".webp"));
+        Path stored = tempDir.resolve(imageUrl.substring("/profile/".length())
+            .replace("/", java.io.File.separator));
+        byte[] bytes = Files.readAllBytes(stored);
+        assertEquals("RIFF", new String(bytes, 0, 4, java.nio.charset.StandardCharsets.US_ASCII));
+        assertEquals("WEBP", new String(bytes, 8, 4, java.nio.charset.StandardCharsets.US_ASCII));
+    }
+
+    @Test
     void previewRejectsDuplicateSkuRows() throws Exception
     {
         when(mapper.selectProductList(any())).thenReturn(Collections.singletonList(product("SKU-1", 10, 0)));
@@ -152,6 +174,11 @@ class JewelryDocumentExcelServiceTest
 
     private ByteArrayInputStream purchaseWorkbookWithImage(Object[] values) throws Exception
     {
+        return purchaseWorkbookWithImage(values, PNG);
+    }
+
+    private ByteArrayInputStream purchaseWorkbookWithImage(Object[] values, byte[] image) throws Exception
+    {
         try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream())
         {
             XSSFSheet sheet = workbook.createSheet("导入数据");
@@ -164,7 +191,7 @@ class JewelryDocumentExcelServiceTest
                 if (value instanceof Number) row.createCell(column).setCellValue(((Number) value).doubleValue());
                 else row.createCell(column).setCellValue(String.valueOf(value));
             }
-            int pictureId = workbook.addPicture(PNG, Workbook.PICTURE_TYPE_PNG);
+            int pictureId = workbook.addPicture(image, Workbook.PICTURE_TYPE_PNG);
             XSSFDrawing drawing = sheet.createDrawingPatriarch();
             XSSFClientAnchor anchor = new XSSFClientAnchor();
             anchor.setCol1(8);
@@ -174,6 +201,16 @@ class JewelryDocumentExcelServiceTest
             drawing.createPicture(anchor, pictureId);
             workbook.write(output);
             return new ByteArrayInputStream(output.toByteArray());
+        }
+    }
+
+    private byte[] largePng() throws Exception
+    {
+        BufferedImage image = new BufferedImage(2001, 10, BufferedImage.TYPE_INT_RGB);
+        try (ByteArrayOutputStream output = new ByteArrayOutputStream())
+        {
+            ImageIO.write(image, "png", output);
+            return output.toByteArray();
         }
     }
 

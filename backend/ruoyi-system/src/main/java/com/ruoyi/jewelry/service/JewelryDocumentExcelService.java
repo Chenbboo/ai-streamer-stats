@@ -59,6 +59,7 @@ import org.apache.poi.xssf.usermodel.XSSFPicture;
 import org.apache.poi.xssf.usermodel.XSSFPictureData;
 import org.apache.poi.xssf.usermodel.XSSFShape;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
+import com.luciad.imageio.webp.WebPWriteParam;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
@@ -629,16 +630,74 @@ public class JewelryDocumentExcelService
             (double) MAX_IMAGE_DIMENSION / source.getHeight()));
         int width = Math.max(1, (int) Math.round(source.getWidth() * scale));
         int height = Math.max(1, (int) Math.round(source.getHeight() * scale));
-        BufferedImage target = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        boolean hasAlpha = source.getColorModel().hasAlpha();
+        BufferedImage target = new BufferedImage(width, height,
+            hasAlpha ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
         Graphics2D graphics = target.createGraphics();
         try
         {
-            graphics.setColor(Color.WHITE);
-            graphics.fillRect(0, 0, width, height);
+            if (!hasAlpha)
+            {
+                graphics.setColor(Color.WHITE);
+                graphics.fillRect(0, 0, width, height);
+            }
             graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
                 RenderingHints.VALUE_INTERPOLATION_BICUBIC);
             graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
             graphics.drawImage(source, 0, 0, width, height, null);
+        }
+        finally
+        {
+            graphics.dispose();
+        }
+        try
+        {
+            byte[] webp = encodeWebp(target);
+            if (webp.length > MAX_IMAGE_BYTES) return EmbeddedImage.error("商品图片压缩后仍超过5MB");
+            return new EmbeddedImage(webp, "webp", null);
+        }
+        catch (RuntimeException | LinkageError e)
+        {
+            return encodeJpegFallback(target);
+        }
+    }
+
+    private byte[] encodeWebp(BufferedImage image)
+    {
+        Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("webp");
+        if (!writers.hasNext()) throw new ServiceException("系统缺少WebP图片编码器");
+        ImageWriter writer = writers.next();
+        try (ByteArrayOutputStream output = new ByteArrayOutputStream();
+            ImageOutputStream imageOutput = ImageIO.createImageOutputStream(output))
+        {
+            writer.setOutput(imageOutput);
+            WebPWriteParam parameter = new WebPWriteParam(writer.getLocale());
+            parameter.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+            parameter.setCompressionType("Lossy");
+            parameter.setCompressionQuality(0.85F);
+            writer.write(null, new javax.imageio.IIOImage(image, null, null), parameter);
+            imageOutput.flush();
+            return output.toByteArray();
+        }
+        catch (java.io.IOException e)
+        {
+            throw new ServiceException("WebP图片编码失败：" + e.getMessage());
+        }
+        finally
+        {
+            writer.dispose();
+        }
+    }
+
+    private EmbeddedImage encodeJpegFallback(BufferedImage source) throws Exception
+    {
+        BufferedImage target = new BufferedImage(source.getWidth(), source.getHeight(), BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = target.createGraphics();
+        try
+        {
+            graphics.setColor(Color.WHITE);
+            graphics.fillRect(0, 0, target.getWidth(), target.getHeight());
+            graphics.drawImage(source, 0, 0, null);
         }
         finally
         {
@@ -658,7 +717,6 @@ public class JewelryDocumentExcelService
                 parameter.setCompressionQuality(0.88F);
             }
             writer.write(null, new javax.imageio.IIOImage(target, null, null), parameter);
-            writer.dispose();
             byte[] normalized = output.toByteArray();
             if (normalized.length > MAX_IMAGE_BYTES)
                 return EmbeddedImage.error("商品图片压缩后仍超过5MB");
