@@ -105,7 +105,12 @@
         </div>
         <div class="sheet-foot"><el-form label-width="110px"><el-form-item v-if="needsReason" :label="reasonLabel" required><el-input v-model="form.returnReason" :disabled="readonly"/></el-form-item><el-form-item v-if="form.docType==='CUSTOMER_RETURN' && !form.sourceDocumentId" label="未关联原单原因" required><el-input v-model="form.unlinkedReason" :disabled="readonly" placeholder="第一阶段未选择原销售单时必须填写"/></el-form-item><el-form-item label="备注"><el-input v-model="form.remark" :disabled="readonly"/></el-form-item></el-form></div>
       </div>
-      <template #footer><el-button @click="dialog=false">关闭</el-button><el-button v-if="!readonly" type="primary" @click="save">保存草稿</el-button></template>
+      <template #footer>
+        <el-button :disabled="!!savingAction" @click="dialog=false">关闭</el-button>
+        <el-button v-if="!readonly" :loading="savingAction==='draft'" :disabled="!!savingAction" @click="save(false)">保存草稿</el-button>
+        <el-button v-if="!readonly" type="primary" :loading="savingAction==='submit'" :disabled="!!savingAction"
+          v-hasPermi="['jewelry:document:submit']" @click="save(true)">直接提交</el-button>
+      </template>
     </el-dialog>
 
     <el-dialog v-model="productDialog" title="新增商品档案" width="640px" append-to-body destroy-on-close>
@@ -181,7 +186,7 @@ import {saveAs} from 'file-saver'
 import {listJewelryDocuments,getJewelryDocument,saveJewelryDocument,assessJewelryDocumentRisk,submitJewelryDocument,withdrawJewelryDocument,createJewelryReversal,listJewelryProducts,listJewelryProductOptions,listJewelrySuppliers,saveJewelryProduct,downloadJewelryDocumentImportTemplate,previewJewelryDocumentImport} from '@/api/jewelry/erp'
 import {compressXlsxImages,formatFileSize} from '@/utils/xlsxImageCompressor'
 import useUserStore from '@/store/modules/user'
-const {proxy}=getCurrentInstance(),rows=ref([]),total=ref(0),loading=ref(false),dialog=ref(false),readonly=ref(false),products=ref([]),suppliers=ref([]),salesDocuments=ref([])
+const {proxy}=getCurrentInstance(),rows=ref([]),total=ref(0),loading=ref(false),dialog=ref(false),readonly=ref(false),savingAction=ref(''),products=ref([]),suppliers=ref([]),salesDocuments=ref([])
 const productDialog=ref(false),productSaving=ref(false),productFormRef=ref(),activeProductRow=ref(null)
 const importDialog=ref(false),importLoading=ref(false),applyingImport=ref(false),importPreview=ref({})
 const importCompression=ref(null)
@@ -359,7 +364,34 @@ async function sourceChanged(id){
   form.items=(source.items||[]).map(item=>({...blankItem(),productId:item.productId,qty:1,unitPrice:Number(item.unitPrice||0),unitCost:Number(item.unitCost||0),packFee:0,shipFee:Number(item.shipFee||0),certFee:Number(item.certFee||0),sourceItemId:item.itemId}))
 }
 function typeChanged(){form.items=[blankItem()];form.supplierId=null;form.supplierNameSnapshot='';form.salesChannel='';form.platformRate=0;form.commissionRate=0;form.taxRate=0;form.returnReason='';form.sourceDocumentId=null;form.unlinkedReason='';importPreview.value={};importCompression.value=null}
-async function save(){if(!form.items.length||form.items.some(x=>!x.productId)){proxy.$modal.msgError('请完整选择商品');return}if(needsSupplier.value&&!form.supplierId){proxy.$modal.msgError('请选择供应商');return}if(needsSalesChannel.value&&!form.salesChannel.trim()){proxy.$modal.msgError('请填写销售渠道');return}if(needsReason.value&&!form.returnReason.trim()){proxy.$modal.msgError(`请填写${reasonLabel.value}`);return}if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&!form.unlinkedReason.trim()){proxy.$modal.msgError('未关联原销售单时必须填写原因');return}await saveJewelryDocument(form);proxy.$modal.msgSuccess('草稿已保存');dialog.value=false;load()}
+function validateDocument(){
+  if(!form.items.length||form.items.some(x=>!x.productId)){proxy.$modal.msgError('请完整选择商品');return false}
+  if(needsSupplier.value&&!form.supplierId){proxy.$modal.msgError('请选择供应商');return false}
+  if(needsSalesChannel.value&&!form.salesChannel.trim()){proxy.$modal.msgError('请填写销售渠道');return false}
+  if(needsReason.value&&!form.returnReason.trim()){proxy.$modal.msgError(`请填写${reasonLabel.value}`);return false}
+  if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&!form.unlinkedReason.trim()){proxy.$modal.msgError('未关联原销售单时必须填写原因');return false}
+  return true
+}
+async function save(andSubmit=false){
+  if(!validateDocument())return
+  savingAction.value=andSubmit?'submit':'draft'
+  try{
+    const response=await saveJewelryDocument(form)
+    form.documentId=response.data?.documentId||form.documentId
+    if(andSubmit){
+      if(!form.documentId)throw new Error('单据已保存，但未返回单据ID')
+      try{
+        await submitJewelryDocument(form.documentId)
+      }catch(error){
+        proxy.$modal.msgWarning('草稿已保存，但提交未完成，请在当前页面重试或前往单据列表提交。')
+        return
+      }
+    }
+    proxy.$modal.msgSuccess(andSubmit?'单据已直接提交审核':'草稿已保存')
+    dialog.value=false
+    load()
+  }finally{savingAction.value=''}
+}
 async function submit(row){await proxy.$modal.confirm(`确认提交单据 ${row.docNo}？`);await submitJewelryDocument(row.documentId);proxy.$modal.msgSuccess('已提交');load()}
 async function withdraw(row){await proxy.$modal.confirm(`确认撤回单据 ${row.docNo}？`);await withdrawJewelryDocument(row.documentId);proxy.$modal.msgSuccess('已撤回');load()}
 async function reverse(row){await proxy.$modal.confirm(`确认对单据 ${row.docNo} 发起整单红冲？红冲单审核通过后入账。`);await createJewelryReversal(row.documentId);proxy.$modal.msgSuccess('红冲草稿已生成');load()}
