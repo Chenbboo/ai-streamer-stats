@@ -68,7 +68,7 @@ public class LiveKpiConfigController extends BaseController
     /**
      * 新增 KPI 配置
      */
-    @PreAuthorize("@ss.hasPermi('live:stats:edit')")
+    @PreAuthorize("@ss.hasPermi('live:stats:add')")
     @Log(title = "KPI 配置", businessType = BusinessType.INSERT)
     @PostMapping
     public AjaxResult add(@RequestBody LiveKpiConfig config)

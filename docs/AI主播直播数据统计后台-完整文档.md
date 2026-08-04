@@ -1,5 +1,7 @@
 # AI 主播直播数据统计后台 — 系统完整文档
 
+> **历史快照说明（2026-08-04）：** 本文记录 2026-07-07 时的实现，部分表结构、权限、模型和部署信息已经过期。当前实现以 [系统架构与数据库基线.md](./系统架构与数据库基线.md)、[统计口径说明.md](./统计口径说明.md)、当前代码及 `backend/sql/migrations` 为准。本文中的示例账号、密码和 Key 不得用于实际环境。
+>
 > 最后更新：2026-07-07（接入硅基流动 Qwen3-VL 视觉模型、聊天内容识别、AI识别加载状态、统计看板数据源修复）
 
 ---
@@ -22,11 +24,9 @@
 | Vue3 前端 | J:\codex-projects\ai-streamer-stats\frontend | 80 |
 | AI 模型 | 硅基流动 API | HTTPS |
 
-**访问地址**: `http://localhost`（admin / admin123）
+**访问地址**: 由当前运行环境提供；不要在文档中保存实际管理员密码。
 
-**GitHub 仓库**:
-- 后端: https://github.com/Chenbboo/ai-streamer-backend（feature/live-upload 分支）
-- 前端: https://github.com/Chenbboo/ai-streamer-frontend（feature/live-upload 分支）
+**代码仓库**: 当前前后端已经统一在 `ai-streamer-stats` 单体仓库中维护。
 
 ---
 
@@ -51,22 +51,26 @@
 ```
 host: localhost:3306
 user: root
-password: 123456
+password: <通过本地或环境配置提供>
 database: ry-vue
 characterEncoding: UTF-8
 ```
 
-### 7 张业务表
+### 当时的 7 张业务表（当前已扩展为 11 张）
 
 | 表 | 用途 | 关键字段 |
 |----|------|----------|
 | `live_streamer` | 主播信息 | streamer_id, user_id(关联sys_user), stage_name, tiktok_handle, status(0在职/1离职) |
-| `live_customer` | 客户信息 | customer_id, nickname(唯一), badge, first_seen_date, last_seen_date, merged_into_id |
-| `live_upload` | 上传记录 | upload_id, biz_date, streamer_id, upload_type(1打赏/2聊天/3汇报), file_path, raw_text, ai_status, ai_result(JSON) |
-| `live_gift_record` | 打赏明细 | gift_id, biz_date, streamer_id, customer_id, xu, rank_no, source_upload_id |
+| `live_customer` | 客户信息 | customer_id, streamer_id, nickname（主播范围内唯一）, badge, first_seen_date, last_seen_date, merged_into_id |
+| `live_upload` | 上传记录 | upload_id, biz_date, streamer_id, upload_type(1打赏/2聊天/3汇报/4关注), file_path, raw_text, ai_status, ai_result(LONGTEXT) |
+| `live_gift_record` | 打赏明细 | gift_id, biz_date, streamer_id, customer_id, xu, rank_no, upload_id |
 | `live_chat_contact` | 聊天联系人 | contact_id, biz_date, streamer_id, customer_id, upload_id |
 | `live_chat_message` | 聊天消息明细（预留） | — |
 | `live_daily_report` | 每日汇报 | report_id, biz_date, streamer_id, total_xu, raw_text, upload_id |
+| `live_follow_record` | 关注与待回关 | follow_id, biz_date, streamer_id, customer_id, follow_status |
+| `live_customer_alias` | 客户别名与合并追溯 | alias_id, customer_id, streamer_id, nickname |
+| `live_kpi_config` | KPI配置 | kpi_id, streamer_id, kpi_year, kpi_month |
+| `live_weiji_stats` | 历史维系统计快照 | id, stat_date, streamer_id |
 
 ### AI 识别状态码（live_upload.ai_status）
 
@@ -84,7 +88,7 @@ characterEncoding: UTF-8
 |---|---|---|
 | `live.ai.enabled` | `true` | AI 开关 |
 | `live.ai.provider` | `openai-compatible-chat` | API 格式 |
-| `live.ai.apiKey` | `sk-pukbxg...` | 硅基流动 Key |
+| `live.ai.apiKey` | `<后端安全配置>` | 视觉模型 API Key，不写入文档或版本库 |
 | `live.ai.baseUrl` | `https://api.siliconflow.cn/v1/chat/completions` | 端点 |
 | `live.ai.model` | `Qwen/Qwen3-VL-32B-Instruct` | 视觉模型 |
 | `live.ai.timeout` | `120` | 超时秒数 |
@@ -265,7 +269,7 @@ characterEncoding: UTF-8
 |------|------|----------|
 | 主播名 | stageName | live_streamer |
 | 健康状态 | good(绿)/watch(黄)/risk(红) | 与上期对比 |
-| 总流水 | 大数字 | live_gift_record SUM(xu) |
+| 总流水 | 大数字 | live_daily_report SUM(total_xu) |
 | 环比变化 | ▲/▼ 百分比 | vs 上周期 |
 | 打赏识别 | giftXu | live_gift_record SUM(xu) |
 | 打赏客户 | giftCustomers | live_gift_record COUNT(DISTINCT customer_id) |
@@ -276,7 +280,7 @@ characterEncoding: UTF-8
 - X 轴: 日期
 - Y 轴: 流水金额
 - 系列: 按主播拆分
-- 数据来源: live_gift_record 按 biz_date + streamer_id 分组
+- 数据来源: live_daily_report 按 biz_date + streamer_id 分组
 
 **03 · 客户触达情况**（客户卡片网格，5列）:
 
@@ -298,12 +302,12 @@ characterEncoding: UTF-8
 | 字段 | 数据库字段 | SQL |
 |------|-----------|-----|
 | stageName | live_streamer.stage_name | 直接查 |
-| totalXu | — | `SUM(live_gift_record.xu) WHERE biz_date BETWEEN begin AND end` |
-| giftXu | — | 同 totalXu（统计口径以打赏记录为准） |
+| totalXu | — | `SUM(live_daily_report.total_xu) WHERE biz_date BETWEEN begin AND end` |
+| giftXu | — | `SUM(live_gift_record.xu)`，仅表示截图识别的礼物合计 |
 | giftCustomers | — | `COUNT(DISTINCT customer_id) FROM live_gift_record` |
 | chatCustomers | — | `COUNT(DISTINCT customer_id) FROM live_chat_contact` |
 | reportDays | — | `COUNT(*) FROM live_daily_report` |
-| previousTotalXu | — | `SUM(live_gift_record.xu) WHERE biz_date BETWEEN 上期begin AND 上期end` |
+| previousTotalXu | — | `SUM(live_daily_report.total_xu) WHERE biz_date BETWEEN 上期begin AND 上期end` |
 | changeRate | — | `(totalXu - previousTotalXu) / previousTotalXu × 100` |
 | health | — | totalXu >= previousTotalXu → "good"；差 > -30% → "watch"；差 <= -30% → "risk" |
 
@@ -313,7 +317,7 @@ characterEncoding: UTF-8
 |------|------|
 | streamerCount | `COUNT(*) FROM live_streamer WHERE status='0'` |
 | totalXu | `SUM(cards[].totalXu)` |
-| totalGiftXu | 同 totalXu |
+| totalGiftXu | `SUM(cards[].giftXu)` |
 | giftCustomers | `SUM(cards[].giftCustomers)` |
 | chatCustomers | `SUM(cards[].chatCustomers)` |
 
@@ -322,9 +326,9 @@ characterEncoding: UTF-8
 | 字段 | SQL |
 |------|-----|
 | bizDate | `DATE_FORMAT(biz_date, '%Y-%m-%d')` |
-| streamerId | `live_gift_record.streamer_id` |
+| streamerId | `live_daily_report.streamer_id` |
 | stageName | `live_streamer.stage_name` |
-| totalXu | `SUM(xu) GROUP BY biz_date, streamer_id` |
+| totalXu | `SUM(total_xu) GROUP BY biz_date, streamer_id` |
 
 ### 客户卡片（GET /live/stats/weekly → customerCards）
 
@@ -532,7 +536,7 @@ pnpm dev
 | AI 识别 10 秒超时 | axios 默认 10 秒，AI 识别需要更久 | review.js timeout 改 120 秒 |
 | MySQL JSON 列报 "Invalid encoding in string" | AI 返回的 JSON 被 max_tokens 截断，末尾是不完整 Unicode | max_tokens 从 1200→4000→8000；加 autoCloseJson() 自动补全括号 |
 | MySQL JSON 列编码报错 | JDBC characterEncoding=utf8（3字节），emoji 是 4 字节 | application-druid.yml 改 characterEncoding=UTF-8 |
-| 统计 totalXu=0，trend 为空 | SQL 查的是 live_daily_report（没数据），应查 live_gift_record | selectStreamerCards/selectPreviousTotals/selectTrend 全部改为查 live_gift_record |
+| 日报流水与礼物截图合计不一致 | 两者是不同业务口径 | 流水/趋势/KPI 查 live_daily_report；客户礼物分析查 live_gift_record，不强制对账 |
 | AI 识别中无 loading 状态 | 点击按钮后前端没有反馈 | 加 recognizingId ref，按钮显示"识别中..."，状态列显示 loading 动画 |
 | 聊天截图只识别客户消息 | prompt 没要求读取具体内容 | prompt 增加聊天内容提取指令，要求读取每条消息 |
 | 主播发的视频消息无法识别内容 | 视频内容无法从截图读取 | prompt 增加"看缩略图描述内容"，标记 messageType=video |
@@ -543,7 +547,7 @@ pnpm dev
 
 1. ✅ 底座搭建：RuoYi-Vue3 3.9.2 跑通，前端 :80，后端 :8080，库 ry-vue
 2. ✅ 角色菜单初始化：3 角色（主播/运营/管理员）+ 3 菜单（上传/校正/统计）+ 按钮权限
-3. ✅ 业务表建表：7 张表（streamer/customer/upload/gift_record/chat_contact/chat_message/daily_report）
+3. ✅ 当时业务表建表：7 张；当前直播基线已扩展为 11 张表，详见架构基线文档
 4. ✅ 图片上传模块：批量截图上传 + 汇报文本提交 + 按日汇总 + 明细列表 + 删除
 5. ✅ AI 识别校正模块：AI 识别 + 人工校正 + 确认入库（Mock 模式）
 6. ✅ 数据统计模块：主播卡片 + 每日走势 + 客户触达（ECharts）
@@ -552,7 +556,7 @@ pnpm dev
 9. ✅ 聊天内容识别：prompt 改为读取每条消息内容，区分 text/video/image/audio 类型
 10. ✅ AI 识别加载状态：按钮 loading + 状态列"识别中"动画
 11. ✅ JSON 编码修复：max_tokens 8000 + autoCloseJson + JDBC UTF-8
-12. ✅ 统计看板数据源修复：totalXu/trend 从 live_gift_record 取数
+12. ✅ 当前统计口径：totalXu/trend 从 live_daily_report 取数，礼物与客户分析从 live_gift_record 取数
 13. ✅ 系统文档编写：完整文档 12 章节
 
 ---

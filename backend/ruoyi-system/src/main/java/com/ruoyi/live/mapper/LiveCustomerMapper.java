@@ -12,13 +12,31 @@ public interface LiveCustomerMapper
 
     LiveCustomer selectCustomerByNicknameAndStreamer(@Param("nickname") String nickname, @Param("streamerId") Long streamerId);
 
-    int updateGiftCustomerId(@Param("oldId") Long oldId, @Param("newId") Long newId);
+    int mergeGiftRecords(@Param("oldId") Long oldId, @Param("newId") Long newId);
 
-    int updateChatCustomerId(@Param("oldId") Long oldId, @Param("newId") Long newId);
+    int deleteGiftRecords(Long customerId);
+
+    int mergeChatContacts(@Param("oldId") Long oldId, @Param("newId") Long newId);
+
+    int deleteChatContacts(Long customerId);
+
+    int mergeFollowRecords(@Param("oldId") Long oldId, @Param("newId") Long newId);
+
+    int deleteFollowRecords(Long customerId);
+
+    int updateChatMessageCustomerId(@Param("oldId") Long oldId, @Param("newId") Long newId);
+
+    int moveAliases(@Param("oldId") Long oldId, @Param("newId") Long newId,
+                    @Param("streamerId") Long streamerId);
+
+    int mergeCustomerMetadata(@Param("primaryId") Long primaryId, @Param("secondaryId") Long secondaryId);
 
     int markCustomerMerged(@Param("oldId") Long oldId, @Param("newId") Long newId);
 
-    int insertAlias(@Param("customerId") Long customerId, @Param("nickname") String nickname, @Param("sourceType") String sourceType);
+    int insertAlias(@Param("customerId") Long customerId, @Param("streamerId") Long streamerId,
+                    @Param("nickname") String nickname, @Param("sourceType") String sourceType,
+                    @Param("firstSeenDate") java.util.Date firstSeenDate,
+                    @Param("lastSeenDate") java.util.Date lastSeenDate);
 
     int deleteCustomerById(Long customerId);
 }

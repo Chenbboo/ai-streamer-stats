@@ -2,28 +2,33 @@
 chcp 65001 >nul
 cd /d %~dp0
 echo ============================================
-echo  初始化直播数据模块(角色菜单 + 业务表 + 测试主播)
+echo  安全升级直播数据模块(结构 + 权限 + AI配置)
 echo ============================================
 set /p MYSQL_PWD=请输入 MySQL root 密码:
 
-mysql -uroot ry-vue < live_role_menu.sql
+mysql -uroot ry-vue < migrations\V001__system_menu_i18n.sql
 if errorlevel 1 goto :fail
-echo [1/3] 角色菜单 OK
+echo [1/4] 系统菜单多语言字段 OK
 
-mysql -uroot ry-vue < live_tables.sql
+mysql -uroot ry-vue < migrations\V002__live_schema_baseline.sql
 if errorlevel 1 goto :fail
-echo [2/3] 业务表 OK
+echo [2/4] 直播业务表和索引 OK
 
-mysql -uroot ry-vue -e "insert into live_streamer(user_id, stage_name, tiktok_handle, status, create_by, create_time) select 1, 'Zhenzhen', '@zhenzhen', '0', 'admin', sysdate() from dual where not exists (select 1 from live_streamer where stage_name='Zhenzhen');"
+mysql -uroot ry-vue < migrations\V003__live_permissions_i18n.sql
 if errorlevel 1 goto :fail
-echo [3/3] 测试主播 Zhenzhen OK
+echo [3/4] 角色菜单和中越双语名称 OK
+
+mysql -uroot ry-vue < live_ai_config.sql
+if errorlevel 1 goto :fail
+echo [4/4] AI配置项 OK
 
 echo.
-echo 全部完成!接下来:重启后端 - 重新登录 admin - 直播数据管理 - 图片上传
+echo 全部完成!未删除业务数据，也未创建测试主播。
+echo 建议继续执行: mysql -uroot ry-vue ^< migrations\verify_business_schema.sql
 goto :end
 
 :fail
 echo.
-echo 执行失败!请确认 MySQL 在运行、mysql 命令在 PATH 中,把上面的报错发给 Claude
+echo 执行失败!请确认 MySQL 在运行、mysql 命令在 PATH 中，并检查上方错误。
 :end
 pause

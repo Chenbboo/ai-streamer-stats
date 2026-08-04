@@ -14,10 +14,14 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
+import com.ruoyi.common.core.domain.entity.SysRole;
+import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.core.page.TableDataInfo;
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.live.domain.LiveStreamer;
 import com.ruoyi.live.service.ILiveStreamerService;
+import com.ruoyi.system.service.ISysRoleService;
 import com.ruoyi.system.service.ISysUserService;
 
 /**
@@ -32,6 +36,9 @@ public class LiveStreamerController extends BaseController
 
     @Autowired
     private ISysUserService userService;
+
+    @Autowired
+    private ISysRoleService roleService;
 
     /**
      * 主播列表（分页）
@@ -125,8 +132,16 @@ public class LiveStreamerController extends BaseController
             return error("密码至少6位");
         }
 
+        SysRole roleQuery = new SysRole();
+        roleQuery.setRoleKey("streamer");
+        List<SysRole> streamerRoles = roleService.selectRoleList(roleQuery);
+        if (streamerRoles == null || streamerRoles.isEmpty())
+        {
+            throw new ServiceException("主播角色尚未初始化");
+        }
+
         // 1. 创建系统用户
-        com.ruoyi.common.core.domain.entity.SysUser user = new com.ruoyi.common.core.domain.entity.SysUser();
+        SysUser user = new SysUser();
         String userName = (tiktokHandle != null && !tiktokHandle.isEmpty()) ? tiktokHandle.replace("@", "") : stageName.replaceAll("\\s+", "").toLowerCase();
         if (userName.isEmpty())
         {
@@ -145,9 +160,9 @@ public class LiveStreamerController extends BaseController
             return error("创建用户失败，用户名可能已存在");
         }
 
-        // 2. 绑定主播角色 (role_id=3)
+        // 2. 按角色编码绑定主播角色，避免依赖某个数据库中的固定role_id。
         Long userId = user.getUserId();
-        userService.insertUserAuth(userId, new Long[]{3L});
+        userService.insertUserAuth(userId, new Long[]{streamerRoles.get(0).getRoleId()});
 
         // 3. 创建主播记录
         LiveStreamer streamer = new LiveStreamer();
@@ -161,7 +176,7 @@ public class LiveStreamerController extends BaseController
         int streamerResult = streamerService.insertLiveStreamer(streamer);
         if (streamerResult == 0)
         {
-            return error("创建主播记录失败");
+            throw new ServiceException("创建主播记录失败");
         }
 
         return success("主播创建成功，登录账号: " + userName);

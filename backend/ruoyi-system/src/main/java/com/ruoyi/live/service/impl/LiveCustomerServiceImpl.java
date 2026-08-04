@@ -41,11 +41,26 @@ public class LiveCustomerServiceImpl implements ILiveCustomerService
         {
             throw new ServiceException("客户不存在");
         }
-        // Save secondary's nickname as alias before merge
-        customerMapper.insertAlias(primaryId, secondary.getNickname(), "merge");
-        // Move all records from secondary to primary
-        customerMapper.updateGiftCustomerId(secondaryId, primaryId);
-        customerMapper.updateChatCustomerId(secondaryId, primaryId);
+        if (primary.getMergedIntoId() != null || secondary.getMergedIntoId() != null)
+        {
+            throw new ServiceException("已合并的客户不能再次参与合并");
+        }
+        if (primary.getStreamerId() == null || !primary.getStreamerId().equals(secondary.getStreamerId()))
+        {
+            throw new ServiceException("只能合并同一主播名下的客户");
+        }
+
+        customerMapper.mergeGiftRecords(secondaryId, primaryId);
+        customerMapper.deleteGiftRecords(secondaryId);
+        customerMapper.mergeChatContacts(secondaryId, primaryId);
+        customerMapper.deleteChatContacts(secondaryId);
+        customerMapper.mergeFollowRecords(secondaryId, primaryId);
+        customerMapper.deleteFollowRecords(secondaryId);
+        customerMapper.updateChatMessageCustomerId(secondaryId, primaryId);
+        customerMapper.moveAliases(secondaryId, primaryId, primary.getStreamerId());
+        customerMapper.insertAlias(primaryId, primary.getStreamerId(), secondary.getNickname(), "merge",
+            secondary.getFirstSeenDate(), secondary.getLastSeenDate());
+        customerMapper.mergeCustomerMetadata(primaryId, secondaryId);
         customerMapper.markCustomerMerged(secondaryId, primaryId);
     }
 }

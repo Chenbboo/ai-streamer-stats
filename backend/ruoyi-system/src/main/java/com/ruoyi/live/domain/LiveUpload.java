@@ -42,7 +42,7 @@ public class LiveUpload extends BaseEntity
     /** 汇报原文 */
     private String rawText;
 
-    /** AI识别状态(0待识别 1已识别 2已校正入库 3识别失败) */
+    /** AI识别状态(0待识别 1已识别 2已校正入库 3识别失败 4识别中) */
     private String aiStatus;
 
     /** AI识别原始JSON */
