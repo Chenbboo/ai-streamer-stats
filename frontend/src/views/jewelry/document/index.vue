@@ -82,13 +82,15 @@
           <el-table-column v-if="showQuantityColumn" label="数量" width="130">
             <template #default="{ row }"><el-input-number v-model="row.qty" :min="1" :disabled="readonly" /></template>
           </el-table-column>
-          <el-table-column v-if="showPriceColumn" :label="priceLabel" width="145"><template #default="{row}"><el-input-number v-model="row.unitPrice" :min="0" :precision="2" :disabled="readonly || (form.docType==='CUSTOMER_RETURN' && !!form.sourceDocumentId)"/></template></el-table-column>
+          <el-table-column v-if="showPriceColumn" :label="priceLabel" width="170"><template #default="{row}"><el-input-number v-model="row.unitPrice" :min="0" :precision="2" :disabled="readonly || (form.docType==='CUSTOMER_RETURN' && !!form.sourceDocumentId)" style="width:100%"/></template></el-table-column>
           <el-table-column v-if="showCostColumn" label="单位成本" width="120"><template #default="{row}"><span>{{money(row.unitCost)}}</span></template></el-table-column>
           <el-table-column v-if="form.docType==='SALES_OUT'" label="包装费/件" width="145"><template #default="{row}"><el-input-number v-model="row.packFee" :min="0" :precision="2" :disabled="readonly"/></template></el-table-column>
           <el-table-column v-if="form.docType==='SALES_OUT'" label="物流费/件" width="145"><template #default="{row}"><el-input-number v-model="row.shipFee" :min="0" :precision="2" :disabled="readonly"/></template></el-table-column>
           <el-table-column v-if="form.docType==='SALES_OUT'" label="鉴定费/件" width="145"><template #default="{row}"><el-input-number v-model="row.certFee" :min="0" :precision="2" :disabled="readonly"/></template></el-table-column>
-          <el-table-column v-if="showPriceColumn" label="行金额" width="110" align="right"><template #default="{row}">{{money(lineAmount(row))}}</template></el-table-column>
-          <el-table-column v-if="canViewFinance && form.docType==='SALES_OUT'" label="预计毛利" width="110" align="right"><template #default="{row}"><span :class="{loss:lineProfit(row)<0}">{{money(lineProfit(row))}}</span></template></el-table-column>
+          <el-table-column v-if="showPriceColumn" :label="amountLabel" width="130" align="right"><template #default="{row}">{{money(lineAmount(row))}}</template></el-table-column>
+          <el-table-column v-if="form.docType==='SALES_OUT'" label="平台等扣费" width="130" align="right"><template #default="{row}">{{money(lineDeductions(row))}}</template></el-table-column>
+          <el-table-column v-if="form.docType==='SALES_OUT'" label="预计净入账" width="130" align="right"><template #default="{row}">{{money(lineNetReceipt(row))}}</template></el-table-column>
+          <el-table-column v-if="canViewFinance && form.docType==='SALES_OUT'" label="预计毛利" width="120" align="right"><template #default="{row}"><span :class="{loss:lineProfit(row)<0}">{{money(lineProfit(row))}}</span></template></el-table-column>
           <el-table-column v-if="showAdjustmentColumn" label="调整原因" min-width="180"><template #default="{row}"><el-input v-model="row.lineReason" :disabled="readonly"/></template></el-table-column>
           <el-table-column v-if="!readonly" width="60"><template #default="{ $index }"><el-button link type="danger" icon="Delete" @click="form.items.splice($index,1)"/></template></el-table-column>
         </el-table>
@@ -96,7 +98,9 @@
         <div class="document-total">
           <span>SKU {{ form.items.length }} 种</span>
           <span>总件数 <b>{{ estimatedQty }}</b></span>
-          <span v-if="showPriceColumn">总金额 <b>¥ {{ money(estimatedAmount) }}</b></span>
+          <span v-if="showPriceColumn">{{ totalAmountLabel }} <b>¥ {{ money(estimatedAmount) }}</b></span>
+          <span v-if="form.docType==='SALES_OUT'">平台等扣费 <b>¥ {{ money(estimatedDeductions) }}</b></span>
+          <span v-if="form.docType==='SALES_OUT'">预计净入账 <b>¥ {{ money(estimatedNetReceipt) }}</b></span>
           <span v-if="canViewFinance && form.docType==='SALES_OUT'" :class="{loss:estimatedProfit<0}">预计毛利 <b>¥ {{ money(estimatedProfit) }}</b></span>
         </div>
         <div class="sheet-foot"><el-form label-width="110px"><el-form-item v-if="needsReason" :label="reasonLabel" required><el-input v-model="form.returnReason" :disabled="readonly"/></el-form-item><el-form-item v-if="form.docType==='CUSTOMER_RETURN' && !form.sourceDocumentId" label="未关联原单原因" required><el-input v-model="form.unlinkedReason" :disabled="readonly" placeholder="第一阶段未选择原销售单时必须填写"/></el-form-item><el-form-item label="备注"><el-input v-model="form.remark" :disabled="readonly"/></el-form-item></el-form></div>
@@ -205,13 +209,20 @@ const showPriceColumn=computed(()=>['PURCHASE_IN','SALES_OUT','SUPPLIER_RETURN',
 const showCostColumn=computed(()=>canViewFinance.value&&form.docType!=='PURCHASE_IN')
 const excelImportSupported=computed(()=>['PURCHASE_IN','SALES_OUT','STOCK_ADJUST'].includes(form.docType))
 const priceLabel=computed(()=>form.docType==='PURCHASE_IN'?'采购单价':form.docType==='SALES_OUT'?'成交单价':form.docType==='SUPPLIER_RETURN'?'退货单价':'退款单价')
+const amountLabel=computed(()=>form.docType==='PURCHASE_IN'?'采购金额':form.docType==='SALES_OUT'?'成交总额':form.docType==='SUPPLIER_RETURN'?'退货金额':'退款金额')
+const totalAmountLabel=computed(()=>form.docType==='PURCHASE_IN'?'采购总额':form.docType==='SALES_OUT'?'成交总额':form.docType==='SUPPLIER_RETURN'?'退货总额':'退款总额')
 const needsReason=computed(()=>['SUPPLIER_RETURN','CUSTOMER_RETURN','STOCK_ADJUST'].includes(form.docType))
 const reasonLabel=computed(()=>form.docType==='STOCK_ADJUST'?'调整原因':'退货原因')
 const effectiveQty=row=>form.docType==='RETURN_INSPECT'?Number(row.goodQty||0)+Number(row.defectQty||0):form.docType==='STOCK_ADJUST'?Math.abs(Number(row.countedQty||0)-Number(row.systemQty||0)):Number(row.qty||0)
 const lineAmount=row=>Number(row.unitPrice||0)*effectiveQty(row)
-const lineProfit=row=>{const qty=effectiveQty(row),amount=lineAmount(row),fees=(Number(row.packFee||0)+Number(row.shipFee||0)+Number(row.certFee||0))*qty,rates=Number(form.platformRate||0)+Number(form.commissionRate||0)+Number(form.taxRate||0);return amount-Number(row.unitCost||0)*qty-fees-amount*rates}
+const salesRate=computed(()=>Number(form.platformRate||0)+Number(form.commissionRate||0)+Number(form.taxRate||0))
+const lineDeductions=row=>lineAmount(row)*salesRate.value
+const lineNetReceipt=row=>lineAmount(row)-lineDeductions(row)
+const lineProfit=row=>{const qty=effectiveQty(row),amount=lineAmount(row),fees=(Number(row.packFee||0)+Number(row.shipFee||0)+Number(row.certFee||0))*qty;return amount-Number(row.unitCost||0)*qty-fees-lineDeductions(row)}
 const estimatedQty=computed(()=>form.items.reduce((sum,row)=>sum+effectiveQty(row),0))
 const estimatedAmount=computed(()=>form.items.reduce((sum,row)=>sum+lineAmount(row),0))
+const estimatedDeductions=computed(()=>form.items.reduce((sum,row)=>sum+lineDeductions(row),0))
+const estimatedNetReceipt=computed(()=>estimatedAmount.value-estimatedDeductions.value)
 const estimatedProfit=computed(()=>form.docType==='SALES_OUT'?form.items.reduce((sum,row)=>sum+lineProfit(row),0):0)
 const riskFingerprint=computed(()=>JSON.stringify({
   open:dialog.value,readonly:readonly.value,docType:form.docType,
