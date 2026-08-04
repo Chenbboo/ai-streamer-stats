@@ -52,6 +52,10 @@ class JewelryErpServiceImplTest
     {
         lenient().when(mapper.updateDocumentStatus(anyLong(), anyString(), anyString(), anyLong(), anyString(),
             any(), any())).thenReturn(1);
+        lenient().when(mapper.selectProductById(anyLong())).thenReturn(product());
+        lenient().when(mapper.selectStockForUpdate(anyLong()))
+            .thenReturn(stock(10, 0, 0, 0, 0, 0, "100.00", "0", "0"));
+        lenient().when(mapper.selectSupplierById(anyLong())).thenReturn(activeSupplier());
     }
 
     @Test
@@ -132,6 +136,7 @@ class JewelryErpServiceImplTest
     void submittingSalesDocumentReservesOutboundStock()
     {
         JewelryDocument document = document(6L, "SALES_OUT", "DRAFT");
+        document.setSalesChannel("douyin");
         stubDocument(document, item(16L, 4, "500.00"));
         when(mapper.reserveOutbound(PRODUCT_ID, 4)).thenReturn(1);
 
@@ -140,6 +145,82 @@ class JewelryErpServiceImplTest
         verify(mapper).reserveOutbound(PRODUCT_ID, 4);
         verify(mapper).updateDocumentStatus(6L, "DRAFT", "PENDING_FIRST",
             MAKER_ID, "maker", null, null);
+    }
+
+    @Test
+    void salesRiskAssessmentRejectsNegativeFees()
+    {
+        JewelryDocument sales = document(null, "SALES_OUT", "DRAFT");
+        sales.setSalesChannel("douyin");
+        JewelryDocumentItem salesItem = item(null, 1, "500.00");
+        salesItem.setPackFee(decimal("-0.01"));
+        sales.setItems(Arrays.asList(salesItem));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.assessDocumentRisk(sales));
+
+        assertTrue(error.getMessage().contains("包装费不能小于0"));
+    }
+
+    @Test
+    void salesRiskAssessmentRejectsCombinedRatesAtOneHundredPercent()
+    {
+        JewelryDocument sales = document(null, "SALES_OUT", "DRAFT");
+        sales.setSalesChannel("douyin");
+        sales.setPlatformRate(decimal("0.30"));
+        sales.setCommissionRate(decimal("0.60"));
+        sales.setTaxRate(decimal("0.10"));
+        sales.setItems(Arrays.asList(item(null, 1, "500.00")));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.assessDocumentRisk(sales));
+
+        assertTrue(error.getMessage().contains("合计必须小于100%"));
+    }
+
+    @Test
+    void salesRiskAssessmentReturnsOnlyLossSignal()
+    {
+        JewelryDocument sales = document(null, "SALES_OUT", "DRAFT");
+        sales.setSalesChannel("douyin");
+        sales.setItems(Arrays.asList(item(null, 1, "500.00")));
+        when(mapper.selectStockForUpdate(PRODUCT_ID))
+            .thenReturn(stock(10, 0, 0, 0, 0, 0, "700.00", "0", "0"));
+
+        Map<String, Object> result = service.assessDocumentRisk(sales);
+
+        assertEquals(2, result.size());
+        assertEquals("LOSS", result.get("riskStatus"));
+        assertEquals(Boolean.TRUE, result.get("loss"));
+        assertTrue(!result.containsKey("totalCost"));
+        assertTrue(!result.containsKey("totalProfit"));
+    }
+
+    @Test
+    void profitCalculatorUsesSameValidatedSalesFormula()
+    {
+        Map<String, Object> product = product();
+        product.put("onHandQty", 10);
+        product.put("reservedOutQty", 2);
+        product.put("avgCost", decimal("300.00"));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product);
+        Map<String, Object> input = new HashMap<String, Object>();
+        input.put("productId", PRODUCT_ID);
+        input.put("price", "1000.00");
+        input.put("quantity", 2);
+        input.put("packFee", "5.00");
+        input.put("shipFee", "8.00");
+        input.put("certFee", "2.00");
+        input.put("platformRate", "5");
+        input.put("commissionRate", "20");
+        input.put("taxRate", "1");
+
+        Map<String, Object> result = service.calculateProfit(input);
+
+        assertMoney("425.00", (BigDecimal) result.get("profit"));
+        assertMoney("850.00", (BigDecimal) result.get("totalProfit"));
+        assertEquals(8, result.get("availableQty"));
+        assertEquals(6, result.get("remainingQty"));
     }
 
     @Test
@@ -159,6 +240,7 @@ class JewelryErpServiceImplTest
     void salesSubmissionFailsWhenAvailableStockIsInsufficient()
     {
         JewelryDocument document = document(62L, "SALES_OUT", "DRAFT");
+        document.setSalesChannel("douyin");
         stubDocument(document, item(162L, 5, "500.00"));
         when(mapper.reserveOutbound(PRODUCT_ID, 5)).thenReturn(0);
 
@@ -254,6 +336,59 @@ class JewelryErpServiceImplTest
 
         assertTrue(error.getMessage().contains("累计退货数量不能超过原销售数量3件"));
         verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void disabledSupplierCannotBeUsedForPurchase()
+    {
+        JewelryDocument purchase = document(null, "PURCHASE_IN", null);
+        purchase.setSupplierId(9L);
+        purchase.setItems(Arrays.asList(item(null, 1, "100.00")));
+        Map<String, Object> supplier = activeSupplier();
+        supplier.put("status", "1");
+        when(mapper.selectSupplierById(9L)).thenReturn(supplier);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveDocument(purchase, MAKER_ID, "maker"));
+
+        assertTrue(error.getMessage().contains("供应商已停用"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void linkedCustomerReturnCannotSubmitAfterSourceSaleWasReversed()
+    {
+        JewelryDocument customerReturn = document(91L, "CUSTOMER_RETURN", "DRAFT");
+        customerReturn.setSourceDocumentId(90L);
+        customerReturn.setSalesChannel("douyin");
+        stubDocument(customerReturn, item(191L, 1, "500.00"));
+        JewelryDocument source = document(90L, "SALES_OUT", "REVERSED");
+        when(mapper.selectDocumentByIdForUpdate(90L)).thenReturn(source);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.submit(91L, MAKER_ID, "maker"));
+
+        assertTrue(error.getMessage().contains("原销售单已失效"));
+        verify(mapper, never()).updateDocumentStatus(eq(91L), anyString(), anyString(), anyLong(),
+            anyString(), any(), any());
+    }
+
+    @Test
+    void linkedCustomerReturnCannotSubmitWhenSourceAlreadyHasAReversal()
+    {
+        JewelryDocument customerReturn = document(92L, "CUSTOMER_RETURN", "DRAFT");
+        customerReturn.setSourceDocumentId(90L);
+        customerReturn.setSalesChannel("douyin");
+        stubDocument(customerReturn, item(192L, 1, "500.00"));
+        JewelryDocument source = document(90L, "SALES_OUT", "POSTED");
+        when(mapper.selectDocumentByIdForUpdate(90L)).thenReturn(source);
+        when(mapper.countReversalBySource(90L)).thenReturn(1);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.submit(92L, MAKER_ID, "maker"));
+
+        assertTrue(error.getMessage().contains("已存在红冲单"));
+        verify(mapper, never()).reserveInspection(anyLong(), anyInt());
     }
 
     @Test
@@ -357,6 +492,7 @@ class JewelryErpServiceImplTest
         item.setSystemQty(10);
         item.setCountedQty(8);
         item.setAdjustmentQty(-2);
+        item.setLineReason("盘点差异");
         stubDocument(document, item);
         when(mapper.selectStockForUpdate(PRODUCT_ID)).thenReturn(stock(11, 0, 0, 0, 0, 0, "300.00", "0", "0"));
 
@@ -398,7 +534,7 @@ class JewelryErpServiceImplTest
 
         when(mapper.selectDocumentById(14L)).thenReturn(reversal);
         when(mapper.selectDocumentItems(14L)).thenReturn(Arrays.asList(reversalItem));
-        when(mapper.selectDocumentById(13L)).thenReturn(source);
+        when(mapper.selectDocumentByIdForUpdate(13L)).thenReturn(source);
         when(mapper.selectStockForUpdate(PRODUCT_ID)).thenReturn(stock(8, 0, 0, 0, 0, 0, "300.00", "0", "0"));
         when(mapper.markOriginalReversed(13L, "reviewer2")).thenReturn(1);
 
@@ -409,6 +545,37 @@ class JewelryErpServiceImplTest
         verify(mapper).markOriginalReversed(13L, "reviewer2");
         verify(mapper).updateDocumentStatus(14L, "PENDING_SECOND", "POSTED",
             REVIEWER_TWO_ID, "reviewer2", null, 2);
+    }
+
+    @Test
+    void saleWithActiveCustomerReturnCannotBeReversed()
+    {
+        JewelryDocument source = document(131L, "SALES_OUT", "POSTED");
+        when(mapper.selectDocumentByIdForUpdate(131L)).thenReturn(source);
+        when(mapper.countActiveCustomerReturnsBySource(131L)).thenReturn(1);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.createReversal(131L, MAKER_ID, "maker"));
+
+        assertTrue(error.getMessage().contains("存在待处理或已入账的消费者退货"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void rejectedReversalCanBeResubmitted()
+    {
+        JewelryDocument source = document(132L, "SALES_OUT", "POSTED");
+        JewelryDocument reversal = document(133L, "REVERSAL", "REJECTED");
+        reversal.setSourceDocumentId(132L);
+        stubDocument(reversal, item(233L, 1, "-500.00"));
+        when(mapper.selectDocumentByIdForUpdate(132L)).thenReturn(source);
+
+        service.submit(133L, MAKER_ID, "maker");
+
+        verify(mapper).updateDocumentStatus(133L, "REJECTED", "PENDING_FIRST",
+            MAKER_ID, "maker", null, null);
+        verify(mapper).insertEvent(133L, "RESUBMIT", "REJECTED", "PENDING_FIRST",
+            MAKER_ID, "maker", "");
     }
 
     @Test
@@ -742,6 +909,15 @@ class JewelryErpServiceImplTest
         product.put("status", "0");
         product.put("avgCost", BigDecimal.ZERO);
         return product;
+    }
+
+    private Map<String, Object> activeSupplier()
+    {
+        Map<String, Object> supplier = new HashMap<String, Object>();
+        supplier.put("supplierId", 1L);
+        supplier.put("supplierName", "Test supplier");
+        supplier.put("status", "0");
+        return supplier;
     }
 
     private Map<String, Object> stock(int onHand, int reserved, int inspection, int inspectionReserved,

@@ -177,6 +177,11 @@
         </where>
         order by supplier_id desc
     </select>
+    <select id="selectSupplierById" resultType="java.util.LinkedHashMap">
+        select supplier_id supplierId,supplier_code supplierCode,supplier_name supplierName,
+          status,remark
+        from jewelry_supplier where supplier_id=#{supplierId}
+    </select>
     <insert id="insertSupplier" useGeneratedKeys="true" keyProperty="supplierId">
         insert into jewelry_supplier(supplier_code,supplier_name,contact_name,contact_phone,address,settlement_type,
           status,create_by,create_time,remark)
@@ -368,6 +373,11 @@
     </select>
     <select id="countReversalBySource" resultType="int">
         select count(*) from jewelry_document where doc_type='REVERSAL' and source_document_id=#{sourceDocumentId}
+    </select>
+    <select id="countActiveCustomerReturnsBySource" resultType="int">
+        select count(*) from jewelry_document
+        where doc_type='CUSTOMER_RETURN' and source_document_id=#{sourceDocumentId}
+          and status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
     </select>
     <select id="selectReturnedQtyBySourceItem" resultType="int">
         select coalesce(sum(i.qty),0)

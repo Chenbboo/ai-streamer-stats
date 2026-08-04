@@ -286,7 +286,7 @@ insert into sys_menu(
 -- 制单员菜单权限。
 insert ignore into sys_role_menu(role_id, menu_id)
 select r.role_id, m.menu_id from sys_role r
-join sys_menu m on m.menu_id in (3000,3002,3003,3004,3005,3006,3009,3103,3107,3108,3109,3110)
+join sys_menu m on m.menu_id in (3000,3002,3003,3004,3005,3006,3009,3107,3108,3109,3110)
 where r.role_key = 'jewelry_maker' and r.del_flag = '0';
 
 -- 审核员菜单权限。

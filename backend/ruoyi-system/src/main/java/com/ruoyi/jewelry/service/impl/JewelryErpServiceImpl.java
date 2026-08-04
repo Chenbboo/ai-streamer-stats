@@ -40,6 +40,12 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     @Transactional
     public int saveProduct(Map<String, Object> product)
     {
+        product.put("defaultPackFee", nonNegativeDecimalValue(product.get("defaultPackFee"), "默认包装费"));
+        product.put("defaultShipFee", nonNegativeDecimalValue(product.get("defaultShipFee"), "默认物流费"));
+        product.put("defaultCertFee", nonNegativeDecimalValue(product.get("defaultCertFee"), "默认鉴定费"));
+        product.put("warningQty", nonNegativeValue(product.get("warningQty"), 5));
+        String status = textValue(product.get("status"));
+        if (!"0".equals(status) && !"1".equals(status)) throw new ServiceException("商品状态不正确");
         String productImage = singleImage(product.get("imageUrls"));
         if (productImage.isEmpty()) productImage = singleImage(product.get("imageUrl"));
         product.put("imageUrls", productImage);
@@ -105,6 +111,72 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             refreshAssemblyCosts(document, false, false);
         }
         return document;
+    }
+
+    @Override
+    public Map<String, Object> assessDocumentRisk(JewelryDocument document)
+    {
+        if (!"SALES_OUT".equals(document.getDocType()))
+            throw new ServiceException("当前仅支持销售出库单风险试算");
+        validateDocument(document);
+        calculateDocument(document);
+        Map<String, Object> result = new HashMap<String, Object>();
+        result.put("riskStatus", document.getRiskStatus());
+        result.put("loss", "LOSS".equals(document.getRiskStatus()));
+        return result;
+    }
+
+    @Override
+    public Map<String, Object> calculateProfit(Map<String, Object> input)
+    {
+        Long productId = nullableLong(input.get("productId"));
+        if (productId == null) throw new ServiceException("请选择需要试算的商品");
+        Map<String, Object> product = mapper.selectProductById(productId);
+        if (product == null || !"0".equals(textValue(product.get("status"))))
+            throw new ServiceException("商品不存在或已停用");
+
+        BigDecimal price = decimalValue(input.get("price"), "成交价");
+        if (price.signum() <= 0) throw new ServiceException("成交价必须大于0");
+        int quantity = input.get("quantity") == null ? 1 : integerValue(input.get("quantity"), "试算数量");
+        int availableQty = decimal(product.get("onHandQty")).subtract(decimal(product.get("reservedOutQty"))).intValue();
+        if (quantity <= 0) throw new ServiceException("试算数量必须大于0");
+        if (quantity > availableQty) throw new ServiceException("试算数量不能超过当前可用库存" + availableQty + "件");
+
+        BigDecimal cost = decimal(product.get("avgCost"));
+        BigDecimal packFee = nonNegativeDecimalValue(input.get("packFee"), "包装费");
+        BigDecimal shipFee = nonNegativeDecimalValue(input.get("shipFee"), "物流费");
+        BigDecimal certFee = nonNegativeDecimalValue(input.get("certFee"), "鉴定费");
+        BigDecimal fees = packFee.add(shipFee).add(certFee);
+        BigDecimal platformRate = percentageValue(input.get("platformRate"), "平台扣点率");
+        BigDecimal commissionRate = percentageValue(input.get("commissionRate"), "达人佣金率");
+        BigDecimal taxRate = percentageValue(input.get("taxRate"), "税率");
+        BigDecimal rate = platformRate.add(commissionRate).add(taxRate);
+        validateCombinedRate(rate);
+
+        Map<String, BigDecimal> line = calculateSalesLine(price, cost, fees, rate);
+        BigDecimal deductions = line.get("deductions");
+        BigDecimal profit = line.get("profit");
+        BigDecimal breakEvenPrice = cost.add(fees).divide(BigDecimal.ONE.subtract(rate), 2, RoundingMode.HALF_UP);
+        BigDecimal maxCommissionRate = BigDecimal.ONE.subtract(platformRate).subtract(taxRate)
+            .subtract(cost.add(fees).divide(price, 8, RoundingMode.HALF_UP));
+        if (maxCommissionRate.signum() < 0) maxCommissionRate = BigDecimal.ZERO;
+
+        Map<String, Object> result = new HashMap<String, Object>();
+        result.put("profit", profit.setScale(2, RoundingMode.HALF_UP));
+        result.put("profitRate", profit.divide(price, 6, RoundingMode.HALF_UP));
+        result.put("cost", cost.setScale(2, RoundingMode.HALF_UP));
+        result.put("deductions", deductions.setScale(2, RoundingMode.HALF_UP));
+        result.put("fixedFees", fees.setScale(2, RoundingMode.HALF_UP));
+        result.put("breakEvenPrice", breakEvenPrice);
+        result.put("maxCommissionRate", maxCommissionRate.setScale(6, RoundingMode.HALF_UP));
+        result.put("quantity", quantity);
+        result.put("availableQty", availableQty);
+        result.put("remainingQty", availableQty - quantity);
+        result.put("totalRevenue", price.multiply(BigDecimal.valueOf(quantity)).setScale(2, RoundingMode.HALF_UP));
+        result.put("totalProfit", profit.multiply(BigDecimal.valueOf(quantity)).setScale(2, RoundingMode.HALF_UP));
+        result.put("totalDeductions", deductions.multiply(BigDecimal.valueOf(quantity)).setScale(2, RoundingMode.HALF_UP));
+        result.put("totalFixedFees", fees.multiply(BigDecimal.valueOf(quantity)).setScale(2, RoundingMode.HALF_UP));
+        return result;
     }
 
     @Override
@@ -261,6 +333,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         {
             throw new ServiceException("组装单暂不支持整单红冲，请通过库存调整处理差异");
         }
+        ensureSaleHasNoActiveReturns(source);
         if (mapper.countReversalBySource(sourceDocumentId) > 0)
         {
             throw new ServiceException("该原单已经存在红冲单，请勿重复发起");
@@ -320,13 +393,30 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     public void submit(Long documentId, Long userId, String userName)
     {
         JewelryDocument document = getDocument(documentId);
-        if (!"DRAFT".equals(document.getStatus()))
+        String fromStatus = document.getStatus();
+        boolean rejectedReversal = "REVERSAL".equals(document.getDocType()) && "REJECTED".equals(fromStatus);
+        if (!"DRAFT".equals(fromStatus) && !rejectedReversal)
         {
-            throw new ServiceException("只有草稿单据可以提交");
+            throw new ServiceException("只有草稿单据或已驳回红冲单可以提交");
         }
         if (!userId.equals(document.getCreatorUserId()))
         {
             throw new ServiceException("只能提交自己创建的单据");
+        }
+        if (!"REVERSAL".equals(document.getDocType()))
+        {
+            if ("CUSTOMER_RETURN".equals(document.getDocType()) && document.getSourceDocumentId() != null)
+            {
+                JewelryDocument source = mapper.selectDocumentByIdForUpdate(document.getSourceDocumentId());
+                if (source == null || !"SALES_OUT".equals(source.getDocType()) || !"POSTED".equals(source.getStatus()))
+                    throw new ServiceException("关联的原销售单已失效，请重新选择");
+                if (mapper.countReversalBySource(source.getDocumentId()) > 0)
+                    throw new ServiceException("关联的原销售单已存在红冲单，不能再提交消费者退货");
+            }
+            validateDocument(document);
+            calculateDocument(document);
+            mapper.updateDocumentFinancials(document);
+            for (JewelryDocumentItem item : document.getItems()) mapper.updateDocumentItemCost(item);
         }
         if ("STOCK_ADJUST".equals(document.getDocType()))
         {
@@ -337,8 +427,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             refreshAssemblyCosts(document, true, false);
         }
         reserve(document);
-        changeStatus(document, "DRAFT", "PENDING_FIRST", userId, userName, null, null);
-        mapper.insertEvent(documentId, "SUBMIT", "DRAFT", "PENDING_FIRST", userId, userName, "");
+        changeStatus(document, fromStatus, "PENDING_FIRST", userId, userName, null, null);
+        mapper.insertEvent(documentId, rejectedReversal ? "RESUBMIT" : "SUBMIT", fromStatus,
+            "PENDING_FIRST", userId, userName, "");
     }
 
     @Override
@@ -429,6 +520,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         if (("PURCHASE_IN".equals(document.getDocType()) || "SUPPLIER_RETURN".equals(document.getDocType()))
             && document.getSupplierId() == null)
             throw new ServiceException("请选择供应商");
+        if ("PURCHASE_IN".equals(document.getDocType()) || "SUPPLIER_RETURN".equals(document.getDocType()))
+            validateSupplierReference(document, true);
         if (("SALES_OUT".equals(document.getDocType()) || "CUSTOMER_RETURN".equals(document.getDocType()))
             && text(document.getSalesChannel()).trim().isEmpty())
             throw new ServiceException("请填写销售渠道");
@@ -441,6 +534,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         validateRate(document.getPlatformRate(), "平台扣点率");
         validateRate(document.getCommissionRate(), "达人佣金率");
         validateRate(document.getTaxRate(), "税率");
+        if ("SALES_OUT".equals(document.getDocType()))
+            validateCombinedRate(money(document.getPlatformRate()).add(money(document.getCommissionRate()))
+                .add(money(document.getTaxRate())));
         Set<Long> productIds = new HashSet<Long>();
         int assemblyOutputs = 0;
         int assemblyComponents = 0;
@@ -526,6 +622,11 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 else if (money(item.getUnitPrice()).signum() <= 0)
                     throw new ServiceException("未关联原销售单时必须填写实际退款单价");
             }
+            validateNonNegative(item.getUnitPrice(), "商品单价");
+            validateNonNegative(item.getUnitCost(), "商品成本");
+            validateNonNegative(item.getPackFee(), "包装费");
+            validateNonNegative(item.getShipFee(), "物流费");
+            validateNonNegative(item.getCertFee(), "鉴定费");
             item.setGoodQty(nonNegative(item.getGoodQty()));
             item.setDefectQty(nonNegative(item.getDefectQty()));
             item.setAdjustmentQty(item.getAdjustmentQty() == null ? 0 : item.getAdjustmentQty());
@@ -648,6 +749,13 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             BigDecimal amount = grossAmount;
             BigDecimal costAmount = grossCost;
             BigDecimal profit = grossAmount.subtract(grossCost).subtract(deductions);
+            if ("SALES_OUT".equals(document.getDocType()))
+            {
+                Map<String, BigDecimal> line = calculateSalesLine(price, cost, fees,
+                    platformRate.add(commissionRate).add(taxRate));
+                deductions = line.get("deductions").multiply(BigDecimal.valueOf(qty));
+                profit = line.get("profit").multiply(BigDecimal.valueOf(qty));
+            }
             if (customerReturn)
             {
                 amount = grossAmount.negate();
@@ -1195,10 +1303,19 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     {
         if (reversal.getSourceDocumentId() == null)
             throw new ServiceException("红冲单未关联原单");
-        JewelryDocument source = requireDocument(reversal.getSourceDocumentId());
+        JewelryDocument source = mapper.selectDocumentByIdForUpdate(reversal.getSourceDocumentId());
+        if (source == null) throw new ServiceException("红冲原单不存在");
         if (!"POSTED".equals(source.getStatus()))
             throw new ServiceException("原单已不是可红冲状态");
+        ensureSaleHasNoActiveReturns(source);
         return source;
+    }
+
+    private void ensureSaleHasNoActiveReturns(JewelryDocument source)
+    {
+        if ("SALES_OUT".equals(source.getDocType())
+            && mapper.countActiveCustomerReturnsBySource(source.getDocumentId()) > 0)
+            throw new ServiceException("原销售单存在待处理或已入账的消费者退货，不能整单红冲");
     }
 
     private JewelryDocumentItem copyReversalItem(JewelryDocumentItem source, Long reversalId)
@@ -1260,6 +1377,71 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         else if ("REVERSAL".equals(type)) prefix = "HC";
         else prefix = "JE";
         return prefix + new SimpleDateFormat("yyyyMMddHHmmssSSS").format(new Date());
+    }
+
+    private void validateSupplierReference(JewelryDocument document, boolean updateSnapshot)
+    {
+        Map<String, Object> supplier = mapper.selectSupplierById(document.getSupplierId());
+        if (supplier == null) throw new ServiceException("供应商不存在");
+        if (!"0".equals(textValue(supplier.get("status"))))
+            throw new ServiceException("供应商已停用，不能用于新单据");
+        if (updateSnapshot) document.setSupplierNameSnapshot(textValue(supplier.get("supplierName")));
+    }
+
+    private Map<String, BigDecimal> calculateSalesLine(BigDecimal price, BigDecimal cost,
+        BigDecimal fees, BigDecimal rate)
+    {
+        BigDecimal deductions = price.multiply(rate);
+        BigDecimal profit = price.subtract(cost).subtract(fees).subtract(deductions);
+        Map<String, BigDecimal> result = new HashMap<String, BigDecimal>();
+        result.put("deductions", deductions);
+        result.put("profit", profit);
+        return result;
+    }
+
+    private void validateCombinedRate(BigDecimal rate)
+    {
+        if (rate.compareTo(BigDecimal.ONE) >= 0)
+            throw new ServiceException("平台、佣金和税率合计必须小于100%");
+    }
+
+    private void validateNonNegative(BigDecimal value, String label)
+    {
+        if (money(value).signum() < 0) throw new ServiceException(label + "不能小于0");
+    }
+
+    private BigDecimal nonNegativeDecimalValue(Object value, String label)
+    {
+        BigDecimal result = value == null || textValue(value).isEmpty() ? ZERO : decimalValue(value, label);
+        if (result.signum() < 0) throw new ServiceException(label + "不能小于0");
+        return result.setScale(6, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal percentageValue(Object value, String label)
+    {
+        BigDecimal percent = value == null || textValue(value).isEmpty() ? ZERO : decimalValue(value, label);
+        if (percent.signum() < 0 || percent.compareTo(new BigDecimal("100")) > 0)
+            throw new ServiceException(label + "必须在0%到100%之间");
+        return percent.divide(new BigDecimal("100"), 8, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal decimalValue(Object value, String label)
+    {
+        try { return new BigDecimal(textValue(value)); }
+        catch (RuntimeException ex) { throw new ServiceException(label + "格式不正确"); }
+    }
+
+    private int integerValue(Object value, String label)
+    {
+        try { return Integer.parseInt(textValue(value)); }
+        catch (RuntimeException ex) { throw new ServiceException(label + "必须是整数"); }
+    }
+
+    private Long nullableLong(Object value)
+    {
+        if (value == null || textValue(value).isEmpty()) return null;
+        try { return Long.valueOf(textValue(value)); }
+        catch (RuntimeException ex) { throw new ServiceException("商品ID格式不正确"); }
     }
 
     private void validateRate(BigDecimal value, String label)

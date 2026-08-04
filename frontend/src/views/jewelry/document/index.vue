@@ -2,7 +2,7 @@
   <div class="app-container">
     <el-form inline><el-form-item><el-input v-model="query.docNo" placeholder="单号" clearable/></el-form-item><el-form-item><el-select v-model="query.docType" placeholder="全部类型" clearable style="width:150px"><el-option v-for="o in types" :key="o.value" :label="o.label" :value="o.value"/></el-select></el-form-item><el-form-item><el-select v-model="query.status" placeholder="全部状态" clearable style="width:140px"><el-option v-for="o in statuses" :key="o.value" :label="o.label" :value="o.value"/></el-select></el-form-item><el-form-item><el-button type="primary" icon="Search" @click="load">查询</el-button></el-form-item></el-form>
     <el-button type="primary" plain icon="Plus" class="mb8" v-hasPermi="['jewelry:document:add']" @click="open()">新建单据</el-button>
-    <el-table :data="rows" v-loading="loading" border><el-table-column prop="docNo" label="单号" width="190"/><el-table-column label="类型" width="130"><template #default="{row}">{{labelOf(types,row.docType)}}</template></el-table-column><el-table-column prop="bizDate" label="业务日期" width="110"/><el-table-column label="业务对象" min-width="130"><template #default="{row}">{{row.supplierNameSnapshot || row.salesChannel || (row.docType==='ASSEMBLY'?'手工组装':'—')}}</template></el-table-column><el-table-column prop="totalQty" label="数量" width="80" align="right"/><el-table-column prop="totalAmount" label="金额" width="110" align="right"/><el-table-column v-if="canViewFinance" prop="totalProfit" label="毛利" width="110" align="right"><template #default="{row}"><span :class="{loss:Number(row.totalProfit)<0}">{{money(row.totalProfit)}}</span></template></el-table-column><el-table-column v-if="canViewFinance" label="风险" width="100"><template #default="{row}"><el-tag v-if="row.riskStatus==='LOSS'" type="danger">亏损</el-tag><el-tag v-else-if="row.riskStatus==='REVIEW'" type="warning">需复核</el-tag><span v-else>—</span></template></el-table-column><el-table-column label="状态" width="110"><template #default="{row}"><el-tag :type="statusType(row.status)">{{labelOf(statuses,row.status)}}</el-tag></template></el-table-column><el-table-column prop="creatorName" label="制单人" width="100"/><el-table-column label="操作" width="240" fixed="right"><template #default="{row}"><el-button link type="primary" @click="view(row)">查看</el-button><el-button v-if="['DRAFT','REJECTED'].includes(row.status) && !['REVERSAL','ASSEMBLY'].includes(row.docType)" link type="primary" v-hasPermi="['jewelry:document:edit']" @click="edit(row)">编辑</el-button><el-button v-if="row.status==='DRAFT'" link type="success" v-hasPermi="['jewelry:document:submit']" @click="submit(row)">提交</el-button><el-button v-if="row.status==='PENDING_FIRST'" link type="warning" v-hasPermi="['jewelry:document:withdraw']" @click="withdraw(row)">撤回</el-button><el-button v-if="row.status==='POSTED' && !['REVERSAL','ASSEMBLY'].includes(row.docType)" link type="danger" v-hasPermi="['jewelry:document:reverse']" @click="reverse(row)">红冲</el-button></template></el-table-column></el-table>
+    <el-table :data="rows" v-loading="loading" border><el-table-column prop="docNo" label="单号" width="190"/><el-table-column label="类型" width="130"><template #default="{row}">{{labelOf(types,row.docType)}}</template></el-table-column><el-table-column prop="bizDate" label="业务日期" width="110"/><el-table-column label="业务对象" min-width="130"><template #default="{row}">{{row.supplierNameSnapshot || row.salesChannel || (row.docType==='ASSEMBLY'?'手工组装':'—')}}</template></el-table-column><el-table-column prop="totalQty" label="数量" width="80" align="right"/><el-table-column prop="totalAmount" label="金额" width="110" align="right"/><el-table-column v-if="canViewFinance" prop="totalProfit" label="毛利" width="110" align="right"><template #default="{row}"><span :class="{loss:Number(row.totalProfit)<0}">{{money(row.totalProfit)}}</span></template></el-table-column><el-table-column label="风险" width="100"><template #default="{row}"><el-tag v-if="row.riskStatus==='LOSS'" type="danger">亏损</el-tag><el-tag v-else-if="row.riskStatus==='REVIEW'" type="warning">需复核</el-tag><span v-else>—</span></template></el-table-column><el-table-column label="状态" width="110"><template #default="{row}"><el-tag :type="statusType(row.status)">{{labelOf(statuses,row.status)}}</el-tag></template></el-table-column><el-table-column prop="creatorName" label="制单人" width="100"/><el-table-column label="操作" width="240" fixed="right"><template #default="{row}"><el-button link type="primary" @click="view(row)">查看</el-button><el-button v-if="['DRAFT','REJECTED'].includes(row.status) && !['REVERSAL','ASSEMBLY'].includes(row.docType)" link type="primary" v-hasPermi="['jewelry:document:edit']" @click="edit(row)">编辑</el-button><el-button v-if="row.status==='DRAFT' || (row.docType==='REVERSAL' && row.status==='REJECTED')" link type="success" v-hasPermi="['jewelry:document:submit']" @click="submit(row)">提交</el-button><el-button v-if="row.status==='PENDING_FIRST'" link type="warning" v-hasPermi="['jewelry:document:withdraw']" @click="withdraw(row)">撤回</el-button><el-button v-if="row.status==='POSTED' && !['REVERSAL','ASSEMBLY'].includes(row.docType)" link type="danger" v-hasPermi="['jewelry:document:reverse']" @click="reverse(row)">红冲</el-button></template></el-table-column></el-table>
     <pagination v-show="total>0" v-model:page="query.pageNum" v-model:limit="query.pageSize" :total="total" @pagination="load"/>
 
     <el-dialog v-model="dialog" :title="readonly?'查看单据':(form.documentId?'编辑单据':'新建单据')" width="94%" top="4vh" destroy-on-close>
@@ -25,7 +25,7 @@
           <el-form-item v-if="form.docType==='SALES_OUT'" label="达人佣金率（%）"><el-input-number v-model="commissionPercent" :min="0" :max="100" :step="1" :precision="2" :disabled="readonly"/></el-form-item>
           <el-form-item v-if="form.docType==='SALES_OUT'" label="税率（%）"><el-input-number v-model="taxPercent" :min="0" :max="100" :step="1" :precision="2" :disabled="readonly"/></el-form-item>
         </div></el-form>
-        <el-alert v-if="canViewFinance && estimatedProfit < 0" title="当前销售单预计亏损，提交后审批页面将显示亏损风险。" type="error" :closable="false" show-icon />
+        <el-alert v-if="(canViewFinance && estimatedProfit < 0) || serverRiskStatus==='LOSS' || form.riskStatus==='LOSS'" title="当前销售单预计亏损，提交后审批页面将显示亏损风险。" type="error" :closable="false" show-icon />
         <div v-if="excelImportSupported && !readonly" class="item-toolbar">
           <div>
             <b>商品明细</b>
@@ -174,7 +174,7 @@
 </template>
 <script setup name="JewelryDocument">
 import {saveAs} from 'file-saver'
-import {listJewelryDocuments,getJewelryDocument,saveJewelryDocument,submitJewelryDocument,withdrawJewelryDocument,createJewelryReversal,listJewelryProducts,listJewelryProductOptions,listJewelrySuppliers,saveJewelryProduct,downloadJewelryDocumentImportTemplate,previewJewelryDocumentImport} from '@/api/jewelry/erp'
+import {listJewelryDocuments,getJewelryDocument,saveJewelryDocument,assessJewelryDocumentRisk,submitJewelryDocument,withdrawJewelryDocument,createJewelryReversal,listJewelryProducts,listJewelryProductOptions,listJewelrySuppliers,saveJewelryProduct,downloadJewelryDocumentImportTemplate,previewJewelryDocumentImport} from '@/api/jewelry/erp'
 import {compressXlsxImages,formatFileSize} from '@/utils/xlsxImageCompressor'
 import useUserStore from '@/store/modules/user'
 const {proxy}=getCurrentInstance(),rows=ref([]),total=ref(0),loading=ref(false),dialog=ref(false),readonly=ref(false),products=ref([]),suppliers=ref([]),salesDocuments=ref([])
@@ -192,8 +192,10 @@ const editableTypes=types.filter(item=>!['REVERSAL','ASSEMBLY'].includes(item.va
 const statuses=[{value:'DRAFT',label:'草稿'},{value:'PENDING_FIRST',label:'待审核'},{value:'PENDING_SECOND',label:'待审核'},{value:'POSTED',label:'已入账'},{value:'REJECTED',label:'已驳回'},{value:'REVERSED',label:'已红冲'}]
 const query=reactive({pageNum:1,pageSize:10,docNo:'',docType:'',status:''})
 const blankItem=()=>({productId:null,itemRole:'NORMAL',imageUrls:'',qty:1,goodQty:0,defectQty:0,systemQty:0,countedQty:0,adjustmentQty:0,unitPrice:0,unitCost:0,packFee:0,shipFee:0,certFee:0,lineReason:''})
-const blank=()=>({documentId:null,docType:'PURCHASE_IN',bizDate:new Date().toISOString().slice(0,10),supplierId:null,supplierNameSnapshot:'',externalNo:'',salesChannel:'',influencerName:'',platformRate:0,commissionRate:0,taxRate:0,returnReason:'',sourceDocumentId:null,unlinkedReason:'',remark:'',items:[blankItem()]})
+const blank=()=>({documentId:null,docType:'PURCHASE_IN',bizDate:new Date().toISOString().slice(0,10),supplierId:null,supplierNameSnapshot:'',externalNo:'',salesChannel:'',influencerName:'',platformRate:0,commissionRate:0,taxRate:0,returnReason:'',sourceDocumentId:null,unlinkedReason:'',riskStatus:'',remark:'',items:[blankItem()]})
 const form=reactive(blank())
+const serverRiskStatus=ref('')
+let riskTimer=null,riskSequence=0
 const showInspectColumns=computed(()=>form.docType==='RETURN_INSPECT'||(form.docType==='REVERSAL'&&form.items?.some(x=>Number(x.goodQty||0)+Number(x.defectQty||0)>0)))
 const showAdjustmentColumn=computed(()=>form.docType==='STOCK_ADJUST'||(form.docType==='REVERSAL'&&form.items?.some(x=>Number(x.adjustmentQty||0)!==0)))
 const showQuantityColumn=computed(()=>!showInspectColumns.value&&!showAdjustmentColumn.value)
@@ -211,6 +213,29 @@ const lineProfit=row=>{const qty=effectiveQty(row),amount=lineAmount(row),fees=(
 const estimatedQty=computed(()=>form.items.reduce((sum,row)=>sum+effectiveQty(row),0))
 const estimatedAmount=computed(()=>form.items.reduce((sum,row)=>sum+lineAmount(row),0))
 const estimatedProfit=computed(()=>form.docType==='SALES_OUT'?form.items.reduce((sum,row)=>sum+lineProfit(row),0):0)
+const riskFingerprint=computed(()=>JSON.stringify({
+  open:dialog.value,readonly:readonly.value,docType:form.docType,
+  platformRate:form.platformRate,commissionRate:form.commissionRate,taxRate:form.taxRate,
+  items:(form.items||[]).map(({productId,qty,unitPrice,packFee,shipFee,certFee})=>({productId,qty,unitPrice,packFee,shipFee,certFee}))
+}))
+watch(riskFingerprint,()=>{
+  serverRiskStatus.value=''
+  if(!readonly.value)form.riskStatus=''
+  riskSequence+=1
+  const sequence=riskSequence
+  if(riskTimer)clearTimeout(riskTimer)
+  const rates=[form.platformRate,form.commissionRate,form.taxRate].map(Number)
+  const valid=form.docType==='SALES_OUT'&&dialog.value&&!readonly.value&&form.items?.length
+    &&form.items.every(row=>row.productId&&Number(row.qty)>0&&[row.unitPrice,row.packFee,row.shipFee,row.certFee].every(value=>Number(value)>=0))
+    &&rates.every(value=>Number.isFinite(value)&&value>=0&&value<=1)&&rates.reduce((sum,value)=>sum+value,0)<1
+  if(!valid)return
+  riskTimer=setTimeout(async()=>{
+    try{
+      const response=await assessJewelryDocumentRisk(form)
+      if(sequence===riskSequence)serverRiskStatus.value=response.data?.riskStatus||''
+    }catch(_error){/* 保存和提交时仍会由后端给出明确校验错误 */}
+  },350)
+})
 const percentageModel=key=>computed({get:()=>Number(form[key]||0)*100,set:value=>{form[key]=Number(value||0)/100}})
 const platformPercent=percentageModel('platformRate')
 const commissionPercent=percentageModel('commissionRate')

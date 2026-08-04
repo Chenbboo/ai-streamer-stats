@@ -26,6 +26,7 @@ public interface JewelryErpMapper
 
 
     List<Map<String, Object>> selectSupplierList(Map<String, Object> query);
+    Map<String, Object> selectSupplierById(Long supplierId);
     int insertSupplier(Map<String, Object> supplier);
     int updateSupplier(Map<String, Object> supplier);
 
@@ -40,6 +41,7 @@ public interface JewelryErpMapper
     JewelryDocument selectDocumentById(Long documentId);
     JewelryDocument selectDocumentByIdForUpdate(Long documentId);
     int countReversalBySource(Long sourceDocumentId);
+    int countActiveCustomerReturnsBySource(Long sourceDocumentId);
     int selectReturnedQtyBySourceItem(@Param("sourceItemId") Long sourceItemId,
         @Param("excludeDocumentId") Long excludeDocumentId);
     List<JewelryDocumentItem> selectDocumentItems(Long documentId);

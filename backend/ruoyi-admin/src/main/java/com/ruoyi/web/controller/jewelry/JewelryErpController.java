@@ -1,7 +1,6 @@
 package com.ruoyi.web.controller.jewelry;
 
 import java.net.URLEncoder;
-import java.util.HashMap;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -144,6 +143,7 @@ public class JewelryErpController extends BaseController
     @PostMapping("/product")
     public AjaxResult saveProduct(@RequestBody Map<String, Object> body)
     {
+        if (isMakerOnly()) return error("制单员只能在组装单内新建目标成品");
         boolean editing = body.get("productId") != null;
         if (editing && !hasPermission("jewelry:product:edit")) return error("无权修改已有商品档案");
         if (!editing && !hasPermission("jewelry:product:add")) return error("无权新增商品档案");
@@ -286,6 +286,13 @@ public class JewelryErpController extends BaseController
     }
 
     @PreAuthorize("@ss.hasAnyPermi('jewelry:document:add,jewelry:document:edit')")
+    @PostMapping("/document/risk-check")
+    public AjaxResult assessDocumentRisk(@RequestBody JewelryDocument document)
+    {
+        return success(service.assessDocumentRisk(document));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('jewelry:document:add,jewelry:document:edit')")
     @PostMapping("/document")
     public AjaxResult saveDocument(@RequestBody JewelryDocument document)
     {
@@ -354,64 +361,7 @@ public class JewelryErpController extends BaseController
     public AjaxResult calculate(@RequestBody Map<String, Object> body)
     {
         if (isMakerOnly()) return error("毛利试算仅对审核员和管理员开放");
-        Long productId = number(body.get("productId"));
-        if (productId == null) return error("请选择需要试算的商品");
-        Map<String, Object> product = mapper.selectProductById(productId);
-        if (product == null || !"0".equals(string(product.get("status")))) return error("商品不存在或已停用");
-
-        java.math.BigDecimal price = decimal(body.get("price"));
-        if (price.signum() <= 0) return error("成交价必须大于0");
-        Long quantityValue = number(body.get("quantity"));
-        int quantity = quantityValue == null ? 1 : quantityValue.intValue();
-        int availableQty = decimal(product.get("onHandQty")).subtract(decimal(product.get("reservedOutQty"))).intValue();
-        if (quantity <= 0) return error("试算数量必须大于0");
-        if (quantity > availableQty) return error("试算数量不能超过当前可用库存" + availableQty + "件");
-        java.math.BigDecimal cost = decimal(product.get("avgCost"));
-        java.math.BigDecimal fees = decimal(body.get("packFee")).add(decimal(body.get("shipFee")))
-            .add(decimal(body.get("certFee")));
-        java.math.BigDecimal platformRate = percentage(body.get("platformRate"), "平台扣点率");
-        java.math.BigDecimal commissionRate = percentage(body.get("commissionRate"), "达人佣金率");
-        java.math.BigDecimal taxRate = percentage(body.get("taxRate"), "税率");
-        java.math.BigDecimal rate = platformRate.add(commissionRate).add(taxRate);
-        if (rate.compareTo(java.math.BigDecimal.ONE) >= 0) return error("平台、佣金和税率合计必须小于100%");
-
-        java.math.BigDecimal deductions = price.multiply(rate);
-        java.math.BigDecimal profit = price.subtract(cost).subtract(fees).subtract(price.multiply(rate));
-        java.math.BigDecimal breakEvenPrice = cost.add(fees).divide(java.math.BigDecimal.ONE.subtract(rate), 2,
-            java.math.RoundingMode.HALF_UP);
-        java.math.BigDecimal maxCommissionRate = java.math.BigDecimal.ONE.subtract(platformRate).subtract(taxRate)
-            .subtract(cost.add(fees).divide(price, 8, java.math.RoundingMode.HALF_UP));
-        if (maxCommissionRate.signum() < 0) maxCommissionRate = java.math.BigDecimal.ZERO;
-
-        Map<String, Object> result = new HashMap<String, Object>();
-        result.put("profit", profit.setScale(2, java.math.RoundingMode.HALF_UP));
-        result.put("profitRate", price.signum() == 0 ? java.math.BigDecimal.ZERO :
-            profit.divide(price, 6, java.math.RoundingMode.HALF_UP));
-        result.put("cost", cost.setScale(2, java.math.RoundingMode.HALF_UP));
-        result.put("deductions", deductions.setScale(2, java.math.RoundingMode.HALF_UP));
-        result.put("fixedFees", fees.setScale(2, java.math.RoundingMode.HALF_UP));
-        result.put("breakEvenPrice", breakEvenPrice);
-        result.put("maxCommissionRate", maxCommissionRate.setScale(6, java.math.RoundingMode.HALF_UP));
-        result.put("quantity", quantity);
-        result.put("availableQty", availableQty);
-        result.put("remainingQty", availableQty - quantity);
-        result.put("totalRevenue", price.multiply(java.math.BigDecimal.valueOf(quantity))
-            .setScale(2, java.math.RoundingMode.HALF_UP));
-        result.put("totalProfit", profit.multiply(java.math.BigDecimal.valueOf(quantity))
-            .setScale(2, java.math.RoundingMode.HALF_UP));
-        result.put("totalDeductions", deductions.multiply(java.math.BigDecimal.valueOf(quantity))
-            .setScale(2, java.math.RoundingMode.HALF_UP));
-        result.put("totalFixedFees", fees.multiply(java.math.BigDecimal.valueOf(quantity))
-            .setScale(2, java.math.RoundingMode.HALF_UP));
-        return success(result);
-    }
-
-    private java.math.BigDecimal percentage(Object value, String label)
-    {
-        java.math.BigDecimal percent = decimal(value);
-        if (percent.signum() < 0 || percent.compareTo(new java.math.BigDecimal("100")) > 0)
-            throw new IllegalArgumentException(label + "必须在0%到100%之间");
-        return percent.divide(new java.math.BigDecimal("100"), 8, java.math.RoundingMode.HALF_UP);
+        return success(service.calculateProfit(body));
     }
 
     private boolean validRole(String key)
@@ -445,7 +395,6 @@ public class JewelryErpController extends BaseController
     {
         document.setTotalCost(null);
         document.setTotalProfit(null);
-        document.setRiskStatus(null);
         if (document.getItems() == null) return;
         for (com.ruoyi.jewelry.domain.JewelryDocumentItem item : document.getItems())
         {

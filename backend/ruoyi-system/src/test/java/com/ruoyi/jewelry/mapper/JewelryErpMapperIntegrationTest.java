@@ -164,6 +164,23 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void activeReturnCountExcludesDraftRejectedAndAlreadyReversedReturns()
+    {
+        insertDocument(1L, "SALE-1", "SALES_OUT", "POSTED", null);
+        insertDocument(2L, "RETURN-PENDING", "CUSTOMER_RETURN", "PENDING_FIRST", 1L);
+        insertDocument(3L, "RETURN-POSTED", "CUSTOMER_RETURN", "POSTED", 1L);
+        insertDocument(4L, "RETURN-DRAFT", "CUSTOMER_RETURN", "DRAFT", 1L);
+        insertDocument(5L, "RETURN-REJECTED", "CUSTOMER_RETURN", "REJECTED", 1L);
+        insertDocument(6L, "RETURN-REVERSED", "CUSTOMER_RETURN", "REVERSED", 1L);
+
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            assertEquals(2, mapper.countActiveCustomerReturnsBySource(1L));
+        }
+    }
+
+    @Test
     void originalDocumentCanOnlyBeMarkedReversedOnce()
     {
         insertDocument(1L, "SALE-1", "SALES_OUT", "POSTED", null);
