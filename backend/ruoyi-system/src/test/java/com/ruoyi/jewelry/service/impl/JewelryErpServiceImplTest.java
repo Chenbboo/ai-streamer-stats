@@ -310,6 +310,21 @@ class JewelryErpServiceImplTest
     }
 
     @Test
+    void customerReturnMustLinkOriginalSale()
+    {
+        JewelryDocument customerReturn = document(null, "CUSTOMER_RETURN", null);
+        customerReturn.setSalesChannel("shop");
+        customerReturn.setReturnReason("customer return");
+        customerReturn.setItems(Arrays.asList(item(null, 1, "1000.00")));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveDocument(customerReturn, MAKER_ID, "maker"));
+
+        assertTrue(error.getMessage().contains("必须关联原销售单"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
     void linkedCustomerReturnCannotExceedOriginalSaleQuantity()
     {
         JewelryDocument sale = document(9L, "SALES_OUT", "POSTED");

@@ -528,9 +528,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         if (("SUPPLIER_RETURN".equals(document.getDocType()) || "CUSTOMER_RETURN".equals(document.getDocType()))
             && text(document.getReturnReason()).trim().isEmpty())
             throw new ServiceException("请填写退货原因");
-        if ("CUSTOMER_RETURN".equals(document.getDocType()) && document.getSourceDocumentId() == null
-            && text(document.getUnlinkedReason()).trim().isEmpty())
-            throw new ServiceException("未关联原销售单时必须填写原因");
+        if ("CUSTOMER_RETURN".equals(document.getDocType()) && document.getSourceDocumentId() == null)
+            throw new ServiceException("客户退货必须关联原销售单");
         validateRate(document.getPlatformRate(), "平台扣点率");
         validateRate(document.getCommissionRate(), "达人佣金率");
         validateRate(document.getTaxRate(), "税率");
