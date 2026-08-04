@@ -28,11 +28,24 @@
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" icon="Search" @click="handleQuery">{{ $t('common.search') }}</el-button>
-          <el-button icon="Refresh" @click="resetQuery">{{ $t('common.reset') }}</el-button>
-          <el-button type="warning" icon="Connection" @click="openMergeDialog">{{ $t('review.mergeCustomer') }}</el-button>
+          <el-button type="primary" icon="Search" :disabled="allBatch.running" @click="handleQuery">{{ $t('common.search') }}</el-button>
+          <el-button icon="Refresh" :disabled="allBatch.running" @click="resetQuery">{{ $t('common.reset') }}</el-button>
+          <el-button v-hasPermi="['live:review:edit']" type="primary" plain icon="MagicStick"
+            :loading="allBatch.running" :disabled="allPendingCount === 0 || groupDialog.batchRecognizing"
+            @click="recognizeAllPending">
+            {{ $t('review.recognizeAllPending') }} {{ allPendingCount }}
+          </el-button>
+          <el-button type="warning" icon="Connection" :disabled="allBatch.running" @click="openMergeDialog">{{ $t('review.mergeCustomer') }}</el-button>
         </el-form-item>
       </el-form>
+
+      <div v-if="allBatch.running" class="page-batch-progress">
+        <div>
+          <b>{{ $t('review.recognizeAllRunning') }}</b>
+          <span>{{ $t('review.recognizeAllProgress', allBatch) }}</span>
+        </div>
+        <el-progress :percentage="allBatch.progress" :status="allBatch.failed ? 'exception' : undefined" />
+      </div>
 
       <el-table v-loading="loading" :data="groupRows">
         <el-table-column label="日期" prop="bizDate" width="120" />
@@ -46,6 +59,7 @@
         <el-table-column label="处理进度" min-width="280">
           <template #default="{ row }">
             <el-tag v-if="row.pendingCount" type="info" effect="plain">待识别 {{ row.pendingCount }}</el-tag>
+            <el-tag v-if="row.recognizingCount" type="primary" effect="plain" class="status-gap">识别中 {{ row.recognizingCount }}</el-tag>
             <el-tag v-if="row.recognizedCount" type="warning" effect="plain" class="status-gap">待确认 {{ row.recognizedCount }}</el-tag>
             <el-tag v-if="row.confirmedCount" type="success" effect="plain" class="status-gap">已入库 {{ row.confirmedCount }}</el-tag>
             <el-tag v-if="row.failedCount" type="danger" effect="plain" class="status-gap">失败 {{ row.failedCount }}</el-tag>
@@ -68,7 +82,7 @@
           <el-radio-button label="recognized">待确认 {{ groupRecognizedCount }}</el-radio-button>
         </el-radio-group>
         <div class="group-toolbar-actions">
-          <el-button v-hasPermi="['live:review:edit']" type="primary" icon="MagicStick" :loading="groupDialog.batchRecognizing" :disabled="groupPendingCount + groupFailedCount === 0" @click="batchRecognize">
+          <el-button v-hasPermi="['live:review:edit']" type="primary" icon="MagicStick" :loading="groupDialog.batchRecognizing" :disabled="groupPendingCount + groupFailedCount === 0 || allBatch.running" @click="batchRecognize">
             批量识别 {{ groupPendingCount + groupFailedCount }} 张
           </el-button>
           <el-button v-hasPermi="['live:review:confirm']" type="success" icon="Check" :disabled="selectedGroupItems.length === 0" @click="confirmSelected">确认选中 {{ selectedGroupItems.length }} 张</el-button>
@@ -94,7 +108,7 @@
         </el-table-column>
         <el-table-column :label="$t('common.action')" width="220" fixed="right">
           <template #default="{ row }">
-            <el-button v-hasPermi="['live:review:edit']" link type="primary" :loading="row._recognizing" :disabled="row.aiStatus === '2' || row._recognizing" @click="handleMock(row)">{{ row._recognizing ? '识别中' : $t('review.aiRecognize') }}</el-button>
+            <el-button v-hasPermi="['live:review:edit']" link type="primary" :loading="row._recognizing" :disabled="row.aiStatus === '2' || row._recognizing || allBatch.running" @click="handleMock(row)">{{ row._recognizing ? '识别中' : $t('review.aiRecognize') }}</el-button>
             <el-button v-hasPermi="['live:review:edit']" link type="primary" icon="Edit" :disabled="!row.aiResult || row.aiStatus === '2'" @click="openEditor(row)">{{ $t('review.correct') }}</el-button>
             <el-button v-hasPermi="['live:review:confirm']" link type="success" icon="Check" :disabled="row.aiStatus !== '1'" @click="handleConfirm(row)">{{ $t('review.confirm入库') }}</el-button>
           </template>
@@ -272,6 +286,13 @@ const groupDialog = reactive({
   failed: false
 })
 const selectedGroupItems = ref([])
+const allBatch = reactive({
+  running: false,
+  progress: 0,
+  completed: 0,
+  total: 0,
+  failed: 0
+})
 
 const editor = reactive({
   open: false,
@@ -392,6 +413,7 @@ const groupRows = computed(() => {
         uploadType: row.uploadType,
         count: 0,
         pendingCount: 0,
+        recognizingCount: 0,
         recognizedCount: 0,
         confirmedCount: 0,
         failedCount: 0
@@ -402,12 +424,14 @@ const groupRows = computed(() => {
     if (row.aiStatus === '2') group.confirmedCount += 1
     else if (row.aiStatus === '1') group.recognizedCount += 1
     else if (row.aiStatus === '3') group.failedCount += 1
-    else group.pendingCount += 1
+    else if (row.aiStatus === '4') group.recognizingCount += 1
+    else if (row.aiStatus === '0') group.pendingCount += 1
   })
   return Array.from(groups.values()).sort((a, b) => (b.bizDate + b.stageName).localeCompare(a.bizDate + a.stageName))
 })
 
 const groupItems = computed(() => rows.value.filter(row => groupKey(row) === groupDialog.key))
+const allPendingCount = computed(() => rows.value.filter(row => row.aiStatus === '0').length)
 const groupPendingCount = computed(() => groupItems.value.filter(row => row.aiStatus === '0').length)
 const groupFailedCount = computed(() => groupItems.value.filter(row => row.aiStatus === '3').length)
 const groupRecognizedCount = computed(() => groupItems.value.filter(row => row.aiStatus === '1').length)
@@ -474,6 +498,46 @@ async function runWithConcurrency(items, limit, handler) {
     }
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+}
+
+async function recognizeAllPending() {
+  const targets = rows.value.filter(row => row.aiStatus === '0')
+  if (!targets.length) return
+  try {
+    await proxy.$modal.confirm(t('review.recognizeAllConfirm', { count: targets.length }))
+  } catch (e) {
+    return
+  }
+  Object.assign(allBatch, {
+    running: true,
+    progress: 0,
+    completed: 0,
+    total: targets.length,
+    failed: 0
+  })
+  try {
+    await runWithConcurrency(targets, 2, async row => {
+      row._recognizing = true
+      row.aiStatus = '4'
+      try {
+        await recognizeUpload(row.uploadId)
+        row.aiStatus = '1'
+      } catch (e) {
+        row.aiStatus = '3'
+        allBatch.failed += 1
+      } finally {
+        row._recognizing = false
+        allBatch.completed += 1
+        allBatch.progress = Math.round(allBatch.completed * 100 / allBatch.total)
+      }
+    })
+    await loadList()
+    proxy.$modal.msgSuccess(allBatch.failed
+      ? t('review.recognizeAllPartial', { total: allBatch.total, failed: allBatch.failed })
+      : t('review.recognizeAllSuccess', { total: allBatch.total }))
+  } finally {
+    allBatch.running = false
+  }
 }
 
 async function batchRecognize() {
@@ -701,6 +765,27 @@ function handleMerge() {
 
 .status-gap {
   margin-left: 6px;
+}
+
+.page-batch-progress {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border: 1px solid #d9ecff;
+  background: #f4f9ff;
+}
+
+.page-batch-progress > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+  color: #606266;
+  font-size: 13px;
+}
+
+.page-batch-progress b {
+  color: #303133;
 }
 
 .group-toolbar {

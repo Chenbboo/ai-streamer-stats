@@ -614,10 +614,22 @@ function getForecastPct(card) {
   const monthlyKpi = getStreamerKpi(card.streamerId, 'giftMonthly')
   if (!monthlyKpi || monthlyKpi <= 0) return '--'
   if (!card.monthlyXu || card.monthlyXu === 0) return '0.0'
-  const dayOfMonth = cutoffDay.value.getDate()
-  const dailyAvg = card.monthlyXu / dayOfMonth
+  const elapsedWorkDays = countElapsedWorkDays(cutoffDay.value)
+  if (!elapsedWorkDays) return '0.0'
+  const dailyAvg = card.monthlyXu / elapsedWorkDays
   const forecast = Math.min(100, dailyAvg * 26 / monthlyKpi * 100)
   return forecast.toFixed(1)
+}
+
+function countElapsedWorkDays(date) {
+  const year = date.getFullYear()
+  const month = date.getMonth()
+  const day = date.getDate()
+  let workDays = 0
+  for (let currentDay = 1; currentDay <= day; currentDay++) {
+    if (new Date(year, month, currentDay).getDay() !== 0) workDays++
+  }
+  return Math.min(26, workDays)
 }
 
 function getIntervalKpiPct(card) {

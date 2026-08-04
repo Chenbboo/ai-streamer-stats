@@ -1,0 +1,40 @@
+import request from '@/utils/request'
+
+export const getJewelryDashboard = () => request({ url: '/jewelry/dashboard', method: 'get' })
+export const listJewelryStaff = (params) => request({ url: '/jewelry/staff/list', method: 'get', params })
+export const addJewelryStaff = (data) => request({ url: '/jewelry/staff', method: 'post', data })
+export const updateJewelryStaff = (data) => request({ url: '/jewelry/staff', method: 'put', data })
+export const listJewelryProducts = (params) => request({ url: '/jewelry/product/list', method: 'get', params })
+export const listJewelryProductOptions = (params) => request({ url: '/jewelry/product/options', method: 'get', params })
+export const saveJewelryProduct = (data) => request({ url: '/jewelry/product', method: 'post', data })
+export const listJewelrySuppliers = (params) => request({ url: '/jewelry/supplier/list', method: 'get', params })
+export const saveJewelrySupplier = (data) => request({ url: '/jewelry/supplier', method: 'post', data })
+export const listJewelryStock = (params) => request({ url: '/jewelry/stock/list', method: 'get', params })
+export const listJewelryTransactions = (params) => request({ url: '/jewelry/stock/transactions', method: 'get', params })
+export const getJewelryStockWarningDays = () => request({ url: '/jewelry/stock/warning-days', method: 'get' })
+export const updateJewelryStockWarningDays = (days) => request({ url: '/jewelry/stock/warning-days', method: 'put', data: { days } })
+export const listJewelryDocuments = (params) => request({ url: '/jewelry/document/list', method: 'get', params })
+export const getJewelryDocument = (id) => request({ url: `/jewelry/document/${id}`, method: 'get' })
+export const saveJewelryDocument = (data) => request({ url: '/jewelry/document', method: 'post', data })
+export const downloadJewelryDocumentImportTemplate = (docType) => request({
+  url: '/jewelry/document/import-template', method: 'get',
+  params: { docType, _: Date.now() }, responseType: 'blob'
+})
+export const previewJewelryDocumentImport = (docType, file) => {
+  const data = new FormData()
+  data.append('file', file)
+  return request({
+    url: '/jewelry/document/import-preview', method: 'post', params: { docType }, data,
+    headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false }, timeout: 60000
+  })
+}
+export const submitJewelryDocument = (id) => request({ url: `/jewelry/document/${id}/submit`, method: 'post' })
+export const withdrawJewelryDocument = (id) => request({ url: `/jewelry/document/${id}/withdraw`, method: 'post' })
+export const createJewelryReversal = (id) => request({ url: `/jewelry/document/${id}/reverse`, method: 'post' })
+export const approveJewelryDocument = (id, comment, expectedTotalCost) => request({
+  url: `/jewelry/approval/${id}/approve`,
+  method: 'post',
+  data: { comment, expectedTotalCost }
+})
+export const rejectJewelryDocument = (id, comment) => request({ url: `/jewelry/approval/${id}/reject`, method: 'post', data: { comment } })
+export const calculateJewelryProfit = (data) => request({ url: '/jewelry/calculator', method: 'post', data })

@@ -359,8 +359,18 @@ function monthRate(row, valueKey, kpiKey) {
 function forecastRate(row, date) {
   const target = kpi(row, 'giftMonthly')
   if (!target) return null
-  const day = Number(date.slice(-2))
-  return Math.min(100, Number(row.monthlyXu || 0) / day * 26 / target * 100)
+  const elapsedWorkDays = countElapsedWorkDays(date)
+  if (!elapsedWorkDays) return 0
+  return Math.min(100, Number(row.monthlyXu || 0) / elapsedWorkDays * 26 / target * 100)
+}
+
+function countElapsedWorkDays(date) {
+  const [year, month, day] = date.split('-').map(Number)
+  let workDays = 0
+  for (let currentDay = 1; currentDay <= day; currentDay++) {
+    if (new Date(year, month - 1, currentDay).getDay() !== 0) workDays++
+  }
+  return Math.min(26, workDays)
 }
 
 function rate(value) {
