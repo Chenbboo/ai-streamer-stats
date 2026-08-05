@@ -33,6 +33,35 @@ select
 from information_schema.columns
 where table_schema=database() and table_name='live_customer';
 
+select
+  count(case when table_name='jewelry_product' and column_name='product_type' then 1 end)=0
+    as missing_jewelry_product_type,
+  count(case when table_name='jewelry_product' and column_name='specification' then 1 end)=0
+    as missing_jewelry_specification,
+  count(case when table_name='jewelry_document' and column_name='actual_refund_amount' then 1 end)=0
+    as missing_jewelry_actual_refund_amount,
+  count(case when table_name='jewelry_document_item' and column_name='bundle_group_no' then 1 end)=0
+    as missing_jewelry_bundle_group_no,
+  count(case when table_name='jewelry_document_item' and column_name='sale_role' then 1 end)=0
+    as missing_jewelry_sale_role,
+  count(case when table_name='jewelry_document_item' and column_name='pricing_mode' then 1 end)=0
+    as missing_jewelry_pricing_mode,
+  count(case when table_name='jewelry_document_item' and column_name='product_type_snapshot' then 1 end)=0
+    as missing_jewelry_product_type_snapshot,
+  count(case when table_name='jewelry_document_item' and column_name='specification_snapshot' then 1 end)=0
+    as missing_jewelry_specification_snapshot
+from information_schema.columns
+where table_schema=database()
+  and table_name in ('jewelry_product','jewelry_document','jewelry_document_item');
+
+select 'invalid_jewelry_product_type' check_name, count(*) problem_rows
+from jewelry_product
+where product_type not in ('FINISHED','PART','ACCESSORY','WELFARE')
+union all
+select 'invalid_jewelry_specification', count(*)
+from jewelry_product
+where specification not in ('精品','普通');
+
 select 'customer_missing_streamer' check_name, count(*) problem_rows
 from live_customer c left join live_streamer s on s.streamer_id=c.streamer_id
 where s.streamer_id is null

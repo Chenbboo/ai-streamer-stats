@@ -19,6 +19,7 @@
         <result property="returnReason" column="return_reason"/>
         <result property="sourceDocumentId" column="source_document_id"/>
         <result property="unlinkedReason" column="unlinked_reason"/>
+        <result property="actualRefundAmount" column="actual_refund_amount"/>
         <result property="totalQty" column="total_qty"/>
         <result property="totalAmount" column="total_amount"/>
         <result property="totalCost" column="total_cost"/>
@@ -45,12 +46,18 @@
         <result property="productId" column="product_id"/>
         <result property="itemRole" column="item_role"/>
         <result property="sourceItemId" column="source_item_id"/>
+        <result property="bundleGroupNo" column="bundle_group_no"/>
+        <result property="saleRole" column="sale_role"/>
+        <result property="pricingMode" column="pricing_mode"/>
         <result property="skuSnapshot" column="sku_snapshot"/>
         <result property="productNameSnapshot" column="product_name_snapshot"/>
+        <result property="productTypeSnapshot" column="product_type_snapshot"/>
+        <result property="specificationSnapshot" column="specification_snapshot"/>
         <result property="imageUrls" column="image_urls"/>
         <result property="qty" column="qty"/>
         <result property="goodQty" column="good_qty"/>
         <result property="defectQty" column="defect_qty"/>
+        <result property="remainingInspectQty" column="remaining_inspect_qty"/>
         <result property="systemQty" column="system_qty"/>
         <result property="countedQty" column="counted_qty"/>
         <result property="adjustmentQty" column="adjustment_qty"/>
@@ -213,7 +220,8 @@
           select coalesce(max(cast(config_value as unsigned)),25) warning_days
           from sys_config where config_key='jewelry.stock.warning.days'
         )
-        select p.product_id productId,p.sku,p.product_name productName,p.category,p.warning_qty warningQty,
+        select p.product_id productId,p.sku,p.product_name productName,p.product_type productType,
+               p.specification,p.category,p.warning_qty warningQty,
                s.on_hand_qty onHandQty,s.reserved_out_qty reservedOutQty,
                (s.on_hand_qty-s.reserved_out_qty) availableQty,s.inspection_qty inspectionQty,
                s.inspection_reserved_qty inspectionReservedQty,s.defect_qty defectQty,
@@ -388,18 +396,45 @@
           and d.status in ('DRAFT','PENDING_FIRST','PENDING_SECOND','POSTED')
           <if test="excludeDocumentId != null">and d.document_id != #{excludeDocumentId}</if>
     </select>
+    <select id="selectInspectedQtyBySourceItem" resultType="int">
+        select coalesce(sum(i.good_qty+i.defect_qty),0)
+        from jewelry_document_item i
+        join jewelry_document d on d.document_id=i.document_id
+        where d.doc_type='RETURN_INSPECT'
+          and i.source_item_id=#{sourceItemId}
+          and d.status in ('DRAFT','PENDING_FIRST','PENDING_SECOND','POSTED')
+          <if test="excludeDocumentId != null">and d.document_id != #{excludeDocumentId}</if>
+    </select>
+    <select id="selectReturnInspectionSourceItems" resultMap="itemMap">
+        select source_item.*,
+          source_item.qty-coalesce(processed.processed_qty,0) remaining_inspect_qty
+        from jewelry_document_item source_item
+        left join (
+          select inspected.source_item_id,sum(inspected.good_qty+inspected.defect_qty) processed_qty
+          from jewelry_document_item inspected
+          join jewelry_document inspect_doc on inspect_doc.document_id=inspected.document_id
+          where inspect_doc.doc_type='RETURN_INSPECT'
+            and inspect_doc.source_document_id=#{sourceDocumentId}
+            and inspect_doc.status in ('DRAFT','PENDING_FIRST','PENDING_SECOND','POSTED')
+            <if test="excludeDocumentId != null">and inspect_doc.document_id != #{excludeDocumentId}</if>
+          group by inspected.source_item_id
+        ) processed on processed.source_item_id=source_item.item_id
+        where source_item.document_id=#{sourceDocumentId}
+          and source_item.qty &gt; coalesce(processed.processed_qty,0)
+        order by source_item.item_id
+    </select>
     <select id="selectDocumentItems" resultMap="itemMap">
         select * from jewelry_document_item where document_id=#{documentId} order by item_id
     </select>
     <insert id="insertDocument" useGeneratedKeys="true" keyProperty="documentId">
         insert into jewelry_document(doc_no,doc_type,biz_date,status,supplier_id,supplier_name_snapshot,sales_channel,
           external_no,influencer_name,platform_rate,commission_rate,tax_rate,return_reason,source_document_id,
-          unlinked_reason,total_qty,total_amount,total_cost,total_profit,risk_status,
+          unlinked_reason,actual_refund_amount,total_qty,total_amount,total_cost,total_profit,risk_status,
           labor_fee,processing_fee,other_fee,creator_user_id,creator_name,
           create_by,create_time,remark)
         values(#{docNo},#{docType},#{bizDate},#{status},#{supplierId},#{supplierNameSnapshot},#{salesChannel},
           #{externalNo},#{influencerName},#{platformRate},#{commissionRate},#{taxRate},#{returnReason},
-          #{sourceDocumentId},#{unlinkedReason},#{totalQty},#{totalAmount},#{totalCost},#{totalProfit},#{riskStatus},
+          #{sourceDocumentId},#{unlinkedReason},#{actualRefundAmount},#{totalQty},#{totalAmount},#{totalCost},#{totalProfit},#{riskStatus},
           #{laborFee},#{processingFee},#{otherFee},
           #{creatorUserId},#{creatorName},#{createBy},sysdate(),#{remark})
     </insert>
@@ -408,7 +443,7 @@
           supplier_name_snapshot=#{supplierNameSnapshot},sales_channel=#{salesChannel},external_no=#{externalNo},
           influencer_name=#{influencerName},platform_rate=#{platformRate},commission_rate=#{commissionRate},
           tax_rate=#{taxRate},return_reason=#{returnReason},source_document_id=#{sourceDocumentId},
-          unlinked_reason=#{unlinkedReason},total_qty=#{totalQty},total_amount=#{totalAmount},total_cost=#{totalCost},
+          unlinked_reason=#{unlinkedReason},actual_refund_amount=#{actualRefundAmount},total_qty=#{totalQty},total_amount=#{totalAmount},total_cost=#{totalCost},
           total_profit=#{totalProfit},risk_status=#{riskStatus},status='DRAFT',
           labor_fee=#{laborFee},processing_fee=#{processingFee},other_fee=#{otherFee},
           first_reviewer_user_id=null,first_reviewer_name='',
@@ -426,10 +461,12 @@
     </update>
     <delete id="deleteDocumentItems">delete from jewelry_document_item where document_id=#{documentId}</delete>
     <insert id="insertDocumentItem" useGeneratedKeys="true" keyProperty="itemId">
-        insert into jewelry_document_item(document_id,product_id,item_role,source_item_id,sku_snapshot,product_name_snapshot,image_urls,
+        insert into jewelry_document_item(document_id,product_id,item_role,source_item_id,bundle_group_no,sale_role,pricing_mode,
+          sku_snapshot,product_name_snapshot,product_type_snapshot,specification_snapshot,image_urls,
           qty,good_qty,defect_qty,system_qty,counted_qty,adjustment_qty,unit_price,unit_cost,pack_fee,ship_fee,
           cert_fee,amount,cost_amount,profit_amount,profit_rate,line_reason)
-        values(#{documentId},#{productId},#{itemRole},#{sourceItemId},#{skuSnapshot},#{productNameSnapshot},#{imageUrls},#{qty},#{goodQty},
+        values(#{documentId},#{productId},#{itemRole},#{sourceItemId},#{bundleGroupNo},#{saleRole},#{pricingMode},
+          #{skuSnapshot},#{productNameSnapshot},#{productTypeSnapshot},#{specificationSnapshot},#{imageUrls},#{qty},#{goodQty},
           #{defectQty},#{systemQty},#{countedQty},#{adjustmentQty},#{unitPrice},#{unitCost},#{packFee},#{shipFee},
           #{certFee},#{amount},#{costAmount},#{profitAmount},#{profitRate},#{lineReason})
     </insert>

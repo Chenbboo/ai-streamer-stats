@@ -112,40 +112,18 @@ public class JewelryDocumentExcelService
             }
             if ("PURCHASE_IN".equals(docType))
             {
-                Integer typeColumn = findHeader(headers, "商品类型（新商品必填）");
-                if (typeColumn != null)
-                {
-                    Sheet options = workbook.createSheet("模板选项");
-                    options.createRow(0).createCell(0).setCellValue("散件");
-                    options.createRow(1).createCell(0).setCellValue("成品");
-                    Name productTypeOptions = workbook.createName();
-                    productTypeOptions.setNameName("ProductTypeOptions");
-                    productTypeOptions.setRefersToFormula("'模板选项'!$A$1:$A$2");
-                    workbook.setSheetHidden(workbook.getSheetIndex(options), true);
-
-                    DataValidationHelper validationHelper = data.getDataValidationHelper();
-                    DataValidationConstraint constraint =
-                        validationHelper.createFormulaListConstraint("ProductTypeOptions");
-                    CellRangeAddressList addressList =
-                        new CellRangeAddressList(1, MAX_ROWS, typeColumn, typeColumn);
-                    DataValidation validation = validationHelper.createValidation(constraint, addressList);
-                    validation.setSuppressDropDownArrow(true);
-                    validation.setShowErrorBox(true);
-                    validation.setShowPromptBox(true);
-                    validation.createPromptBox("商品类型", "请从下拉列表中选择“散件”或“成品”");
-                    validation.createErrorBox("商品类型不正确", "请从下拉列表中选择“散件”或“成品”");
-                    data.addValidationData(validation);
-
-                    CellStyle typeStyle = workbook.createCellStyle();
-                    typeStyle.setFillForegroundColor(IndexedColors.LIGHT_YELLOW.getIndex());
-                    typeStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-                    for (int rowIndex = 1; rowIndex <= 20; rowIndex++)
-                    {
-                        Row typeRow = data.getRow(rowIndex);
-                        if (typeRow == null) typeRow = data.createRow(rowIndex);
-                        typeRow.createCell(typeColumn).setCellStyle(typeStyle);
-                    }
-                }
+                Sheet options = workbook.createSheet("模板选项");
+                String[] productTypes = { "成品商品", "散件商品", "配件商品", "福利商品" };
+                for (int i = 0; i < productTypes.length; i++) options.createRow(i).createCell(0).setCellValue(productTypes[i]);
+                options.getRow(0).createCell(1).setCellValue("精品");
+                options.getRow(1).createCell(1).setCellValue("普通");
+                addDropdownValidation(workbook, data, headers, "商品类型（新商品必填）",
+                    "ProductTypeOptions", "'模板选项'!$A$1:$A$4", "商品类型",
+                    "请选择成品商品、散件商品、配件商品或福利商品");
+                addDropdownValidation(workbook, data, headers, "规格类型（新商品必填）",
+                    "SpecificationOptions", "'模板选项'!$B$1:$B$2", "规格类型",
+                    "请选择精品或普通");
+                workbook.setSheetHidden(workbook.getSheetIndex(options), true);
                 Integer imageColumn = findHeader(headers, IMAGE_HEADER);
                 if (imageColumn != null)
                 {
@@ -231,8 +209,11 @@ public class JewelryDocumentExcelService
                     if (!allowNewProduct) errors.add("当前账号无权新增商品档案");
                     if (string(row.get("productName")).isEmpty()) errors.add("新商品必须填写商品名称");
                     String productType = normalizeProductType(string(row.get("productType")));
-                    if (productType == null) errors.add("新商品类型必须填写散件或成品");
+                    if (productType == null) errors.add("新商品类型必须选择成品商品、散件商品、配件商品或福利商品");
                     else row.put("productType", productType);
+                    String specification = normalizeSpecification(string(row.get("specification")));
+                    if (specification == null) errors.add("新商品规格类型必须选择精品或普通");
+                    else row.put("specification", specification);
                 }
                 if (!newProduct && "PURCHASE_IN".equals(docType))
                 {
@@ -241,10 +222,19 @@ public class JewelryDocumentExcelService
                     if (!inputType.isEmpty())
                     {
                         String normalized = normalizeProductType(inputType);
-                        if (normalized == null) errors.add("商品类型只能填写散件或成品");
+                        if (normalized == null) errors.add("商品类型只能选择成品商品、散件商品、配件商品或福利商品");
                         else if (!normalized.equals(currentType)) errors.add("已有SKU的商品类型与商品档案不一致");
                     }
                     row.put("productType", currentType);
+                    String inputSpecification = string(row.get("specification"));
+                    String currentSpecification = string(product.get("specification"));
+                    if (!inputSpecification.isEmpty())
+                    {
+                        String normalized = normalizeSpecification(inputSpecification);
+                        if (normalized == null) errors.add("规格类型只能选择精品或普通");
+                        else if (!normalized.equals(currentSpecification)) errors.add("已有SKU的规格类型与商品档案不一致");
+                    }
+                    row.put("specification", currentSpecification);
                 }
                 if ("PURCHASE_IN".equals(docType))
                 {
@@ -315,7 +305,7 @@ public class JewelryDocumentExcelService
             row.put("productName", value(source, columns, "商品名称（新商品必填）", formatter, evaluator).trim());
             row.put("productType", value(source, columns, "商品类型（新商品必填）", formatter, evaluator).trim());
             row.put("category", value(source, columns, "分类", formatter, evaluator).trim());
-            row.put("specification", value(source, columns, "规格", formatter, evaluator).trim());
+            row.put("specification", value(source, columns, "规格类型（新商品必填）", formatter, evaluator).trim());
             row.put("unit", defaultString(value(source, columns, "单位", formatter, evaluator).trim(), "件"));
             row.put("qty", integerValue(value(source, columns, "数量", formatter, evaluator)));
             row.put("unitPrice", decimalValue(value(source, columns, "采购单价", formatter, evaluator)));
@@ -440,7 +430,7 @@ public class JewelryDocumentExcelService
     {
         if ("PURCHASE_IN".equals(docType))
             return new String[] { "SKU", "商品名称（新商品必填）", "商品类型（新商品必填）",
-                "分类", "规格", "单位", "数量", "采购单价", IMAGE_HEADER };
+                "分类", "规格类型（新商品必填）", "单位", "数量", "采购单价", IMAGE_HEADER };
         if ("SALES_OUT".equals(docType))
             return new String[] { "SKU", "数量", "成交单价", "包装费/件", "物流费/件", "鉴定费/件" };
         return new String[] { "SKU", "实盘数量", "调整原因" };
@@ -455,7 +445,7 @@ public class JewelryDocumentExcelService
     {
         if ("PURCHASE_IN".equals(docType))
             return new String[] { "一行填写一个SKU，数量必须为正整数。", "已有SKU只需填写SKU、数量和采购单价。",
-                "新SKU必须填写商品名称和商品类型，商品类型只能填写“散件”或“成品”。",
+                "新SKU必须填写商品名称、商品类型和规格类型；商品类型从四种固定选项中选择，规格类型只能选择“精品”或“普通”。",
                 "每行只能在“商品图片”列插入一张JPG或PNG图片；已有档案图片的SKU可不重复插图。",
                 "图片应完整放在对应单元格内，并设置为随单元格移动和调整大小。",
                 "确认导入时系统会先创建商品档案。单次最多500行，禁止重复SKU。" };
@@ -477,10 +467,49 @@ public class JewelryDocumentExcelService
         return null;
     }
 
+    private void addDropdownValidation(Workbook workbook, Sheet data, String[] headers, String headerName,
+        String rangeName, String rangeFormula, String promptTitle, String promptText)
+    {
+        Integer column = findHeader(headers, headerName);
+        if (column == null) return;
+        Name options = workbook.createName();
+        options.setNameName(rangeName);
+        options.setRefersToFormula(rangeFormula);
+        DataValidationHelper helper = data.getDataValidationHelper();
+        DataValidationConstraint constraint = helper.createFormulaListConstraint(rangeName);
+        CellRangeAddressList addressList = new CellRangeAddressList(1, MAX_ROWS, column, column);
+        DataValidation validation = helper.createValidation(constraint, addressList);
+        validation.setSuppressDropDownArrow(true);
+        validation.setShowErrorBox(true);
+        validation.setShowPromptBox(true);
+        validation.createPromptBox(promptTitle, promptText);
+        validation.createErrorBox(promptTitle + "不正确", promptText);
+        data.addValidationData(validation);
+
+        CellStyle style = workbook.createCellStyle();
+        style.setFillForegroundColor(IndexedColors.LIGHT_YELLOW.getIndex());
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        for (int rowIndex = 1; rowIndex <= 20; rowIndex++)
+        {
+            Row row = data.getRow(rowIndex);
+            if (row == null) row = data.createRow(rowIndex);
+            row.createCell(column).setCellStyle(style);
+        }
+    }
+
     private String normalizeProductType(String value)
     {
-        if ("散件".equals(value) || "PART".equalsIgnoreCase(value)) return "PART";
-        if ("成品".equals(value) || "FINISHED".equalsIgnoreCase(value)) return "FINISHED";
+        if ("散件商品".equals(value) || "散件".equals(value) || "PART".equalsIgnoreCase(value)) return "PART";
+        if ("成品商品".equals(value) || "成品".equals(value) || "FINISHED".equalsIgnoreCase(value)) return "FINISHED";
+        if ("配件商品".equals(value) || "配件".equals(value) || "ACCESSORY".equalsIgnoreCase(value)) return "ACCESSORY";
+        if ("福利商品".equals(value) || "福利".equals(value) || "WELFARE".equalsIgnoreCase(value)) return "WELFARE";
+        return null;
+    }
+
+    private String normalizeSpecification(String value)
+    {
+        if ("精品".equals(value)) return "精品";
+        if ("普通".equals(value)) return "普通";
         return null;
     }
 

@@ -59,6 +59,49 @@ class JewelryErpServiceImplTest
     }
 
     @Test
+    void productTypeMustUseSupportedBusinessType()
+    {
+        Map<String, Object> product = new HashMap<String, Object>();
+        product.put("productType", "OTHER");
+        product.put("specification", "普通");
+
+        ServiceException error = assertThrows(ServiceException.class, () -> service.saveProduct(product));
+
+        assertTrue(error.getMessage().contains("商品类型只能选择"));
+        verify(mapper, never()).insertProduct(any());
+        verify(mapper, never()).updateProduct(any());
+    }
+
+    @Test
+    void productSpecificationMustBePremiumOrNormal()
+    {
+        Map<String, Object> product = new HashMap<String, Object>();
+        product.put("productType", "FINISHED");
+        product.put("specification", "小");
+
+        ServiceException error = assertThrows(ServiceException.class, () -> service.saveProduct(product));
+
+        assertTrue(error.getMessage().contains("规格类型只能选择精品或普通"));
+        verify(mapper, never()).insertProduct(any());
+        verify(mapper, never()).updateProduct(any());
+    }
+
+    @Test
+    void accessoryAndWelfareProductTypesCanBeSaved()
+    {
+        when(mapper.updateProduct(any())).thenReturn(1);
+        for (String type : Arrays.asList("ACCESSORY", "WELFARE"))
+        {
+            Map<String, Object> product = new HashMap<String, Object>();
+            product.put("productId", "ACCESSORY".equals(type) ? 201L : 202L);
+            product.put("productType", type);
+            product.put("specification", "普通");
+            product.put("status", "0");
+            assertEquals(1, service.saveProduct(product));
+        }
+    }
+
+    @Test
     void makerCannotApproveOwnDocument()
     {
         JewelryDocument document = document(1L, "PURCHASE_IN", "PENDING_FIRST");
@@ -500,6 +543,47 @@ class JewelryErpServiceImplTest
     }
 
     @Test
+    void returnInspectionMustLinkPostedCustomerReturn()
+    {
+        JewelryDocument inspection = document(null, "RETURN_INSPECT", null);
+        JewelryDocumentItem inspectionItem = item(null, 0, "0");
+        inspectionItem.setGoodQty(1);
+        inspection.setItems(Arrays.asList(inspectionItem));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveDocument(inspection, MAKER_ID, "maker"));
+
+        assertTrue(error.getMessage().contains("必须关联原客户退货单"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void returnInspectionCannotExceedSourceReturnRemainingQuantity()
+    {
+        JewelryDocument source = document(90L, "CUSTOMER_RETURN", "POSTED");
+        JewelryDocumentItem sourceItem = item(901L, 3, "500.00");
+        sourceItem.setUnitCost(decimal("300.00"));
+
+        JewelryDocument inspection = document(null, "RETURN_INSPECT", null);
+        inspection.setSourceDocumentId(90L);
+        JewelryDocumentItem inspectionItem = item(null, 0, "0");
+        inspectionItem.setSourceItemId(901L);
+        inspectionItem.setGoodQty(2);
+        inspectionItem.setDefectQty(1);
+        inspection.setItems(Arrays.asList(inspectionItem));
+
+        when(mapper.selectDocumentById(90L)).thenReturn(source);
+        when(mapper.selectDocumentItems(90L)).thenReturn(Arrays.asList(sourceItem));
+        when(mapper.selectInspectedQtyBySourceItem(901L, null)).thenReturn(1);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveDocument(inspection, MAKER_ID, "maker"));
+
+        assertTrue(error.getMessage().contains("剩余待检数量2件"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
     void staleStockAdjustmentCannotBeSubmitted()
     {
         JewelryDocument document = document(12L, "STOCK_ADJUST", "DRAFT");
@@ -669,6 +753,7 @@ class JewelryErpServiceImplTest
         newProduct.put("sku", "NEW-FINISHED-001");
         newProduct.put("productName", "New finished jewelry");
         newProduct.put("productType", "PART");
+        newProduct.put("specification", "精品");
         newProduct.put("warningQty", 3);
         document.setNewOutputProduct(newProduct);
 
@@ -699,6 +784,7 @@ class JewelryErpServiceImplTest
         assertEquals(21L, saved.getDocumentId());
         assertEquals(300L, output.getProductId());
         assertEquals("FINISHED", newProduct.get("productType"));
+        assertEquals("精品", newProduct.get("specification"));
         assertEquals("0", newProduct.get("status"));
         assertEquals("/profile/jewelry/new-product.jpg", newProduct.get("imageUrl"));
         verify(mapper).ensureStock(300L);
@@ -717,6 +803,7 @@ class JewelryErpServiceImplTest
         Map<String, Object> newProduct = new HashMap<String, Object>();
         newProduct.put("sku", "EXISTING-SKU");
         newProduct.put("productName", "Duplicate product");
+        newProduct.put("specification", "普通");
         document.setNewOutputProduct(newProduct);
         when(mapper.insertProduct(any())).thenThrow(new DuplicateKeyException("duplicate"));
 
@@ -828,6 +915,135 @@ class JewelryErpServiceImplTest
 
         assertTrue(error.getMessage().contains("单据类型创建后不允许修改"));
         verify(mapper, never()).updateDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void salesBundleIncludesAddonInventoryCostWithoutAddingIncludedPrice()
+    {
+        JewelryDocument document = document(null, "SALES_OUT", "DRAFT");
+        document.setSalesChannel("抖音");
+        JewelryDocumentItem main = itemForProduct(null, PRODUCT_ID, 1);
+        main.setUnitPrice(decimal("1000.00"));
+        main.setBundleGroupNo(1);
+        main.setSaleRole("MAIN");
+        main.setPricingMode("SEPARATE");
+        JewelryDocumentItem addon = itemForProduct(null, 200L, 1);
+        addon.setUnitPrice(decimal("88.00"));
+        addon.setBundleGroupNo(1);
+        addon.setSaleRole("ADDON");
+        addon.setPricingMode("INCLUDED");
+        document.setItems(Arrays.asList(main, addon));
+
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
+        when(mapper.selectProductById(200L)).thenReturn(product("PART"));
+        when(mapper.selectStockForUpdate(PRODUCT_ID))
+            .thenReturn(stock(10, 0, 0, 0, 0, 0, "600.00", "0", "0"));
+        when(mapper.selectStockForUpdate(200L))
+            .thenReturn(stock(10, 0, 0, 0, 0, 0, "80.00", "0", "0"));
+
+        service.assessDocumentRisk(document);
+
+        assertMoney("0", addon.getUnitPrice());
+        assertMoney("1000.00", document.getTotalAmount());
+        assertMoney("680.00", document.getTotalCost());
+        assertMoney("320.00", document.getTotalProfit());
+        assertEquals("MAIN", main.getSaleRole());
+        assertEquals("ADDON", addon.getSaleRole());
+    }
+
+    @Test
+    void salesBundleRejectsANonPartAddon()
+    {
+        JewelryDocument document = document(null, "SALES_OUT", "DRAFT");
+        document.setSalesChannel("抖音");
+        JewelryDocumentItem main = itemForProduct(null, PRODUCT_ID, 1);
+        main.setBundleGroupNo(1);
+        main.setSaleRole("MAIN");
+        JewelryDocumentItem addon = itemForProduct(null, 200L, 1);
+        addon.setBundleGroupNo(1);
+        addon.setSaleRole("ADDON");
+        addon.setPricingMode("INCLUDED");
+        document.setItems(Arrays.asList(main, addon));
+
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
+        when(mapper.selectProductById(200L)).thenReturn(product("ACCESSORY"));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.assessDocumentRisk(document));
+
+        assertTrue(error.getMessage().contains("搭售商品只能选择散件商品"));
+    }
+
+    @Test
+    void submittingSalesBundleReservesMainAndAddonStockSeparately()
+    {
+        JewelryDocument document = document(250L, "SALES_OUT", "DRAFT");
+        document.setSalesChannel("抖音");
+        JewelryDocumentItem main = itemForProduct(601L, PRODUCT_ID, 1);
+        main.setUnitPrice(decimal("1000.00"));
+        main.setBundleGroupNo(1);
+        main.setSaleRole("MAIN");
+        JewelryDocumentItem addon = itemForProduct(602L, 200L, 2);
+        addon.setBundleGroupNo(1);
+        addon.setSaleRole("ADDON");
+        addon.setPricingMode("INCLUDED");
+
+        when(mapper.selectDocumentById(250L)).thenReturn(document);
+        when(mapper.selectDocumentItems(250L)).thenReturn(Arrays.asList(main, addon));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
+        when(mapper.selectProductById(200L)).thenReturn(product("PART"));
+        when(mapper.reserveOutbound(PRODUCT_ID, 1)).thenReturn(1);
+        when(mapper.reserveOutbound(200L, 2)).thenReturn(1);
+
+        service.submit(250L, MAKER_ID, "maker");
+
+        verify(mapper).reserveOutbound(PRODUCT_ID, 1);
+        verify(mapper).reserveOutbound(200L, 2);
+        verify(mapper).updateDocumentStatus(250L, "DRAFT", "PENDING_FIRST",
+            MAKER_ID, "maker", null, null);
+    }
+
+    @Test
+    void customerReturnUsesExactBundledSourceLineAndActualRefund()
+    {
+        JewelryDocument source = document(300L, "SALES_OUT", "POSTED");
+        JewelryDocumentItem firstSaleLine = item(501L, 1, "500.00");
+        JewelryDocumentItem bundledSourceLine = item(502L, 1, "0");
+        bundledSourceLine.setBundleGroupNo(2);
+        bundledSourceLine.setSaleRole("ADDON");
+        bundledSourceLine.setPricingMode("INCLUDED");
+        bundledSourceLine.setUnitCost(decimal("50.00"));
+
+        JewelryDocument document = document(null, "CUSTOMER_RETURN", "DRAFT");
+        document.setBizDate(new java.util.Date());
+        document.setSalesChannel("抖音");
+        document.setReturnReason("部分退货");
+        document.setSourceDocumentId(300L);
+        document.setActualRefundAmount(decimal("25.00"));
+        JewelryDocumentItem returnedItem = item(null, 1, "0");
+        returnedItem.setSourceItemId(502L);
+        document.setItems(Arrays.asList(returnedItem));
+
+        when(mapper.selectDocumentById(300L)).thenReturn(source);
+        when(mapper.selectDocumentItems(300L)).thenReturn(Arrays.asList(firstSaleLine, bundledSourceLine));
+        when(mapper.selectReturnedQtyBySourceItem(502L, null)).thenReturn(0);
+        when(mapper.insertDocument(document)).thenAnswer(invocation -> {
+            document.setDocumentId(301L);
+            return 1;
+        });
+        when(mapper.selectDocumentById(301L)).thenReturn(document);
+        when(mapper.selectDocumentItems(301L)).thenReturn(Arrays.asList(returnedItem));
+
+        JewelryDocument saved = service.saveDocument(document, MAKER_ID, "maker");
+
+        assertEquals(301L, saved.getDocumentId());
+        assertEquals(502L, returnedItem.getSourceItemId());
+        assertEquals(2, returnedItem.getBundleGroupNo());
+        assertEquals("ADDON", returnedItem.getSaleRole());
+        assertMoney("-25.00", returnedItem.getAmount());
+        assertMoney("-25.00", document.getTotalAmount());
+        assertEquals("REVIEW", document.getRiskStatus());
+        verify(mapper).selectReturnedQtyBySourceItem(502L, null);
     }
 
     @Test

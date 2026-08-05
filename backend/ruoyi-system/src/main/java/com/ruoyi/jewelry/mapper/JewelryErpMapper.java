@@ -44,6 +44,10 @@ public interface JewelryErpMapper
     int countActiveCustomerReturnsBySource(Long sourceDocumentId);
     int selectReturnedQtyBySourceItem(@Param("sourceItemId") Long sourceItemId,
         @Param("excludeDocumentId") Long excludeDocumentId);
+    int selectInspectedQtyBySourceItem(@Param("sourceItemId") Long sourceItemId,
+        @Param("excludeDocumentId") Long excludeDocumentId);
+    List<JewelryDocumentItem> selectReturnInspectionSourceItems(@Param("sourceDocumentId") Long sourceDocumentId,
+        @Param("excludeDocumentId") Long excludeDocumentId);
     List<JewelryDocumentItem> selectDocumentItems(Long documentId);
     int insertDocument(JewelryDocument document);
     int updateDocument(JewelryDocument document);

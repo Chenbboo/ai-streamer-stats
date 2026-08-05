@@ -33,6 +33,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.ruoyi.jewelry.domain.JewelryDocument;
+import com.ruoyi.jewelry.domain.JewelryDocumentItem;
 
 class JewelryErpMapperIntegrationTest
 {
@@ -164,6 +165,33 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void returnInspectionSourceReportsRemainingQuantityPerReturnLine()
+    {
+        insertDocument(1L, "RETURN-1", "CUSTOMER_RETURN", "POSTED", null);
+        insertDocument(2L, "INSPECT-POSTED", "RETURN_INSPECT", "POSTED", 1L);
+        insertDocument(3L, "INSPECT-REJECTED", "RETURN_INSPECT", "REJECTED", 1L);
+        insertDocument(4L, "INSPECT-DRAFT", "RETURN_INSPECT", "DRAFT", 1L);
+        insertItem(101L, 1L, null, 10L, 5);
+        insertItem(201L, 2L, 101L, 10L, 3);
+        insertItem(301L, 3L, 101L, 10L, 2);
+        insertItem(401L, 4L, 101L, 10L, 1);
+        execute("update jewelry_document_item set good_qty=2,defect_qty=1 where item_id=201");
+        execute("update jewelry_document_item set good_qty=2 where item_id=301");
+        execute("update jewelry_document_item set good_qty=1 where item_id=401");
+
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            assertEquals(4, mapper.selectInspectedQtyBySourceItem(101L, null));
+            assertEquals(3, mapper.selectInspectedQtyBySourceItem(101L, 4L));
+            assertEquals(1, mapper.selectReturnInspectionSourceItems(1L, null).get(0)
+                .getRemainingInspectQty().intValue());
+            assertEquals(2, mapper.selectReturnInspectionSourceItems(1L, 4L).get(0)
+                .getRemainingInspectQty().intValue());
+        }
+    }
+
+    @Test
     void activeReturnCountExcludesDraftRejectedAndAlreadyReversedReturns()
     {
         insertDocument(1L, "SALE-1", "SALES_OUT", "POSTED", null);
@@ -216,6 +244,74 @@ class JewelryErpMapperIntegrationTest
         assertEquals(5, intValue("select defect_qty from jewelry_stock where product_id=1"));
         assertEquals(0, decimalValue("select avg_cost from jewelry_stock where product_id=1")
             .compareTo(new BigDecimal("125.500000")));
+    }
+
+    @Test
+    void salesBundleAndRefundFieldsRoundTrip()
+    {
+        JewelryDocument document = new JewelryDocument();
+        document.setDocNo("SALE-BUNDLE-1");
+        document.setDocType("SALES_OUT");
+        document.setBizDate(new java.util.Date());
+        document.setStatus("DRAFT");
+        document.setActualRefundAmount(new BigDecimal("25.00"));
+        document.setTotalQty(2);
+        document.setTotalAmount(new BigDecimal("1000.00"));
+        document.setTotalCost(new BigDecimal("680.00"));
+        document.setTotalProfit(new BigDecimal("320.00"));
+        document.setRiskStatus("NORMAL");
+        document.setLaborFee(BigDecimal.ZERO);
+        document.setProcessingFee(BigDecimal.ZERO);
+        document.setOtherFee(BigDecimal.ZERO);
+        document.setCreatorUserId(10L);
+        document.setCreatorName("maker");
+        document.setCreateBy("maker");
+
+        JewelryDocumentItem item = new JewelryDocumentItem();
+        item.setProductId(1L);
+        item.setItemRole("NORMAL");
+        item.setBundleGroupNo(1);
+        item.setSaleRole("ADDON");
+        item.setPricingMode("INCLUDED");
+        item.setSkuSnapshot("PART-1");
+        item.setProductNameSnapshot("Bundled part");
+        item.setProductTypeSnapshot("PART");
+        item.setSpecificationSnapshot("普通");
+        item.setQty(1);
+        item.setGoodQty(0);
+        item.setDefectQty(0);
+        item.setAdjustmentQty(0);
+        item.setUnitPrice(BigDecimal.ZERO);
+        item.setUnitCost(new BigDecimal("80.00"));
+        item.setPackFee(BigDecimal.ZERO);
+        item.setShipFee(BigDecimal.ZERO);
+        item.setCertFee(BigDecimal.ZERO);
+        item.setAmount(BigDecimal.ZERO);
+        item.setCostAmount(new BigDecimal("80.00"));
+        item.setProfitAmount(new BigDecimal("-80.00"));
+        item.setProfitRate(BigDecimal.ZERO);
+
+        try (SqlSession session = sqlSessionFactory.openSession(false))
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            assertEquals(1, mapper.insertDocument(document));
+            item.setDocumentId(document.getDocumentId());
+            assertEquals(1, mapper.insertDocumentItem(item));
+            session.commit();
+        }
+
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            JewelryDocument stored = mapper.selectDocumentById(document.getDocumentId());
+            JewelryDocumentItem storedItem = mapper.selectDocumentItems(document.getDocumentId()).get(0);
+            assertEquals(0, stored.getActualRefundAmount().compareTo(new BigDecimal("25.00")));
+            assertEquals(1, storedItem.getBundleGroupNo());
+            assertEquals("ADDON", storedItem.getSaleRole());
+            assertEquals("INCLUDED", storedItem.getPricingMode());
+            assertEquals("PART", storedItem.getProductTypeSnapshot());
+            assertEquals("普通", storedItem.getSpecificationSnapshot());
+        }
     }
 
     @Test
@@ -276,9 +372,12 @@ class JewelryErpMapperIntegrationTest
             + "influencer_name varchar(64) default '',platform_rate decimal(9,6) default 0,"
             + "commission_rate decimal(9,6) default 0,tax_rate decimal(9,6) default 0,"
             + "return_reason varchar(255) default '',source_document_id bigint,"
-            + "unlinked_reason varchar(255) default '',total_qty int not null default 0,"
+            + "unlinked_reason varchar(255) default '',actual_refund_amount decimal(20,2),"
+            + "total_qty int not null default 0,"
             + "total_amount decimal(20,2) not null default 0,total_cost decimal(20,2) not null default 0,"
             + "total_profit decimal(20,2) not null default 0,risk_status varchar(16) default 'NORMAL',"
+            + "labor_fee decimal(18,2) default 0,processing_fee decimal(18,2) default 0,"
+            + "other_fee decimal(18,2) default 0,"
             + "creator_user_id bigint not null,creator_name varchar(64) not null,"
             + "first_reviewer_user_id bigint,first_reviewer_name varchar(64) default '',"
             + "second_reviewer_user_id bigint,second_reviewer_name varchar(64) default '',"
@@ -287,7 +386,10 @@ class JewelryErpMapperIntegrationTest
             + "update_by varchar(64) default '',update_time timestamp,remark varchar(500))");
         execute("create table jewelry_document_item ("
             + "item_id bigint auto_increment primary key,document_id bigint not null,product_id bigint not null,"
-            + "source_item_id bigint,sku_snapshot varchar(64) not null,product_name_snapshot varchar(128) not null,"
+            + "item_role varchar(16) not null default 'NORMAL',source_item_id bigint,bundle_group_no int,"
+            + "sale_role varchar(16) not null default 'NORMAL',pricing_mode varchar(16) not null default 'SEPARATE',"
+            + "sku_snapshot varchar(64) not null,product_name_snapshot varchar(128) not null,"
+            + "product_type_snapshot varchar(16),specification_snapshot varchar(16),image_urls varchar(1000),"
             + "qty int not null default 0,good_qty int not null default 0,defect_qty int not null default 0,"
             + "system_qty int,counted_qty int,adjustment_qty int not null default 0,"
             + "unit_price decimal(18,6) not null default 0,unit_cost decimal(18,6) not null default 0,"

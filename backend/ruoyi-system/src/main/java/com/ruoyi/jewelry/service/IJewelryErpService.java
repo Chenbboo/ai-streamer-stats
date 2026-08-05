@@ -19,6 +19,7 @@ public interface IJewelryErpService
     List<JewelryDocument> listDocuments(JewelryDocument query);
     JewelryDocument getDocument(Long documentId);
     JewelryDocument getDocumentForDisplay(Long documentId);
+    JewelryDocument getReturnInspectionSource(Long sourceDocumentId, Long excludeDocumentId);
     Map<String, Object> assessDocumentRisk(JewelryDocument document);
     Map<String, Object> calculateProfit(Map<String, Object> input);
     JewelryDocument saveDocument(JewelryDocument document, Long userId, String userName);

@@ -40,7 +40,7 @@ import com.ruoyi.common.config.RuoYiConfig;
 class JewelryDocumentExcelServiceTest
 {
     private static final String[] PURCHASE_HEADERS = new String[] { "SKU", "商品名称（新商品必填）",
-        "商品类型（新商品必填）", "分类", "规格", "单位", "数量", "采购单价", "商品图片" };
+        "商品类型（新商品必填）", "分类", "规格类型（新商品必填）", "单位", "数量", "采购单价", "商品图片" };
     private static final byte[] PNG = Base64.getDecoder().decode(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
 
@@ -59,13 +59,23 @@ class JewelryDocumentExcelServiceTest
         try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(service.createTemplate("PURCHASE_IN"))))
         {
             XSSFSheet sheet = workbook.getSheet("导入数据");
-            assertEquals(1, sheet.getDataValidations().size());
+            assertEquals(2, sheet.getDataValidations().size());
             assertEquals("ProductTypeOptions",
                 sheet.getDataValidations().get(0).getValidationConstraint().getFormula1());
+            assertEquals("SpecificationOptions",
+                sheet.getDataValidations().get(1).getValidationConstraint().getFormula1());
             assertTrue(sheet.getDataValidations().get(0).getSuppressDropDownArrow());
+            assertTrue(sheet.getDataValidations().get(1).getSuppressDropDownArrow());
             assertTrue(workbook.isSheetHidden(workbook.getSheetIndex("模板选项")));
             assertEquals(IndexedColors.LIGHT_YELLOW.getIndex(),
                 sheet.getRow(1).getCell(2).getCellStyle().getFillForegroundColor());
+            assertEquals(IndexedColors.LIGHT_YELLOW.getIndex(),
+                sheet.getRow(1).getCell(4).getCellStyle().getFillForegroundColor());
+            Sheet options = workbook.getSheet("模板选项");
+            assertEquals("成品商品", options.getRow(0).getCell(0).getStringCellValue());
+            assertEquals("福利商品", options.getRow(3).getCell(0).getStringCellValue());
+            assertEquals("精品", options.getRow(0).getCell(1).getStringCellValue());
+            assertEquals("普通", options.getRow(1).getCell(1).getStringCellValue());
         }
     }
 
@@ -91,13 +101,14 @@ class JewelryDocumentExcelServiceTest
         new RuoYiConfig().setProfile(tempDir.toString());
 
         Map<String, Object> result = service.preview("PURCHASE_IN", purchaseWorkbookWithImage(
-            new Object[] { "NEW-001", "测试戒指", "散件", "戒指", "18K", "件", 2, 6800, "" }), true);
+            new Object[] { "NEW-001", "测试戒指", "散件商品", "戒指", "精品", "件", 2, 6800, "" }), true);
 
         assertEquals(0, result.get("errorCount"));
         assertEquals(1, result.get("newProductCount"));
         Map<String, Object> row = rows(result).get(0);
         assertEquals("NEW", row.get("status"));
         assertEquals("PART", row.get("productType"));
+        assertEquals("精品", row.get("specification"));
         assertTrue(String.valueOf(row.get("imageUrl")).startsWith("/profile/jewelry/import/"));
         assertTrue(Files.exists(tempDir.resolve(String.valueOf(row.get("imageUrl"))
             .substring("/profile/".length()).replace("/", java.io.File.separator))));
@@ -109,7 +120,7 @@ class JewelryDocumentExcelServiceTest
         when(mapper.selectProductList(any())).thenReturn(Collections.emptyList());
 
         Map<String, Object> result = service.preview("PURCHASE_IN", workbook(PURCHASE_HEADERS,
-            new Object[] { "NEW-002", "测试项链", "成品", "项链", "足金", "件", 1, 2000, "" }), true);
+            new Object[] { "NEW-002", "测试项链", "成品商品", "项链", "普通", "件", 1, 2000, "" }), true);
 
         assertEquals(1, result.get("errorCount"));
         assertTrue(String.valueOf(rows(result).get(0).get("errorMessage")).contains("商品图片不能为空"));
@@ -122,7 +133,7 @@ class JewelryDocumentExcelServiceTest
         new RuoYiConfig().setProfile(tempDir.toString());
 
         Map<String, Object> result = service.preview("PURCHASE_IN", purchaseWorkbookWithImage(
-            new Object[] { "NEW-WEBP", "测试吊坠", "成品", "吊坠", "18K", "件", 1, 3000, "" },
+            new Object[] { "NEW-WEBP", "测试吊坠", "成品商品", "吊坠", "精品", "件", 1, 3000, "" },
             largePng()), true);
 
         assertEquals(0, result.get("errorCount"));
@@ -133,6 +144,34 @@ class JewelryDocumentExcelServiceTest
         byte[] bytes = Files.readAllBytes(stored);
         assertEquals("RIFF", new String(bytes, 0, 4, java.nio.charset.StandardCharsets.US_ASCII));
         assertEquals("WEBP", new String(bytes, 8, 4, java.nio.charset.StandardCharsets.US_ASCII));
+    }
+
+    @Test
+    void purchasePreviewSupportsAccessoryAndWelfareProductTypes() throws Exception
+    {
+        when(mapper.selectProductList(any())).thenReturn(Collections.emptyList());
+        new RuoYiConfig().setProfile(tempDir.toString());
+
+        Map<String, Object> accessory = service.preview("PURCHASE_IN", purchaseWorkbookWithImage(
+            new Object[] { "NEW-ACC", "测试配件", "配件商品", "配件", "普通", "件", 1, 10, "" }), true);
+        Map<String, Object> welfare = service.preview("PURCHASE_IN", purchaseWorkbookWithImage(
+            new Object[] { "NEW-GIFT", "测试福利", "福利商品", "福利", "精品", "件", 1, 1, "" }), true);
+
+        assertEquals("ACCESSORY", rows(accessory).get(0).get("productType"));
+        assertEquals("WELFARE", rows(welfare).get(0).get("productType"));
+    }
+
+    @Test
+    void purchasePreviewRejectsUnsupportedSpecificationType() throws Exception
+    {
+        when(mapper.selectProductList(any())).thenReturn(Collections.emptyList());
+        new RuoYiConfig().setProfile(tempDir.toString());
+
+        Map<String, Object> result = service.preview("PURCHASE_IN", purchaseWorkbookWithImage(
+            new Object[] { "NEW-SPEC", "测试商品", "成品商品", "项链", "小", "件", 1, 100, "" }), true);
+
+        assertEquals(1, result.get("errorCount"));
+        assertTrue(String.valueOf(rows(result).get(0).get("errorMessage")).contains("规格类型必须选择精品或普通"));
     }
 
     @Test

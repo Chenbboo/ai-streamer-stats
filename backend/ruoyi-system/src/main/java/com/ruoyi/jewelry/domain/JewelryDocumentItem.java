@@ -9,12 +9,18 @@ public class JewelryDocumentItem
     private Long productId;
     private String itemRole;
     private Long sourceItemId;
+    private Integer bundleGroupNo;
+    private String saleRole;
+    private String pricingMode;
     private String skuSnapshot;
     private String productNameSnapshot;
+    private String productTypeSnapshot;
+    private String specificationSnapshot;
     private String imageUrls;
     private Integer qty;
     private Integer goodQty;
     private Integer defectQty;
+    private Integer remainingInspectQty;
     private Integer systemQty;
     private Integer countedQty;
     private Integer adjustmentQty;
@@ -39,10 +45,20 @@ public class JewelryDocumentItem
     public void setItemRole(String itemRole) { this.itemRole = itemRole; }
     public Long getSourceItemId() { return sourceItemId; }
     public void setSourceItemId(Long sourceItemId) { this.sourceItemId = sourceItemId; }
+    public Integer getBundleGroupNo() { return bundleGroupNo; }
+    public void setBundleGroupNo(Integer bundleGroupNo) { this.bundleGroupNo = bundleGroupNo; }
+    public String getSaleRole() { return saleRole; }
+    public void setSaleRole(String saleRole) { this.saleRole = saleRole; }
+    public String getPricingMode() { return pricingMode; }
+    public void setPricingMode(String pricingMode) { this.pricingMode = pricingMode; }
     public String getSkuSnapshot() { return skuSnapshot; }
     public void setSkuSnapshot(String skuSnapshot) { this.skuSnapshot = skuSnapshot; }
     public String getProductNameSnapshot() { return productNameSnapshot; }
     public void setProductNameSnapshot(String productNameSnapshot) { this.productNameSnapshot = productNameSnapshot; }
+    public String getProductTypeSnapshot() { return productTypeSnapshot; }
+    public void setProductTypeSnapshot(String productTypeSnapshot) { this.productTypeSnapshot = productTypeSnapshot; }
+    public String getSpecificationSnapshot() { return specificationSnapshot; }
+    public void setSpecificationSnapshot(String specificationSnapshot) { this.specificationSnapshot = specificationSnapshot; }
     public String getImageUrls() { return imageUrls; }
     public void setImageUrls(String imageUrls) { this.imageUrls = imageUrls; }
     public Integer getQty() { return qty; }
@@ -51,6 +67,8 @@ public class JewelryDocumentItem
     public void setGoodQty(Integer goodQty) { this.goodQty = goodQty; }
     public Integer getDefectQty() { return defectQty; }
     public void setDefectQty(Integer defectQty) { this.defectQty = defectQty; }
+    public Integer getRemainingInspectQty() { return remainingInspectQty; }
+    public void setRemainingInspectQty(Integer remainingInspectQty) { this.remainingInspectQty = remainingInspectQty; }
     public Integer getSystemQty() { return systemQty; }
     public void setSystemQty(Integer systemQty) { this.systemQty = systemQty; }
     public Integer getCountedQty() { return countedQty; }

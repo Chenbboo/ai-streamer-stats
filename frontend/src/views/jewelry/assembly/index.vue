@@ -44,7 +44,7 @@
     <el-dialog v-model="dialog" :title="form.documentId?'编辑组装单':'新建组装单'" width="1080px" top="4vh" destroy-on-close>
       <el-alert
         v-if="partProducts.length===0"
-        title="当前没有可用散件，请先在商品档案中将商品设为“散件”并上传实物图片。"
+        title="当前没有可用散件，请先在商品档案中将商品设为“散件商品”并上传实物图片。"
         type="warning"
         :closable="false"
         show-icon
@@ -69,7 +69,7 @@
               <el-form-item label="新成品SKU" prop="newOutputProduct.sku"><el-input v-model="form.newOutputProduct.sku" maxlength="64" placeholder="请输入唯一SKU"/></el-form-item>
               <el-form-item label="新成品名称" prop="newOutputProduct.productName"><el-input v-model="form.newOutputProduct.productName" maxlength="128"/></el-form-item>
               <el-form-item label="分类"><el-input v-model="form.newOutputProduct.category" maxlength="64"/></el-form-item>
-              <el-form-item label="规格"><el-input v-model="form.newOutputProduct.specification" maxlength="255"/></el-form-item>
+              <el-form-item label="规格类型" prop="newOutputProduct.specification"><el-select v-model="form.newOutputProduct.specification" style="width:100%"><el-option v-for="item in jewelrySpecifications" :key="item.value" :label="item.label" :value="item.value"/></el-select></el-form-item>
               <el-form-item label="单位"><el-input v-model="form.newOutputProduct.unit" maxlength="16"/></el-form-item>
               <el-form-item label="库存预警值"><el-input-number v-model="form.newOutputProduct.warningQty" :min="0" :precision="0"/></el-form-item>
             </div>
@@ -159,6 +159,7 @@
 
 <script setup name="JewelryAssembly">
 import {listJewelryDocuments,getJewelryDocument,saveJewelryDocument,submitJewelryDocument,withdrawJewelryDocument,listJewelryProductOptions} from '@/api/jewelry/erp'
+import {jewelrySpecifications} from '@/utils/jewelryProduct'
 const {proxy}=getCurrentInstance()
 const loading=ref(false),rows=ref([]),total=ref(0),dialog=ref(false),drawer=ref(false),saving=ref(false),formRef=ref(),detail=ref(null)
 const products=ref([])
@@ -166,10 +167,10 @@ const statuses=[{value:'DRAFT',label:'草稿'},{value:'PENDING_FIRST',label:'待
 const outputModes=[{label:'选择已有成品',value:'EXISTING'},{label:'新建成品',value:'NEW'}]
 const query=reactive({pageNum:1,pageSize:10,docNo:'',docType:'ASSEMBLY',status:''})
 const blankComponent=()=>({productId:null,itemRole:'COMPONENT',qty:1})
-const blankNewProduct=()=>({sku:'',productName:'',category:'',specification:'',unit:'件',warningQty:5})
+const blankNewProduct=()=>({sku:'',productName:'',category:'',specification:'普通',unit:'件',warningQty:5})
 const blankForm=()=>({documentId:null,bizDate:today(),outputMode:'EXISTING',outputProductId:null,newOutputProduct:blankNewProduct(),outputQty:1,outputImages:'',components:[blankComponent()],laborFee:0,processingFee:0,otherFee:0,remark:''})
 const form=reactive(blankForm())
-const rules={bizDate:[{required:true,message:'请选择业务日期'}],outputProductId:[{required:true,message:'请选择目标成品'}],'newOutputProduct.sku':[{required:true,message:'请输入新成品SKU'}],'newOutputProduct.productName':[{required:true,message:'请输入新成品名称'}],outputQty:[{required:true,message:'请输入组装数量'}]}
+const rules={bizDate:[{required:true,message:'请选择业务日期'}],outputProductId:[{required:true,message:'请选择目标成品'}],'newOutputProduct.sku':[{required:true,message:'请输入新成品SKU'}],'newOutputProduct.productName':[{required:true,message:'请输入新成品名称'}],'newOutputProduct.specification':[{required:true,type:'enum',enum:jewelrySpecifications.map(item=>item.value),message:'请选择规格类型'}],outputQty:[{required:true,message:'请输入组装数量'}]}
 const baseUrl=import.meta.env.VITE_APP_BASE_API
 const imageSrc=url=>!url?'':/^https?:/i.test(url)?url:baseUrl+url
 const firstImage=item=>String(item.imageUrl||item.imageUrls||'').split(',').map(v=>v.trim()).find(Boolean)||''

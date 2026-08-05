@@ -16,13 +16,13 @@
           <div v-else class="empty-thumb"><el-icon><Picture/></el-icon></div>
         </template>
       </el-table-column>
-      <el-table-column prop="sku" label="SKU" width="150"/>
-      <el-table-column prop="productName" label="商品名称" min-width="180"/>
-      <el-table-column label="类型" width="90">
-        <template #default="{row}"><el-tag :type="row.productType==='PART'?'warning':'success'" effect="plain">{{typeLabel(row.productType)}}</el-tag></template>
+      <el-table-column prop="sku" label="SKU" min-width="160" show-overflow-tooltip/>
+      <el-table-column prop="productName" label="商品名称" min-width="240" show-overflow-tooltip/>
+      <el-table-column label="商品类型" width="110">
+        <template #default="{row}"><el-tag :type="typeTag(row.productType)" effect="plain">{{typeLabel(row.productType)}}</el-tag></template>
       </el-table-column>
-      <el-table-column prop="category" label="分类" width="110"/>
-      <el-table-column prop="specification" label="规格" min-width="140"/>
+      <el-table-column prop="category" label="分类" min-width="130" show-overflow-tooltip/>
+      <el-table-column prop="specification" label="规格类型" width="100"/>
       <el-table-column prop="unit" label="单位" width="70"/>
       <el-table-column prop="onHandQty" label="库存" width="90" align="right"/>
       <el-table-column v-if="canViewFinance" prop="avgCost" label="平均成本" width="110" align="right"/>
@@ -39,9 +39,9 @@
         <el-row :gutter="14">
           <el-col :span="12"><el-form-item label="SKU" prop="sku"><el-input v-model="form.sku" :disabled="!!form.productId"/></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="商品名称" prop="productName"><el-input v-model="form.productName"/></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="商品类型" prop="productType"><el-radio-group v-model="form.productType"><el-radio-button value="PART">散件</el-radio-button><el-radio-button value="FINISHED">成品</el-radio-button></el-radio-group></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="商品类型" prop="productType"><el-select v-model="form.productType" style="width:100%"><el-option v-for="item in jewelryProductTypes" :key="item.value" :label="item.label" :value="item.value"/></el-select></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="分类"><el-input v-model="form.category"/></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="规格"><el-input v-model="form.specification"/></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="规格类型" prop="specification"><el-select v-model="form.specification" style="width:100%"><el-option v-for="item in jewelrySpecifications" :key="item.value" :label="item.label" :value="item.value"/></el-select></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="单位"><el-input v-model="form.unit"/></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="预警值"><el-input-number v-model="form.warningQty" :min="0" style="width:100%"/></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="状态"><el-select v-model="form.status"><el-option label="启用" value="0"/><el-option label="停用" value="1"/></el-select></el-form-item></el-col>
@@ -64,20 +64,22 @@
 <script setup name="JewelryProduct">
 import { listJewelryProducts, saveJewelryProduct } from '@/api/jewelry/erp'
 import useUserStore from '@/store/modules/user'
+import { jewelryProductTypes, jewelrySpecifications, jewelryProductType } from '@/utils/jewelryProduct'
 const userStore=useUserStore()
 const canViewFinance=computed(()=>userStore.roles.some(role=>['admin','jewelry_admin','jewelry_reviewer'].includes(role)))
 const {proxy}=getCurrentInstance()
 const loading=ref(false),rows=ref([]),total=ref(0),dialog=ref(false),formRef=ref()
-const typeFilters=[{label:'全部',value:''},{label:'散件',value:'PART'},{label:'成品',value:'FINISHED'}]
+const typeFilters=[{label:'全部',value:''},...jewelryProductTypes.map(({label,value})=>({label,value}))]
 const query=reactive({pageNum:1,pageSize:10,keyword:'',productType:''})
-const blank=()=>({productId:null,sku:'',productName:'',productType:'FINISHED',category:'',specification:'',imageUrl:'',imageUrls:'',unit:'件',warningQty:5,status:'0',defaultPackFee:0,defaultShipFee:0,defaultCertFee:0})
+const blank=()=>({productId:null,sku:'',productName:'',productType:'FINISHED',category:'',specification:'普通',imageUrl:'',imageUrls:'',unit:'件',warningQty:5,status:'0',defaultPackFee:0,defaultShipFee:0,defaultCertFee:0})
 const form=reactive(blank())
-const rules={sku:[{required:true,message:'请输入SKU'}],productName:[{required:true,message:'请输入商品名称'}],productType:[{required:true,message:'请选择商品类型'}]}
+const rules={sku:[{required:true,message:'请输入SKU'}],productName:[{required:true,message:'请输入商品名称'}],productType:[{required:true,type:'enum',enum:jewelryProductTypes.map(item=>item.value),message:'请选择商品类型'}],specification:[{required:true,type:'enum',enum:jewelrySpecifications.map(item=>item.value),message:'请选择规格类型'}]}
 const baseUrl=import.meta.env.VITE_APP_BASE_API
 const allImages=row=>String(row.imageUrls||row.imageUrl||'').split(',').map(v=>v.trim()).filter(Boolean)
 const firstImage=row=>allImages(row)[0]||''
 const imageSrc=url=>/^https?:/i.test(url)?url:baseUrl+url
-const typeLabel=value=>value==='PART'?'散件':'成品'
+const typeLabel=value=>jewelryProductType(value)?.label||value||'—'
+const typeTag=value=>jewelryProductType(value)?.tagType||'info'
 async function load(){loading.value=true;try{const params={...query};if(!params.productType)delete params.productType;const r=await listJewelryProducts(params);rows.value=r.rows||[];total.value=r.total||0}finally{loading.value=false}}
 function open(row){Object.assign(form,blank(),row||{});form.imageUrls=form.imageUrls||form.imageUrl||'';dialog.value=true}
 async function save(){await formRef.value.validate();form.imageUrl=String(form.imageUrls||'').split(',')[0]||'';await saveJewelryProduct(form);proxy.$modal.msgSuccess('保存成功');dialog.value=false;load()}

@@ -273,6 +273,20 @@ public class JewelryErpController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
+    @GetMapping("/document/return-inspection-source/{id}")
+    public AjaxResult returnInspectionSource(@PathVariable Long id,
+        @RequestParam(required = false) Long excludeDocumentId)
+    {
+        JewelryDocument source = service.getReturnInspectionSource(id, excludeDocumentId);
+        if (isMakerOnly() && !SecurityUtils.getUserId().equals(source.getCreatorUserId()))
+        {
+            return error("无权使用其他制单员创建的客户退货单");
+        }
+        if (isMakerOnly()) redactDocumentFinance(source);
+        return success(source);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
     @GetMapping("/document/{id}")
     public AjaxResult document(@PathVariable Long id)
     {

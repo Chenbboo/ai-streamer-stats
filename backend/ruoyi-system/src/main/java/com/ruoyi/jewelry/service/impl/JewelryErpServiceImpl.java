@@ -29,6 +29,14 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     private static final Set<String> EDITABLE_DOCUMENT_TYPES = Collections.unmodifiableSet(
         new HashSet<String>(Arrays.asList("PURCHASE_IN", "SALES_OUT", "SUPPLIER_RETURN",
             "CUSTOMER_RETURN", "RETURN_INSPECT", "STOCK_ADJUST", "ASSEMBLY")));
+    private static final Set<String> PRODUCT_TYPES = Collections.unmodifiableSet(
+        new HashSet<String>(Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE")));
+    private static final Set<String> SPECIFICATION_TYPES = Collections.unmodifiableSet(
+        new HashSet<String>(Arrays.asList("精品", "普通")));
+    private static final Set<String> SALES_ROLES = Collections.unmodifiableSet(
+        new HashSet<String>(Arrays.asList("NORMAL", "MAIN", "ADDON")));
+    private static final Set<String> SALES_PRICING_MODES = Collections.unmodifiableSet(
+        new HashSet<String>(Arrays.asList("SEPARATE", "INCLUDED")));
 
     @Autowired
     private JewelryErpMapper mapper;
@@ -40,6 +48,14 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     @Transactional
     public int saveProduct(Map<String, Object> product)
     {
+        String productType = textValue(product.get("productType")).trim();
+        if (!PRODUCT_TYPES.contains(productType))
+            throw new ServiceException("商品类型只能选择成品商品、散件商品、配件商品或福利商品");
+        String specification = textValue(product.get("specification")).trim();
+        if (!SPECIFICATION_TYPES.contains(specification))
+            throw new ServiceException("规格类型只能选择精品或普通");
+        product.put("productType", productType);
+        product.put("specification", specification);
         product.put("defaultPackFee", nonNegativeDecimalValue(product.get("defaultPackFee"), "默认包装费"));
         product.put("defaultShipFee", nonNegativeDecimalValue(product.get("defaultShipFee"), "默认物流费"));
         product.put("defaultCertFee", nonNegativeDecimalValue(product.get("defaultCertFee"), "默认鉴定费"));
@@ -111,6 +127,14 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             refreshAssemblyCosts(document, false, false);
         }
         return document;
+    }
+
+    @Override
+    public JewelryDocument getReturnInspectionSource(Long sourceDocumentId, Long excludeDocumentId)
+    {
+        JewelryDocument source = requirePostedCustomerReturn(sourceDocumentId);
+        source.setItems(mapper.selectReturnInspectionSourceItems(sourceDocumentId, excludeDocumentId));
+        return source;
     }
 
     @Override
@@ -278,7 +302,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         product.put("productName", name);
         product.put("productType", "FINISHED");
         product.put("category", textValue(product.get("category")));
-        product.put("specification", textValue(product.get("specification")));
+        String specification = textValue(product.get("specification")).trim();
+        if (!SPECIFICATION_TYPES.contains(specification))
+            throw new ServiceException("新成品必须选择精品或普通规格类型");
+        product.put("specification", specification);
         product.put("imageUrl", productImage);
         product.put("imageUrls", productImage);
         product.put("unit", textValue(product.get("unit")).isEmpty() ? "件" : textValue(product.get("unit")));
@@ -413,6 +440,15 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 if (mapper.countReversalBySource(source.getDocumentId()) > 0)
                     throw new ServiceException("关联的原销售单已存在红冲单，不能再提交消费者退货");
             }
+            else if ("RETURN_INSPECT".equals(document.getDocType()))
+            {
+                if (document.getSourceDocumentId() == null)
+                    throw new ServiceException("退货质检必须关联原客户退货单");
+                JewelryDocument source = mapper.selectDocumentByIdForUpdate(document.getSourceDocumentId());
+                if (source == null || !"CUSTOMER_RETURN".equals(source.getDocType())
+                    || !"POSTED".equals(source.getStatus()))
+                    throw new ServiceException("关联的客户退货单已失效，请重新选择");
+            }
             validateDocument(document);
             calculateDocument(document);
             mapper.updateDocumentFinancials(document);
@@ -530,27 +566,59 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             throw new ServiceException("请填写退货原因");
         if ("CUSTOMER_RETURN".equals(document.getDocType()) && document.getSourceDocumentId() == null)
             throw new ServiceException("客户退货必须关联原销售单");
+        Map<Long, JewelryDocumentItem> returnInspectionSourceItems = new HashMap<Long, JewelryDocumentItem>();
+        if ("RETURN_INSPECT".equals(document.getDocType()))
+        {
+            if (document.getSourceDocumentId() == null)
+                throw new ServiceException("退货质检必须关联原客户退货单");
+            JewelryDocument source = requirePostedCustomerReturn(document.getSourceDocumentId());
+            for (JewelryDocumentItem sourceItem : mapper.selectDocumentItems(source.getDocumentId()))
+            {
+                returnInspectionSourceItems.put(sourceItem.getItemId(), sourceItem);
+            }
+        }
         validateRate(document.getPlatformRate(), "平台扣点率");
         validateRate(document.getCommissionRate(), "达人佣金率");
         validateRate(document.getTaxRate(), "税率");
         if ("SALES_OUT".equals(document.getDocType()))
             validateCombinedRate(money(document.getPlatformRate()).add(money(document.getCommissionRate()))
                 .add(money(document.getTaxRate())));
-        Set<Long> productIds = new HashSet<Long>();
+        Set<String> itemKeys = new HashSet<String>();
+        Map<Integer, Integer> salesMainCounts = new HashMap<Integer, Integer>();
+        Map<Integer, Integer> salesAddonCounts = new HashMap<Integer, Integer>();
         int assemblyOutputs = 0;
         int assemblyComponents = 0;
         for (JewelryDocumentItem item : document.getItems())
         {
             if (item.getProductId() == null) throw new ServiceException("请选择商品");
-            if (!productIds.add(item.getProductId())) throw new ServiceException("同一商品不能在一张单据中重复出现");
             Map<String, Object> product = mapper.selectProductById(item.getProductId());
             if (product == null) throw new ServiceException("商品不存在或已删除");
             if (!"0".equals(String.valueOf(product.get("status"))))
                 throw new ServiceException("商品已停用，不能继续使用");
             item.setSkuSnapshot(String.valueOf(product.get("sku")));
             item.setProductNameSnapshot(String.valueOf(product.get("productName")));
+            item.setProductTypeSnapshot(textValue(product.get("productType")));
+            item.setSpecificationSnapshot(textValue(product.get("specification")));
             if (item.getItemRole() == null || item.getItemRole().trim().isEmpty()) item.setItemRole("NORMAL");
+            if (!"SALES_OUT".equals(document.getDocType()) && !"CUSTOMER_RETURN".equals(document.getDocType()))
+            {
+                item.setBundleGroupNo(null);
+                item.setSaleRole("NORMAL");
+                item.setPricingMode("SEPARATE");
+            }
             item.setQty(nonNegative(item.getQty()));
+            if ("SALES_OUT".equals(document.getDocType()))
+            {
+                String itemKey = normalizeSalesBundleItem(item, product, salesMainCounts, salesAddonCounts);
+                if (!itemKeys.add(itemKey))
+                    throw new ServiceException("同一销售组合中不能重复选择同一商品");
+            }
+            else if (!"CUSTOMER_RETURN".equals(document.getDocType())
+                && !"RETURN_INSPECT".equals(document.getDocType())
+                && !itemKeys.add(String.valueOf(item.getProductId())))
+            {
+                throw new ServiceException("同一商品不能在一张单据中重复出现");
+            }
             if ("ASSEMBLY".equals(document.getDocType()))
             {
                 Map<String, Object> stock = mapper.selectStockForUpdate(item.getProductId());
@@ -591,16 +659,25 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     JewelryDocument source = requireDocument(document.getSourceDocumentId());
                     if (!"SALES_OUT".equals(source.getDocType()) || !"POSTED".equals(source.getStatus()))
                         throw new ServiceException("关联的原单必须是已入账销售出库单");
+                    List<JewelryDocumentItem> sourceItems = mapper.selectDocumentItems(source.getDocumentId());
                     JewelryDocumentItem sourceItem = null;
-                    for (JewelryDocumentItem candidate : mapper.selectDocumentItems(source.getDocumentId()))
+                    for (JewelryDocumentItem candidate : sourceItems)
                     {
-                        if (item.getProductId().equals(candidate.getProductId()))
+                        if (item.getSourceItemId() != null && item.getSourceItemId().equals(candidate.getItemId()))
+                        {
+                            sourceItem = candidate;
+                            break;
+                        }
+                        if (item.getSourceItemId() == null && item.getProductId().equals(candidate.getProductId()))
                         {
                             sourceItem = candidate;
                             break;
                         }
                     }
-                    if (sourceItem == null) throw new ServiceException("原销售单中不存在该商品");
+                    if (sourceItem == null || !item.getProductId().equals(sourceItem.getProductId()))
+                        throw new ServiceException("原销售单中不存在对应的商品明细");
+                    if (!itemKeys.add("SOURCE:" + sourceItem.getItemId()))
+                        throw new ServiceException("同一原销售明细不能重复退货");
                     int returnedQty = mapper.selectReturnedQtyBySourceItem(sourceItem.getItemId(),
                         document.getDocumentId());
                     if (returnedQty + item.getQty() > nonNegative(sourceItem.getQty()))
@@ -612,6 +689,11 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     item.setPackFee(money(sourceItem.getPackFee()));
                     item.setShipFee(money(sourceItem.getShipFee()));
                     item.setCertFee(money(sourceItem.getCertFee()));
+                    item.setBundleGroupNo(sourceItem.getBundleGroupNo());
+                    item.setSaleRole(normalizedSaleRole(sourceItem.getSaleRole()));
+                    item.setPricingMode(normalizedPricingMode(sourceItem.getPricingMode()));
+                    item.setProductTypeSnapshot(sourceItem.getProductTypeSnapshot());
+                    item.setSpecificationSnapshot(sourceItem.getSpecificationSnapshot());
                     document.setSalesChannel(source.getSalesChannel());
                     document.setInfluencerName(source.getInfluencerName());
                     document.setPlatformRate(money(source.getPlatformRate()));
@@ -621,6 +703,27 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 else if (money(item.getUnitPrice()).signum() <= 0)
                     throw new ServiceException("未关联原销售单时必须填写实际退款单价");
             }
+            else if ("RETURN_INSPECT".equals(document.getDocType()))
+            {
+                JewelryDocumentItem sourceItem = returnInspectionSourceItems.get(item.getSourceItemId());
+                if (sourceItem == null || !item.getProductId().equals(sourceItem.getProductId()))
+                    throw new ServiceException("质检明细必须来自所关联的客户退货单");
+                if (!itemKeys.add("SOURCE:" + sourceItem.getItemId()))
+                    throw new ServiceException("同一退货明细不能重复质检");
+                int handledQty = nonNegative(item.getGoodQty()) + nonNegative(item.getDefectQty());
+                int inspectedQty = mapper.selectInspectedQtyBySourceItem(sourceItem.getItemId(),
+                    document.getDocumentId());
+                int remainingQty = nonNegative(sourceItem.getQty()) - inspectedQty;
+                if (handledQty <= 0)
+                    throw new ServiceException("退货质检的良品数和次品数不能同时为0");
+                if (handledQty > remainingQty)
+                    throw new ServiceException(item.getProductNameSnapshot() + "本次质检数量不能超过原退货单剩余待检数量"
+                        + Math.max(remainingQty, 0) + "件");
+                item.setQty(handledQty);
+                item.setUnitCost(money(sourceItem.getUnitCost()));
+                item.setProductTypeSnapshot(sourceItem.getProductTypeSnapshot());
+                item.setSpecificationSnapshot(sourceItem.getSpecificationSnapshot());
+            }
             validateNonNegative(item.getUnitPrice(), "商品单价");
             validateNonNegative(item.getUnitCost(), "商品成本");
             validateNonNegative(item.getPackFee(), "包装费");
@@ -629,8 +732,6 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             item.setGoodQty(nonNegative(item.getGoodQty()));
             item.setDefectQty(nonNegative(item.getDefectQty()));
             item.setAdjustmentQty(item.getAdjustmentQty() == null ? 0 : item.getAdjustmentQty());
-            if ("RETURN_INSPECT".equals(document.getDocType()) && item.getGoodQty() + item.getDefectQty() <= 0)
-                throw new ServiceException("退货质检的良品数和次品数不能同时为0");
             if ("STOCK_ADJUST".equals(document.getDocType()))
             {
                 if (item.getCountedQty() == null || item.getCountedQty() < 0)
@@ -645,6 +746,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             if (!"RETURN_INSPECT".equals(document.getDocType()) && !"STOCK_ADJUST".equals(document.getDocType())
                 && item.getQty() <= 0) throw new ServiceException("商品数量必须大于0");
         }
+        if ("SALES_OUT".equals(document.getDocType()))
+            validateSalesBundleGroups(salesMainCounts, salesAddonCounts);
+        if ("CUSTOMER_RETURN".equals(document.getDocType()) && document.getActualRefundAmount() != null)
+            validateNonNegative(document.getActualRefundAmount(), "实际退款总额");
         if ("ASSEMBLY".equals(document.getDocType()))
         {
             if (assemblyOutputs != 1) throw new ServiceException("组装单必须且只能有一个成品产出");
@@ -653,6 +758,67 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 || money(document.getOtherFee()).signum() < 0)
                 throw new ServiceException("组装费用不能小于0");
         }
+    }
+
+    private String normalizeSalesBundleItem(JewelryDocumentItem item, Map<String, Object> product,
+        Map<Integer, Integer> mainCounts, Map<Integer, Integer> addonCounts)
+    {
+        String role = normalizedSaleRole(item.getSaleRole());
+        String pricingMode = normalizedPricingMode(item.getPricingMode());
+        Integer groupNo = item.getBundleGroupNo();
+        String productType = textValue(product.get("productType"));
+        if (!SALES_ROLES.contains(role)) throw new ServiceException("销售商品角色不正确");
+        if (!SALES_PRICING_MODES.contains(pricingMode)) throw new ServiceException("搭售计价方式不正确");
+        if ("MAIN".equals(role))
+        {
+            if (groupNo == null || groupNo <= 0) throw new ServiceException("销售组合主商品缺少组合编号");
+            if (!"FINISHED".equals(productType)) throw new ServiceException("销售组合主商品必须是成品商品");
+            pricingMode = "SEPARATE";
+            mainCounts.put(groupNo, mainCounts.getOrDefault(groupNo, 0) + 1);
+        }
+        else if ("ADDON".equals(role))
+        {
+            if (groupNo == null || groupNo <= 0) throw new ServiceException("搭售散件缺少销售组合编号");
+            if (!"PART".equals(productType)) throw new ServiceException("搭售商品只能选择散件商品");
+            addonCounts.put(groupNo, addonCounts.getOrDefault(groupNo, 0) + 1);
+            if ("INCLUDED".equals(pricingMode)) item.setUnitPrice(ZERO);
+        }
+        else
+        {
+            role = "NORMAL";
+            pricingMode = "SEPARATE";
+            groupNo = null;
+        }
+        item.setSaleRole(role);
+        item.setPricingMode(pricingMode);
+        item.setBundleGroupNo(groupNo);
+        return item.getProductId() + ":" + (groupNo == null ? "NORMAL" : groupNo);
+    }
+
+    private void validateSalesBundleGroups(Map<Integer, Integer> mainCounts, Map<Integer, Integer> addonCounts)
+    {
+        Set<Integer> groupNumbers = new HashSet<Integer>();
+        groupNumbers.addAll(mainCounts.keySet());
+        groupNumbers.addAll(addonCounts.keySet());
+        for (Integer groupNo : groupNumbers)
+        {
+            if (mainCounts.getOrDefault(groupNo, 0) != 1)
+                throw new ServiceException("销售组合" + groupNo + "必须且只能有一个成品主商品");
+            if (addonCounts.getOrDefault(groupNo, 0) < 1)
+                throw new ServiceException("销售组合" + groupNo + "至少需要一个搭售散件");
+        }
+    }
+
+    private String normalizedSaleRole(String value)
+    {
+        String role = text(value).trim().toUpperCase();
+        return role.isEmpty() ? "NORMAL" : role;
+    }
+
+    private String normalizedPricingMode(String value)
+    {
+        String mode = text(value).trim().toUpperCase();
+        return mode.isEmpty() ? "SEPARATE" : mode;
     }
 
     private void refreshAssemblyCosts(JewelryDocument document, boolean validateState, boolean lockStock)
@@ -779,16 +945,75 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             totalCost = totalCost.add(costAmount);
             totalProfit = totalProfit.add(profit);
         }
+        boolean refundNeedsReview = false;
+        if (customerReturn)
+        {
+            BigDecimal expectedRefund = totalAmount.negate().setScale(2, RoundingMode.HALF_UP);
+            BigDecimal actualRefund = document.getActualRefundAmount() == null
+                ? expectedRefund : money(document.getActualRefundAmount()).setScale(2, RoundingMode.HALF_UP);
+            document.setActualRefundAmount(actualRefund);
+            allocateCustomerReturnRefund(document.getItems(), actualRefund);
+            totalAmount = ZERO;
+            totalCost = ZERO;
+            totalProfit = ZERO;
+            for (JewelryDocumentItem item : document.getItems())
+            {
+                totalAmount = totalAmount.add(money(item.getAmount()));
+                totalCost = totalCost.add(money(item.getCostAmount()));
+                totalProfit = totalProfit.add(money(item.getProfitAmount()));
+            }
+            refundNeedsReview = actualRefund.compareTo(expectedRefund) != 0;
+        }
         document.setPlatformRate(platformRate); document.setCommissionRate(commissionRate); document.setTaxRate(taxRate);
         document.setTotalQty(totalQty); document.setTotalAmount(totalAmount.setScale(2, RoundingMode.HALF_UP));
         document.setTotalCost(totalCost.setScale(2, RoundingMode.HALF_UP));
         document.setTotalProfit(totalProfit.setScale(2, RoundingMode.HALF_UP));
         if ("SALES_OUT".equals(document.getDocType()) && totalProfit.signum() < 0)
             document.setRiskStatus("LOSS");
-        else if ("CUSTOMER_RETURN".equals(document.getDocType()) && document.getSourceDocumentId() == null)
+        else if ("CUSTOMER_RETURN".equals(document.getDocType())
+            && (document.getSourceDocumentId() == null || refundNeedsReview))
             document.setRiskStatus("REVIEW");
         else
             document.setRiskStatus("NORMAL");
+    }
+
+    private void allocateCustomerReturnRefund(List<JewelryDocumentItem> items, BigDecimal refund)
+    {
+        BigDecimal totalWeight = ZERO;
+        int lastWeightedIndex = -1;
+        for (int i = 0; i < items.size(); i++)
+        {
+            JewelryDocumentItem item = items.get(i);
+            BigDecimal weight = money(item.getUnitPrice()).multiply(BigDecimal.valueOf(nonNegative(item.getQty())));
+            if (weight.signum() > 0)
+            {
+                totalWeight = totalWeight.add(weight);
+                lastWeightedIndex = i;
+            }
+        }
+        BigDecimal remaining = refund.setScale(2, RoundingMode.HALF_UP);
+        for (int i = 0; i < items.size(); i++)
+        {
+            JewelryDocumentItem item = items.get(i);
+            BigDecimal weight = money(item.getUnitPrice()).multiply(BigDecimal.valueOf(nonNegative(item.getQty())));
+            BigDecimal allocated = ZERO.setScale(2);
+            if (totalWeight.signum() == 0)
+            {
+                if (i == 0) allocated = remaining;
+            }
+            else if (weight.signum() > 0)
+            {
+                allocated = i == lastWeightedIndex ? remaining
+                    : refund.multiply(weight).divide(totalWeight, 2, RoundingMode.HALF_UP);
+            }
+            if (allocated.signum() > 0) remaining = remaining.subtract(allocated);
+            BigDecimal amount = allocated.negate().setScale(2, RoundingMode.HALF_UP);
+            BigDecimal profit = amount.subtract(money(item.getCostAmount())).setScale(2, RoundingMode.HALF_UP);
+            item.setAmount(amount);
+            item.setProfitAmount(profit);
+            item.setProfitRate(allocated.signum() == 0 ? ZERO
+                : profit.divide(allocated, 6, RoundingMode.HALF_UP));
+        }
     }
 
     private void reserve(JewelryDocument document)
@@ -1322,9 +1547,16 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         JewelryDocumentItem item = new JewelryDocumentItem();
         item.setDocumentId(reversalId);
         item.setProductId(source.getProductId());
+        item.setItemRole(text(source.getItemRole()).isEmpty() ? "NORMAL" : source.getItemRole());
         item.setSourceItemId(source.getItemId());
+        item.setBundleGroupNo(source.getBundleGroupNo());
+        item.setSaleRole(normalizedSaleRole(source.getSaleRole()));
+        item.setPricingMode(normalizedPricingMode(source.getPricingMode()));
         item.setSkuSnapshot(source.getSkuSnapshot());
         item.setProductNameSnapshot(source.getProductNameSnapshot());
+        item.setProductTypeSnapshot(source.getProductTypeSnapshot());
+        item.setSpecificationSnapshot(source.getSpecificationSnapshot());
+        item.setImageUrls(source.getImageUrls());
         item.setQty(source.getQty());
         item.setGoodQty(source.getGoodQty());
         item.setDefectQty(source.getDefectQty());
@@ -1361,6 +1593,14 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         JewelryDocument document = mapper.selectDocumentById(id);
         if (document == null) throw new ServiceException("单据不存在");
         return document;
+    }
+
+    private JewelryDocument requirePostedCustomerReturn(Long sourceDocumentId)
+    {
+        JewelryDocument source = requireDocument(sourceDocumentId);
+        if (!"CUSTOMER_RETURN".equals(source.getDocType()) || !"POSTED".equals(source.getStatus()))
+            throw new ServiceException("关联的原单必须是已入账且未红冲的客户退货单");
+        return source;
     }
 
     private String createDocNo(String type)

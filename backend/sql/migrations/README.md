@@ -16,6 +16,8 @@ V001__system_menu_i18n.sql
 V002__live_schema_baseline.sql
 V003__live_permissions_i18n.sql
 V004__jewelry_maker_product_permission.sql
+V005__jewelry_product_type_and_specification.sql
+V006__jewelry_sales_bundle.sql
 ../live_ai_config.sql
 ../jewelry_erp_menu.sql
 ../jewelry_manual_assembly.sql
@@ -32,6 +34,8 @@ V001__system_menu_i18n.sql
 V002__live_schema_baseline.sql
 V003__live_permissions_i18n.sql
 V004__jewelry_maker_product_permission.sql
+V005__jewelry_product_type_and_specification.sql
+V006__jewelry_sales_bundle.sql
 ../live_ai_config.sql
 ../jewelry_erp_menu.sql
 ../jewelry_manual_assembly.sql

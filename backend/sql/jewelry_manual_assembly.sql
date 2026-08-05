@@ -1,10 +1,10 @@
--- 珠宝ERP：商品图片、散件/成品分类和手工组装。
+-- 珠宝ERP：商品图片、商品类型和手工组装。
 -- 可重复执行，不会清空采购、销售、库存和单据数据。
 
 set @sql = if(
   (select count(*) from information_schema.columns
    where table_schema=database() and table_name='jewelry_product' and column_name='product_type') = 0,
-  "alter table jewelry_product add column product_type varchar(16) not null default 'FINISHED' comment 'PART散件 FINISHED成品' after product_name",
+  "alter table jewelry_product add column product_type varchar(16) not null default 'FINISHED' comment 'FINISHED成品商品 PART散件商品 ACCESSORY配件商品 WELFARE福利商品' after product_name",
   'select 1'
 );
 prepare stmt from @sql; execute stmt; deallocate prepare stmt;
