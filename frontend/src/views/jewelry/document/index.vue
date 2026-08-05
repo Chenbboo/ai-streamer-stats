@@ -314,11 +314,9 @@ const accessoryPackagingMetrics=row=>{
 }
 const financialPackFeePerUnit=row=>{
   if(isAccessoryPackaging(row))return 0
-  if(normalizedSaleRole(row)!=='MAIN')return Number(row.packFee||0)
-  const metrics=accessoryPackagingMetrics(row),qty=Math.max(1,effectiveQty(row))
-  return Math.max(0,metrics.manualTotal-metrics.accessoryTotal)/qty
+  return Number(row.packFee||0)
 }
-const lineProfit=row=>{const qty=effectiveQty(row),amount=lineAmount(row),fees=(financialPackFeePerUnit(row)+Number(row.shipFee||0)+Number(row.certFee||0))*qty;return amount-Number(row.unitCost||0)*qty-fees-lineDeductions(row)}
+const lineProfit=row=>{if(isAccessoryPackaging(row))return 0;const qty=effectiveQty(row),amount=lineAmount(row),fees=(financialPackFeePerUnit(row)+Number(row.shipFee||0)+Number(row.certFee||0))*qty;return amount-Number(row.unitCost||0)*qty-fees-lineDeductions(row)}
 const estimatedQty=computed(()=>form.items.reduce((sum,row)=>sum+effectiveQty(row),0))
 const expectedReturnRefund=computed(()=>form.items.reduce((sum,row)=>sum+lineAmount(row),0))
 const estimatedAmount=computed(()=>form.docType==='CUSTOMER_RETURN'?Number(form.actualRefundAmount||0):form.items.reduce((sum,row)=>sum+lineAmount(row),0))
@@ -334,7 +332,7 @@ const bundleSummaries=computed(()=>{
     const amount=lineAmount(row)
     const fees=(financialPackFeePerUnit(row)+Number(row.shipFee||0)+Number(row.certFee||0))*qty
     group.amount+=amount
-    group.cost+=Number(row.unitCost||0)*qty+fees+lineDeductions(row)
+    group.cost+=(isAccessoryPackaging(row)?0:Number(row.unitCost||0)*qty)+fees+lineDeductions(row)
     group.profit+=lineProfit(row)
     groups.set(row.bundleGroupNo,group)
   }
