@@ -453,6 +453,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             }
             validateDocument(document);
             calculateDocument(document);
+            if ("SALES_OUT".equals(document.getDocType()))
+                validateAccessoryPackagingCoverage(document);
             mapper.updateDocumentFinancials(document);
             for (JewelryDocumentItem item : document.getItems()) mapper.updateDocumentItemCost(item);
         }
@@ -784,7 +786,15 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             if (!SALES_ADDON_PRODUCT_TYPES.contains(productType))
                 throw new ServiceException("搭售商品不能选择成品商品");
             addonCounts.put(groupNo, addonCounts.getOrDefault(groupNo, 0) + 1);
-            if ("INCLUDED".equals(pricingMode)) item.setUnitPrice(ZERO);
+            if ("ACCESSORY".equals(productType))
+            {
+                pricingMode = "INCLUDED";
+                item.setUnitPrice(ZERO);
+                item.setPackFee(ZERO);
+                item.setShipFee(ZERO);
+                item.setCertFee(ZERO);
+            }
+            else if ("INCLUDED".equals(pricingMode)) item.setUnitPrice(ZERO);
         }
         else
         {
@@ -883,6 +893,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         BigDecimal commissionRate = money(document.getCommissionRate());
         BigDecimal taxRate = money(document.getTaxRate());
         boolean customerReturn = "CUSTOMER_RETURN".equals(document.getDocType());
+        Map<Integer, BigDecimal> accessoryPackagingCosts = "SALES_OUT".equals(document.getDocType())
+            ? accessoryPackagingCosts(document.getItems()) : Collections.<Integer, BigDecimal>emptyMap();
         if (customerReturn)
         {
             platformRate = ZERO;
@@ -895,14 +907,28 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             BigDecimal price = money(item.getUnitPrice());
             BigDecimal cost = money(item.getUnitCost());
             BigDecimal packFee = money(item.getPackFee());
+            BigDecimal financialPackFee = packFee;
             BigDecimal shipFee = money(item.getShipFee());
             BigDecimal certFee = money(item.getCertFee());
+            if ("SALES_OUT".equals(document.getDocType()) && "MAIN".equals(normalizedSaleRole(item.getSaleRole())))
+            {
+                BigDecimal accessoryCost = accessoryPackagingCosts.getOrDefault(item.getBundleGroupNo(), ZERO);
+                BigDecimal manualTotal = packFee.multiply(BigDecimal.valueOf(qty));
+                BigDecimal additionalTotal = manualTotal.subtract(accessoryCost).max(ZERO);
+                financialPackFee = qty <= 0 ? ZERO
+                    : additionalTotal.divide(BigDecimal.valueOf(qty), 6, RoundingMode.HALF_UP);
+            }
+            else if ("SALES_OUT".equals(document.getDocType()) && isAccessoryPackagingItem(item))
+            {
+                financialPackFee = ZERO;
+            }
             if (customerReturn)
             {
                 packFee = ZERO;
+                financialPackFee = ZERO;
             }
             BigDecimal fees = "SALES_OUT".equals(document.getDocType())
-                ? packFee.add(shipFee).add(certFee)
+                ? financialPackFee.add(shipFee).add(certFee)
                 : customerReturn ? shipFee.multiply(BigDecimal.valueOf(2)).add(certFee) : ZERO;
             if ("PURCHASE_IN".equals(document.getDocType()))
             {
@@ -978,6 +1004,46 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             document.setRiskStatus("REVIEW");
         else
             document.setRiskStatus("NORMAL");
+    }
+
+    private Map<Integer, BigDecimal> accessoryPackagingCosts(List<JewelryDocumentItem> items)
+    {
+        Map<Integer, BigDecimal> costs = new HashMap<Integer, BigDecimal>();
+        for (JewelryDocumentItem item : items)
+        {
+            if (!isAccessoryPackagingItem(item) || item.getBundleGroupNo() == null) continue;
+            BigDecimal amount = money(item.getUnitCost())
+                .multiply(BigDecimal.valueOf(nonNegative(item.getQty())));
+            costs.put(item.getBundleGroupNo(), costs.getOrDefault(item.getBundleGroupNo(), ZERO).add(amount));
+        }
+        return costs;
+    }
+
+    private boolean isAccessoryPackagingItem(JewelryDocumentItem item)
+    {
+        return "ADDON".equals(normalizedSaleRole(item.getSaleRole()))
+            && "ACCESSORY".equals(text(item.getProductTypeSnapshot()).trim().toUpperCase());
+    }
+
+    private void validateAccessoryPackagingCoverage(JewelryDocument document)
+    {
+        Map<Integer, BigDecimal> accessoryCosts = accessoryPackagingCosts(document.getItems());
+        if (accessoryCosts.isEmpty()) return;
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            if (!"MAIN".equals(normalizedSaleRole(item.getSaleRole())) || item.getBundleGroupNo() == null) continue;
+            BigDecimal accessoryCost = accessoryCosts.getOrDefault(item.getBundleGroupNo(), ZERO);
+            BigDecimal manualTotal = money(item.getPackFee())
+                .multiply(BigDecimal.valueOf(nonNegative(item.getQty())));
+            if (accessoryCost.compareTo(manualTotal) > 0)
+            {
+                BigDecimal shortage = accessoryCost.subtract(manualTotal);
+                throw new ServiceException("销售组合" + item.getBundleGroupNo() + "配件耗材成本￥"
+                    + accessoryCost.setScale(2, RoundingMode.HALF_UP) + "，高于手填包装费￥"
+                    + manualTotal.setScale(2, RoundingMode.HALF_UP) + "，还差￥"
+                    + shortage.setScale(2, RoundingMode.HALF_UP) + "，请调整包装费后再提交");
+            }
+        }
     }
 
     private void allocateCustomerReturnRefund(List<JewelryDocumentItem> items, BigDecimal refund)
@@ -1254,7 +1320,17 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     : document.getDocType(),
                 userId, userName);
         }
-        refreshDocumentFinancials(document);
+        if ("SALES_OUT".equals(document.getDocType()))
+        {
+            calculateDocument(document);
+            validateAccessoryPackagingCoverage(document);
+            for (JewelryDocumentItem item : document.getItems()) mapper.updateDocumentItemCost(item);
+            mapper.updateDocumentFinancials(document);
+        }
+        else
+        {
+            refreshDocumentFinancials(document);
+        }
     }
 
     private void refreshDocumentFinancials(JewelryDocument document)

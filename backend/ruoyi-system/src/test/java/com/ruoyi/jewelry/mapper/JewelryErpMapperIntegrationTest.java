@@ -297,6 +297,11 @@ class JewelryErpMapperIntegrationTest
             assertEquals(1, mapper.insertDocument(document));
             item.setDocumentId(document.getDocumentId());
             assertEquals(1, mapper.insertDocumentItem(item));
+            item.setProductTypeSnapshot("ACCESSORY");
+            item.setUnitCost(new BigDecimal("85.00"));
+            item.setCostAmount(new BigDecimal("85.00"));
+            item.setProfitAmount(new BigDecimal("-85.00"));
+            assertEquals(1, mapper.updateDocumentItemCost(item));
             session.commit();
         }
 
@@ -309,7 +314,8 @@ class JewelryErpMapperIntegrationTest
             assertEquals(1, storedItem.getBundleGroupNo());
             assertEquals("ADDON", storedItem.getSaleRole());
             assertEquals("INCLUDED", storedItem.getPricingMode());
-            assertEquals("PART", storedItem.getProductTypeSnapshot());
+            assertEquals("ACCESSORY", storedItem.getProductTypeSnapshot());
+            assertEquals(0, storedItem.getUnitCost().compareTo(new BigDecimal("85.00")));
             assertEquals("普通", storedItem.getSpecificationSnapshot());
         }
     }

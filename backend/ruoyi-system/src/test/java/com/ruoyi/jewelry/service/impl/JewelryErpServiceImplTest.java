@@ -353,6 +353,43 @@ class JewelryErpServiceImplTest
     }
 
     @Test
+    void salesPostingCountsAccessoryQuantityAsPackagingWithoutDoubleCounting()
+    {
+        JewelryDocument document = document(81L, "SALES_OUT", "PENDING_SECOND");
+        document.setFirstReviewerUserId(REVIEWER_ONE_ID);
+        JewelryDocumentItem main = itemForProduct(181L, PRODUCT_ID, 2);
+        main.setProductTypeSnapshot("FINISHED");
+        main.setUnitPrice(decimal("1000.00"));
+        main.setAmount(decimal("2000.00"));
+        main.setPackFee(decimal("10.00"));
+        main.setBundleGroupNo(1);
+        main.setSaleRole("MAIN");
+        JewelryDocumentItem accessory = itemForProduct(182L, 200L, 3);
+        accessory.setProductTypeSnapshot("ACCESSORY");
+        accessory.setBundleGroupNo(1);
+        accessory.setSaleRole("ADDON");
+        accessory.setPricingMode("INCLUDED");
+        when(mapper.selectDocumentById(81L)).thenReturn(document);
+        when(mapper.selectDocumentItems(81L)).thenReturn(Arrays.asList(main, accessory));
+        when(mapper.selectStockForUpdate(PRODUCT_ID))
+            .thenReturn(stock(10, 2, 0, 0, 0, 0, "600.00", "0", "0"));
+        when(mapper.selectStockForUpdate(200L))
+            .thenReturn(stock(10, 3, 0, 0, 0, 0, "4.00", "0", "0"));
+
+        service.approve(81L, "", null, REVIEWER_TWO_ID, "reviewer2");
+
+        assertMoney("1208.00", main.getCostAmount());
+        assertMoney("12.00", accessory.getCostAmount());
+        assertMoney("1220.00", document.getTotalCost());
+        assertMoney("780.00", document.getTotalProfit());
+        verify(mapper).applyStock(eq(PRODUCT_ID), eq(8), eq(0), eq(0), eq(0), eq(0), eq(0),
+            decimalEq("600.00"), decimalEq("0"), decimalEq("0"));
+        verify(mapper).applyStock(eq(200L), eq(7), eq(0), eq(0), eq(0), eq(0), eq(0),
+            decimalEq("4.00"), decimalEq("0"), decimalEq("0"));
+        verify(mapper).updateDocumentFinancials(document);
+    }
+
+    @Test
     void customerReturnMustLinkOriginalSale()
     {
         JewelryDocument customerReturn = document(null, "CUSTOMER_RETURN", null);
@@ -949,6 +986,156 @@ class JewelryErpServiceImplTest
         assertMoney("320.00", document.getTotalProfit());
         assertEquals("MAIN", main.getSaleRole());
         assertEquals("ADDON", addon.getSaleRole());
+    }
+
+    @Test
+    void accessoryAddonIsPackagingMaterialWithoutDoubleCountingItsCost()
+    {
+        JewelryDocument document = document(null, "SALES_OUT", "DRAFT");
+        document.setSalesChannel("抖音");
+        JewelryDocumentItem main = itemForProduct(null, PRODUCT_ID, 2);
+        main.setUnitPrice(decimal("1000.00"));
+        main.setPackFee(decimal("10.00"));
+        main.setBundleGroupNo(1);
+        main.setSaleRole("MAIN");
+        JewelryDocumentItem accessory = itemForProduct(null, 200L, 3);
+        accessory.setUnitPrice(decimal("30.00"));
+        accessory.setPackFee(decimal("1.00"));
+        accessory.setShipFee(decimal("2.00"));
+        accessory.setCertFee(decimal("3.00"));
+        accessory.setBundleGroupNo(1);
+        accessory.setSaleRole("ADDON");
+        accessory.setPricingMode("SEPARATE");
+        document.setItems(Arrays.asList(main, accessory));
+
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
+        when(mapper.selectProductById(200L)).thenReturn(product("ACCESSORY"));
+        when(mapper.selectStockForUpdate(PRODUCT_ID))
+            .thenReturn(stock(10, 0, 0, 0, 0, 0, "600.00", "0", "0"));
+        when(mapper.selectStockForUpdate(200L))
+            .thenReturn(stock(10, 0, 0, 0, 0, 0, "4.00", "0", "0"));
+
+        service.assessDocumentRisk(document);
+
+        assertEquals("INCLUDED", accessory.getPricingMode());
+        assertMoney("0", accessory.getUnitPrice());
+        assertMoney("0", accessory.getPackFee());
+        assertMoney("0", accessory.getShipFee());
+        assertMoney("0", accessory.getCertFee());
+        assertMoney("1208.00", main.getCostAmount());
+        assertMoney("12.00", accessory.getCostAmount());
+        assertMoney("1220.00", document.getTotalCost());
+        assertMoney("780.00", document.getTotalProfit());
+    }
+
+    @Test
+    void salesSubmissionRejectsAccessoryCostAboveManualPackagingFee()
+    {
+        JewelryDocument document = document(251L, "SALES_OUT", "DRAFT");
+        document.setSalesChannel("抖音");
+        JewelryDocumentItem main = itemForProduct(603L, PRODUCT_ID, 2);
+        main.setUnitPrice(decimal("1000.00"));
+        main.setPackFee(decimal("5.00"));
+        main.setBundleGroupNo(1);
+        main.setSaleRole("MAIN");
+        JewelryDocumentItem accessory = itemForProduct(604L, 200L, 3);
+        accessory.setBundleGroupNo(1);
+        accessory.setSaleRole("ADDON");
+        accessory.setPricingMode("INCLUDED");
+
+        when(mapper.selectDocumentById(251L)).thenReturn(document);
+        when(mapper.selectDocumentItems(251L)).thenReturn(Arrays.asList(main, accessory));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
+        when(mapper.selectProductById(200L)).thenReturn(product("ACCESSORY"));
+        when(mapper.selectStockForUpdate(PRODUCT_ID))
+            .thenReturn(stock(10, 0, 0, 0, 0, 0, "600.00", "0", "0"));
+        when(mapper.selectStockForUpdate(200L))
+            .thenReturn(stock(10, 0, 0, 0, 0, 0, "4.00", "0", "0"));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.submit(251L, MAKER_ID, "maker"));
+
+        assertTrue(error.getMessage().contains("配件耗材成本￥12.00"));
+        assertTrue(error.getMessage().contains("手填包装费￥10.00"));
+        assertTrue(error.getMessage().contains("还差￥2.00"));
+        verify(mapper, never()).reserveOutbound(anyLong(), anyInt());
+    }
+
+    @Test
+    void salesDraftCanBeSavedWhenAccessoryPackagingFeeIsInsufficient()
+    {
+        JewelryDocument document = document(null, "SALES_OUT", "DRAFT");
+        document.setBizDate(new java.util.Date());
+        document.setSalesChannel("抖音");
+        JewelryDocumentItem main = itemForProduct(null, PRODUCT_ID, 2);
+        main.setUnitPrice(decimal("1000.00"));
+        main.setPackFee(decimal("5.00"));
+        main.setBundleGroupNo(1);
+        main.setSaleRole("MAIN");
+        JewelryDocumentItem accessory = itemForProduct(null, 200L, 3);
+        accessory.setBundleGroupNo(1);
+        accessory.setSaleRole("ADDON");
+        accessory.setPricingMode("INCLUDED");
+        document.setItems(Arrays.asList(main, accessory));
+
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
+        when(mapper.selectProductById(200L)).thenReturn(product("ACCESSORY"));
+        when(mapper.selectStockForUpdate(PRODUCT_ID))
+            .thenReturn(stock(10, 0, 0, 0, 0, 0, "600.00", "0", "0"));
+        when(mapper.selectStockForUpdate(200L))
+            .thenReturn(stock(10, 0, 0, 0, 0, 0, "4.00", "0", "0"));
+        when(mapper.insertDocument(document)).thenAnswer(invocation -> {
+            document.setDocumentId(253L);
+            return 1;
+        });
+        when(mapper.selectDocumentById(253L)).thenReturn(document);
+        when(mapper.selectDocumentItems(253L)).thenReturn(Arrays.asList(main, accessory));
+
+        JewelryDocument saved = service.saveDocument(document, MAKER_ID, "maker");
+
+        assertEquals(253L, saved.getDocumentId());
+        assertEquals("DRAFT", saved.getStatus());
+        assertMoney("1212.00", saved.getTotalCost());
+        verify(mapper).insertDocumentItem(main);
+        verify(mapper).insertDocumentItem(accessory);
+    }
+
+    @Test
+    void salesSubmissionAcceptsAccessoryCostCoveredByManualPackagingFee()
+    {
+        JewelryDocument document = document(252L, "SALES_OUT", "DRAFT");
+        document.setSalesChannel("抖音");
+        JewelryDocumentItem main = itemForProduct(605L, PRODUCT_ID, 2);
+        main.setUnitPrice(decimal("1000.00"));
+        main.setPackFee(decimal("6.00"));
+        main.setBundleGroupNo(1);
+        main.setSaleRole("MAIN");
+        JewelryDocumentItem accessory = itemForProduct(606L, 200L, 3);
+        accessory.setUnitPrice(decimal("20.00"));
+        accessory.setBundleGroupNo(1);
+        accessory.setSaleRole("ADDON");
+        accessory.setPricingMode("SEPARATE");
+
+        when(mapper.selectDocumentById(252L)).thenReturn(document);
+        when(mapper.selectDocumentItems(252L)).thenReturn(Arrays.asList(main, accessory));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
+        when(mapper.selectProductById(200L)).thenReturn(product("ACCESSORY"));
+        when(mapper.selectStockForUpdate(PRODUCT_ID))
+            .thenReturn(stock(10, 0, 0, 0, 0, 0, "600.00", "0", "0"));
+        when(mapper.selectStockForUpdate(200L))
+            .thenReturn(stock(10, 0, 0, 0, 0, 0, "4.00", "0", "0"));
+        when(mapper.reserveOutbound(PRODUCT_ID, 2)).thenReturn(1);
+        when(mapper.reserveOutbound(200L, 3)).thenReturn(1);
+
+        service.submit(252L, MAKER_ID, "maker");
+
+        assertEquals("INCLUDED", accessory.getPricingMode());
+        assertMoney("0", accessory.getUnitPrice());
+        assertMoney("1212.00", document.getTotalCost());
+        verify(mapper).reserveOutbound(PRODUCT_ID, 2);
+        verify(mapper).reserveOutbound(200L, 3);
+        verify(mapper).updateDocumentStatus(252L, "DRAFT", "PENDING_FIRST",
+            MAKER_ID, "maker", null, null);
     }
 
     @Test

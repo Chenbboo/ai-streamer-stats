@@ -471,8 +471,11 @@
           #{certFee},#{amount},#{costAmount},#{profitAmount},#{profitRate},#{lineReason})
     </insert>
     <update id="updateDocumentItemCost">
-        update jewelry_document_item set unit_cost=#{unitCost},cost_amount=#{costAmount},
-          profit_amount=#{profitAmount},profit_rate=#{profitRate} where item_id=#{itemId}
+        update jewelry_document_item set sale_role=#{saleRole},pricing_mode=#{pricingMode},
+          product_type_snapshot=#{productTypeSnapshot},specification_snapshot=#{specificationSnapshot},
+          unit_price=#{unitPrice},unit_cost=#{unitCost},pack_fee=#{packFee},ship_fee=#{shipFee},cert_fee=#{certFee},
+          amount=#{amount},cost_amount=#{costAmount},profit_amount=#{profitAmount},profit_rate=#{profitRate}
+        where item_id=#{itemId}
     </update>
     <update id="updateDocumentStatus">
         update jewelry_document
