@@ -38,3 +38,13 @@ export function confirmReview(uploadId) {
     method: 'post'
   })
 }
+
+export function confirmReviews(uploadIds) {
+  return request({
+    url: '/live/review/confirm/batch',
+    method: 'post',
+    data: uploadIds,
+    // 大任务组会在一个事务中完成，避免沿用全局 10 秒超时导致前端误报失败。
+    timeout: 300000
+  })
+}

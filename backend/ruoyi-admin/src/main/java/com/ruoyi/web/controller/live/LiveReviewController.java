@@ -76,4 +76,15 @@ public class LiveReviewController extends BaseController
     {
         return toAjax(uploadService.confirmRecognize(uploadId));
     }
+
+    /**
+     * 批量确认入库，避免任务组内逐张请求造成大量网络和数据库往返。
+     */
+    @PreAuthorize("@ss.hasPermi('live:review:confirm')")
+    @Log(title = "识别结果批量确认入库", businessType = BusinessType.UPDATE)
+    @PostMapping("/confirm/batch")
+    public AjaxResult confirmBatch(@RequestBody Long[] uploadIds)
+    {
+        return toAjax(uploadService.confirmRecognizeBatch(uploadIds));
+    }
 }

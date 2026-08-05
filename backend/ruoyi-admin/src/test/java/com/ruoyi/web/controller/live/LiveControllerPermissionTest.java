@@ -58,6 +58,7 @@ class LiveControllerPermissionTest
         expected.put(key(LiveUploadController.class, "remove"), "@ss.hasPermi('live:upload:remove')");
         expected.put(key(LiveReviewController.class, "saveResult"), "@ss.hasPermi('live:review:edit')");
         expected.put(key(LiveReviewController.class, "confirm"), "@ss.hasPermi('live:review:confirm')");
+        expected.put(key(LiveReviewController.class, "confirmBatch"), "@ss.hasPermi('live:review:confirm')");
         expected.put(key(LiveCustomerController.class, "merge"), "@ss.hasPermi('live:review:edit')");
         expected.put(key(LiveKpiConfigController.class, "add"), "@ss.hasPermi('live:stats:add')");
         expected.put(key(LiveStreamerController.class, "add"), "@ss.hasPermi('live:streamer:add')");

@@ -120,6 +120,7 @@ export default {
     correct: 'Chỉnh sửa',
     corrected: 'Đã chỉnh sửa',
     confirm入库: 'Xác nhận lưu',
+    confirmingBatch: 'Đang lưu hàng loạt…',
     mergeCustomer: 'Gộp khách hàng',
     recognizeAllPending: 'Nhận dạng tất cả ảnh đang chờ',
     recognizeAllRunning: 'Đang nhận dạng hàng loạt',

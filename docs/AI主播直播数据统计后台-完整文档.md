@@ -139,6 +139,7 @@ characterEncoding: UTF-8
 | POST | /live/review/mock/{id} | live:review:edit | 模拟识别（测试用） |
 | PUT | /live/review/result/{id} | live:review:edit | 保存校正结果 |
 | POST | /live/review/confirm/{id} | live:review:confirm | 确认入库 |
+| POST | /live/review/confirm/batch | live:review:confirm | 批量确认入库（最多 1000 条） |
 
 ### 统计模块（/live/stats）
 

@@ -85,7 +85,11 @@
           <el-button v-hasPermi="['live:review:edit']" type="primary" icon="MagicStick" :loading="groupDialog.batchRecognizing" :disabled="groupPendingCount + groupFailedCount === 0 || allBatch.running" @click="batchRecognize">
             批量识别 {{ groupPendingCount + groupFailedCount }} 张
           </el-button>
-          <el-button v-hasPermi="['live:review:confirm']" type="success" icon="Check" :disabled="selectedGroupItems.length === 0" @click="confirmSelected">确认选中 {{ selectedGroupItems.length }} 张</el-button>
+          <el-button v-hasPermi="['live:review:confirm']" type="success" icon="Check"
+            :loading="groupDialog.confirming" :disabled="selectedGroupItems.length === 0 || groupDialog.confirming"
+            @click="confirmSelected">
+            {{ groupDialog.confirming ? $t('review.confirmingBatch') : `确认选中 ${selectedGroupItems.length} 张` }}
+          </el-button>
         </div>
       </div>
       <el-progress v-if="groupDialog.batchRecognizing" :percentage="groupDialog.progress" :status="groupDialog.failed ? 'exception' : undefined" style="margin-bottom: 14px" />
@@ -253,7 +257,7 @@
 <script setup name="LiveReview">
 import { Loading } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
-import { listReview, recognizeUpload, saveReviewResult, confirmReview } from '@/api/live/review'
+import { listReview, recognizeUpload, saveReviewResult, confirmReview, confirmReviews } from '@/api/live/review'
 import { listStreamers } from '@/api/live/upload'
 import { listCustomers, mergeCustomers as mergeCustomersApi } from '@/api/live/customer'
 
@@ -282,6 +286,7 @@ const groupDialog = reactive({
   title: '',
   filter: 'all',
   batchRecognizing: false,
+  confirming: false,
   progress: 0,
   failed: false
 })
@@ -572,11 +577,15 @@ async function confirmSelected() {
   if (!targets.length) return
   try {
     await proxy.$modal.confirm(`确认将选中的 ${targets.length} 张图片写入统计表吗？`)
-    await runWithConcurrency(targets, 3, row => confirmReview(row.uploadId))
+    groupDialog.confirming = true
+    await confirmReviews(targets.map(row => row.uploadId))
+    targets.forEach(row => { row.aiStatus = '2' })
     proxy.$modal.msgSuccess('选中图片已确认入库')
     selectedGroupItems.value = []
-    await loadList()
-  } catch (e) {}
+  } catch (e) {
+  } finally {
+    groupDialog.confirming = false
+  }
 }
 
 function openEditor(row) {

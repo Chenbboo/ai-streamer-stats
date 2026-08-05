@@ -120,6 +120,7 @@ export default {
     correct: '校正',
     corrected: '已校正',
     confirm入库: '确认入库',
+    confirmingBatch: '正在批量入库…',
     mergeCustomer: '合并客户',
     recognizeAllPending: '一键识别全部待识别',
     recognizeAllRunning: '正在批量识别',
