@@ -118,6 +118,24 @@ from sys_role
 where del_flag='0' and role_key in
   ('streamer','operator','live_admin','jewelry_maker','jewelry_reviewer','jewelry_admin');
 
+select
+  count(case when r.role_key='jewelry_maker' and m.perms='jewelry:product:add' then 1 end)=0
+    as missing_jewelry_maker_product_add_permission,
+  count(case when r.role_key='jewelry_maker' and m.perms='jewelry:product:edit' then 1 end)>0
+    as jewelry_maker_product_edit_mismatch,
+  count(case when r.role_key='jewelry_reviewer'
+    and m.perms in ('jewelry:product:add','jewelry:product:edit') then 1 end)>0
+    as jewelry_reviewer_product_write_mismatch,
+  count(case when r.role_key='jewelry_admin' and m.perms='jewelry:product:add' then 1 end)=0
+    as missing_jewelry_admin_product_add_permission,
+  count(case when r.role_key='jewelry_admin' and m.perms='jewelry:product:edit' then 1 end)=0
+    as missing_jewelry_admin_product_edit_permission
+from sys_role r
+left join sys_role_menu rm on rm.role_id=r.role_id
+left join sys_menu m on m.menu_id=rm.menu_id
+where r.del_flag='0'
+  and r.role_key in ('jewelry_maker','jewelry_reviewer','jewelry_admin');
+
 select count(*) as missing_live_menu_translation
 from sys_menu
 where menu_id between 2000 and 2048

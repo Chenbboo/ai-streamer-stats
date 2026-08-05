@@ -143,14 +143,14 @@ public class JewelryErpController extends BaseController
     @PostMapping("/product")
     public AjaxResult saveProduct(@RequestBody Map<String, Object> body)
     {
-        if (isMakerOnly()) return error("制单员只能在组装单内新建目标成品");
         boolean editing = body.get("productId") != null;
         if (editing && !hasPermission("jewelry:product:edit")) return error("无权修改已有商品档案");
         if (!editing && !hasPermission("jewelry:product:add")) return error("无权新增商品档案");
         if (string(body.get("sku")).isEmpty() || string(body.get("productName")).isEmpty())
             return error("SKU和商品名称不能为空");
         String productType = defaultString(body.get("productType"), "FINISHED");
-        if (!Arrays.asList("PART", "FINISHED").contains(productType)) return error("商品类型不正确");
+        if (!Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE").contains(productType))
+            return error("商品类型不正确");
         body.put("productType", productType);
         body.put("imageUrl", string(body.get("imageUrl")));
         body.put("imageUrls", string(body.get("imageUrls")));

@@ -3,14 +3,29 @@ package com.ruoyi.web.controller.jewelry;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Method;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -18,8 +33,20 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 
+import com.ruoyi.common.core.domain.entity.SysRole;
+import com.ruoyi.common.core.domain.entity.SysUser;
+import com.ruoyi.common.core.domain.model.LoginUser;
+import com.ruoyi.jewelry.service.JewelryDocumentExcelService;
+import com.ruoyi.jewelry.service.IJewelryErpService;
+
 class JewelryErpControllerPermissionTest
 {
+    @AfterEach
+    void clearSecurityContext()
+    {
+        SecurityContextHolder.clearContext();
+    }
+
     @Test
     void everyErpEndpointDeclaresAuthorization()
     {
@@ -78,6 +105,59 @@ class JewelryErpControllerPermissionTest
             authorization("saveSupplier"));
         assertEquals("@ss.hasAnyPermi('jewelry:document:add,jewelry:document:edit')",
             authorization("saveDocument"));
+    }
+
+    @Test
+    void makerWithProductAddPermissionCanCreateEverySupportedProductType()
+    {
+        IJewelryErpService service = mock(IJewelryErpService.class);
+        when(service.saveProduct(any())).thenReturn(1);
+        JewelryErpController controller = new JewelryErpController();
+        ReflectionTestUtils.setField(controller, "service", service);
+        loginAsMakerWithProductAdd();
+
+        for (String productType : Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE"))
+        {
+            Map<String, Object> product = new HashMap<String, Object>();
+            product.put("sku", productType + "-001");
+            product.put("productName", productType);
+            product.put("productType", productType);
+            assertTrue(controller.saveProduct(product).isSuccess());
+        }
+        verify(service, times(4)).saveProduct(any());
+    }
+
+    @Test
+    void makerProductAddPermissionEnablesExcelNewSkuPreview() throws Exception
+    {
+        JewelryDocumentExcelService excelService = mock(JewelryDocumentExcelService.class);
+        MultipartFile file = mock(MultipartFile.class);
+        when(file.isEmpty()).thenReturn(false);
+        when(file.getSize()).thenReturn(1L);
+        when(file.getOriginalFilename()).thenReturn("purchase.xlsx");
+        when(file.getInputStream()).thenReturn(new ByteArrayInputStream(new byte[] { 1 }));
+        when(excelService.preview(eq("PURCHASE_IN"), any(InputStream.class), eq(true)))
+            .thenReturn(Collections.<String, Object>emptyMap());
+        JewelryErpController controller = new JewelryErpController();
+        ReflectionTestUtils.setField(controller, "documentExcelService", excelService);
+        loginAsMakerWithProductAdd();
+
+        assertTrue(controller.documentImportPreview("PURCHASE_IN", file).isSuccess());
+        verify(excelService).preview(eq("PURCHASE_IN"), any(InputStream.class), eq(true));
+    }
+
+    private void loginAsMakerWithProductAdd()
+    {
+        SysRole makerRole = new SysRole(30L);
+        makerRole.setRoleKey("jewelry_maker");
+        SysUser maker = new SysUser();
+        maker.setUserId(20L);
+        maker.setUserName("maker");
+        maker.setRoles(Collections.singletonList(makerRole));
+        LoginUser loginUser = new LoginUser(maker,
+            new HashSet<String>(Collections.singletonList("jewelry:product:add")));
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(loginUser, null));
     }
 
     private boolean isEndpoint(Method method)
