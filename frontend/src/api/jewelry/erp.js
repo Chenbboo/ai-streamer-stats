@@ -21,6 +21,7 @@ export const getReturnInspectionSource = (id, excludeDocumentId) => request({
   params: excludeDocumentId ? { excludeDocumentId } : undefined
 })
 export const saveJewelryDocument = (data) => request({ url: '/jewelry/document', method: 'post', data })
+export const deleteJewelryDraft = (id) => request({ url: `/jewelry/document/${id}`, method: 'delete' })
 export const assessJewelryDocumentRisk = (data) => request({ url: '/jewelry/document/risk-check', method: 'post', data })
 export const downloadJewelryDocumentImportTemplate = (docType) => request({
   url: '/jewelry/document/import-template', method: 'get',

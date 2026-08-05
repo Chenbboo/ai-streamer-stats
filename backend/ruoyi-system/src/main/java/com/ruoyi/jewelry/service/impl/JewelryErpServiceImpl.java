@@ -274,6 +274,32 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         return getDocument(document.getDocumentId());
     }
 
+    @Override
+    @Transactional
+    public void deleteDraft(Long documentId, Long userId)
+    {
+        JewelryDocument document = mapper.selectDocumentByIdForUpdate(documentId);
+        if (document == null)
+        {
+            throw new ServiceException("单据不存在或已被删除");
+        }
+        if (!"DRAFT".equals(document.getStatus()))
+        {
+            throw new ServiceException("只有草稿单据可以删除");
+        }
+        if (!userId.equals(document.getCreatorUserId()))
+        {
+            throw new ServiceException("只能删除自己创建的草稿");
+        }
+        mapper.deleteDocumentApprovals(documentId);
+        mapper.deleteDocumentEvents(documentId);
+        mapper.deleteDocumentItems(documentId);
+        if (mapper.deleteDraftDocument(documentId, userId) != 1)
+        {
+            throw new ServiceException("草稿状态已变化，请刷新后重试");
+        }
+    }
+
     private void prepareInlineAssemblyOutput(JewelryDocument document, String userName)
     {
         Map<String, Object> product = document.getNewOutputProduct();

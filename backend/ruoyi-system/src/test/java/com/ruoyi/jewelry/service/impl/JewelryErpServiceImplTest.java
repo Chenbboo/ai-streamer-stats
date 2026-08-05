@@ -191,6 +191,49 @@ class JewelryErpServiceImplTest
     }
 
     @Test
+    void creatorCanDeleteOwnDraftAndItsRelatedRecords()
+    {
+        JewelryDocument document = document(64L, "SALES_OUT", "DRAFT");
+        when(mapper.selectDocumentByIdForUpdate(64L)).thenReturn(document);
+        when(mapper.deleteDraftDocument(64L, MAKER_ID)).thenReturn(1);
+
+        service.deleteDraft(64L, MAKER_ID);
+
+        verify(mapper).deleteDocumentApprovals(64L);
+        verify(mapper).deleteDocumentEvents(64L);
+        verify(mapper).deleteDocumentItems(64L);
+        verify(mapper).deleteDraftDocument(64L, MAKER_ID);
+    }
+
+    @Test
+    void makerCannotDeleteAnotherCreatorsDraft()
+    {
+        JewelryDocument document = document(65L, "SALES_OUT", "DRAFT");
+        when(mapper.selectDocumentByIdForUpdate(65L)).thenReturn(document);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.deleteDraft(65L, 99L));
+
+        assertTrue(error.getMessage().contains("只能删除自己创建的草稿"));
+        verify(mapper, never()).deleteDocumentItems(anyLong());
+        verify(mapper, never()).deleteDraftDocument(anyLong(), anyLong());
+    }
+
+    @Test
+    void submittedDocumentCannotBeDeleted()
+    {
+        JewelryDocument document = document(66L, "SALES_OUT", "PENDING_FIRST");
+        when(mapper.selectDocumentByIdForUpdate(66L)).thenReturn(document);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.deleteDraft(66L, MAKER_ID));
+
+        assertTrue(error.getMessage().contains("只有草稿单据可以删除"));
+        verify(mapper, never()).deleteDocumentItems(anyLong());
+        verify(mapper, never()).deleteDraftDocument(anyLong(), anyLong());
+    }
+
+    @Test
     void salesRiskAssessmentRejectsNegativeFees()
     {
         JewelryDocument sales = document(null, "SALES_OUT", "DRAFT");

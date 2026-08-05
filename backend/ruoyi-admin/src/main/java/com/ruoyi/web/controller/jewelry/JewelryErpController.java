@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -326,6 +327,14 @@ public class JewelryErpController extends BaseController
         JewelryDocument saved = service.saveDocument(document, SecurityUtils.getUserId(), SecurityUtils.getUsername());
         if (isMakerOnly()) redactDocumentFinance(saved);
         return success(saved);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:edit')")
+    @DeleteMapping("/document/{id}")
+    public AjaxResult deleteDraft(@PathVariable Long id)
+    {
+        service.deleteDraft(id, SecurityUtils.getUserId());
+        return success();
     }
 
     @PreAuthorize("@ss.hasPermi('jewelry:document:submit')")

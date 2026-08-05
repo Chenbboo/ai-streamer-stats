@@ -23,6 +23,7 @@ public interface IJewelryErpService
     Map<String, Object> assessDocumentRisk(JewelryDocument document);
     Map<String, Object> calculateProfit(Map<String, Object> input);
     JewelryDocument saveDocument(JewelryDocument document, Long userId, String userName);
+    void deleteDraft(Long documentId, Long userId);
     JewelryDocument createReversal(Long sourceDocumentId, Long userId, String userName);
     void submit(Long documentId, Long userId, String userName);
     void withdraw(Long documentId, Long userId, String userName);

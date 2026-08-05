@@ -79,6 +79,7 @@ class JewelryErpControllerPermissionTest
         expected.put("documentList", "@ss.hasPermi('jewelry:document:list')");
         expected.put("document", "@ss.hasPermi('jewelry:document:list')");
         expected.put("assessDocumentRisk", "@ss.hasAnyPermi('jewelry:document:add,jewelry:document:edit')");
+        expected.put("deleteDraft", "@ss.hasPermi('jewelry:document:edit')");
         expected.put("submit", "@ss.hasPermi('jewelry:document:submit')");
         expected.put("withdraw", "@ss.hasPermi('jewelry:document:withdraw')");
         expected.put("reverse", "@ss.hasPermi('jewelry:document:reverse')");

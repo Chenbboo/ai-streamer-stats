@@ -128,6 +128,31 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void draftDeletionRemovesRelatedRecordsAndChecksCreator()
+    {
+        insertDocument(1L, "DOC-DRAFT", "SALES_OUT", "DRAFT", null);
+        insertItem(101L, 1L, null, 10L, 1);
+        execute("insert into jewelry_approval(document_id) values(1)");
+        execute("insert into jewelry_document_event(document_id) values(1)");
+
+        try (SqlSession session = sqlSessionFactory.openSession(false))
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            assertEquals(0, mapper.deleteDraftDocument(1L, 99L));
+            assertEquals(1, mapper.deleteDocumentApprovals(1L));
+            assertEquals(1, mapper.deleteDocumentEvents(1L));
+            assertEquals(1, mapper.deleteDocumentItems(1L));
+            assertEquals(1, mapper.deleteDraftDocument(1L, 10L));
+            session.commit();
+        }
+
+        assertEquals(0, intValue("select count(*) from jewelry_document where document_id=1"));
+        assertEquals(0, intValue("select count(*) from jewelry_document_item where document_id=1"));
+        assertEquals(0, intValue("select count(*) from jewelry_approval where document_id=1"));
+        assertEquals(0, intValue("select count(*) from jewelry_document_event where document_id=1"));
+    }
+
+    @Test
     void pendingDocumentFilterIncludesLegacySecondReview()
     {
         insertDocument(1L, "DOC-PENDING", "PURCHASE_IN", "PENDING_FIRST", null);
@@ -403,6 +428,8 @@ class JewelryErpMapperIntegrationTest
             + "cert_fee decimal(18,6) not null default 0,amount decimal(20,2) not null default 0,"
             + "cost_amount decimal(20,2) not null default 0,profit_amount decimal(20,2) not null default 0,"
             + "profit_rate decimal(9,6) not null default 0,line_reason varchar(255) default '')");
+        execute("create table jewelry_approval (approval_id bigint auto_increment primary key,document_id bigint not null)");
+        execute("create table jewelry_document_event (event_id bigint auto_increment primary key,document_id bigint not null)");
     }
 
     private void insertStock(Long productId, int onHand, int reserved, int inspection,

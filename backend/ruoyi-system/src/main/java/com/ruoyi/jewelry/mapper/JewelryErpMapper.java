@@ -52,7 +52,10 @@ public interface JewelryErpMapper
     int insertDocument(JewelryDocument document);
     int updateDocument(JewelryDocument document);
     int updateDocumentFinancials(JewelryDocument document);
+    int deleteDocumentApprovals(Long documentId);
+    int deleteDocumentEvents(Long documentId);
     int deleteDocumentItems(Long documentId);
+    int deleteDraftDocument(@Param("documentId") Long documentId, @Param("creatorUserId") Long creatorUserId);
     int insertDocumentItem(JewelryDocumentItem item);
     int updateDocumentItemCost(JewelryDocumentItem item);
     int updateDocumentStatus(@Param("documentId") Long documentId, @Param("fromStatus") String fromStatus,

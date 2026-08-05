@@ -459,7 +459,13 @@
           update_time=sysdate()
         where document_id=#{documentId}
     </update>
+    <delete id="deleteDocumentApprovals">delete from jewelry_approval where document_id=#{documentId}</delete>
+    <delete id="deleteDocumentEvents">delete from jewelry_document_event where document_id=#{documentId}</delete>
     <delete id="deleteDocumentItems">delete from jewelry_document_item where document_id=#{documentId}</delete>
+    <delete id="deleteDraftDocument">
+        delete from jewelry_document
+        where document_id=#{documentId} and status='DRAFT' and creator_user_id=#{creatorUserId}
+    </delete>
     <insert id="insertDocumentItem" useGeneratedKeys="true" keyProperty="itemId">
         insert into jewelry_document_item(document_id,product_id,item_role,source_item_id,bundle_group_no,sale_role,pricing_mode,
           sku_snapshot,product_name_snapshot,product_type_snapshot,specification_snapshot,image_urls,
