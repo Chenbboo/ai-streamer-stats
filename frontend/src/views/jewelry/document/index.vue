@@ -71,7 +71,7 @@
                 <el-button v-if="form.docType==='PURCHASE_IN' && !readonly" type="primary" plain icon="Plus"
                   v-hasPermi="['jewelry:product:add']" @click="openQuickProduct(row)">新增商品</el-button>
                 <el-button v-if="form.docType==='SALES_OUT' && !readonly && canAddAddon(row)" type="warning" plain icon="Plus"
-                  @click="addAddon(row)">搭售散件</el-button>
+                  @click="addAddon(row)">搭售商品</el-button>
               </div>
             </template>
           </el-table-column>
@@ -335,14 +335,14 @@ async function view(row){Object.assign(form,(await getJewelryDocument(row.docume
 const normalizedSaleRole=row=>row?.saleRole||'NORMAL'
 const normalizedPricingMode=row=>row?.pricingMode||'SEPARATE'
 const productOf=row=>products.value.find(product=>product.productId===row.productId)
-const availableProducts=row=>normalizedSaleRole(row)==='ADDON'?products.value.filter(product=>product.productType==='PART'):products.value
+const availableProducts=row=>normalizedSaleRole(row)==='ADDON'?products.value.filter(product=>product.productType!=='FINISHED'):products.value
 const saleGroupKey=row=>normalizedSaleRole(row)==='NORMAL'?'NORMAL':String(row.bundleGroupNo||'')
 const canAddAddon=row=>normalizedSaleRole(row)!=='ADDON'&&productOf(row)?.productType==='FINISHED'
 const nextBundleGroupNo=()=>Math.max(0,...form.items.map(item=>Number(item.bundleGroupNo||0)))+1
 function productChanged(row){
   const product=productOf(row)
   if(!product)return
-  if(normalizedSaleRole(row)==='ADDON'&&product.productType!=='PART'){proxy.$modal.msgWarning('搭售商品只能选择散件商品');row.productId=null;return}
+  if(normalizedSaleRole(row)==='ADDON'&&product.productType==='FINISHED'){proxy.$modal.msgWarning('搭售商品不能选择成品商品');row.productId=null;return}
   if(normalizedSaleRole(row)==='MAIN'&&product.productType!=='FINISHED'){proxy.$modal.msgWarning('销售组合主商品必须选择成品商品');row.productId=null;return}
   const duplicate=form.items.some(item=>item!==row&&item.productId===row.productId&&(form.docType!=='SALES_OUT'||saleGroupKey(item)===saleGroupKey(row)))
   if(duplicate){proxy.$modal.msgWarning(form.docType==='SALES_OUT'?'同一销售组合中不能重复选择同一商品':'同一商品不能重复，请直接修改已有行的数量');row.productId=null;return}
@@ -377,7 +377,7 @@ async function removeItem(index){
   const row=form.items[index]
   if(form.docType==='SALES_OUT'&&normalizedSaleRole(row)==='MAIN'){
     const groupItems=form.items.filter(item=>item.bundleGroupNo===row.bundleGroupNo)
-    if(groupItems.length>1)await proxy.$modal.confirm(`删除主商品会同时删除组合${row.bundleGroupNo}的搭售散件，确认继续吗？`)
+    if(groupItems.length>1)await proxy.$modal.confirm(`删除主商品会同时删除组合${row.bundleGroupNo}的搭售商品，确认继续吗？`)
     form.items=form.items.filter(item=>item.bundleGroupNo!==row.bundleGroupNo)
     return
   }

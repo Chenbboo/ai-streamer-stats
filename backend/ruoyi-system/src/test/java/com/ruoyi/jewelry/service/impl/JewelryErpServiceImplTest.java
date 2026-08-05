@@ -952,7 +952,44 @@ class JewelryErpServiceImplTest
     }
 
     @Test
-    void salesBundleRejectsANonPartAddon()
+    void salesBundleAcceptsAccessoryAndWelfareAddons()
+    {
+        JewelryDocument document = document(null, "SALES_OUT", "DRAFT");
+        document.setSalesChannel("抖音");
+        JewelryDocumentItem main = itemForProduct(null, PRODUCT_ID, 1);
+        main.setUnitPrice(decimal("1000.00"));
+        main.setBundleGroupNo(1);
+        main.setSaleRole("MAIN");
+        JewelryDocumentItem accessory = itemForProduct(null, 200L, 1);
+        accessory.setBundleGroupNo(1);
+        accessory.setSaleRole("ADDON");
+        accessory.setPricingMode("INCLUDED");
+        JewelryDocumentItem welfare = itemForProduct(null, 201L, 1);
+        welfare.setBundleGroupNo(1);
+        welfare.setSaleRole("ADDON");
+        welfare.setPricingMode("INCLUDED");
+        document.setItems(Arrays.asList(main, accessory, welfare));
+
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
+        when(mapper.selectProductById(200L)).thenReturn(product("ACCESSORY"));
+        when(mapper.selectProductById(201L)).thenReturn(product("WELFARE"));
+        when(mapper.selectStockForUpdate(PRODUCT_ID))
+            .thenReturn(stock(10, 0, 0, 0, 0, 0, "600.00", "0", "0"));
+        when(mapper.selectStockForUpdate(200L))
+            .thenReturn(stock(10, 0, 0, 0, 0, 0, "30.00", "0", "0"));
+        when(mapper.selectStockForUpdate(201L))
+            .thenReturn(stock(10, 0, 0, 0, 0, 0, "10.00", "0", "0"));
+
+        service.assessDocumentRisk(document);
+
+        assertEquals("ADDON", accessory.getSaleRole());
+        assertEquals("ADDON", welfare.getSaleRole());
+        assertMoney("0", accessory.getUnitPrice());
+        assertMoney("0", welfare.getUnitPrice());
+    }
+
+    @Test
+    void salesBundleRejectsAFinishedAddon()
     {
         JewelryDocument document = document(null, "SALES_OUT", "DRAFT");
         document.setSalesChannel("抖音");
@@ -966,12 +1003,12 @@ class JewelryErpServiceImplTest
         document.setItems(Arrays.asList(main, addon));
 
         when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
-        when(mapper.selectProductById(200L)).thenReturn(product("ACCESSORY"));
+        when(mapper.selectProductById(200L)).thenReturn(product("FINISHED"));
 
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.assessDocumentRisk(document));
 
-        assertTrue(error.getMessage().contains("搭售商品只能选择散件商品"));
+        assertTrue(error.getMessage().contains("搭售商品不能选择成品商品"));
     }
 
     @Test

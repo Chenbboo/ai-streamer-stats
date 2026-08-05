@@ -37,6 +37,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         new HashSet<String>(Arrays.asList("NORMAL", "MAIN", "ADDON")));
     private static final Set<String> SALES_PRICING_MODES = Collections.unmodifiableSet(
         new HashSet<String>(Arrays.asList("SEPARATE", "INCLUDED")));
+    private static final Set<String> SALES_ADDON_PRODUCT_TYPES = Collections.unmodifiableSet(
+        new HashSet<String>(Arrays.asList("PART", "ACCESSORY", "WELFARE")));
 
     @Autowired
     private JewelryErpMapper mapper;
@@ -778,8 +780,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         }
         else if ("ADDON".equals(role))
         {
-            if (groupNo == null || groupNo <= 0) throw new ServiceException("搭售散件缺少销售组合编号");
-            if (!"PART".equals(productType)) throw new ServiceException("搭售商品只能选择散件商品");
+            if (groupNo == null || groupNo <= 0) throw new ServiceException("搭售商品缺少销售组合编号");
+            if (!SALES_ADDON_PRODUCT_TYPES.contains(productType))
+                throw new ServiceException("搭售商品不能选择成品商品");
             addonCounts.put(groupNo, addonCounts.getOrDefault(groupNo, 0) + 1);
             if ("INCLUDED".equals(pricingMode)) item.setUnitPrice(ZERO);
         }
@@ -805,7 +808,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             if (mainCounts.getOrDefault(groupNo, 0) != 1)
                 throw new ServiceException("销售组合" + groupNo + "必须且只能有一个成品主商品");
             if (addonCounts.getOrDefault(groupNo, 0) < 1)
-                throw new ServiceException("销售组合" + groupNo + "至少需要一个搭售散件");
+                throw new ServiceException("销售组合" + groupNo + "至少需要一个搭售商品");
         }
     }
 

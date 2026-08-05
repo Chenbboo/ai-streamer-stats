@@ -128,7 +128,7 @@ create table if not exists jewelry_document_item (
   item_role varchar(16) not null default 'NORMAL' comment '普通/组装投入/组装产出角色',
   source_item_id bigint default null comment '原销售或原单明细ID',
   bundle_group_no int default null comment '销售组合序号',
-  sale_role varchar(16) not null default 'NORMAL' comment 'NORMAL独立销售 MAIN主商品 ADDON搭售散件',
+  sale_role varchar(16) not null default 'NORMAL' comment 'NORMAL独立销售 MAIN主商品 ADDON搭售商品',
   pricing_mode varchar(16) not null default 'SEPARATE' comment 'SEPARATE单独计价 INCLUDED包含在组合价',
   sku_snapshot varchar(64) not null,
   product_name_snapshot varchar(128) not null,
