@@ -130,7 +130,6 @@ create table if not exists jewelry_document_item (
   bundle_group_no int default null comment '销售组合序号',
   sale_role varchar(16) not null default 'NORMAL' comment 'NORMAL独立销售 MAIN主商品 ADDON搭售商品',
   pricing_mode varchar(16) not null default 'SEPARATE' comment 'SEPARATE单独计价 INCLUDED包含在组合价',
-  packaging_material tinyint(1) not null default 0 comment '是否作为包装耗材计入组合包装费',
   sku_snapshot varchar(64) not null,
   product_name_snapshot varchar(128) not null,
   product_type_snapshot varchar(16) default null comment '销售时商品类型快照',

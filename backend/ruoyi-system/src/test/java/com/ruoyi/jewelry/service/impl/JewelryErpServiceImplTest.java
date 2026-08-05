@@ -353,38 +353,6 @@ class JewelryErpServiceImplTest
     }
 
     @Test
-    void salesPostingRecalculatesPackagingCostFromCurrentInventoryAverage()
-    {
-        JewelryDocument document = document(81L, "SALES_OUT", "PENDING_SECOND");
-        document.setFirstReviewerUserId(REVIEWER_ONE_ID);
-        JewelryDocumentItem main = itemForProduct(181L, PRODUCT_ID, 1);
-        main.setUnitPrice(decimal("1000.00"));
-        main.setAmount(decimal("1000.00"));
-        main.setPackFee(decimal("5.00"));
-        main.setBundleGroupNo(1);
-        main.setSaleRole("MAIN");
-        JewelryDocumentItem packaging = itemForProduct(182L, 200L, 1);
-        packaging.setBundleGroupNo(1);
-        packaging.setSaleRole("ADDON");
-        packaging.setPricingMode("INCLUDED");
-        packaging.setPackagingMaterial(true);
-        when(mapper.selectDocumentById(81L)).thenReturn(document);
-        when(mapper.selectDocumentItems(81L)).thenReturn(Arrays.asList(main, packaging));
-        when(mapper.selectStockForUpdate(PRODUCT_ID))
-            .thenReturn(stock(10, 1, 0, 0, 0, 0, "600.00", "0", "0"));
-        when(mapper.selectStockForUpdate(200L))
-            .thenReturn(stock(10, 1, 0, 0, 0, 0, "8.00", "0", "0"));
-
-        service.approve(81L, "", null, REVIEWER_TWO_ID, "reviewer2");
-
-        assertMoney("600.00", main.getCostAmount());
-        assertMoney("8.00", packaging.getCostAmount());
-        assertMoney("608.00", document.getTotalCost());
-        assertMoney("392.00", document.getTotalProfit());
-        verify(mapper).updateDocumentFinancials(document);
-    }
-
-    @Test
     void customerReturnMustLinkOriginalSale()
     {
         JewelryDocument customerReturn = document(null, "CUSTOMER_RETURN", null);
@@ -981,82 +949,6 @@ class JewelryErpServiceImplTest
         assertMoney("320.00", document.getTotalProfit());
         assertEquals("MAIN", main.getSaleRole());
         assertEquals("ADDON", addon.getSaleRole());
-    }
-
-    @Test
-    void salesBundleUsesPackagingMaterialCostWhenItExceedsManualPackagingFee()
-    {
-        JewelryDocument document = document(null, "SALES_OUT", "DRAFT");
-        document.setSalesChannel("抖音");
-        JewelryDocumentItem main = itemForProduct(null, PRODUCT_ID, 1);
-        main.setUnitPrice(decimal("1000.00"));
-        main.setPackFee(decimal("5.00"));
-        main.setBundleGroupNo(1);
-        main.setSaleRole("MAIN");
-        JewelryDocumentItem packaging = itemForProduct(null, 200L, 1);
-        packaging.setUnitPrice(decimal("20.00"));
-        packaging.setPackFee(decimal("2.00"));
-        packaging.setShipFee(decimal("3.00"));
-        packaging.setCertFee(decimal("4.00"));
-        packaging.setBundleGroupNo(1);
-        packaging.setSaleRole("ADDON");
-        packaging.setPricingMode("SEPARATE");
-        packaging.setPackagingMaterial(true);
-        document.setItems(Arrays.asList(main, packaging));
-
-        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
-        when(mapper.selectProductById(200L)).thenReturn(product("ACCESSORY"));
-        when(mapper.selectStockForUpdate(PRODUCT_ID))
-            .thenReturn(stock(10, 0, 0, 0, 0, 0, "600.00", "0", "0"));
-        when(mapper.selectStockForUpdate(200L))
-            .thenReturn(stock(10, 0, 0, 0, 0, 0, "8.00", "0", "0"));
-
-        service.assessDocumentRisk(document);
-
-        assertTrue(packaging.getPackagingMaterial());
-        assertEquals("INCLUDED", packaging.getPricingMode());
-        assertMoney("0", packaging.getUnitPrice());
-        assertMoney("0", packaging.getPackFee());
-        assertMoney("0", packaging.getShipFee());
-        assertMoney("0", packaging.getCertFee());
-        assertMoney("5.00", main.getPackFee());
-        assertMoney("600.00", main.getCostAmount());
-        assertMoney("8.00", packaging.getCostAmount());
-        assertMoney("608.00", document.getTotalCost());
-        assertMoney("392.00", document.getTotalProfit());
-    }
-
-    @Test
-    void salesBundleUsesManualPackagingFeeWhenItExceedsMaterialCost()
-    {
-        JewelryDocument document = document(null, "SALES_OUT", "DRAFT");
-        document.setSalesChannel("抖音");
-        JewelryDocumentItem main = itemForProduct(null, PRODUCT_ID, 1);
-        main.setUnitPrice(decimal("1000.00"));
-        main.setPackFee(decimal("10.00"));
-        main.setBundleGroupNo(1);
-        main.setSaleRole("MAIN");
-        JewelryDocumentItem packaging = itemForProduct(null, 200L, 1);
-        packaging.setBundleGroupNo(1);
-        packaging.setSaleRole("ADDON");
-        packaging.setPricingMode("INCLUDED");
-        packaging.setPackagingMaterial(true);
-        document.setItems(Arrays.asList(main, packaging));
-
-        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
-        when(mapper.selectProductById(200L)).thenReturn(product("ACCESSORY"));
-        when(mapper.selectStockForUpdate(PRODUCT_ID))
-            .thenReturn(stock(10, 0, 0, 0, 0, 0, "600.00", "0", "0"));
-        when(mapper.selectStockForUpdate(200L))
-            .thenReturn(stock(10, 0, 0, 0, 0, 0, "8.00", "0", "0"));
-
-        service.assessDocumentRisk(document);
-
-        assertMoney("10.00", main.getPackFee());
-        assertMoney("602.00", main.getCostAmount());
-        assertMoney("8.00", packaging.getCostAmount());
-        assertMoney("610.00", document.getTotalCost());
-        assertMoney("390.00", document.getTotalProfit());
     }
 
     @Test

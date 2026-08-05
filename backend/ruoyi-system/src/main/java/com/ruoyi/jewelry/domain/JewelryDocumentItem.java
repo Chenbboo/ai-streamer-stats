@@ -12,7 +12,6 @@ public class JewelryDocumentItem
     private Integer bundleGroupNo;
     private String saleRole;
     private String pricingMode;
-    private Boolean packagingMaterial;
     private String skuSnapshot;
     private String productNameSnapshot;
     private String productTypeSnapshot;
@@ -52,8 +51,6 @@ public class JewelryDocumentItem
     public void setSaleRole(String saleRole) { this.saleRole = saleRole; }
     public String getPricingMode() { return pricingMode; }
     public void setPricingMode(String pricingMode) { this.pricingMode = pricingMode; }
-    public Boolean getPackagingMaterial() { return packagingMaterial; }
-    public void setPackagingMaterial(Boolean packagingMaterial) { this.packagingMaterial = packagingMaterial; }
     public String getSkuSnapshot() { return skuSnapshot; }
     public void setSkuSnapshot(String skuSnapshot) { this.skuSnapshot = skuSnapshot; }
     public String getProductNameSnapshot() { return productNameSnapshot; }

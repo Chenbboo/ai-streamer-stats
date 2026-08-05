@@ -273,7 +273,6 @@ class JewelryErpMapperIntegrationTest
         item.setBundleGroupNo(1);
         item.setSaleRole("ADDON");
         item.setPricingMode("INCLUDED");
-        item.setPackagingMaterial(true);
         item.setSkuSnapshot("PART-1");
         item.setProductNameSnapshot("Bundled part");
         item.setProductTypeSnapshot("PART");
@@ -310,7 +309,6 @@ class JewelryErpMapperIntegrationTest
             assertEquals(1, storedItem.getBundleGroupNo());
             assertEquals("ADDON", storedItem.getSaleRole());
             assertEquals("INCLUDED", storedItem.getPricingMode());
-            assertEquals(Boolean.TRUE, storedItem.getPackagingMaterial());
             assertEquals("PART", storedItem.getProductTypeSnapshot());
             assertEquals("普通", storedItem.getSpecificationSnapshot());
         }
@@ -390,7 +388,6 @@ class JewelryErpMapperIntegrationTest
             + "item_id bigint auto_increment primary key,document_id bigint not null,product_id bigint not null,"
             + "item_role varchar(16) not null default 'NORMAL',source_item_id bigint,bundle_group_no int,"
             + "sale_role varchar(16) not null default 'NORMAL',pricing_mode varchar(16) not null default 'SEPARATE',"
-            + "packaging_material tinyint not null default 0,"
             + "sku_snapshot varchar(64) not null,product_name_snapshot varchar(128) not null,"
             + "product_type_snapshot varchar(16),specification_snapshot varchar(16),image_urls varchar(1000),"
             + "qty int not null default 0,good_qty int not null default 0,defect_qty int not null default 0,"
