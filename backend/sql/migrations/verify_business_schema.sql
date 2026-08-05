@@ -49,7 +49,9 @@ select
   count(case when table_name='jewelry_document_item' and column_name='product_type_snapshot' then 1 end)=0
     as missing_jewelry_product_type_snapshot,
   count(case when table_name='jewelry_document_item' and column_name='specification_snapshot' then 1 end)=0
-    as missing_jewelry_specification_snapshot
+    as missing_jewelry_specification_snapshot,
+  count(case when table_name='jewelry_document_item' and column_name='packaging_material' then 1 end)=0
+    as missing_jewelry_packaging_material
 from information_schema.columns
 where table_schema=database()
   and table_name in ('jewelry_product','jewelry_document','jewelry_document_item');
@@ -60,7 +62,12 @@ where product_type not in ('FINISHED','PART','ACCESSORY','WELFARE')
 union all
 select 'invalid_jewelry_specification', count(*)
 from jewelry_product
-where specification not in ('精品','普通');
+where specification not in ('精品','普通')
+union all
+select 'invalid_jewelry_packaging_material_usage', count(*)
+from jewelry_document_item
+where packaging_material=1
+  and (sale_role<>'ADDON' or bundle_group_no is null or pricing_mode<>'INCLUDED');
 
 select 'customer_missing_streamer' check_name, count(*) problem_rows
 from live_customer c left join live_streamer s on s.streamer_id=c.streamer_id

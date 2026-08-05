@@ -602,11 +602,13 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             item.setProductTypeSnapshot(textValue(product.get("productType")));
             item.setSpecificationSnapshot(textValue(product.get("specification")));
             if (item.getItemRole() == null || item.getItemRole().trim().isEmpty()) item.setItemRole("NORMAL");
+            if (item.getPackagingMaterial() == null) item.setPackagingMaterial(false);
             if (!"SALES_OUT".equals(document.getDocType()) && !"CUSTOMER_RETURN".equals(document.getDocType()))
             {
                 item.setBundleGroupNo(null);
                 item.setSaleRole("NORMAL");
                 item.setPricingMode("SEPARATE");
+                item.setPackagingMaterial(false);
             }
             item.setQty(nonNegative(item.getQty()));
             if ("SALES_OUT".equals(document.getDocType()))
@@ -694,6 +696,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     item.setBundleGroupNo(sourceItem.getBundleGroupNo());
                     item.setSaleRole(normalizedSaleRole(sourceItem.getSaleRole()));
                     item.setPricingMode(normalizedPricingMode(sourceItem.getPricingMode()));
+                    item.setPackagingMaterial(Boolean.TRUE.equals(sourceItem.getPackagingMaterial()));
                     item.setProductTypeSnapshot(sourceItem.getProductTypeSnapshot());
                     item.setSpecificationSnapshot(sourceItem.getSpecificationSnapshot());
                     document.setSalesChannel(source.getSalesChannel());
@@ -769,6 +772,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         String pricingMode = normalizedPricingMode(item.getPricingMode());
         Integer groupNo = item.getBundleGroupNo();
         String productType = textValue(product.get("productType"));
+        boolean packagingMaterial = Boolean.TRUE.equals(item.getPackagingMaterial());
         if (!SALES_ROLES.contains(role)) throw new ServiceException("销售商品角色不正确");
         if (!SALES_PRICING_MODES.contains(pricingMode)) throw new ServiceException("搭售计价方式不正确");
         if ("MAIN".equals(role))
@@ -776,6 +780,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             if (groupNo == null || groupNo <= 0) throw new ServiceException("销售组合主商品缺少组合编号");
             if (!"FINISHED".equals(productType)) throw new ServiceException("销售组合主商品必须是成品商品");
             pricingMode = "SEPARATE";
+            packagingMaterial = false;
             mainCounts.put(groupNo, mainCounts.getOrDefault(groupNo, 0) + 1);
         }
         else if ("ADDON".equals(role))
@@ -784,17 +789,27 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             if (!SALES_ADDON_PRODUCT_TYPES.contains(productType))
                 throw new ServiceException("搭售商品不能选择成品商品");
             addonCounts.put(groupNo, addonCounts.getOrDefault(groupNo, 0) + 1);
-            if ("INCLUDED".equals(pricingMode)) item.setUnitPrice(ZERO);
+            if (packagingMaterial)
+            {
+                pricingMode = "INCLUDED";
+                item.setUnitPrice(ZERO);
+                item.setPackFee(ZERO);
+                item.setShipFee(ZERO);
+                item.setCertFee(ZERO);
+            }
+            else if ("INCLUDED".equals(pricingMode)) item.setUnitPrice(ZERO);
         }
         else
         {
             role = "NORMAL";
             pricingMode = "SEPARATE";
             groupNo = null;
+            packagingMaterial = false;
         }
         item.setSaleRole(role);
         item.setPricingMode(pricingMode);
         item.setBundleGroupNo(groupNo);
+        item.setPackagingMaterial(packagingMaterial);
         return item.getProductId() + ":" + (groupNo == null ? "NORMAL" : groupNo);
     }
 
@@ -883,6 +898,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         BigDecimal commissionRate = money(document.getCommissionRate());
         BigDecimal taxRate = money(document.getTaxRate());
         boolean customerReturn = "CUSTOMER_RETURN".equals(document.getDocType());
+        Map<Integer, BigDecimal> packagingMaterialCosts = "SALES_OUT".equals(document.getDocType())
+            ? packagingMaterialCosts(document.getItems()) : Collections.<Integer, BigDecimal>emptyMap();
         if (customerReturn)
         {
             platformRate = ZERO;
@@ -895,14 +912,29 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             BigDecimal price = money(item.getUnitPrice());
             BigDecimal cost = money(item.getUnitCost());
             BigDecimal packFee = money(item.getPackFee());
+            BigDecimal financialPackFee = packFee;
             BigDecimal shipFee = money(item.getShipFee());
             BigDecimal certFee = money(item.getCertFee());
+            if ("SALES_OUT".equals(document.getDocType()) && "MAIN".equals(normalizedSaleRole(item.getSaleRole())))
+            {
+                BigDecimal materialCost = packagingMaterialCosts.getOrDefault(item.getBundleGroupNo(), ZERO);
+                BigDecimal manualTotal = packFee.multiply(BigDecimal.valueOf(qty));
+                BigDecimal additionalTotal = manualTotal.subtract(materialCost).max(ZERO);
+                financialPackFee = qty <= 0 ? ZERO
+                    : additionalTotal.divide(BigDecimal.valueOf(qty), 6, RoundingMode.HALF_UP);
+            }
+            else if ("SALES_OUT".equals(document.getDocType())
+                && Boolean.TRUE.equals(item.getPackagingMaterial()))
+            {
+                financialPackFee = ZERO;
+            }
             if (customerReturn)
             {
                 packFee = ZERO;
+                financialPackFee = ZERO;
             }
             BigDecimal fees = "SALES_OUT".equals(document.getDocType())
-                ? packFee.add(shipFee).add(certFee)
+                ? financialPackFee.add(shipFee).add(certFee)
                 : customerReturn ? shipFee.multiply(BigDecimal.valueOf(2)).add(certFee) : ZERO;
             if ("PURCHASE_IN".equals(document.getDocType()))
             {
@@ -978,6 +1010,21 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             document.setRiskStatus("REVIEW");
         else
             document.setRiskStatus("NORMAL");
+    }
+
+    private Map<Integer, BigDecimal> packagingMaterialCosts(List<JewelryDocumentItem> items)
+    {
+        Map<Integer, BigDecimal> costs = new HashMap<Integer, BigDecimal>();
+        for (JewelryDocumentItem item : items)
+        {
+            if (!"ADDON".equals(normalizedSaleRole(item.getSaleRole()))
+                || !Boolean.TRUE.equals(item.getPackagingMaterial()) || item.getBundleGroupNo() == null)
+                continue;
+            BigDecimal amount = money(item.getUnitCost())
+                .multiply(BigDecimal.valueOf(nonNegative(item.getQty())));
+            costs.put(item.getBundleGroupNo(), costs.getOrDefault(item.getBundleGroupNo(), ZERO).add(amount));
+        }
+        return costs;
     }
 
     private void allocateCustomerReturnRefund(List<JewelryDocumentItem> items, BigDecimal refund)
@@ -1254,7 +1301,16 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     : document.getDocType(),
                 userId, userName);
         }
-        refreshDocumentFinancials(document);
+        if ("SALES_OUT".equals(document.getDocType()))
+        {
+            calculateDocument(document);
+            for (JewelryDocumentItem item : document.getItems()) mapper.updateDocumentItemCost(item);
+            mapper.updateDocumentFinancials(document);
+        }
+        else
+        {
+            refreshDocumentFinancials(document);
+        }
     }
 
     private void refreshDocumentFinancials(JewelryDocument document)
@@ -1555,6 +1611,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         item.setBundleGroupNo(source.getBundleGroupNo());
         item.setSaleRole(normalizedSaleRole(source.getSaleRole()));
         item.setPricingMode(normalizedPricingMode(source.getPricingMode()));
+        item.setPackagingMaterial(Boolean.TRUE.equals(source.getPackagingMaterial()));
         item.setSkuSnapshot(source.getSkuSnapshot());
         item.setProductNameSnapshot(source.getProductNameSnapshot());
         item.setProductTypeSnapshot(source.getProductTypeSnapshot());

@@ -49,6 +49,7 @@
         <result property="bundleGroupNo" column="bundle_group_no"/>
         <result property="saleRole" column="sale_role"/>
         <result property="pricingMode" column="pricing_mode"/>
+        <result property="packagingMaterial" column="packaging_material"/>
         <result property="skuSnapshot" column="sku_snapshot"/>
         <result property="productNameSnapshot" column="product_name_snapshot"/>
         <result property="productTypeSnapshot" column="product_type_snapshot"/>
@@ -461,11 +462,11 @@
     </update>
     <delete id="deleteDocumentItems">delete from jewelry_document_item where document_id=#{documentId}</delete>
     <insert id="insertDocumentItem" useGeneratedKeys="true" keyProperty="itemId">
-        insert into jewelry_document_item(document_id,product_id,item_role,source_item_id,bundle_group_no,sale_role,pricing_mode,
+        insert into jewelry_document_item(document_id,product_id,item_role,source_item_id,bundle_group_no,sale_role,pricing_mode,packaging_material,
           sku_snapshot,product_name_snapshot,product_type_snapshot,specification_snapshot,image_urls,
           qty,good_qty,defect_qty,system_qty,counted_qty,adjustment_qty,unit_price,unit_cost,pack_fee,ship_fee,
           cert_fee,amount,cost_amount,profit_amount,profit_rate,line_reason)
-        values(#{documentId},#{productId},#{itemRole},#{sourceItemId},#{bundleGroupNo},#{saleRole},#{pricingMode},
+        values(#{documentId},#{productId},#{itemRole},#{sourceItemId},#{bundleGroupNo},#{saleRole},#{pricingMode},#{packagingMaterial},
           #{skuSnapshot},#{productNameSnapshot},#{productTypeSnapshot},#{specificationSnapshot},#{imageUrls},#{qty},#{goodQty},
           #{defectQty},#{systemQty},#{countedQty},#{adjustmentQty},#{unitPrice},#{unitCost},#{packFee},#{shipFee},
           #{certFee},#{amount},#{costAmount},#{profitAmount},#{profitRate},#{lineReason})

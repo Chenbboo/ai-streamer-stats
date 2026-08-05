@@ -82,10 +82,20 @@
               <el-tag v-else type="info" effect="plain">独立销售</el-tag>
             </template>
           </el-table-column>
+          <el-table-column v-if="showSalesBundleColumns" label="搭售用途" width="135">
+            <template #default="{row}">
+              <el-button v-if="form.docType==='SALES_OUT' && normalizedSaleRole(row)==='ADDON' && !readonly"
+                size="small" :type="row.packagingMaterial?'warning':'default'" :plain="!row.packagingMaterial"
+                @click="togglePackagingMaterial(row)">{{row.packagingMaterial?'已计入包装费':'计入包装费'}}</el-button>
+              <el-tag v-else-if="normalizedSaleRole(row)==='ADDON' && row.packagingMaterial" type="warning" effect="plain">包装耗材</el-tag>
+              <span v-else-if="normalizedSaleRole(row)==='ADDON'">普通搭售</span>
+              <span v-else>—</span>
+            </template>
+          </el-table-column>
           <el-table-column v-if="showSalesBundleColumns" label="计价方式" width="145">
             <template #default="{row}">
               <el-select v-if="form.docType==='SALES_OUT' && normalizedSaleRole(row)==='ADDON'" v-model="row.pricingMode"
-                :disabled="readonly" @change="pricingModeChanged(row)">
+                :disabled="readonly || row.packagingMaterial" @change="pricingModeChanged(row)">
                 <el-option label="包含在组合价" value="INCLUDED" />
                 <el-option label="单独计价" value="SEPARATE" />
               </el-select>
@@ -123,7 +133,24 @@
           </el-table-column>
           <el-table-column v-if="showPriceColumn" :label="priceLabel" width="170"><template #default="{row}"><el-input-number v-model="row.unitPrice" :min="0" :precision="2" :disabled="readonly || (form.docType==='CUSTOMER_RETURN' && !!form.sourceDocumentId) || (form.docType==='SALES_OUT' && normalizedPricingMode(row)==='INCLUDED')" style="width:100%"/></template></el-table-column>
           <el-table-column v-if="showCostColumn" label="单位成本" width="120"><template #default="{row}"><span>{{money(row.unitCost)}}</span></template></el-table-column>
-          <el-table-column v-if="form.docType==='SALES_OUT'" label="包装费/件" width="145"><template #default="{row}"><el-input-number v-model="row.packFee" :min="0" :precision="2" :disabled="readonly"/></template></el-table-column>
+          <el-table-column v-if="form.docType==='SALES_OUT'" label="包装费/件" width="190">
+            <template #default="{row}">
+              <div v-if="normalizedSaleRole(row)==='ADDON' && row.packagingMaterial" class="pack-fee-cell packaging-cost-note">
+                <span>计入主商品包装费</span>
+                <small>耗材成本 ¥{{money(row.unitCost)}}/件</small>
+              </div>
+              <div v-else class="pack-fee-cell">
+                <el-input-number v-model="row.packFee" :min="0" :precision="2" :disabled="readonly"/>
+                <template v-if="normalizedSaleRole(row)==='MAIN' && packagingMetrics(row).materialTotal>0">
+                  <small>耗材 ¥{{money(packagingMetrics(row).materialPerMain)}}/件</small>
+                  <small v-if="packagingMetrics(row).overrunPerMain>0" class="packaging-overrun">
+                    超出 ¥{{money(packagingMetrics(row).overrunPerMain)}}，毛利按 ¥{{money(packagingMetrics(row).effectivePerMain)}}
+                  </small>
+                  <small v-else>毛利按 ¥{{money(packagingMetrics(row).effectivePerMain)}}/件</small>
+                </template>
+              </div>
+            </template>
+          </el-table-column>
           <el-table-column v-if="form.docType==='SALES_OUT'" label="物流费/件" width="145"><template #default="{row}"><el-input-number v-model="row.shipFee" :min="0" :precision="2" :disabled="readonly"/></template></el-table-column>
           <el-table-column v-if="form.docType==='SALES_OUT'" label="鉴定费/件" width="145"><template #default="{row}"><el-input-number v-model="row.certFee" :min="0" :precision="2" :disabled="readonly"/></template></el-table-column>
           <el-table-column v-if="showPriceColumn" :label="amountLabel" width="130" align="right"><template #default="{row}">{{money(lineAmount(row))}}</template></el-table-column>
@@ -137,6 +164,8 @@
           <div v-for="group in bundleSummaries" :key="group.groupNo">
             <b>组合{{group.groupNo}}</b>
             <span>成交 ¥{{money(group.amount)}}</span>
+            <span v-if="group.packagingMaterialTotal>0">包装费 ¥{{money(group.effectivePackagingTotal)}}</span>
+            <span v-if="group.packagingOverrun>0" class="packaging-overrun">耗材超出 ¥{{money(group.packagingOverrun)}}</span>
             <span v-if="canViewFinance">成本及费用 ¥{{money(group.cost)}}</span>
             <span v-if="canViewFinance" :class="{loss:group.profit<0}">预计毛利 ¥{{money(group.profit)}}</span>
           </div>
@@ -248,7 +277,7 @@ const types=[{value:'PURCHASE_IN',label:'采购入库'},{value:'SALES_OUT',label
 const editableTypes=types.filter(item=>!['REVERSAL','ASSEMBLY'].includes(item.value))
 const statuses=[{value:'DRAFT',label:'草稿'},{value:'PENDING_FIRST',label:'待审核'},{value:'PENDING_SECOND',label:'待审核'},{value:'POSTED',label:'已入账'},{value:'REJECTED',label:'已驳回'},{value:'REVERSED',label:'已红冲'}]
 const query=reactive({pageNum:1,pageSize:10,docNo:'',docType:'',status:''})
-const blankItem=()=>({productId:null,sourceItemId:null,itemRole:'NORMAL',bundleGroupNo:null,saleRole:'NORMAL',pricingMode:'SEPARATE',productTypeSnapshot:'',specificationSnapshot:'',imageUrls:'',qty:1,goodQty:0,defectQty:0,remainingInspectQty:0,systemQty:0,countedQty:0,adjustmentQty:0,unitPrice:0,unitCost:0,packFee:0,shipFee:0,certFee:0,lineReason:''})
+const blankItem=()=>({productId:null,sourceItemId:null,itemRole:'NORMAL',bundleGroupNo:null,saleRole:'NORMAL',pricingMode:'SEPARATE',packagingMaterial:false,productTypeSnapshot:'',specificationSnapshot:'',imageUrls:'',qty:1,goodQty:0,defectQty:0,remainingInspectQty:0,systemQty:0,countedQty:0,adjustmentQty:0,unitPrice:0,unitCost:0,packFee:0,shipFee:0,certFee:0,lineReason:''})
 const blank=()=>({documentId:null,docType:'PURCHASE_IN',bizDate:new Date().toISOString().slice(0,10),supplierId:null,supplierNameSnapshot:'',externalNo:'',salesChannel:'',influencerName:'',platformRate:0,commissionRate:0,taxRate:0,returnReason:'',sourceDocumentId:null,unlinkedReason:'',actualRefundAmount:null,riskStatus:'',remark:'',items:[blankItem()]})
 const form=reactive(blank())
 const serverRiskStatus=ref('')
@@ -272,7 +301,23 @@ const lineAmount=row=>Number(row.unitPrice||0)*effectiveQty(row)
 const salesRate=computed(()=>Number(form.platformRate||0)+Number(form.commissionRate||0)+Number(form.taxRate||0))
 const lineDeductions=row=>lineAmount(row)*salesRate.value
 const lineNetReceipt=row=>lineAmount(row)-lineDeductions(row)
-const lineProfit=row=>{const qty=effectiveQty(row),amount=lineAmount(row),fees=(Number(row.packFee||0)+Number(row.shipFee||0)+Number(row.certFee||0))*qty;return amount-Number(row.unitCost||0)*qty-fees-lineDeductions(row)}
+const packagingMetrics=row=>{
+  if(normalizedSaleRole(row)!=='MAIN'||!row.bundleGroupNo)return{manualTotal:0,materialTotal:0,effectiveTotal:0,overrun:0,materialPerMain:0,effectivePerMain:Number(row.packFee||0),overrunPerMain:0}
+  const mainQty=Math.max(1,effectiveQty(row))
+  const materialTotal=form.items.filter(item=>normalizedSaleRole(item)==='ADDON'&&item.bundleGroupNo===row.bundleGroupNo&&item.packagingMaterial)
+    .reduce((sum,item)=>sum+Number(item.unitCost||0)*effectiveQty(item),0)
+  const manualTotal=Number(row.packFee||0)*mainQty
+  const effectiveTotal=Math.max(manualTotal,materialTotal)
+  const overrun=Math.max(0,materialTotal-manualTotal)
+  return{manualTotal,materialTotal,effectiveTotal,overrun,materialPerMain:materialTotal/mainQty,effectivePerMain:effectiveTotal/mainQty,overrunPerMain:overrun/mainQty}
+}
+const financialPackFeePerUnit=row=>{
+  if(row.packagingMaterial)return 0
+  if(normalizedSaleRole(row)!=='MAIN')return Number(row.packFee||0)
+  const metrics=packagingMetrics(row)
+  return Math.max(0,metrics.manualTotal-metrics.materialTotal)/Math.max(1,effectiveQty(row))
+}
+const lineProfit=row=>{const qty=effectiveQty(row),amount=lineAmount(row),fees=(financialPackFeePerUnit(row)+Number(row.shipFee||0)+Number(row.certFee||0))*qty;return amount-Number(row.unitCost||0)*qty-fees-lineDeductions(row)}
 const estimatedQty=computed(()=>form.items.reduce((sum,row)=>sum+effectiveQty(row),0))
 const expectedReturnRefund=computed(()=>form.items.reduce((sum,row)=>sum+lineAmount(row),0))
 const estimatedAmount=computed(()=>form.docType==='CUSTOMER_RETURN'?Number(form.actualRefundAmount||0):form.items.reduce((sum,row)=>sum+lineAmount(row),0))
@@ -283,14 +328,18 @@ const bundleSummaries=computed(()=>{
   const groups=new Map()
   for(const row of form.items){
     if(!row.bundleGroupNo||!['MAIN','ADDON'].includes(normalizedSaleRole(row)))continue
-    const group=groups.get(row.bundleGroupNo)||{groupNo:row.bundleGroupNo,amount:0,cost:0,profit:0}
+    const group=groups.get(row.bundleGroupNo)||{groupNo:row.bundleGroupNo,amount:0,cost:0,profit:0,packagingMaterialTotal:0,effectivePackagingTotal:0,packagingOverrun:0}
     const qty=effectiveQty(row)
     const amount=lineAmount(row)
-    const fees=(Number(row.packFee||0)+Number(row.shipFee||0)+Number(row.certFee||0))*qty
+    const fees=(financialPackFeePerUnit(row)+Number(row.shipFee||0)+Number(row.certFee||0))*qty
     group.amount+=amount
     group.cost+=Number(row.unitCost||0)*qty+fees+lineDeductions(row)
     group.profit+=lineProfit(row)
     groups.set(row.bundleGroupNo,group)
+  }
+  for(const group of groups.values()){
+    const main=form.items.find(item=>normalizedSaleRole(item)==='MAIN'&&item.bundleGroupNo===group.groupNo)
+    if(main){const metrics=packagingMetrics(main);group.packagingMaterialTotal=metrics.materialTotal;group.effectivePackagingTotal=metrics.effectiveTotal;group.packagingOverrun=metrics.overrun}
   }
   return [...groups.values()].sort((a,b)=>a.groupNo-b.groupNo)
 })
@@ -298,7 +347,7 @@ const refundAmountDiffers=computed(()=>form.docType==='CUSTOMER_RETURN'&&!!form.
 const riskFingerprint=computed(()=>JSON.stringify({
   open:dialog.value,readonly:readonly.value,docType:form.docType,
   platformRate:form.platformRate,commissionRate:form.commissionRate,taxRate:form.taxRate,
-  items:(form.items||[]).map(({productId,qty,unitPrice,packFee,shipFee,certFee,bundleGroupNo,saleRole,pricingMode})=>({productId,qty,unitPrice,packFee,shipFee,certFee,bundleGroupNo,saleRole,pricingMode}))
+  items:(form.items||[]).map(({productId,qty,unitPrice,packFee,shipFee,certFee,bundleGroupNo,saleRole,pricingMode,packagingMaterial})=>({productId,qty,unitPrice,packFee,shipFee,certFee,bundleGroupNo,saleRole,pricingMode,packagingMaterial}))
 }))
 watch(riskFingerprint,()=>{
   serverRiskStatus.value=''
@@ -329,7 +378,7 @@ async function preload(){const [p,s,sales,returns]=await Promise.all([listJewelr
 async function reloadProducts(){const r=await listJewelryProductOptions({status:'0'});products.value=r.data||[]}
 async function load(){loading.value=true;try{const r=await listJewelryDocuments(query);rows.value=r.rows||[];total.value=r.total||0}finally{loading.value=false}}
 function open(){Object.assign(form,blank());readonly.value=false;dialog.value=true}
-function normalizeLoadedDocument(){form.items=(form.items||[]).map(item=>({...blankItem(),...item,remainingInspectQty:item.remainingInspectQty??(form.docType==='RETURN_INSPECT'?Number(item.goodQty||0)+Number(item.defectQty||0):0),saleRole:item.saleRole||'NORMAL',pricingMode:item.pricingMode||'SEPARATE'}));if(form.docType==='CUSTOMER_RETURN'&&form.actualRefundAmount===null)form.actualRefundAmount=Math.abs(Number(form.totalAmount||0))}
+function normalizeLoadedDocument(){form.items=(form.items||[]).map(item=>({...blankItem(),...item,remainingInspectQty:item.remainingInspectQty??(form.docType==='RETURN_INSPECT'?Number(item.goodQty||0)+Number(item.defectQty||0):0),saleRole:item.saleRole||'NORMAL',pricingMode:item.pricingMode||'SEPARATE',packagingMaterial:Boolean(item.packagingMaterial)}));if(form.docType==='CUSTOMER_RETURN'&&form.actualRefundAmount===null)form.actualRefundAmount=Math.abs(Number(form.totalAmount||0))}
 async function edit(row){Object.assign(form,(await getJewelryDocument(row.documentId)).data);normalizeLoadedDocument();if(form.docType==='RETURN_INSPECT'&&form.sourceDocumentId)await loadInspectionSource(form.sourceDocumentId,true);readonly.value=false;dialog.value=true}
 async function view(row){Object.assign(form,(await getJewelryDocument(row.documentId)).data);normalizeLoadedDocument();readonly.value=true;dialog.value=true}
 const normalizedSaleRole=row=>row?.saleRole||'NORMAL'
@@ -353,6 +402,7 @@ function productChanged(row){
   row.countedQty=Number(product.onHandQty||0)
   if(normalizedSaleRole(row)==='ADDON'){
     row.packFee=0;row.shipFee=0;row.certFee=0
+    if(row.packagingMaterial)row.pricingMode='INCLUDED'
     if(normalizedPricingMode(row)==='INCLUDED')row.unitPrice=0
   }else{
     row.packFee=form.docType==='CUSTOMER_RETURN'?0:Number(product.defaultPackFee||0)
@@ -371,7 +421,14 @@ function addAddon(mainRow){
   while(insertAt<form.items.length&&form.items[insertAt].bundleGroupNo===mainRow.bundleGroupNo)insertAt+=1
   form.items.splice(insertAt,0,addon)
 }
-function pricingModeChanged(row){if(normalizedPricingMode(row)==='INCLUDED'){row.unitPrice=0;row.packFee=0;row.shipFee=0;row.certFee=0}}
+function togglePackagingMaterial(row){
+  row.packagingMaterial=!row.packagingMaterial
+  if(row.packagingMaterial){row.pricingMode='INCLUDED';row.unitPrice=0;row.packFee=0;row.shipFee=0;row.certFee=0}
+}
+function pricingModeChanged(row){
+  if(row.packagingMaterial)row.pricingMode='INCLUDED'
+  if(normalizedPricingMode(row)==='INCLUDED'){row.unitPrice=0;row.packFee=0;row.shipFee=0;row.certFee=0}
+}
 function addNormalItem(){form.items.push(blankItem())}
 async function removeItem(index){
   const row=form.items[index]
@@ -486,7 +543,7 @@ async function salesSourceChanged(id){
   form.platformRate=0
   form.commissionRate=0
   form.taxRate=0
-  form.items=(source.items||[]).map(item=>({...blankItem(),productId:item.productId,qty:1,unitPrice:Number(item.unitPrice||0),unitCost:Number(item.unitCost||0),packFee:0,shipFee:Number(item.shipFee||0),certFee:Number(item.certFee||0),sourceItemId:item.itemId,bundleGroupNo:item.bundleGroupNo,saleRole:item.saleRole||'NORMAL',pricingMode:item.pricingMode||'SEPARATE',productTypeSnapshot:item.productTypeSnapshot||'',specificationSnapshot:item.specificationSnapshot||''}))
+  form.items=(source.items||[]).map(item=>({...blankItem(),productId:item.productId,qty:1,unitPrice:Number(item.unitPrice||0),unitCost:Number(item.unitCost||0),packFee:0,shipFee:Number(item.shipFee||0),certFee:Number(item.certFee||0),sourceItemId:item.itemId,bundleGroupNo:item.bundleGroupNo,saleRole:item.saleRole||'NORMAL',pricingMode:item.pricingMode||'SEPARATE',packagingMaterial:Boolean(item.packagingMaterial),productTypeSnapshot:item.productTypeSnapshot||'',specificationSnapshot:item.specificationSnapshot||''}))
   form.actualRefundAmount=expectedReturnRefund.value
 }
 async function loadInspectionSource(id,preserveCurrent=false){
@@ -544,4 +601,4 @@ async function withdraw(row){await proxy.$modal.confirm(`确认撤回单据 ${ro
 async function reverse(row){await proxy.$modal.confirm(`确认对单据 ${row.docNo} 发起整单红冲？红冲单审核通过后入账。`);await createJewelryReversal(row.documentId);proxy.$modal.msgSuccess('红冲草稿已生成');load()}
 preload();load()
 </script>
-<style scoped>.sheet{border:1px solid #cfd5dc}.sheet-head{display:grid;grid-template-columns:repeat(6,minmax(150px,1fr));gap:12px;padding:14px;background:#f4f6f8}.sheet-head :deep(.el-form-item){margin:0}.sheet-head :deep(.el-input-number),.sheet-head :deep(.el-select),.sheet-head :deep(.el-date-editor){width:100%}.item-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-top:1px solid #d9dee5;background:#fafbfc}.item-toolbar>div:first-child{display:flex;align-items:baseline;gap:10px}.item-toolbar b{color:#334155;font-size:14px}.item-toolbar span{color:#8490a0;font-size:12px}.item-toolbar-actions{display:flex;align-items:center;gap:8px}.excel-compress-progress{display:flex!important;flex-direction:column;align-items:stretch!important;gap:4px!important;width:180px}.excel-compress-progress span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.excel-compress-progress :deep(.el-progress){width:100%}.item-table{border-left:0;border-right:0}.item-table :deep(.el-input-number){width:100%;min-width:0}.item-table :deep(.bundle-addon-row){background:#fffaf0}.item-table :deep(.bundle-addon-row td:nth-child(2) .product-picker){padding-left:18px;border-left:3px solid #e6a23c}.product-picker{display:flex;align-items:center;gap:8px}.product-picker .el-select{flex:1;min-width:0}.product-picker .el-button{flex:none}.bundle-summaries{display:flex;gap:10px;flex-wrap:wrap;padding:10px 12px 0}.bundle-summaries>div{display:flex;gap:14px;align-items:center;padding:8px 12px;border:1px solid #f1d39c;border-radius:4px;background:#fffaf0;color:#6b7280;font-size:13px}.bundle-summaries b{color:#92400e}.add-line{margin:12px}.document-total{display:flex;justify-content:flex-end;gap:28px;padding:12px 16px;border-top:1px solid #d9dee5;background:#f8fafc;color:#475569}.document-total b{color:#111827}.loss,.document-total .loss,.document-total .loss b{color:#dc2626;font-weight:700}.sheet-foot{padding:12px 14px 0;border-top:1px solid #d9dee5}.import-summary{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}.import-summary span:last-child{color:#7c8796}.import-error{color:#c2413a}@media(max-width:1200px){.sheet-head{grid-template-columns:repeat(3,1fr)}}@media(max-width:760px){.sheet-head{grid-template-columns:1fr}.item-toolbar{align-items:stretch;flex-direction:column;gap:10px}.item-toolbar>div:first-child{align-items:flex-start;flex-direction:column;gap:2px}.item-toolbar-actions{flex-wrap:wrap}.excel-compress-progress{width:100%}.product-picker{align-items:stretch;flex-direction:column}.bundle-summaries>div{align-items:flex-start;flex-direction:column;gap:4px}.document-total{justify-content:flex-start;flex-wrap:wrap;gap:12px 20px}}</style>
+<style scoped>.sheet{border:1px solid #cfd5dc}.sheet-head{display:grid;grid-template-columns:repeat(6,minmax(150px,1fr));gap:12px;padding:14px;background:#f4f6f8}.sheet-head :deep(.el-form-item){margin:0}.sheet-head :deep(.el-input-number),.sheet-head :deep(.el-select),.sheet-head :deep(.el-date-editor){width:100%}.item-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-top:1px solid #d9dee5;background:#fafbfc}.item-toolbar>div:first-child{display:flex;align-items:baseline;gap:10px}.item-toolbar b{color:#334155;font-size:14px}.item-toolbar span{color:#8490a0;font-size:12px}.item-toolbar-actions{display:flex;align-items:center;gap:8px}.excel-compress-progress{display:flex!important;flex-direction:column;align-items:stretch!important;gap:4px!important;width:180px}.excel-compress-progress span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.excel-compress-progress :deep(.el-progress){width:100%}.item-table{border-left:0;border-right:0}.item-table :deep(.el-input-number){width:100%;min-width:0}.item-table :deep(.bundle-addon-row){background:#fffaf0}.item-table :deep(.bundle-addon-row td:nth-child(2) .product-picker){padding-left:18px;border-left:3px solid #e6a23c}.product-picker{display:flex;align-items:center;gap:8px}.product-picker .el-select{flex:1;min-width:0}.product-picker .el-button{flex:none}.pack-fee-cell{display:flex;flex-direction:column;gap:3px}.pack-fee-cell small{color:#6b7280;line-height:1.35}.packaging-cost-note{color:#b45309}.packaging-overrun{color:#dc2626!important;font-weight:600}.bundle-summaries{display:flex;gap:10px;flex-wrap:wrap;padding:10px 12px 0}.bundle-summaries>div{display:flex;gap:14px;align-items:center;padding:8px 12px;border:1px solid #f1d39c;border-radius:4px;background:#fffaf0;color:#6b7280;font-size:13px}.bundle-summaries b{color:#92400e}.add-line{margin:12px}.document-total{display:flex;justify-content:flex-end;gap:28px;padding:12px 16px;border-top:1px solid #d9dee5;background:#f8fafc;color:#475569}.document-total b{color:#111827}.loss,.document-total .loss,.document-total .loss b{color:#dc2626;font-weight:700}.sheet-foot{padding:12px 14px 0;border-top:1px solid #d9dee5}.import-summary{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}.import-summary span:last-child{color:#7c8796}.import-error{color:#c2413a}@media(max-width:1200px){.sheet-head{grid-template-columns:repeat(3,1fr)}}@media(max-width:760px){.sheet-head{grid-template-columns:1fr}.item-toolbar{align-items:stretch;flex-direction:column;gap:10px}.item-toolbar>div:first-child{align-items:flex-start;flex-direction:column;gap:2px}.item-toolbar-actions{flex-wrap:wrap}.excel-compress-progress{width:100%}.product-picker{align-items:stretch;flex-direction:column}.bundle-summaries>div{align-items:flex-start;flex-direction:column;gap:4px}.document-total{justify-content:flex-start;flex-wrap:wrap;gap:12px 20px}}</style>

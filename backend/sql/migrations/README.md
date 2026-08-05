@@ -19,6 +19,7 @@ V004__jewelry_maker_product_permission.sql
 V005__jewelry_product_type_and_specification.sql
 V006__jewelry_sales_bundle.sql
 V007__jewelry_maker_add_product_permission.sql
+V008__jewelry_packaging_material.sql
 ../live_ai_config.sql
 ../jewelry_erp_menu.sql
 ../jewelry_manual_assembly.sql
@@ -38,6 +39,7 @@ V004__jewelry_maker_product_permission.sql
 V005__jewelry_product_type_and_specification.sql
 V006__jewelry_sales_bundle.sql
 V007__jewelry_maker_add_product_permission.sql
+V008__jewelry_packaging_material.sql
 ../live_ai_config.sql
 ../jewelry_erp_menu.sql
 ../jewelry_manual_assembly.sql
