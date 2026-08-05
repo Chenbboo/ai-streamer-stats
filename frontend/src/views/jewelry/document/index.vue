@@ -153,7 +153,12 @@
           <el-table-column v-if="showPriceColumn" :label="amountLabel" width="130" align="right"><template #default="{row}">{{money(lineAmount(row))}}</template></el-table-column>
           <el-table-column v-if="form.docType==='SALES_OUT'" label="平台等扣费" width="130" align="right"><template #default="{row}">{{money(lineDeductions(row))}}</template></el-table-column>
           <el-table-column v-if="form.docType==='SALES_OUT'" label="预计净入账" width="130" align="right"><template #default="{row}">{{money(lineNetReceipt(row))}}</template></el-table-column>
-          <el-table-column v-if="canViewFinance && form.docType==='SALES_OUT'" label="预计毛利" width="120" align="right"><template #default="{row}"><span :class="{loss:lineProfit(row)<0}">{{money(lineProfit(row))}}</span></template></el-table-column>
+          <el-table-column v-if="canViewFinance && form.docType==='SALES_OUT'" label="预计毛利" width="120" align="right">
+            <template #default="{row}">
+              <span v-if="isAccessoryPackaging(row)">—</span>
+              <span v-else :class="{loss:lineProfit(row)<0}">{{money(lineProfit(row))}}</span>
+            </template>
+          </el-table-column>
           <el-table-column v-if="showAdjustmentColumn" label="调整原因" min-width="180"><template #default="{row}"><el-input v-model="row.lineReason" :disabled="readonly"/></template></el-table-column>
           <el-table-column v-if="!readonly && (form.docType!=='CUSTOMER_RETURN' || form.sourceDocumentId)" width="60"><template #default="{ $index }"><el-button link type="danger" icon="Delete" @click="removeItem($index)"/></template></el-table-column>
         </el-table>
