@@ -38,6 +38,7 @@ import org.apache.poi.openxml4j.opc.PackageRelationship;
 import org.apache.poi.openxml4j.opc.PackagingURIHelper;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.BorderStyle;
 import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.DataValidation;
 import org.apache.poi.ss.usermodel.DataValidationConstraint;
@@ -45,10 +46,12 @@ import org.apache.poi.ss.usermodel.DataValidationHelper;
 import org.apache.poi.ss.usermodel.FillPatternType;
 import org.apache.poi.ss.usermodel.Font;
 import org.apache.poi.ss.usermodel.FormulaEvaluator;
+import org.apache.poi.ss.usermodel.HorizontalAlignment;
 import org.apache.poi.ss.usermodel.IndexedColors;
 import org.apache.poi.ss.usermodel.Name;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.VerticalAlignment;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.apache.poi.ss.util.CellRangeAddressList;
@@ -96,20 +99,17 @@ public class JewelryDocumentExcelService
         {
             Sheet data = workbook.createSheet("导入数据");
             String[] headers = headers(docType);
-            CellStyle headerStyle = workbook.createCellStyle();
-            headerStyle.setFillForegroundColor(IndexedColors.PALE_BLUE.getIndex());
-            headerStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-            Font font = workbook.createFont();
-            font.setBold(true);
-            headerStyle.setFont(font);
+            CellStyle headerStyle = createHeaderStyle(workbook);
             Row header = data.createRow(0);
+            header.setHeightInPoints(34);
             for (int i = 0; i < headers.length; i++)
             {
                 Cell cell = header.createCell(i);
                 cell.setCellValue(headers[i]);
                 cell.setCellStyle(headerStyle);
-                data.setColumnWidth(i, Math.max(14, headers[i].length() + 4) * 256);
             }
+            setTemplateColumnWidths(data, docType, headers);
+            styleTemplateInputRows(workbook, data, docType, headers);
             if ("PURCHASE_IN".equals(docType))
             {
                 Sheet options = workbook.createSheet("模板选项");
@@ -124,27 +124,12 @@ public class JewelryDocumentExcelService
                     "SpecificationOptions", "'模板选项'!$B$1:$B$2", "规格类型",
                     "请选择精品或普通");
                 workbook.setSheetHidden(workbook.getSheetIndex(options), true);
-                Integer imageColumn = findHeader(headers, IMAGE_HEADER);
-                if (imageColumn != null)
-                {
-                    data.setColumnWidth(imageColumn, 18 * 256);
-                    for (int i = 1; i <= 20; i++)
-                    {
-                        Row imageRow = data.getRow(i);
-                        if (imageRow == null) imageRow = data.createRow(i);
-                        imageRow.setHeightInPoints(72);
-                    }
-                }
             }
             data.createFreezePane(0, 1);
+            data.setDisplayGridlines(false);
 
             Sheet guide = workbook.createSheet("填写说明");
-            String[] guideRows = guide(docType);
-            for (int i = 0; i < guideRows.length; i++)
-            {
-                guide.createRow(i).createCell(0).setCellValue(guideRows[i]);
-            }
-            guide.setColumnWidth(0, 90 * 256);
+            styleGuideSheet(workbook, guide, docType);
             workbook.write(output);
             return output.toByteArray();
         }
@@ -456,6 +441,110 @@ public class JewelryDocumentExcelService
             "每一行都必须填写调整原因。", "单次最多500行，禁止重复SKU。" };
     }
 
+    private CellStyle createHeaderStyle(Workbook workbook)
+    {
+        CellStyle style = workbook.createCellStyle();
+        style.setFillForegroundColor(IndexedColors.DARK_BLUE.getIndex());
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        style.setAlignment(HorizontalAlignment.CENTER);
+        style.setVerticalAlignment(VerticalAlignment.CENTER);
+        style.setWrapText(true);
+        style.setBorderBottom(BorderStyle.MEDIUM);
+        style.setBottomBorderColor(IndexedColors.DARK_BLUE.getIndex());
+        Font font = workbook.createFont();
+        font.setFontName("微软雅黑");
+        font.setFontHeightInPoints((short) 11);
+        font.setBold(true);
+        font.setColor(IndexedColors.WHITE.getIndex());
+        style.setFont(font);
+        return style;
+    }
+
+    private void setTemplateColumnWidths(Sheet data, String docType, String[] headers)
+    {
+        int[] widths;
+        if ("PURCHASE_IN".equals(docType))
+            widths = new int[] { 18, 28, 24, 18, 24, 12, 12, 16, 20 };
+        else if ("SALES_OUT".equals(docType))
+            widths = new int[] { 20, 12, 16, 16, 16, 16 };
+        else
+            widths = new int[] { 20, 14, 36 };
+        for (int i = 0; i < headers.length; i++)
+            data.setColumnWidth(i, widths[Math.min(i, widths.length - 1)] * 256);
+    }
+
+    private void styleTemplateInputRows(Workbook workbook, Sheet data, String docType, String[] headers)
+    {
+        Font bodyFont = workbook.createFont();
+        bodyFont.setFontName("微软雅黑");
+        bodyFont.setFontHeightInPoints((short) 10);
+
+        CellStyle textStyle = createInputStyle(workbook, bodyFont, HorizontalAlignment.LEFT);
+        CellStyle centerStyle = createInputStyle(workbook, bodyFont, HorizontalAlignment.CENTER);
+        CellStyle quantityStyle = createInputStyle(workbook, bodyFont, HorizontalAlignment.RIGHT);
+        quantityStyle.setDataFormat(workbook.createDataFormat().getFormat("#,##0"));
+        CellStyle moneyStyle = createInputStyle(workbook, bodyFont, HorizontalAlignment.RIGHT);
+        moneyStyle.setDataFormat(workbook.createDataFormat().getFormat("#,##0.00"));
+
+        for (int rowIndex = 1; rowIndex <= 20; rowIndex++)
+        {
+            Row row = data.createRow(rowIndex);
+            row.setHeightInPoints("PURCHASE_IN".equals(docType) ? 36 : 25);
+            for (int column = 0; column < headers.length; column++)
+            {
+                Cell cell = row.createCell(column);
+                String header = headers[column];
+                if ("数量".equals(header) || "实盘数量".equals(header)) cell.setCellStyle(quantityStyle);
+                else if ("采购单价".equals(header) || header.contains("费/件") || "成交单价".equals(header))
+                    cell.setCellStyle(moneyStyle);
+                else if ("商品类型（新商品必填）".equals(header) || "规格类型（新商品必填）".equals(header)
+                    || "单位".equals(header) || IMAGE_HEADER.equals(header)) cell.setCellStyle(centerStyle);
+                else cell.setCellStyle(textStyle);
+            }
+        }
+    }
+
+    private CellStyle createInputStyle(Workbook workbook, Font font, HorizontalAlignment alignment)
+    {
+        CellStyle style = workbook.createCellStyle();
+        style.setFont(font);
+        style.setAlignment(alignment);
+        style.setVerticalAlignment(VerticalAlignment.CENTER);
+        style.setBorderBottom(BorderStyle.THIN);
+        style.setBottomBorderColor(IndexedColors.GREY_25_PERCENT.getIndex());
+        style.setBorderLeft(BorderStyle.THIN);
+        style.setLeftBorderColor(IndexedColors.GREY_25_PERCENT.getIndex());
+        style.setBorderRight(BorderStyle.THIN);
+        style.setRightBorderColor(IndexedColors.GREY_25_PERCENT.getIndex());
+        return style;
+    }
+
+    private void styleGuideSheet(Workbook workbook, Sheet guide, String docType)
+    {
+        guide.setDisplayGridlines(false);
+        guide.setColumnWidth(0, 90 * 256);
+        Row title = guide.createRow(0);
+        title.setHeightInPoints(30);
+        Cell titleCell = title.createCell(0);
+        titleCell.setCellValue("PURCHASE_IN".equals(docType) ? "采购入库模板填写说明" : "Excel导入模板填写说明");
+        titleCell.setCellStyle(createHeaderStyle(workbook));
+
+        Font guideFont = workbook.createFont();
+        guideFont.setFontName("微软雅黑");
+        guideFont.setFontHeightInPoints((short) 11);
+        CellStyle guideStyle = createInputStyle(workbook, guideFont, HorizontalAlignment.LEFT);
+        guideStyle.setWrapText(true);
+        String[] guideRows = guide(docType);
+        for (int i = 0; i < guideRows.length; i++)
+        {
+            Row row = guide.createRow(i + 1);
+            row.setHeightInPoints(guideRows[i].length() > 40 ? 44 : 28);
+            Cell cell = row.createCell(0);
+            cell.setCellValue((i + 1) + ". " + guideRows[i]);
+            cell.setCellStyle(guideStyle);
+        }
+    }
+
     private void requireSupported(String docType)
     {
         if (!SUPPORTED_TYPES.contains(docType)) throw new ServiceException("当前单据类型暂不支持Excel导入");
@@ -481,20 +570,10 @@ public class JewelryDocumentExcelService
         DataValidation validation = helper.createValidation(constraint, addressList);
         validation.setSuppressDropDownArrow(true);
         validation.setShowErrorBox(true);
-        validation.setShowPromptBox(true);
-        validation.createPromptBox(promptTitle, promptText);
+        validation.setShowPromptBox(false);
         validation.createErrorBox(promptTitle + "不正确", promptText);
         data.addValidationData(validation);
 
-        CellStyle style = workbook.createCellStyle();
-        style.setFillForegroundColor(IndexedColors.LIGHT_YELLOW.getIndex());
-        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        for (int rowIndex = 1; rowIndex <= 20; rowIndex++)
-        {
-            Row row = data.getRow(rowIndex);
-            if (row == null) row = data.createRow(rowIndex);
-            row.createCell(column).setCellStyle(style);
-        }
     }
 
     private String normalizeProductType(String value)

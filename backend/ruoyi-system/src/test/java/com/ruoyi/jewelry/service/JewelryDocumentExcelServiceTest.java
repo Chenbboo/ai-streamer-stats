@@ -1,6 +1,7 @@
 package com.ruoyi.jewelry.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
@@ -20,6 +21,8 @@ import javax.imageio.ImageIO;
 
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.FillPatternType;
+import org.apache.poi.ss.usermodel.HorizontalAlignment;
 import org.apache.poi.ss.usermodel.IndexedColors;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -66,11 +69,22 @@ class JewelryDocumentExcelServiceTest
                 sheet.getDataValidations().get(1).getValidationConstraint().getFormula1());
             assertTrue(sheet.getDataValidations().get(0).getSuppressDropDownArrow());
             assertTrue(sheet.getDataValidations().get(1).getSuppressDropDownArrow());
+            assertFalse(sheet.getDataValidations().get(0).getShowPromptBox());
+            assertFalse(sheet.getDataValidations().get(1).getShowPromptBox());
             assertTrue(workbook.isSheetHidden(workbook.getSheetIndex("模板选项")));
-            assertEquals(IndexedColors.LIGHT_YELLOW.getIndex(),
-                sheet.getRow(1).getCell(2).getCellStyle().getFillForegroundColor());
-            assertEquals(IndexedColors.LIGHT_YELLOW.getIndex(),
-                sheet.getRow(1).getCell(4).getCellStyle().getFillForegroundColor());
+            assertEquals(IndexedColors.DARK_BLUE.getIndex(),
+                sheet.getRow(0).getCell(0).getCellStyle().getFillForegroundColor());
+            assertEquals(IndexedColors.WHITE.getIndex(),
+                workbook.getFontAt(sheet.getRow(0).getCell(0).getCellStyle().getFontIndex()).getColor());
+            assertEquals(34f, sheet.getRow(0).getHeightInPoints(), 0.1f);
+            assertEquals(36f, sheet.getRow(1).getHeightInPoints(), 0.1f);
+            assertEquals(24 * 256, sheet.getColumnWidth(2));
+            assertEquals(FillPatternType.NO_FILL, sheet.getRow(1).getCell(2).getCellStyle().getFillPattern());
+            assertEquals(HorizontalAlignment.CENTER, sheet.getRow(1).getCell(2).getCellStyle().getAlignment());
+            assertFalse(sheet.isDisplayGridlines());
+            assertFalse(((XSSFSheet) sheet).getCTWorksheet().isSetAutoFilter());
+            assertEquals("采购入库模板填写说明", workbook.getSheet("填写说明").getRow(0).getCell(0).getStringCellValue());
+            assertEquals(44f, workbook.getSheet("填写说明").getRow(3).getHeightInPoints(), 0.1f);
             Sheet options = workbook.getSheet("模板选项");
             assertEquals("成品商品", options.getRow(0).getCell(0).getStringCellValue());
             assertEquals("福利商品", options.getRow(3).getCell(0).getStringCellValue());
