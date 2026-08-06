@@ -146,6 +146,9 @@ create table if not exists jewelry_document_item (
   pack_fee decimal(18,6) not null default 0,
   ship_fee decimal(18,6) not null default 0,
   cert_fee decimal(18,6) not null default 0,
+  other_fee1 decimal(18,6) not null default 0 comment '其他费用1/件',
+  other_fee2 decimal(18,6) not null default 0 comment '其他费用2/件',
+  other_fee3 decimal(18,6) not null default 0 comment '其他费用3/件',
   amount decimal(20,2) not null default 0,
   cost_amount decimal(20,2) not null default 0,
   profit_amount decimal(20,2) not null default 0,
@@ -153,6 +156,7 @@ create table if not exists jewelry_document_item (
   line_reason varchar(255) default '',
   primary key (item_id),
   key idx_jewelry_document_product (document_id, product_id),
+  key idx_jewelry_item_product_document (product_id, document_id),
   key idx_jewelry_item_bundle (document_id, bundle_group_no, sale_role),
   key idx_jewelry_item_source (source_item_id)
 ) engine=InnoDB default charset=utf8mb4 comment='珠宝ERP单据明细';

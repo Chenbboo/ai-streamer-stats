@@ -42,6 +42,8 @@ public interface JewelryErpMapper
     JewelryDocument selectDocumentByIdForUpdate(Long documentId);
     int countReversalBySource(Long sourceDocumentId);
     int countActiveCustomerReturnsBySource(Long sourceDocumentId);
+    int countPendingCostChangesByProduct(Long productId);
+    int countPendingPurchasesByProduct(Long productId);
     int selectReturnedQtyBySourceItem(@Param("sourceItemId") Long sourceItemId,
         @Param("excludeDocumentId") Long excludeDocumentId);
     int selectInspectedQtyBySourceItem(@Param("sourceItemId") Long sourceItemId,
@@ -58,6 +60,7 @@ public interface JewelryErpMapper
     int deleteDraftDocument(@Param("documentId") Long documentId, @Param("creatorUserId") Long creatorUserId);
     int insertDocumentItem(JewelryDocumentItem item);
     int updateDocumentItemCost(JewelryDocumentItem item);
+    int updateCostAdjustmentPostedItem(JewelryDocumentItem item);
     int updateDocumentStatus(@Param("documentId") Long documentId, @Param("fromStatus") String fromStatus,
         @Param("toStatus") String toStatus, @Param("userId") Long userId, @Param("userName") String userName,
         @Param("reason") String reason, @Param("stage") Integer stage);

@@ -249,6 +249,21 @@ class JewelryErpServiceImplTest
     }
 
     @Test
+    void salesRiskAssessmentRejectsNegativeOtherFee()
+    {
+        JewelryDocument sales = document(null, "SALES_OUT", "DRAFT");
+        sales.setSalesChannel("douyin");
+        JewelryDocumentItem salesItem = item(null, 1, "500.00");
+        salesItem.setOtherFee2(decimal("-0.01"));
+        sales.setItems(Arrays.asList(salesItem));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.assessDocumentRisk(sales));
+
+        assertTrue(error.getMessage().contains("其他2不能小于0"));
+    }
+
+    @Test
     void salesRiskAssessmentRejectsCombinedRatesAtOneHundredPercent()
     {
         JewelryDocument sales = document(null, "SALES_OUT", "DRAFT");
@@ -297,14 +312,18 @@ class JewelryErpServiceImplTest
         input.put("packFee", "5.00");
         input.put("shipFee", "8.00");
         input.put("certFee", "2.00");
+        input.put("otherFee1", "1.00");
+        input.put("otherFee2", "2.00");
+        input.put("otherFee3", "3.00");
         input.put("platformRate", "5");
         input.put("commissionRate", "20");
         input.put("taxRate", "1");
 
         Map<String, Object> result = service.calculateProfit(input);
 
-        assertMoney("425.00", (BigDecimal) result.get("profit"));
-        assertMoney("850.00", (BigDecimal) result.get("totalProfit"));
+        assertMoney("419.00", (BigDecimal) result.get("profit"));
+        assertMoney("838.00", (BigDecimal) result.get("totalProfit"));
+        assertMoney("21.00", (BigDecimal) result.get("fixedFees"));
         assertEquals(8, result.get("availableQty"));
         assertEquals(6, result.get("remainingQty"));
     }
@@ -383,6 +402,9 @@ class JewelryErpServiceImplTest
         item.setPackFee(decimal("5.00"));
         item.setShipFee(decimal("8.00"));
         item.setCertFee(decimal("2.00"));
+        item.setOtherFee1(decimal("1.00"));
+        item.setOtherFee2(decimal("2.00"));
+        item.setOtherFee3(decimal("3.00"));
         stubDocument(document, item);
         when(mapper.selectStockForUpdate(PRODUCT_ID)).thenReturn(stock(10, 2, 0, 0, 0, 0, "300.00", "0", "0"));
 
@@ -390,9 +412,9 @@ class JewelryErpServiceImplTest
 
         verify(mapper).applyStock(eq(PRODUCT_ID), eq(8), eq(0), eq(0), eq(0), eq(0), eq(0),
             decimalEq("300.00"), decimalEq("0"), decimalEq("0"));
-        assertMoney("630.00", item.getCostAmount());
-        assertMoney("850.00", item.getProfitAmount());
-        assertMoney("850.00", document.getTotalProfit());
+        assertMoney("642.00", item.getCostAmount());
+        assertMoney("838.00", item.getProfitAmount());
+        assertMoney("838.00", document.getTotalProfit());
     }
 
     @Test
@@ -695,10 +717,30 @@ class JewelryErpServiceImplTest
         stubDocument(document, item);
         when(mapper.selectStockForUpdate(PRODUCT_ID)).thenReturn(stock(10, 0, 0, 0, 0, 0, "300.00", "0", "0"));
 
-        service.approve(121L, "", null, REVIEWER_TWO_ID, "reviewer2");
+        service.approve(121L, "", null, REVIEWER_TWO_ID, "admin", "jewelry_admin");
 
         verify(mapper).applyStock(eq(PRODUCT_ID), eq(12), eq(0), eq(0), eq(0), eq(0), eq(0),
             decimalEq("316.666667"), decimalEq("0"), decimalEq("0"));
+    }
+
+    @Test
+    void reviewerApprovalMovesStockAdjustmentToAdministratorReviewWithoutPosting()
+    {
+        JewelryDocument document = document(122L, "STOCK_ADJUST", "PENDING_FIRST");
+        JewelryDocumentItem item = item(222L, 2, "0");
+        item.setSystemQty(10);
+        item.setCountedQty(12);
+        item.setAdjustmentQty(2);
+        item.setUnitCost(decimal("400.00"));
+        stubDocument(document, item);
+
+        service.approve(122L, "盘点无误", null, REVIEWER_ONE_ID, "reviewer", "jewelry_reviewer");
+
+        verify(mapper).updateDocumentStatus(122L, "PENDING_FIRST", "PENDING_SECOND",
+            REVIEWER_ONE_ID, "reviewer", null, 1);
+        verify(mapper).insertApproval(122L, 1, "PASS", REVIEWER_ONE_ID, "reviewer", "盘点无误");
+        verify(mapper, never()).applyStock(anyLong(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(),
+            any(), any(), any());
     }
 
     @Test
@@ -1341,6 +1383,157 @@ class JewelryErpServiceImplTest
         verify(mapper, never()).upsertStockWarningDays(anyInt(), anyString());
     }
 
+    @Test
+    void savingCostAdjustmentSnapshotsCurrentInventoryAndAverageCost()
+    {
+        JewelryDocument document = document(null, "COST_ADJUST", "DRAFT");
+        document.setReturnReason("修正历史采购成本");
+        JewelryDocumentItem item = item(null, 1, "120.00");
+        document.setItems(Arrays.asList(item));
+        when(mapper.insertDocument(document)).thenAnswer(invocation -> {
+            document.setDocumentId(401L);
+            return 1;
+        });
+        when(mapper.selectDocumentById(401L)).thenReturn(document);
+        when(mapper.selectDocumentItems(401L)).thenReturn(Arrays.asList(item));
+
+        JewelryDocument saved = service.saveDocument(document, MAKER_ID, "maker");
+
+        assertEquals("COST_ADJUST", saved.getDocType());
+        assertEquals(10, item.getSystemQty());
+        assertEquals(10, item.getQty());
+        assertMoney("100.00", item.getUnitCost());
+        assertMoney("120.00", item.getUnitPrice());
+        assertMoney("200.00", item.getAmount());
+        assertMoney("1200.00", item.getCostAmount());
+        assertMoney("200.00", document.getTotalAmount());
+        assertMoney("1200.00", document.getTotalCost());
+    }
+
+    @Test
+    void reviewerApprovalMovesCostAdjustmentToAdministratorReviewWithoutPosting()
+    {
+        JewelryDocument document = document(402L, "COST_ADJUST", "PENDING_FIRST");
+        document.setReturnReason("修正成本");
+        JewelryDocumentItem item = item(4021L, 10, "120.00");
+        item.setSystemQty(10);
+        item.setUnitCost(decimal("100.00"));
+        stubDocument(document, item);
+
+        service.approve(402L, "初审通过", null, REVIEWER_ONE_ID, "reviewer", "jewelry_reviewer");
+
+        verify(mapper).updateDocumentStatus(402L, "PENDING_FIRST", "PENDING_SECOND",
+            REVIEWER_ONE_ID, "reviewer", null, 1);
+        verify(mapper).insertApproval(402L, 1, "PASS", REVIEWER_ONE_ID, "reviewer", "初审通过");
+        verify(mapper, never()).applyStock(anyLong(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(),
+            any(), any(), any());
+    }
+
+    @Test
+    void administratorApprovalPostsCostAdjustmentWithoutChangingQuantity()
+    {
+        JewelryDocument document = document(403L, "COST_ADJUST", "PENDING_SECOND");
+        document.setFirstReviewerUserId(REVIEWER_ONE_ID);
+        JewelryDocumentItem item = item(4031L, 10, "120.00");
+        item.setSystemQty(10);
+        item.setUnitCost(decimal("100.00"));
+        stubDocument(document, item);
+
+        service.approve(403L, "复核通过", null, REVIEWER_TWO_ID, "admin", "jewelry_admin");
+
+        verify(mapper).applyStock(eq(PRODUCT_ID), eq(10), eq(0), eq(0), eq(0), eq(0), eq(0),
+            decimalEq("120.00"), decimalEq("0"), decimalEq("0"));
+        verify(mapper).updateDocumentStatus(403L, "PENDING_SECOND", "POSTED",
+            REVIEWER_TWO_ID, "admin", null, 2);
+        verify(mapper).insertApproval(403L, 2, "PASS", REVIEWER_TWO_ID, "admin", "复核通过");
+        assertEquals(10, item.getQty());
+        assertMoney("200.00", item.getAmount());
+        assertMoney("1200.00", item.getCostAmount());
+        ArgumentCaptor<Map<String, Object>> transaction = ArgumentCaptor.forClass(Map.class);
+        verify(mapper).insertStockTransaction(transaction.capture());
+        assertEquals("COST_ADJUST", transaction.getValue().get("transactionType"));
+        assertEquals(0, transaction.getValue().get("onHandChange"));
+        assertMoney("200.00", (BigDecimal) transaction.getValue().get("costAmountChange"));
+    }
+
+    @Test
+    void costAdjustmentEnforcesApprovalRolesAndDifferentApprovers()
+    {
+        JewelryDocument firstStage = document(404L, "COST_ADJUST", "PENDING_FIRST");
+        JewelryDocumentItem firstItem = item(4041L, 10, "120.00");
+        firstItem.setUnitCost(decimal("100.00"));
+        stubDocument(firstStage, firstItem);
+
+        ServiceException firstError = assertThrows(ServiceException.class,
+            () -> service.approve(404L, "", null, REVIEWER_TWO_ID, "admin", "jewelry_admin"));
+        assertTrue(firstError.getMessage().contains("必须先由审核员审核"));
+
+        JewelryDocument secondStage = document(405L, "COST_ADJUST", "PENDING_SECOND");
+        secondStage.setFirstReviewerUserId(REVIEWER_ONE_ID);
+        JewelryDocumentItem secondItem = item(4051L, 10, "120.00");
+        secondItem.setUnitCost(decimal("100.00"));
+        stubDocument(secondStage, secondItem);
+
+        ServiceException secondError = assertThrows(ServiceException.class,
+            () -> service.approve(405L, "", null, REVIEWER_ONE_ID, "reviewer", "jewelry_admin"));
+        assertTrue(secondError.getMessage().contains("不能由同一人完成"));
+    }
+
+    @Test
+    void purchaseSubmissionIsBlockedWhileSkuHasPendingCostAdjustment()
+    {
+        JewelryDocument purchase = document(406L, "PURCHASE_IN", "DRAFT");
+        purchase.setSupplierId(1L);
+        JewelryDocumentItem item = item(4061L, 2, "90.00");
+        stubDocument(purchase, item);
+        when(mapper.countPendingCostChangesByProduct(PRODUCT_ID)).thenReturn(1);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.submit(406L, MAKER_ID, "maker"));
+
+        assertTrue(error.getMessage().contains("正在进行库存成本调价"));
+        verify(mapper, never()).updateDocumentStatus(eq(406L), anyString(), anyString(), anyLong(), anyString(),
+            any(), any());
+    }
+
+    @Test
+    void costAdjustmentSubmissionIsBlockedWhileSkuHasPendingPurchase()
+    {
+        JewelryDocument adjustment = document(407L, "COST_ADJUST", "DRAFT");
+        adjustment.setReturnReason("修正成本");
+        JewelryDocumentItem item = item(4071L, 10, "120.00");
+        item.setSystemQty(10);
+        item.setUnitCost(decimal("100.00"));
+        stubDocument(adjustment, item);
+        when(mapper.countPendingPurchasesByProduct(PRODUCT_ID)).thenReturn(1);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.submit(407L, MAKER_ID, "maker"));
+
+        assertTrue(error.getMessage().contains("存在待审核采购入库单"));
+        verify(mapper, never()).updateDocumentStatus(eq(407L), anyString(), anyString(), anyLong(), anyString(),
+            any(), any());
+    }
+
+    @Test
+    void finalCostAdjustmentApprovalFailsWhenAverageCostChanged()
+    {
+        JewelryDocument document = document(408L, "COST_ADJUST", "PENDING_SECOND");
+        document.setFirstReviewerUserId(REVIEWER_ONE_ID);
+        JewelryDocumentItem item = item(4081L, 10, "120.00");
+        item.setUnitCost(decimal("100.00"));
+        stubDocument(document, item);
+        when(mapper.selectStockForUpdate(PRODUCT_ID))
+            .thenReturn(stock(10, 0, 0, 0, 0, 0, "105.00", "0", "0"));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.approve(408L, "", null, REVIEWER_TWO_ID, "admin", "jewelry_admin"));
+
+        assertTrue(error.getMessage().contains("平均成本已变化"));
+        verify(mapper, never()).applyStock(anyLong(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(),
+            any(), any(), any());
+    }
+
     private void stubDocument(JewelryDocument document, JewelryDocumentItem item)
     {
         when(mapper.selectDocumentById(document.getDocumentId())).thenReturn(document);
@@ -1378,6 +1571,9 @@ class JewelryErpServiceImplTest
         item.setPackFee(BigDecimal.ZERO);
         item.setShipFee(BigDecimal.ZERO);
         item.setCertFee(BigDecimal.ZERO);
+        item.setOtherFee1(BigDecimal.ZERO);
+        item.setOtherFee2(BigDecimal.ZERO);
+        item.setOtherFee3(BigDecimal.ZERO);
         item.setAmount(decimal(unitPrice).multiply(BigDecimal.valueOf(qty)));
         item.setCostAmount(BigDecimal.ZERO);
         item.setProfitAmount(BigDecimal.ZERO);

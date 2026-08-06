@@ -29,6 +29,9 @@ public class JewelryDocumentItem
     private BigDecimal packFee;
     private BigDecimal shipFee;
     private BigDecimal certFee;
+    private BigDecimal otherFee1;
+    private BigDecimal otherFee2;
+    private BigDecimal otherFee3;
     private BigDecimal amount;
     private BigDecimal costAmount;
     private BigDecimal profitAmount;
@@ -85,6 +88,12 @@ public class JewelryDocumentItem
     public void setShipFee(BigDecimal shipFee) { this.shipFee = shipFee; }
     public BigDecimal getCertFee() { return certFee; }
     public void setCertFee(BigDecimal certFee) { this.certFee = certFee; }
+    public BigDecimal getOtherFee1() { return otherFee1; }
+    public void setOtherFee1(BigDecimal otherFee1) { this.otherFee1 = otherFee1; }
+    public BigDecimal getOtherFee2() { return otherFee2; }
+    public void setOtherFee2(BigDecimal otherFee2) { this.otherFee2 = otherFee2; }
+    public BigDecimal getOtherFee3() { return otherFee3; }
+    public void setOtherFee3(BigDecimal otherFee3) { this.otherFee3 = otherFee3; }
     public BigDecimal getAmount() { return amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
     public BigDecimal getCostAmount() { return costAmount; }

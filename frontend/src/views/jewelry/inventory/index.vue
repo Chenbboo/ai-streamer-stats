@@ -26,9 +26,11 @@
       <el-table-column prop="bizDate" label="盘点日期" width="110" />
       <el-table-column prop="totalQty" label="差异件数" width="100" align="right" />
       <el-table-column prop="creatorName" label="制单人" width="110" />
+      <el-table-column label="审核员" width="110"><template #default="{ row }">{{ row.firstReviewerName || '—' }}</template></el-table-column>
+      <el-table-column label="管理员" width="110"><template #default="{ row }">{{ row.secondReviewerName || '—' }}</template></el-table-column>
       <el-table-column label="状态" width="110">
         <template #default="{ row }">
-          <el-tag :type="statusType(row.status)">{{ labelOfStatus(row.status) }}</el-tag>
+          <el-tag :type="statusType(row.status)">{{ documentStatusLabel(row) }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="remark" label="盘点说明" min-width="180" show-overflow-tooltip />
@@ -99,7 +101,7 @@
 
       <el-alert
         v-if="!readonly"
-        title="系统只保存存在差异的商品；提交后如账面库存发生变化，需要重新编辑并确认盘点结果。"
+        title="系统只保存存在差异的商品；提交后先由审核员初审，再由管理员复核，复核通过后才调整库存。审批中如账面库存发生变化，需要重新编辑盘点结果。"
         type="info"
         :closable="false"
         show-icon
@@ -216,6 +218,8 @@ const summary = computed(() => form.items.reduce((result, item) => {
 }, { gain: 0, loss: 0, net: 0, lines: 0 }))
 
 const labelOfStatus = value => statuses.find(item => item.value === value)?.label || value
+const documentStatusLabel = row => row.status === 'PENDING_SECOND' ? '待管理员复核'
+  : row.status === 'PENDING_FIRST' ? '待审核员审核' : labelOfStatus(row.status)
 const statusType = value => value === 'POSTED' ? 'success'
   : ['REJECTED', 'REVERSED'].includes(value) ? 'danger'
     : value === 'DRAFT' ? 'info' : 'warning'

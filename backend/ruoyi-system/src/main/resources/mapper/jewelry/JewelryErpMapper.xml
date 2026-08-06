@@ -18,6 +18,7 @@
         <result property="taxRate" column="tax_rate"/>
         <result property="returnReason" column="return_reason"/>
         <result property="sourceDocumentId" column="source_document_id"/>
+        <result property="sourceDocType" column="source_doc_type"/>
         <result property="unlinkedReason" column="unlinked_reason"/>
         <result property="actualRefundAmount" column="actual_refund_amount"/>
         <result property="totalQty" column="total_qty"/>
@@ -66,6 +67,9 @@
         <result property="packFee" column="pack_fee"/>
         <result property="shipFee" column="ship_fee"/>
         <result property="certFee" column="cert_fee"/>
+        <result property="otherFee1" column="other_fee1"/>
+        <result property="otherFee2" column="other_fee2"/>
+        <result property="otherFee3" column="other_fee3"/>
         <result property="amount" column="amount"/>
         <result property="costAmount" column="cost_amount"/>
         <result property="profitAmount" column="profit_amount"/>
@@ -361,20 +365,25 @@
     </select>
 
     <select id="selectDocumentList" resultMap="documentMap">
-        select * from jewelry_document
+        select d.*,src.doc_type source_doc_type
+        from jewelry_document d
+        left join jewelry_document src on src.document_id=d.source_document_id
         <where>
-            <if test="docNo != null and docNo != ''">and doc_no like concat('%',#{docNo},'%')</if>
-            <if test="docType != null and docType != ''">and doc_type=#{docType}</if>
+            <if test="docNo != null and docNo != ''">and d.doc_no like concat('%',#{docNo},'%')</if>
+            <if test="docType != null and docType != ''">and d.doc_type=#{docType}</if>
             <choose>
-                <when test="status == 'PENDING'">and status in ('PENDING_FIRST','PENDING_SECOND')</when>
-                <when test="status != null and status != ''">and status=#{status}</when>
+                <when test="status == 'PENDING'">and d.status in ('PENDING_FIRST','PENDING_SECOND')</when>
+                <when test="status != null and status != ''">and d.status=#{status}</when>
             </choose>
-            <if test="creatorUserId != null">and creator_user_id=#{creatorUserId}</if>
+            <if test="creatorUserId != null">and d.creator_user_id=#{creatorUserId}</if>
         </where>
-        order by document_id desc
+        order by d.document_id desc
     </select>
     <select id="selectDocumentById" resultMap="documentMap">
-        select * from jewelry_document where document_id=#{documentId}
+        select d.*,src.doc_type source_doc_type
+        from jewelry_document d
+        left join jewelry_document src on src.document_id=d.source_document_id
+        where d.document_id=#{documentId}
     </select>
     <select id="selectDocumentByIdForUpdate" resultMap="documentMap">
         select * from jewelry_document where document_id=#{documentId} for update
@@ -386,6 +395,23 @@
         select count(*) from jewelry_document
         where doc_type='CUSTOMER_RETURN' and source_document_id=#{sourceDocumentId}
           and status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
+    </select>
+    <select id="countPendingCostChangesByProduct" resultType="int">
+        select count(*)
+        from jewelry_document d
+        join jewelry_document_item i on i.document_id=d.document_id
+        left join jewelry_document src on src.document_id=d.source_document_id
+        where i.product_id=#{productId}
+          and d.status in ('PENDING_FIRST','PENDING_SECOND')
+          and (d.doc_type='COST_ADJUST' or (d.doc_type='REVERSAL' and src.doc_type='COST_ADJUST'))
+    </select>
+    <select id="countPendingPurchasesByProduct" resultType="int">
+        select count(*)
+        from jewelry_document d
+        join jewelry_document_item i on i.document_id=d.document_id
+        where i.product_id=#{productId}
+          and d.doc_type='PURCHASE_IN'
+          and d.status in ('PENDING_FIRST','PENDING_SECOND')
     </select>
     <select id="selectReturnedQtyBySourceItem" resultType="int">
         select coalesce(sum(i.qty),0)
@@ -470,16 +496,22 @@
         insert into jewelry_document_item(document_id,product_id,item_role,source_item_id,bundle_group_no,sale_role,pricing_mode,
           sku_snapshot,product_name_snapshot,product_type_snapshot,specification_snapshot,image_urls,
           qty,good_qty,defect_qty,system_qty,counted_qty,adjustment_qty,unit_price,unit_cost,pack_fee,ship_fee,
-          cert_fee,amount,cost_amount,profit_amount,profit_rate,line_reason)
+          cert_fee,other_fee1,other_fee2,other_fee3,amount,cost_amount,profit_amount,profit_rate,line_reason)
         values(#{documentId},#{productId},#{itemRole},#{sourceItemId},#{bundleGroupNo},#{saleRole},#{pricingMode},
           #{skuSnapshot},#{productNameSnapshot},#{productTypeSnapshot},#{specificationSnapshot},#{imageUrls},#{qty},#{goodQty},
           #{defectQty},#{systemQty},#{countedQty},#{adjustmentQty},#{unitPrice},#{unitCost},#{packFee},#{shipFee},
-          #{certFee},#{amount},#{costAmount},#{profitAmount},#{profitRate},#{lineReason})
+          #{certFee},#{otherFee1},#{otherFee2},#{otherFee3},#{amount},#{costAmount},#{profitAmount},#{profitRate},#{lineReason})
     </insert>
     <update id="updateDocumentItemCost">
         update jewelry_document_item set sale_role=#{saleRole},pricing_mode=#{pricingMode},
           product_type_snapshot=#{productTypeSnapshot},specification_snapshot=#{specificationSnapshot},
           unit_price=#{unitPrice},unit_cost=#{unitCost},pack_fee=#{packFee},ship_fee=#{shipFee},cert_fee=#{certFee},
+          other_fee1=#{otherFee1},other_fee2=#{otherFee2},other_fee3=#{otherFee3},
+          amount=#{amount},cost_amount=#{costAmount},profit_amount=#{profitAmount},profit_rate=#{profitRate}
+        where item_id=#{itemId}
+    </update>
+    <update id="updateCostAdjustmentPostedItem">
+        update jewelry_document_item set qty=#{qty},unit_price=#{unitPrice},unit_cost=#{unitCost},
           amount=#{amount},cost_amount=#{costAmount},profit_amount=#{profitAmount},profit_rate=#{profitRate}
         where item_id=#{itemId}
     </update>

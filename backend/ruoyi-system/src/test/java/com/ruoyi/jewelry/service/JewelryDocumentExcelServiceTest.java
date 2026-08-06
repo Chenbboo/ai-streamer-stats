@@ -44,6 +44,8 @@ class JewelryDocumentExcelServiceTest
 {
     private static final String[] PURCHASE_HEADERS = new String[] { "SKU", "商品名称（新商品必填）",
         "商品类型（新商品必填）", "分类", "规格类型（新商品必填）", "单位", "数量", "采购单价", "商品图片" };
+    private static final String[] SALES_HEADERS = new String[] { "SKU", "数量", "成交单价", "包装费/件",
+        "物流费/件", "鉴定费/件", "其他1/件", "其他2/件", "其他3/件" };
     private static final byte[] PNG = Base64.getDecoder().decode(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
 
@@ -98,14 +100,29 @@ class JewelryDocumentExcelServiceTest
     {
         when(mapper.selectProductList(any())).thenReturn(Collections.singletonList(product("SKU-1", 5, 1)));
 
-        Map<String, Object> result = service.preview("SALES_OUT", workbook(
-            new String[] { "SKU", "数量", "成交单价", "包装费/件", "物流费/件", "鉴定费/件" },
-            new Object[] { "SKU-1", 5, 1000, 0, 0, 0 }), false);
+        Map<String, Object> result = service.preview("SALES_OUT", workbook(SALES_HEADERS,
+            new Object[] { "SKU-1", 5, 1000, 0, 0, 0, 1, 2, 3 }), false);
 
         assertEquals(1, result.get("errorCount"));
         Map<String, Object> row = rows(result).get(0);
         assertEquals(4, row.get("availableQty"));
+        assertEquals(0, new BigDecimal("1").compareTo((BigDecimal) row.get("otherFee1")));
+        assertEquals(0, new BigDecimal("2").compareTo((BigDecimal) row.get("otherFee2")));
+        assertEquals(0, new BigDecimal("3").compareTo((BigDecimal) row.get("otherFee3")));
         assertTrue(String.valueOf(row.get("errorMessage")).contains("超过可用库存"));
+    }
+
+    @Test
+    void salesTemplateContainsOtherFeeColumns() throws Exception
+    {
+        try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(service.createTemplate("SALES_OUT"))))
+        {
+            XSSFSheet sheet = workbook.getSheet("导入数据");
+            for (int i = 0; i < SALES_HEADERS.length; i++)
+                assertEquals(SALES_HEADERS[i], sheet.getRow(0).getCell(i).getStringCellValue());
+            assertEquals(16 * 256, sheet.getColumnWidth(8));
+            assertEquals(HorizontalAlignment.RIGHT, sheet.getRow(1).getCell(8).getCellStyle().getAlignment());
+        }
     }
 
     @Test
@@ -193,10 +210,9 @@ class JewelryDocumentExcelServiceTest
     {
         when(mapper.selectProductList(any())).thenReturn(Collections.singletonList(product("SKU-1", 10, 0)));
 
-        Map<String, Object> result = service.preview("SALES_OUT", workbook(
-            new String[] { "SKU", "数量", "成交单价", "包装费/件", "物流费/件", "鉴定费/件" },
-            new Object[] { "SKU-1", 1, 1000, 0, 0, 0 },
-            new Object[] { "sku-1", 1, 1000, 0, 0, 0 }), false);
+        Map<String, Object> result = service.preview("SALES_OUT", workbook(SALES_HEADERS,
+            new Object[] { "SKU-1", 1, 1000, 0, 0, 0, 0, 0, 0 },
+            new Object[] { "sku-1", 1, 1000, 0, 0, 0, 0, 0, 0 }), false);
 
         assertEquals(2, result.get("errorCount"));
         assertTrue(rows(result).stream()

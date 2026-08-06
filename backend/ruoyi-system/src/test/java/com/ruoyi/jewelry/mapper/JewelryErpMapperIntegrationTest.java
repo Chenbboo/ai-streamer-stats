@@ -170,6 +170,31 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void pendingCostAdjustmentAndPurchaseQueriesAreScopedBySku()
+    {
+        insertDocument(1L, "COST-PENDING", "COST_ADJUST", "PENDING_FIRST", null);
+        insertDocument(2L, "COST-POSTED", "COST_ADJUST", "POSTED", null);
+        insertDocument(3L, "COST-REVERSAL", "REVERSAL", "PENDING_SECOND", 2L);
+        insertDocument(4L, "PURCHASE-PENDING", "PURCHASE_IN", "PENDING_FIRST", null);
+        insertDocument(5L, "COST-DRAFT", "COST_ADJUST", "DRAFT", null);
+        insertItem(101L, 1L, null, 10L, 1);
+        insertItem(102L, 3L, null, 11L, 1);
+        insertItem(103L, 4L, null, 12L, 1);
+        insertItem(104L, 5L, null, 13L, 1);
+
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            assertEquals(1, mapper.countPendingCostChangesByProduct(10L));
+            assertEquals(1, mapper.countPendingCostChangesByProduct(11L));
+            assertEquals(0, mapper.countPendingCostChangesByProduct(13L));
+            assertEquals(1, mapper.countPendingPurchasesByProduct(12L));
+            assertEquals(0, mapper.countPendingPurchasesByProduct(10L));
+            assertEquals("COST_ADJUST", mapper.selectDocumentById(3L).getSourceDocType());
+        }
+    }
+
+    @Test
     void returnedQuantityIgnoresRejectedDocumentsAndCanExcludeCurrentDraft()
     {
         insertDocument(1L, "SALE-1", "SALES_OUT", "POSTED", null);
@@ -311,6 +336,9 @@ class JewelryErpMapperIntegrationTest
         item.setPackFee(BigDecimal.ZERO);
         item.setShipFee(BigDecimal.ZERO);
         item.setCertFee(BigDecimal.ZERO);
+        item.setOtherFee1(new BigDecimal("1.00"));
+        item.setOtherFee2(new BigDecimal("2.00"));
+        item.setOtherFee3(new BigDecimal("3.00"));
         item.setAmount(BigDecimal.ZERO);
         item.setCostAmount(new BigDecimal("80.00"));
         item.setProfitAmount(new BigDecimal("-80.00"));
@@ -341,6 +369,9 @@ class JewelryErpMapperIntegrationTest
             assertEquals("INCLUDED", storedItem.getPricingMode());
             assertEquals("ACCESSORY", storedItem.getProductTypeSnapshot());
             assertEquals(0, storedItem.getUnitCost().compareTo(new BigDecimal("85.00")));
+            assertEquals(0, storedItem.getOtherFee1().compareTo(new BigDecimal("1.00")));
+            assertEquals(0, storedItem.getOtherFee2().compareTo(new BigDecimal("2.00")));
+            assertEquals(0, storedItem.getOtherFee3().compareTo(new BigDecimal("3.00")));
             assertEquals("普通", storedItem.getSpecificationSnapshot());
         }
     }
@@ -425,7 +456,9 @@ class JewelryErpMapperIntegrationTest
             + "system_qty int,counted_qty int,adjustment_qty int not null default 0,"
             + "unit_price decimal(18,6) not null default 0,unit_cost decimal(18,6) not null default 0,"
             + "pack_fee decimal(18,6) not null default 0,ship_fee decimal(18,6) not null default 0,"
-            + "cert_fee decimal(18,6) not null default 0,amount decimal(20,2) not null default 0,"
+            + "cert_fee decimal(18,6) not null default 0,other_fee1 decimal(18,6) not null default 0,"
+            + "other_fee2 decimal(18,6) not null default 0,other_fee3 decimal(18,6) not null default 0,"
+            + "amount decimal(20,2) not null default 0,"
             + "cost_amount decimal(20,2) not null default 0,profit_amount decimal(20,2) not null default 0,"
             + "profit_rate decimal(9,6) not null default 0,line_reason varchar(255) default '')");
         execute("create table jewelry_approval (approval_id bigint auto_increment primary key,document_id bigint not null)");

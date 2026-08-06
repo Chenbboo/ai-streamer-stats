@@ -49,10 +49,23 @@ select
   count(case when table_name='jewelry_document_item' and column_name='product_type_snapshot' then 1 end)=0
     as missing_jewelry_product_type_snapshot,
   count(case when table_name='jewelry_document_item' and column_name='specification_snapshot' then 1 end)=0
-    as missing_jewelry_specification_snapshot
+    as missing_jewelry_specification_snapshot,
+  count(case when table_name='jewelry_document_item' and column_name='other_fee1' then 1 end)=0
+    as missing_jewelry_other_fee1,
+  count(case when table_name='jewelry_document_item' and column_name='other_fee2' then 1 end)=0
+    as missing_jewelry_other_fee2,
+  count(case when table_name='jewelry_document_item' and column_name='other_fee3' then 1 end)=0
+    as missing_jewelry_other_fee3
 from information_schema.columns
 where table_schema=database()
   and table_name in ('jewelry_product','jewelry_document','jewelry_document_item');
+
+select
+  count(*)=0 as missing_jewelry_cost_adjustment_lock_index
+from information_schema.statistics
+where table_schema=database()
+  and table_name='jewelry_document_item'
+  and index_name='idx_jewelry_item_product_document';
 
 select 'invalid_jewelry_product_type' check_name, count(*) problem_rows
 from jewelry_product

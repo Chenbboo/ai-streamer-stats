@@ -28,7 +28,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(6);
     private static final Set<String> EDITABLE_DOCUMENT_TYPES = Collections.unmodifiableSet(
         new HashSet<String>(Arrays.asList("PURCHASE_IN", "SALES_OUT", "SUPPLIER_RETURN",
-            "CUSTOMER_RETURN", "RETURN_INSPECT", "STOCK_ADJUST", "ASSEMBLY")));
+            "CUSTOMER_RETURN", "RETURN_INSPECT", "STOCK_ADJUST", "COST_ADJUST", "ASSEMBLY")));
     private static final Set<String> PRODUCT_TYPES = Collections.unmodifiableSet(
         new HashSet<String>(Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE")));
     private static final Set<String> SPECIFICATION_TYPES = Collections.unmodifiableSet(
@@ -172,7 +172,11 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         BigDecimal packFee = nonNegativeDecimalValue(input.get("packFee"), "包装费");
         BigDecimal shipFee = nonNegativeDecimalValue(input.get("shipFee"), "物流费");
         BigDecimal certFee = nonNegativeDecimalValue(input.get("certFee"), "鉴定费");
-        BigDecimal fees = packFee.add(shipFee).add(certFee);
+        BigDecimal otherFee1 = nonNegativeDecimalValue(input.get("otherFee1"), "其他1");
+        BigDecimal otherFee2 = nonNegativeDecimalValue(input.get("otherFee2"), "其他2");
+        BigDecimal otherFee3 = nonNegativeDecimalValue(input.get("otherFee3"), "其他3");
+        BigDecimal fees = packFee.add(shipFee).add(certFee)
+            .add(otherFee1).add(otherFee2).add(otherFee3);
         BigDecimal platformRate = percentageValue(input.get("platformRate"), "平台扣点率");
         BigDecimal commissionRate = percentageValue(input.get("commissionRate"), "达人佣金率");
         BigDecimal taxRate = percentageValue(input.get("taxRate"), "税率");
@@ -216,6 +220,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         if ("STOCK_ADJUST".equals(document.getDocType()))
         {
             prepareStockAdjustment(document);
+        }
+        if ("COST_ADJUST".equals(document.getDocType()))
+        {
+            prepareCostAdjustment(document);
         }
         prepareInlineAssemblyOutput(document, userName);
         validateDocument(document);
@@ -488,6 +496,14 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         {
             validateStockAdjustmentSnapshot(document);
         }
+        if ("COST_ADJUST".equals(document.getDocType()))
+        {
+            validateCostAdjustmentSnapshot(document);
+        }
+        if ("PURCHASE_IN".equals(document.getDocType()) || isCostChangeDocument(document))
+        {
+            validateCostChangeConflicts(document);
+        }
         if ("ASSEMBLY".equals(document.getDocType()))
         {
             refreshAssemblyCosts(document, true, false);
@@ -518,7 +534,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
 
     @Override
     @Transactional
-    public void approve(Long documentId, String comment, BigDecimal expectedTotalCost, Long userId, String userName)
+    public void approve(Long documentId, String comment, BigDecimal expectedTotalCost, Long userId, String userName,
+        String approvalRole)
     {
         JewelryDocument document = getDocument(documentId);
         ensureReviewer(document, userId);
@@ -526,6 +543,26 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         if (!"PENDING_FIRST".equals(pendingStatus) && !"PENDING_SECOND".equals(pendingStatus))
         {
             throw new ServiceException("当前单据不在待审核状态");
+        }
+        boolean dualApproval = isDualApprovalDocument(document);
+        if (dualApproval)
+        {
+            ensureDualApprovalRole(document, pendingStatus, userId, approvalRole);
+            if ("STOCK_ADJUST".equals(document.getDocType())) validateStockAdjustmentSnapshot(document);
+            if ("COST_ADJUST".equals(document.getDocType())) validateCostAdjustmentSnapshot(document);
+            if (isCostChangeDocument(document)) validateCostChangeConflicts(document);
+            if ("PENDING_FIRST".equals(pendingStatus))
+            {
+                changeStatus(document, pendingStatus, "PENDING_SECOND", userId, userName, null, 1);
+                mapper.insertApproval(documentId, 1, "PASS", userId, userName, text(comment));
+                mapper.insertEvent(documentId, "APPROVE_FIRST", pendingStatus, "PENDING_SECOND",
+                    userId, userName, text(comment));
+                return;
+            }
+        }
+        else if ("PURCHASE_IN".equals(document.getDocType()))
+        {
+            validateCostChangeConflicts(document);
         }
         if ("ASSEMBLY".equals(document.getDocType()))
         {
@@ -557,7 +594,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
 
     @Override
     @Transactional
-    public void reject(Long documentId, String comment, Long userId, String userName)
+    public void reject(Long documentId, String comment, Long userId, String userName, String approvalRole)
     {
         JewelryDocument document = getDocument(documentId);
         ensureReviewer(document, userId);
@@ -569,6 +606,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         {
             throw new ServiceException("驳回原因不能为空");
         }
+        if (isDualApprovalDocument(document))
+            ensureDualApprovalRole(document, document.getStatus(), userId, approvalRole);
         int stage = "PENDING_FIRST".equals(document.getStatus()) ? 1 : 2;
         release(document);
         changeStatus(document, document.getStatus(), "REJECTED", userId, userName, comment, null);
@@ -594,6 +633,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         if (("SUPPLIER_RETURN".equals(document.getDocType()) || "CUSTOMER_RETURN".equals(document.getDocType()))
             && text(document.getReturnReason()).trim().isEmpty())
             throw new ServiceException("请填写退货原因");
+        if ("COST_ADJUST".equals(document.getDocType()) && text(document.getReturnReason()).trim().isEmpty())
+            throw new ServiceException("请填写调价原因");
         if ("CUSTOMER_RETURN".equals(document.getDocType()) && document.getSourceDocumentId() == null)
             throw new ServiceException("客户退货必须关联原销售单");
         Map<Long, JewelryDocumentItem> returnInspectionSourceItems = new HashMap<Long, JewelryDocumentItem>();
@@ -759,6 +800,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             validateNonNegative(item.getPackFee(), "包装费");
             validateNonNegative(item.getShipFee(), "物流费");
             validateNonNegative(item.getCertFee(), "鉴定费");
+            validateNonNegative(item.getOtherFee1(), "其他1");
+            validateNonNegative(item.getOtherFee2(), "其他2");
+            validateNonNegative(item.getOtherFee3(), "其他3");
             item.setGoodQty(nonNegative(item.getGoodQty()));
             item.setDefectQty(nonNegative(item.getDefectQty()));
             item.setAdjustmentQty(item.getAdjustmentQty() == null ? 0 : item.getAdjustmentQty());
@@ -772,6 +816,13 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     throw new ServiceException(item.getProductNameSnapshot() + " 盘盈时必须填写核定单位成本");
                 if (text(item.getLineReason()).isEmpty())
                     throw new ServiceException(item.getProductNameSnapshot() + " 必须填写调整原因");
+            }
+            if ("COST_ADJUST".equals(document.getDocType()))
+            {
+                if (item.getSystemQty() == null || item.getSystemQty() <= 0)
+                    throw new ServiceException(item.getProductNameSnapshot() + " 当前库存为0，不能调整库存成本");
+                if (money(item.getUnitPrice()).compareTo(money(item.getUnitCost())) == 0)
+                    throw new ServiceException(item.getProductNameSnapshot() + " 调整后平均成本与当前平均成本相同");
             }
             if (!"RETURN_INSPECT".equals(document.getDocType()) && !"STOCK_ADJUST".equals(document.getDocType())
                 && item.getQty() <= 0) throw new ServiceException("商品数量必须大于0");
@@ -819,6 +870,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 item.setPackFee(ZERO);
                 item.setShipFee(ZERO);
                 item.setCertFee(ZERO);
+                item.setOtherFee1(ZERO);
+                item.setOtherFee2(ZERO);
+                item.setOtherFee3(ZERO);
             }
             else if ("INCLUDED".equals(pricingMode)) item.setUnitPrice(ZERO);
         }
@@ -911,6 +965,11 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             calculateAssembly(document);
             return;
         }
+        if ("COST_ADJUST".equals(document.getDocType()))
+        {
+            calculateCostAdjustment(document);
+            return;
+        }
         int totalQty = 0;
         BigDecimal totalAmount = ZERO;
         BigDecimal totalCost = ZERO;
@@ -936,6 +995,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             BigDecimal financialPackFee = packFee;
             BigDecimal shipFee = money(item.getShipFee());
             BigDecimal certFee = money(item.getCertFee());
+            BigDecimal otherFee1 = money(item.getOtherFee1());
+            BigDecimal otherFee2 = money(item.getOtherFee2());
+            BigDecimal otherFee3 = money(item.getOtherFee3());
             if ("SALES_OUT".equals(document.getDocType()) && "MAIN".equals(normalizedSaleRole(item.getSaleRole())))
             {
                 BigDecimal accessoryCost = accessoryPackagingCosts.getOrDefault(item.getBundleGroupNo(), ZERO);
@@ -954,8 +1016,14 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 financialPackFee = ZERO;
             }
             BigDecimal fees = "SALES_OUT".equals(document.getDocType())
-                ? financialPackFee.add(shipFee).add(certFee)
+                ? financialPackFee.add(shipFee).add(certFee).add(otherFee1).add(otherFee2).add(otherFee3)
                 : customerReturn ? shipFee.multiply(BigDecimal.valueOf(2)).add(certFee) : ZERO;
+            if (!"SALES_OUT".equals(document.getDocType()))
+            {
+                otherFee1 = ZERO;
+                otherFee2 = ZERO;
+                otherFee3 = ZERO;
+            }
             if ("PURCHASE_IN".equals(document.getDocType()))
             {
                 cost = price;
@@ -990,6 +1058,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             }
             item.setUnitPrice(price); item.setUnitCost(cost); item.setPackFee(packFee);
             item.setShipFee(shipFee); item.setCertFee(certFee);
+            item.setOtherFee1(otherFee1); item.setOtherFee2(otherFee2); item.setOtherFee3(otherFee3);
             item.setAmount(amount.setScale(2, RoundingMode.HALF_UP));
             item.setCostAmount(costAmount.setScale(2, RoundingMode.HALF_UP));
             item.setProfitAmount(profit.setScale(2, RoundingMode.HALF_UP));
@@ -1249,7 +1318,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 item.setUnitCost(beforeAvg);
                 item.setCostAmount(beforeAvg.multiply(BigDecimal.valueOf(qty)).setScale(2, RoundingMode.HALF_UP));
                 BigDecimal fees = money(item.getPackFee()).add(money(item.getShipFee()))
-                    .add(money(item.getCertFee())).multiply(BigDecimal.valueOf(qty));
+                    .add(money(item.getCertFee())).add(money(item.getOtherFee1()))
+                    .add(money(item.getOtherFee2())).add(money(item.getOtherFee3()))
+                    .multiply(BigDecimal.valueOf(qty));
                 BigDecimal deductions = item.getAmount().multiply(
                     money(document.getPlatformRate()).add(money(document.getCommissionRate())).add(money(document.getTaxRate())));
                 item.setCostAmount(item.getCostAmount().add(fees).setScale(2, RoundingMode.HALF_UP));
@@ -1318,6 +1389,18 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     avg = existingCost.add(money(item.getUnitCost()).multiply(BigDecimal.valueOf(adjustment)))
                         .divide(BigDecimal.valueOf(onHand), 6, RoundingMode.HALF_UP);
                 }
+            }
+            else if ("COST_ADJUST".equals(document.getDocType()))
+            {
+                if (before <= 0)
+                    throw new ServiceException(item.getProductNameSnapshot() + " 当前库存为0，不能调整库存成本");
+                if (beforeAvg.compareTo(money(item.getUnitCost())) != 0)
+                    throw new ServiceException(item.getProductNameSnapshot()
+                        + " 的平均成本已变化，请驳回后由制单员重新编辑调价单");
+                avg = money(item.getUnitPrice());
+                item.setQty(before);
+                calculateCostAdjustmentItem(item, before);
+                mapper.updateCostAdjustmentPostedItem(item);
             }
             else if ("ASSEMBLY".equals(document.getDocType()))
             {
@@ -1438,6 +1521,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         item.setPackFee(ZERO);
         item.setShipFee(ZERO);
         item.setCertFee(ZERO);
+        item.setOtherFee1(ZERO);
+        item.setOtherFee2(ZERO);
+        item.setOtherFee3(ZERO);
     }
 
     private void postReversal(JewelryDocument reversal, Long userId, String userName)
@@ -1523,6 +1609,25 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     avg = weightedAverage(before, beforeAvg, restore, restoredCost);
                 }
             }
+            else if ("COST_ADJUST".equals(sourceType))
+            {
+                BigDecimal adjustedCost = money(item.getUnitPrice());
+                BigDecimal originalCost = money(item.getUnitCost());
+                if (before <= 0)
+                    throw new ServiceException(item.getProductNameSnapshot() + " 当前库存为0，不能红冲调价单");
+                if (beforeAvg.compareTo(adjustedCost) != 0)
+                    throw new ServiceException(item.getProductNameSnapshot()
+                        + " 的平均成本已再次变化，不能直接红冲原调价单");
+                avg = originalCost;
+                item.setQty(before);
+                item.setAmount(originalCost.subtract(adjustedCost).multiply(BigDecimal.valueOf(before))
+                    .setScale(2, RoundingMode.HALF_UP));
+                item.setCostAmount(originalCost.multiply(BigDecimal.valueOf(before))
+                    .setScale(2, RoundingMode.HALF_UP));
+                item.setProfitAmount(ZERO.setScale(2));
+                item.setProfitRate(ZERO);
+                mapper.updateCostAdjustmentPostedItem(item);
+            }
             else
             {
                 throw new ServiceException("暂不支持该原单类型的红冲");
@@ -1533,6 +1638,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             persistStockChange(reversal, item, stock, onHand, reserved, inspection, inspectionReserved,
                 defect, defectReserved, avg, inspectionCost, defectCost, "REVERSAL_" + sourceType, userId, userName);
         }
+        if ("COST_ADJUST".equals(source.getDocType())) refreshDocumentFinancials(reversal);
     }
 
     private void persistStockChange(JewelryDocument document, JewelryDocumentItem item, Map<String, Object> stock,
@@ -1598,6 +1704,140 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             int expected = item.getCountedQty() - item.getSystemQty();
             if (expected == 0 || expected != item.getAdjustmentQty())
                 throw new ServiceException(item.getProductNameSnapshot() + " 的盘点差异数据不一致");
+        }
+    }
+
+    private void prepareCostAdjustment(JewelryDocument document)
+    {
+        if (document.getItems() == null || document.getItems().isEmpty()) return;
+        Set<Long> productIds = new HashSet<Long>();
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            if (item.getProductId() == null) continue;
+            if (!productIds.add(item.getProductId()))
+                throw new ServiceException("同一商品不能在一张调价单中重复出现");
+            Map<String, Object> stock = mapper.selectStockForUpdate(item.getProductId());
+            if (stock == null) throw new ServiceException("商品库存记录不存在");
+            int currentQty = intValue(stock.get("onHandQty"));
+            if (currentQty <= 0) throw new ServiceException("当前库存为0，不能调整库存成本");
+            item.setSystemQty(currentQty);
+            item.setQty(currentQty);
+            item.setUnitCost(decimal(stock.get("avgCost")));
+            clearNonSalesFees(item);
+        }
+    }
+
+    private void validateCostAdjustmentSnapshot(JewelryDocument document)
+    {
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            Map<String, Object> stock = mapper.selectStockForUpdate(item.getProductId());
+            if (stock == null) throw new ServiceException("商品库存记录不存在");
+            if (intValue(stock.get("onHandQty")) <= 0)
+                throw new ServiceException(item.getProductNameSnapshot() + " 当前库存为0，不能调整库存成本");
+            if (decimal(stock.get("avgCost")).compareTo(money(item.getUnitCost())) != 0)
+                throw new ServiceException(item.getProductNameSnapshot()
+                    + " 的平均成本已变化，请编辑调价单刷新数据后再提交");
+        }
+    }
+
+    private void calculateCostAdjustment(JewelryDocument document)
+    {
+        int totalQty = 0;
+        BigDecimal totalChange = ZERO;
+        BigDecimal adjustedAsset = ZERO;
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            int qty = nonNegative(item.getQty());
+            calculateCostAdjustmentItem(item, qty);
+            totalQty += qty;
+            totalChange = totalChange.add(money(item.getAmount()));
+            adjustedAsset = adjustedAsset.add(money(item.getCostAmount()));
+        }
+        document.setTotalQty(totalQty);
+        document.setTotalAmount(totalChange.setScale(2, RoundingMode.HALF_UP));
+        document.setTotalCost(adjustedAsset.setScale(2, RoundingMode.HALF_UP));
+        document.setTotalProfit(ZERO.setScale(2));
+        document.setRiskStatus("NORMAL");
+    }
+
+    private void calculateCostAdjustmentItem(JewelryDocumentItem item, int qty)
+    {
+        BigDecimal beforeCost = money(item.getUnitCost());
+        BigDecimal afterCost = money(item.getUnitPrice());
+        clearNonSalesFees(item);
+        item.setAmount(afterCost.subtract(beforeCost).multiply(BigDecimal.valueOf(qty))
+            .setScale(2, RoundingMode.HALF_UP));
+        item.setCostAmount(afterCost.multiply(BigDecimal.valueOf(qty)).setScale(2, RoundingMode.HALF_UP));
+        item.setProfitAmount(ZERO.setScale(2));
+        item.setProfitRate(ZERO);
+    }
+
+    private void validateCostChangeConflicts(JewelryDocument document)
+    {
+        List<Long> productIds = new ArrayList<Long>();
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            if (item.getProductId() != null && !productIds.contains(item.getProductId()))
+                productIds.add(item.getProductId());
+        }
+        Collections.sort(productIds);
+        for (Long productId : productIds)
+        {
+            Map<String, Object> stock = mapper.selectStockForUpdate(productId);
+            if (stock == null) throw new ServiceException("商品库存记录不存在");
+            JewelryDocumentItem item = null;
+            for (JewelryDocumentItem candidate : document.getItems())
+                if (productId.equals(candidate.getProductId())) { item = candidate; break; }
+            String productName = item == null ? "该商品" : item.getProductNameSnapshot();
+            if ("PURCHASE_IN".equals(document.getDocType()))
+            {
+                if (mapper.countPendingCostChangesByProduct(productId) > 0)
+                    throw new ServiceException(productName + " 正在进行库存成本调价，采购入库暂不能提交或入账");
+            }
+            else if (isCostChangeDocument(document)
+                && mapper.countPendingPurchasesByProduct(productId) > 0)
+            {
+                throw new ServiceException(productName + " 存在待审核采购入库单，请先完成或撤回采购单");
+            }
+        }
+    }
+
+    private boolean isCostChangeDocument(JewelryDocument document)
+    {
+        if ("COST_ADJUST".equals(document.getDocType())) return true;
+        if (!"REVERSAL".equals(document.getDocType()) || document.getSourceDocumentId() == null) return false;
+        if ("COST_ADJUST".equals(document.getSourceDocType())) return true;
+        JewelryDocument source = mapper.selectDocumentById(document.getSourceDocumentId());
+        return source != null && "COST_ADJUST".equals(source.getDocType());
+    }
+
+    private boolean isDualApprovalDocument(JewelryDocument document)
+    {
+        if ("STOCK_ADJUST".equals(document.getDocType()) || "COST_ADJUST".equals(document.getDocType()))
+            return true;
+        if (!"REVERSAL".equals(document.getDocType()) || document.getSourceDocumentId() == null) return false;
+        if ("STOCK_ADJUST".equals(document.getSourceDocType())
+            || "COST_ADJUST".equals(document.getSourceDocType())) return true;
+        JewelryDocument source = mapper.selectDocumentById(document.getSourceDocumentId());
+        return source != null && ("STOCK_ADJUST".equals(source.getDocType())
+            || "COST_ADJUST".equals(source.getDocType()));
+    }
+
+    private void ensureDualApprovalRole(JewelryDocument document, String status, Long userId, String approvalRole)
+    {
+        String documentName = isCostChangeDocument(document) ? "库存成本调价单" : "库存调整单";
+        if ("PENDING_FIRST".equals(status))
+        {
+            if (!"jewelry_reviewer".equals(approvalRole))
+                throw new ServiceException(documentName + "必须先由审核员审核");
+        }
+        else
+        {
+            if (!"jewelry_admin".equals(approvalRole))
+                throw new ServiceException(documentName + "必须由管理员完成复核");
+            if (userId.equals(document.getFirstReviewerUserId()))
+                throw new ServiceException("审核员和管理员复核不能由同一人完成");
         }
     }
 
@@ -1673,6 +1913,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         item.setPackFee(source.getPackFee());
         item.setShipFee(source.getShipFee());
         item.setCertFee(source.getCertFee());
+        item.setOtherFee1(source.getOtherFee1());
+        item.setOtherFee2(source.getOtherFee2());
+        item.setOtherFee3(source.getOtherFee3());
         item.setAmount(money(source.getAmount()).negate().setScale(2, RoundingMode.HALF_UP));
         item.setCostAmount(money(source.getCostAmount()).negate().setScale(2, RoundingMode.HALF_UP));
         item.setProfitAmount(money(source.getProfitAmount()).negate().setScale(2, RoundingMode.HALF_UP));
@@ -1717,6 +1960,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         else if ("CUSTOMER_RETURN".equals(type)) prefix = "SH";
         else if ("RETURN_INSPECT".equals(type)) prefix = "ZJ";
         else if ("STOCK_ADJUST".equals(type)) prefix = "PD";
+        else if ("COST_ADJUST".equals(type)) prefix = "TJ";
         else if ("ASSEMBLY".equals(type)) prefix = "ZZ";
         else if ("REVERSAL".equals(type)) prefix = "HC";
         else prefix = "JE";

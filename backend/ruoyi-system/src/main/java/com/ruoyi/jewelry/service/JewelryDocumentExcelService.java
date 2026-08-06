@@ -302,6 +302,9 @@ public class JewelryDocumentExcelService
             row.put("packFee", decimalValue(value(source, columns, "包装费/件", formatter, evaluator)));
             row.put("shipFee", decimalValue(value(source, columns, "物流费/件", formatter, evaluator)));
             row.put("certFee", decimalValue(value(source, columns, "鉴定费/件", formatter, evaluator)));
+            row.put("otherFee1", decimalValue(value(source, columns, "其他1/件", formatter, evaluator)));
+            row.put("otherFee2", decimalValue(value(source, columns, "其他2/件", formatter, evaluator)));
+            row.put("otherFee3", decimalValue(value(source, columns, "其他3/件", formatter, evaluator)));
         }
         else
         {
@@ -329,6 +332,9 @@ public class JewelryDocumentExcelService
             validateNonNegative(row, "packFee", "包装费", errors);
             validateNonNegative(row, "shipFee", "物流费", errors);
             validateNonNegative(row, "certFee", "鉴定费", errors);
+            validateNonNegative(row, "otherFee1", "其他1", errors);
+            validateNonNegative(row, "otherFee2", "其他2", errors);
+            validateNonNegative(row, "otherFee3", "其他3", errors);
             if (product != null && row.get("qty") != null
                 && integer(row.get("qty")) > integer(product.get("onHandQty")) - integer(product.get("reservedOutQty")))
                 errors.add("销售数量超过可用库存");
@@ -417,7 +423,8 @@ public class JewelryDocumentExcelService
             return new String[] { "SKU", "商品名称（新商品必填）", "商品类型（新商品必填）",
                 "分类", "规格类型（新商品必填）", "单位", "数量", "采购单价", IMAGE_HEADER };
         if ("SALES_OUT".equals(docType))
-            return new String[] { "SKU", "数量", "成交单价", "包装费/件", "物流费/件", "鉴定费/件" };
+            return new String[] { "SKU", "数量", "成交单价", "包装费/件", "物流费/件", "鉴定费/件",
+                "其他1/件", "其他2/件", "其他3/件" };
         return new String[] { "SKU", "实盘数量", "调整原因" };
     }
 
@@ -466,7 +473,7 @@ public class JewelryDocumentExcelService
         if ("PURCHASE_IN".equals(docType))
             widths = new int[] { 18, 28, 24, 18, 24, 12, 12, 16, 20 };
         else if ("SALES_OUT".equals(docType))
-            widths = new int[] { 20, 12, 16, 16, 16, 16 };
+            widths = new int[] { 20, 12, 16, 16, 16, 16, 16, 16, 16 };
         else
             widths = new int[] { 20, 14, 36 };
         for (int i = 0; i < headers.length; i++)
@@ -495,7 +502,7 @@ public class JewelryDocumentExcelService
                 Cell cell = row.createCell(column);
                 String header = headers[column];
                 if ("数量".equals(header) || "实盘数量".equals(header)) cell.setCellStyle(quantityStyle);
-                else if ("采购单价".equals(header) || header.contains("费/件") || "成交单价".equals(header))
+                else if ("采购单价".equals(header) || header.endsWith("/件") || "成交单价".equals(header))
                     cell.setCellStyle(moneyStyle);
                 else if ("商品类型（新商品必填）".equals(header) || "规格类型（新商品必填）".equals(header)
                     || "单位".equals(header) || IMAGE_HEADER.equals(header)) cell.setCellStyle(centerStyle);

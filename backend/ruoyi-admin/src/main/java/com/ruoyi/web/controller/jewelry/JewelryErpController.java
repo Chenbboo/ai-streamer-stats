@@ -136,7 +136,7 @@ public class JewelryErpController extends BaseController
     public AjaxResult productOptions(@RequestParam Map<String, Object> query)
     {
         List<Map<String, Object>> rows = service.listProducts(query);
-        if (isMakerOnly()) removeKeys(rows, "avgCost");
+        if (isMakerOnly() && !"COST_ADJUST".equals(string(query.get("purpose")))) removeKeys(rows, "avgCost");
         return success(rows);
     }
 
@@ -367,7 +367,7 @@ public class JewelryErpController extends BaseController
         Object expectedCost = body == null ? null : body.get("expectedTotalCost");
         service.approve(id, body == null ? "" : string(body.get("comment")),
             expectedCost == null ? null : decimal(expectedCost),
-            SecurityUtils.getUserId(), SecurityUtils.getUsername());
+            SecurityUtils.getUserId(), SecurityUtils.getUsername(), approvalRole(id));
         return success();
     }
 
@@ -375,7 +375,8 @@ public class JewelryErpController extends BaseController
     @PostMapping("/approval/{id}/reject")
     public AjaxResult reject(@PathVariable Long id, @RequestBody Map<String, Object> body)
     {
-        service.reject(id, string(body.get("comment")), SecurityUtils.getUserId(), SecurityUtils.getUsername());
+        service.reject(id, string(body.get("comment")), SecurityUtils.getUserId(), SecurityUtils.getUsername(),
+            approvalRole(id));
         return success();
     }
 
@@ -416,6 +417,7 @@ public class JewelryErpController extends BaseController
     }
     private void redactDocumentFinance(JewelryDocument document)
     {
+        if ("COST_ADJUST".equals(document.getDocType()) || "COST_ADJUST".equals(document.getSourceDocType())) return;
         document.setTotalCost(null);
         document.setTotalProfit(null);
         if (document.getItems() == null) return;
@@ -431,6 +433,27 @@ public class JewelryErpController extends BaseController
     {
         SysUser user = SecurityUtils.getLoginUser().getUser();
         return user.isAdmin() || SecurityUtils.getLoginUser().getPermissions().contains(permission);
+    }
+    private String approvalRole(Long documentId)
+    {
+        JewelryDocument document = mapper.selectDocumentById(documentId);
+        boolean administrator = SecurityUtils.getLoginUser().getUser().isAdmin() || hasErpRole("jewelry_admin");
+        boolean reviewer = hasErpRole("jewelry_reviewer");
+        if (document != null && "PENDING_SECOND".equals(document.getStatus()) && administrator)
+            return "jewelry_admin";
+        if (document != null && "PENDING_FIRST".equals(document.getStatus()) && reviewer)
+            return "jewelry_reviewer";
+        if (administrator) return "jewelry_admin";
+        if (reviewer) return "jewelry_reviewer";
+        return "";
+    }
+    private boolean hasErpRole(String roleKey)
+    {
+        SysUser user = SecurityUtils.getLoginUser().getUser();
+        if (user.getRoles() == null) return false;
+        for (com.ruoyi.common.core.domain.entity.SysRole role : user.getRoles())
+            if (roleKey.equals(role.getRoleKey())) return true;
+        return false;
     }
     private String string(Object value) { return value == null ? "" : String.valueOf(value).trim(); }
     private String defaultString(Object value, String fallback)

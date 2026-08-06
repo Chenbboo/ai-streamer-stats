@@ -27,6 +27,17 @@ public interface IJewelryErpService
     JewelryDocument createReversal(Long sourceDocumentId, Long userId, String userName);
     void submit(Long documentId, Long userId, String userName);
     void withdraw(Long documentId, Long userId, String userName);
-    void approve(Long documentId, String comment, BigDecimal expectedTotalCost, Long userId, String userName);
-    void reject(Long documentId, String comment, Long userId, String userName);
+    void approve(Long documentId, String comment, BigDecimal expectedTotalCost, Long userId, String userName,
+        String approvalRole);
+    void reject(Long documentId, String comment, Long userId, String userName, String approvalRole);
+
+    default void approve(Long documentId, String comment, BigDecimal expectedTotalCost, Long userId, String userName)
+    {
+        approve(documentId, comment, expectedTotalCost, userId, userName, "jewelry_reviewer");
+    }
+
+    default void reject(Long documentId, String comment, Long userId, String userName)
+    {
+        reject(documentId, comment, userId, userName, "jewelry_reviewer");
+    }
 }
