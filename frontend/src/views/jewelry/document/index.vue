@@ -274,10 +274,16 @@
         <el-table-column prop="errorMessage" label="校验结果" min-width="240">
           <template #default="{row}"><span :class="{ 'import-error': !row.valid }">{{row.errorMessage || '校验通过'}}</span></template>
         </el-table-column>
+        <el-table-column v-if="form.docType==='PURCHASE_IN'" label="操作" width="82" align="center" fixed="right">
+          <template #default="{$index}">
+            <el-button link type="danger" icon="Delete" @click="removeImportPreviewRow($index)">删除</el-button>
+          </template>
+        </el-table-column>
       </el-table>
       <template #footer>
         <el-button @click="importDialog=false">取消</el-button>
-        <el-button type="primary" :loading="applyingImport" :disabled="Number(importPreview.errorCount)>0"
+        <el-button type="primary" :loading="applyingImport"
+          :disabled="Number(importPreview.errorCount)>0 || Number(importPreview.validCount)<=0"
           @click="applyImportRows">导入到当前单据</el-button>
       </template>
     </el-dialog>
@@ -512,7 +518,7 @@ async function handleImportFile(uploadFile){
   }
 }
 async function applyImportRows(){
-  if(Number(importPreview.value.errorCount)>0)return
+  if(Number(importPreview.value.errorCount)>0||Number(importPreview.value.validCount)<=0)return
   if(form.items.some(item=>item.productId)){
     await proxy.$modal.confirm('导入会替换当前已经填写的商品明细，确认继续吗？')
   }
@@ -562,6 +568,18 @@ async function applyImportRows(){
     importDialog.value=false
     proxy.$modal.msgSuccess(`已导入 ${form.items.length} 行商品明细`)
   }finally{applyingImport.value=false}
+}
+function removeImportPreviewRow(index){
+  const rows=[...(importPreview.value.rows||[])]
+  if(index<0||index>=rows.length)return
+  rows.splice(index,1)
+  importPreview.value={
+    ...importPreview.value,
+    rows,
+    validCount:rows.filter(row=>row.valid).length,
+    errorCount:rows.filter(row=>!row.valid).length,
+    newProductCount:rows.filter(row=>row.valid&&row.newProduct).length
+  }
 }
 function supplierChanged(id){form.supplierNameSnapshot=suppliers.value.find(x=>x.supplierId===id)?.supplierName||''}
 async function salesSourceChanged(id){
