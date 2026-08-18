@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import java.util.Collections;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -93,6 +94,20 @@ class ProjectDraftCapabilitiesTest
         Map<String, Object> result = getCapability.execute(invocation, Collections.<String, Object>emptyMap());
         assertEquals(3L, result.get("workflowId"));
         assertEquals("完成1000条视频", ((Map<?, ?>) result.get("draft")).get("objective"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void updateSchemaRequiresCanonicalCompanyNamesForModelOutput()
+    {
+        Map<String, Object> schema = updateCapability.inputSchema();
+        Map<String, Object> changes = (Map<String, Object>) ((Map<String, Object>) schema.get("properties"))
+            .get("changes");
+        Map<String, Object> company = (Map<String, Object>) ((Map<String, Object>) changes.get("properties"))
+            .get("companyName");
+
+        assertEquals(Arrays.asList("上海美丸文化公司", "越南meimaru公司"), company.get("enum"));
+        assertEquals(true, String.valueOf(company.get("description")).contains("上海公司"));
     }
 
     private Map<String, Object> workflow()

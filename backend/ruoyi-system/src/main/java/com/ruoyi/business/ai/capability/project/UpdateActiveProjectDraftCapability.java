@@ -49,7 +49,11 @@ public class UpdateActiveProjectDraftCapability extends ProjectDraftCapabilitySu
         changes.put("additionalProperties", false);
         stringProperty(properties, "projectName", "项目名称");
         stringProperty(properties, "ownerName", "系统中的负责人姓名或账号");
-        stringProperty(properties, "companyName", "归属公司");
+        Map<String, Object> company = new LinkedHashMap<String, Object>();
+        company.put("type", "string");
+        company.put("description", "归属公司。老板说上海公司时填上海美丸文化公司；说越南公司时填越南meimaru公司");
+        company.put("enum", Arrays.asList("上海美丸文化公司", "越南meimaru公司"));
+        properties.put("companyName", company);
         stringProperty(properties, "objective", "完整且可验收的新项目目标");
         stringProperty(properties, "planStartDate", "开始日期，YYYY-MM-DD");
         stringProperty(properties, "planEndDate", "结束日期，YYYY-MM-DD");
