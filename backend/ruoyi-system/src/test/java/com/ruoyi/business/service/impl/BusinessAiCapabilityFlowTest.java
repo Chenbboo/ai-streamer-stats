@@ -150,6 +150,44 @@ class BusinessAiCapabilityFlowTest
     }
 
     @Test
+    void waitingConfirmationProjectCanReturnToModelDraftEditing()
+    {
+        AiExecutionContext actor = context("business:project:add");
+        when(modelClient.isEnabled()).thenReturn(true);
+        when(modelClient.providerCode()).thenReturn("DEEPSEEK");
+        when(modelClient.modelName()).thenReturn("deepseek-v4-flash");
+        when(mapper.selectConversation(91L, 23L, "BOSS"))
+            .thenReturn(Collections.<String, Object>singletonMap("conversationId", 91L));
+        Map<String, Object> waiting = workflow(true);
+        waiting.put("workflowStatus", "WAITING_CONFIRMATION");
+        waiting.put("currentStep", "WAITING_CONFIRMATION");
+        waiting.put("actionRequestId", 88L);
+        when(mapper.selectActiveWorkflow(91L, 23L)).thenReturn(waiting);
+
+        Map<String, Object> get = definition("capability_project_draft_get");
+        Map<String, Object> update = definition("capability_project_draft_update");
+        when(capabilityToolCatalog.definitions(actor)).thenReturn(Arrays.asList(get, update));
+        Map<String, Object> plan = plan(call("draft-get", "capability_project_draft_get"));
+        when(modelClient.plan(eq("我想把结束时间改到10月15日"), any(), eq(Arrays.asList(get, update))))
+            .thenReturn(plan);
+        when(capabilityToolCatalog.isAllowedToolName("capability_project_draft_get", actor)).thenReturn(true);
+        when(capabilityAgentLoop.canHandle(plan, actor)).thenReturn(true);
+        Map<String, Object> outcome = new LinkedHashMap<String, Object>();
+        outcome.put("content", "我先读取当前立项资料再修改结束日期。");
+        outcome.put("rounds", 1);
+        outcome.put("toolResults", Collections.emptyList());
+        when(capabilityAgentLoop.run(eq("我想把结束时间改到10月15日"), any(), eq(plan), any(),
+            eq(Arrays.asList(get, update)))).thenReturn(outcome);
+
+        Map<String, Object> result = service.chat(91L, "我想把结束时间改到10月15日", actor);
+
+        assertEquals("LLM_AGENT", result.get("executionMode"));
+        assertEquals("project.draft.get", ((Map<?, ?>) result.get("decisionTrace")).get("finalRoute"));
+        verify(capabilityAgentLoop).run(eq("我想把结束时间改到10月15日"), any(), eq(plan), any(),
+            eq(Arrays.asList(get, update)));
+    }
+
+    @Test
     void modelRequestForUnauthorizedCapabilityFailsBeforeAgentExecutionOrBusinessWrite()
     {
         AiExecutionContext actor = context("business:boss:view");

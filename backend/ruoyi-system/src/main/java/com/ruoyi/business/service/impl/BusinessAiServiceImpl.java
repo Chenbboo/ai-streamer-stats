@@ -103,7 +103,8 @@ public class BusinessAiServiceImpl implements IBusinessAiService
 
         Long activeConversationId = requireOrCreateConversation(conversationId, question, userId);
         Map<String, Object> activeWorkflow = mapper.selectActiveWorkflow(activeConversationId, userId);
-        boolean continuingProjectCreate = isWorkflow(activeWorkflow, "CREATE_PROJECT", "COLLECTING", "READY");
+        boolean continuingProjectCreate = isWorkflow(activeWorkflow, "CREATE_PROJECT",
+            "COLLECTING", "READY", "WAITING_CONFIRMATION");
         List<Map<String, Object>> modelHistory = recentModelHistory(activeConversationId, userId);
         Map<String, Object> conversationState = conversationState(activeConversationId, userId);
         boolean modelEnabled = modelClient.isEnabled();
