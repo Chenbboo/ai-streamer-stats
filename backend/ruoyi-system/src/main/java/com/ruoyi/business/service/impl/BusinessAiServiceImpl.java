@@ -137,7 +137,7 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         String fallbackReason = null;
         boolean guardedProjectCreate = false;
         List<String> intents;
-        if (modelEnabled)
+        if (modelEnabled && !continuingProjectCreate)
         {
             try
             {
@@ -160,7 +160,22 @@ public class BusinessAiServiceImpl implements IBusinessAiService
                 fallbackReason = "模型规划暂不可用";
             }
         }
-        if (modelEnabled && !continuingProjectCreate && isExplicitNewProjectRequest(question))
+        if (modelEnabled && continuingProjectCreate)
+        {
+            guardedProjectCreate = true;
+            decisionTrace.put("modelSelection", Collections.emptyList());
+            decisionTrace.put("detectedIntent", "CREATE_PROJECT_CONTINUATION");
+            decisionTrace.put("candidateCapabilities", Arrays.asList(
+                "project.draft.get", "project.draft.update", "project.create"));
+            decisionTrace.put("validationStatus", "CORRECTED");
+            decisionTrace.put("validationMessage", "正在进行的立项资料收集已由系统工作流继续处理");
+            decisionTrace.put("finalRoute", "CREATE_PROJECT_WORKFLOW");
+            modelPlan = null;
+            fallbackReason = "立项后续消息已由系统工作流接管";
+            executionMode = SAFE_ROUTER_FALLBACK;
+            mapper.updateRunMode(runId, executionMode);
+        }
+        else if (modelEnabled && isExplicitNewProjectRequest(question))
         {
             guardedProjectCreate = true;
             decisionTrace.put("detectedIntent", "CREATE_PROJECT");
@@ -315,7 +330,13 @@ public class BusinessAiServiceImpl implements IBusinessAiService
             Map<String, Object> storedDraft = workflowDraft(activeWorkflow);
             Map<String, Object> merged = new LinkedHashMap<String, Object>(storedDraft);
             if (projectArguments != null) mergeNonBlank(merged, projectArguments);
-            if (modelPlan == null) mergeProjectCreateMessage(merged, storedDraft, question);
+            if (modelPlan == null)
+            {
+                // Recover workflows created by older releases that failed to persist earlier turns.
+                if (continuingProjectCreate && storedDraft.isEmpty())
+                    mergeProjectCreateHistory(merged, modelHistory);
+                mergeProjectCreateMessage(merged, new LinkedHashMap<String, Object>(merged), question);
+            }
             projectArguments = merged;
         }
         if (Boolean.TRUE.equals(pendingSelection.get("requested")))
@@ -1227,7 +1248,7 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         boolean vietnam = value.contains("越南") || value.toLowerCase().contains("meimaru");
         if (shanghai ^ vietnam) draft.put("companyName", shanghai ? "上海美丸文化公司" : "越南meimaru公司");
 
-        Matcher named = Pattern.compile("(?:项目(?:叫|名称是|名为)|新建|创建)[“\"']?([^，,。；;“”\"']{2,60})[”\"']?").matcher(value);
+        Matcher named = Pattern.compile("(?:项目(?:叫|名称是|名为)|名称(?:就)?叫|新建|创建)[“\"']?([^，,。；;“”\"']{2,60})[”\"']?").matcher(value);
         if (named.find())
         {
             String candidate = StringUtils.trim(named.group(1));
@@ -1245,23 +1266,31 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         if (objective.find()) draft.put("objective", StringUtils.trim(objective.group(1)));
         if (StringUtils.isBlank(text(draft, "objective")))
         {
+            Matcher gmv = Pattern.compile("(?i)(\\d+(?:\\.\\d+)?)\\s*(万|亿)?(?:元)?(?:的)?\\s*GMV").matcher(value);
+            if (gmv.find())
+                draft.put("objective", "GMV达到" + gmv.group(1) + defaultValue(gmv.group(2), "") + "元");
             Matcher deliverable = Pattern.compile("(?:^|[，,；;\\s])(?:1\\s*[.、:：]?\\s*)?((?:完成|制作|做)\\s*\\d+(?:\\.\\d+)?\\s*(?:条|个|份|套|场|篇|小时|天)[^，,。；;]*)")
                 .matcher(value);
-            if (deliverable.find()) draft.put("objective", cleanObjective(deliverable.group(1)));
+            if (StringUtils.isBlank(text(draft, "objective")) && deliverable.find())
+                draft.put("objective", cleanObjective(deliverable.group(1)));
             else
             {
                 Matcher daily = Pattern.compile("((?:每天|每日)\\s*(?:完成|制作|做)?\\s*\\d+(?:\\.\\d+)?\\s*(?:条|个|份|套|场|篇)[^，,。；;]*)")
                     .matcher(value);
-                if (daily.find()) draft.put("objective", cleanObjective(daily.group(1)));
+                if (StringUtils.isBlank(text(draft, "objective")) && daily.find())
+                    draft.put("objective", cleanObjective(daily.group(1)));
             }
         }
+        if (containsAny(value, "电商类型", "电商项目", "电子商务")) draft.put("projectType", "ECOMMERCE");
+        else if (containsAny(value, "直播类型", "直播项目")) draft.put("projectType", "LIVE");
         if (containsAny(value, "利润项目", "看利润", "赚多少钱")) draft.put("accountingMode", "PROFIT");
         else if (containsAny(value, "成本项目", "只看成本", "控制成本")) draft.put("accountingMode", "COST");
         else if (containsAny(value, "价值项目", "不算利润")) draft.put("accountingMode", "VALUE");
         else if (containsAny(value, "混合核算", "利润和成本一起")) draft.put("accountingMode", "HYBRID");
-        if (containsAny(value, "不设预算", "没有预算", "暂不设预算", "预算暂不设置")) draft.put("noBudget", true);
-        Matcher budget = Pattern.compile("(?:预算(?:是|为|上限|设为|设置为)?[:：\\s]*)?(\\d+(?:\\.\\d+)?)\\s*(万|元)?").matcher(value);
-        if (value.contains("预算") && budget.find())
+        boolean explicitlyNoBudget = containsAny(value, "不设预算", "没有预算", "暂不设预算", "预算暂不设置");
+        if (explicitlyNoBudget) draft.put("noBudget", true);
+        Matcher budget = Pattern.compile("预算(?:是|为|上限|设为|设置为)?[:：\\s]*(\\d+(?:\\.\\d+)?)\\s*(万|元)?").matcher(value);
+        if (!explicitlyNoBudget && budget.find())
         {
             BigDecimal amount = new BigDecimal(budget.group(1));
             if ("万".equals(budget.group(2))) amount = amount.multiply(new BigDecimal("10000"));
@@ -1269,6 +1298,17 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         }
         if (value.toUpperCase().contains("VND") || value.contains("越南盾")) draft.put("baseCurrency", "VND");
         else if (value.toUpperCase().contains("CNY") || value.contains("人民币")) draft.put("baseCurrency", "CNY");
+    }
+
+    private void mergeProjectCreateHistory(Map<String, Object> draft, List<Map<String, Object>> history)
+    {
+        if (history == null) return;
+        for (Map<String, Object> item : history)
+        {
+            if (!"user".equalsIgnoreCase(stringValue(item.get("role")))) continue;
+            Map<String, Object> before = new LinkedHashMap<String, Object>(draft);
+            mergeProjectCreateMessage(draft, before, stringValue(item.get("content")));
+        }
     }
 
     private String cleanObjective(String value)

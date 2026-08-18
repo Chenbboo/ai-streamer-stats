@@ -10,6 +10,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -146,6 +148,73 @@ class BusinessAiModelFirstRoutingTest
         verify(projectService, never()).createProject(any(), any(), any());
     }
 
+    @Test
+    void activeProjectCreateWorkflowCannotDriftIntoUnrelatedModelTools()
+    {
+        when(mapper.selectConversation(91L, 23L, "BOSS"))
+            .thenReturn(Collections.<String, Object>singletonMap("conversationId", 91L));
+        Map<String, Object> workflow = new LinkedHashMap<String, Object>();
+        workflow.put("workflowId", 801L); workflow.put("conversationId", 91L); workflow.put("userId", 23L);
+        workflow.put("workflowCode", "CREATE_PROJECT"); workflow.put("workflowStatus", "COLLECTING");
+        workflow.put("currentStep", "GOAL_AND_PERIOD"); workflow.put("versionNo", 1);
+        workflow.put("draftJson", "{\"projectName\":\"上海电商\",\"ownerName\":\"施柳浩\","
+            + "\"companyName\":\"上海美丸文化公司\",\"planStartDate\":\"2026-08-18\","
+            + "\"projectType\":\"ECOMMERCE\"}");
+        workflow.put("missingFieldsJson", "[\"项目目标\",\"计划结束日期\",\"核算方式\",\"预算\"]");
+        when(mapper.selectActiveWorkflow(91L, 23L)).thenReturn(workflow);
+        when(mapper.updateWorkflow(any())).thenReturn(1);
+        when(projectService.userOptions(null)).thenReturn(Collections.singletonList(
+            staffOption(118L, "ZDY-slh", "施柳浩", null, null)));
+        when(staffService.listOptions()).thenReturn(Collections.singletonList(
+            staffOption(118L, "ZDY-slh", "施柳浩", 110L, "上海美丸文化公司")));
+
+        Map<String, Object> result = service.chat(91L, "500万的GMV，持续，没有预算", 23L, "admin", true);
+
+        Map<?, ?> workflowView = (Map<?, ?>) result.get("workflow");
+        Map<?, ?> draft = (Map<?, ?>) workflowView.get("draft");
+        assertEquals("GMV达到500万元", draft.get("objective"));
+        assertEquals(true, draft.get("noBudget"));
+        assertEquals("GOAL_AND_PERIOD", workflowView.get("currentStep"));
+        assertEquals(true, String.valueOf(result.get("content")).contains("什么时候结束"));
+        verify(modelClient, never()).plan(any(), any(), any());
+    }
+
+    @Test
+    void emptyActiveDraftRecoversProjectFieldsFromEarlierUserTurns()
+    {
+        service.setClock(java.time.Clock.fixed(java.time.Instant.parse("2026-08-18T05:00:00Z"),
+            java.time.ZoneId.of("Asia/Shanghai")));
+        when(mapper.selectConversation(92L, 23L, "BOSS"))
+            .thenReturn(Collections.<String, Object>singletonMap("conversationId", 92L));
+        Map<String, Object> workflow = new LinkedHashMap<String, Object>();
+        workflow.put("workflowId", 802L); workflow.put("conversationId", 92L); workflow.put("userId", 23L);
+        workflow.put("workflowCode", "CREATE_PROJECT"); workflow.put("workflowStatus", "COLLECTING");
+        workflow.put("currentStep", "BASIC_INFO"); workflow.put("versionNo", 1);
+        workflow.put("draftJson", "{}"); workflow.put("missingFieldsJson", "[\"项目名称\"]");
+        when(mapper.selectActiveWorkflow(92L, 23L)).thenReturn(workflow);
+        when(mapper.updateWorkflow(any())).thenReturn(1);
+        when(mapper.selectMessages(92L, 23L, 12)).thenReturn(new ArrayList<Map<String, Object>>(Arrays.asList(
+            historyMessage("500万的GMV，持续，没有预算"),
+            historyMessage("施柳浩吧，名称就叫上海电商，从现在到持续，电商类型"),
+            historyMessage("上海电商，让蒋豪负责，属于上海"),
+            historyMessage("帮我创建一个新项目"))));
+        when(projectService.userOptions(null)).thenReturn(Collections.singletonList(
+            staffOption(118L, "ZDY-slh", "施柳浩", null, null)));
+        when(staffService.listOptions()).thenReturn(Collections.singletonList(
+            staffOption(118L, "ZDY-slh", "施柳浩", 110L, "上海美丸文化公司")));
+
+        Map<String, Object> result = service.chat(92L, "继续创建", 23L, "admin", true);
+
+        Map<?, ?> draft = (Map<?, ?>) ((Map<?, ?>) result.get("workflow")).get("draft");
+        assertEquals("上海电商", draft.get("projectName"));
+        assertEquals("施柳浩", draft.get("ownerName"));
+        assertEquals("上海美丸文化公司", draft.get("companyName"));
+        assertEquals("GMV达到500万元", draft.get("objective"));
+        assertEquals("2026-08-18", draft.get("planStartDate"));
+        assertEquals("ECOMMERCE", draft.get("projectType"));
+        assertEquals(true, draft.get("noBudget"));
+    }
+
     @SuppressWarnings("unchecked")
     private void assertCreateWorkflow(Map<String, Object> result)
     {
@@ -159,6 +228,22 @@ class BusinessAiModelFirstRoutingTest
     private Map<String, Object> decisionTrace(Map<String, Object> result)
     {
         return (Map<String, Object>) result.get("decisionTrace");
+    }
+
+    private Map<String, Object> staffOption(Long userId, String userName, String nickName,
+        Long companyDeptId, String companyName)
+    {
+        Map<String, Object> option = new LinkedHashMap<String, Object>();
+        option.put("userId", userId); option.put("userName", userName); option.put("nickName", nickName);
+        option.put("companyDeptId", companyDeptId); option.put("companyName", companyName);
+        return option;
+    }
+
+    private Map<String, Object> historyMessage(String content)
+    {
+        Map<String, Object> message = new LinkedHashMap<String, Object>();
+        message.put("messageRole", "USER"); message.put("content", content);
+        return message;
     }
 
     private int id(Map<String, Object> row, String key)
