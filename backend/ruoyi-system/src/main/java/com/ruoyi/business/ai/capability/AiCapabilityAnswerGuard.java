@@ -33,6 +33,10 @@ public class AiCapabilityAnswerGuard
         Pattern.CASE_INSENSITIVE);
     private static final Pattern LABELED_NAME = Pattern.compile(
         "(?:项目(?:名称)?|负责人|主负责人|成员|人员|归属公司|公司|部门)\\s*(?:[：:]|是|为)\\s*([^，。；;\\n]{1,80})");
+    private static final Pattern PROJECT_MEMBER_COUNT = Pattern.compile(
+        "(?:项目)?成员(?:数量|数)?(?:显示)?\\s*(?:[：:]|是|为)\\s*(\\d+)\\s*(?:人|个)?");
+    private static final Pattern PROJECT_MEMBER_LIST = Pattern.compile(
+        "(?:项目)?成员(?:包括|有|[：:])\\s*([^。；;\\n]{1,120})");
 
     private static final Set<String> NAME_KEYS = setOf(
         "projectname", "companyname", "mainownername", "initiatorname", "username", "nickname",
@@ -60,6 +64,7 @@ public class AiCapabilityAnswerGuard
         validateDates(answer, facts, violations);
         validateNumbers(answer, facts, violations);
         validateNames(answer, facts, violations);
+        validateProjectMembers(answer, facts, violations);
         return violations.isEmpty() ? Validation.valid() : Validation.invalid(violations);
     }
 
@@ -83,7 +88,17 @@ public class AiCapabilityAnswerGuard
         if (value instanceof Map)
         {
             for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet())
+            {
+                String entryKey = String.valueOf(entry.getKey());
+                if ("membercount".equals(entryKey.toLowerCase(Locale.ROOT)))
+                {
+                    BigDecimal count = number(String.valueOf(entry.getValue()));
+                    if (count != null) facts.projectMemberCounts.add(decimal(count));
+                }
+                if ("members".equals(entryKey.toLowerCase(Locale.ROOT)))
+                    collectProjectMembers(entry.getValue(), facts);
                 collect(entry.getValue(), String.valueOf(entry.getKey()), facts);
+            }
             return;
         }
         if (value instanceof Collection)
@@ -120,6 +135,23 @@ public class AiCapabilityAnswerGuard
             if (found != null) facts.dates.add(found);
         }
         if (key != null && NAME_KEYS.contains(key.toLowerCase(Locale.ROOT))) facts.names.add(normalizeName(text));
+    }
+
+    private void collectProjectMembers(Object value, Facts facts)
+    {
+        if (!(value instanceof Collection)) return;
+        Collection<?> members = (Collection<?>) value;
+        facts.projectMemberCounts.add(decimal(members.size()));
+        for (Object member : members)
+        {
+            if (!(member instanceof Map)) continue;
+            Map<?, ?> row = (Map<?, ?>) member;
+            Object name = row.get("userNameSnapshot");
+            if (name == null) name = row.get("memberName");
+            if (name == null) name = row.get("userName");
+            if (name != null && StringUtils.isNotBlank(String.valueOf(name)))
+                facts.projectMemberNames.add(normalizeName(String.valueOf(name)));
+        }
     }
 
     private void validateDates(String answer, Facts facts, List<String> violations)
@@ -179,6 +211,29 @@ public class AiCapabilityAnswerGuard
         }
     }
 
+    private void validateProjectMembers(String answer, Facts facts, List<String> violations)
+    {
+        Matcher countMatcher = PROJECT_MEMBER_COUNT.matcher(answer);
+        while (countMatcher.find())
+        {
+            String count = decimal(new BigDecimal(countMatcher.group(1)));
+            if (!facts.projectMemberCounts.isEmpty() && !facts.projectMemberCounts.contains(count))
+                add(violations, "项目成员数量“" + countMatcher.group(1) + "”与系统项目成员不一致");
+        }
+        Matcher listMatcher = PROJECT_MEMBER_LIST.matcher(answer);
+        while (listMatcher.find())
+        {
+            String[] names = listMatcher.group(1).split("[、，,]");
+            for (String item : names)
+            {
+                String name = normalizeName(item.replaceAll("[（(].*?[）)]", "").trim());
+                if (StringUtils.isBlank(name)) continue;
+                if (!facts.projectMemberNames.isEmpty() && !facts.projectMemberNames.contains(name))
+                    add(violations, "名称“" + name + "”不是本轮系统结果中的项目成员");
+            }
+        }
+    }
+
     private boolean insideIsoDate(String text, int position)
     {
         Matcher matcher = ISO_DATE.matcher(text);
@@ -231,6 +286,8 @@ public class AiCapabilityAnswerGuard
         private final Set<String> numbers = new HashSet<String>();
         private final Set<LocalDate> dates = new HashSet<LocalDate>();
         private final Set<String> names = new HashSet<String>();
+        private final Set<String> projectMemberCounts = new HashSet<String>();
+        private final Set<String> projectMemberNames = new HashSet<String>();
     }
 
     public static class Validation

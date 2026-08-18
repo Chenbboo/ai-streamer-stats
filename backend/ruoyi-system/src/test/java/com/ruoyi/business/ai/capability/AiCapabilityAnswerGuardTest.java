@@ -65,6 +65,23 @@ class AiCapabilityAnswerGuardTest
         assertTrue(validation.isValid(), validation.getViolations().toString());
     }
 
+    @Test
+    void rejectsRoutineAssigneesMisreportedAsProjectMembers() throws Exception
+    {
+        BusinessProject project = projectWithMembers();
+        Map<String, Object> routine = map("assigneeName", "Gold", "cumulativeActual", 4);
+        project.setRoutines(Collections.singletonList(new com.ruoyi.business.domain.BusinessProjectRoutine()));
+        Map<String, Object> data = map("project", project, "routineEvidence", routine);
+        Map<String, Object> wrapper = map("toolCode", "project.detail.get", "riskLevel", "READ_ONLY", "data", data);
+
+        String answer = "成员包括大D、王赋章、Gold，成员数量为4人。";
+        AiCapabilityAnswerGuard.Validation validation = guard.validate(answer, Collections.singletonList(wrapper));
+
+        assertFalse(validation.isValid());
+        assertTrue(validation.getViolations().toString().contains("Gold"));
+        assertTrue(validation.getViolations().toString().contains("项目成员数量"));
+    }
+
     private List<Map<String, Object>> results()
     {
         Map<String, Object> project = map("projectId", 17L, "projectName", "王老吉视频宣传",
@@ -90,5 +107,15 @@ class AiCapabilityAnswerGuardTest
         member.setUserNameSnapshot(name);
         member.setMemberRole(role);
         return member;
+    }
+
+    private BusinessProject projectWithMembers() throws Exception
+    {
+        BusinessProject project = new BusinessProject();
+        project.setProjectName("越南直播运营");
+        project.setPlanStartDate(new SimpleDateFormat("yyyy-MM-dd").parse("2026-04-04"));
+        project.setMemberCount(2);
+        project.setMembers(Arrays.asList(member(127L, "大D", "OWNER"), member(126L, "王赋章", "MEMBER")));
+        return project;
     }
 }
