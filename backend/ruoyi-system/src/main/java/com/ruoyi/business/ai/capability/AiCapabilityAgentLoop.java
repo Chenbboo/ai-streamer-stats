@@ -50,7 +50,15 @@ public class AiCapabilityAgentLoop
     public Map<String, Object> run(String question, List<Map<String, Object>> history,
         Map<String, Object> initialPlan, AiCapabilityInvocation invocation)
     {
-        List<Map<String, Object>> definitions = catalog.capabilityDefinitions(invocation.getActor());
+        return run(question, history, initialPlan, invocation, null);
+    }
+
+    public Map<String, Object> run(String question, List<Map<String, Object>> history,
+        Map<String, Object> initialPlan, AiCapabilityInvocation invocation,
+        List<Map<String, Object>> scopedDefinitions)
+    {
+        List<Map<String, Object>> definitions = scopedDefinitions == null
+            ? catalog.capabilityDefinitions(invocation.getActor()) : scopedDefinitions;
         List<Map<String, Object>> turns = new ArrayList<Map<String, Object>>();
         List<Map<String, Object>> results = new ArrayList<Map<String, Object>>();
         Map<String, Map<String, Object>> executed = new LinkedHashMap<String, Map<String, Object>>();
@@ -63,6 +71,8 @@ public class AiCapabilityAgentLoop
             for (Map<String, Object> call : calls)
             {
                 String toolName = text(call.get("name"));
+                if (!toolDefined(toolName, definitions))
+                    throw new ServiceException("模型请求了当前工作流范围外的系统能力");
                 AiCapability capability = catalog.findAllowedByToolName(toolName, invocation.getActor());
                 if (capability == null) throw new ServiceException("模型请求了当前账号不可用的系统能力");
                 Map<String, Object> input = map(call.get("arguments"));
@@ -98,7 +108,8 @@ public class AiCapabilityAgentLoop
             turns.add(turn);
             current = modelClient.continueWithTools(question, history, turns, definitions);
             if (current == null) throw new ServiceException("模型未返回能力执行结果");
-            if (!calls(current).isEmpty() && !canHandle(current, invocation.getActor()))
+            if (!calls(current).isEmpty() && (!canHandle(current, invocation.getActor())
+                || !allToolsDefined(current, definitions)))
                 throw new ServiceException("模型在能力执行过程中请求了未授权工具");
         }
         throw new ServiceException("模型连续调用系统能力次数过多，请缩小本次操作范围");
@@ -133,6 +144,26 @@ public class AiCapabilityAgentLoop
             mapper.insertToolCall(row);
             throw ex;
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean toolDefined(String toolName, List<Map<String, Object>> definitions)
+    {
+        if (definitions == null) return false;
+        for (Map<String, Object> wrapper : definitions)
+        {
+            Object function = wrapper == null ? null : wrapper.get("function");
+            if (function instanceof Map && toolName.equals(text(((Map<String, Object>) function).get("name"))))
+                return true;
+        }
+        return false;
+    }
+
+    private boolean allToolsDefined(Map<String, Object> plan, List<Map<String, Object>> definitions)
+    {
+        for (Map<String, Object> call : calls(plan))
+            if (!toolDefined(text(call.get("name")), definitions)) return false;
+        return true;
     }
 
     private void auditRejected(AiCapability capability, AiCapabilityInvocation invocation,

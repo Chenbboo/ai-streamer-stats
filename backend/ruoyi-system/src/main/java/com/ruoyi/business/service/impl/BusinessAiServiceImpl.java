@@ -136,14 +136,19 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         Map<String, Object> decisionTrace = new LinkedHashMap<String, Object>();
         String fallbackReason = null;
         boolean guardedProjectCreate = false;
+        boolean modelDrivenProjectContinuation = modelEnabled && continuingProjectCreate
+            && capabilityToolCatalog != null && capabilityAgentLoop != null;
+        List<Map<String, Object>> selectedModelTools = null;
         List<String> intents;
-        if (modelEnabled && !continuingProjectCreate)
+        if (modelEnabled && (!continuingProjectCreate || modelDrivenProjectContinuation))
         {
             try
             {
                 List<Map<String, Object>> modelTools = capabilityToolCatalog == null
                     ? Collections.<Map<String, Object>>emptyList() : capabilityToolCatalog.definitions(context);
-                modelTools = continuingProjectCreate ? modelTools : withoutProjectDraftTools(modelTools);
+                modelTools = continuingProjectCreate
+                    ? onlyProjectDraftTools(modelTools) : withoutProjectDraftTools(modelTools);
+                selectedModelTools = modelTools;
                 modelPlan = modelTools.isEmpty() ? modelClient.plan(question, modelHistory)
                     : modelClient.plan(question, modelHistory, modelTools);
                 List<String> modelSelections = selectedCapabilityCodes(modelPlan, context);
@@ -160,7 +165,7 @@ public class BusinessAiServiceImpl implements IBusinessAiService
                 fallbackReason = "模型规划暂不可用";
             }
         }
-        if (modelEnabled && continuingProjectCreate)
+        if (modelEnabled && continuingProjectCreate && !modelDrivenProjectContinuation)
         {
             guardedProjectCreate = true;
             decisionTrace.put("modelSelection", Collections.emptyList());
@@ -175,7 +180,7 @@ public class BusinessAiServiceImpl implements IBusinessAiService
             executionMode = SAFE_ROUTER_FALLBACK;
             mapper.updateRunMode(runId, executionMode);
         }
-        else if (modelEnabled && isExplicitNewProjectRequest(question))
+        else if (modelEnabled && !continuingProjectCreate && isExplicitNewProjectRequest(question))
         {
             guardedProjectCreate = true;
             decisionTrace.put("detectedIntent", "CREATE_PROJECT");
@@ -211,7 +216,9 @@ public class BusinessAiServiceImpl implements IBusinessAiService
             {
                 AiCapabilityInvocation invocation = new AiCapabilityInvocation(context, activeConversationId,
                     runId, longValue(userMessage.get("messageId")));
-                Map<String, Object> outcome = capabilityAgentLoop.run(question, modelHistory, modelPlan, invocation);
+                Map<String, Object> outcome = modelDrivenProjectContinuation
+                    ? capabilityAgentLoop.run(question, modelHistory, modelPlan, invocation, selectedModelTools)
+                    : capabilityAgentLoop.run(question, modelHistory, modelPlan, invocation);
                 return completeCapabilityRun(question, outcome, activeConversationId, runId, traceId, userId,
                     userName, viewAll, context, modelEnabled, longValue(userMessage.get("messageId")), decisionTrace);
             }
@@ -1311,7 +1318,9 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         else if (containsAny(value, "成本项目", "只看成本", "控制成本")) draft.put("accountingMode", "COST");
         else if (containsAny(value, "价值项目", "不算利润")) draft.put("accountingMode", "VALUE");
         else if (containsAny(value, "混合核算", "利润和成本一起")) draft.put("accountingMode", "HYBRID");
-        boolean explicitlyNoBudget = containsAny(value, "不设预算", "没有预算", "暂不设预算", "预算暂不设置");
+        boolean explicitlyNoBudget = Pattern.compile(
+            "(?:暂时|暂|目前|现在)?\\s*(?:不设|不设置|没有)\\s*预算|预算\\s*(?:暂时|暂|目前|现在)?\\s*(?:不设|不设置|没有)")
+            .matcher(value).find();
         if (explicitlyNoBudget) draft.put("noBudget", true);
         Matcher budget = Pattern.compile("预算(?:是|为|上限|设为|设置为)?[:：\\s]*(\\d+(?:\\.\\d+)?)\\s*(万|元)?").matcher(value);
         if (!explicitlyNoBudget && budget.find())
@@ -3232,6 +3241,21 @@ public class BusinessAiServiceImpl implements IBusinessAiService
     }
 
     @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> onlyProjectDraftTools(List<Map<String, Object>> definitions)
+    {
+        if (definitions == null || definitions.isEmpty()) return Collections.emptyList();
+        List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+        for (Map<String, Object> wrapper : definitions)
+        {
+            Object function = wrapper == null ? null : wrapper.get("function");
+            String name = function instanceof Map
+                ? stringValue(((Map<String, Object>) function).get("name")) : "";
+            if (name.startsWith("capability_project_draft_")) result.add(wrapper);
+        }
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
     private List<Map<String, Object>> withoutTool(List<Map<String, Object>> definitions, String excludedName)
     {
         if (definitions == null || definitions.isEmpty()) return Collections.emptyList();
@@ -3337,7 +3361,7 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         String answer = cleanModelText(stringValue(outcome.get("content")));
         if (StringUtils.isBlank(answer)) answer = "已按你的要求更新系统草稿。";
         List<Map<String, Object>> toolResults = outcome.get("toolResults") instanceof List
-            ? (List<Map<String, Object>>) outcome.get("toolResults")
+            ? new ArrayList<Map<String, Object>>((List<Map<String, Object>>) outcome.get("toolResults"))
             : new ArrayList<Map<String, Object>>();
         Map<String, Object> latestWorkflow = mapper.selectActiveWorkflow(conversationId, userId);
         Map<String, Object> actionRequest = null;

@@ -1521,6 +1521,37 @@ class BusinessAiServiceImplTest
         assertEquals(true, String.valueOf(result.get("content")).contains("主要看赚了多少钱"), String.valueOf(result.get("content")));
     }
 
+    @Test
+    void createWorkflowAcceptsTemporarilyNoBudgetWording()
+    {
+        when(mapper.selectConversation(99L, 23L, "BOSS"))
+            .thenReturn(Collections.<String, Object>singletonMap("conversationId", 99L));
+        Map<String, Object> workflow = new LinkedHashMap<String, Object>();
+        workflow.put("workflowId", 809L); workflow.put("conversationId", 99L); workflow.put("userId", 23L);
+        workflow.put("workflowCode", "CREATE_PROJECT"); workflow.put("workflowStatus", "COLLECTING");
+        workflow.put("currentStep", "ACCOUNTING_AND_BUDGET"); workflow.put("versionNo", 7);
+        workflow.put("draftJson", "{\"projectName\":\"上海电商\",\"ownerName\":\"施柳浩\","
+            + "\"companyName\":\"上海美丸文化公司\",\"objective\":\"GMV达到500万元\","
+            + "\"planStartDate\":\"2026-08-18\",\"planEndDate\":\"2026-09-30\","
+            + "\"accountingMode\":\"HYBRID\"}");
+        workflow.put("missingFieldsJson", "[\"预算金额，或明确说明不设预算\"]");
+        when(mapper.selectActiveWorkflow(99L, 23L)).thenReturn(workflow);
+        when(mapper.updateWorkflow(any())).thenReturn(1);
+        when(projectService.userOptions(null)).thenReturn(Collections.singletonList(staffOption(67L, "shiliuhao", "施柳浩", null, null)));
+        when(staffService.listOptions()).thenReturn(Collections.singletonList(staffOption(67L, "shiliuhao", "施柳浩", 100L, "上海美丸文化公司")));
+
+        Map<String, Object> result = service.chat(99L, "暂时不设置预算", 23L, "jianglan", false);
+
+        Map<?, ?> workflowView = (Map<?, ?>) result.get("workflow");
+        Map<?, ?> draft = (Map<?, ?>) workflowView.get("draft");
+        assertEquals(true, draft.get("noBudget"));
+        assertEquals("WAITING_CONFIRMATION", workflowView.get("status"));
+        assertEquals("WAITING_CONFIRMATION", workflowView.get("currentStep"));
+        assertEquals(Collections.emptyList(), workflowView.get("missingFields"));
+        assertEquals("CREATE_PROJECT", ((Map<?, ?>) result.get("actionRequest")).get("actionCode"));
+        verify(projectService, never()).createProject(any(), any(), any());
+    }
+
     private Map<String, Object> staffOption(Long userId, String userName, String nickName,
         Long companyDeptId, String companyName)
     {

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.lenient;
 
 import java.util.Collections;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
@@ -55,6 +56,7 @@ class BusinessAiCapabilityFlowTest
         lenient().when(mapper.insertMessage(any())).thenAnswer(invocation -> id(invocation.getArgument(0), "messageId"));
         lenient().when(mapper.insertRun(any())).thenAnswer(invocation -> id(invocation.getArgument(0), "runId"));
         lenient().when(mapper.insertAudit(any())).thenAnswer(invocation -> id(invocation.getArgument(0), "auditId"));
+        lenient().when(mapper.insertActionRequest(any())).thenAnswer(invocation -> id(invocation.getArgument(0), "actionRequestId"));
     }
 
     @Test
@@ -96,6 +98,55 @@ class BusinessAiCapabilityFlowTest
         verify(capabilityAgentLoop).run(eq("项目整体怎么样"), any(), eq(plan), any());
         verify(mapper).finishRun(any(), any(), eq("SUCCEEDED"), eq(null));
         verify(mapper).insertAudit(any());
+    }
+
+    @Test
+    void activeProjectWorkflowUsesModelDraftUnderstandingWithinScopedTools()
+    {
+        AiExecutionContext actor = context("business:project:add");
+        when(modelClient.isEnabled()).thenReturn(true);
+        when(modelClient.providerCode()).thenReturn("DEEPSEEK");
+        when(modelClient.modelName()).thenReturn("deepseek-v4-flash");
+        when(mapper.selectConversation(91L, 23L, "BOSS"))
+            .thenReturn(Collections.<String, Object>singletonMap("conversationId", 91L));
+        Map<String, Object> active = workflow(false);
+        Map<String, Object> updated = workflow(true);
+        when(mapper.selectActiveWorkflow(91L, 23L)).thenReturn(active, updated);
+        when(mapper.updateWorkflow(any())).thenReturn(1);
+
+        Map<String, Object> get = definition("capability_project_draft_get");
+        Map<String, Object> update = definition("capability_project_draft_update");
+        Map<String, Object> unrelated = definition("capability_project_portfolio_get");
+        when(capabilityToolCatalog.definitions(actor)).thenReturn(Arrays.asList(get, update, unrelated));
+        Map<String, Object> plan = plan(call("draft-update", "capability_project_draft_update"));
+        when(modelClient.plan(eq("暂时不设置预算"), any(), eq(Arrays.asList(get, update)))).thenReturn(plan);
+        when(capabilityToolCatalog.isAllowedToolName("capability_project_draft_update", actor)).thenReturn(true);
+        when(capabilityAgentLoop.canHandle(plan, actor)).thenReturn(true);
+
+        Map<String, Object> toolResult = new LinkedHashMap<String, Object>();
+        toolResult.put("toolCode", "project.draft.update");
+        toolResult.put("riskLevel", "DRAFT_WRITE");
+        toolResult.put("sourcePath", "ai-capability://project.draft.update");
+        toolResult.put("data", Collections.singletonMap("draft", Collections.singletonMap("noBudget", true)));
+        Map<String, Object> outcome = new LinkedHashMap<String, Object>();
+        outcome.put("content", "已记录为暂时不设置预算，请确认立项信息。");
+        outcome.put("rounds", 1);
+        outcome.put("toolResults", Collections.singletonList(toolResult));
+        when(capabilityAgentLoop.run(eq("暂时不设置预算"), any(), eq(plan), any(), eq(Arrays.asList(get, update))))
+            .thenReturn(outcome);
+        when(projectService.userOptions(null)).thenReturn(Collections.singletonList(
+            option(118L, "ZDY-slh", "施柳浩", null, null)));
+        when(staffService.listOptions()).thenReturn(Collections.singletonList(
+            option(118L, "ZDY-slh", "施柳浩", 110L, "上海美丸文化公司")));
+
+        Map<String, Object> result = service.chat(91L, "暂时不设置预算", actor);
+
+        assertEquals("LLM_AGENT", result.get("executionMode"));
+        assertEquals(true, ((Map<?, ?>) ((Map<?, ?>) result.get("workflow")).get("draft")).get("noBudget"));
+        assertEquals("WAITING_CONFIRMATION", ((Map<?, ?>) result.get("workflow")).get("status"));
+        assertEquals("CREATE_PROJECT", ((Map<?, ?>) result.get("actionRequest")).get("actionCode"));
+        verify(capabilityAgentLoop).run(eq("暂时不设置预算"), any(), eq(plan), any(), eq(Arrays.asList(get, update)));
+        verify(projectService, never()).createProject(any(), any(), any());
     }
 
     @Test
@@ -219,6 +270,32 @@ class BusinessAiCapabilityFlowTest
         wrapper.put("type", "function");
         wrapper.put("function", function);
         return wrapper;
+    }
+
+    private Map<String, Object> workflow(boolean noBudget)
+    {
+        Map<String, Object> workflow = new LinkedHashMap<String, Object>();
+        workflow.put("workflowId", 801L); workflow.put("conversationId", 91L); workflow.put("userId", 23L);
+        workflow.put("workflowCode", "CREATE_PROJECT");
+        workflow.put("workflowStatus", noBudget ? "REVALIDATE" : "COLLECTING");
+        workflow.put("currentStep", noBudget ? "REVALIDATE" : "ACCOUNTING_AND_BUDGET");
+        workflow.put("versionNo", noBudget ? 8 : 7);
+        workflow.put("draftJson", "{\"projectName\":\"上海电商\",\"ownerName\":\"施柳浩\","
+            + "\"companyName\":\"上海美丸文化公司\",\"objective\":\"GMV达到500万元\","
+            + "\"planStartDate\":\"2026-08-18\",\"planEndDate\":\"2026-09-30\","
+            + "\"accountingMode\":\"HYBRID\"" + (noBudget ? ",\"noBudget\":true" : "") + "}");
+        workflow.put("missingFieldsJson", noBudget
+            ? "[\"修改后的立项资料需要重新校验\"]" : "[\"预算金额，或明确说明不设预算\"]");
+        return workflow;
+    }
+
+    private Map<String, Object> option(Long userId, String userName, String nickName,
+        Long companyDeptId, String companyName)
+    {
+        Map<String, Object> option = new LinkedHashMap<String, Object>();
+        option.put("userId", userId); option.put("userName", userName); option.put("nickName", nickName);
+        option.put("companyDeptId", companyDeptId); option.put("companyName", companyName);
+        return option;
     }
 
     private Map<String, Object> call(String id, String name)

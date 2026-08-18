@@ -243,6 +243,7 @@
 ## 12. 模型优先路由边界
 
 - DeepSeek 已启用时，新消息只由模型从当前登录账号有权使用的能力目录中选择工具；本地关键词不得改写模型选择的意图、实体或操作。
+- 正在收集立项资料时，模型仅获得 `project.draft.get` 和 `project.draft.update`：自然语言理解由模型完成，后端重新校验草稿并生成确认单，模型不能直接创建正式项目。
 - 模型返回普通文本且未调用工具时，系统直接展示模型回答，不再因为出现“创建项目”“预算”“批准”等词语自动进入旧流程。
 - 模型规划失败时，本次请求明确失败，并保证不执行任何系统写操作；不得静默降级到关键词写入。
 - `project.create`、`project.plan.review`、`project.plan.decide` 已迁入通用能力注册表；对应的 `boss_prepare_project_create`、`boss_project_plan_review`、`boss_prepare_plan_decision` 已从模型工具目录移除，新消息无法再调用旧入口。

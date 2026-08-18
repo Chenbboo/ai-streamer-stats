@@ -3,6 +3,7 @@ package com.ruoyi.business.ai.capability;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -80,6 +81,26 @@ class AiCapabilityAgentLoopTest
         verify(mapper, org.mockito.Mockito.times(2)).insertToolCall(calls.capture());
         assertEquals("project.draft.get", calls.getAllValues().get(0).get("toolCode"));
         assertEquals("project.draft.update", calls.getAllValues().get(1).get("toolCode"));
+    }
+
+    @Test
+    void scopedDraftLoopRejectsModelDriftIntoUnrelatedCapability()
+    {
+        Map<String, Object> first = plan("call-1", "capability_project_draft_get",
+            Collections.<String, Object>emptyMap());
+        Map<String, Object> drift = plan("call-2", "capability_project_directory_get",
+            Collections.<String, Object>emptyMap());
+        when(modelClient.continueWithTools(eq("暂时不设置预算"), any(), any(), any())).thenReturn(drift);
+        List<Map<String, Object>> scope = Arrays.asList(
+            definition("capability_project_draft_get"), definition("capability_project_draft_update"));
+
+        assertThrows(com.ruoyi.common.exception.ServiceException.class,
+            () -> loop.run("暂时不设置预算", Collections.emptyList(), first,
+                new AiCapabilityInvocation(actor, 67L, 90L, 375L), scope));
+
+        ArgumentCaptor<Map<String, Object>> calls = mapCaptor();
+        verify(mapper).insertToolCall(calls.capture());
+        assertEquals("project.draft.get", calls.getValue().get("toolCode"));
     }
 
     @Test
@@ -193,6 +214,15 @@ class AiCapabilityAgentLoopTest
         for (int index = 0; index + 1 < values.length; index += 2)
             result.put(String.valueOf(values[index]), values[index + 1]);
         return result;
+    }
+
+    private Map<String, Object> definition(String name)
+    {
+        Map<String, Object> function = new LinkedHashMap<String, Object>();
+        function.put("name", name);
+        Map<String, Object> wrapper = new LinkedHashMap<String, Object>();
+        wrapper.put("type", "function"); wrapper.put("function", function);
+        return wrapper;
     }
 
     @SuppressWarnings({ "rawtypes", "unchecked" })
