@@ -332,9 +332,13 @@ public class BusinessAiServiceImpl implements IBusinessAiService
             if (projectArguments != null) mergeNonBlank(merged, projectArguments);
             if (modelPlan == null)
             {
-                // Recover workflows created by older releases that failed to persist earlier turns.
-                if (continuingProjectCreate && storedDraft.isEmpty())
-                    mergeProjectCreateHistory(merged, modelHistory);
+                // Recover fields missed in earlier turns without overwriting values already persisted in the draft.
+                if (continuingProjectCreate)
+                {
+                    Map<String, Object> recovered = new LinkedHashMap<String, Object>();
+                    mergeProjectCreateHistory(recovered, modelHistory);
+                    mergeMissing(merged, recovered);
+                }
                 mergeProjectCreateMessage(merged, new LinkedHashMap<String, Object>(merged), question);
             }
             projectArguments = merged;
@@ -1218,6 +1222,20 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         }
     }
 
+    private void mergeMissing(Map<String, Object> target, Map<String, Object> incoming)
+    {
+        if (incoming == null) return;
+        for (Map.Entry<String, Object> entry : incoming.entrySet())
+        {
+            Object current = target.get(entry.getKey());
+            if (current != null && (!(current instanceof String) || StringUtils.isNotBlank((String) current)))
+                continue;
+            Object value = entry.getValue();
+            if (value == null || (value instanceof String && StringUtils.isBlank((String) value))) continue;
+            target.put(entry.getKey(), value);
+        }
+    }
+
     /**
      * 当前工作流优先于模型路由。这里仅做可确定的字段提取；不唯一的人员、公司或日期仍交给后续校验追问。
      */
@@ -1266,9 +1284,13 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         if (objective.find()) draft.put("objective", StringUtils.trim(objective.group(1)));
         if (StringUtils.isBlank(text(draft, "objective")))
         {
-            Matcher gmv = Pattern.compile("(?i)(\\d+(?:\\.\\d+)?)\\s*(万|亿)?(?:元)?(?:的)?\\s*GMV").matcher(value);
+            Matcher gmv = Pattern.compile("(?i)(\\d+(?:\\.\\d+)?)\\s*(万|亿|W)?(?:元)?(?:的)?\\s*GMV").matcher(value);
             if (gmv.find())
-                draft.put("objective", "GMV达到" + gmv.group(1) + defaultValue(gmv.group(2), "") + "元");
+            {
+                String unit = defaultValue(gmv.group(2), "");
+                if ("W".equalsIgnoreCase(unit)) unit = "万";
+                draft.put("objective", "GMV达到" + gmv.group(1) + unit + "元");
+            }
             Matcher deliverable = Pattern.compile("(?:^|[，,；;\\s])(?:1\\s*[.、:：]?\\s*)?((?:完成|制作|做)\\s*\\d+(?:\\.\\d+)?\\s*(?:条|个|份|套|场|篇|小时|天)[^，,。；;]*)")
                 .matcher(value);
             if (StringUtils.isBlank(text(draft, "objective")) && deliverable.find())
@@ -4275,7 +4297,8 @@ public class BusinessAiServiceImpl implements IBusinessAiService
             normalizeArgumentYear(arguments, "planStartDate", today.getYear());
             normalizeArgumentYear(arguments, "planEndDate", today.getYear());
         }
-        if (containsAny(text, "现在开始", "今天开始", "从今天", "从现在", "现在起", "今天起", "即日起", "当天开始"))
+        if (containsAny(text, "现在开始", "今天开始", "从今天", "从现在", "现在起", "今天起", "即日起", "当天开始",
+            "今天到", "今天至", "今天做到", "现在到", "现在至", "现在做到"))
             arguments.put("planStartDate", today.toString());
 
         Matcher range = Pattern.compile("(?:从)?\\s*(\\d{1,2})月(\\d{1,2})日?\\s*(?:到|至|做到)\\s*(\\d{1,2})月(\\d{1,2})日?")

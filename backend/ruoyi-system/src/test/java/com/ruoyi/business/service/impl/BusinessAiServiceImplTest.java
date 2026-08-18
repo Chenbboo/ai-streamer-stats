@@ -1486,6 +1486,41 @@ class BusinessAiServiceImplTest
         assertEquals("2026-09-30", draft.get("planEndDate"));
     }
 
+    @Test
+    void createWorkflowRecoversShorthandGmvAndTodayRangeFromEarlierTurn()
+    {
+        service.setClock(Clock.fixed(Instant.parse("2026-08-18T05:00:00Z"), ZoneId.of("Asia/Shanghai")));
+        when(mapper.selectConversation(98L, 23L, "BOSS"))
+            .thenReturn(Collections.<String, Object>singletonMap("conversationId", 98L));
+        Map<String, Object> workflow = new LinkedHashMap<String, Object>();
+        workflow.put("workflowId", 808L); workflow.put("conversationId", 98L); workflow.put("userId", 23L);
+        workflow.put("workflowCode", "CREATE_PROJECT"); workflow.put("workflowStatus", "COLLECTING");
+        workflow.put("currentStep", "GOAL_AND_PERIOD"); workflow.put("versionNo", 4);
+        workflow.put("draftJson", "{\"projectName\":\"上海电商\",\"ownerName\":\"施柳浩\","
+            + "\"companyName\":\"上海美丸文化公司\",\"planEndDate\":\"2026-09-30\"}");
+        workflow.put("missingFieldsJson", "[\"项目目标\",\"计划开始和结束日期\",\"核算方式\",\"预算\"]");
+        when(mapper.selectActiveWorkflow(98L, 23L)).thenReturn(workflow);
+        when(mapper.updateWorkflow(any())).thenReturn(1);
+        Map<String, Object> previous = new LinkedHashMap<String, Object>();
+        previous.put("messageRole", "USER");
+        previous.put("content", "500W的GMV，今天到9月30");
+        when(mapper.selectMessages(98L, 23L, 12))
+            .thenReturn(new ArrayList<Map<String, Object>>(Collections.singletonList(previous)));
+        when(projectService.userOptions(null)).thenReturn(Collections.singletonList(staffOption(67L, "shiliuhao", "施柳浩", null, null)));
+        when(staffService.listOptions()).thenReturn(Collections.singletonList(staffOption(67L, "shiliuhao", "施柳浩", 100L, "上海美丸文化公司")));
+
+        Map<String, Object> result = service.chat(98L, "500W的GMV算完成", 23L, "jianglan", false);
+
+        Map<?, ?> workflowView = (Map<?, ?>) result.get("workflow");
+        Map<?, ?> draft = (Map<?, ?>) workflowView.get("draft");
+        assertEquals("GMV达到500万元", draft.get("objective"));
+        assertEquals("2026-08-18", draft.get("planStartDate"));
+        assertEquals("2026-09-30", draft.get("planEndDate"));
+        assertEquals("ACCOUNTING_AND_BUDGET", workflowView.get("currentStep"));
+        assertEquals(false, String.valueOf(result.get("content")).contains("什么时候开始"), String.valueOf(result.get("content")));
+        assertEquals(true, String.valueOf(result.get("content")).contains("主要看赚了多少钱"), String.valueOf(result.get("content")));
+    }
+
     private Map<String, Object> staffOption(Long userId, String userName, String nickName,
         Long companyDeptId, String companyName)
     {
