@@ -1460,6 +1460,32 @@ class BusinessAiServiceImplTest
         assertEquals("2026-09-30", draft.get("planEndDate"));
     }
 
+    @Test
+    void explicitMonthDayRangeOverridesEarlierFromNowStartDate()
+    {
+        service.setClock(Clock.fixed(Instant.parse("2026-08-18T05:00:00Z"), ZoneId.of("Asia/Shanghai")));
+        when(mapper.selectConversation(97L, 23L, "BOSS"))
+            .thenReturn(Collections.<String, Object>singletonMap("conversationId", 97L));
+        Map<String, Object> workflow = new LinkedHashMap<String, Object>();
+        workflow.put("workflowId", 807L); workflow.put("conversationId", 97L); workflow.put("userId", 23L);
+        workflow.put("workflowCode", "CREATE_PROJECT"); workflow.put("workflowStatus", "COLLECTING");
+        workflow.put("currentStep", "GOAL_AND_PERIOD"); workflow.put("versionNo", 2);
+        workflow.put("draftJson", "{\"projectName\":\"上海电商\",\"ownerName\":\"石头\","
+            + "\"companyName\":\"上海美丸文化公司\",\"objective\":\"GMV达到500万元\","
+            + "\"planStartDate\":\"2026-08-18\",\"noBudget\":true}");
+        workflow.put("missingFieldsJson", "[\"计划开始和结束日期\",\"核算方式\"]");
+        when(mapper.selectActiveWorkflow(97L, 23L)).thenReturn(workflow);
+        when(mapper.updateWorkflow(any())).thenReturn(1);
+        when(projectService.userOptions(null)).thenReturn(Collections.singletonList(staffOption(66L, "shitou", "石头", null, null)));
+        when(staffService.listOptions()).thenReturn(Collections.singletonList(staffOption(66L, "shitou", "石头", 100L, "上海美丸文化公司")));
+
+        Map<String, Object> result = service.chat(97L, "从8月15日做到9月30日", 23L, "jianglan", false);
+
+        Map<?, ?> draft = (Map<?, ?>) ((Map<?, ?>) result.get("workflow")).get("draft");
+        assertEquals("2026-08-15", draft.get("planStartDate"));
+        assertEquals("2026-09-30", draft.get("planEndDate"));
+    }
+
     private Map<String, Object> staffOption(Long userId, String userName, String nickName,
         Long companyDeptId, String companyName)
     {

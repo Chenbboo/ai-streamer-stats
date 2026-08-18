@@ -1283,7 +1283,9 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         }
         if (containsAny(value, "电商类型", "电商项目", "电子商务")) draft.put("projectType", "ECOMMERCE");
         else if (containsAny(value, "直播类型", "直播项目")) draft.put("projectType", "LIVE");
-        if (containsAny(value, "利润项目", "看利润", "赚多少钱")) draft.put("accountingMode", "PROFIT");
+        if (containsAny(value, "一起看", "两者一起", "两个都看", "都要看", "利润和成本一起"))
+            draft.put("accountingMode", "HYBRID");
+        else if (containsAny(value, "利润项目", "看利润", "赚多少钱")) draft.put("accountingMode", "PROFIT");
         else if (containsAny(value, "成本项目", "只看成本", "控制成本")) draft.put("accountingMode", "COST");
         else if (containsAny(value, "价值项目", "不算利润")) draft.put("accountingMode", "VALUE");
         else if (containsAny(value, "混合核算", "利润和成本一起")) draft.put("accountingMode", "HYBRID");
@@ -4275,6 +4277,14 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         }
         if (containsAny(text, "现在开始", "今天开始", "从今天", "从现在", "现在起", "今天起", "即日起", "当天开始"))
             arguments.put("planStartDate", today.toString());
+
+        Matcher range = Pattern.compile("(?:从)?\\s*(\\d{1,2})月(\\d{1,2})日?\\s*(?:到|至|做到)\\s*(\\d{1,2})月(\\d{1,2})日?")
+            .matcher(text);
+        while (range.find())
+        {
+            putMonthDay(arguments, "planStartDate", today.getYear(), range.group(1), range.group(2));
+            putMonthDay(arguments, "planEndDate", today.getYear(), range.group(3), range.group(4));
+        }
 
         Matcher end = Pattern.compile("(?:到|至)\\s*(\\d{1,2})月(\\d{1,2})日?").matcher(text);
         while (end.find()) putMonthDay(arguments, "planEndDate", today.getYear(), end.group(1), end.group(2));

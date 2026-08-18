@@ -215,6 +215,38 @@ class BusinessAiModelFirstRoutingTest
         assertEquals(true, draft.get("noBudget"));
     }
 
+    @Test
+    void shortTogetherAnswerSelectsHybridAccountingInAccountingStep()
+    {
+        when(mapper.selectConversation(93L, 23L, "BOSS"))
+            .thenReturn(Collections.<String, Object>singletonMap("conversationId", 93L));
+        Map<String, Object> workflow = new LinkedHashMap<String, Object>();
+        workflow.put("workflowId", 803L); workflow.put("conversationId", 93L); workflow.put("userId", 23L);
+        workflow.put("workflowCode", "CREATE_PROJECT"); workflow.put("workflowStatus", "COLLECTING");
+        workflow.put("currentStep", "ACCOUNTING_AND_BUDGET"); workflow.put("versionNo", 8);
+        workflow.put("draftJson", "{\"projectName\":\"上海电商\",\"ownerName\":\"施柳浩\","
+            + "\"companyName\":\"上海美丸文化公司\",\"objective\":\"GMV达到500万元\","
+            + "\"planStartDate\":\"2026-08-15\",\"planEndDate\":\"2026-09-30\","
+            + "\"projectType\":\"ECOMMERCE\",\"noBudget\":true}");
+        workflow.put("missingFieldsJson", "[\"核算方式（利润、成本、价值或混合）\"]");
+        when(mapper.selectActiveWorkflow(93L, 23L)).thenReturn(workflow);
+        when(mapper.updateWorkflow(any())).thenReturn(1);
+        when(projectService.userOptions(null)).thenReturn(Collections.singletonList(
+            staffOption(118L, "ZDY-slh", "施柳浩", null, null)));
+        when(staffService.listOptions()).thenReturn(Collections.singletonList(
+            staffOption(118L, "ZDY-slh", "施柳浩", 110L, "上海美丸文化公司")));
+
+        Map<String, Object> result = service.chat(93L, "一起看", 23L, "admin", true);
+
+        Map<?, ?> workflowView = (Map<?, ?>) result.get("workflow");
+        Map<?, ?> draft = (Map<?, ?>) workflowView.get("draft");
+        assertEquals("HYBRID", draft.get("accountingMode"));
+        assertEquals("WAITING_CONFIRMATION", workflowView.get("status"));
+        assertEquals(Collections.emptyList(), workflowView.get("missingFields"));
+        verify(mapper).insertActionRequest(any());
+        verify(projectService, never()).createProject(any(), any(), any());
+    }
+
     @SuppressWarnings("unchecked")
     private void assertCreateWorkflow(Map<String, Object> result)
     {
