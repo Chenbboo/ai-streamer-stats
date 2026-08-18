@@ -58,7 +58,7 @@ import com.ruoyi.common.utils.uuid.IdUtils;
  * 老板 AI 的安全执行层。
  *
  * DeepSeek 只负责选择这里登记的白名单工具并组织回答，不能直接访问数据库或调用任意接口。
- * 模型不可用或返回异常工具计划时，自动降级为确定性意图路由。
+ * 模型开启时只允许走权限过滤后的通用 Capability Agent；模型不可用时才使用只读兼容路由。
  */
 @Service
 public class BusinessAiServiceImpl implements IBusinessAiService
@@ -73,9 +73,9 @@ public class BusinessAiServiceImpl implements IBusinessAiService
     @Autowired private IBusinessAccountingService accountingService;
     @Autowired private IBusinessStaffService staffService;
     @Autowired private IBusinessAiModelClient modelClient;
-    @Autowired(required = false) private AiCapabilityToolCatalog capabilityToolCatalog;
-    @Autowired(required = false) private AiCapabilityAgentLoop capabilityAgentLoop;
-    @Autowired(required = false) private AiCapabilityActionService capabilityActionService;
+    @Autowired private AiCapabilityToolCatalog capabilityToolCatalog;
+    @Autowired private AiCapabilityAgentLoop capabilityAgentLoop;
+    @Autowired private AiCapabilityActionService capabilityActionService;
     @Autowired(required = false) private RedisCache redisCache;
     @Autowired private ObjectMapper objectMapper = new ObjectMapper();
     private Clock clock = Clock.systemDefaultZone();
@@ -154,6 +154,9 @@ public class BusinessAiServiceImpl implements IBusinessAiService
                     : modelClient.plan(question, modelHistory, modelTools);
                 List<String> modelSelections = selectedCapabilityCodes(modelPlan, context);
                 decisionTrace.put("modelSelection", modelSelections);
+                if (modelSelections.contains("staff.password.reset"))
+                    mapper.redactMessageContent(longValue(userMessage.get("messageId")),
+                        "[敏感操作请求已脱敏：重置员工密码]");
                 if (!plannedToolsAllowed(modelPlan, context))
                 {
                     modelPlan = null;
@@ -211,8 +214,15 @@ public class BusinessAiServiceImpl implements IBusinessAiService
             mapper.finishRun(runId, null, "FAILED", StringUtils.defaultIfBlank(fallbackReason, "AI model unavailable"));
             throw new ServiceException("AI 模型当前暂不可用，请稍后重试。本次没有执行任何系统操作。");
         }
-        if (capabilityAgentLoop != null && capabilityAgentLoop.canHandle(modelPlan, context))
+        boolean capabilityRuntimeConfigured = capabilityToolCatalog != null || capabilityAgentLoop != null;
+        if (modelEnabled && !guardedProjectCreate && capabilityRuntimeConfigured)
         {
+            if (capabilityToolCatalog == null || capabilityAgentLoop == null
+                || !capabilityAgentLoop.canHandle(modelPlan, context))
+            {
+                mapper.finishRun(runId, null, "FAILED", "模型未返回可由通用能力层执行的工具计划");
+                throw new ServiceException("AI 没有生成可安全执行的系统能力计划，本次没有执行任何系统操作。");
+            }
             try
             {
                 AiCapabilityInvocation invocation = new AiCapabilityInvocation(context, activeConversationId,
@@ -765,18 +775,7 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         if (actionCode.startsWith(AiCapabilityActionService.ACTION_PREFIX))
         {
             if (capabilityActionService == null) throw new ServiceException("AI 系统能力执行器尚未就绪");
-            Map<String, Object> executed = capabilityActionService.executeConfirmed(action, context);
-            Map<String, Object> result = new LinkedHashMap<String, Object>();
-            if (executed != null) result.putAll(executed);
-            result.put("actionRequestId", actionRequestId); result.put("status", "EXECUTED");
-            result.put("actionCode", actionCode);
-            if (mapper.finishActionRequest(actionRequestId, toJson(result)) != 1)
-                throw new ServiceException("AI 操作状态更新失败");
-            writeCapabilityExecutionMessage(action, userId, result);
-            audit(stringValue(action.get("traceId")), longValue(action.get("conversationId")),
-                longValue(action.get("runId")), userId, userName, "AI_ACTION_EXECUTED",
-                "老板确认 AI 系统能力 " + actionCode, result);
-            return result;
+            return capabilityActionService.completeConfirmedAction(action, context);
         }
         if ("BUDGET_ADJUSTMENT".equals(actionCode))
         {
@@ -919,16 +918,6 @@ public class BusinessAiServiceImpl implements IBusinessAiService
             toJson(Collections.<String, Object>singletonMap("executedAction", result)));
         mapper.insertMessage(executionMessage);
         mapper.touchConversation(conversationId);
-    }
-
-    private void writeCapabilityExecutionMessage(Map<String, Object> action, Long userId,
-        Map<String, Object> result)
-    {
-        Long conversationId = longValue(action.get("conversationId"));
-        String content = "操作已确认并执行：" + stringValue(action.get("confirmationSummary"));
-        Map<String, Object> executionMessage = message(conversationId, userId, "ASSISTANT", content,
-            toJson(Collections.<String, Object>singletonMap("executedAction", result)));
-        mapper.insertMessage(executionMessage); mapper.touchConversation(conversationId);
     }
 
     @Override

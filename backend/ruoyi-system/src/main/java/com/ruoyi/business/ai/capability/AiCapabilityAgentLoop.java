@@ -125,7 +125,7 @@ public class AiCapabilityAgentLoop
         row.put("userId", invocation.getActor().getUserId());
         row.put("toolCode", capability.code());
         row.put("riskLevel", capability.risk().name());
-        row.put("inputJson", json(input));
+        row.put("inputJson", json(capability.auditInput(input)));
         row.put("startedTime", started);
         try
         {
@@ -175,7 +175,7 @@ public class AiCapabilityAgentLoop
         row.put("userId", invocation.getActor().getUserId());
         row.put("toolCode", capability.code());
         row.put("riskLevel", capability.risk().name());
-        row.put("inputJson", json(input));
+        row.put("inputJson", json(capability.auditInput(input)));
         row.put("outputJson", json(error));
         row.put("status", "FAILED");
         row.put("errorMessage", StringUtils.substring(text(error.get("message")), 0, 500));

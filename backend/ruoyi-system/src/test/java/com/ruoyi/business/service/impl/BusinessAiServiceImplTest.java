@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -31,6 +32,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import com.ruoyi.business.mapper.BusinessAiMapper;
+import com.ruoyi.business.ai.capability.AiCapabilityAgentLoop;
+import com.ruoyi.business.ai.capability.AiCapabilityToolCatalog;
 import com.ruoyi.business.domain.BusinessProject;
 import com.ruoyi.business.domain.BusinessProjectAcceptance;
 import com.ruoyi.business.domain.BusinessProjectMember;
@@ -158,6 +161,68 @@ class BusinessAiServiceImplTest
         assertEquals("deepseek-v4-flash", result.get("model"));
         verify(accountingService).bossOverview(23L, false);
         verify(modelClient).complete(eq("今天经营如何，需要我关注什么？"), eq(plan), any());
+    }
+
+    @Test
+    void configuredModelRuntimeNeverFallsBackToLegacyIntentRouter()
+    {
+        AiCapabilityToolCatalog catalog = mock(AiCapabilityToolCatalog.class);
+        AiCapabilityAgentLoop agentLoop = mock(AiCapabilityAgentLoop.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "capabilityToolCatalog", catalog);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "capabilityAgentLoop", agentLoop);
+        when(modelClient.isEnabled()).thenReturn(true);
+
+        Map<String, Object> function = new LinkedHashMap<String, Object>();
+        function.put("name", "capability_business_operating_overview");
+        Map<String, Object> definition = new LinkedHashMap<String, Object>();
+        definition.put("function", function);
+        List<Map<String, Object>> definitions = Collections.singletonList(definition);
+        when(catalog.definitions(any())).thenReturn(definitions);
+        when(catalog.isAllowedToolName(eq("capability_business_operating_overview"), any())).thenReturn(true);
+
+        Map<String, Object> call = new LinkedHashMap<String, Object>();
+        call.put("toolCallId", "capability_call_1");
+        call.put("name", "capability_business_operating_overview");
+        Map<String, Object> plan = new LinkedHashMap<String, Object>();
+        plan.put("toolCalls", Collections.singletonList(call));
+        when(modelClient.plan(eq("今天经营怎么样？"), any(), eq(definitions))).thenReturn(plan);
+        when(agentLoop.canHandle(eq(plan), any())).thenReturn(false);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.chat(null, "今天经营怎么样？", 23L, "jianglan", true));
+
+        assertEquals(true, error.getMessage().contains("没有生成可安全执行"));
+        verify(accountingService, never()).bossOverview(any(), any(Boolean.class));
+        verify(mapper).finishRun(any(), eq(null), eq("FAILED"),
+            eq("模型未返回可由通用能力层执行的工具计划"));
+    }
+
+    @Test
+    void passwordCapabilityRedactsThePersistedUserMessageBeforeAnyExecution()
+    {
+        AiCapabilityToolCatalog catalog = mock(AiCapabilityToolCatalog.class);
+        AiCapabilityAgentLoop agentLoop = mock(AiCapabilityAgentLoop.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "capabilityToolCatalog", catalog);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "capabilityAgentLoop", agentLoop);
+        when(modelClient.isEnabled()).thenReturn(true);
+        Map<String, Object> function = new LinkedHashMap<String, Object>();
+        function.put("name", "capability_staff_password_reset");
+        Map<String, Object> definition = new LinkedHashMap<String, Object>(); definition.put("function", function);
+        List<Map<String, Object>> definitions = Collections.singletonList(definition);
+        when(catalog.definitions(any())).thenReturn(definitions);
+        when(catalog.isAllowedToolName(eq("capability_staff_password_reset"), any())).thenReturn(true);
+        Map<String, Object> call = new LinkedHashMap<String, Object>(); call.put("toolCallId", "password_1");
+        call.put("name", "capability_staff_password_reset");
+        Map<String, Object> arguments = new LinkedHashMap<String, Object>(); arguments.put("staffUserId", 66L);
+        arguments.put("newPassword", "safe123456"); call.put("arguments", arguments);
+        Map<String, Object> plan = new LinkedHashMap<String, Object>(); plan.put("toolCalls", Collections.singletonList(call));
+        when(modelClient.plan(eq("把施柳浩密码改成safe123456"), any(), eq(definitions))).thenReturn(plan);
+        when(agentLoop.canHandle(eq(plan), any())).thenReturn(false);
+
+        assertThrows(ServiceException.class,
+            () -> service.chat(null, "把施柳浩密码改成safe123456", 23L, "jianglan", true));
+
+        verify(mapper).redactMessageContent(any(), eq("[敏感操作请求已脱敏：重置员工密码]"));
     }
 
     @Test

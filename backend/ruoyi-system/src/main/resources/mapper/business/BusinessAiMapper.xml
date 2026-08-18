@@ -22,6 +22,10 @@
     values(#{conversationId},#{userId},#{messageRole},#{content},#{metadataJson},sysdate())
   </insert>
 
+  <update id="redactMessageContent">
+    update biz_ai_message set content=#{content} where message_id=#{messageId}
+  </update>
+
   <select id="selectMessages" resultType="map">
     select message_id messageId,conversation_id conversationId,message_role messageRole,content,
       metadata_json metadataJson,create_time createTime

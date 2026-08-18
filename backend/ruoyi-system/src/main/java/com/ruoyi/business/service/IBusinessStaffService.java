@@ -18,4 +18,5 @@ public interface IBusinessStaffService
     Object updateStaff(BusinessStaffProfile input, String operatorName);
     void changeStatus(Long userId, String status, String operatorName);
     void resetPassword(Long userId, String password, String operatorName);
+    void resetEncodedPassword(Long userId, String encodedPassword, String operatorName);
 }

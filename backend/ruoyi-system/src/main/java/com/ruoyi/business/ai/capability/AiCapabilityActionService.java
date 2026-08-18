@@ -32,8 +32,10 @@ public class AiCapabilityActionService
             : new LinkedHashMap<String, Object>(input);
         String summary = capability.confirmationSummary(invocation, safeInput);
         if (summary == null || summary.trim().isEmpty()) throw new ServiceException("确认内容不能为空");
+        Map<String, Object> details = capability.confirmationDetails(invocation, safeInput);
+        Map<String, Object> persistedInput = capability.persistedInput(invocation, safeInput);
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
-        payload.put("capabilityCode", capability.code()); payload.put("input", safeInput);
+        payload.put("capabilityCode", capability.code()); payload.put("input", persistedInput);
         Map<String, Object> row = new LinkedHashMap<String, Object>();
         row.put("runId", invocation.getRunId()); row.put("conversationId", invocation.getConversationId());
         row.put("userId", invocation.getActor().getUserId()); row.put("actionCode", ACTION_PREFIX + capability.code());
@@ -45,7 +47,7 @@ public class AiCapabilityActionService
         result.put("ready", true); result.put("actionRequestId", row.get("actionRequestId"));
         result.put("actionCode", row.get("actionCode")); result.put("riskLevel", row.get("riskLevel"));
         result.put("status", "PENDING"); result.put("confirmationSummary", summary);
-        result.put("details", capability.confirmationDetails(invocation, safeInput));
+        result.put("details", details);
         return result;
     }
 
@@ -65,6 +67,34 @@ public class AiCapabilityActionService
         AiCapabilityInvocation invocation = new AiCapabilityInvocation(context, number(action.get("conversationId")),
             number(action.get("runId")), null);
         return capability.executeConfirmed(invocation, input);
+    }
+
+    /** Completes a confirmed generic capability and owns its execution message and audit record. */
+    public Map<String, Object> completeConfirmedAction(Map<String, Object> action, AiExecutionContext context)
+    {
+        Long actionRequestId = number(action.get("actionRequestId"));
+        Map<String, Object> executed = executeConfirmed(action, context);
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        if (executed != null) result.putAll(executed);
+        result.put("actionRequestId", actionRequestId); result.put("status", "EXECUTED");
+        result.put("actionCode", String.valueOf(action.get("actionCode")));
+        if (mapper.finishActionRequest(actionRequestId, json(result)) != 1)
+            throw new ServiceException("AI 操作状态更新失败");
+
+        Long conversationId = number(action.get("conversationId"));
+        Map<String, Object> metadata = new LinkedHashMap<String, Object>(); metadata.put("executedAction", result);
+        Map<String, Object> message = new LinkedHashMap<String, Object>(); message.put("conversationId", conversationId);
+        message.put("userId", context.getUserId()); message.put("messageRole", "ASSISTANT");
+        message.put("content", "操作已确认并执行：" + String.valueOf(action.get("confirmationSummary")));
+        message.put("metadataJson", json(metadata)); mapper.insertMessage(message); mapper.touchConversation(conversationId);
+
+        Map<String, Object> audit = new LinkedHashMap<String, Object>(); audit.put("traceId", action.get("traceId"));
+        audit.put("conversationId", conversationId); audit.put("runId", action.get("runId"));
+        audit.put("userId", context.getUserId()); audit.put("userName", context.getUserName());
+        audit.put("eventType", "AI_ACTION_EXECUTED");
+        audit.put("summary", "老板确认 AI 系统能力 " + String.valueOf(action.get("actionCode")));
+        audit.put("detailJson", json(result)); mapper.insertAudit(audit);
+        return result;
     }
 
     private AiConfirmableCapability requireCapability(String actionCode)

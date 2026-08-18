@@ -228,19 +228,16 @@ class BusinessAiCapabilityFlowTest
         when(capabilityActionService.requiredPermission("CAPABILITY:project.budget.update"))
             .thenReturn("business:project:manage");
         when(mapper.confirmActionRequest(88L, 23L)).thenReturn(1);
-        when(capabilityActionService.executeConfirmed(action, actor))
-            .thenReturn(Collections.<String, Object>singletonMap("projectId", 16L));
-        when(mapper.finishActionRequest(eq(88L), any())).thenReturn(1);
+        Map<String, Object> completed = new LinkedHashMap<String, Object>(); completed.put("projectId", 16L);
+        completed.put("status", "EXECUTED");
+        when(capabilityActionService.completeConfirmedAction(action, actor)).thenReturn(completed);
 
         Map<String, Object> result = service.confirmAction(88L, actor);
 
         assertEquals("EXECUTED", result.get("status"));
         assertEquals(16L, result.get("projectId"));
         verify(mapper).confirmActionRequest(88L, 23L);
-        verify(capabilityActionService).executeConfirmed(action, actor);
-        verify(mapper).finishActionRequest(eq(88L), any());
-        verify(mapper).insertMessage(any());
-        verify(mapper).insertAudit(any());
+        verify(capabilityActionService).completeConfirmedAction(action, actor);
     }
 
     @Test

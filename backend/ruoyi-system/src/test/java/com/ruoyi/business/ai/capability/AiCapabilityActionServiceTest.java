@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.lenient;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -56,6 +57,21 @@ class AiCapabilityActionServiceTest
         action.put("conversationId", 7L); action.put("runId", 8L);
         action.put("actionPayloadJson", "{\"input\":{\"value\":\"new-value\"}}");
         assertThrows(ServiceException.class, () -> service.executeConfirmed(action, context("business:test:read")));
+    }
+
+    @Test void completionOwnsResultMessageAndAuditPersistence()
+    {
+        when(mapper.finishActionRequest(88L, "{\"executed\":\"new-value\",\"actionRequestId\":88,\"status\":\"EXECUTED\",\"actionCode\":\"CAPABILITY:test.confirm\"}"))
+            .thenReturn(1);
+        Map<String,Object> action = new LinkedHashMap<String,Object>(); action.put("actionRequestId", 88L);
+        action.put("actionCode", "CAPABILITY:test.confirm"); action.put("conversationId", 7L); action.put("runId", 8L);
+        action.put("traceId", "trace-1"); action.put("confirmationSummary", "确认测试");
+        action.put("actionPayloadJson", "{\"input\":{\"value\":\"new-value\"}}");
+
+        Map<String,Object> result = service.completeConfirmedAction(action, actor);
+
+        assertEquals("EXECUTED", result.get("status"));
+        verify(mapper).insertMessage(any()); verify(mapper).insertAudit(any()); verify(mapper).touchConversation(7L);
     }
 
     private AiExecutionContext context(String permission)

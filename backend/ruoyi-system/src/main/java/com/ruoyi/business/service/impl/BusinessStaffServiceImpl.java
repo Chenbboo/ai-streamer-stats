@@ -237,10 +237,18 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
     @Override
     public void resetPassword(Long userId, String password, String operatorName)
     {
-        requireManageable(userId);
         validatePassword(password);
+        resetEncodedPassword(userId, SecurityUtils.encryptPassword(password), operatorName);
+    }
+
+    @Override
+    public void resetEncodedPassword(Long userId, String encodedPassword, String operatorName)
+    {
+        requireManageable(userId);
+        if (StringUtils.isBlank(encodedPassword) || !encodedPassword.matches("^\\$2[aby]\\$\\d{2}\\$.{53}$"))
+            throw new ServiceException("密码密文格式不正确");
         SysUser patch = new SysUser(userId);
-        patch.setPassword(SecurityUtils.encryptPassword(password));
+        patch.setPassword(encodedPassword);
         patch.setUpdateBy(operatorName);
         if (userService.resetPwd(patch) != 1) throw new ServiceException("重置密码失败");
     }

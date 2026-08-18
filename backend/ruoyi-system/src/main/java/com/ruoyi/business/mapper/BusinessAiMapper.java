@@ -11,6 +11,7 @@ public interface BusinessAiMapper
         @Param("userId") Long userId, @Param("roleCode") String roleCode);
     int touchConversation(@Param("conversationId") Long conversationId);
     int insertMessage(Map<String, Object> row);
+    int redactMessageContent(@Param("messageId") Long messageId, @Param("content") String content);
     List<Map<String, Object>> selectMessages(@Param("conversationId") Long conversationId,
         @Param("userId") Long userId, @Param("limit") Integer limit);
     int insertRun(Map<String, Object> row);
