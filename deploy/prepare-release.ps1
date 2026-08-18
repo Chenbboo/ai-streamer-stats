@@ -68,7 +68,8 @@ try {
         $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         "$hash  $relative"
     }
-    Set-Content -LiteralPath (Join-Path $releaseRoot 'SHA256SUMS') -Value $manifest -Encoding utf8NoBOM
+    $manifestPath = Join-Path $releaseRoot 'SHA256SUMS'
+    [System.IO.File]::WriteAllLines($manifestPath, $manifest, (New-Object System.Text.UTF8Encoding($false)))
 
     tar -czf $bundlePath -C (Split-Path $releaseRoot -Parent) $ReleaseId
     if ($LASTEXITCODE -ne 0) { throw 'Failed to package release bundle.' }
