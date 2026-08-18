@@ -45,13 +45,15 @@ class BusinessAiModelFirstRoutingTest
         lenient().doAnswer(invocation -> id(invocation.getArgument(0), "messageId")).when(mapper).insertMessage(any());
         lenient().doAnswer(invocation -> id(invocation.getArgument(0), "runId")).when(mapper).insertRun(any());
         lenient().doAnswer(invocation -> id(invocation.getArgument(0), "auditId")).when(mapper).insertAudit(any());
+        lenient().doAnswer(invocation -> id(invocation.getArgument(0), "workflowId")).when(mapper).insertWorkflow(any());
+        lenient().doAnswer(invocation -> id(invocation.getArgument(0), "workflowEventId")).when(mapper).insertWorkflowEvent(any());
         when(modelClient.isEnabled()).thenReturn(true);
         lenient().when(modelClient.providerCode()).thenReturn("DEEPSEEK");
         lenient().when(modelClient.modelName()).thenReturn("deepseek-v4-flash");
     }
 
     @Test
-    void plainModelAnswerIsNotReinterpretedByProjectCreateKeywords()
+    void explicitProjectCreateStartsSafeWorkflowEvenWhenModelOnlyAnswersInText()
     {
         Map<String, Object> plan = new LinkedHashMap<String, Object>();
         plan.put("toolCalls", Collections.emptyList());
@@ -60,10 +62,12 @@ class BusinessAiModelFirstRoutingTest
 
         Map<String, Object> result = service.chat(null, "我要创建一个项目", 23L, "jianglan", false);
 
-        assertEquals("可以，我们先聊清楚这个项目想解决的问题。", result.get("content"));
-        verify(mapper, never()).insertWorkflow(any());
+        assertCreateWorkflow(result);
+        assertEquals("CORRECTED", decisionTrace(result).get("validationStatus"));
+        assertEquals("CREATE_PROJECT_WORKFLOW", decisionTrace(result).get("finalRoute"));
+        verify(mapper).insertWorkflow(any());
         verify(mapper, never()).insertActionRequest(any());
-        verify(projectService, never()).userOptions(any());
+        verify(projectService, never()).createProject(any(), any(), any());
     }
 
     @Test
@@ -87,15 +91,74 @@ class BusinessAiModelFirstRoutingTest
     }
 
     @Test
-    void modelPlanningFailureNeverFallsBackToKeywordWrite()
+    void modelPlanningFailureCanOnlyStartNonWritingProjectWorkflow()
     {
         when(modelClient.plan(eq("帮我创建项目"), any())).thenReturn(null);
 
-        assertThrows(ServiceException.class,
-            () -> service.chat(null, "帮我创建项目", 23L, "jianglan", false));
+        Map<String, Object> result = service.chat(null, "帮我创建项目", 23L, "jianglan", false);
 
+        assertCreateWorkflow(result);
+        assertEquals(Collections.emptyList(), decisionTrace(result).get("modelSelection"));
+        verify(mapper).insertWorkflow(any());
+        verify(mapper, never()).insertActionRequest(any());
+        verify(projectService, never()).createProject(any(), any(), any());
+    }
+
+    @Test
+    void productionPhraseRejectsUnclearSafeReplyAndStartsProjectWorkflow()
+    {
+        Map<String, Object> arguments = new LinkedHashMap<String, Object>();
+        arguments.put("responseType", "UNCLEAR");
+        Map<String, Object> call = new LinkedHashMap<String, Object>();
+        call.put("toolCallId", "safe_1");
+        call.put("name", "capability_conversation_safe_respond");
+        call.put("arguments", arguments);
+        Map<String, Object> plan = new LinkedHashMap<String, Object>();
+        plan.put("toolCalls", Collections.singletonList(call));
+        plan.put("content", "我还没能确定你希望查询还是办理什么。");
+        when(modelClient.plan(eq("帮我创建一个新项目"), any())).thenReturn(plan);
+
+        Map<String, Object> result = service.chat(null, "帮我创建一个新项目", 23L, "jianglan", false);
+
+        assertCreateWorkflow(result);
+        Map<String, Object> trace = decisionTrace(result);
+        assertEquals(Collections.singletonList("conversation.safe.respond"), trace.get("modelSelection"));
+        assertEquals("CORRECTED", trace.get("validationStatus"));
+        assertEquals("CREATE_PROJECT_WORKFLOW", trace.get("finalRoute"));
+        verify(mapper).insertWorkflow(any());
+        verify(mapper, never()).insertActionRequest(any());
+        verify(projectService, never()).createProject(any(), any(), any());
+    }
+
+    @Test
+    void negatedProjectCreateRequestIsNotForcedIntoWorkflow()
+    {
+        Map<String, Object> plan = new LinkedHashMap<String, Object>();
+        plan.put("toolCalls", Collections.emptyList());
+        plan.put("content", "好的，不会创建项目。");
+        when(modelClient.plan(eq("先不要创建项目"), any())).thenReturn(plan);
+
+        Map<String, Object> result = service.chat(null, "先不要创建项目", 23L, "jianglan", false);
+
+        assertEquals("好的，不会创建项目。", result.get("content"));
         verify(mapper, never()).insertWorkflow(any());
         verify(mapper, never()).insertActionRequest(any());
+        verify(projectService, never()).createProject(any(), any(), any());
+    }
+
+    @SuppressWarnings("unchecked")
+    private void assertCreateWorkflow(Map<String, Object> result)
+    {
+        Map<String, Object> workflow = (Map<String, Object>) result.get("workflow");
+        assertEquals("CREATE_PROJECT", workflow.get("workflowCode"));
+        assertEquals("COLLECTING", workflow.get("status"));
+        assertEquals("BASIC_INFO", workflow.get("currentStep"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> decisionTrace(Map<String, Object> result)
+    {
+        return (Map<String, Object>) result.get("decisionTrace");
     }
 
     private int id(Map<String, Object> row, String key)

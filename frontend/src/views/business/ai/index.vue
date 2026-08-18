@@ -22,6 +22,7 @@
             <div class="message-stack">
               <div class="ai-bubble"><p>{{ message.content }}</p></div>
               <AiWorkflowCard v-if="message.role==='assistant'&&message.workflow" :workflow="message.workflow" />
+              <AiDecisionTracePanel v-if="message.role==='assistant'&&message.decisionTrace" :trace="message.decisionTrace" />
               <AiEvidencePanel v-if="message.role==='assistant'" :understanding="message.understanding" :evidence="message.evidence" :sources="message.sources" :scope="message.scope" />
               <BusinessInsightCard v-if="message.businessCard" :card="message.businessCard" @action="sendAi" />
               <PlanReviewCard v-if="message.planReview?.ready" :review="message.planReview" :busy="aiLoading" :show-actions="isLatestPlanReview(index)" @decision="handlePlanReviewDecision" />
@@ -64,6 +65,7 @@ import BusinessInsightCard from './BusinessInsightCard.vue'
 import AiEvidencePanel from './AiEvidencePanel.vue'
 import AcceptanceReviewCard from './AcceptanceReviewCard.vue'
 import AiWorkflowCard from './AiWorkflowCard.vue'
+import AiDecisionTracePanel from './AiDecisionTracePanel.vue'
 
 const router=useRouter()
 const aiInput=ref('')
@@ -99,6 +101,7 @@ function normalizeAssistant(answer={}){
     planReview:answer.planReview||metadata.planReview,
     acceptanceReview:answer.acceptanceReview||metadata.acceptanceReview,
     workflow:answer.workflow||metadata.workflow,
+    decisionTrace:answer.decisionTrace||metadata.decisionTrace,
     actionRequest:answer.actionRequest||metadata.actionRequest,
     traceId:answer.traceId||metadata.traceId,
     runId:answer.runId||metadata.runId,

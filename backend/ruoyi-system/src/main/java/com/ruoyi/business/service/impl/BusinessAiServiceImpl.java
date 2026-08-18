@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
@@ -132,7 +133,9 @@ public class BusinessAiServiceImpl implements IBusinessAiService
 
         Map<String, Object> modelPlan = null;
         Map<String, Object> modelCompletion = null;
+        Map<String, Object> decisionTrace = new LinkedHashMap<String, Object>();
         String fallbackReason = null;
+        boolean guardedProjectCreate = false;
         List<String> intents;
         if (modelEnabled)
         {
@@ -143,6 +146,8 @@ public class BusinessAiServiceImpl implements IBusinessAiService
                 modelTools = continuingProjectCreate ? modelTools : withoutProjectDraftTools(modelTools);
                 modelPlan = modelTools.isEmpty() ? modelClient.plan(question, modelHistory)
                     : modelClient.plan(question, modelHistory, modelTools);
+                List<String> modelSelections = selectedCapabilityCodes(modelPlan, context);
+                decisionTrace.put("modelSelection", modelSelections);
                 if (!plannedToolsAllowed(modelPlan, context))
                 {
                     modelPlan = null;
@@ -155,7 +160,32 @@ public class BusinessAiServiceImpl implements IBusinessAiService
                 fallbackReason = "模型规划暂不可用";
             }
         }
-        if (modelEnabled && modelPlan == null)
+        if (modelEnabled && !continuingProjectCreate && isExplicitNewProjectRequest(question))
+        {
+            guardedProjectCreate = true;
+            decisionTrace.put("detectedIntent", "CREATE_PROJECT");
+            decisionTrace.put("candidateCapabilities", Arrays.asList(
+                "project.create", "project.draft.update", "conversation.safe.respond"));
+            decisionTrace.put("validationStatus", "CORRECTED");
+            decisionTrace.put("validationMessage", safeConversationSelected(decisionTrace)
+                ? "模型将明确的创建项目请求误判为不清楚，系统已拒绝安全回复"
+                : "系统已按确定性规则启动项目创建资料收集，避免资料不足时直接执行");
+            decisionTrace.put("finalRoute", "CREATE_PROJECT_WORKFLOW");
+            modelPlan = null;
+            fallbackReason = "明确创建项目意图已由系统工作流接管";
+            executionMode = SAFE_ROUTER_FALLBACK;
+            mapper.updateRunMode(runId, executionMode);
+        }
+        else if (modelEnabled)
+        {
+            decisionTrace.put("detectedIntent", firstSelection(decisionTrace));
+            decisionTrace.put("validationStatus", modelPlan == null ? "REJECTED" : "PASSED");
+            decisionTrace.put("validationMessage", modelPlan == null
+                ? StringUtils.defaultIfBlank(fallbackReason, "模型没有返回可执行路由")
+                : "模型选择已通过权限与能力白名单校验");
+            decisionTrace.put("finalRoute", firstSelection(decisionTrace));
+        }
+        if (modelEnabled && modelPlan == null && !guardedProjectCreate)
         {
             mapper.finishRun(runId, null, "FAILED", StringUtils.defaultIfBlank(fallbackReason, "AI model unavailable"));
             throw new ServiceException("AI 模型当前暂不可用，请稍后重试。本次没有执行任何系统操作。");
@@ -168,7 +198,7 @@ public class BusinessAiServiceImpl implements IBusinessAiService
                     runId, longValue(userMessage.get("messageId")));
                 Map<String, Object> outcome = capabilityAgentLoop.run(question, modelHistory, modelPlan, invocation);
                 return completeCapabilityRun(question, outcome, activeConversationId, runId, traceId, userId,
-                    userName, viewAll, context, modelEnabled, longValue(userMessage.get("messageId")));
+                    userName, viewAll, context, modelEnabled, longValue(userMessage.get("messageId")), decisionTrace);
             }
             catch (Exception ex)
             {
@@ -565,6 +595,9 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         if (businessCard != null) metadata.put("businessCard", businessCard);
         if (actionRequest != null) metadata.put("actionRequest", actionRequest);
         if (activeWorkflow != null) metadata.put("workflow", workflowView(activeWorkflow));
+        Map<String, Object> completedDecisionTrace = completeDecisionTrace(decisionTrace, activeWorkflow,
+            runId, traceId, executionMode, modelEnabled);
+        if (!completedDecisionTrace.isEmpty()) metadata.put("decisionTrace", completedDecisionTrace);
 
         Map<String, Object> assistantMessage = message(activeConversationId, userId, "ASSISTANT", answer, toJson(metadata));
         mapper.insertMessage(assistantMessage);
@@ -599,6 +632,7 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         if (businessCard != null) result.put("businessCard", businessCard);
         if (actionRequest != null) result.put("actionRequest", actionRequest);
         if (activeWorkflow != null) result.put("workflow", workflowView(activeWorkflow));
+        if (!completedDecisionTrace.isEmpty()) result.put("decisionTrace", completedDecisionTrace);
         return result;
     }
 
@@ -3149,6 +3183,66 @@ public class BusinessAiServiceImpl implements IBusinessAiService
     }
 
     @SuppressWarnings("unchecked")
+    private List<String> selectedCapabilityCodes(Map<String, Object> plan, AiExecutionContext context)
+    {
+        Object calls = plan == null ? null : plan.get("toolCalls");
+        if (!(calls instanceof List)) return Collections.emptyList();
+        List<String> result = new ArrayList<String>();
+        for (Object item : (List<Object>) calls)
+        {
+            if (!(item instanceof Map)) continue;
+            String toolName = stringValue(((Map<String, Object>) item).get("name"));
+            String code = toolName;
+            if (capabilityToolCatalog != null && context != null
+                && capabilityToolCatalog.findAllowedByToolName(toolName, context) != null)
+                code = capabilityToolCatalog.findAllowedByToolName(toolName, context).code();
+            else if (toolName.startsWith("capability_"))
+                code = toolName.substring("capability_".length()).replace('_', '.');
+            if (StringUtils.isNotBlank(code) && !result.contains(code)) result.add(code);
+        }
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private String firstSelection(Map<String, Object> decisionTrace)
+    {
+        Object value = decisionTrace == null ? null : decisionTrace.get("modelSelection");
+        if (!(value instanceof List) || ((List<Object>) value).isEmpty()) return "NO_MODEL_ROUTE";
+        return stringValue(((List<Object>) value).get(0));
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean safeConversationSelected(Map<String, Object> decisionTrace)
+    {
+        Object value = decisionTrace == null ? null : decisionTrace.get("modelSelection");
+        if (!(value instanceof List)) return false;
+        for (Object item : (List<Object>) value)
+            if ("conversation.safe.respond".equals(stringValue(item))) return true;
+        return false;
+    }
+
+    private Map<String, Object> completeDecisionTrace(Map<String, Object> source,
+        Map<String, Object> workflow, Long runId, String traceId, String executionMode, boolean modelEnabled)
+    {
+        if ((source == null || source.isEmpty()) && !modelEnabled) return Collections.emptyMap();
+        Map<String, Object> result = source == null
+            ? new LinkedHashMap<String, Object>() : new LinkedHashMap<String, Object>(source);
+        result.put("runId", runId);
+        result.put("traceId", traceId);
+        result.put("executionMode", executionMode);
+        result.put("provider", modelEnabled ? modelClient.providerCode() : "LOCAL");
+        result.put("model", modelEnabled ? modelClient.modelName() : SAFE_ROUTER);
+        if (workflow != null && "CREATE_PROJECT".equals(stringValue(workflow.get("workflowCode"))))
+        {
+            Map<String, Object> view = workflowView(workflow);
+            result.put("missingFields", view.get("missingFields"));
+            if (StringUtils.isBlank(stringValue(result.get("finalRoute"))))
+                result.put("finalRoute", "CREATE_PROJECT_WORKFLOW");
+        }
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
     private boolean plannedToolsAllowed(Map<String, Object> plan, AiExecutionContext context)
     {
         Object calls = plan == null ? null : plan.get("toolCalls");
@@ -3173,7 +3267,8 @@ public class BusinessAiServiceImpl implements IBusinessAiService
     @SuppressWarnings("unchecked")
     private Map<String, Object> completeCapabilityRun(String question, Map<String, Object> outcome,
         Long conversationId, Long runId, String traceId, Long userId, String userName, boolean viewAll,
-        AiExecutionContext context, boolean modelEnabled, Long requestMessageId)
+        AiExecutionContext context, boolean modelEnabled, Long requestMessageId,
+        Map<String, Object> decisionTrace)
     {
         String answer = cleanModelText(stringValue(outcome.get("content")));
         if (StringUtils.isBlank(answer)) answer = "已按你的要求更新系统草稿。";
@@ -3212,6 +3307,9 @@ public class BusinessAiServiceImpl implements IBusinessAiService
             metadata.put("planReview", capabilityPlanReview);
         if (actionRequest == null) actionRequest = capabilityActionRequest(toolResults);
         if (actionRequest != null) metadata.put("actionRequest", actionRequest);
+        Map<String, Object> completedDecisionTrace = completeDecisionTrace(decisionTrace, latestWorkflow,
+            runId, traceId, LLM_AGENT, modelEnabled);
+        if (!completedDecisionTrace.isEmpty()) metadata.put("decisionTrace", completedDecisionTrace);
 
         Map<String, Object> assistantMessage = message(conversationId, userId, "ASSISTANT", answer,
             toJson(metadata));
@@ -3241,6 +3339,7 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         if (capabilityPlanReview != null && Boolean.TRUE.equals(capabilityPlanReview.get("ready")))
             result.put("planReview", capabilityPlanReview);
         if (actionRequest != null) result.put("actionRequest", actionRequest);
+        if (!completedDecisionTrace.isEmpty()) result.put("decisionTrace", completedDecisionTrace);
         return result;
     }
 
@@ -4208,6 +4307,8 @@ public class BusinessAiServiceImpl implements IBusinessAiService
 
     private boolean isExplicitNewProjectRequest(String question)
     {
+        if (StringUtils.isBlank(question) || containsAny(question, "不要创建", "不用创建", "别创建", "暂不创建",
+            "不创建项目", "取消创建", "不需要创建")) return false;
         return containsAny(question, "创建项目", "创建一个项目", "创建一个新项目", "新建项目", "建立项目", "开启项目",
             "开一个项目", "再建一个", "再创建一个", "另一个项目", "新的项目");
     }
