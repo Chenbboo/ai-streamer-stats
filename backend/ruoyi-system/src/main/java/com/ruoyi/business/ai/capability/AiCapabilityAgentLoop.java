@@ -24,7 +24,7 @@ public class AiCapabilityAgentLoop
     private final BusinessAiMapper mapper;
     private final ObjectMapper objectMapper;
     private final AiCapabilityReferenceGuard referenceGuard = new AiCapabilityReferenceGuard();
-    private final AiCapabilityAnswerGuard answerGuard = new AiCapabilityAnswerGuard();
+    private final AiCapabilityAnswerGuard answerGuard;
 
     @Autowired
     public AiCapabilityAgentLoop(AiCapabilityToolCatalog catalog, AiCapabilityExecutor executor,
@@ -35,6 +35,7 @@ public class AiCapabilityAgentLoop
         this.modelClient = modelClient;
         this.mapper = mapper;
         this.objectMapper = objectMapper;
+        this.answerGuard = new AiCapabilityAnswerGuard(objectMapper);
     }
 
     public boolean canHandle(Map<String, Object> plan, AiExecutionContext context)

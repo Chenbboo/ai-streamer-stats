@@ -12,8 +12,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TimeZone;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.common.utils.StringUtils;
 
 /**
@@ -23,6 +25,7 @@ import com.ruoyi.common.utils.StringUtils;
  */
 public class AiCapabilityAnswerGuard
 {
+    private final ObjectMapper objectMapper;
     private static final Pattern ISO_DATE = Pattern.compile("(?<!\\d)(\\d{4})-(\\d{1,2})-(\\d{1,2})(?!\\d)");
     private static final Pattern CN_DATE = Pattern.compile("(?<!\\d)(?:(\\d{4})年)?(\\d{1,2})月(\\d{1,2})日");
     private static final Pattern BUSINESS_NUMBER = Pattern.compile(
@@ -36,18 +39,42 @@ public class AiCapabilityAnswerGuard
         "staffname", "assigneename", "ownername", "usernamesnapshot", "submittedusername",
         "reviewedusername", "deptname", "departmentname", "personname", "membername");
 
+    public AiCapabilityAnswerGuard()
+    {
+        this(new ObjectMapper().setTimeZone(TimeZone.getDefault()));
+    }
+
+    public AiCapabilityAnswerGuard(ObjectMapper objectMapper)
+    {
+        this.objectMapper = objectMapper == null ? new ObjectMapper() : objectMapper;
+    }
+
     public Validation validate(String answer, List<Map<String, Object>> toolResults)
     {
         if (StringUtils.isBlank(answer)) return Validation.invalid("模型没有生成可显示的回答");
         if (toolResults == null || toolResults.isEmpty()) return Validation.valid();
 
         Facts facts = new Facts();
-        collect(toolResults, null, facts);
+        collect(normalized(toolResults), null, facts);
         List<String> violations = new ArrayList<String>();
         validateDates(answer, facts, violations);
         validateNumbers(answer, facts, violations);
         validateNames(answer, facts, violations);
         return violations.isEmpty() ? Validation.valid() : Validation.invalid(violations);
+    }
+
+    private Object normalized(Object value)
+    {
+        try
+        {
+            // Capability data can contain domain DTOs nested inside maps. Canonicalizing through
+            // Jackson gives the guard the same field/value view that is persisted and sent to the model.
+            return objectMapper.convertValue(objectMapper.valueToTree(value), Object.class);
+        }
+        catch (IllegalArgumentException ex)
+        {
+            return value;
+        }
     }
 
     private void collect(Object value, String key, Facts facts)

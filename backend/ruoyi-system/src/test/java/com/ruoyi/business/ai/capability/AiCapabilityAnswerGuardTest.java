@@ -2,11 +2,15 @@ package com.ruoyi.business.ai.capability;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import java.text.SimpleDateFormat;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import com.ruoyi.business.domain.BusinessProject;
+import com.ruoyi.business.domain.BusinessProjectMember;
 
 class AiCapabilityAnswerGuardTest
 {
@@ -36,6 +40,31 @@ class AiCapabilityAnswerGuardTest
         assertTrue(guard.validate("你好，我可以帮你处理公司经营事务。", Collections.emptyList()).isValid());
     }
 
+    @Test
+    void acceptsFactsNestedInProjectDomainObject() throws Exception
+    {
+        BusinessProject project = new BusinessProject();
+        project.setProjectId(1L);
+        project.setProjectName("越南直播运营");
+        project.setCompanyName("越南meimaru公司");
+        project.setMainOwnerName("大D");
+        project.setPlanStartDate(new SimpleDateFormat("yyyy-MM-dd").parse("2026-04-04"));
+        project.setPlanEndDate(new SimpleDateFormat("yyyy-MM-dd").parse("2026-12-31"));
+        project.setActualStartDate(new SimpleDateFormat("yyyy-MM-dd").parse("2026-08-12"));
+        project.setMemberCount(2);
+        BusinessProjectMember owner = member(127L, "大D", "OWNER");
+        BusinessProjectMember initiator = member(126L, "王赋章", "MEMBER");
+        project.setMembers(Arrays.asList(owner, initiator));
+        Map<String, Object> wrapper = map("toolCode", "project.detail.get", "riskLevel", "READ_ONLY",
+            "data", map("project", project));
+
+        String answer = "项目名称：越南直播运营。归属公司：越南meimaru公司。主负责人：大D。"
+            + "成员：大D。计划周期2026-04-04至2026-12-31，实际开始于2026-08-12，共2人。";
+
+        AiCapabilityAnswerGuard.Validation validation = guard.validate(answer, Collections.singletonList(wrapper));
+        assertTrue(validation.isValid(), validation.getViolations().toString());
+    }
+
     private List<Map<String, Object>> results()
     {
         Map<String, Object> project = map("projectId", 17L, "projectName", "王老吉视频宣传",
@@ -52,5 +81,14 @@ class AiCapabilityAnswerGuardTest
         for (int index = 0; index + 1 < values.length; index += 2)
             result.put(String.valueOf(values[index]), values[index + 1]);
         return result;
+    }
+
+    private BusinessProjectMember member(Long userId, String name, String role)
+    {
+        BusinessProjectMember member = new BusinessProjectMember();
+        member.setUserId(userId);
+        member.setUserNameSnapshot(name);
+        member.setMemberRole(role);
+        return member;
     }
 }
