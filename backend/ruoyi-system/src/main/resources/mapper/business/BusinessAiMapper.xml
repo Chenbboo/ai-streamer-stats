@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.business.mapper.BusinessAiMapper">
+  <insert id="insertConversation" parameterType="map" useGeneratedKeys="true" keyProperty="conversationId">
+    insert into biz_ai_conversation(user_id,role_code,title,status,last_message_time,create_time)
+    values(#{userId},#{roleCode},#{title},'ACTIVE',sysdate(),sysdate())
+  </insert>
+
+  <select id="selectConversation" resultType="map">
+    select conversation_id conversationId,user_id userId,role_code roleCode,title,status,last_message_time lastMessageTime
+    from biz_ai_conversation
+    where conversation_id=#{conversationId} and user_id=#{userId} and role_code=#{roleCode} and status='ACTIVE'
+  </select>
+
+  <update id="touchConversation">
+    update biz_ai_conversation set last_message_time=sysdate(),update_time=sysdate()
+    where conversation_id=#{conversationId}
+  </update>
+
+  <insert id="insertMessage" parameterType="map" useGeneratedKeys="true" keyProperty="messageId">
+    insert into biz_ai_message(conversation_id,user_id,message_role,content,metadata_json,create_time)
+    values(#{conversationId},#{userId},#{messageRole},#{content},#{metadataJson},sysdate())
+  </insert>
+
+  <select id="selectMessages" resultType="map">
+    select message_id messageId,conversation_id conversationId,message_role messageRole,content,
+      metadata_json metadataJson,create_time createTime
+    from biz_ai_message
+    where conversation_id=#{conversationId} and user_id=#{userId}
+    order by message_id desc limit #{limit}
+  </select>
+
+  <insert id="insertRun" parameterType="map" useGeneratedKeys="true" keyProperty="runId">
+    insert into biz_ai_run(trace_id,conversation_id,user_id,role_code,request_message_id,
+      execution_mode,status,started_time)
+    values(#{traceId},#{conversationId},#{userId},#{roleCode},#{requestMessageId},
+      #{executionMode},'RUNNING',sysdate())
+  </insert>
+
+  <update id="updateRunMode">
+    update biz_ai_run set execution_mode=#{executionMode} where run_id=#{runId}
+  </update>
+
+  <update id="finishRun">
+    update biz_ai_run set response_message_id=#{responseMessageId},status=#{status},
+      error_message=#{errorMessage},finished_time=sysdate() where run_id=#{runId}
+  </update>
+
+  <insert id="insertToolCall" parameterType="map" useGeneratedKeys="true" keyProperty="toolCallId">
+    insert into biz_ai_tool_call(run_id,conversation_id,user_id,tool_code,risk_level,input_json,
+      output_json,status,error_message,started_time,finished_time)
+    values(#{runId},#{conversationId},#{userId},#{toolCode},#{riskLevel},#{inputJson},
+      #{outputJson},#{status},#{errorMessage},#{startedTime},#{finishedTime})
+  </insert>
+
+  <insert id="insertActionRequest" parameterType="map" useGeneratedKeys="true" keyProperty="actionRequestId">
+    insert into biz_ai_action_request(run_id,conversation_id,user_id,action_code,risk_level,
+      action_payload_json,confirmation_summary,status,expire_time,create_time)
+    values(#{runId},#{conversationId},#{userId},#{actionCode},#{riskLevel},
+      #{actionPayloadJson},#{confirmationSummary},'PENDING',#{expireTime},sysdate())
+  </insert>
+
+  <select id="selectActionRequest" resultType="map">
+    select a.action_request_id actionRequestId,a.run_id runId,a.conversation_id conversationId,
+      a.user_id userId,a.action_code actionCode,a.risk_level riskLevel,
+      a.action_payload_json actionPayloadJson,a.confirmation_summary confirmationSummary,
+      a.status,a.expire_time expireTime,a.result_json resultJson,r.trace_id traceId
+    from biz_ai_action_request a
+    join biz_ai_run r on r.run_id=a.run_id
+    where a.action_request_id=#{actionRequestId} and a.user_id=#{userId}
+  </select>
+
+  <select id="selectConversationActionRequests" resultType="map">
+    select action_request_id actionRequestId,action_code actionCode,status,result_json resultJson
+    from biz_ai_action_request
+    where conversation_id=#{conversationId} and user_id=#{userId}
+  </select>
+
+  <select id="selectLatestActionRequest" resultType="map">
+    select a.action_request_id actionRequestId,a.run_id runId,a.conversation_id conversationId,
+      a.user_id userId,a.action_code actionCode,a.status,a.result_json resultJson,
+      a.action_payload_json actionPayloadJson,a.create_time createTime
+    from biz_ai_action_request a
+    where a.conversation_id=#{conversationId} and a.user_id=#{userId} and a.action_code=#{actionCode}
+      and a.status='EXECUTED'
+    order by a.action_request_id desc limit 1
+  </select>
+
+  <update id="confirmActionRequest">
+    update biz_ai_action_request set status='CONFIRMED',confirmed_user_id=#{userId},
+      confirmed_time=sysdate(),update_time=sysdate()
+    where action_request_id=#{actionRequestId} and user_id=#{userId} and status='PENDING'
+      and (expire_time is null or expire_time&gt;sysdate())
+  </update>
+
+  <update id="rejectActionRequest">
+    update biz_ai_action_request set status='REJECTED',confirmed_user_id=#{userId},
+      confirmed_time=sysdate(),update_time=sysdate()
+    where action_request_id=#{actionRequestId} and user_id=#{userId} and status='PENDING'
+      and (expire_time is null or expire_time&gt;sysdate())
+  </update>
+
+  <update id="supersedeActionRequest">
+    update biz_ai_action_request set status='SUPERSEDED',update_time=sysdate()
+    where action_request_id=#{actionRequestId} and user_id=#{userId} and status='PENDING'
+  </update>
+
+  <update id="finishActionRequest">
+    update biz_ai_action_request set status='EXECUTED',executed_time=sysdate(),
+      result_json=#{resultJson},update_time=sysdate()
+    where action_request_id=#{actionRequestId} and status='CONFIRMED'
+  </update>
+
+  <insert id="insertAudit" parameterType="map" useGeneratedKeys="true" keyProperty="auditId">
+    insert into biz_ai_audit_log(trace_id,conversation_id,run_id,user_id,user_name,role_code,
+      event_type,event_summary,detail_json,create_time)
+    values(#{traceId},#{conversationId},#{runId},#{userId},#{userName},#{roleCode},
+      #{eventType},#{eventSummary},#{detailJson},sysdate())
+  </insert>
+
+  <insert id="insertWorkflow" parameterType="map" useGeneratedKeys="true" keyProperty="workflowId">
+    insert into biz_ai_workflow_instance(conversation_id,user_id,role_code,workflow_code,workflow_status,
+      current_step,draft_json,missing_fields_json,bound_entities_json,version_no,expire_time,create_time,update_time)
+    values(#{conversationId},#{userId},#{roleCode},#{workflowCode},#{workflowStatus},#{currentStep},
+      #{draftJson},#{missingFieldsJson},#{boundEntitiesJson},1,#{expireTime},sysdate(),sysdate())
+  </insert>
+
+  <select id="selectActiveWorkflow" resultType="map">
+    select workflow_id workflowId,conversation_id conversationId,user_id userId,role_code roleCode,
+      workflow_code workflowCode,workflow_status workflowStatus,current_step currentStep,draft_json draftJson,
+      missing_fields_json missingFieldsJson,bound_entities_json boundEntitiesJson,version_no versionNo,
+      action_request_id actionRequestId,expire_time expireTime,update_time updateTime
+    from biz_ai_workflow_instance
+    where conversation_id=#{conversationId} and user_id=#{userId}
+      and workflow_status in ('COLLECTING','READY','WAITING_CONFIRMATION')
+      and (expire_time is null or expire_time&gt;sysdate())
+    order by workflow_id desc limit 1
+  </select>
+
+  <update id="updateWorkflow" parameterType="map">
+    update biz_ai_workflow_instance set workflow_status=#{workflowStatus},current_step=#{currentStep},
+      draft_json=#{draftJson},missing_fields_json=#{missingFieldsJson},bound_entities_json=#{boundEntitiesJson},
+      action_request_id=#{actionRequestId},version_no=version_no+1,update_time=sysdate()
+    where workflow_id=#{workflowId} and user_id=#{userId} and version_no=#{versionNo}
+      and workflow_status in ('COLLECTING','READY','WAITING_CONFIRMATION')
+  </update>
+
+  <update id="finishWorkflow">
+    update biz_ai_workflow_instance set workflow_status=#{workflowStatus},action_request_id=#{actionRequestId},
+      version_no=version_no+1,completed_time=sysdate(),update_time=sysdate()
+    where conversation_id=#{conversationId} and user_id=#{userId} and workflow_code=#{workflowCode}
+      and workflow_status in ('COLLECTING','READY','WAITING_CONFIRMATION')
+  </update>
+
+  <insert id="insertWorkflowEvent" parameterType="map" useGeneratedKeys="true" keyProperty="workflowEventId">
+    insert into biz_ai_workflow_event(workflow_id,conversation_id,user_id,event_type,before_json,after_json,message_id,create_time)
+    values(#{workflowId},#{conversationId},#{userId},#{eventType},#{beforeJson},#{afterJson},#{messageId},sysdate())
+  </insert>
+</mapper>

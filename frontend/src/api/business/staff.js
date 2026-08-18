@@ -1,0 +1,12 @@
+import request from '@/utils/request'
+
+export const listBusinessStaff = params => request({ url: '/business/staff/list', method: 'get', params })
+export const listBusinessDepartments = () => request({ url: '/business/staff/departments', method: 'get' })
+export const listBusinessStaffOptions = () => request({ url: '/business/staff/options', method: 'get' })
+export const getBusinessStaffProjects = id => request({ url: `/business/staff/${id}/projects`, method: 'get' })
+export const getBusinessStaffCostPolicies = id => request({ url: `/business/staff/${id}/cost-policies`, method: 'get' })
+export const saveBusinessStaffCostPolicy = data => request({ url: '/business/staff/cost-policy', method: 'post', data })
+export const addBusinessStaff = data => request({ url: '/business/staff', method: 'post', data })
+export const updateBusinessStaff = data => request({ url: '/business/staff', method: 'put', data })
+export const changeBusinessStaffStatus = data => request({ url: '/business/staff/status', method: 'put', data })
+export const resetBusinessStaffPassword = data => request({ url: '/business/staff/password', method: 'put', data })

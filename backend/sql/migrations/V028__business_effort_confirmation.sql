@@ -1,0 +1,26 @@
+-- 项目负责人维护计划投入，员工只填偏差，负责人按周确认后用于项目人员成本核算。
+create table if not exists biz_project_effort_report (
+  effort_id bigint not null auto_increment comment '投入填报ID',
+  project_id bigint not null comment '项目ID',
+  user_id bigint not null comment '人员ID',
+  user_name varchar(100) not null comment '人员姓名快照',
+  biz_date date not null comment '业务日期',
+  planned_percent decimal(8,4) not null comment '计划投入比例快照',
+  actual_percent decimal(8,4) not null comment '实际投入比例',
+  source_type varchar(24) not null default 'EMPLOYEE' comment 'EMPLOYEE/PLAN_DEFAULT',
+  report_status varchar(16) not null default 'SUBMITTED' comment 'SUBMITTED/CONFIRMED',
+  deviation_reason varchar(500) default null comment '偏差原因',
+  confirmed_user_id bigint default null comment '确认人ID',
+  confirmed_user_name varchar(100) default null comment '确认人姓名',
+  confirmed_time datetime default null comment '确认时间',
+  version int not null default 0 comment '乐观锁版本',
+  create_by varchar(64) default '' comment '创建者',
+  create_time datetime not null default current_timestamp comment '创建时间',
+  update_by varchar(64) default '' comment '更新者',
+  update_time datetime default null comment '更新时间',
+  remark varchar(500) default null comment '备注',
+  primary key (effort_id),
+  unique key uk_project_user_effort_day (project_id,user_id,biz_date),
+  key idx_effort_user_day (user_id,biz_date,report_status),
+  key idx_effort_project_day (project_id,biz_date,report_status)
+) engine=InnoDB default charset=utf8mb4 comment='项目人员每日实际投入确认';

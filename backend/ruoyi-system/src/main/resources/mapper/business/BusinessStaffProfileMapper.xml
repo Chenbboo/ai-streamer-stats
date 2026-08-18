@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.business.mapper.BusinessStaffProfileMapper">
+  <resultMap id="StaffProfileResult" type="com.ruoyi.business.domain.BusinessStaffProfile">
+    <id property="userId" column="user_id"/>
+    <result property="employeeNo" column="employee_no"/>
+    <result property="phoneCountryCode" column="phone_country_code"/>
+    <result property="countryRegion" column="country_region"/>
+    <result property="positionName" column="position_name"/>
+    <result property="managerUserId" column="manager_user_id"/>
+    <result property="managerName" column="manager_name"/>
+    <result property="employmentType" column="employment_type"/>
+    <result property="employmentStatus" column="employment_status"/>
+    <result property="hireDate" column="hire_date"/>
+    <result property="workLocation" column="work_location"/>
+    <result property="companyDeptId" column="company_dept_id"/>
+    <result property="companyName" column="company_name"/>
+  </resultMap>
+
+  <sql id="profileSelect">
+    select u.user_id,p.employee_no,coalesce(p.phone_country_code,
+             case when vietnam.dept_id is not null then '+84' else '+86' end) phone_country_code,
+           coalesce(p.country_region,case when vietnam.dept_id is not null then 'VN' else 'CN' end) country_region,
+           p.position_name,p.manager_user_id,
+           coalesce(nullif(manager.nick_name,''),manager.user_name) manager_name,
+           coalesce(p.employment_type,'FULL_TIME') employment_type,
+           coalesce(p.employment_status,'ACTIVE') employment_status,
+           p.hire_date,p.work_location,company.dept_id company_dept_id,company.dept_name company_name
+    from sys_user u
+    left join biz_staff_profile p on p.user_id=u.user_id
+    left join sys_user manager on manager.user_id=p.manager_user_id and manager.del_flag='0'
+    left join sys_dept staff_dept on staff_dept.dept_id=u.dept_id and staff_dept.del_flag='0'
+    left join sys_dept company on company.parent_id=100 and company.del_flag='0'
+      and (company.dept_id=staff_dept.dept_id or find_in_set(company.dept_id,staff_dept.ancestors))
+    left join sys_dept vietnam on vietnam.dept_name='越南meimaru公司' and vietnam.del_flag='0'
+      and (vietnam.dept_id=staff_dept.dept_id or find_in_set(vietnam.dept_id,staff_dept.ancestors))
+  </sql>
+
+  <select id="selectByUserId" parameterType="Long" resultMap="StaffProfileResult">
+    <include refid="profileSelect"/> where u.user_id=#{userId}
+  </select>
+
+  <select id="selectByUserIds" resultMap="StaffProfileResult">
+    <include refid="profileSelect"/>
+    where u.user_id in
+    <foreach collection="userIds" item="userId" open="(" separator="," close=")">#{userId}</foreach>
+  </select>
+
+  <insert id="upsert" parameterType="com.ruoyi.business.domain.BusinessStaffProfile">
+    insert into biz_staff_profile(user_id,employee_no,phone_country_code,country_region,position_name,
+      manager_user_id,employment_type,employment_status,hire_date,work_location,create_by,create_time,update_by,update_time)
+    values(#{userId},nullif(#{employeeNo},''),#{phoneCountryCode},#{countryRegion},nullif(#{positionName},''),
+      #{managerUserId},#{employmentType},#{employmentStatus},#{hireDate},nullif(#{workLocation},''),
+      #{updateBy},sysdate(),#{updateBy},sysdate())
+    on duplicate key update employee_no=values(employee_no),phone_country_code=values(phone_country_code),
+      country_region=values(country_region),position_name=values(position_name),manager_user_id=values(manager_user_id),
+      employment_type=values(employment_type),employment_status=values(employment_status),hire_date=values(hire_date),
+      work_location=values(work_location),update_by=values(update_by),update_time=sysdate()
+  </insert>
+
+  <select id="countEmployeeNo" resultType="int">
+    select count(*) from biz_staff_profile where employee_no=#{employeeNo}
+    <if test="userId != null">and user_id&lt;&gt;#{userId}</if>
+  </select>
+
+  <update id="syncDepartmentLeader" parameterType="Long">
+    update sys_dept d join sys_user u on u.user_id=d.leader_user_id
+    set d.leader=coalesce(nullif(u.nick_name,''),u.user_name),d.phone=coalesce(u.phonenumber,''),
+        d.email=coalesce(u.email,''),d.update_time=sysdate()
+    where u.user_id=#{userId} and d.del_flag='0'
+  </update>
+</mapper>

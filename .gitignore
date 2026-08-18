@@ -51,6 +51,8 @@ uploads/
 .env.*.local
 
 # ==================== Misc ====================
+logs/
+outputs/
 *.xml.versionsBackup
 *.bak
 *.tmp

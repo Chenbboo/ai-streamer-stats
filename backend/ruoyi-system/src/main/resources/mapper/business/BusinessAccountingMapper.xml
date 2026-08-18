@@ -1,0 +1,286 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.business.mapper.BusinessAccountingMapper">
+  <select id="selectCompanies" resultType="map">
+    select dept_id companyDeptId,dept_name companyName from sys_dept
+    where parent_id=100 and del_flag='0' and status='0' order by order_num,dept_id
+  </select>
+  <select id="selectCategories" resultType="map">
+    select category_id categoryId,category_code categoryCode,category_name categoryName,fact_kind factKind,
+      default_sign defaultSign,unit_type unitType from biz_fact_category where status='0' order by sort_order,category_id
+  </select>
+  <select id="selectProjectOptions" resultType="map">
+    select p.project_id projectId,p.project_no projectNo,p.project_name projectName,p.company_dept_id companyDeptId,
+      d.dept_name companyName,p.accounting_mode accountingMode,p.base_currency currency,p.initiator_name initiatorName
+    from biz_project p left join sys_dept d on d.dept_id=p.company_dept_id and d.del_flag='0'
+    where p.del_flag='0' and p.status not in('CANCELED')
+    <if test="viewAll == false">and p.initiator_user_id=#{userId}</if>
+    order by d.order_num,p.project_name
+  </select>
+  <select id="selectProjectsMissingDailyResult" resultType="long">
+    select distinct p.project_id
+    from biz_project p
+    join biz_project_staff_allocation a on a.project_id=p.project_id and a.status='ACTIVE'
+      and a.effective_from&lt;=#{bizDate} and (a.effective_to is null or a.effective_to&gt;=#{bizDate})
+    where p.del_flag='0' and p.status not in('CLOSED','CANCELED')
+      <if test="viewAll == false">and p.initiator_user_id=#{userId}</if>
+      and not exists(select 1 from biz_project_daily_result r where r.project_id=p.project_id
+        and r.biz_date=#{bizDate} and r.is_current='1')
+    order by p.project_id
+  </select>
+  <select id="selectFacts" resultType="map">
+    select f.fact_id factId,f.project_id projectId,p.project_name projectName,p.project_no projectNo,
+      f.company_dept_id companyDeptId,d.dept_name companyName,f.biz_date bizDate,f.category_id categoryId,
+      f.category_code categoryCode,f.category_name categoryName,f.fact_kind factKind,f.amount,f.quantity,
+      f.currency,f.unit,f.description,f.counterparty,f.attachment_urls attachmentUrls,f.source_domain sourceDomain,
+      f.source_type sourceType,f.status,f.reversal_fact_id reversalFactId,f.version,
+      f.confirmed_user_name confirmedUserName,f.confirmed_time confirmedTime,f.create_user_id createUserId,
+      f.create_by createBy,f.create_time createTime,
+      p.initiator_name initiatorName
+    from biz_operating_fact f join biz_project p on p.project_id=f.project_id and p.del_flag='0'
+    left join sys_dept d on d.dept_id=f.company_dept_id
+    <where>
+      <if test="viewAll == false">p.initiator_user_id=#{userId}</if>
+      <if test="projectId != null">and f.project_id=#{projectId}</if>
+      <if test="factId != null">and f.fact_id=#{factId}</if>
+      <if test="companyDeptId != null">and f.company_dept_id=#{companyDeptId}</if>
+      <if test="status != null and status != ''">and f.status=#{status}</if>
+      <if test="dateFrom != null and dateFrom != ''">and f.biz_date&gt;=#{dateFrom}</if>
+      <if test="dateTo != null and dateTo != ''">and f.biz_date&lt;=#{dateTo}</if>
+    </where>
+    order by f.biz_date desc,f.fact_id desc
+  </select>
+  <select id="selectFactById" resultType="com.ruoyi.business.domain.BusinessOperatingFact">
+    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,
+      category_code categoryCode,category_name categoryName,fact_kind factKind,amount,quantity,currency,unit,
+      description,counterparty,attachment_urls attachmentUrls,source_domain sourceDomain,source_type sourceType,
+      source_id sourceId,source_line_key sourceLineKey,status,reversal_fact_id reversalFactId,idempotency_key idempotencyKey,
+      version,confirmed_user_id confirmedUserId,confirmed_user_name confirmedUserName,confirmed_time confirmedTime,
+      create_user_id createUserId,create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
+    from biz_operating_fact where fact_id=#{factId} limit 1
+  </select>
+  <select id="selectCategoryById" resultType="map">
+    select category_id categoryId,category_code categoryCode,category_name categoryName,fact_kind factKind,
+      default_sign defaultSign,unit_type unitType from biz_fact_category where category_id=#{categoryId} and status='0' limit 1
+  </select>
+  <select id="selectCategoryByCode" resultType="map">
+    select category_id categoryId,category_code categoryCode,category_name categoryName,fact_kind factKind,
+      default_sign defaultSign,unit_type unitType from biz_fact_category
+    where category_code=#{categoryCode} and status='0' limit 1
+  </select>
+  <select id="selectCurrentProjectDailySpend" resultType="com.ruoyi.business.domain.BusinessOperatingFact">
+    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,
+      category_code categoryCode,category_name categoryName,fact_kind factKind,amount,quantity,currency,unit,
+      description,counterparty,attachment_urls attachmentUrls,source_domain sourceDomain,source_type sourceType,
+      source_id sourceId,source_line_key sourceLineKey,status,reversal_fact_id reversalFactId,idempotency_key idempotencyKey,
+      version,confirmed_user_id confirmedUserId,confirmed_user_name confirmedUserName,confirmed_time confirmedTime,
+      create_user_id createUserId,create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
+    from biz_operating_fact where project_id=#{projectId} and biz_date=#{bizDate}
+      and source_type='DAILY_TOTAL' and status='CONFIRMED' order by fact_id desc limit 1
+  </select>
+  <select id="selectProjectForAccounting" resultType="map">
+    select project_id projectId,project_name projectName,company_dept_id companyDeptId,accounting_mode accountingMode,
+      base_currency currency,budget_limit budgetLimit,initiator_user_id initiatorUserId,initiator_name initiatorName,
+      main_owner_user_id mainOwnerUserId,main_owner_name mainOwnerName,status
+    from biz_project where project_id=#{projectId} and del_flag='0' limit 1
+  </select>
+  <select id="selectAccountingMemberRole" resultType="string">
+    select member_role from biz_project_member
+    where project_id=#{projectId} and user_id=#{userId} and status='0' limit 1
+  </select>
+  <insert id="insertFact" parameterType="com.ruoyi.business.domain.BusinessOperatingFact" useGeneratedKeys="true" keyProperty="factId">
+    insert into biz_operating_fact(project_id,company_dept_id,biz_date,category_id,category_code,category_name,fact_kind,
+      amount,quantity,currency,unit,description,counterparty,attachment_urls,source_domain,source_type,source_id,
+      source_line_key,status,reversal_fact_id,idempotency_key,version,confirmed_user_id,confirmed_user_name,confirmed_time,
+      create_user_id,create_by,create_time,remark)
+    values(#{projectId},#{companyDeptId},#{bizDate},#{categoryId},#{categoryCode},#{categoryName},#{factKind},
+      #{amount},#{quantity},#{currency},#{unit},#{description},#{counterparty},#{attachmentUrls},#{sourceDomain},
+      #{sourceType},#{sourceId},#{sourceLineKey},#{status},#{reversalFactId},#{idempotencyKey},0,
+      #{confirmedUserId},#{confirmedUserName},#{confirmedTime},#{createUserId},#{createBy},sysdate(),#{remark})
+  </insert>
+  <update id="updateDraftFact" parameterType="com.ruoyi.business.domain.BusinessOperatingFact">
+    update biz_operating_fact set biz_date=#{bizDate},category_id=#{categoryId},category_code=#{categoryCode},
+      category_name=#{categoryName},fact_kind=#{factKind},amount=#{amount},quantity=#{quantity},currency=#{currency},
+      unit=#{unit},description=#{description},counterparty=#{counterparty},attachment_urls=#{attachmentUrls},
+      update_by=#{updateBy},update_time=sysdate(),remark=#{remark},version=version+1
+    where fact_id=#{factId} and project_id=#{projectId} and status='DRAFT' and version=#{version}
+  </update>
+  <update id="confirmFact">
+    update biz_operating_fact set status='CONFIRMED',confirmed_user_id=#{userId},confirmed_user_name=#{userName},
+      confirmed_time=sysdate(),update_by=#{userName},update_time=sysdate(),version=version+1
+    where fact_id=#{factId} and status='DRAFT' and version=#{version}
+  </update>
+  <update id="markFactReversed">
+    update biz_operating_fact set status='REVERSED',update_by=#{userName},update_time=sysdate(),version=version+1
+    where fact_id=#{factId} and status='CONFIRMED' and version=#{version}
+  </update>
+  <select id="sumProjectFacts" resultType="map">
+    select coalesce(sum(case when fact_kind='REVENUE' then amount else 0 end),0) revenueAmount,
+      coalesce(sum(case when fact_kind='COST' then amount else 0 end),0) costAmount,
+      coalesce(sum(case when fact_kind='ADJUSTMENT' then amount else 0 end),0) adjustmentAmount,
+      coalesce(sum(case when fact_kind='VALUE' then coalesce(quantity,amount,0) else 0 end),0) valueScore
+    from biz_operating_fact where project_id=#{projectId} and biz_date=#{bizDate} and status in('CONFIRMED','REVERSED')
+  </select>
+  <select id="sumProjectPersonnelCost" resultType="java.math.BigDecimal">
+    select coalesce(sum(case
+      when leave_record.leave_id is not null then 0
+      when a.allocation_mode='PERCENTAGE' and c.cost_mode='DAILY' then c.unit_cost*coalesce(e.actual_percent,a.allocation_value)/100
+      when a.allocation_mode='PERCENTAGE' and c.cost_mode='MONTHLY' then c.unit_cost/21.75*coalesce(e.actual_percent,a.allocation_value)/100
+      when a.allocation_mode='PERCENTAGE' and c.cost_mode='HOURLY' then c.unit_cost*8*coalesce(e.actual_percent,a.allocation_value)/100
+      when a.allocation_mode='FIXED_DAILY' then a.allocation_value
+      when a.allocation_mode='HOURS' and c.cost_mode='HOURLY' then c.unit_cost*a.allocation_value
+      when a.allocation_mode='ATTENDANCE' and c.cost_mode='DAILY' then c.unit_cost*a.allocation_value
+      when a.allocation_mode='PER_TASK' and c.cost_mode='FIXED_TASK' then c.unit_cost*a.allocation_value
+      else 0 end),0)
+    from biz_project_staff_allocation a join biz_staff_cost_policy c on c.policy_id=a.cost_policy_id
+    left join biz_project_effort_report e on e.project_id=a.project_id and e.user_id=a.user_id
+      and e.biz_date=#{bizDate} and e.report_status='CONFIRMED'
+    left join biz_staff_leave leave_record on leave_record.user_id=a.user_id
+      and leave_record.leave_date=#{bizDate} and leave_record.status='ACTIVE'
+    where a.project_id=#{projectId} and a.status='ACTIVE' and a.effective_from&lt;=#{bizDate}
+      and (a.effective_to is null or a.effective_to&gt;=#{bizDate})
+  </select>
+  <select id="selectProjectPersonnelCostDetails" resultType="map">
+    select a.user_id userId,a.user_name componentName,
+      case
+        when leave_record.leave_id is not null then 0
+        when a.allocation_mode='PERCENTAGE' and c.cost_mode='DAILY' then c.unit_cost*coalesce(e.actual_percent,a.allocation_value)/100
+        when a.allocation_mode='PERCENTAGE' and c.cost_mode='MONTHLY' then c.unit_cost/21.75*coalesce(e.actual_percent,a.allocation_value)/100
+        when a.allocation_mode='PERCENTAGE' and c.cost_mode='HOURLY' then c.unit_cost*8*coalesce(e.actual_percent,a.allocation_value)/100
+        when a.allocation_mode='FIXED_DAILY' then a.allocation_value
+        when a.allocation_mode='HOURS' and c.cost_mode='HOURLY' then c.unit_cost*a.allocation_value
+        when a.allocation_mode='ATTENDANCE' and c.cost_mode='DAILY' then c.unit_cost*a.allocation_value
+        when a.allocation_mode='PER_TASK' and c.cost_mode='FIXED_TASK' then c.unit_cost*a.allocation_value
+        else 0 end amount,
+      case
+        when leave_record.leave_id is not null then concat('今日请假（',leave_record.leave_type,'），不计人员成本')
+        when a.allocation_mode='PERCENTAGE' then concat(
+          case when e.effort_id is not null then '已确认实际投入 ' else '计划投入 ' end,
+          cast(coalesce(e.actual_percent,a.allocation_value) as char),'%；',
+          case c.cost_mode
+            when 'MONTHLY' then concat('月成本 ',cast(c.unit_cost as char),' / 21.75 天')
+            when 'DAILY' then concat('日成本 ',cast(c.unit_cost as char))
+            when 'HOURLY' then concat('时成本 ',cast(c.unit_cost as char),' × 8 小时')
+            else concat('成本单价 ',cast(c.unit_cost as char)) end)
+        when a.allocation_mode='FIXED_DAILY' then concat('项目固定日成本 ',cast(a.allocation_value as char))
+        when a.allocation_mode='HOURS' then concat(cast(a.allocation_value as char),' 小时 × 时成本 ',cast(c.unit_cost as char))
+        when a.allocation_mode='ATTENDANCE' then concat(cast(a.allocation_value as char),' 人天 × 日成本 ',cast(c.unit_cost as char))
+        when a.allocation_mode='PER_TASK' then concat(cast(a.allocation_value as char),' 项任务 × 单项成本 ',cast(c.unit_cost as char))
+        else '当前投入方式未产生人员成本' end calculationDetail
+    from biz_project_staff_allocation a join biz_staff_cost_policy c on c.policy_id=a.cost_policy_id
+    left join biz_project_effort_report e on e.project_id=a.project_id and e.user_id=a.user_id
+      and e.biz_date=#{bizDate} and e.report_status='CONFIRMED'
+    left join biz_staff_leave leave_record on leave_record.user_id=a.user_id
+      and leave_record.leave_date=#{bizDate} and leave_record.status='ACTIVE'
+    where a.project_id=#{projectId} and a.status='ACTIVE' and a.effective_from&lt;=#{bizDate}
+      and (a.effective_to is null or a.effective_to&gt;=#{bizDate})
+    order by a.user_name,a.user_id
+  </select>
+  <select id="sumProjectCostToDate" resultType="java.math.BigDecimal">
+    select coalesce((select sum(amount) from biz_operating_fact where project_id=#{projectId}
+      and biz_date&lt;=#{bizDate} and fact_kind='COST' and status in('CONFIRMED','REVERSED')),0)
+      +coalesce((select sum(personnel_cost) from biz_project_daily_result where project_id=#{projectId}
+      and biz_date&lt;=#{bizDate} and is_current='1'),0)
+  </select>
+  <select id="selectNextResultVersion" resultType="int">
+    select coalesce(max(result_version),0)+1 from biz_project_daily_result where project_id=#{projectId} and biz_date=#{bizDate}
+  </select>
+  <update id="retireCurrentResult">update biz_project_daily_result set is_current='0' where project_id=#{projectId} and biz_date=#{bizDate} and is_current='1'</update>
+  <insert id="insertDailyResult" parameterType="map" useGeneratedKeys="true" keyProperty="resultId">
+    insert into biz_project_daily_result(project_id,company_dept_id,biz_date,accounting_mode,revenue_amount,cost_amount,
+      personnel_cost,adjustment_amount,profit_amount,budget_spent,value_score,data_cutoff_time,close_status,
+      result_version,is_current,calculation_detail,create_by,create_time)
+    values(#{projectId},#{companyDeptId},#{bizDate},#{accountingMode},#{revenueAmount},#{costAmount},#{personnelCost},
+      #{adjustmentAmount},#{profitAmount},#{budgetSpent},#{valueScore},sysdate(),'OPEN',#{resultVersion},'1',
+      #{calculationDetail},#{createBy},sysdate())
+  </insert>
+  <insert id="insertDailyResultItem" parameterType="map">
+    insert into biz_project_daily_result_item(result_id,component_code,component_name,amount,quantity,calculation_detail)
+    values(#{resultId},#{componentCode},#{componentName},#{amount},#{quantity},#{calculationDetail})
+  </insert>
+  <select id="selectDailyResults" resultType="map">
+    select r.result_id resultId,r.project_id projectId,p.project_name projectName,p.project_no projectNo,
+      r.company_dept_id companyDeptId,d.dept_name companyName,r.biz_date bizDate,r.accounting_mode accountingMode,
+      r.revenue_amount revenueAmount,r.cost_amount costAmount,r.personnel_cost personnelCost,
+      r.adjustment_amount adjustmentAmount,r.profit_amount profitAmount,r.budget_spent budgetSpent,
+      r.value_score valueScore,r.data_cutoff_time dataCutoffTime,r.close_status closeStatus,r.result_version resultVersion,
+      r.calculation_detail calculationDetail,p.budget_limit budgetLimit,p.initiator_name initiatorName,p.base_currency currency
+    from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+    left join sys_dept d on d.dept_id=r.company_dept_id
+    <where>r.is_current='1'
+      <if test="viewAll == false">and p.initiator_user_id=#{userId}</if>
+      <if test="projectId != null">and r.project_id=#{projectId}</if>
+      <if test="companyDeptId != null">and r.company_dept_id=#{companyDeptId}</if>
+      <if test="dateFrom != null and dateFrom != ''">and r.biz_date&gt;=#{dateFrom}</if>
+      <if test="dateTo != null and dateTo != ''">and r.biz_date&lt;=#{dateTo}</if>
+    </where> order by r.biz_date desc,r.profit_amount,r.project_id
+  </select>
+  <select id="selectDailyResultItems" resultType="map">
+    select item_id itemId,result_id resultId,component_code componentCode,component_name componentName,amount,quantity,
+      calculation_detail calculationDetail from biz_project_daily_result_item where result_id=#{resultId} order by item_id
+  </select>
+  <select id="selectDailySummary" resultType="map">
+    select coalesce(sum(r.revenue_amount),0) revenueAmount,
+      coalesce(sum(r.cost_amount),0) businessCost,
+      coalesce(sum(r.personnel_cost),0) personnelCost,
+      coalesce(sum(r.cost_amount+r.personnel_cost),0) costAmount,
+      coalesce(sum(r.adjustment_amount),0) adjustmentAmount,coalesce(sum(r.profit_amount),0) profitAmount,
+      count(distinct r.project_id) projectCount,count(*) resultCount
+    from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+    where r.is_current='1'
+      <if test="viewAll == false">and p.initiator_user_id=#{userId}</if>
+      <if test="projectId != null">and r.project_id=#{projectId}</if>
+      <if test="companyDeptId != null">and r.company_dept_id=#{companyDeptId}</if>
+      <if test="dateFrom != null and dateFrom != ''">and r.biz_date&gt;=#{dateFrom}</if>
+      <if test="dateTo != null and dateTo != ''">and r.biz_date&lt;=#{dateTo}</if>
+  </select>
+  <select id="countDraftFacts" resultType="int">
+    select count(*) from biz_operating_fact f join biz_project p on p.project_id=f.project_id and p.del_flag='0'
+    where f.status='DRAFT'<if test="viewAll == false"> and p.initiator_user_id=#{userId}</if>
+  </select>
+  <select id="selectAccountingAlerts" resultType="map">
+    select * from (
+      select 'LOSS' alertType,r.project_id projectId,p.project_name projectName,p.company_dept_id companyDeptId,
+        d.dept_name companyName,r.biz_date bizDate,r.profit_amount amount,
+        concat('当日经营结果为 ',round(r.profit_amount,2)) alertMessage,1 sortOrder
+      from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+      left join sys_dept d on d.dept_id=p.company_dept_id
+      where r.is_current='1' and r.biz_date=#{bizDate} and r.profit_amount&lt;0
+      <if test="viewAll == false">and p.initiator_user_id=#{userId}</if>
+      union all
+      select 'OVER_BUDGET',r.project_id,p.project_name,p.company_dept_id,d.dept_name,r.biz_date,
+        r.budget_spent,concat('累计成本 ',round(r.budget_spent,2),' 已超过预算 ',round(p.budget_limit,2)),2
+      from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+      left join sys_dept d on d.dept_id=p.company_dept_id
+      where r.is_current='1' and r.biz_date=#{bizDate} and p.budget_limit is not null and r.budget_spent&gt;p.budget_limit
+      <if test="viewAll == false">and p.initiator_user_id=#{userId}</if>
+      union all
+      select 'MISSING_COMPANY',p.project_id,p.project_name,null,null,#{bizDate},null,'项目尚未设置归属公司，无法录入收支',3
+      from biz_project p where p.del_flag='0' and p.company_dept_id is null and p.status not in('CLOSED','CANCELED')
+      <if test="viewAll == false">and p.initiator_user_id=#{userId}</if>
+    ) alerts order by sortOrder,projectName limit 20
+  </select>
+  <select id="selectProjectProfitRanking" resultType="map">
+    select r.project_id projectId,p.project_name projectName,p.company_dept_id companyDeptId,d.dept_name companyName,
+      sum(r.revenue_amount) revenueAmount,sum(r.cost_amount) businessCost,sum(r.personnel_cost) personnelCost,
+      sum(r.cost_amount+r.personnel_cost) costAmount,
+      sum(r.adjustment_amount) adjustmentAmount,sum(r.profit_amount) profitAmount,max(r.data_cutoff_time) dataCutoffTime
+    from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+    left join sys_dept d on d.dept_id=p.company_dept_id
+    where r.is_current='1' and r.biz_date between #{dateFrom} and #{dateTo}
+    <if test="viewAll == false">and p.initiator_user_id=#{userId}</if>
+    group by r.project_id,p.project_name,p.company_dept_id,d.dept_name
+    order by profitAmount desc,r.project_id limit 10
+  </select>
+  <select id="selectCompanyAccountingSummary" resultType="map">
+    select r.company_dept_id companyDeptId,d.dept_name companyName,sum(r.revenue_amount) revenueAmount,
+      sum(r.cost_amount) businessCost,sum(r.personnel_cost) personnelCost,
+      sum(r.cost_amount+r.personnel_cost) costAmount,sum(r.adjustment_amount) adjustmentAmount,
+      sum(r.profit_amount) profitAmount,count(distinct r.project_id) projectCount,max(r.data_cutoff_time) dataCutoffTime
+    from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+    left join sys_dept d on d.dept_id=r.company_dept_id
+    where r.is_current='1' and r.biz_date between #{dateFrom} and #{dateTo}
+    <if test="viewAll == false">and p.initiator_user_id=#{userId}</if>
+    group by r.company_dept_id,d.dept_name order by r.company_dept_id
+  </select>
+</mapper>

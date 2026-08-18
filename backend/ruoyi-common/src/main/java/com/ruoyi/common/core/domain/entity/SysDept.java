@@ -34,6 +34,9 @@ public class SysDept extends BaseEntity
     /** 显示顺序 */
     private Integer orderNum;
 
+    /** 负责人账号ID */
+    private Long leaderUserId;
+
     /** 负责人 */
     private String leader;
 
@@ -106,6 +109,16 @@ public class SysDept extends BaseEntity
     public void setOrderNum(Integer orderNum)
     {
         this.orderNum = orderNum;
+    }
+
+    public Long getLeaderUserId()
+    {
+        return leaderUserId;
+    }
+
+    public void setLeaderUserId(Long leaderUserId)
+    {
+        this.leaderUserId = leaderUserId;
     }
 
     public String getLeader()
@@ -189,6 +202,7 @@ public class SysDept extends BaseEntity
             .append("ancestors", getAncestors())
             .append("deptName", getDeptName())
             .append("orderNum", getOrderNum())
+            .append("leaderUserId", getLeaderUserId())
             .append("leader", getLeader())
             .append("phone", getPhone())
             .append("email", getEmail())
