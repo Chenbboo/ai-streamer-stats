@@ -82,6 +82,27 @@ class AiCapabilityAnswerGuardTest
         assertTrue(validation.getViolations().toString().contains("项目成员数量"));
     }
 
+    @Test
+    void rejectsNumberedRoutineAssigneesUnderProjectMemberHeading() throws Exception
+    {
+        BusinessProject project = projectWithMembers();
+        Map<String, Object> data = map("project", project,
+            "routineEvidence", Arrays.asList(map("assigneeName", "Gold"), map("assigneeName", "Elyn")));
+        Map<String, Object> wrapper = map("toolCode", "project.detail.get", "riskLevel", "READ_ONLY", "data", data);
+        String answer = "项目成员（共12人，除负责人外都是普通成员角色）：\n"
+            + "1. 大D — 主负责人（OWNER）\n"
+            + "2. 王赋章 — 成员\n"
+            + "3. Gold\n"
+            + "4. Elyn\n\n项目风险\n暂无风险。";
+
+        AiCapabilityAnswerGuard.Validation validation = guard.validate(answer, Collections.singletonList(wrapper));
+
+        assertFalse(validation.isValid());
+        assertTrue(validation.getViolations().toString().contains("项目成员数量"));
+        assertTrue(validation.getViolations().toString().contains("Gold"));
+        assertTrue(validation.getViolations().toString().contains("Elyn"));
+    }
+
     private List<Map<String, Object>> results()
     {
         Map<String, Object> project = map("projectId", 17L, "projectName", "王老吉视频宣传",

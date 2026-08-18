@@ -34,9 +34,15 @@ public class AiCapabilityAnswerGuard
     private static final Pattern LABELED_NAME = Pattern.compile(
         "(?:项目(?:名称)?|负责人|主负责人|成员|人员|归属公司|公司|部门)\\s*(?:[：:]|是|为)\\s*([^，。；;\\n]{1,80})");
     private static final Pattern PROJECT_MEMBER_COUNT = Pattern.compile(
-        "(?:项目)?成员(?:数量|数)?(?:显示)?\\s*(?:[：:]|是|为)\\s*(\\d+)\\s*(?:人|个)?");
+        "(?:项目)?成员[^。；;\\n]{0,80}?(?:共|数量(?:显示)?(?:[：:]|是|为)?|数(?:[：:]|是|为))\\s*(\\d+)\\s*(?:人|个)");
     private static final Pattern PROJECT_MEMBER_LIST = Pattern.compile(
         "(?:项目)?成员(?:包括|有|[：:])\\s*([^。；;\\n]{1,120})");
+    private static final Pattern PROJECT_MEMBER_HEADING = Pattern.compile(
+        "(?m)^\\s*(?:#+\\s*)?项目成员[^\\n]*$");
+    private static final Pattern PROJECT_MEMBER_ROW = Pattern.compile(
+        "(?m)^\\s*(?:\\d+[.、]|[-*])\\s*([^—–\\-（(：:\\n]{1,80})");
+    private static final Pattern SECTION_HEADING = Pattern.compile(
+        "(?m)^\\s*(?:#+\\s*)?[^\\d\\s].{0,40}(?:情况|负责人|成员|任务|风险|目标|进展|事项|数据)[：:]?\\s*$");
 
     private static final Set<String> NAME_KEYS = setOf(
         "projectname", "companyname", "mainownername", "initiatorname", "username", "nickname",
@@ -228,6 +234,26 @@ public class AiCapabilityAnswerGuard
             {
                 String name = normalizeName(item.replaceAll("[（(].*?[）)]", "").trim());
                 if (StringUtils.isBlank(name)) continue;
+                if (!facts.projectMemberNames.isEmpty() && !facts.projectMemberNames.contains(name))
+                    add(violations, "名称“" + name + "”不是本轮系统结果中的项目成员");
+            }
+        }
+        validateProjectMemberSections(answer, facts, violations);
+    }
+
+    private void validateProjectMemberSections(String answer, Facts facts, List<String> violations)
+    {
+        Matcher headingMatcher = PROJECT_MEMBER_HEADING.matcher(answer);
+        while (headingMatcher.find())
+        {
+            int sectionEnd = answer.length();
+            Matcher nextHeading = SECTION_HEADING.matcher(answer);
+            if (nextHeading.find(headingMatcher.end())) sectionEnd = nextHeading.start();
+            String section = answer.substring(headingMatcher.end(), sectionEnd);
+            Matcher rowMatcher = PROJECT_MEMBER_ROW.matcher(section);
+            while (rowMatcher.find())
+            {
+                String name = normalizeName(rowMatcher.group(1).trim());
                 if (!facts.projectMemberNames.isEmpty() && !facts.projectMemberNames.contains(name))
                     add(violations, "名称“" + name + "”不是本轮系统结果中的项目成员");
             }
