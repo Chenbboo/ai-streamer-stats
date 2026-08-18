@@ -20,6 +20,7 @@ public interface JewelryErpMapper
     Map<String, Object> selectProductById(Long productId);
     int insertProduct(Map<String, Object> product);
     int updateProduct(Map<String, Object> product);
+    int updateProductBasic(Map<String, Object> product);
     int updateProductImagesIfEmpty(@Param("productId") Long productId, @Param("imageUrl") String imageUrl,
         @Param("imageUrls") String imageUrls, @Param("userName") String userName);
     int ensureStock(Long productId);

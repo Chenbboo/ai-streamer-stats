@@ -295,12 +295,13 @@ insert into sys_menu(
 (3111, '红冲单据', 3006, 5, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:document:reverse', '#', 'admin', sysdate(), '', null, '', 'Đảo chứng từ'),
 (3112, '通过审批', 3007, 1, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:approval:approve', '#', 'admin', sysdate(), '', null, '', 'Duyệt'),
 (3113, '驳回审批', 3007, 2, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:approval:reject', '#', 'admin', sysdate(), '', null, '', 'Từ chối'),
-(3114, '修改库存预警', 3005, 1, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:stock:config', '#', 'admin', sysdate(), '', null, '', 'Sửa cảnh báo tồn kho');
+(3114, '修改库存预警', 3005, 1, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:stock:config', '#', 'admin', sysdate(), '', null, '', 'Sửa cảnh báo tồn kho'),
+(3118, '修改商品名称图片', 3003, 3, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:product:basic-edit', '#', 'admin', sysdate(), '', null, '仅允许修改已有商品名称和图片', 'Sửa tên và ảnh sản phẩm');
 
 -- 制单员菜单权限。
 insert ignore into sys_role_menu(role_id, menu_id)
 select r.role_id, m.menu_id from sys_role r
-join sys_menu m on m.menu_id in (3000,3002,3003,3004,3005,3006,3009,3103,3107,3108,3109,3110)
+join sys_menu m on m.menu_id in (3000,3002,3003,3004,3005,3006,3009,3103,3107,3108,3109,3110,3118)
 where r.role_key = 'jewelry_maker' and r.del_flag = '0';
 
 -- 审核员菜单权限。

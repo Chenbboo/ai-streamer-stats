@@ -227,15 +227,19 @@ where p.project_id is null;
 select
   count(case when r.role_key='jewelry_maker' and m.perms='jewelry:product:add' then 1 end)=0
     as missing_jewelry_maker_product_add_permission,
+  count(case when r.role_key='jewelry_maker' and m.perms='jewelry:product:basic-edit' then 1 end)=0
+    as missing_jewelry_maker_product_basic_edit_permission,
   count(case when r.role_key='jewelry_maker' and m.perms='jewelry:product:edit' then 1 end)>0
     as jewelry_maker_product_edit_mismatch,
   count(case when r.role_key='jewelry_reviewer'
-    and m.perms in ('jewelry:product:add','jewelry:product:edit') then 1 end)>0
+    and m.perms in ('jewelry:product:add','jewelry:product:edit','jewelry:product:basic-edit') then 1 end)>0
     as jewelry_reviewer_product_write_mismatch,
   count(case when r.role_key='jewelry_admin' and m.perms='jewelry:product:add' then 1 end)=0
     as missing_jewelry_admin_product_add_permission,
   count(case when r.role_key='jewelry_admin' and m.perms='jewelry:product:edit' then 1 end)=0
-    as missing_jewelry_admin_product_edit_permission
+    as missing_jewelry_admin_product_edit_permission,
+  count(case when r.role_key='jewelry_admin' and m.perms='jewelry:product:basic-edit' then 1 end)=0
+    as missing_jewelry_admin_product_basic_edit_permission
 from sys_role r
 left join sys_role_menu rm on rm.role_id=r.role_id
 left join sys_menu m on m.menu_id=rm.menu_id

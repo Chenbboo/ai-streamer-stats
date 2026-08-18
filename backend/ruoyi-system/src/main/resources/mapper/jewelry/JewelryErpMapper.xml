@@ -165,6 +165,12 @@
           update_by=#{updateBy},update_time=sysdate(),remark=#{remark}
         where product_id=#{productId}
     </update>
+    <update id="updateProductBasic">
+        update jewelry_product
+        set product_name=#{productName},image_url=#{imageUrl},image_urls=#{imageUrls},
+            update_by=#{updateBy},update_time=sysdate()
+        where product_id=#{productId}
+    </update>
     <update id="updateProductImagesIfEmpty">
         update jewelry_product
         set image_url=case when image_url is null or image_url='' then #{imageUrl} else image_url end,

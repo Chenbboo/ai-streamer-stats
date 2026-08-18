@@ -2,6 +2,7 @@ package com.ruoyi.web.controller.jewelry;
 
 import java.net.URLEncoder;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import javax.servlet.http.HttpServletResponse;
@@ -140,13 +141,28 @@ public class JewelryErpController extends BaseController
         return success(rows);
     }
 
-    @PreAuthorize("@ss.hasAnyPermi('jewelry:product:add,jewelry:product:edit')")
+    @PreAuthorize("@ss.hasAnyPermi('jewelry:product:add,jewelry:product:edit,jewelry:product:basic-edit')")
     @PostMapping("/product")
     public AjaxResult saveProduct(@RequestBody Map<String, Object> body)
     {
         boolean editing = body.get("productId") != null;
-        if (editing && !hasPermission("jewelry:product:edit")) return error("无权修改已有商品档案");
+        boolean fullEdit = hasPermission("jewelry:product:edit");
+        boolean basicEdit = hasPermission("jewelry:product:basic-edit");
+        if (editing && !fullEdit && !basicEdit) return error("无权修改已有商品档案");
         if (!editing && !hasPermission("jewelry:product:add")) return error("无权新增商品档案");
+        if (editing && !fullEdit)
+        {
+            Long productId = number(body.get("productId"));
+            if (productId == null || productId <= 0) return error("商品ID不能为空");
+            if (string(body.get("productName")).isEmpty()) return error("商品名称不能为空");
+            Map<String, Object> basicFields = new HashMap<String, Object>();
+            basicFields.put("productId", productId);
+            basicFields.put("productName", string(body.get("productName")));
+            basicFields.put("imageUrl", string(body.get("imageUrl")));
+            basicFields.put("imageUrls", string(body.get("imageUrls")));
+            basicFields.put("updateBy", SecurityUtils.getUsername());
+            return toAjax(service.updateProductBasic(basicFields));
+        }
         if (string(body.get("sku")).isEmpty() || string(body.get("productName")).isEmpty())
             return error("SKU和商品名称不能为空");
         String productType = defaultString(body.get("productType"), "FINISHED");

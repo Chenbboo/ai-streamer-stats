@@ -9,6 +9,7 @@ public interface IJewelryErpService
 {
     List<Map<String, Object>> listProducts(Map<String, Object> query);
     int saveProduct(Map<String, Object> product);
+    int updateProductBasic(Map<String, Object> product);
     List<Map<String, Object>> listSuppliers(Map<String, Object> query);
     int saveSupplier(Map<String, Object> supplier);
     List<Map<String, Object>> listStock(Map<String, Object> query);

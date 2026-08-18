@@ -82,6 +82,19 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     }
 
     @Override
+    public int updateProductBasic(Map<String, Object> product)
+    {
+        String productName = textValue(product.get("productName")).trim();
+        if (productName.isEmpty()) throw new ServiceException("商品名称不能为空");
+        String productImage = singleImage(product.get("imageUrls"));
+        if (productImage.isEmpty()) productImage = singleImage(product.get("imageUrl"));
+        product.put("productName", productName);
+        product.put("imageUrls", productImage);
+        product.put("imageUrl", productImage);
+        return mapper.updateProductBasic(product);
+    }
+
+    @Override
     public List<Map<String, Object>> listSuppliers(Map<String, Object> query) { return mapper.selectSupplierList(query); }
 
     @Override

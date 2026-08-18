@@ -102,6 +102,39 @@ class JewelryErpServiceImplTest
     }
 
     @Test
+    void basicProductUpdateNormalizesNameAndKeepsOnlyOneImage()
+    {
+        when(mapper.updateProductBasic(any())).thenReturn(1);
+        Map<String, Object> product = new HashMap<String, Object>();
+        product.put("productId", 201L);
+        product.put("productName", "  新商品名称  ");
+        product.put("imageUrls", "/profile/one.jpg,/profile/two.jpg");
+        product.put("updateBy", "maker");
+
+        assertEquals(1, service.updateProductBasic(product));
+
+        ArgumentCaptor<Map<String, Object>> fields = ArgumentCaptor.forClass(Map.class);
+        verify(mapper).updateProductBasic(fields.capture());
+        assertEquals("新商品名称", fields.getValue().get("productName"));
+        assertEquals("/profile/one.jpg", fields.getValue().get("imageUrl"));
+        assertEquals("/profile/one.jpg", fields.getValue().get("imageUrls"));
+    }
+
+    @Test
+    void basicProductUpdateRejectsEmptyName()
+    {
+        Map<String, Object> product = new HashMap<String, Object>();
+        product.put("productId", 201L);
+        product.put("productName", "  ");
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.updateProductBasic(product));
+
+        assertTrue(error.getMessage().contains("商品名称不能为空"));
+        verify(mapper, never()).updateProductBasic(any());
+    }
+
+    @Test
     void makerCannotApproveOwnDocument()
     {
         JewelryDocument document = document(1L, "PURCHASE_IN", "PENDING_FIRST");

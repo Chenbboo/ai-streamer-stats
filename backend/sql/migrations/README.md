@@ -56,6 +56,7 @@ V031__business_project_execution_source.sql
 V032__business_ai_foundation.sql
 V033__business_boss_ai_page.sql
 V034__business_ai_workflow_engine.sql
+V035__jewelry_maker_basic_product_edit.sql
 ../live_ai_config.sql
 ../jewelry_erp_menu.sql
 ../jewelry_manual_assembly.sql
@@ -102,6 +103,7 @@ V031__business_project_execution_source.sql
 V032__business_ai_foundation.sql
 V033__business_boss_ai_page.sql
 V034__business_ai_workflow_engine.sql
+V035__jewelry_maker_basic_product_edit.sql
 ../live_ai_config.sql
 ../jewelry_erp_menu.sql
 ../jewelry_manual_assembly.sql
@@ -123,3 +125,4 @@ V034__business_ai_workflow_engine.sql
 - 老板 AI 使用独立菜单页面，老板工作台保持为经营看板；两处仍复用同一老板权限边界。
 - 项目预算、KPI、人员内部核算成本和项目分摊均按版本或历史记录追溯，不允许静默覆盖。
 * `V034__business_ai_workflow_engine.sql`：AI 持久化工作流实例与事件记录，支持多轮操作在刷新、重启和模型误判后继续。
+* `V035__jewelry_maker_basic_product_edit.sql`：制单员可直接维护商品名称与图片，完整商品属性仍仅由管理员修改。

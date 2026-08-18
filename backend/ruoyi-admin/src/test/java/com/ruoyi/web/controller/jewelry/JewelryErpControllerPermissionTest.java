@@ -1,11 +1,13 @@
 package com.ruoyi.web.controller.jewelry;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -21,6 +23,7 @@ import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -100,7 +103,7 @@ class JewelryErpControllerPermissionTest
     @Test
     void writeEndpointsUseSeparateCreateEditOrApprovalPermissions()
     {
-        assertEquals("@ss.hasAnyPermi('jewelry:product:add,jewelry:product:edit')",
+        assertEquals("@ss.hasAnyPermi('jewelry:product:add,jewelry:product:edit,jewelry:product:basic-edit')",
             authorization("saveProduct"));
         assertEquals("@ss.hasAnyPermi('jewelry:supplier:add,jewelry:supplier:edit')",
             authorization("saveSupplier"));
@@ -147,16 +150,89 @@ class JewelryErpControllerPermissionTest
         verify(excelService).preview(eq("PURCHASE_IN"), any(InputStream.class), eq(true));
     }
 
+    @Test
+    void makerBasicEditCanOnlySendNameAndImageFieldsToService()
+    {
+        IJewelryErpService service = mock(IJewelryErpService.class);
+        when(service.updateProductBasic(any())).thenReturn(1);
+        JewelryErpController controller = new JewelryErpController();
+        ReflectionTestUtils.setField(controller, "service", service);
+        loginAs("jewelry_maker", new HashSet<String>(Arrays.asList(
+            "jewelry:product:add", "jewelry:product:basic-edit")));
+
+        Map<String, Object> product = new HashMap<String, Object>();
+        product.put("productId", 88L);
+        product.put("productName", "新名称");
+        product.put("imageUrl", "/profile/new.jpg");
+        product.put("imageUrls", "/profile/new.jpg");
+        product.put("productType", "WELFARE");
+        product.put("status", "1");
+        product.put("defaultPackFee", "999");
+
+        assertTrue(controller.saveProduct(product).isSuccess());
+        ArgumentCaptor<Map<String, Object>> fields = ArgumentCaptor.forClass(Map.class);
+        verify(service).updateProductBasic(fields.capture());
+        assertEquals(88L, fields.getValue().get("productId"));
+        assertEquals("新名称", fields.getValue().get("productName"));
+        assertFalse(fields.getValue().containsKey("productType"));
+        assertFalse(fields.getValue().containsKey("status"));
+        assertFalse(fields.getValue().containsKey("defaultPackFee"));
+        verify(service, never()).saveProduct(any());
+    }
+
+    @Test
+    void makerWithoutBasicEditAndReviewerCannotModifyExistingProduct()
+    {
+        IJewelryErpService service = mock(IJewelryErpService.class);
+        JewelryErpController controller = new JewelryErpController();
+        ReflectionTestUtils.setField(controller, "service", service);
+        Map<String, Object> product = new HashMap<String, Object>();
+        product.put("productId", 88L);
+        product.put("productName", "新名称");
+
+        loginAsMakerWithProductAdd();
+        assertFalse(controller.saveProduct(product).isSuccess());
+
+        loginAs("jewelry_reviewer", Collections.<String>emptySet());
+        assertFalse(controller.saveProduct(product).isSuccess());
+        verify(service, never()).updateProductBasic(any());
+        verify(service, never()).saveProduct(any());
+    }
+
+    @Test
+    void administratorKeepsFullProductEditPath()
+    {
+        IJewelryErpService service = mock(IJewelryErpService.class);
+        when(service.saveProduct(any())).thenReturn(1);
+        JewelryErpController controller = new JewelryErpController();
+        ReflectionTestUtils.setField(controller, "service", service);
+        loginAs("jewelry_admin", Collections.singleton("jewelry:product:edit"));
+
+        Map<String, Object> product = new HashMap<String, Object>();
+        product.put("productId", 88L);
+        product.put("sku", "SKU-88");
+        product.put("productName", "管理员修改");
+        product.put("productType", "ACCESSORY");
+
+        assertTrue(controller.saveProduct(product).isSuccess());
+        verify(service).saveProduct(product);
+        verify(service, never()).updateProductBasic(any());
+    }
+
     private void loginAsMakerWithProductAdd()
     {
-        SysRole makerRole = new SysRole(30L);
-        makerRole.setRoleKey("jewelry_maker");
-        SysUser maker = new SysUser();
-        maker.setUserId(20L);
-        maker.setUserName("maker");
-        maker.setRoles(Collections.singletonList(makerRole));
-        LoginUser loginUser = new LoginUser(maker,
-            new HashSet<String>(Collections.singletonList("jewelry:product:add")));
+        loginAs("jewelry_maker", Collections.singleton("jewelry:product:add"));
+    }
+
+    private void loginAs(String roleKey, java.util.Set<String> permissions)
+    {
+        SysRole role = new SysRole(30L);
+        role.setRoleKey(roleKey);
+        SysUser user = new SysUser();
+        user.setUserId(20L);
+        user.setUserName(roleKey);
+        user.setRoles(Collections.singletonList(role));
+        LoginUser loginUser = new LoginUser(user, new HashSet<String>(permissions));
         SecurityContextHolder.getContext().setAuthentication(
             new UsernamePasswordAuthenticationToken(loginUser, null));
     }

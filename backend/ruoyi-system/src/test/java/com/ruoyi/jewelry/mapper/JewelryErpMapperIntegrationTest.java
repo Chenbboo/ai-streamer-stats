@@ -10,7 +10,9 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -76,6 +78,37 @@ class JewelryErpMapperIntegrationTest
         }
 
         assertEquals(1, intValue("select reserved_out_qty from jewelry_stock where product_id=1"));
+    }
+
+    @Test
+    void basicProductUpdateCannotChangeProtectedProductFields()
+    {
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,category,specification,"
+            + "image_url,image_urls,unit,default_pack_fee,default_ship_fee,default_cert_fee,warning_qty,status)"
+            + " values(1,'SKU-1','旧名称','ACCESSORY','包装','普通','/old.jpg','/old.jpg','只',1,2,3,5,'0')");
+        Map<String, Object> fields = new HashMap<String, Object>();
+        fields.put("productId", 1L);
+        fields.put("productName", "新名称");
+        fields.put("imageUrl", "/new.jpg");
+        fields.put("imageUrls", "/new.jpg");
+        fields.put("updateBy", "maker");
+        fields.put("productType", "WELFARE");
+        fields.put("status", "1");
+        fields.put("defaultPackFee", 999);
+
+        try (SqlSession session = sqlSessionFactory.openSession(false))
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            assertEquals(1, mapper.updateProductBasic(fields));
+            session.commit();
+        }
+
+        assertEquals("新名称", stringValue("select product_name from jewelry_product where product_id=1"));
+        assertEquals("/new.jpg", stringValue("select image_url from jewelry_product where product_id=1"));
+        assertEquals("ACCESSORY", stringValue("select product_type from jewelry_product where product_id=1"));
+        assertEquals("0", stringValue("select status from jewelry_product where product_id=1"));
+        assertEquals(new BigDecimal("1.000000"),
+            decimalValue("select default_pack_fee from jewelry_product where product_id=1"));
     }
 
     @Test
@@ -418,6 +451,14 @@ class JewelryErpMapperIntegrationTest
 
     private void createSchema() throws Exception
     {
+        execute("create table jewelry_product ("
+            + "product_id bigint auto_increment primary key,sku varchar(64) not null unique,"
+            + "product_name varchar(128) not null,product_type varchar(16) not null,category varchar(64),"
+            + "specification varchar(16) not null,image_url varchar(500),image_urls varchar(1000),"
+            + "unit varchar(16),default_pack_fee decimal(18,6) default 0,"
+            + "default_ship_fee decimal(18,6) default 0,default_cert_fee decimal(18,6) default 0,"
+            + "warning_qty int default 5,status char(1) default '0',create_by varchar(64),create_time timestamp,"
+            + "update_by varchar(64),update_time timestamp,remark varchar(500))");
         execute("create table jewelry_stock ("
             + "product_id bigint primary key,on_hand_qty int not null default 0,"
             + "reserved_out_qty int not null default 0,inspection_qty int not null default 0,"
