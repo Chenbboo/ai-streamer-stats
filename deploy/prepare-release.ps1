@@ -56,6 +56,9 @@ try {
         if ($migration.Count -ne 1) { throw "Expected exactly one V$('{0:D3}' -f $version) migration." }
         Copy-Item -LiteralPath $migration[0].FullName -Destination $releaseMigrations.FullName
     }
+    $purchasePrecisionMigration = @(Get-ChildItem -LiteralPath $migrationRoot -Filter 'V040__*.sql' -File)
+    if ($purchasePrecisionMigration.Count -ne 1) { throw 'Expected exactly one V040 migration.' }
+    Copy-Item -LiteralPath $purchasePrecisionMigration[0].FullName -Destination $releaseMigrations.FullName
 
     tar -czf (Join-Path $releaseRoot 'frontend.tar.gz') -C (Join-Path $frontendRoot 'dist') .
     if ($LASTEXITCODE -ne 0) { throw 'Failed to package frontend.' }

@@ -477,7 +477,7 @@ class JewelryErpMapperIntegrationTest
             + "return_reason varchar(255) default '',source_document_id bigint,"
             + "unlinked_reason varchar(255) default '',actual_refund_amount decimal(20,2),"
             + "total_qty int not null default 0,"
-            + "total_amount decimal(20,2) not null default 0,total_cost decimal(20,2) not null default 0,"
+            + "total_amount decimal(20,4) not null default 0,total_cost decimal(20,4) not null default 0,"
             + "total_profit decimal(20,2) not null default 0,risk_status varchar(16) default 'NORMAL',"
             + "labor_fee decimal(18,2) default 0,processing_fee decimal(18,2) default 0,"
             + "other_fee decimal(18,2) default 0,"
@@ -499,8 +499,8 @@ class JewelryErpMapperIntegrationTest
             + "pack_fee decimal(18,6) not null default 0,ship_fee decimal(18,6) not null default 0,"
             + "cert_fee decimal(18,6) not null default 0,other_fee1 decimal(18,6) not null default 0,"
             + "other_fee2 decimal(18,6) not null default 0,other_fee3 decimal(18,6) not null default 0,"
-            + "amount decimal(20,2) not null default 0,"
-            + "cost_amount decimal(20,2) not null default 0,profit_amount decimal(20,2) not null default 0,"
+            + "amount decimal(20,4) not null default 0,"
+            + "cost_amount decimal(20,4) not null default 0,profit_amount decimal(20,2) not null default 0,"
             + "profit_rate decimal(9,6) not null default 0,line_reason varchar(255) default '')");
         execute("create table jewelry_approval (approval_id bigint auto_increment primary key,document_id bigint not null)");
         execute("create table jewelry_document_event (event_id bigint auto_increment primary key,document_id bigint not null)");

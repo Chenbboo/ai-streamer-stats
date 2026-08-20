@@ -40,6 +40,9 @@ for version in $(seq -w 10 35); do
   test "${#matches[@]}" = 1
   test -s "${matches[0]}"
 done
+purchase_precision_migrations=("$stage_dir/migrations/V040"__*.sql)
+test "${#purchase_precision_migrations[@]}" = 1
+test -s "${purchase_precision_migrations[0]}"
 test -s "$app_root/ruoyi-admin.jar"
 test -s "$app_root/frontend/index.html"
 test -s "$config"

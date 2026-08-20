@@ -83,6 +83,7 @@ class JewelryDocumentExcelServiceTest
             assertEquals(24 * 256, sheet.getColumnWidth(2));
             assertEquals(FillPatternType.NO_FILL, sheet.getRow(1).getCell(2).getCellStyle().getFillPattern());
             assertEquals(HorizontalAlignment.CENTER, sheet.getRow(1).getCell(2).getCellStyle().getAlignment());
+            assertEquals("#,##0.0000", sheet.getRow(1).getCell(7).getCellStyle().getDataFormatString());
             assertFalse(sheet.isDisplayGridlines());
             assertFalse(((XSSFSheet) sheet).getCTWorksheet().isSetAutoFilter());
             assertEquals("采购入库模板填写说明", workbook.getSheet("填写说明").getRow(0).getCell(0).getStringCellValue());
@@ -93,6 +94,20 @@ class JewelryDocumentExcelServiceTest
             assertEquals("精品", options.getRow(0).getCell(1).getStringCellValue());
             assertEquals("普通", options.getRow(1).getCell(1).getStringCellValue());
         }
+    }
+
+    @Test
+    void purchasePreviewRoundsUnitPriceToFourDecimals() throws Exception
+    {
+        when(mapper.selectProductList(any())).thenReturn(Collections.singletonList(product("SKU-1", 5, 0)));
+
+        Map<String, Object> result = service.preview("PURCHASE_IN", workbook(PURCHASE_HEADERS,
+            new Object[] { "SKU-1", "", "", "", "", "", 3, new BigDecimal("0.12345"), "" }), true);
+
+        assertEquals(0, result.get("errorCount"));
+        BigDecimal unitPrice = (BigDecimal) rows(result).get(0).get("unitPrice");
+        assertEquals(new BigDecimal("0.1235"), unitPrice);
+        assertEquals(4, unitPrice.scale());
     }
 
     @Test

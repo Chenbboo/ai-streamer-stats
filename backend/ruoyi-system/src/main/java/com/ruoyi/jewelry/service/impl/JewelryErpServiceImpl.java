@@ -436,8 +436,11 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         reversal.setReturnReason("红冲原单 " + source.getDocNo());
         reversal.setSourceDocumentId(sourceDocumentId);
         reversal.setTotalQty(-nonNegative(source.getTotalQty()));
-        reversal.setTotalAmount(money(source.getTotalAmount()).negate().setScale(2, RoundingMode.HALF_UP));
-        reversal.setTotalCost(money(source.getTotalCost()).negate().setScale(2, RoundingMode.HALF_UP));
+        int reversalAmountScale = "PURCHASE_IN".equals(source.getDocType()) ? 4 : 2;
+        reversal.setTotalAmount(money(source.getTotalAmount()).negate()
+            .setScale(reversalAmountScale, RoundingMode.HALF_UP));
+        reversal.setTotalCost(money(source.getTotalCost()).negate()
+            .setScale(reversalAmountScale, RoundingMode.HALF_UP));
         reversal.setTotalProfit(money(source.getTotalProfit()).negate().setScale(2, RoundingMode.HALF_UP));
         reversal.setRiskStatus("NORMAL");
         reversal.setLaborFee(ZERO);
@@ -452,7 +455,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         List<JewelryDocumentItem> reversalItems = new ArrayList<JewelryDocumentItem>();
         for (JewelryDocumentItem sourceItem : sourceItems)
         {
-            JewelryDocumentItem item = copyReversalItem(sourceItem, reversal.getDocumentId());
+            JewelryDocumentItem item = copyReversalItem(sourceItem, reversal.getDocumentId(), source.getDocType());
             mapper.insertDocumentItem(item);
             reversalItems.add(item);
         }
@@ -1002,7 +1005,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         for (JewelryDocumentItem item : document.getItems())
         {
             int qty = effectiveQty(document.getDocType(), item);
-            BigDecimal price = money(item.getUnitPrice());
+            boolean purchase = "PURCHASE_IN".equals(document.getDocType());
+            BigDecimal price = purchase
+                ? money(item.getUnitPrice()).setScale(4, RoundingMode.HALF_UP)
+                : money(item.getUnitPrice());
             BigDecimal cost = money(item.getUnitCost());
             BigDecimal packFee = money(item.getPackFee());
             BigDecimal financialPackFee = packFee;
@@ -1072,8 +1078,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             item.setUnitPrice(price); item.setUnitCost(cost); item.setPackFee(packFee);
             item.setShipFee(shipFee); item.setCertFee(certFee);
             item.setOtherFee1(otherFee1); item.setOtherFee2(otherFee2); item.setOtherFee3(otherFee3);
-            item.setAmount(amount.setScale(2, RoundingMode.HALF_UP));
-            item.setCostAmount(costAmount.setScale(2, RoundingMode.HALF_UP));
+            int lineAmountScale = purchase ? 4 : 2;
+            item.setAmount(amount.setScale(lineAmountScale, RoundingMode.HALF_UP));
+            item.setCostAmount(costAmount.setScale(lineAmountScale, RoundingMode.HALF_UP));
             item.setProfitAmount(profit.setScale(2, RoundingMode.HALF_UP));
             item.setProfitRate(grossAmount.signum() == 0 ? ZERO :
                 profit.divide(grossAmount, 6, RoundingMode.HALF_UP));
@@ -1102,8 +1109,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             refundNeedsReview = actualRefund.compareTo(expectedRefund) != 0;
         }
         document.setPlatformRate(platformRate); document.setCommissionRate(commissionRate); document.setTaxRate(taxRate);
-        document.setTotalQty(totalQty); document.setTotalAmount(totalAmount.setScale(2, RoundingMode.HALF_UP));
-        document.setTotalCost(totalCost.setScale(2, RoundingMode.HALF_UP));
+        int totalAmountScale = "PURCHASE_IN".equals(document.getDocType()) ? 4 : 2;
+        document.setTotalQty(totalQty);
+        document.setTotalAmount(totalAmount.setScale(totalAmountScale, RoundingMode.HALF_UP));
+        document.setTotalCost(totalCost.setScale(totalAmountScale, RoundingMode.HALF_UP));
         document.setTotalProfit(totalProfit.setScale(2, RoundingMode.HALF_UP));
         if ("SALES_OUT".equals(document.getDocType()) && totalProfit.signum() < 0)
             document.setRiskStatus("LOSS");
@@ -1322,7 +1331,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 onHand += qty;
                 avg = onHand == 0 ? ZERO : existingCost.add(incomingCost).divide(BigDecimal.valueOf(onHand), 6, RoundingMode.HALF_UP);
                 item.setUnitCost(purchaseCost);
-                item.setCostAmount(incomingCost.setScale(2, RoundingMode.HALF_UP));
+                item.setCostAmount(incomingCost.setScale(4, RoundingMode.HALF_UP));
                 mapper.updateDocumentItemCost(item);
             }
             else if ("SALES_OUT".equals(document.getDocType()))
@@ -1476,8 +1485,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             totalProfit = totalProfit.add(money(item.getProfitAmount()));
         }
         document.setTotalQty(totalQty);
-        document.setTotalAmount(totalAmount.setScale(2, RoundingMode.HALF_UP));
-        document.setTotalCost(totalCost.setScale(2, RoundingMode.HALF_UP));
+        int amountScale = "PURCHASE_IN".equals(document.getDocType()) ? 4 : 2;
+        document.setTotalAmount(totalAmount.setScale(amountScale, RoundingMode.HALF_UP));
+        document.setTotalCost(totalCost.setScale(amountScale, RoundingMode.HALF_UP));
         document.setTotalProfit(totalProfit.setScale(2, RoundingMode.HALF_UP));
         if ("SALES_OUT".equals(document.getDocType()) && totalProfit.signum() < 0)
             document.setRiskStatus("LOSS");
@@ -1900,7 +1910,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             throw new ServiceException("原销售单存在待处理或已入账的消费者退货，不能整单红冲");
     }
 
-    private JewelryDocumentItem copyReversalItem(JewelryDocumentItem source, Long reversalId)
+    private JewelryDocumentItem copyReversalItem(JewelryDocumentItem source, Long reversalId, String sourceDocType)
     {
         JewelryDocumentItem item = new JewelryDocumentItem();
         item.setDocumentId(reversalId);
@@ -1929,8 +1939,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         item.setOtherFee1(source.getOtherFee1());
         item.setOtherFee2(source.getOtherFee2());
         item.setOtherFee3(source.getOtherFee3());
-        item.setAmount(money(source.getAmount()).negate().setScale(2, RoundingMode.HALF_UP));
-        item.setCostAmount(money(source.getCostAmount()).negate().setScale(2, RoundingMode.HALF_UP));
+        int amountScale = "PURCHASE_IN".equals(sourceDocType) ? 4 : 2;
+        item.setAmount(money(source.getAmount()).negate().setScale(amountScale, RoundingMode.HALF_UP));
+        item.setCostAmount(money(source.getCostAmount()).negate().setScale(amountScale, RoundingMode.HALF_UP));
         item.setProfitAmount(money(source.getProfitAmount()).negate().setScale(2, RoundingMode.HALF_UP));
         item.setProfitRate(source.getProfitRate());
         item.setLineReason("红冲原明细 " + source.getItemId());

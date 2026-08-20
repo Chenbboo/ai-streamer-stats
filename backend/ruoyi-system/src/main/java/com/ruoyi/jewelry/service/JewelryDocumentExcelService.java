@@ -8,6 +8,7 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -293,7 +294,9 @@ public class JewelryDocumentExcelService
             row.put("specification", value(source, columns, "规格类型（新商品必填）", formatter, evaluator).trim());
             row.put("unit", defaultString(value(source, columns, "单位", formatter, evaluator).trim(), "件"));
             row.put("qty", integerValue(value(source, columns, "数量", formatter, evaluator)));
-            row.put("unitPrice", decimalValue(value(source, columns, "采购单价", formatter, evaluator)));
+            BigDecimal purchasePrice = decimalValue(value(source, columns, "采购单价", formatter, evaluator));
+            row.put("unitPrice", purchasePrice == null ? null
+                : purchasePrice.setScale(4, RoundingMode.HALF_UP));
         }
         else if ("SALES_OUT".equals(docType))
         {
@@ -492,6 +495,8 @@ public class JewelryDocumentExcelService
         quantityStyle.setDataFormat(workbook.createDataFormat().getFormat("#,##0"));
         CellStyle moneyStyle = createInputStyle(workbook, bodyFont, HorizontalAlignment.RIGHT);
         moneyStyle.setDataFormat(workbook.createDataFormat().getFormat("#,##0.00"));
+        CellStyle purchasePriceStyle = createInputStyle(workbook, bodyFont, HorizontalAlignment.RIGHT);
+        purchasePriceStyle.setDataFormat(workbook.createDataFormat().getFormat("#,##0.0000"));
 
         for (int rowIndex = 1; rowIndex <= 20; rowIndex++)
         {
@@ -502,7 +507,8 @@ public class JewelryDocumentExcelService
                 Cell cell = row.createCell(column);
                 String header = headers[column];
                 if ("数量".equals(header) || "实盘数量".equals(header)) cell.setCellStyle(quantityStyle);
-                else if ("采购单价".equals(header) || header.endsWith("/件") || "成交单价".equals(header))
+                else if ("采购单价".equals(header)) cell.setCellStyle(purchasePriceStyle);
+                else if (header.endsWith("/件") || "成交单价".equals(header))
                     cell.setCellStyle(moneyStyle);
                 else if ("商品类型（新商品必填）".equals(header) || "规格类型（新商品必填）".equals(header)
                     || "单位".equals(header) || IMAGE_HEADER.equals(header)) cell.setCellStyle(centerStyle);

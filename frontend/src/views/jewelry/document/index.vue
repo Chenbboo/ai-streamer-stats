@@ -8,7 +8,7 @@
       <el-table-column prop="bizDate" label="业务日期" width="110"/>
       <el-table-column label="业务对象" min-width="130"><template #default="{row}">{{row.supplierNameSnapshot || row.salesChannel || (row.docType==='ASSEMBLY'?'手工组装':row.docType==='COST_ADJUST'?'库存成本调整':'—')}}</template></el-table-column>
       <el-table-column prop="totalQty" label="数量" width="80" align="right"/>
-      <el-table-column label="金额" width="120" align="right"><template #default="{row}">{{money(row.totalAmount)}}</template></el-table-column>
+      <el-table-column label="金额" width="120" align="right"><template #default="{row}">{{documentAmount(row.totalAmount,row)}}</template></el-table-column>
       <el-table-column v-if="canViewFinance" label="毛利" width="110" align="right"><template #default="{row}"><span v-if="row.docType==='COST_ADJUST'">—</span><span v-else :class="{loss:Number(row.totalProfit)<0}">{{money(row.totalProfit)}}</span></template></el-table-column>
       <el-table-column label="风险" width="100"><template #default="{row}"><el-tag v-if="row.riskStatus==='LOSS'" type="danger">亏损</el-tag><el-tag v-else-if="row.riskStatus==='REVIEW'" type="warning">需复核</el-tag><span v-else>—</span></template></el-table-column>
       <el-table-column label="状态" width="130"><template #default="{row}"><el-tag :type="statusType(row.status)">{{documentStatusLabel(row)}}</el-tag></template></el-table-column>
@@ -144,7 +144,7 @@
           <el-table-column v-if="showQuantityColumn" label="数量" width="130">
             <template #default="{ row }"><el-input-number v-model="row.qty" :min="1" :disabled="readonly || (form.docType==='CUSTOMER_RETURN' && !form.sourceDocumentId)" /></template>
           </el-table-column>
-          <el-table-column v-if="showPriceColumn" :label="priceLabel" width="170"><template #default="{row}"><el-input-number v-model="row.unitPrice" :min="0" :precision="2" :disabled="readonly || (form.docType==='CUSTOMER_RETURN' && !!form.sourceDocumentId) || (form.docType==='SALES_OUT' && normalizedPricingMode(row)==='INCLUDED')" style="width:100%"/></template></el-table-column>
+          <el-table-column v-if="showPriceColumn" :label="priceLabel" width="170"><template #default="{row}"><el-input-number v-model="row.unitPrice" :min="0" :precision="unitPricePrecision" :step="unitPriceStep" :disabled="readonly || (form.docType==='CUSTOMER_RETURN' && !!form.sourceDocumentId) || (form.docType==='SALES_OUT' && normalizedPricingMode(row)==='INCLUDED')" style="width:100%"/></template></el-table-column>
           <el-table-column v-if="showCostColumn" :label="form.docType==='COST_ADJUST'?'当前平均成本':'单位成本'" width="140"><template #default="{row}"><span>{{money(row.unitCost)}}</span></template></el-table-column>
           <el-table-column v-if="form.docType==='SALES_OUT'" label="包装费/件" width="220">
             <template #default="{row}">
@@ -169,7 +169,7 @@
           <el-table-column v-if="form.docType==='SALES_OUT'" label="其他1/件" width="145"><template #default="{row}"><el-input-number v-model="row.otherFee1" :min="0" :precision="2" :disabled="readonly"/></template></el-table-column>
           <el-table-column v-if="form.docType==='SALES_OUT'" label="其他2/件" width="145"><template #default="{row}"><el-input-number v-model="row.otherFee2" :min="0" :precision="2" :disabled="readonly"/></template></el-table-column>
           <el-table-column v-if="form.docType==='SALES_OUT'" label="其他3/件" width="145"><template #default="{row}"><el-input-number v-model="row.otherFee3" :min="0" :precision="2" :disabled="readonly"/></template></el-table-column>
-          <el-table-column v-if="showPriceColumn" :label="amountLabel" width="130" align="right"><template #default="{row}">{{money(lineAmount(row))}}</template></el-table-column>
+          <el-table-column v-if="showPriceColumn" :label="amountLabel" width="130" align="right"><template #default="{row}">{{documentAmount(lineAmount(row),form)}}</template></el-table-column>
           <el-table-column v-if="form.docType==='SALES_OUT'" label="平台等扣费" width="130" align="right"><template #default="{row}">{{money(lineDeductions(row))}}</template></el-table-column>
           <el-table-column v-if="form.docType==='SALES_OUT'" label="预计净入账" width="130" align="right"><template #default="{row}">{{money(lineNetReceipt(row))}}</template></el-table-column>
           <el-table-column v-if="canViewFinance && form.docType==='SALES_OUT'" label="预计毛利" width="120" align="right">
@@ -196,7 +196,7 @@
         <div class="document-total">
           <span>SKU {{ form.items.length }} 种</span>
           <span>总件数 <b>{{ estimatedQty }}</b></span>
-          <span v-if="showPriceColumn">{{ totalAmountLabel }} <b>¥ {{ money(estimatedAmount) }}</b></span>
+          <span v-if="showPriceColumn">{{ totalAmountLabel }} <b>¥ {{ documentAmount(estimatedAmount,form) }}</b></span>
           <span v-if="form.docType==='COST_ADJUST'">调整后库存金额 <b>¥ {{ money(adjustedInventoryAmount) }}</b></span>
           <span v-if="form.docType==='SALES_OUT'">平台等扣费 <b>¥ {{ money(estimatedDeductions) }}</b></span>
           <span v-if="form.docType==='SALES_OUT'">预计净入账 <b>¥ {{ money(estimatedNetReceipt) }}</b></span>
@@ -265,7 +265,7 @@
         </el-table-column>
         <el-table-column v-if="form.docType!=='STOCK_ADJUST'" prop="qty" label="数量" width="86" align="right"/>
         <el-table-column v-if="form.docType==='STOCK_ADJUST'" prop="countedQty" label="实盘数量" width="100" align="right"/>
-        <el-table-column v-if="form.docType!=='STOCK_ADJUST'" prop="unitPrice" :label="priceLabel" width="110" align="right"/>
+        <el-table-column v-if="form.docType!=='STOCK_ADJUST'" :label="priceLabel" width="110" align="right"><template #default="{row}">{{unitPriceText(row.unitPrice)}}</template></el-table-column>
         <el-table-column v-if="form.docType==='SALES_OUT'" prop="otherFee1" label="其他1/件" width="95" align="right"/>
         <el-table-column v-if="form.docType==='SALES_OUT'" prop="otherFee2" label="其他2/件" width="95" align="right"/>
         <el-table-column v-if="form.docType==='SALES_OUT'" prop="otherFee3" label="其他3/件" width="95" align="right"/>
@@ -326,6 +326,8 @@ const showCostColumn=computed(()=>form.docType==='COST_ADJUST'||(canViewFinance.
 const showSalesBundleColumns=computed(()=>['SALES_OUT','CUSTOMER_RETURN'].includes(form.docType)||(readonly.value&&form.items?.some(item=>['MAIN','ADDON'].includes(item.saleRole))))
 const excelImportSupported=computed(()=>['PURCHASE_IN','SALES_OUT','STOCK_ADJUST'].includes(form.docType))
 const priceLabel=computed(()=>form.docType==='PURCHASE_IN'?'采购单价':form.docType==='SALES_OUT'?'成交单价':form.docType==='SUPPLIER_RETURN'?'退货单价':form.docType==='COST_ADJUST'?'调整后平均成本':'原成交单价')
+const unitPricePrecision=computed(()=>isPurchaseAmountDocument(form)?4:2)
+const unitPriceStep=computed(()=>isPurchaseAmountDocument(form)?0.0001:0.01)
 const amountLabel=computed(()=>form.docType==='PURCHASE_IN'?'采购金额':form.docType==='SALES_OUT'?'成交总额':form.docType==='SUPPLIER_RETURN'?'退货金额':form.docType==='COST_ADJUST'?'库存金额变化':'原成交金额')
 const totalAmountLabel=computed(()=>form.docType==='PURCHASE_IN'?'采购总额':form.docType==='SALES_OUT'?'成交总额':form.docType==='SUPPLIER_RETURN'?'退货总额':form.docType==='COST_ADJUST'?'库存金额变化':'退款总额')
 const needsReason=computed(()=>['SUPPLIER_RETURN','CUSTOMER_RETURN','STOCK_ADJUST','COST_ADJUST'].includes(form.docType))
@@ -405,6 +407,13 @@ const platformPercent=percentageModel('platformRate')
 const commissionPercent=percentageModel('commissionRate')
 const taxPercent=percentageModel('taxRate')
 const money=value=>Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})
+const fourDecimalMoney=value=>Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:4,maximumFractionDigits:4})
+const isPurchaseAmountDocument=document=>{
+  const docType=typeof document==='string'?document:document?.docType
+  return docType==='PURCHASE_IN'||(docType==='REVERSAL'&&document?.sourceDocType==='PURCHASE_IN')
+}
+const documentAmount=(value,document)=>isPurchaseAmountDocument(document)?fourDecimalMoney(value):money(value)
+const unitPriceText=value=>isPurchaseAmountDocument(form)?fourDecimalMoney(value):money(value)
 const imageSrc=value=>/^https?:/i.test(value||'')?value:import.meta.env.VITE_APP_BASE_API+(value||'')
 const labelOf=(list,value)=>list.find(x=>x.value===value)?.label||value;const statusType=s=>s==='POSTED'?'success':['REJECTED','REVERSED'].includes(s)?'danger':s==='DRAFT'?'info':'warning'
 const documentStatusLabel=row=>isDualApproval(row)&&row.status==='PENDING_SECOND'?'待管理员复核':isDualApproval(row)&&row.status==='PENDING_FIRST'?'待审核员审核':labelOf(statuses,row.status)

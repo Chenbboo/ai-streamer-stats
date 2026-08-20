@@ -645,6 +645,25 @@ class JewelryErpServiceImplTest
     }
 
     @Test
+    void purchaseCalculationKeepsFourDecimalUnitPriceAndAmounts() throws Exception
+    {
+        JewelryDocument document = document(null, "PURCHASE_IN", "DRAFT");
+        JewelryDocumentItem item = item(null, 3, "0.12345");
+        document.setItems(Arrays.asList(item));
+
+        Method calculate = JewelryErpServiceImpl.class.getDeclaredMethod(
+            "calculateDocument", JewelryDocument.class);
+        calculate.setAccessible(true);
+        calculate.invoke(service, document);
+
+        assertEquals(new BigDecimal("0.1235"), item.getUnitPrice());
+        assertEquals(new BigDecimal("0.3705"), item.getAmount());
+        assertEquals(new BigDecimal("0.3705"), item.getCostAmount());
+        assertEquals(new BigDecimal("0.3705"), document.getTotalAmount());
+        assertEquals(new BigDecimal("0.3705"), document.getTotalCost());
+    }
+
+    @Test
     void supplierReturnPostingConsumesReservedAndOnHandStock()
     {
         JewelryDocument document = document(101L, "SUPPLIER_RETURN", "PENDING_SECOND");
