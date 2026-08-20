@@ -23,7 +23,7 @@
         <el-descriptions-item label="数量">{{detail.totalQty}}</el-descriptions-item>
         <el-descriptions-item :label="detail.docType==='ASSEMBLY'?'组装总成本':detail.docType==='COST_ADJUST'?'库存金额变化':'总金额'">¥ {{documentMoney(detail.docType==='ASSEMBLY'?detail.totalCost:detail.totalAmount,detail)}}</el-descriptions-item>
         <el-descriptions-item v-if="detail.docType==='COST_ADJUST'" label="调整后库存金额">¥ {{money(detail.totalCost)}}</el-descriptions-item>
-        <el-descriptions-item v-else-if="detail.docType!=='ASSEMBLY'" label="总成本">¥ {{documentMoney(detail.totalCost,detail)}}</el-descriptions-item>
+        <el-descriptions-item v-else-if="detail.docType!=='ASSEMBLY'" label="总成本">¥ {{costMoney(detail.totalCost,detail)}}</el-descriptions-item>
         <el-descriptions-item label="总毛利"><span v-if="['ASSEMBLY','COST_ADJUST'].includes(detail.docType)">—</span><span v-else :class="{loss:Number(detail.totalProfit)<0}">¥ {{money(detail.totalProfit)}}</span></el-descriptions-item>
         <el-descriptions-item label="审批人"><span v-if="isDualApproval(detail)">审核员：{{detail.firstReviewerName||'待审核'}}；管理员：{{detail.secondReviewerName||'待复核'}}</span><span v-else>{{detail.secondReviewerName || detail.firstReviewerName || '—'}}</span></el-descriptions-item>
       </el-descriptions>
@@ -68,7 +68,7 @@
         <el-table-column v-if="detail.docType==='RETURN_INSPECT'" prop="goodQty" label="良品"/>
         <el-table-column v-if="detail.docType==='RETURN_INSPECT'" prop="defectQty" label="次品"/>
         <el-table-column prop="unitCost" :label="detail.docType==='COST_ADJUST'?'当前平均成本':'成本'"/>
-        <el-table-column :label="detail.docType==='COST_ADJUST'?'调整后平均成本':'单价'"><template #default="{row}">{{documentMoney(row.unitPrice,detail)}}</template></el-table-column>
+        <el-table-column :label="detail.docType==='COST_ADJUST'?'调整后平均成本':'单价'"><template #default="{row}">{{unitPriceMoney(row.unitPrice,detail)}}</template></el-table-column>
         <el-table-column :label="detail.docType==='ASSEMBLY'?'成本金额':detail.docType==='COST_ADJUST'?'库存金额变化':'金额'"><template #default="{row}">{{documentMoney(detail.docType==='ASSEMBLY'?row.costAmount:row.amount,detail)}}</template></el-table-column>
         <el-table-column label="毛利"><template #default="{row}"><span v-if="['ASSEMBLY','COST_ADJUST'].includes(detail.docType)">—</span><span v-else :class="{loss:Number(row.profitAmount)<0}">{{money(row.profitAmount)}}</span></template></el-table-column>
         <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="lineReason" label="调整原因" min-width="160"/>
@@ -171,8 +171,14 @@ const firstImage=value=>allImages(value)[0]||''
 const assemblyOutput=document=>document?.items?.find(item=>item.itemRole==='OUTPUT')
 const money=value=>Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})
 const fourDecimalMoney=value=>Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:4,maximumFractionDigits:4})
+const isFourDecimalAmount=document=>['PURCHASE_IN','SUPPLIER_RETURN'].includes(document?.docType)
+  ||(document?.docType==='REVERSAL'&&['PURCHASE_IN','SUPPLIER_RETURN'].includes(document?.sourceDocType))
 const isPurchaseAmount=document=>document?.docType==='PURCHASE_IN'||(document?.docType==='REVERSAL'&&document?.sourceDocType==='PURCHASE_IN')
-const documentMoney=(value,document)=>isPurchaseAmount(document)?fourDecimalMoney(value):money(value)
+const isFourDecimalUnitPrice=document=>['PURCHASE_IN','SUPPLIER_RETURN'].includes(document?.docType)
+  ||(document?.docType==='REVERSAL'&&['PURCHASE_IN','SUPPLIER_RETURN'].includes(document?.sourceDocType))
+const documentMoney=(value,document)=>isFourDecimalAmount(document)?fourDecimalMoney(value):money(value)
+const costMoney=(value,document)=>isPurchaseAmount(document)?fourDecimalMoney(value):money(value)
+const unitPriceMoney=(value,document)=>isFourDecimalUnitPrice(document)?fourDecimalMoney(value):money(value)
 const rateText=value=>`${(Number(value||0)*100).toFixed(2)}%`
 const effectiveQty=(type,item)=>type==='RETURN_INSPECT'
   ? Number(item.goodQty||0)+Number(item.defectQty||0)

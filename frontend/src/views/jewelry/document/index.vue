@@ -326,8 +326,8 @@ const showCostColumn=computed(()=>form.docType==='COST_ADJUST'||(canViewFinance.
 const showSalesBundleColumns=computed(()=>['SALES_OUT','CUSTOMER_RETURN'].includes(form.docType)||(readonly.value&&form.items?.some(item=>['MAIN','ADDON'].includes(item.saleRole))))
 const excelImportSupported=computed(()=>['PURCHASE_IN','SALES_OUT','STOCK_ADJUST'].includes(form.docType))
 const priceLabel=computed(()=>form.docType==='PURCHASE_IN'?'采购单价':form.docType==='SALES_OUT'?'成交单价':form.docType==='SUPPLIER_RETURN'?'退货单价':form.docType==='COST_ADJUST'?'调整后平均成本':'原成交单价')
-const unitPricePrecision=computed(()=>isPurchaseAmountDocument(form)?4:2)
-const unitPriceStep=computed(()=>isPurchaseAmountDocument(form)?0.0001:0.01)
+const unitPricePrecision=computed(()=>isFourDecimalUnitPriceDocument(form)?4:2)
+const unitPriceStep=computed(()=>isFourDecimalUnitPriceDocument(form)?0.0001:0.01)
 const amountLabel=computed(()=>form.docType==='PURCHASE_IN'?'采购金额':form.docType==='SALES_OUT'?'成交总额':form.docType==='SUPPLIER_RETURN'?'退货金额':form.docType==='COST_ADJUST'?'库存金额变化':'原成交金额')
 const totalAmountLabel=computed(()=>form.docType==='PURCHASE_IN'?'采购总额':form.docType==='SALES_OUT'?'成交总额':form.docType==='SUPPLIER_RETURN'?'退货总额':form.docType==='COST_ADJUST'?'库存金额变化':'退款总额')
 const needsReason=computed(()=>['SUPPLIER_RETURN','CUSTOMER_RETURN','STOCK_ADJUST','COST_ADJUST'].includes(form.docType))
@@ -408,12 +408,18 @@ const commissionPercent=percentageModel('commissionRate')
 const taxPercent=percentageModel('taxRate')
 const money=value=>Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})
 const fourDecimalMoney=value=>Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:4,maximumFractionDigits:4})
-const isPurchaseAmountDocument=document=>{
+const isFourDecimalAmountDocument=document=>{
   const docType=typeof document==='string'?document:document?.docType
-  return docType==='PURCHASE_IN'||(docType==='REVERSAL'&&document?.sourceDocType==='PURCHASE_IN')
+  return ['PURCHASE_IN','SUPPLIER_RETURN'].includes(docType)
+    ||(docType==='REVERSAL'&&['PURCHASE_IN','SUPPLIER_RETURN'].includes(document?.sourceDocType))
 }
-const documentAmount=(value,document)=>isPurchaseAmountDocument(document)?fourDecimalMoney(value):money(value)
-const unitPriceText=value=>isPurchaseAmountDocument(form)?fourDecimalMoney(value):money(value)
+const isFourDecimalUnitPriceDocument=document=>{
+  const docType=typeof document==='string'?document:document?.docType
+  return ['PURCHASE_IN','SUPPLIER_RETURN'].includes(docType)
+    ||(docType==='REVERSAL'&&['PURCHASE_IN','SUPPLIER_RETURN'].includes(document?.sourceDocType))
+}
+const documentAmount=(value,document)=>isFourDecimalAmountDocument(document)?fourDecimalMoney(value):money(value)
+const unitPriceText=value=>isFourDecimalUnitPriceDocument(form)?fourDecimalMoney(value):money(value)
 const imageSrc=value=>/^https?:/i.test(value||'')?value:import.meta.env.VITE_APP_BASE_API+(value||'')
 const labelOf=(list,value)=>list.find(x=>x.value===value)?.label||value;const statusType=s=>s==='POSTED'?'success':['REJECTED','REVERSED'].includes(s)?'danger':s==='DRAFT'?'info':'warning'
 const documentStatusLabel=row=>isDualApproval(row)&&row.status==='PENDING_SECOND'?'待管理员复核':isDualApproval(row)&&row.status==='PENDING_FIRST'?'待审核员审核':labelOf(statuses,row.status)

@@ -436,11 +436,12 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         reversal.setReturnReason("红冲原单 " + source.getDocNo());
         reversal.setSourceDocumentId(sourceDocumentId);
         reversal.setTotalQty(-nonNegative(source.getTotalQty()));
-        int reversalAmountScale = "PURCHASE_IN".equals(source.getDocType()) ? 4 : 2;
+        int reversalAmountScale = isFourDecimalTransactionAmount(source.getDocType()) ? 4 : 2;
+        int reversalCostScale = "PURCHASE_IN".equals(source.getDocType()) ? 4 : 2;
         reversal.setTotalAmount(money(source.getTotalAmount()).negate()
             .setScale(reversalAmountScale, RoundingMode.HALF_UP));
         reversal.setTotalCost(money(source.getTotalCost()).negate()
-            .setScale(reversalAmountScale, RoundingMode.HALF_UP));
+            .setScale(reversalCostScale, RoundingMode.HALF_UP));
         reversal.setTotalProfit(money(source.getTotalProfit()).negate().setScale(2, RoundingMode.HALF_UP));
         reversal.setRiskStatus("NORMAL");
         reversal.setLaborFee(ZERO);
@@ -1006,7 +1007,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         {
             int qty = effectiveQty(document.getDocType(), item);
             boolean purchase = "PURCHASE_IN".equals(document.getDocType());
-            BigDecimal price = purchase
+            boolean fourDecimalUnitPrice = isFourDecimalTransactionAmount(document.getDocType());
+            BigDecimal price = fourDecimalUnitPrice
                 ? money(item.getUnitPrice()).setScale(4, RoundingMode.HALF_UP)
                 : money(item.getUnitPrice());
             BigDecimal cost = money(item.getUnitCost());
@@ -1078,9 +1080,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             item.setUnitPrice(price); item.setUnitCost(cost); item.setPackFee(packFee);
             item.setShipFee(shipFee); item.setCertFee(certFee);
             item.setOtherFee1(otherFee1); item.setOtherFee2(otherFee2); item.setOtherFee3(otherFee3);
-            int lineAmountScale = purchase ? 4 : 2;
+            int lineAmountScale = isFourDecimalTransactionAmount(document.getDocType()) ? 4 : 2;
+            int lineCostScale = purchase ? 4 : 2;
             item.setAmount(amount.setScale(lineAmountScale, RoundingMode.HALF_UP));
-            item.setCostAmount(costAmount.setScale(lineAmountScale, RoundingMode.HALF_UP));
+            item.setCostAmount(costAmount.setScale(lineCostScale, RoundingMode.HALF_UP));
             item.setProfitAmount(profit.setScale(2, RoundingMode.HALF_UP));
             item.setProfitRate(grossAmount.signum() == 0 ? ZERO :
                 profit.divide(grossAmount, 6, RoundingMode.HALF_UP));
@@ -1109,10 +1112,11 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             refundNeedsReview = actualRefund.compareTo(expectedRefund) != 0;
         }
         document.setPlatformRate(platformRate); document.setCommissionRate(commissionRate); document.setTaxRate(taxRate);
-        int totalAmountScale = "PURCHASE_IN".equals(document.getDocType()) ? 4 : 2;
+        int totalAmountScale = isFourDecimalTransactionAmount(document.getDocType()) ? 4 : 2;
+        int totalCostScale = "PURCHASE_IN".equals(document.getDocType()) ? 4 : 2;
         document.setTotalQty(totalQty);
         document.setTotalAmount(totalAmount.setScale(totalAmountScale, RoundingMode.HALF_UP));
-        document.setTotalCost(totalCost.setScale(totalAmountScale, RoundingMode.HALF_UP));
+        document.setTotalCost(totalCost.setScale(totalCostScale, RoundingMode.HALF_UP));
         document.setTotalProfit(totalProfit.setScale(2, RoundingMode.HALF_UP));
         if ("SALES_OUT".equals(document.getDocType()) && totalProfit.signum() < 0)
             document.setRiskStatus("LOSS");
@@ -1485,9 +1489,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             totalProfit = totalProfit.add(money(item.getProfitAmount()));
         }
         document.setTotalQty(totalQty);
-        int amountScale = "PURCHASE_IN".equals(document.getDocType()) ? 4 : 2;
+        int amountScale = isFourDecimalTransactionAmount(document.getDocType()) ? 4 : 2;
+        int costScale = "PURCHASE_IN".equals(document.getDocType()) ? 4 : 2;
         document.setTotalAmount(totalAmount.setScale(amountScale, RoundingMode.HALF_UP));
-        document.setTotalCost(totalCost.setScale(amountScale, RoundingMode.HALF_UP));
+        document.setTotalCost(totalCost.setScale(costScale, RoundingMode.HALF_UP));
         document.setTotalProfit(totalProfit.setScale(2, RoundingMode.HALF_UP));
         if ("SALES_OUT".equals(document.getDocType()) && totalProfit.signum() < 0)
             document.setRiskStatus("LOSS");
@@ -1939,9 +1944,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         item.setOtherFee1(source.getOtherFee1());
         item.setOtherFee2(source.getOtherFee2());
         item.setOtherFee3(source.getOtherFee3());
-        int amountScale = "PURCHASE_IN".equals(sourceDocType) ? 4 : 2;
+        int amountScale = isFourDecimalTransactionAmount(sourceDocType) ? 4 : 2;
+        int costScale = "PURCHASE_IN".equals(sourceDocType) ? 4 : 2;
         item.setAmount(money(source.getAmount()).negate().setScale(amountScale, RoundingMode.HALF_UP));
-        item.setCostAmount(money(source.getCostAmount()).negate().setScale(amountScale, RoundingMode.HALF_UP));
+        item.setCostAmount(money(source.getCostAmount()).negate().setScale(costScale, RoundingMode.HALF_UP));
         item.setProfitAmount(money(source.getProfitAmount()).negate().setScale(2, RoundingMode.HALF_UP));
         item.setProfitRate(source.getProfitRate());
         item.setLineReason("红冲原明细 " + source.getItemId());
@@ -2064,6 +2070,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     }
 
     private boolean isOutbound(String type) { return "SALES_OUT".equals(type) || "SUPPLIER_RETURN".equals(type); }
+    private boolean isFourDecimalTransactionAmount(String type)
+    {
+        return "PURCHASE_IN".equals(type) || "SUPPLIER_RETURN".equals(type);
+    }
     private int effectiveQty(String type, JewelryDocumentItem item)
     {
         if ("RETURN_INSPECT".equals(type)) return item.getGoodQty() + item.getDefectQty();
