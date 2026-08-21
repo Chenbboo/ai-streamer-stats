@@ -347,7 +347,7 @@ select 'vietnam_company_owner_mismatch',count(*)
 from sys_dept company
 left join sys_user owner_user on owner_user.user_id=company.leader_user_id and owner_user.del_flag='0'
 where company.dept_id=111 and company.del_flag='0'
-  and (owner_user.user_id is null or owner_user.user_name&lt;>'wangfuzhang');
+  and (owner_user.user_id is null or owner_user.user_name<>'wangfuzhang');
 
 select count(*) as system_users_in_retired_departments
 from sys_user
