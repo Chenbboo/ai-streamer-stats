@@ -252,6 +252,7 @@
             <if test="keyword != null and keyword != ''">
                 and (p.sku like concat('%',#{keyword},'%') or p.product_name like concat('%',#{keyword},'%'))
             </if>
+            <if test="productType != null and productType != ''">and p.product_type=#{productType}</if>
             <if test="warningOnly != null">
                 <choose>
                     <when test="warningType == 'quantity'">

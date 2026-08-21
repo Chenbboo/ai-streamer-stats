@@ -3,11 +3,14 @@
     <div class="stock-toolbar">
       <el-form inline>
         <el-form-item><el-input v-model="query.keyword" placeholder="SKU或商品名称" clearable/></el-form-item>
+        <el-form-item><el-select v-model="query.productType" placeholder="全部商品类型" clearable style="width:150px">
+          <el-option v-for="item in jewelryProductTypes" :key="item.value" :label="item.label" :value="item.value"/>
+        </el-select></el-form-item>
         <el-form-item><el-checkbox v-model="query.warningOnly">只看预警</el-checkbox></el-form-item>
         <el-form-item v-if="query.warningOnly"><el-select v-model="query.warningType" style="width:120px">
           <el-option label="全部预警" value="all"/><el-option label="库存不足" value="quantity"/><el-option label="库龄超期" value="age"/>
         </el-select></el-form-item>
-        <el-form-item><el-button type="primary" icon="Search" @click="load">查询</el-button></el-form-item>
+        <el-form-item><el-button type="primary" icon="Search" @click="search">查询</el-button></el-form-item>
       </el-form>
       <div class="warning-setting">
         <span>库龄预警</span>
@@ -26,15 +29,16 @@
 <script setup name="JewelryStock">
 import {listJewelryStock,listJewelryTransactions,getJewelryStockWarningDays,updateJewelryStockWarningDays} from '@/api/jewelry/erp'
 import useUserStore from '@/store/modules/user'
-import {jewelryProductType} from '@/utils/jewelryProduct'
+import {jewelryProductType,jewelryProductTypes} from '@/utils/jewelryProduct'
 const route=useRoute()
 const userStore=useUserStore()
 const canViewFinance=computed(()=>userStore.roles.some(role=>['admin','jewelry_admin','jewelry_reviewer'].includes(role)))
 const canConfigureWarning=computed(()=>userStore.roles.includes('admin')||userStore.permissions.includes('jewelry:stock:config'))
 const {proxy}=getCurrentInstance()
 const routeWarningType=['quantity','age'].includes(route.query.warningType)?route.query.warningType:'all'
-const rows=ref([]),flows=ref([]),total=ref(0),loading=ref(false),drawer=ref(false),warningDays=ref(25),savingWarning=ref(false);const query=reactive({pageNum:1,pageSize:10,keyword:'',warningOnly:route.query.warningOnly==='true',warningType:routeWarningType})
+const rows=ref([]),flows=ref([]),total=ref(0),loading=ref(false),drawer=ref(false),warningDays=ref(25),savingWarning=ref(false);const query=reactive({pageNum:1,pageSize:10,keyword:'',productType:'',warningOnly:route.query.warningOnly==='true',warningType:routeWarningType})
 async function load(){loading.value=true;try{const r=await listJewelryStock(query);rows.value=r.rows||[];total.value=r.total||0}finally{loading.value=false}}
+function search(){query.pageNum=1;load()}
 async function loadWarningDays(){warningDays.value=Number((await getJewelryStockWarningDays()).data||25)}
 async function saveWarningDays(){savingWarning.value=true;try{await updateJewelryStockWarningDays(warningDays.value);proxy.$modal.msgSuccess('库龄预警天数已更新');load()}finally{savingWarning.value=false}}
 async function showFlow(row){const r=await listJewelryTransactions({productId:row.productId,pageNum:1,pageSize:100});flows.value=r.rows||[];drawer.value=true}

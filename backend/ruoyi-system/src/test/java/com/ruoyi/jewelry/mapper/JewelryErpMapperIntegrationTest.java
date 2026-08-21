@@ -1,6 +1,8 @@
 package com.ruoyi.jewelry.mapper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.InputStream;
 import java.math.BigDecimal;
@@ -26,6 +28,7 @@ import org.apache.ibatis.builder.xml.XMLMapperBuilder;
 import org.apache.ibatis.datasource.unpooled.UnpooledDataSource;
 import org.apache.ibatis.io.Resources;
 import org.apache.ibatis.mapping.Environment;
+import org.apache.ibatis.mapping.MappedStatement;
 import org.apache.ibatis.session.Configuration;
 import org.apache.ibatis.session.SqlSession;
 import org.apache.ibatis.session.SqlSessionFactory;
@@ -109,6 +112,20 @@ class JewelryErpMapperIntegrationTest
         assertEquals("0", stringValue("select status from jewelry_product where product_id=1"));
         assertEquals(new BigDecimal("1.000000"),
             decimalValue("select default_pack_fee from jewelry_product where product_id=1"));
+    }
+
+    @Test
+    void stockListQueryCanFilterByProductType()
+    {
+        MappedStatement statement = sqlSessionFactory.getConfiguration()
+            .getMappedStatement("com.ruoyi.jewelry.mapper.JewelryErpMapper.selectStockList");
+        Map<String, Object> query = new HashMap<String, Object>();
+        query.put("productType", "ACCESSORY");
+        String filteredSql = statement.getBoundSql(query).getSql().replaceAll("\\s+", " ");
+        assertTrue(filteredSql.contains("p.product_type=?"));
+
+        String unfilteredSql = statement.getBoundSql(Collections.emptyMap()).getSql().replaceAll("\\s+", " ");
+        assertFalse(unfilteredSql.contains("p.product_type=?"));
     }
 
     @Test
