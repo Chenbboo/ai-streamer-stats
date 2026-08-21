@@ -44,9 +44,24 @@ select
   ,count(case when table_name='biz_fact_category' then 1 end)=0 as missing_biz_fact_category,
   count(case when table_name='biz_operating_fact' then 1 end)=0 as missing_biz_operating_fact,
   count(case when table_name='biz_project_daily_result' then 1 end)=0 as missing_biz_project_daily_result,
-  count(case when table_name='biz_project_daily_result_item' then 1 end)=0 as missing_biz_project_daily_result_item
+  count(case when table_name='biz_project_daily_result_item' then 1 end)=0 as missing_biz_project_daily_result_item,
+  count(case when table_name='biz_project_kpi_plan' then 1 end)=0 as missing_biz_project_kpi_plan,
+  count(case when table_name='biz_project_kpi_plan_item' then 1 end)=0 as missing_biz_project_kpi_plan_item,
+  count(case when table_name='biz_project_bonus_tier' then 1 end)=0 as missing_biz_project_bonus_tier,
+  count(case when table_name='biz_project_kpi_settlement' then 1 end)=0 as missing_biz_project_kpi_settlement,
+  count(case when table_name='biz_project_kpi_result' then 1 end)=0 as missing_biz_project_kpi_result
 from information_schema.tables
 where table_schema=database() and table_name like 'biz\_%';
+
+select
+  count(case when column_name='country_region_snapshot' then 1 end)=0 as missing_staff_cost_country_snapshot,
+  count(case when column_name='standard_work_days' then 1 end)=0 as missing_staff_cost_standard_work_days
+from information_schema.columns
+where table_schema=database() and table_name='biz_staff_cost_policy';
+
+select count(*)=0 as missing_project_daily_bonus_cost
+from information_schema.columns
+where table_schema=database() and table_name='biz_project_daily_result' and column_name='bonus_cost';
 
 select
   count(case when column_name='initiator_user_id' then 1 end)=0 as missing_project_initiator_user_id,
@@ -322,6 +337,18 @@ select count(*) as active_default_departments
 from sys_dept
 where dept_id between 101 and 109 and del_flag='0';
 
+select 'shanghai_company_owner_mismatch' check_name,count(*) problem_rows
+from sys_dept company
+left join sys_user owner_user on owner_user.user_id=company.leader_user_id and owner_user.del_flag='0'
+where company.dept_id=110 and company.del_flag='0'
+  and (owner_user.user_id is null or owner_user.user_name not in('jianglan','GLY-jl'))
+union all
+select 'vietnam_company_owner_mismatch',count(*)
+from sys_dept company
+left join sys_user owner_user on owner_user.user_id=company.leader_user_id and owner_user.del_flag='0'
+where company.dept_id=111 and company.del_flag='0'
+  and (owner_user.user_id is null or owner_user.user_name&lt;>'wangfuzhang');
+
 select count(*) as system_users_in_retired_departments
 from sys_user
 where dept_id between 101 and 109 and del_flag='0';
@@ -463,3 +490,112 @@ union all
 select 'missing_boss_ai_page_menu',count(*)=0
 from sys_menu where menu_id=4008 and path='boss-ai' and component='business/ai/index'
   and route_name='BusinessBossAi' and perms='business:boss:view' and status='0';
+
+select 'missing_project_proposal_table' check_name,count(*)=0 problem_rows
+from information_schema.tables
+where table_schema=database() and table_name='biz_project_proposal'
+union all
+select 'missing_project_proposal_event_table',count(*)=0
+from information_schema.tables
+where table_schema=database() and table_name='biz_project_proposal_event';
+
+select
+  count(case when column_name='source_proposal_id' then 1 end)=0 as missing_project_source_proposal_id,
+  count(case when column_name='applicant_user_id' then 1 end)=0 as missing_project_applicant_user_id,
+  count(case when column_name='applicant_name' then 1 end)=0 as missing_project_applicant_name,
+  count(case when column_name='sponsor_owner_user_id' then 1 end)=0 as missing_project_sponsor_owner_user_id,
+  count(case when column_name='sponsor_owner_name' then 1 end)=0 as missing_project_sponsor_owner_name
+from information_schema.columns
+where table_schema=database() and table_name='biz_project';
+
+select 'missing_company_staff_role' check_name,count(*)=0 problem_rows
+from sys_role where role_key='company_staff' and del_flag='0'
+union all
+select 'missing_project_proposal_menu',count(*)=0
+from sys_menu where menu_id=4009 and path='project-proposals'
+  and component='business/proposal/index' and route_name='BusinessProjectProposals'
+  and perms='business:project:proposal:list' and status='0'
+union all
+select 'active_direct_project_create_menu',count(*)
+from sys_menu where menu_id=4011 and status='0';
+
+select 'active_staff_missing_company_staff_role' check_name,count(*) problem_rows
+from sys_user u
+left join biz_staff_profile p on p.user_id=u.user_id
+where u.del_flag='0' and u.status='0' and coalesce(p.employment_status,'ACTIVE')<>'LEFT'
+  and not exists(
+    select 1 from sys_user_role ur
+    join sys_role r on r.role_id=ur.role_id and r.role_key='company_staff' and r.del_flag='0'
+    where ur.user_id=u.user_id
+  )
+union all
+select 'company_staff_missing_proposal_permission',count(*)
+from sys_role r
+where r.role_key='company_staff' and r.del_flag='0'
+  and exists(
+    select 1 from sys_menu required_menu
+    where required_menu.menu_id in(4000,4009,4061,4062,4063,4064)
+      and not exists(
+        select 1 from sys_role_menu rm
+        where rm.role_id=r.role_id and rm.menu_id=required_menu.menu_id
+      )
+  )
+union all
+select 'company_owner_missing_proposal_review_permission',count(*)
+from sys_role r
+where r.role_key='company_owner' and r.del_flag='0'
+  and not exists(
+    select 1 from sys_role_menu rm where rm.role_id=r.role_id and rm.menu_id=4065
+  )
+union all
+select 'approved_proposal_without_project',count(*)
+from biz_project_proposal proposal
+left join biz_project project on project.project_id=proposal.created_project_id and project.del_flag='0'
+where proposal.del_flag='0' and proposal.status='APPROVED' and project.project_id is null
+union all
+select 'proposal_project_owner_mismatch',count(*)
+from biz_project_proposal proposal
+join biz_project project on project.project_id=proposal.created_project_id and project.del_flag='0'
+where proposal.del_flag='0' and proposal.status='APPROVED'
+  and (project.main_owner_user_id<>proposal.applicant_user_id
+    or project.sponsor_owner_user_id<>proposal.sponsor_owner_user_id);
+
+select 'orphan_project_kpi_plan' check_name,count(*) problem_rows
+from biz_project_kpi_plan plan
+left join biz_project project on project.project_id=plan.project_id and project.del_flag='0'
+where project.project_id is null
+union all
+select 'invalid_project_kpi_plan_weight',count(*)
+from (
+  select plan.plan_id
+  from biz_project_kpi_plan plan
+  left join biz_project_kpi_plan_item item on item.plan_id=plan.plan_id
+  group by plan.plan_id
+  having abs(coalesce(sum(item.weight),0)-100)>0.0001
+) invalid_weight
+union all
+select 'orphan_project_kpi_settlement',count(*)
+from biz_project_kpi_settlement settlement
+left join biz_project_kpi_plan plan on plan.plan_id=settlement.plan_id
+left join biz_project project on project.project_id=settlement.project_id and project.del_flag='0'
+where plan.plan_id is null or project.project_id is null
+union all
+select 'confirmed_bonus_missing_fact',count(*)
+from biz_project_kpi_settlement settlement
+left join biz_operating_fact fact on fact.fact_id=settlement.accounting_fact_id
+where settlement.status='CONFIRMED' and settlement.bonus_amount>0
+  and (fact.fact_id is null or fact.category_code<>'PROJECT_BONUS_COST' or fact.status<>'CONFIRMED');
+
+select 'missing_project_kpi_bonus_menu' check_name,count(*)=0 problem_rows
+from sys_menu where menu_id=4010 and path='kpi-bonus'
+  and component='business/kpi/index' and perms='business:kpi:list' and status='0'
+union all
+select 'company_owner_missing_kpi_manage_permission',count(*)
+from sys_role role
+where role.role_key='company_owner' and role.del_flag='0'
+  and not exists(select 1 from sys_role_menu rm where rm.role_id=role.role_id and rm.menu_id=4072)
+union all
+select 'project_owner_missing_kpi_settle_permission',count(*)
+from sys_role role
+where role.role_key='project_owner' and role.del_flag='0'
+  and not exists(select 1 from sys_role_menu rm where rm.role_id=role.role_id and rm.menu_id=4073);

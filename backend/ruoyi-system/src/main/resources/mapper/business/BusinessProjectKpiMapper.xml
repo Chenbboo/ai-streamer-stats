@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.business.mapper.BusinessProjectKpiMapper">
+  <select id="selectProjectOverviews" resultType="map">
+    select p.project_id projectId,p.project_no projectNo,p.project_name projectName,
+      p.status status,p.main_owner_user_id mainOwnerUserId,p.main_owner_name mainOwnerName,
+      (select count(*) from biz_project_kpi target
+       where target.project_id=p.project_id and target.status='CURRENT') targetCount,
+      plan.plan_id planId,plan.plan_version planVersion,plan.cycle_end cycleEnd,
+      settlement.settlement_id settlementId,settlement.status settlementStatus,
+      settlement.total_score totalScore,settlement.bonus_amount bonusAmount
+    from biz_project p
+    left join biz_project_kpi_plan plan on plan.plan_id=(
+      select latest.plan_id from biz_project_kpi_plan latest
+      where latest.project_id=p.project_id
+      order by latest.cycle_end desc,latest.plan_version desc limit 1)
+    left join biz_project_kpi_settlement settlement on settlement.plan_id=plan.plan_id
+    where p.del_flag='0'
+    <choose>
+      <when test="viewAll == true"/>
+      <when test="boss == true">
+        and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}
+      </when>
+      <otherwise>
+        and (p.main_owner_user_id=#{userId} or exists(
+          select 1 from biz_project_member member_scope
+          where member_scope.project_id=p.project_id and member_scope.user_id=#{userId}
+            and member_scope.status='0'))
+      </otherwise>
+    </choose>
+    <if test="projectIds != null and projectIds.size() > 0">
+      and p.project_id in
+      <foreach collection="projectIds" item="projectId" open="(" separator="," close=")">#{projectId}</foreach>
+    </if>
+    order by field(p.status,'ACTIVE','PAUSED','ACCEPTANCE','PLANNING','DRAFT','CLOSED','CANCELED'),
+      p.update_time desc,p.project_id desc
+  </select>
+  <select id="selectNextPlanVersion" resultType="int">
+    select coalesce(max(plan_version),0)+1 from biz_project_kpi_plan where project_id=#{projectId}
+  </select>
+  <select id="countOverlappingPlans" resultType="int">
+    select count(*) from biz_project_kpi_plan
+    where project_id=#{projectId} and status in('PUBLISHED','CLOSED')
+      and cycle_start&lt;=#{cycleEnd} and cycle_end&gt;=#{cycleStart}
+  </select>
+  <insert id="insertPlan" parameterType="com.ruoyi.business.domain.BusinessProjectKpiPlan"
+          useGeneratedKeys="true" keyProperty="planId">
+    insert into biz_project_kpi_plan(project_id,plan_version,cycle_type,cycle_start,cycle_end,bonus_mode,currency,
+      status,published_user_id,published_user_name,published_time,create_by,create_time,remark)
+    values(#{projectId},#{planVersion},#{cycleType},#{cycleStart},#{cycleEnd},#{bonusMode},#{currency},
+      #{status},#{publishedUserId},#{publishedUserName},sysdate(),#{createBy},sysdate(),#{remark})
+  </insert>
+  <insert id="insertPlanItem" parameterType="com.ruoyi.business.domain.BusinessProjectKpiPlanItem"
+          useGeneratedKeys="true" keyProperty="itemId">
+    insert into biz_project_kpi_plan_item(plan_id,kpi_id,kpi_code,kpi_name,metric_type,unit,target_value,
+      minimum_value,warning_value,challenge_value,weight,direction,aggregate_type,source_type,sort_order)
+    values(#{planId},#{kpiId},#{kpiCode},#{kpiName},#{metricType},#{unit},#{targetValue},
+      #{minimumValue},#{warningValue},#{challengeValue},#{weight},#{direction},#{aggregateType},#{sourceType},#{sortOrder})
+  </insert>
+  <insert id="insertBonusTier" parameterType="com.ruoyi.business.domain.BusinessProjectBonusTier"
+          useGeneratedKeys="true" keyProperty="tierId">
+    insert into biz_project_bonus_tier(plan_id,tier_name,min_score,max_score,bonus_amount,sort_order)
+    values(#{planId},#{tierName},#{minScore},#{maxScore},#{bonusAmount},#{sortOrder})
+  </insert>
+  <insert id="insertSettlement" parameterType="com.ruoyi.business.domain.BusinessProjectKpiSettlement"
+          useGeneratedKeys="true" keyProperty="settlementId">
+    insert into biz_project_kpi_settlement(plan_id,project_id,period_start,period_end,status,currency,version,
+      create_by,create_time)
+    values(#{planId},#{projectId},#{periodStart},#{periodEnd},#{status},#{currency},0,#{createBy},sysdate())
+  </insert>
+  <select id="selectPlanSummaries" resultType="map">
+    select plan.plan_id planId,plan.project_id projectId,plan.plan_version planVersion,
+      plan.cycle_type cycleType,plan.cycle_start cycleStart,plan.cycle_end cycleEnd,
+      plan.bonus_mode bonusMode,plan.currency,plan.status,plan.published_user_name publishedUserName,
+      plan.published_time publishedTime,settlement.settlement_id settlementId,
+      settlement.status settlementStatus,settlement.total_score totalScore,
+      settlement.bonus_amount bonusAmount,settlement.submitted_time submittedTime,
+      settlement.reviewed_time reviewedTime
+    from biz_project_kpi_plan plan
+    left join biz_project_kpi_settlement settlement on settlement.plan_id=plan.plan_id
+    where plan.project_id=#{projectId}
+    order by plan.cycle_end desc,plan.plan_version desc
+  </select>
+  <select id="selectLatestPlanId" resultType="long">
+    select plan_id from biz_project_kpi_plan where project_id=#{projectId}
+    order by cycle_end desc,plan_version desc limit 1
+  </select>
+  <select id="selectPlanById" resultType="com.ruoyi.business.domain.BusinessProjectKpiPlan">
+    select plan_id planId,project_id projectId,plan_version planVersion,cycle_type cycleType,
+      cycle_start cycleStart,cycle_end cycleEnd,bonus_mode bonusMode,currency,status,
+      published_user_id publishedUserId,published_user_name publishedUserName,published_time publishedTime,
+      closed_time closedTime,create_by createBy,create_time createTime,remark
+    from biz_project_kpi_plan where plan_id=#{planId} limit 1
+  </select>
+  <select id="selectPlanItems" resultType="com.ruoyi.business.domain.BusinessProjectKpiPlanItem">
+    select item_id itemId,plan_id planId,kpi_id kpiId,kpi_code kpiCode,kpi_name kpiName,
+      metric_type metricType,unit,target_value targetValue,minimum_value minimumValue,
+      warning_value warningValue,challenge_value challengeValue,weight,direction,
+      aggregate_type aggregateType,source_type sourceType,sort_order sortOrder
+    from biz_project_kpi_plan_item where plan_id=#{planId} order by sort_order,item_id
+  </select>
+  <select id="selectPlanItemById" resultType="com.ruoyi.business.domain.BusinessProjectKpiPlanItem">
+    select item_id itemId,plan_id planId,kpi_id kpiId,kpi_code kpiCode,kpi_name kpiName,
+      metric_type metricType,unit,target_value targetValue,minimum_value minimumValue,
+      warning_value warningValue,challenge_value challengeValue,weight,direction,
+      aggregate_type aggregateType,source_type sourceType,sort_order sortOrder
+    from biz_project_kpi_plan_item where item_id=#{itemId} limit 1
+  </select>
+  <select id="selectBonusTiers" resultType="com.ruoyi.business.domain.BusinessProjectBonusTier">
+    select tier_id tierId,plan_id planId,tier_name tierName,min_score minScore,max_score maxScore,
+      bonus_amount bonusAmount,sort_order sortOrder
+    from biz_project_bonus_tier where plan_id=#{planId} order by sort_order,tier_id
+  </select>
+  <select id="selectSettlementById" resultType="com.ruoyi.business.domain.BusinessProjectKpiSettlement">
+    select settlement_id settlementId,plan_id planId,project_id projectId,period_start periodStart,
+      period_end periodEnd,status,total_score totalScore,bonus_amount bonusAmount,currency,
+      submitted_user_id submittedUserId,submitted_user_name submittedUserName,submitted_time submittedTime,
+      reviewed_user_id reviewedUserId,reviewed_user_name reviewedUserName,reviewed_time reviewedTime,
+      review_comment reviewComment,accounting_fact_id accountingFactId,version,
+      create_by createBy,create_time createTime,update_by updateBy,update_time updateTime
+    from biz_project_kpi_settlement where settlement_id=#{settlementId} limit 1
+  </select>
+  <select id="selectSettlementByPlanId" resultType="com.ruoyi.business.domain.BusinessProjectKpiSettlement">
+    select settlement_id settlementId,plan_id planId,project_id projectId,period_start periodStart,
+      period_end periodEnd,status,total_score totalScore,bonus_amount bonusAmount,currency,
+      submitted_user_id submittedUserId,submitted_user_name submittedUserName,submitted_time submittedTime,
+      reviewed_user_id reviewedUserId,reviewed_user_name reviewedUserName,reviewed_time reviewedTime,
+      review_comment reviewComment,accounting_fact_id accountingFactId,version,
+      create_by createBy,create_time createTime,update_by updateBy,update_time updateTime
+    from biz_project_kpi_settlement where plan_id=#{planId} limit 1
+  </select>
+  <select id="selectSettlementResults" resultType="com.ruoyi.business.domain.BusinessProjectKpiResult">
+    select result.result_id resultId,result.settlement_id settlementId,result.plan_item_id planItemId,
+      result.actual_value actualValue,result.completion_rate completionRate,result.weighted_score weightedScore,
+      result.result_note resultNote,result.attachment_urls attachmentUrls,result.input_user_id inputUserId,
+      result.input_user_name inputUserName,result.input_time inputTime,item.kpi_code kpiCode,item.kpi_name kpiName,
+      item.unit,item.target_value targetValue,item.weight,item.direction
+    from biz_project_kpi_result result
+    join biz_project_kpi_plan_item item on item.item_id=result.plan_item_id
+    where result.settlement_id=#{settlementId} order by item.sort_order,item.item_id
+  </select>
+  <insert id="upsertSettlementResult" parameterType="com.ruoyi.business.domain.BusinessProjectKpiResult">
+    insert into biz_project_kpi_result(settlement_id,plan_item_id,actual_value,completion_rate,weighted_score,
+      result_note,attachment_urls,input_user_id,input_user_name,input_time,update_by,update_time)
+    values(#{settlementId},#{planItemId},#{actualValue},#{completionRate},#{weightedScore},#{resultNote},
+      #{attachmentUrls},#{inputUserId},#{inputUserName},sysdate(),#{inputUserName},sysdate())
+    on duplicate key update actual_value=values(actual_value),completion_rate=values(completion_rate),
+      weighted_score=values(weighted_score),result_note=values(result_note),attachment_urls=values(attachment_urls),
+      input_user_id=values(input_user_id),input_user_name=values(input_user_name),input_time=sysdate(),
+      update_by=values(update_by),update_time=sysdate()
+  </insert>
+  <update id="updateSettlementPreview">
+    update biz_project_kpi_settlement set total_score=#{totalScore},bonus_amount=#{bonusAmount},
+      update_by=#{userName},update_time=sysdate(),version=version+1
+    where settlement_id=#{settlementId} and status in('DRAFT','RETURNED') and version=#{version}
+  </update>
+  <update id="submitSettlement">
+    update biz_project_kpi_settlement set status='SUBMITTED',total_score=#{totalScore},bonus_amount=#{bonusAmount},
+      submitted_user_id=#{userId},submitted_user_name=#{userName},submitted_time=sysdate(),
+      reviewed_user_id=null,reviewed_user_name=null,reviewed_time=null,review_comment=null,
+      update_by=#{userName},update_time=sysdate(),version=version+1
+    where settlement_id=#{settlementId} and status in('DRAFT','RETURNED') and version=#{version}
+  </update>
+  <update id="returnSettlement">
+    update biz_project_kpi_settlement set status='RETURNED',reviewed_user_id=#{userId},
+      reviewed_user_name=#{userName},reviewed_time=sysdate(),review_comment=#{comment},
+      update_by=#{userName},update_time=sysdate(),version=version+1
+    where settlement_id=#{settlementId} and status='SUBMITTED' and version=#{version}
+  </update>
+  <update id="confirmSettlement">
+    update biz_project_kpi_settlement set status='CONFIRMED',total_score=#{totalScore},bonus_amount=#{bonusAmount},
+      accounting_fact_id=#{accountingFactId},reviewed_user_id=#{userId},reviewed_user_name=#{userName},
+      reviewed_time=sysdate(),review_comment=#{comment},update_by=#{userName},update_time=sysdate(),version=version+1
+    where settlement_id=#{settlementId} and status='SUBMITTED' and version=#{version}
+  </update>
+  <update id="closePlan">
+    update biz_project_kpi_plan set status='CLOSED',closed_time=sysdate() where plan_id=#{planId} and status='PUBLISHED'
+  </update>
+</mapper>

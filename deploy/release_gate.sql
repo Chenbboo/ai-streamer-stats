@@ -21,7 +21,7 @@ from (
   where menu_id=4008 and perms='business:boss:view' and status='0'
 
   union all
-  select if(count(*)=18,0,1)
+  select if(count(*)=25,0,1)
   from information_schema.tables
   where table_schema=database() and table_name in (
     'biz_project','biz_project_member','biz_project_task','biz_project_risk',
@@ -29,7 +29,10 @@ from (
     'biz_project_effort_report','biz_staff_leave','biz_operating_fact',
     'biz_project_daily_result','biz_ai_conversation','biz_ai_message',
     'biz_ai_run','biz_ai_tool_call','biz_ai_action_request',
-    'biz_ai_workflow_instance','biz_ai_workflow_event'
+    'biz_ai_workflow_instance','biz_ai_workflow_event',
+    'biz_project_proposal','biz_project_proposal_event',
+    'biz_project_kpi_plan','biz_project_kpi_plan_item','biz_project_bonus_tier',
+    'biz_project_kpi_settlement','biz_project_kpi_result'
   )
 
   union all

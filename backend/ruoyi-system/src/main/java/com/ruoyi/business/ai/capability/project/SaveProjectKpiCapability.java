@@ -23,7 +23,7 @@ public class SaveProjectKpiCapability implements AiConfirmableCapability
     {
         Map<String, Object> s = AiSchemas.object();
         AiSchemas.property(s, "projectId", "number", "项目ID"); AiSchemas.property(s, "kpiId", "number", "更新现有KPI时传当前 kpiId");
-        AiSchemas.property(s, "kpiCode", "string", "新增时必填的KPI编码"); AiSchemas.property(s, "kpiName", "string", "KPI名称");
+        AiSchemas.property(s, "kpiName", "string", "KPI名称；KPI编码由系统自动生成");
         AiSchemas.property(s, "metricType", "string", "COUNT、AMOUNT、PERCENT、DURATION、SCORE、MILESTONE");
         AiSchemas.property(s, "periodType", "string", "DAY、WEEK、MONTH、QUARTER、PROJECT");
         AiSchemas.property(s, "targetValue", "number", "目标值"); AiSchemas.property(s, "actualValue", "number", "当前实际值");
@@ -41,7 +41,7 @@ public class SaveProjectKpiCapability implements AiConfirmableCapability
     @Override public Map<String, Object> executeConfirmed(AiCapabilityInvocation invocation, Map<String, Object> input)
     {
         BusinessProjectKpi k = new BusinessProjectKpi(); k.setProjectId(AiCapabilityInputs.number(input.get("projectId")));
-        k.setKpiId(AiCapabilityInputs.number(input.get("kpiId"))); k.setKpiCode(AiCapabilityInputs.upper(input.get("kpiCode")));
+        k.setKpiId(AiCapabilityInputs.number(input.get("kpiId")));
         k.setKpiName(AiCapabilityInputs.text(input.get("kpiName"))); k.setMetricType(AiCapabilityInputs.upper(input.get("metricType")));
         k.setPeriodType(AiCapabilityInputs.upper(input.get("periodType"))); k.setTargetValue(AiCapabilityInputs.decimal(input.get("targetValue")));
         k.setActualValue(AiCapabilityInputs.decimal(input.get("actualValue"))); k.setUnit(AiCapabilityInputs.text(input.get("unit")));

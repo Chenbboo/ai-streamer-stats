@@ -19,6 +19,7 @@ import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.domain.entity.SysDept;
 import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.utils.SecurityUtils;
 
 @RestController
 @RequestMapping("/business/department")
@@ -42,7 +43,8 @@ public class BusinessDepartmentController extends BaseController
     @GetMapping("/staff")
     public AjaxResult staff()
     {
-        return success(staffService.listStaff(new com.ruoyi.common.core.domain.entity.SysUser()).getRows());
+        return success(staffService.listStaff(new com.ruoyi.common.core.domain.entity.SysUser(),
+            SecurityUtils.getUserId(), SecurityUtils.isAdmin()).getRows());
     }
 
     @PreAuthorize("@ss.hasPermi('business:department:manage')")

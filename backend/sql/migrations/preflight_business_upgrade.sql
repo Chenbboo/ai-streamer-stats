@@ -29,7 +29,7 @@ select
 from sys_user_role ur
 join sys_user u on u.user_id=ur.user_id and u.del_flag='0'
 join sys_role r on r.role_id=ur.role_id and r.del_flag='0'
-where r.role_key not in ('company_owner','project_user');
+where r.role_key not in ('company_owner','project_user','company_staff');
 
 select 'reserved_company_dept_id_conflict' check_name,count(*) problem_rows
 from sys_dept

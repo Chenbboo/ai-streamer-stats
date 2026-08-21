@@ -29,6 +29,11 @@ public class BusinessAccountingController extends BaseController
     public AjaxResult bossOverview()
     {return success(service.bossOverview(SecurityUtils.getUserId(),SecurityUtils.isAdmin()));}
 
+    @PreAuthorize("@ss.hasPermi('business:boss:view')")
+    @GetMapping("/personnel-cost-overview")
+    public AjaxResult personnelCostOverview(@RequestParam Map<String,Object> query)
+    {return success(service.personnelCostOverview(query,SecurityUtils.getUserId(),SecurityUtils.isAdmin()));}
+
     @PreAuthorize("@ss.hasPermi('business:accounting:add')")
     @Log(title="每日收支草稿",businessType=BusinessType.INSERT)
     @PostMapping("/fact")

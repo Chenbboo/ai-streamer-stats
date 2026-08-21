@@ -75,25 +75,25 @@ class OrganizationMutationCapabilitiesTest
     }
 
     @Test
-    void costPolicyCarriesExactAmountModeCurrencyAndEffectiveDate()
+    void costPolicyCarriesExactMonthlyCnyAmountAndEffectiveDate()
     {
         SaveStaffCostPolicyCapability capability = new SaveStaffCostPolicyCapability(projectService);
-        Map<String, Object> input = map("staffUserId", 66L, "costMode", "daily", "unitCost", "368.50",
-            "currency", "cny", "effectiveFrom", "2026-08-18", "remark", "新核算标准");
+        Map<String, Object> input = map("staffUserId", 66L, "monthlyCost", "8368.50",
+            "effectiveFrom", "2026-08-18", "remark", "新核算标准");
         BusinessStaffCostPolicy saved = new BusinessStaffCostPolicy(); saved.setPolicyId(77L); saved.setUserId(66L);
-        saved.setCostMode("DAILY"); saved.setUnitCost(new BigDecimal("368.50")); saved.setCurrency("CNY");
-        saved.setPolicyVersion(2);
+        saved.setCostMode("MONTHLY"); saved.setUnitCost(new BigDecimal("8368.50")); saved.setCurrency("CNY");
+        saved.setCountryRegion("CN"); saved.setStandardWorkDays(new BigDecimal("21.75")); saved.setPolicyVersion(2);
         when(projectService.saveStaffCostPolicy(any(BusinessStaffCostPolicy.class), eq(23L), eq("jianglan"), eq(true)))
             .thenReturn(saved);
 
-        assertEquals(true, capability.confirmationSummary(invocation, input).contains("368.50 CNY"));
+        assertEquals(true, capability.confirmationSummary(invocation, input).contains("8368.50 CNY/月"));
         Map<String, Object> result = capability.executeConfirmed(invocation, input);
         assertEquals(2, result.get("policyVersion"));
         ArgumentCaptor<BusinessStaffCostPolicy> captor = ArgumentCaptor.forClass(BusinessStaffCostPolicy.class);
         verify(projectService).saveStaffCostPolicy(captor.capture(), eq(23L), eq("jianglan"), eq(true));
         assertEquals(66L, captor.getValue().getUserId());
-        assertEquals("DAILY", captor.getValue().getCostMode());
-        assertEquals(new BigDecimal("368.50"), captor.getValue().getUnitCost());
+        assertEquals("MONTHLY", captor.getValue().getCostMode());
+        assertEquals(new BigDecimal("8368.50"), captor.getValue().getUnitCost());
         assertEquals("CNY", captor.getValue().getCurrency());
     }
 

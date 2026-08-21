@@ -14,6 +14,7 @@ public class BusinessProject extends BaseEntity
 
     private Long projectId;
     private String projectNo;
+    private Long sourceProposalId;
     private Long parentId;
     private String parentName;
     private Long companyDeptId;
@@ -25,6 +26,10 @@ public class BusinessProject extends BaseEntity
     private String objective;
     private String status;
     private String baselineStatus;
+    private Long applicantUserId;
+    private String applicantName;
+    private Long sponsorOwnerUserId;
+    private String sponsorOwnerName;
     private Long initiatorUserId;
     private String initiatorName;
     private Long mainOwnerUserId;
@@ -58,6 +63,8 @@ public class BusinessProject extends BaseEntity
     public void setProjectId(Long projectId) { this.projectId = projectId; }
     public String getProjectNo() { return projectNo; }
     public void setProjectNo(String projectNo) { this.projectNo = projectNo; }
+    public Long getSourceProposalId() { return sourceProposalId; }
+    public void setSourceProposalId(Long sourceProposalId) { this.sourceProposalId = sourceProposalId; }
     public Long getParentId() { return parentId; }
     public void setParentId(Long parentId) { this.parentId = parentId; }
     public String getParentName() { return parentName; }
@@ -80,6 +87,14 @@ public class BusinessProject extends BaseEntity
     public void setStatus(String status) { this.status = status; }
     public String getBaselineStatus() { return baselineStatus; }
     public void setBaselineStatus(String baselineStatus) { this.baselineStatus = baselineStatus; }
+    public Long getApplicantUserId() { return applicantUserId; }
+    public void setApplicantUserId(Long applicantUserId) { this.applicantUserId = applicantUserId; }
+    public String getApplicantName() { return applicantName; }
+    public void setApplicantName(String applicantName) { this.applicantName = applicantName; }
+    public Long getSponsorOwnerUserId() { return sponsorOwnerUserId; }
+    public void setSponsorOwnerUserId(Long sponsorOwnerUserId) { this.sponsorOwnerUserId = sponsorOwnerUserId; }
+    public String getSponsorOwnerName() { return sponsorOwnerName; }
+    public void setSponsorOwnerName(String sponsorOwnerName) { this.sponsorOwnerName = sponsorOwnerName; }
     public Long getInitiatorUserId() { return initiatorUserId; }
     public void setInitiatorUserId(Long initiatorUserId) { this.initiatorUserId = initiatorUserId; }
     public String getInitiatorName() { return initiatorName; }

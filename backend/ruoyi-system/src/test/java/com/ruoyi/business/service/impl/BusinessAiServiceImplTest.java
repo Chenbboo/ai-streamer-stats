@@ -853,6 +853,19 @@ class BusinessAiServiceImplTest
     }
 
     @Test
+    void createProjectRequestIsRedirectedToProposalPage()
+    {
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.chat(null, "帮我创建一个新项目", 23L, "jianglan", false));
+
+        assertEquals(true, error.getMessage().contains("立项申请"));
+        verify(mapper, never()).insertWorkflow(any());
+        verify(mapper, never()).insertActionRequest(any());
+        verify(projectService, never()).createProject(any(), any(), any());
+    }
+
+    @Test
+    @org.junit.jupiter.api.Disabled("老板 AI 直接立项旧流程已停用，改由立项申请页面")
     void createProjectRequestStartsWithPlainLanguageQuestions()
     {
         when(modelClient.isEnabled()).thenReturn(false);
@@ -1331,6 +1344,7 @@ class BusinessAiServiceImplTest
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("老板 AI 直接立项旧流程已停用，改由立项申请页面")
     void activeCreateWorkflowContinuesFromShortAnswerEvenWhenModelCallsNoTool()
     {
         when(mapper.selectConversation(91L, 23L, "BOSS"))
@@ -1362,6 +1376,7 @@ class BusinessAiServiceImplTest
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("老板 AI 直接立项旧流程已停用，改由立项申请页面")
     void startingCreateProjectPersistsWorkflowBeforeConfirmation()
     {
         when(projectService.userOptions(null)).thenReturn(Collections.emptyList());
@@ -1436,6 +1451,7 @@ class BusinessAiServiceImplTest
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("老板 AI 直接立项旧流程已停用，改由立项申请页面")
     void createWorkflowAllowsBossToReviseAnAlreadyCollectedObjective()
     {
         when(mapper.selectConversation(95L, 23L, "BOSS"))
@@ -1472,6 +1488,7 @@ class BusinessAiServiceImplTest
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("老板 AI 直接立项旧流程已停用，改由立项申请页面")
     void createWorkflowUnderstandsNumberedGoalAndFromNowDateRange()
     {
         service.setClock(Clock.fixed(Instant.parse("2026-08-13T06:00:00Z"), ZoneId.of("Asia/Shanghai")));
@@ -1501,6 +1518,7 @@ class BusinessAiServiceImplTest
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("老板 AI 直接立项旧流程已停用，改由立项申请页面")
     void createWorkflowUnderstandsPlainDailyDeliverableAndFromNowDateRange()
     {
         service.setClock(Clock.fixed(Instant.parse("2026-08-13T06:00:00Z"), ZoneId.of("Asia/Shanghai")));
@@ -1526,6 +1544,7 @@ class BusinessAiServiceImplTest
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("老板 AI 直接立项旧流程已停用，改由立项申请页面")
     void explicitMonthDayRangeOverridesEarlierFromNowStartDate()
     {
         service.setClock(Clock.fixed(Instant.parse("2026-08-18T05:00:00Z"), ZoneId.of("Asia/Shanghai")));
@@ -1552,6 +1571,7 @@ class BusinessAiServiceImplTest
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("老板 AI 直接立项旧流程已停用，改由立项申请页面")
     void createWorkflowRecoversShorthandGmvAndTodayRangeFromEarlierTurn()
     {
         service.setClock(Clock.fixed(Instant.parse("2026-08-18T05:00:00Z"), ZoneId.of("Asia/Shanghai")));
@@ -1587,6 +1607,7 @@ class BusinessAiServiceImplTest
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("老板 AI 直接立项旧流程已停用，改由立项申请页面")
     void createWorkflowAcceptsTemporarilyNoBudgetWording()
     {
         when(mapper.selectConversation(99L, 23L, "BOSS"))

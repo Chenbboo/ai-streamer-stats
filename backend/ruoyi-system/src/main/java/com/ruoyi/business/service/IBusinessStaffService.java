@@ -9,7 +9,7 @@ import com.ruoyi.common.core.page.TableDataInfo;
 
 public interface IBusinessStaffService
 {
-    TableDataInfo listStaff(SysUser query);
+    TableDataInfo listStaff(SysUser query, Long viewerUserId, boolean administrator);
     BusinessStaffProfile getStaffProfile(Long userId);
     List<Map<String, Object>> listOptions();
     Map<String, Object> projectResponsibilities(Long staffUserId, Long viewerUserId, boolean viewAll, boolean boss);

@@ -25,15 +25,18 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import com.ruoyi.business.domain.BusinessProject;
+import com.ruoyi.business.domain.BusinessProjectProposal;
 import com.ruoyi.business.domain.BusinessProjectAcceptance;
 import com.ruoyi.business.domain.BusinessProjectMember;
 import com.ruoyi.business.domain.BusinessProjectTask;
 import com.ruoyi.business.domain.BusinessProjectRoutine;
 import com.ruoyi.business.domain.BusinessProjectRoutineReport;
 import com.ruoyi.business.domain.BusinessProjectEffort;
+import com.ruoyi.business.domain.BusinessProjectKpi;
 import com.ruoyi.business.domain.BusinessProjectStaffAllocation;
 import com.ruoyi.business.domain.BusinessStaffCostPolicy;
 import com.ruoyi.business.mapper.BusinessProjectMapper;
+import com.ruoyi.business.mapper.BusinessProjectKpiMapper;
 import com.ruoyi.business.mapper.BusinessAccountingMapper;
 import com.ruoyi.business.service.IBusinessAccountingService;
 import com.ruoyi.common.exception.ServiceException;
@@ -45,6 +48,9 @@ class BusinessProjectServiceImplTest
     private BusinessProjectMapper mapper;
 
     @Mock
+    private BusinessProjectKpiMapper kpiMapper;
+
+    @Mock
     private BusinessAccountingMapper accountingMapper;
 
     @Mock
@@ -52,6 +58,55 @@ class BusinessProjectServiceImplTest
 
     @InjectMocks
     private BusinessProjectServiceImpl service;
+
+    @Test
+    void newKpiUsesSystemGeneratedCodeAndIgnoresClientCode()
+    {
+        BusinessProject project = project(15L, 9L, "ACTIVE", "APPROVED");
+        project.setSponsorOwnerUserId(8L);
+        when(mapper.selectProjectById(15L)).thenReturn(project);
+        when(mapper.selectNextKpiVersion(eq(15L), any(String.class))).thenReturn(1);
+        BusinessProjectKpi input = new BusinessProjectKpi();
+        input.setProjectId(15L);
+        input.setKpiCode("MANUAL_CODE");
+        input.setKpiName("有效播放量");
+        input.setTargetValue(new BigDecimal("500000"));
+
+        BusinessProjectKpi saved = service.saveKpi(input, 8L, "boss8", true);
+
+        assertTrue(saved.getKpiCode().matches("KPI_P15_[A-F0-9]{12}"));
+        assertTrue(!"MANUAL_CODE".equals(saved.getKpiCode()));
+        assertEquals(1, saved.getTargetVersion());
+        verify(mapper).selectCurrentProjectKpi(15L, saved.getKpiCode());
+        verify(mapper).insertProjectKpi(input);
+    }
+
+    @Test
+    void adjustedKpiVersionKeepsOriginalSystemCode()
+    {
+        BusinessProject project = project(15L, 9L, "ACTIVE", "APPROVED");
+        project.setSponsorOwnerUserId(8L);
+        BusinessProjectKpi previous = new BusinessProjectKpi();
+        previous.setKpiId(70L);
+        previous.setProjectId(15L);
+        previous.setKpiCode("KPI_P15_A1B2C3D4E5F6");
+        previous.setStatus("CURRENT");
+        when(mapper.selectProjectById(15L)).thenReturn(project);
+        when(mapper.selectProjectKpiById(70L)).thenReturn(previous);
+        when(mapper.retireProjectKpi(70L, "boss8")).thenReturn(1);
+        when(mapper.selectNextKpiVersion(15L, "KPI_P15_A1B2C3D4E5F6")).thenReturn(2);
+        BusinessProjectKpi input = new BusinessProjectKpi();
+        input.setKpiId(70L);
+        input.setProjectId(15L);
+        input.setKpiCode("ATTEMPT_CHANGE");
+        input.setKpiName("有效播放量");
+        input.setTargetValue(new BigDecimal("600000"));
+
+        BusinessProjectKpi saved = service.saveKpi(input, 8L, "boss8", true);
+
+        assertEquals("KPI_P15_A1B2C3D4E5F6", saved.getKpiCode());
+        assertEquals(2, saved.getTargetVersion());
+    }
 
     @Test
     void projectListAlwaysCarriesCurrentUserScope()
@@ -71,6 +126,56 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
+    void bossDashboardUsesDatabasePaginationInsteadOfLoadingAllProjects()
+    {
+        Map<String,Object> summary=new HashMap<String,Object>();
+        summary.put("totalCount",126L);summary.put("pendingDecisionCount",31L);
+        BusinessProject project=project(91L,23L,"ACTIVE","APPROVED");
+        BusinessProject decision=project(88L,23L,"PAUSED","APPROVED");
+        when(mapper.selectDashboardSummary(23L,false,true)).thenReturn(summary);
+        when(mapper.selectDashboardProjectPage(23L,false,true,20,10))
+            .thenReturn(Collections.singletonList(project));
+        when(mapper.selectDashboardDecisionPage(23L,false,true,5,5))
+            .thenReturn(Collections.singletonList(decision));
+        Map<String,Object> query=new HashMap<String,Object>();
+        query.put("projectPageNum",3);query.put("projectPageSize",10);
+        query.put("decisionPageNum",2);query.put("decisionPageSize",5);
+
+        Map<String,Object> result=service.dashboard(query,23L,false,true);
+
+        @SuppressWarnings("unchecked") Map<String,Object> projectPage=(Map<String,Object>)result.get("projectPage");
+        @SuppressWarnings("unchecked") Map<String,Object> decisionPage=(Map<String,Object>)result.get("decisionPage");
+        assertEquals(126L,projectPage.get("total"));
+        assertEquals(3,projectPage.get("pageNum"));
+        assertEquals(Collections.singletonList(project),projectPage.get("rows"));
+        assertEquals(31L,decisionPage.get("total"));
+        assertEquals(2,decisionPage.get("pageNum"));
+        assertEquals(Collections.singletonList(decision),result.get("decisions"));
+        verify(mapper,never()).selectProjectList(any());
+    }
+
+    @Test
+    void bossPendingUsesOneServerPageAndCategoryCounts()
+    {
+        Map<String,Object> counts=new HashMap<String,Object>();
+        counts.put("proposalCount",2L);counts.put("kpiMissingCount",7L);
+        counts.put("kpiReviewCount",1L);counts.put("personnelCostCount",3L);counts.put("projectCount",4L);
+        Map<String,Object> row=new HashMap<String,Object>();row.put("category","KPI_MISSING");row.put("projectId",17L);
+        when(mapper.selectBossPendingCounts(eq(23L),eq(false),any(Date.class))).thenReturn(counts);
+        when(mapper.selectBossPendingPage(eq(23L),eq(false),any(Date.class),eq("KPI_MISSING"),eq(5),eq(5)))
+            .thenReturn(Collections.singletonList(row));
+        Map<String,Object> query=new HashMap<String,Object>();query.put("category","kpi_missing");
+        query.put("pageNum",2);query.put("pageSize",5);
+
+        Map<String,Object> result=service.bossPending(query,23L,false);
+
+        assertEquals(7L,result.get("total"));
+        assertEquals(2,result.get("pageNum"));
+        assertEquals("KPI_MISSING",result.get("category"));
+        assertEquals(Collections.singletonList(row),result.get("rows"));
+    }
+
+    @Test
     void ownerWorkbenchOnlyQueriesProjectsOwnedByCurrentUser()
     {
         when(mapper.selectProjectList(any())).thenReturn(Collections.<BusinessProject>emptyList());
@@ -82,6 +187,28 @@ class BusinessProjectServiceImplTest
         assertEquals(23L,captor.getValue().get("userId"));
         assertEquals(true,captor.getValue().get("ownerOnly"));
         assertEquals(0,((Map<?,?>)result.get("summary")).get("projectCount"));
+        assertEquals(Collections.emptyList(),result.get("allocationAlerts"));
+        verify(mapper).selectOwnerPersonnelCostReadiness(eq(23L),any(Date.class),eq(false));
+    }
+
+    @Test
+    void ownerWorkbenchReturnsProjectsWithMissingMemberAllocation()
+    {
+        BusinessProject owned = project(81L,23L,"ACTIVE","APPROVED");
+        owned.setProjectName("王老吉视频宣传");
+        when(mapper.selectProjectList(any())).thenReturn(Collections.singletonList(owned));
+        when(mapper.selectProjectById(81L)).thenReturn(owned);
+        Map<String,Object> alert = new HashMap<String,Object>();
+        alert.put("projectId",81L);
+        alert.put("projectName","王老吉视频宣传");
+        alert.put("missingAllocationCount",2);
+        alert.put("missingMemberNames","石头、蒋豪");
+        when(mapper.selectOwnerPersonnelCostReadiness(eq(23L),any(Date.class),eq(false)))
+            .thenReturn(Collections.singletonList(alert));
+
+        Map<String,Object> result=service.ownerWorkbench(81L,23L,false);
+
+        assertEquals(Collections.singletonList(alert),result.get("allocationAlerts"));
     }
 
     @Test
@@ -99,43 +226,53 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
-    void creatingProjectForcesDraftAndRegistersOwnerAsMember()
+    void approvedProposalCreatesActiveProjectAndRegistersApplicantAsOwner()
     {
-        BusinessProject project = new BusinessProject();
-        project.setProjectName("东南亚直播增长");
-        project.setProjectType("LIVE");
-        project.setExecutionSource("LIVE");
-        project.setAccountingMode("PROFIT");
-        project.setMainOwnerUserId(9L);
+        BusinessProjectProposal proposal = new BusinessProjectProposal();
+        proposal.setProposalId(66L);
+        proposal.setProjectName("东南亚直播增长");
+        proposal.setProjectType("LIVE");
+        proposal.setExecutionSource("LIVE");
+        proposal.setAccountingMode("PROFIT");
+        proposal.setManagementMode("SIMPLE");
+        proposal.setApplicantUserId(9L);
+        proposal.setSponsorOwnerUserId(23L);
+        proposal.setCompanyDeptId(110L);
+        proposal.setPlanStartDate(new Date());
+        proposal.setPlanEndDate(new Date());
         Map<String, Object> owner = new HashMap<String, Object>();
         owner.put("userName", "owner9");
         owner.put("nickName", "负责人九");
-        Map<String, Object> initiator = new HashMap<String, Object>();
-        initiator.put("userName", "admin");
-        initiator.put("nickName", "系统管理员");
+        Map<String, Object> sponsor = new HashMap<String, Object>();
+        sponsor.put("userName", "boss23");
+        sponsor.put("nickName", "审批老板");
         when(mapper.selectActiveUserById(9L)).thenReturn(owner);
-        when(mapper.selectActiveUserById(1L)).thenReturn(initiator);
+        when(mapper.selectActiveUserById(23L)).thenReturn(sponsor);
+        when(mapper.selectCompanyById(110L)).thenReturn(Collections.<String,Object>singletonMap("deptId",110L));
         when(mapper.selectRoleIdByKey("project_user")).thenReturn(18L);
         when(mapper.selectRoleIdByKey("project_owner")).thenReturn(19L);
+        final BusinessProject[] stored = new BusinessProject[1];
         doAnswer(invocation -> {
-            ((BusinessProject) invocation.getArgument(0)).setProjectId(88L);
+            stored[0] = invocation.getArgument(0);
+            stored[0].setProjectId(88L);
             return 1;
-        }).when(mapper).insertProject(project);
-        when(mapper.selectProjectById(88L)).thenReturn(project);
+        }).when(mapper).insertProject(any(BusinessProject.class));
+        when(mapper.selectProjectById(88L)).thenAnswer(invocation -> stored[0]);
         when(mapper.selectMembers(88L)).thenReturn(Collections.<BusinessProjectMember>emptyList());
         when(mapper.selectMilestones(88L)).thenReturn(Collections.emptyList());
         when(mapper.selectTasks(88L)).thenReturn(Collections.emptyList());
         when(mapper.selectRisks(88L)).thenReturn(Collections.emptyList());
         when(mapper.selectEvents(88L)).thenReturn(Collections.emptyList());
 
-        assertEquals("LIVE", project.getExecutionSource());
-        BusinessProject created = service.createProject(project, 1L, "admin");
+        BusinessProject created = service.createApprovedProject(proposal, 23L, "boss23");
 
         assertEquals(88L, created.getProjectId());
-        assertEquals("DRAFT", created.getStatus());
-        assertEquals("DRAFT", created.getBaselineStatus());
-        assertEquals(1L, created.getInitiatorUserId());
-        assertEquals("系统管理员", created.getInitiatorName());
+        assertEquals("ACTIVE", created.getStatus());
+        assertEquals("APPROVED", created.getBaselineStatus());
+        assertEquals(66L, created.getSourceProposalId());
+        assertEquals(9L, created.getApplicantUserId());
+        assertEquals(23L, created.getSponsorOwnerUserId());
+        assertEquals("审批老板", created.getSponsorOwnerName());
         assertEquals("负责人九", created.getMainOwnerName());
         assertEquals("LIVE", created.getExecutionSource());
         assertEquals("SIMPLE", created.getManagementMode());
@@ -147,7 +284,7 @@ class BusinessProjectServiceImplTest
         verify(mapper).insertUserRole(9L, 18L);
         verify(mapper).insertUserRole(9L, 19L);
         verify(mapper).insertExecutionRelation(eq(88L), any(Date.class),
-            eq("LIVE:BUSINESS_SCOPE:ALL:EXECUTION_SOURCE"), eq("admin"));
+            eq("LIVE:BUSINESS_SCOPE:ALL:EXECUTION_SOURCE"), eq("boss23"));
     }
 
     @Test
@@ -526,12 +663,82 @@ class BusinessProjectServiceImplTest
         BusinessProject closed = project(76L, 9L, "CLOSED", "APPROVED");
         closed.setInitiatorUserId(8L);
         when(mapper.selectProjectById(76L)).thenReturn(project, closed);
+        when(kpiMapper.selectPlanSummaries(76L))
+            .thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
         when(mapper.updateProjectStatus(76L, "ACTIVE", "CLOSED", null, false, "boss8", 0)).thenReturn(1);
 
         BusinessProject result = service.transition(76L, "CLOSE", "目标已完成", 8L, "boss8", true);
 
         assertEquals("CLOSED", result.getStatus());
         verify(mapper).insertEvent(any());
+    }
+
+    @Test
+    void projectWithoutPublishedKpiPlanCannotClose()
+    {
+        BusinessProject project = project(77L, 9L, "ACTIVE", "APPROVED");
+        project.setInitiatorUserId(8L);
+        when(mapper.selectProjectById(77L)).thenReturn(project);
+        when(kpiMapper.selectPlanSummaries(77L)).thenReturn(Collections.emptyList());
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.transition(77L, "CLOSE", "目标已完成", 8L, "boss8", true));
+
+        assertTrue(error.getMessage().contains("尚未发布KPI方案"));
+        verify(mapper, never()).updateProjectStatus(any(), any(), any(), any(),
+            org.mockito.ArgumentMatchers.anyBoolean(), any(), any());
+    }
+
+    @Test
+    void dueDraftKpiSettlementCannotClose()
+    {
+        BusinessProject project = project(78L, 9L, "ACTIVE", "APPROVED");
+        project.setInitiatorUserId(8L);
+        when(mapper.selectProjectById(78L)).thenReturn(project);
+        when(kpiMapper.selectPlanSummaries(78L))
+            .thenReturn(Collections.singletonList(publishedKpiPlan("DRAFT")));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.transition(78L, "CLOSE", "目标已完成", 8L, "boss8", true));
+
+        assertTrue(error.getMessage().contains("负责人尚未提交"));
+        verify(mapper, never()).updateProjectStatus(any(), any(), any(), any(),
+            org.mockito.ArgumentMatchers.anyBoolean(), any(), any());
+    }
+
+    @Test
+    void dueReturnedKpiSettlementCannotClose()
+    {
+        BusinessProject project = project(79L, 9L, "ACTIVE", "APPROVED");
+        project.setInitiatorUserId(8L);
+        when(mapper.selectProjectById(79L)).thenReturn(project);
+        when(kpiMapper.selectPlanSummaries(79L))
+            .thenReturn(Collections.singletonList(publishedKpiPlan("RETURNED")));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.transition(79L, "CLOSE", "目标已完成", 8L, "boss8", true));
+
+        assertTrue(error.getMessage().contains("被退回"));
+        verify(mapper, never()).updateProjectStatus(any(), any(), any(), any(),
+            org.mockito.ArgumentMatchers.anyBoolean(), any(), any());
+    }
+
+    @Test
+    void unfinishedFutureKpiPeriodCannotClose()
+    {
+        BusinessProject project = project(80L, 9L, "ACTIVE", "APPROVED");
+        project.setInitiatorUserId(8L);
+        Map<String, Object> futurePlan = publishedKpiPlan("DRAFT");
+        futurePlan.put("cycleEnd", new Date(System.currentTimeMillis() + 172800000L));
+        when(mapper.selectProjectById(80L)).thenReturn(project);
+        when(kpiMapper.selectPlanSummaries(80L)).thenReturn(Collections.singletonList(futurePlan));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.transition(80L, "CLOSE", "目标已完成", 8L, "boss8", true));
+
+        assertTrue(error.getMessage().contains("KPI考核周期未结束"));
+        verify(mapper, never()).updateProjectStatus(any(), any(), any(), any(),
+            org.mockito.ArgumentMatchers.anyBoolean(), any(), any());
     }
 
     @Test
@@ -552,6 +759,8 @@ class BusinessProjectServiceImplTest
         when(mapper.selectTasks(72L)).thenReturn(Collections.singletonList(done));
         when(mapper.selectMilestones(72L)).thenReturn(Collections.emptyList());
         when(mapper.selectRisks(72L)).thenReturn(Collections.emptyList());
+        when(kpiMapper.selectPlanSummaries(72L))
+            .thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
         when(mapper.selectActiveUserById(8L)).thenReturn(boss);
         when(mapper.reviewAcceptance(700L, "APPROVED", 8L, "老板八", "同意验收", "boss8")).thenReturn(1);
         when(mapper.updateProjectStatus(72L, "ACCEPTANCE", "CLOSED", null, false, "boss8", 0)).thenReturn(1);
@@ -560,6 +769,32 @@ class BusinessProjectServiceImplTest
 
         assertEquals("CLOSED", result.getStatus());
         verify(mapper).insertEvent(any());
+    }
+
+    @Test
+    void dueSubmittedKpiSettlementBlocksAcceptanceApproval()
+    {
+        BusinessProject pendingProject = project(73L, 9L, "ACCEPTANCE", "APPROVED");
+        pendingProject.setInitiatorUserId(8L);
+        BusinessProjectAcceptance pending = new BusinessProjectAcceptance();
+        pending.setAcceptanceId(701L);
+        BusinessProjectTask done = new BusinessProjectTask();
+        done.setStatus("DONE");
+        when(mapper.selectProjectById(73L)).thenReturn(pendingProject);
+        when(mapper.selectLatestPendingAcceptance(73L)).thenReturn(pending);
+        when(mapper.selectTasks(73L)).thenReturn(Collections.singletonList(done));
+        when(mapper.selectMilestones(73L)).thenReturn(Collections.emptyList());
+        when(mapper.selectRisks(73L)).thenReturn(Collections.emptyList());
+        when(kpiMapper.selectPlanSummaries(73L))
+            .thenReturn(Collections.singletonList(publishedKpiPlan("SUBMITTED")));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.reviewAcceptance(73L, "APPROVED", "同意验收", 8L, "boss8", true));
+
+        assertTrue(error.getMessage().contains("待老板确认"));
+        verify(mapper, never()).reviewAcceptance(any(), any(), any(), any(), any(), any());
+        verify(mapper, never()).updateProjectStatus(any(), any(), any(), any(),
+            org.mockito.ArgumentMatchers.anyBoolean(), any(), any());
     }
 
     @Test
@@ -643,6 +878,159 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
+    void chinaStaffMonthlyCostUsesCnyAndTwentyOnePointSevenFiveDays()
+    {
+        Map<String, Object> staff = new HashMap<String, Object>();
+        staff.put("nickName", "中国员工");
+        when(mapper.selectActiveUserById(147L)).thenReturn(staff);
+        when(mapper.countUserRoleByKey(8L, "company_owner")).thenReturn(1);
+        when(mapper.selectStaffCompanyLeaderUserId(147L, true)).thenReturn(8L);
+        when(mapper.selectStaffCountryRegion(147L)).thenReturn("CN");
+        when(mapper.selectNextStaffCostVersion(147L)).thenReturn(1);
+
+        BusinessStaffCostPolicy input = new BusinessStaffCostPolicy();
+        input.setUserId(147L); input.setCostMode("DAILY"); input.setUnitCost(new BigDecimal("10000"));
+        input.setCurrency("USD"); input.setEffectiveFrom(java.sql.Date.valueOf("2026-08-19"));
+
+        BusinessStaffCostPolicy saved = service.saveStaffCostPolicy(input, 8L, "boss8", true);
+
+        assertEquals("MONTHLY", saved.getCostMode());
+        assertEquals("CNY", saved.getCurrency());
+        assertEquals("CN", saved.getCountryRegion());
+        assertEquals(new BigDecimal("21.75"), saved.getStandardWorkDays());
+        verify(mapper).insertStaffCostPolicy(saved);
+    }
+
+    @Test
+    void vietnamStaffMonthlyCostUsesTwentySixDays()
+    {
+        Map<String, Object> staff = new HashMap<String, Object>();
+        staff.put("nickName", "越南员工");
+        when(mapper.selectActiveUserById(148L)).thenReturn(staff);
+        when(mapper.countUserRoleByKey(8L, "company_owner")).thenReturn(1);
+        when(mapper.selectStaffCompanyLeaderUserId(148L, true)).thenReturn(8L);
+        when(mapper.selectStaffCountryRegion(148L)).thenReturn("VN");
+        when(mapper.selectNextStaffCostVersion(148L)).thenReturn(3);
+
+        BusinessStaffCostPolicy input = new BusinessStaffCostPolicy();
+        input.setUserId(148L); input.setUnitCost(new BigDecimal("13000"));
+        input.setEffectiveFrom(java.sql.Date.valueOf("2026-08-19"));
+
+        BusinessStaffCostPolicy saved = service.saveStaffCostPolicy(input, 8L, "boss8", true);
+
+        assertEquals("CNY", saved.getCurrency());
+        assertEquals("VN", saved.getCountryRegion());
+        assertEquals(new BigDecimal("26"), saved.getStandardWorkDays());
+        assertEquals(Integer.valueOf(3), saved.getPolicyVersion());
+    }
+
+    @Test
+    void unsupportedStaffRegionCannotCreateMonthlyCost()
+    {
+        Map<String, Object> staff = new HashMap<String, Object>();
+        staff.put("nickName", "其他地区员工");
+        when(mapper.selectActiveUserById(149L)).thenReturn(staff);
+        when(mapper.countUserRoleByKey(8L, "company_owner")).thenReturn(1);
+        when(mapper.selectStaffCompanyLeaderUserId(149L, true)).thenReturn(8L);
+        when(mapper.selectStaffCountryRegion(149L)).thenReturn("OTHER");
+        BusinessStaffCostPolicy input = new BusinessStaffCostPolicy();
+        input.setUserId(149L); input.setUnitCost(new BigDecimal("9000"));
+        input.setEffectiveFrom(java.sql.Date.valueOf("2026-08-19"));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveStaffCostPolicy(input, 8L, "boss8", true));
+
+        assertTrue(error.getMessage().contains("中国或越南"));
+        verify(mapper, never()).insertStaffCostPolicy(any());
+    }
+
+    @Test
+    void companyOwnerCanReadOwnCompanyStaffCostPolicies()
+    {
+        Map<String, Object> staff = new HashMap<String, Object>();
+        staff.put("nickName", "上海员工");
+        BusinessStaffCostPolicy policy = new BusinessStaffCostPolicy();
+        policy.setPolicyId(21L);
+        when(mapper.countUserRoleByKey(120L, "company_owner")).thenReturn(1);
+        when(mapper.selectActiveUserById(147L)).thenReturn(staff);
+        when(mapper.selectStaffCompanyLeaderUserId(147L, false)).thenReturn(120L);
+        when(mapper.selectStaffCostPolicies(147L)).thenReturn(Collections.singletonList(policy));
+
+        List<BusinessStaffCostPolicy> result = service.staffCostPolicies(147L, 120L, true);
+
+        assertEquals(1, result.size());
+        assertEquals(Long.valueOf(21L), result.get(0).getPolicyId());
+    }
+
+    @Test
+    void companyOwnerCannotReadForeignCompanyStaffCostPolicies()
+    {
+        Map<String, Object> staff = new HashMap<String, Object>();
+        staff.put("nickName", "上海员工");
+        when(mapper.countUserRoleByKey(143L, "company_owner")).thenReturn(1);
+        when(mapper.selectActiveUserById(147L)).thenReturn(staff);
+        when(mapper.selectStaffCompanyLeaderUserId(147L, false)).thenReturn(120L);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.staffCostPolicies(147L, 143L, true));
+
+        assertTrue(error.getMessage().contains("本人负责公司"));
+        verify(mapper, never()).selectStaffCostPolicies(147L);
+    }
+
+    @Test
+    void companyOwnerCannotWriteForeignCompanyStaffCostPolicy()
+    {
+        Map<String, Object> staff = new HashMap<String, Object>();
+        staff.put("nickName", "上海员工");
+        when(mapper.countUserRoleByKey(143L, "company_owner")).thenReturn(1);
+        when(mapper.selectActiveUserById(147L)).thenReturn(staff);
+        when(mapper.selectStaffCompanyLeaderUserId(147L, true)).thenReturn(120L);
+        BusinessStaffCostPolicy input = new BusinessStaffCostPolicy();
+        input.setUserId(147L); input.setUnitCost(new BigDecimal("10000"));
+        input.setEffectiveFrom(java.sql.Date.valueOf("2026-08-20"));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveStaffCostPolicy(input, 143L, "wangfuzhang", true));
+
+        assertTrue(error.getMessage().contains("本人负责公司"));
+        verify(mapper, never()).closeOpenEndedStaffCostPolicy(any(), any());
+        verify(mapper, never()).insertStaffCostPolicy(any());
+    }
+
+    @Test
+    void hardcodedBossFlagCannotBypassCompanyOwnerRole()
+    {
+        BusinessStaffCostPolicy input = new BusinessStaffCostPolicy();
+        input.setUserId(147L);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveStaffCostPolicy(input, 88L, "staff88", true));
+
+        assertTrue(error.getMessage().contains("公司负责人"));
+        verify(mapper, never()).selectActiveUserById(any());
+        verify(mapper, never()).insertStaffCostPolicy(any());
+    }
+
+    @Test
+    void administratorMayAuditButCannotWriteStaffCostPolicy()
+    {
+        Map<String, Object> staff = new HashMap<String, Object>();
+        staff.put("nickName", "上海员工");
+        when(mapper.selectActiveUserById(147L)).thenReturn(staff);
+        when(mapper.selectStaffCostPolicies(147L)).thenReturn(Collections.emptyList());
+
+        assertEquals(0, service.staffCostPolicies(147L, 1L, true).size());
+
+        BusinessStaffCostPolicy input = new BusinessStaffCostPolicy();
+        input.setUserId(147L);
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveStaffCostPolicy(input, 1L, "admin", true));
+        assertTrue(error.getMessage().contains("只能审计"));
+        verify(mapper, never()).insertStaffCostPolicy(any());
+    }
+
+    @Test
     void percentageAllocationOverOneHundredRequiresRecordedException()
     {
         BusinessProject project = project(82L, 9L, "ACTIVE", "APPROVED");
@@ -661,9 +1049,83 @@ class BusinessProjectServiceImplTest
         allocation.setAllocationValue(new BigDecimal("60")); allocation.setEffectiveFrom(new Date());
 
         ServiceException error = assertThrows(ServiceException.class,
-            () -> service.saveStaffAllocation(allocation, 8L, "boss8", true));
+            () -> service.saveStaffAllocation(allocation, 9L, "owner9", false));
         assertTrue(error.getMessage().contains("超过100%"));
         verify(mapper, never()).insertProjectStaffAllocation(any());
+    }
+
+    @Test
+    void bossCannotSetNormalMemberAllocationForProjectOwner()
+    {
+        BusinessProject project = project(84L, 9L, "ACTIVE", "APPROVED");
+        project.setInitiatorUserId(8L);
+        when(mapper.selectProjectById(84L)).thenReturn(project);
+        BusinessProjectStaffAllocation allocation = new BusinessProjectStaffAllocation();
+        allocation.setProjectId(84L); allocation.setUserId(9L); allocation.setAllocationMode("PERCENTAGE");
+        allocation.setAllocationValue(new BigDecimal("50")); allocation.setEffectiveFrom(new Date());
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveStaffAllocation(allocation, 8L, "boss8", true));
+
+        assertTrue(error.getMessage().contains("不能代替项目主负责人"));
+        verify(mapper, never()).insertProjectStaffAllocation(any());
+    }
+
+    @Test
+    void bossCannotRetireProjectOwnersAllocation()
+    {
+        BusinessProject project=project(86L,9L,"ACTIVE","APPROVED");
+        project.setInitiatorUserId(8L);
+        when(mapper.selectProjectById(86L)).thenReturn(project);
+
+        ServiceException error=assertThrows(ServiceException.class,
+            ()->service.removeStaffAllocation(86L,501L,8L,"boss8",true));
+
+        assertTrue(error.getMessage().contains("只有项目主负责人"));
+        verify(mapper,never()).voidProjectStaffAllocation(any(),any(),any());
+    }
+
+    @Test
+    void bossCanOnlyApproveRecordedOverAllocationException()
+    {
+        BusinessProject project = project(85L, 9L, "ACTIVE", "APPROVED");
+        project.setInitiatorUserId(8L);
+        BusinessStaffCostPolicy policy = new BusinessStaffCostPolicy();
+        policy.setPolicyId(21L); policy.setUserId(9L);
+        Map<String,Object> staff = new HashMap<String,Object>();staff.put("nickName","负责人九");
+        when(mapper.selectProjectById(85L)).thenReturn(project);
+        when(mapper.selectMemberRole(85L, 9L)).thenReturn("OWNER");
+        when(mapper.selectEffectiveStaffCostPolicy(any(), any())).thenReturn(policy);
+        when(mapper.sumOverlappingAllocationPercent(any(), any(), any(), any())).thenReturn(new BigDecimal("50"));
+        when(mapper.selectActiveUserById(9L)).thenReturn(staff);
+        BusinessProjectStaffAllocation allocation = new BusinessProjectStaffAllocation();
+        allocation.setProjectId(85L); allocation.setUserId(9L); allocation.setAllocationMode("PERCENTAGE");
+        allocation.setAllocationValue(new BigDecimal("60")); allocation.setEffectiveFrom(new Date());
+        allocation.setExceptionAllowed("1");allocation.setExceptionReason("临时跨项目支援");
+
+        BusinessProjectStaffAllocation saved = service.saveStaffAllocation(allocation,8L,"boss8",true);
+
+        assertEquals("1",saved.getExceptionAllowed());
+        assertEquals("临时跨项目支援",saved.getExceptionReason());
+        verify(mapper).insertProjectStaffAllocation(saved);
+    }
+
+    @Test
+    void oneProjectAllocationCannotExceedOneHundredPercent()
+    {
+        BusinessProject project = project(83L, 9L, "ACTIVE", "APPROVED");
+        project.setInitiatorUserId(8L);
+        when(mapper.selectProjectById(83L)).thenReturn(project);
+        when(mapper.selectMemberRole(83L, 9L)).thenReturn("OWNER");
+        BusinessProjectStaffAllocation allocation = new BusinessProjectStaffAllocation();
+        allocation.setProjectId(83L); allocation.setUserId(9L); allocation.setAllocationMode("PERCENTAGE");
+        allocation.setAllocationValue(new BigDecimal("101")); allocation.setEffectiveFrom(new Date());
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveStaffAllocation(allocation, 9L, "owner9", false));
+
+        assertTrue(error.getMessage().contains("不能超过100%"));
+        verify(mapper, never()).selectEffectiveStaffCostPolicy(any(), any());
     }
 
     @Test
@@ -676,7 +1138,6 @@ class BusinessProjectServiceImplTest
         Map<String,Object> staff = new HashMap<String,Object>();
         staff.put("nickName", "石头");
         when(mapper.selectProjectById(90L)).thenReturn(project);
-        when(mapper.selectMemberRole(90L, 9L)).thenReturn("OWNER");
         when(mapper.selectMemberRole(90L, 147L)).thenReturn("MEMBER");
         when(mapper.selectEffectiveStaffCostPolicy(any(), any())).thenReturn(policy);
         when(mapper.sumOverlappingAllocationPercent(any(), any(), any(), any())).thenReturn(BigDecimal.ZERO);
@@ -849,6 +1310,15 @@ class BusinessProjectServiceImplTest
         project.setManagementMode("SIMPLE");
         project.setVersion(0);
         return project;
+    }
+
+    private Map<String, Object> publishedKpiPlan(String settlementStatus)
+    {
+        Map<String, Object> plan = new HashMap<String, Object>();
+        plan.put("status", "CONFIRMED".equals(settlementStatus) ? "CLOSED" : "PUBLISHED");
+        plan.put("cycleEnd", new Date());
+        plan.put("settlementStatus", settlementStatus);
+        return plan;
     }
 
     @SuppressWarnings({ "rawtypes", "unchecked" })

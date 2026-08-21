@@ -103,6 +103,10 @@ public class BusinessAiServiceImpl implements IBusinessAiService
 
         Long activeConversationId = requireOrCreateConversation(conversationId, question, userId);
         Map<String, Object> activeWorkflow = mapper.selectActiveWorkflow(activeConversationId, userId);
+        if (isWorkflow(activeWorkflow, "CREATE_PROJECT", "COLLECTING", "READY", "WAITING_CONFIRMATION"))
+            throw new ServiceException("旧项目创建流程已经停用，请前往“立项申请”由申请人本人填写并提交");
+        if (isExplicitNewProjectRequest(question))
+            throw new ServiceException("老板 AI 不再直接创建项目，请由项目负责人前往“立项申请”提交申请");
         boolean continuingProjectCreate = isWorkflow(activeWorkflow, "CREATE_PROJECT",
             "COLLECTING", "READY", "WAITING_CONFIRMATION");
         List<Map<String, Object>> modelHistory = recentModelHistory(activeConversationId, userId);

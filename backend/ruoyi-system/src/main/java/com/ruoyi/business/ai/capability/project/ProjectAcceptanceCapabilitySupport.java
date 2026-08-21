@@ -13,6 +13,7 @@ import com.ruoyi.business.domain.BusinessProjectAcceptance;
 import com.ruoyi.business.domain.BusinessProjectMilestone;
 import com.ruoyi.business.domain.BusinessProjectRisk;
 import com.ruoyi.business.domain.BusinessProjectTask;
+import com.ruoyi.business.service.IBusinessProjectKpiService;
 import com.ruoyi.business.service.IBusinessProjectService;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.StringUtils;
@@ -22,11 +23,14 @@ import com.ruoyi.common.utils.StringUtils;
 public class ProjectAcceptanceCapabilitySupport
 {
     private final IBusinessProjectService service;
+    private final IBusinessProjectKpiService kpiService;
 
     @Autowired
-    public ProjectAcceptanceCapabilitySupport(IBusinessProjectService service)
+    public ProjectAcceptanceCapabilitySupport(IBusinessProjectService service,
+        IBusinessProjectKpiService kpiService)
     {
         this.service = service;
+        this.kpiService = kpiService;
     }
 
     public Map<String, Object> review(AiCapabilityInvocation invocation, Long projectId)
@@ -51,13 +55,28 @@ public class ProjectAcceptanceCapabilitySupport
             if (risk != null && "OPEN".equals(risk.getStatus())
                 && ("HIGH".equals(risk.getSeverity()) || "CRITICAL".equals(risk.getSeverity()))) openHighRiskCount++;
 
+        Map<String, Object> kpiWorkspace = kpiService.workspace(projectId, null,
+            invocation.getActor().getUserId(), invocation.getActor().isAdministrator(), true);
+        List<Map<String, Object>> kpiPlans = mapList(kpiWorkspace.get("plans"));
+        int kpiPlanCount = 0;
+        int confirmedKpiSettlementCount = 0;
+        for (Map<String, Object> plan : kpiPlans)
+        {
+            String planStatus = text(plan.get("status"));
+            if (!"PUBLISHED".equals(planStatus) && !"CLOSED".equals(planStatus)) continue;
+            kpiPlanCount++;
+            if ("CONFIRMED".equals(text(plan.get("settlementStatus")))) confirmedKpiSettlementCount++;
+        }
+        boolean kpiReadyForClose = kpiPlanCount > 0 && confirmedKpiSettlementCount == kpiPlanCount;
+
         List<String> attachments = attachments(acceptance.getAttachmentUrls());
         boolean canApprove = taskCount > 0 && completedTaskCount == taskCount
-            && completedMilestoneCount == milestoneCount && openHighRiskCount == 0;
+            && completedMilestoneCount == milestoneCount && openHighRiskCount == 0 && kpiReadyForClose;
         List<String> checks = new ArrayList<String>();
         checks.add("已提交第 " + acceptance.getSubmissionVersion() + " 版验收资料");
         checks.add("一次性任务已完成 " + completedTaskCount + "/" + taskCount + " 项");
         if (milestoneCount > 0) checks.add("里程碑已完成 " + completedMilestoneCount + "/" + milestoneCount + " 项");
+        checks.add("KPI结算已确认 " + confirmedKpiSettlementCount + "/" + kpiPlanCount + " 个周期");
         checks.add("交付凭证 " + attachments.size() + " 份");
         List<String> warnings = new ArrayList<String>();
         if (taskCount == 0) warnings.add("项目没有可核验的一次性任务，暂不满足通过条件");
@@ -65,6 +84,9 @@ public class ProjectAcceptanceCapabilitySupport
         if (completedMilestoneCount < milestoneCount)
             warnings.add("仍有 " + (milestoneCount - completedMilestoneCount) + " 个里程碑未完成");
         if (openHighRiskCount > 0) warnings.add("仍有 " + openHighRiskCount + " 项未关闭的高风险或严重风险");
+        if (kpiPlanCount == 0) warnings.add("项目尚未发布KPI及奖金方案，暂不能验收结项");
+        else if (!kpiReadyForClose)
+            warnings.add("仍有 " + (kpiPlanCount - confirmedKpiSettlementCount) + " 个KPI周期尚未完成老板确认，暂不能验收结项");
         if (attachments.isEmpty()) warnings.add("负责人没有上传交付凭证，请先核对成果说明和交付物");
 
         Map<String, Object> result = new LinkedHashMap<String, Object>();
@@ -76,6 +98,9 @@ public class ProjectAcceptanceCapabilitySupport
         result.put("milestoneCount", milestoneCount);
         result.put("completedMilestoneCount", completedMilestoneCount);
         result.put("openHighRiskCount", openHighRiskCount);
+        result.put("kpiPlanCount", kpiPlanCount);
+        result.put("confirmedKpiSettlementCount", confirmedKpiSettlementCount);
+        result.put("kpiReadyForClose", kpiReadyForClose);
         result.put("attachmentCount", attachments.size());
         result.put("attachmentList", attachments);
         result.put("canApprove", canApprove);
@@ -142,4 +167,12 @@ public class ProjectAcceptanceCapabilitySupport
     }
 
     private int size(List<?> value) { return value == null ? 0 : value.size(); }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> mapList(Object value)
+    {
+        return value instanceof List ? (List<Map<String, Object>>) value : Collections.<Map<String, Object>>emptyList();
+    }
+
+    private String text(Object value) { return value == null ? "" : String.valueOf(value); }
 }

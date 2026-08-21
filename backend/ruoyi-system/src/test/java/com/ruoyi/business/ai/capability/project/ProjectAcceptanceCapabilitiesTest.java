@@ -21,12 +21,14 @@ import com.ruoyi.business.domain.BusinessProject;
 import com.ruoyi.business.domain.BusinessProjectAcceptance;
 import com.ruoyi.business.domain.BusinessProjectRisk;
 import com.ruoyi.business.domain.BusinessProjectTask;
+import com.ruoyi.business.service.IBusinessProjectKpiService;
 import com.ruoyi.business.service.IBusinessProjectService;
 import com.ruoyi.common.exception.ServiceException;
 
 class ProjectAcceptanceCapabilitiesTest
 {
     private IBusinessProjectService service;
+    private IBusinessProjectKpiService kpiService;
     private ProjectAcceptanceCapabilitySupport support;
     private AiCapabilityInvocation invocation;
 
@@ -34,8 +36,10 @@ class ProjectAcceptanceCapabilitiesTest
     void setUp()
     {
         service = mock(IBusinessProjectService.class);
-        support = new ProjectAcceptanceCapabilitySupport(service);
+        kpiService = mock(IBusinessProjectKpiService.class);
+        support = new ProjectAcceptanceCapabilitySupport(service, kpiService);
         invocation = new AiCapabilityInvocation(AiExecutionContext.legacy(23L, "jianglan", true), 1L, 2L, 3L);
+        when(kpiService.workspace(17L, null, 23L, true, true)).thenReturn(kpiWorkspace("CONFIRMED"));
     }
 
     @Test
@@ -95,6 +99,23 @@ class ProjectAcceptanceCapabilitiesTest
         verify(service, never()).reviewAcceptance(17L, "APPROVED", "验收通过", 23L, "jianglan", true);
     }
 
+    @Test
+    void approvalIsBlockedUntilKpiSettlementIsConfirmed()
+    {
+        when(service.getProject(17L, 23L, true, true)).thenReturn(project(true, false));
+        when(kpiService.workspace(17L, null, 23L, true, true)).thenReturn(kpiWorkspace("SUBMITTED"));
+        DecideProjectAcceptanceCapability capability = new DecideProjectAcceptanceCapability(support);
+
+        Map<String, Object> review = support.review(invocation, 17L);
+
+        assertFalse(Boolean.TRUE.equals(review.get("canApprove")));
+        assertFalse(Boolean.TRUE.equals(review.get("kpiReadyForClose")));
+        assertTrue(String.valueOf(review.get("warnings")).contains("KPI周期"));
+        assertThrows(ServiceException.class,
+            () -> capability.confirmationSummary(invocation, input("APPROVED", "验收通过")));
+        verify(service, never()).reviewAcceptance(17L, "APPROVED", "验收通过", 23L, "jianglan", true);
+    }
+
     private Map<String, Object> input(String decision, String comment)
     {
         Map<String, Object> result = new LinkedHashMap<String, Object>();
@@ -122,6 +143,16 @@ class ProjectAcceptanceCapabilitiesTest
         acceptance.setAttachmentUrls("/upload/a.png,/upload/b.pdf"); acceptance.setSubmittedUserName("石头");
         project.setAcceptances(Arrays.asList(acceptance));
         return project;
+    }
+
+    private Map<String, Object> kpiWorkspace(String settlementStatus)
+    {
+        Map<String, Object> plan = new LinkedHashMap<String, Object>();
+        plan.put("status", "PUBLISHED");
+        plan.put("settlementStatus", settlementStatus);
+        Map<String, Object> workspace = new LinkedHashMap<String, Object>();
+        workspace.put("plans", Collections.singletonList(plan));
+        return workspace;
     }
 
     @SuppressWarnings("unchecked")

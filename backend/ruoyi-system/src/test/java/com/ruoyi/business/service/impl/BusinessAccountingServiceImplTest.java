@@ -51,7 +51,7 @@ class BusinessAccountingServiceImplTest
 
         assertEquals(new BigDecimal("550"),result.get("profitAmount"));
         assertEquals(2,result.get("resultVersion"));
-        verify(mapper,times(4)).insertDailyResultItem(any());
+        verify(mapper,times(5)).insertDailyResultItem(any());
     }
 
     @Test void recalculationStoresOnePersonnelSnapshotItemPerPerson()
@@ -72,11 +72,35 @@ class BusinessAccountingServiceImplTest
 
         @SuppressWarnings({"rawtypes","unchecked"})
         ArgumentCaptor<Map<String,Object>> itemCaptor=(ArgumentCaptor)ArgumentCaptor.forClass(Map.class);
-        verify(mapper,times(5)).insertDailyResultItem(itemCaptor.capture());
+        verify(mapper,times(6)).insertDailyResultItem(itemCaptor.capture());
         Map<String,Object> personnelItem=itemCaptor.getAllValues().get(3);
         assertEquals("PERSONNEL_COST_PERSON",personnelItem.get("componentCode"));
         assertEquals("石头",personnelItem.get("componentName"));
         assertEquals(new BigDecimal("137.931"),personnelItem.get("amount"));
+    }
+
+    @Test void projectBonusIsIdempotentAndImmediatelyRecalculates()
+    {
+        Date day=java.sql.Date.valueOf("2026-08-19");Map<String,Object> project=project(23L,8L);
+        Map<String,Object> category=new HashMap<String,Object>();category.put("categoryId",17L);
+        category.put("categoryName","项目绩效奖金");
+        when(mapper.selectProjectForAccounting(23L)).thenReturn(project);
+        when(mapper.selectCategoryByCode("PROJECT_BONUS_COST")).thenReturn(category);
+        when(mapper.sumProjectFacts(23L,day)).thenReturn(Collections.emptyMap());
+        when(mapper.sumProjectPersonnelCost(23L,day)).thenReturn(BigDecimal.ZERO);
+        when(mapper.sumProjectCostToDate(23L,day)).thenReturn(new BigDecimal("30000"));
+        when(mapper.selectNextResultVersion(23L,day)).thenReturn(1);
+        doAnswer(invocation->{BusinessOperatingFact fact=invocation.getArgument(0);fact.setFactId(71L);return 1;})
+            .when(mapper).insertFact(any());
+        doAnswer(invocation->{((Map<String,Object>)invocation.getArgument(0)).put("resultId",101L);return 1;})
+            .when(mapper).insertDailyResult(any());
+
+        BusinessOperatingFact fact=service.recordProjectBonus(23L,day,new BigDecimal("30000"),51L,8L,"boss8");
+
+        assertEquals(71L,fact.getFactId());
+        assertEquals("KPI-BONUS-SETTLEMENT-51",fact.getIdempotencyKey());
+        assertEquals("PROJECT_BONUS_COST",fact.getCategoryCode());
+        verify(mapper).insertDailyResult(any());
     }
 
     @Test void oldResultGetsPersonnelBreakdownWithoutChangingTheSnapshot()
@@ -99,7 +123,7 @@ class BusinessAccountingServiceImplTest
 
     @Test void bossOverviewAlwaysCarriesInitiatorScope()
     {
-        when(mapper.selectProjectsMissingDailyResult(eq(142L),eq(false),any())).thenReturn(Collections.emptyList());
+        when(mapper.countProjectsMissingDailyResult(eq(142L),eq(false),any())).thenReturn(3);
         service.bossOverview(142L,false);
 
         @SuppressWarnings({"rawtypes","unchecked"})
@@ -109,23 +133,67 @@ class BusinessAccountingServiceImplTest
         assertEquals(false,captor.getValue().get("viewAll"));
     }
 
-    @Test void bossOverviewMaterializesPlannedPersonnelCostWithoutEmployeeSubmission()
+    @Test void personnelCostOverviewSummarizesReadinessAndKeepsBossScope()
     {
-        when(mapper.selectProjectsMissingDailyResult(eq(142L),eq(false),any()))
-            .thenReturn(Collections.singletonList(21L));
-        when(mapper.selectProjectForAccounting(21L)).thenReturn(project(21L,142L));
-        when(mapper.sumProjectFacts(eq(21L),any())).thenReturn(Collections.emptyMap());
-        when(mapper.sumProjectPersonnelCost(eq(21L),any())).thenReturn(new BigDecimal("91.9540"));
-        when(mapper.sumProjectCostToDate(eq(21L),any())).thenReturn(new BigDecimal("91.9540"));
-        when(mapper.selectNextResultVersion(eq(21L),any())).thenReturn(1);
+        Map<String,Object> ready=new HashMap<String,Object>();ready.put("costStatus","READY");
+        ready.put("personnelCost",new BigDecimal("129.5000"));
+        Map<String,Object> missing=new HashMap<String,Object>();missing.put("costStatus","MISSING_COST");
+        missing.put("personnelCost",BigDecimal.ZERO);
+        Map<String,Object> over=new HashMap<String,Object>();over.put("costStatus","OVER_ALLOCATED");
+        over.put("personnelCost",new BigDecimal("80.2500"));
+        when(mapper.selectPersonnelCostOverview(any())).thenReturn(java.util.Arrays.asList(ready,missing,over));
+        Map<String,Object> query=new HashMap<String,Object>();query.put("bizDate","2026-08-19");
 
-        service.bossOverview(142L,false);
+        Map<String,Object> result=service.personnelCostOverview(query,142L,false);
 
+        assertEquals(1,result.get("readyCount"));
+        assertEquals(2,result.get("issueCount"));
+        assertEquals(1,result.get("overAllocatedCount"));
+        assertEquals(new BigDecimal("209.7500"),result.get("personnelCost"));
         @SuppressWarnings({"rawtypes","unchecked"})
-        ArgumentCaptor<Map<String,Object>> resultCaptor=(ArgumentCaptor)ArgumentCaptor.forClass(Map.class);
-        verify(mapper).insertDailyResult(resultCaptor.capture());
-        assertEquals(new BigDecimal("91.9540"),resultCaptor.getValue().get("personnelCost"));
-        assertEquals(new BigDecimal("-91.9540"),resultCaptor.getValue().get("profitAmount"));
+        ArgumentCaptor<Map<String,Object>> captor=(ArgumentCaptor)ArgumentCaptor.forClass(Map.class);
+        verify(mapper).selectPersonnelCostOverview(captor.capture());
+        assertEquals(142L,captor.getValue().get("userId"));
+        assertEquals(false,captor.getValue().get("viewAll"));
+        assertEquals("2026-08-19",captor.getValue().get("bizDate"));
+    }
+
+    @Test void bossOverviewIsReadOnlyAndReportsMissingDailyResults()
+    {
+        when(mapper.countProjectsMissingDailyResult(eq(142L),eq(false),any())).thenReturn(27);
+
+        Map<String,Object> result=service.bossOverview(142L,false);
+
+        assertEquals(27,result.get("missingDailyResultCount"));
+        verify(mapper,never()).selectProjectForAccounting(any());
+        verify(mapper,never()).insertDailyResult(any());
+    }
+
+    @Test void bossOverviewGroupsPersonnelSetupIssuesByStaffMember()
+    {
+        Map<String,Object> firstProject=new HashMap<String,Object>();
+        firstProject.put("userId",9L);firstProject.put("userName","石头");
+        firstProject.put("projectId",21L);firstProject.put("projectName","王老吉视频宣传");
+        firstProject.put("costStatus","MISSING_REGION");
+        Map<String,Object> secondProject=new HashMap<String,Object>();
+        secondProject.put("userId",9L);secondProject.put("userName","石头");
+        secondProject.put("projectId",22L);secondProject.put("projectName","情趣内衣视频制作");
+        secondProject.put("costStatus","MISSING_REGION");
+        Map<String,Object> missingCost=new HashMap<String,Object>();
+        missingCost.put("userId",10L);missingCost.put("userName","蒋豪");
+        missingCost.put("projectId",23L);missingCost.put("projectName","新谷酵素视频剪辑");
+        missingCost.put("profileCountryRegion","CN");missingCost.put("costStatus","MISSING_COST");
+        when(mapper.selectCompanyPersonnelCostReadiness(eq(142L),eq(false),any()))
+            .thenReturn(java.util.Arrays.asList(firstProject,secondProject,missingCost));
+
+        Map<String,Object> result=service.bossOverview(142L,false);
+
+        @SuppressWarnings("unchecked") Map<String,Object> readiness=(Map<String,Object>)result.get("personnelReadiness");
+        assertEquals(2,readiness.get("issueCount"));
+        assertEquals(1,readiness.get("missingRegionCount"));
+        assertEquals(1,readiness.get("missingCostCount"));
+        @SuppressWarnings("unchecked") List<Map<String,Object>> issues=(List<Map<String,Object>>)readiness.get("issues");
+        assertEquals(2,issues.get(0).get("projectCount"));
     }
 
     @Test void projectOwnerCanSubmitTodayDraftButCannotConfirmIt()

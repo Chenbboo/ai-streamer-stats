@@ -21,7 +21,6 @@ import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.StringUtils;
 
 /** Creates a project from stable directory IDs after explicit user confirmation. */
-@Component
 public class CreateProjectCapability implements AiConfirmableCapability
 {
     private final IBusinessProjectService projectService;

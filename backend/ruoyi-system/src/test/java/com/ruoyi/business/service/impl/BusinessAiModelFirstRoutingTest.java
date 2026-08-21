@@ -55,6 +55,7 @@ class BusinessAiModelFirstRoutingTest
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("老板 AI 直接立项旧流程已停用，改由立项申请页面")
     void explicitProjectCreateStartsSafeWorkflowEvenWhenModelOnlyAnswersInText()
     {
         Map<String, Object> plan = new LinkedHashMap<String, Object>();
@@ -93,6 +94,7 @@ class BusinessAiModelFirstRoutingTest
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("老板 AI 直接立项旧流程已停用，改由立项申请页面")
     void modelPlanningFailureCanOnlyStartNonWritingProjectWorkflow()
     {
         when(modelClient.plan(eq("帮我创建项目"), any())).thenReturn(null);
@@ -107,6 +109,7 @@ class BusinessAiModelFirstRoutingTest
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("老板 AI 直接立项旧流程已停用，改由立项申请页面")
     void productionPhraseRejectsUnclearSafeReplyAndStartsProjectWorkflow()
     {
         Map<String, Object> arguments = new LinkedHashMap<String, Object>();
@@ -149,6 +152,7 @@ class BusinessAiModelFirstRoutingTest
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("老板 AI 直接立项旧流程已停用，改由立项申请页面")
     void activeProjectCreateWorkflowCannotDriftIntoUnrelatedModelTools()
     {
         when(mapper.selectConversation(91L, 23L, "BOSS"))
@@ -180,6 +184,7 @@ class BusinessAiModelFirstRoutingTest
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("老板 AI 直接立项旧流程已停用，改由立项申请页面")
     void emptyActiveDraftRecoversProjectFieldsFromEarlierUserTurns()
     {
         service.setClock(java.time.Clock.fixed(java.time.Instant.parse("2026-08-18T05:00:00Z"),
@@ -216,6 +221,7 @@ class BusinessAiModelFirstRoutingTest
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("老板 AI 直接立项旧流程已停用，改由立项申请页面")
     void shortTogetherAnswerSelectsHybridAccountingInAccountingStep()
     {
         when(mapper.selectConversation(93L, 23L, "BOSS"))

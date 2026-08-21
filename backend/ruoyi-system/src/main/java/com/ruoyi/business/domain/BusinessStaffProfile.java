@@ -22,6 +22,7 @@ public class BusinessStaffProfile extends SysUser
     private String workLocation;
     private Long companyDeptId;
     private String companyName;
+    private Long companyLeaderUserId;
 
     public String getEmployeeNo() { return employeeNo; }
     public void setEmployeeNo(String employeeNo) { this.employeeNo = employeeNo; }
@@ -47,4 +48,6 @@ public class BusinessStaffProfile extends SysUser
     public void setCompanyDeptId(Long companyDeptId) { this.companyDeptId = companyDeptId; }
     public String getCompanyName() { return companyName; }
     public void setCompanyName(String companyName) { this.companyName = companyName; }
+    public Long getCompanyLeaderUserId() { return companyLeaderUserId; }
+    public void setCompanyLeaderUserId(Long companyLeaderUserId) { this.companyLeaderUserId = companyLeaderUserId; }
 }

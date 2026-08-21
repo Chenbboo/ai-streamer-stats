@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.business.domain.BusinessProject;
+import com.ruoyi.business.domain.BusinessProjectProposal;
 import com.ruoyi.business.domain.BusinessProjectAcceptance;
 import com.ruoyi.business.domain.BusinessProjectMember;
 import com.ruoyi.business.domain.BusinessProjectMilestone;
@@ -27,6 +28,7 @@ import com.ruoyi.business.domain.BusinessProjectKpi;
 import com.ruoyi.business.domain.BusinessProjectStaffAllocation;
 import com.ruoyi.business.domain.BusinessStaffCostPolicy;
 import com.ruoyi.business.mapper.BusinessProjectMapper;
+import com.ruoyi.business.mapper.BusinessProjectKpiMapper;
 import com.ruoyi.business.mapper.BusinessAccountingMapper;
 import com.ruoyi.business.service.IBusinessProjectService;
 import com.ruoyi.business.service.IBusinessAccountingService;
@@ -47,12 +49,15 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     private static final List<String> TASK_STATUSES = Arrays.asList("TODO", "DOING", "BLOCKED", "DONE");
     private static final List<String> RISK_SEVERITIES = Arrays.asList("LOW", "MEDIUM", "HIGH", "CRITICAL");
     private static final List<String> KPI_METRIC_TYPES = Arrays.asList("COUNT", "AMOUNT", "PERCENT", "DURATION", "SCORE", "MILESTONE");
-    private static final List<String> KPI_PERIOD_TYPES = Arrays.asList("DAY", "WEEK", "MONTH", "QUARTER", "PROJECT");
-    private static final List<String> COST_MODES = Arrays.asList("DAILY", "HOURLY", "MONTHLY", "FIXED_PROJECT", "FIXED_TASK", "VARIABLE");
-    private static final List<String> ALLOCATION_MODES = Arrays.asList("PERCENTAGE", "HOURS", "ATTENDANCE", "FIXED_DAILY", "PER_TASK");
+    private static final List<String> KPI_PERIOD_TYPES = Arrays.asList("MONTH", "QUARTER", "PROJECT");
+    private static final BigDecimal CHINA_STANDARD_WORK_DAYS = new BigDecimal("21.75");
+    private static final BigDecimal VIETNAM_STANDARD_WORK_DAYS = new BigDecimal("26");
 
     @Autowired
     private BusinessProjectMapper mapper;
+
+    @Autowired
+    private BusinessProjectKpiMapper kpiMapper;
 
     @Autowired
     private BusinessAccountingMapper accountingMapper;
@@ -103,6 +108,94 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     @Override
     @Transactional
     public BusinessProject createProject(BusinessProject project, Long userId, String userName)
+    {
+        throw new ServiceException("正式项目不能直接创建，请先提交立项申请并由老板审批");
+    }
+
+    @Override
+    @Transactional
+    public BusinessProject createApprovedProject(BusinessProjectProposal proposal, Long reviewerUserId, String reviewerUserName)
+    {
+        if (proposal == null || proposal.getProposalId() == null) throw new ServiceException("立项申请不能为空");
+        Map<String, Object> owner = requireActiveUser(proposal.getApplicantUserId());
+        Map<String, Object> sponsor = requireActiveUser(reviewerUserId);
+        if (!reviewerUserId.equals(proposal.getSponsorOwnerUserId())) throw new ServiceException("审批老板与项目归属不一致");
+
+        BusinessProject project = new BusinessProject();
+        project.setSourceProposalId(proposal.getProposalId());
+        project.setParentId(proposal.getParentProjectId());
+        project.setCompanyDeptId(proposal.getCompanyDeptId());
+        project.setProjectName(proposal.getProjectName());
+        project.setProjectType(proposal.getProjectType());
+        project.setAccountingMode(proposal.getAccountingMode());
+        project.setManagementMode(proposal.getManagementMode());
+        project.setObjective(proposal.getObjective());
+        project.setPlanStartDate(proposal.getPlanStartDate());
+        project.setPlanEndDate(proposal.getPlanEndDate());
+        project.setPriority(proposal.getPriority());
+        project.setBaseCurrency(proposal.getBaseCurrency());
+        project.setBudgetLimit(proposal.getBudgetLimit());
+        project.setExecutionSource(proposal.getExecutionSource());
+        project.setRemark(proposal.getApplicationReason());
+        project.setMainOwnerUserId(proposal.getApplicantUserId());
+        validateProject(project);
+        validateParent(project.getParentId(), null, reviewerUserId);
+
+        project.setProjectNo("XM" + DateUtils.dateTimeNow("yyyyMMddHHmmss")
+            + IdUtils.fastSimpleUUID().substring(0, 4).toUpperCase());
+        project.setMainOwnerName(displayName(owner));
+        project.setApplicantUserId(proposal.getApplicantUserId());
+        project.setApplicantName(displayName(owner));
+        project.setSponsorOwnerUserId(reviewerUserId);
+        project.setSponsorOwnerName(displayName(sponsor));
+        // 兼容旧字段；新权限和页面语义以 sponsorOwner 为准。
+        project.setInitiatorUserId(reviewerUserId);
+        project.setInitiatorName(displayName(sponsor));
+        project.setStatus("ACTIVE");
+        project.setBaselineStatus("APPROVED");
+        project.setActualStartDate(new Date());
+        project.setCreateBy(reviewerUserName);
+        mapper.insertProject(project);
+
+        BusinessProjectMember ownerMember = new BusinessProjectMember();
+        ownerMember.setProjectId(project.getProjectId());
+        ownerMember.setUserId(project.getMainOwnerUserId());
+        ownerMember.setUserNameSnapshot(project.getMainOwnerName());
+        ownerMember.setMemberRole("OWNER");
+        ownerMember.setStatus("0");
+        ownerMember.setJoinedDate(new Date());
+        ownerMember.setCreateBy(reviewerUserName);
+        mapper.upsertMember(ownerMember);
+        grantProjectUser(project.getMainOwnerUserId(), true);
+
+        Map<String, Object> history = new HashMap<String, Object>();
+        history.put("projectId", project.getProjectId());
+        history.put("toUserId", project.getMainOwnerUserId());
+        history.put("toUserName", project.getMainOwnerName());
+        history.put("reason", "立项申请批准时任命申请人为负责人");
+        history.put("operatorUserId", reviewerUserId);
+        history.put("operatorName", reviewerUserName);
+        mapper.insertOwnerHistory(history);
+        if (project.getBudgetLimit() != null)
+        {
+            Map<String, Object> budgetHistory = new HashMap<String, Object>();
+            budgetHistory.put("projectId", project.getProjectId());
+            budgetHistory.put("toAmount", project.getBudgetLimit());
+            budgetHistory.put("currency", project.getBaseCurrency());
+            budgetHistory.put("budgetVersion", 1);
+            budgetHistory.put("reason", "立项申请批准预算");
+            budgetHistory.put("operatorUserId", reviewerUserId);
+            budgetHistory.put("operatorName", reviewerUserName);
+            mapper.insertBudgetHistory(budgetHistory);
+        }
+        addEvent(project.getProjectId(), "CREATE_FROM_PROPOSAL", null, "ACTIVE", reviewerUserId,
+            reviewerUserName, "批准立项申请并直接进入执行");
+        syncExecutionSource(project, reviewerUserId, reviewerUserName);
+        return getProject(project.getProjectId(), reviewerUserId, SecurityUtils.isAdmin(reviewerUserId), true);
+    }
+
+    /** 仅保留供历史代码编译参考；新项目创建必须走 createApprovedProject。 */
+    private BusinessProject createLegacyProject(BusinessProject project, Long userId, String userName)
     {
         validateProject(project);
         Map<String, Object> owner = requireActiveUser(project.getMainOwnerUserId());
@@ -174,7 +267,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             input.setCompanyDeptId(current.getCompanyDeptId());
         }
         validateProject(input);
-        validateParent(input.getParentId(), current.getProjectId(), current.getInitiatorUserId());
+        validateParent(input.getParentId(), current.getProjectId(), projectSponsorUserId(current));
         input.setVersion(current.getVersion());
         input.setUpdateBy(userName);
         if (mapper.updateProject(input) != 1) throw changed();
@@ -286,26 +379,28 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
                 throw new ServiceException("KPI当前版本不存在，请刷新后重试");
             kpi.setKpiCode(previous.getKpiCode());
         }
-        if (StringUtils.isBlank(kpi.getKpiCode())) throw new ServiceException("请填写KPI编码");
+        else
+        {
+            // 编码是系统内部稳定标识，禁止页面、接口或AI自行命名。
+            kpi.setKpiCode(generateKpiCode(project.getProjectId()));
+        }
         if (StringUtils.isBlank(kpi.getKpiName())) throw new ServiceException("请填写KPI名称");
         kpi.setKpiCode(kpi.getKpiCode().trim().toUpperCase());
         if (!kpi.getKpiCode().matches("[A-Z0-9_\\-]{2,64}")) throw new ServiceException("KPI编码只能使用字母、数字、下划线或短横线");
-        if (previous == null && mapper.selectCurrentProjectKpi(project.getProjectId(), kpi.getKpiCode()) != null)
-            throw new ServiceException("该KPI编码已存在，请从现有KPI执行目标调整");
         if (StringUtils.isBlank(kpi.getMetricType())) kpi.setMetricType("COUNT");
         if (!KPI_METRIC_TYPES.contains(kpi.getMetricType())) throw new ServiceException("KPI指标类型不正确");
         if (StringUtils.isBlank(kpi.getPeriodType())) kpi.setPeriodType("PROJECT");
         if (!KPI_PERIOD_TYPES.contains(kpi.getPeriodType())) throw new ServiceException("KPI统计周期不正确");
-        if (kpi.getTargetValue() == null) throw new ServiceException("请填写KPI目标值");
+        if (kpi.getTargetValue() == null || kpi.getTargetValue().compareTo(BigDecimal.ZERO) <= 0)
+            throw new ServiceException("KPI目标值必须大于0");
         if (kpi.getWeight() == null) kpi.setWeight(BigDecimal.ZERO);
         if (kpi.getWeight().compareTo(BigDecimal.ZERO) < 0 || kpi.getWeight().compareTo(new BigDecimal("100")) > 0)
             throw new ServiceException("KPI权重必须在0到100之间");
-        if (kpi.getOwnerUserId() != null)
-        {
-            if (mapper.selectMemberRole(project.getProjectId(), kpi.getOwnerUserId()) == null)
-                throw new ServiceException("KPI负责人必须是当前项目成员");
-            kpi.setOwnerName(displayName(requireActiveUser(kpi.getOwnerUserId())));
-        }
+        // 第一阶段KPI只考核项目，不设置个人考核对象或个人奖金领取人。
+        kpi.setOwnerUserId(null);
+        kpi.setOwnerName(null);
+        // 实际结果必须通过负责人填报、老板确认的结算快照产生，不能在目标定义中直接写入。
+        kpi.setActualValue(null);
         if (kpi.getEffectiveFrom() == null) kpi.setEffectiveFrom(new Date());
         if (kpi.getEffectiveTo() != null && kpi.getEffectiveTo().before(kpi.getEffectiveFrom()))
             throw new ServiceException("KPI失效日期不能早于生效日期");
@@ -323,6 +418,17 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         return kpi;
     }
 
+    private String generateKpiCode(Long projectId)
+    {
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            String code = "KPI_P" + projectId + "_"
+                + IdUtils.fastSimpleUUID().substring(0, 12).toUpperCase();
+            if (mapper.selectCurrentProjectKpi(projectId, code) == null) return code;
+        }
+        throw new ServiceException("KPI编码生成失败，请重试");
+    }
+
     @Override
     @Transactional
     public void retireKpi(Long projectId, Long kpiId, Long userId, String userName, boolean boss)
@@ -337,8 +443,11 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     @Override
     public List<BusinessStaffCostPolicy> staffCostPolicies(Long staffUserId, Long userId, boolean boss)
     {
-        if (!boss && !SecurityUtils.isAdmin(userId)) throw new ServiceException("只有老板可以查看人员内部核算成本");
+        boolean administrator = SecurityUtils.isAdmin(userId);
+        if (!administrator && (!boss || mapper.countUserRoleByKey(userId, "company_owner") < 1))
+            throw new ServiceException("只有公司负责人可以查看人员内部核算成本");
         requireActiveUser(staffUserId);
+        if (!administrator) requireStaffCostCompanyOwner(staffUserId, userId, false);
         return mapper.selectStaffCostPolicies(staffUserId);
     }
 
@@ -347,15 +456,22 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     public BusinessStaffCostPolicy saveStaffCostPolicy(BusinessStaffCostPolicy policy,
         Long userId, String userName, boolean boss)
     {
-        if (!boss && !SecurityUtils.isAdmin(userId)) throw new ServiceException("只有老板可以设置人员内部核算成本");
+        if (SecurityUtils.isAdmin(userId))
+            throw new ServiceException("系统管理员只能审计人员成本，不能代替公司负责人设置");
+        if (!boss || mapper.countUserRoleByKey(userId, "company_owner") < 1)
+            throw new ServiceException("只有公司负责人可以设置人员内部核算成本");
         if (policy == null || policy.getUserId() == null) throw new ServiceException("请选择人员");
         requireActiveUser(policy.getUserId());
-        if (!COST_MODES.contains(policy.getCostMode())) throw new ServiceException("内部成本核算方式不正确");
+        requireStaffCostCompanyOwner(policy.getUserId(), userId, true);
         if (policy.getUnitCost() == null || policy.getUnitCost().compareTo(BigDecimal.ZERO) < 0)
-            throw new ServiceException("内部核算金额不能为空或为负数");
-        if (StringUtils.isBlank(policy.getCurrency())) policy.setCurrency("CNY");
-        policy.setCurrency(policy.getCurrency().trim().toUpperCase());
-        if (policy.getCurrency().length() != 3) throw new ServiceException("币种代码必须为3位");
+            throw new ServiceException("月度用人成本不能为空或为负数");
+        String countryRegion = mapper.selectStaffCountryRegion(policy.getUserId());
+        if ("CN".equals(countryRegion)) policy.setStandardWorkDays(CHINA_STANDARD_WORK_DAYS);
+        else if ("VN".equals(countryRegion)) policy.setStandardWorkDays(VIETNAM_STANDARD_WORK_DAYS);
+        else throw new ServiceException("该人员的国家/地区尚未配置成本折算规则，请先设置为中国或越南");
+        policy.setCountryRegion(countryRegion);
+        policy.setCostMode("MONTHLY");
+        policy.setCurrency("CNY");
         if (policy.getEffectiveFrom() == null) throw new ServiceException("请选择生效日期");
         if (policy.getEffectiveTo() != null && policy.getEffectiveTo().before(policy.getEffectiveFrom()))
             throw new ServiceException("失效日期不能早于生效日期");
@@ -368,6 +484,15 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         return policy;
     }
 
+    private void requireStaffCostCompanyOwner(Long staffUserId, Long operatorUserId, boolean lockForUpdate)
+    {
+        Long companyLeaderUserId = mapper.selectStaffCompanyLeaderUserId(staffUserId, lockForUpdate);
+        if (companyLeaderUserId == null)
+            throw new ServiceException("该人员所属公司尚未配置负责人，暂时无法维护人员成本");
+        if (!companyLeaderUserId.equals(operatorUserId))
+            throw new ServiceException("只能查看和设置本人负责公司的人员内部核算成本");
+    }
+
     @Override
     @Transactional
     public BusinessProjectStaffAllocation saveStaffAllocation(BusinessProjectStaffAllocation allocation,
@@ -375,21 +500,31 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     {
         if (allocation == null || allocation.getProjectId() == null) throw new ServiceException("项目ID不能为空");
         BusinessProject project = requireProject(allocation.getProjectId());
-        requireManage(project, userId, boss); ensureMutable(project);
+        boolean administrator = SecurityUtils.isAdmin(userId);
+        boolean bossExceptionApproval = !administrator && boss;
+        if (bossExceptionApproval)
+        {
+            requireBoss(project, userId, true);
+            if (!"1".equals(allocation.getExceptionAllowed()) || StringUtils.isBlank(allocation.getExceptionReason()))
+                throw new ServiceException("老板不能代替项目主负责人设置正常投入，只能审批超过100%的例外申请");
+        }
+        else requireAllocationOwner(project, userId, boss);
+        ensureMutable(project);
         if (allocation.getUserId() == null || mapper.selectMemberRole(project.getProjectId(), allocation.getUserId()) == null)
             throw new ServiceException("成本分摊人员必须是当前项目成员");
-        if (!ALLOCATION_MODES.contains(allocation.getAllocationMode())) throw new ServiceException("成本分摊方式不正确");
+        if (!"PERCENTAGE".equals(allocation.getAllocationMode()))
+            throw new ServiceException("人员成本只支持按项目投入比例分摊");
         if (allocation.getAllocationValue() == null || allocation.getAllocationValue().compareTo(BigDecimal.ZERO) < 0)
             throw new ServiceException("成本分摊参数不能为空或为负数");
+        if (allocation.getAllocationValue().compareTo(new BigDecimal("100")) > 0)
+            throw new ServiceException("单个项目投入比例不能超过100%");
         if (allocation.getEffectiveFrom() == null) throw new ServiceException("请选择分摊生效日期");
         if (allocation.getEffectiveTo() != null && allocation.getEffectiveTo().before(allocation.getEffectiveFrom()))
             throw new ServiceException("分摊失效日期不能早于生效日期");
         if (mapper.countOverlappingProjectAllocation(project.getProjectId(), allocation.getUserId(),
             allocation.getEffectiveFrom(), allocation.getEffectiveTo(), allocation.getAllocationId()) > 0)
             throw new ServiceException("该人员在本项目所选日期已有计划投入，请编辑原记录或使用不重叠日期");
-        BusinessStaffCostPolicy policy = !boss || allocation.getCostPolicyId() == null
-            ? mapper.selectEffectiveStaffCostPolicy(allocation.getUserId(), allocation.getEffectiveFrom())
-            : mapper.selectStaffCostPolicyById(allocation.getCostPolicyId());
+        BusinessStaffCostPolicy policy = mapper.selectEffectiveStaffCostPolicy(allocation.getUserId(), allocation.getEffectiveFrom());
         if (policy == null || !allocation.getUserId().equals(policy.getUserId()))
             throw new ServiceException("该人员在分摊生效日没有可用的内部成本政策");
         allocation.setCostPolicyId(policy.getPolicyId());
@@ -397,12 +532,19 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         {
             BigDecimal used = mapper.sumOverlappingAllocationPercent(allocation.getUserId(), allocation.getEffectiveFrom(),
                 allocation.getEffectiveTo(), allocation.getAllocationId());
-            if (used.add(allocation.getAllocationValue()).compareTo(new BigDecimal("100")) > 0)
+            boolean exceeds = used.add(allocation.getAllocationValue()).compareTo(new BigDecimal("100")) > 0;
+            if (exceeds)
             {
-                if (!boss) throw new ServiceException("该人员同期跨项目计划投入超过100%，请调整后再保存");
-                if (!"1".equals(allocation.getExceptionAllowed()) || StringUtils.isBlank(allocation.getExceptionReason()))
-                    throw new ServiceException("该人员同期跨项目计划投入超过100%，老板批准例外时必须填写原因");
+                if (!bossExceptionApproval && !administrator)
+                    throw new ServiceException("该人员同期跨项目计划投入超过100%，请调整后再保存或提交老板例外审批");
             }
+            else if (bossExceptionApproval)
+                throw new ServiceException("当前投入合计未超过100%，正常投入必须由项目主负责人设置");
+        }
+        if (!bossExceptionApproval && !administrator)
+        {
+            allocation.setExceptionAllowed("0");
+            allocation.setExceptionReason(null);
         }
         allocation.setUserName(displayName(requireActiveUser(allocation.getUserId())));
         BusinessProjectStaffAllocation previous = null;
@@ -428,7 +570,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     @Transactional
     public void removeStaffAllocation(Long projectId, Long allocationId, Long userId, String userName, boolean boss)
     {
-        BusinessProject project = requireProject(projectId); requireManage(project, userId, boss); ensureMutable(project);
+        BusinessProject project = requireProject(projectId); requireAllocationOwner(project, userId, boss); ensureMutable(project);
         BusinessProjectStaffAllocation current = mapper.selectProjectStaffAllocationById(allocationId);
         if (current == null || !projectId.equals(current.getProjectId())) throw new ServiceException("成本分摊记录不存在");
         if (mapper.voidProjectStaffAllocation(projectId, allocationId, userName) != 1)
@@ -535,7 +677,11 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             throw new ServiceException("验收决定不正确");
         if ("RETURNED".equals(decision) && StringUtils.isBlank(comment)) throw new ServiceException("退回原因不能为空");
         if (StringUtils.isNotEmpty(comment) && comment.length() > 2000) throw new ServiceException("验收意见不能超过2000个字符");
-        if ("APPROVED".equals(decision)) ensureReadyForAcceptance(projectId);
+        if ("APPROVED".equals(decision))
+        {
+            ensureReadyForAcceptance(projectId);
+            ensureKpiReadyForClose(projectId);
+        }
         String reviewerName = displayName(requireActiveUser(userId));
         if (mapper.reviewAcceptance(pending.getAcceptanceId(), decision, userId, reviewerName, comment, userName) != 1)
             throw new ServiceException("验收资料已被其他人处理，请刷新后重试");
@@ -618,6 +764,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             if ("DELIVERY".equals(project.getManagementMode()))
                 throw new ServiceException("交付模式项目请在验收资料中完成验收");
             if (StringUtils.isBlank(comment)) throw new ServiceException("请填写项目完成结论");
+            ensureKpiReadyForClose(projectId);
             to = "CLOSED";
         }
         else if ("CANCEL".equals(action))
@@ -910,24 +1057,107 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     @Override
     public Map<String, Object> dashboard(Long userId, boolean viewAll, boolean boss)
     {
+        return dashboard(Collections.<String, Object>emptyMap(), userId, viewAll, boss);
+    }
+
+    @Override
+    public Map<String, Object> dashboard(Map<String, Object> query, Long userId, boolean viewAll, boolean boss)
+    {
+        int projectPageNum = positiveInt(query, "projectPageNum", 1, 100000);
+        int projectPageSize = positiveInt(query, "projectPageSize", 10, 50);
+        int decisionPageNum = positiveInt(query, "decisionPageNum", 1, 100000);
+        int decisionPageSize = positiveInt(query, "decisionPageSize", 20, 50);
         Map<String, Object> result = new LinkedHashMap<String, Object>();
         Map<String, Object> summary = mapper.selectDashboardSummary(userId, viewAll, boss);
-        result.put("summary", summary == null ? new HashMap<String, Object>() : summary);
-        Map<String, Object> query = new HashMap<String, Object>();
-        query.put("userId", userId); query.put("viewAll", viewAll); query.put("boss", boss);
-        List<BusinessProject> projects = mapper.selectProjectList(query);
-        result.put("projects", projects.size() > 10 ? new ArrayList<BusinessProject>(projects.subList(0, 10)) : projects);
-        List<BusinessProject> decisions = new ArrayList<BusinessProject>();
-        for (BusinessProject project : projects)
-        {
-            boolean needsDecision = "DRAFT".equals(project.getStatus())
-                || ("PLANNING".equals(project.getStatus()) && "SUBMITTED".equals(project.getBaselineStatus()))
-                || "PAUSED".equals(project.getStatus()) || "ACCEPTANCE".equals(project.getStatus());
-            if (needsDecision && decisions.size() < 20) decisions.add(project);
-        }
+        Map<String, Object> safeSummary = summary == null ? new HashMap<String, Object>() : summary;
+        result.put("summary", safeSummary);
+        List<BusinessProject> projects = mapper.selectDashboardProjectPage(userId, viewAll, boss,
+            (projectPageNum - 1) * projectPageSize, projectPageSize);
+        List<BusinessProject> decisions = mapper.selectDashboardDecisionPage(userId, viewAll, boss,
+            (decisionPageNum - 1) * decisionPageSize, decisionPageSize);
+        if (projects == null) projects = Collections.<BusinessProject>emptyList();
+        if (decisions == null) decisions = Collections.<BusinessProject>emptyList();
+        long projectTotal = longValue(safeSummary.get("totalCount"));
+        long decisionTotal = longValue(safeSummary.get("pendingDecisionCount"));
+        result.put("projectPage", page(projects, projectTotal, projectPageNum, projectPageSize));
+        result.put("decisionPage", page(decisions, decisionTotal, decisionPageNum, decisionPageSize));
+        // 保留旧字段，避免老板 AI 和既有调用方在升级期间失效。
+        result.put("projects", projects);
         result.put("decisions", decisions);
         result.put("tasks", mapper.selectMyDueTasks(userId, viewAll, boss));
         return result;
+    }
+
+    private int positiveInt(Map<String, Object> query, String key, int defaultValue, int maxValue)
+    {
+        if (query == null || query.get(key) == null) return defaultValue;
+        try
+        {
+            int value = Integer.parseInt(String.valueOf(query.get(key)));
+            return Math.min(Math.max(value, 1), maxValue);
+        }
+        catch (NumberFormatException ignored)
+        {
+            return defaultValue;
+        }
+    }
+
+    private long longValue(Object value)
+    {
+        if (value instanceof Number) return ((Number)value).longValue();
+        if (value == null) return 0L;
+        try { return Long.parseLong(String.valueOf(value)); }
+        catch (NumberFormatException ignored) { return 0L; }
+    }
+
+    private Map<String, Object> page(List<BusinessProject> rows, long total, int pageNum, int pageSize)
+    {
+        Map<String, Object> page = new LinkedHashMap<String, Object>();
+        page.put("rows", rows == null ? Collections.<BusinessProject>emptyList() : rows);
+        page.put("total", total);
+        page.put("pageNum", pageNum);
+        page.put("pageSize", pageSize);
+        return page;
+    }
+
+    @Override
+    public Map<String, Object> bossPending(Map<String, Object> query, Long userId, boolean viewAll)
+    {
+        int pageNum = positiveInt(query, "pageNum", 1, 100000);
+        int pageSize = positiveInt(query, "pageSize", 5, 50);
+        String category = query == null || query.get("category") == null
+            ? "ALL" : String.valueOf(query.get("category")).trim().toUpperCase();
+        if (!Arrays.asList("ALL", "PROPOSAL", "KPI_MISSING", "KPI_REVIEW", "PERSONNEL_COST", "PROJECT")
+            .contains(category)) category = "ALL";
+        Date bizDate = new Date();
+        Map<String, Object> counts = mapper.selectBossPendingCounts(userId, viewAll, bizDate);
+        if (counts == null) counts = new LinkedHashMap<String, Object>();
+        long total = pendingTotal(counts, category);
+        List<Map<String, Object>> rows = mapper.selectBossPendingPage(userId, viewAll, bizDate, category,
+            (pageNum - 1) * pageSize, pageSize);
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put("rows", rows == null ? Collections.<Map<String, Object>>emptyList() : rows);
+        result.put("total", total);
+        result.put("pageNum", pageNum);
+        result.put("pageSize", pageSize);
+        result.put("category", category);
+        result.put("counts", counts);
+        return result;
+    }
+
+    private long pendingTotal(Map<String, Object> counts, String category)
+    {
+        Map<String, String> keys = new HashMap<String, String>();
+        keys.put("PROPOSAL", "proposalCount");
+        keys.put("KPI_MISSING", "kpiMissingCount");
+        keys.put("KPI_REVIEW", "kpiReviewCount");
+        keys.put("PERSONNEL_COST", "personnelCostCount");
+        keys.put("PROJECT", "projectCount");
+        if (!"ALL".equals(category)) return longValue(counts.get(keys.get(category)));
+        long total = 0L;
+        for (String key : keys.values()) total += longValue(counts.get(key));
+        counts.put("totalCount", total);
+        return total;
     }
 
     @Override
@@ -960,6 +1190,10 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         Map<String, Object> result = new LinkedHashMap<String, Object>();
         result.put("summary", summary);
         result.put("projects", projects);
+        List<Map<String, Object>> allocationAlerts = mapper.selectOwnerPersonnelCostReadiness(userId,
+            DateUtils.getNowDate(), viewAll);
+        result.put("allocationAlerts", allocationAlerts == null
+            ? Collections.<Map<String, Object>>emptyList() : allocationAlerts);
         if (projects.isEmpty()) return result;
 
         Long selectedId = projectId == null ? projects.get(0).getProjectId() : projectId;
@@ -1319,8 +1553,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (viewAll) return;
         if (boss)
         {
-            if (userId.equals(project.getInitiatorUserId())) return;
-            throw new ServiceException("无权查看其他老板立项的项目");
+            if (userId.equals(projectSponsorUserId(project))) return;
+            throw new ServiceException("无权查看其他老板归属的项目");
         }
         if (project.getMainOwnerUserId().equals(userId)) return;
         if (mapper.selectMemberRole(project.getProjectId(), userId) == null) throw new ServiceException("无权查看该项目");
@@ -1331,11 +1565,18 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (SecurityUtils.isAdmin(userId)) return;
         if (boss)
         {
-            if (userId.equals(project.getInitiatorUserId())) return;
-            throw new ServiceException("无权管理其他老板立项的项目");
+            if (userId.equals(projectSponsorUserId(project))) return;
+            throw new ServiceException("无权管理其他老板归属的项目");
         }
         String role = mapper.selectMemberRole(project.getProjectId(), userId);
         if (!"OWNER".equals(role) && !"DEPUTY".equals(role)) throw new ServiceException("无权管理该项目");
+    }
+
+    private void requireAllocationOwner(BusinessProject project, Long userId, boolean boss)
+    {
+        if (SecurityUtils.isAdmin(userId)) return;
+        if (boss || !userId.equals(project.getMainOwnerUserId()))
+            throw new ServiceException("只有项目主负责人可以设置或停用成员计划投入");
     }
 
     private void requireOwnerOrBoss(String role, BusinessProject project, Long userId, boolean boss)
@@ -1351,8 +1592,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     private void requireBoss(BusinessProject project, Long userId, boolean boss)
     {
         if (!boss) throw new ServiceException("只有老板可以执行此操作");
-        if (!SecurityUtils.isAdmin(userId) && !userId.equals(project.getInitiatorUserId()))
-            throw new ServiceException("无权操作其他老板立项的项目");
+        if (!SecurityUtils.isAdmin(userId) && !userId.equals(projectSponsorUserId(project)))
+            throw new ServiceException("无权操作其他老板归属的项目");
     }
 
     private void requireStatus(BusinessProject project, String expected)
@@ -1393,6 +1634,70 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         }
     }
 
+    private void ensureKpiReadyForClose(Long projectId)
+    {
+        List<Map<String, Object>> plans = kpiMapper.selectPlanSummaries(projectId);
+        if (plans == null) plans = Collections.emptyList();
+
+        int publishedPlanCount = 0;
+        int pendingInputCount = 0;
+        int returnedCount = 0;
+        int pendingReviewCount = 0;
+        int otherUnconfirmedCount = 0;
+        String nextCycleEnd = null;
+        String today = DateUtils.getDate();
+
+        for (Map<String, Object> plan : plans)
+        {
+            if (plan == null) continue;
+            String planStatus = value(plan.get("status"));
+            if (!"PUBLISHED".equals(planStatus) && !"CLOSED".equals(planStatus)) continue;
+            publishedPlanCount++;
+
+            Date cycleEnd = plan.get("cycleEnd") instanceof Date
+                ? (Date) plan.get("cycleEnd") : DateUtils.parseDate(plan.get("cycleEnd"));
+            if (cycleEnd == null)
+                throw new ServiceException("KPI方案的考核结束日期异常，请检查后再结项");
+            String cycleEndDate = DateUtils.dateTime(cycleEnd);
+            if (cycleEndDate.compareTo(today) > 0)
+            {
+                if (nextCycleEnd == null || cycleEndDate.compareTo(nextCycleEnd) < 0) nextCycleEnd = cycleEndDate;
+                continue;
+            }
+
+            String settlementStatus = value(plan.get("settlementStatus"));
+            if ("CONFIRMED".equals(settlementStatus)) continue;
+            if (StringUtils.isBlank(settlementStatus) || "DRAFT".equals(settlementStatus)) pendingInputCount++;
+            else if ("RETURNED".equals(settlementStatus)) returnedCount++;
+            else if ("SUBMITTED".equals(settlementStatus)) pendingReviewCount++;
+            else otherUnconfirmedCount++;
+        }
+
+        if (publishedPlanCount == 0)
+            throw new ServiceException("项目尚未发布KPI方案，请先设置并发布KPI及奖金方案后再结项");
+        if (nextCycleEnd != null)
+            throw new ServiceException("尚有KPI考核周期未结束（最近结束日期：" + nextCycleEnd + "），暂不能结项");
+
+        int incompleteCount = pendingInputCount + returnedCount + pendingReviewCount + otherUnconfirmedCount;
+        if (incompleteCount == 0) return;
+        int incompleteKinds = (pendingInputCount > 0 ? 1 : 0) + (returnedCount > 0 ? 1 : 0)
+            + (pendingReviewCount > 0 ? 1 : 0) + (otherUnconfirmedCount > 0 ? 1 : 0);
+        if (incompleteKinds > 1)
+            throw new ServiceException("存在多项已到期但尚未完成确认的KPI结算，请先全部完成负责人填报和老板确认后再结项");
+        if (pendingInputCount > 0)
+            throw new ServiceException("存在已到期但负责人尚未提交的KPI结算，请先完成结果填报并提交后再结项");
+        if (returnedCount > 0)
+            throw new ServiceException("存在已到期且被退回的KPI结算，请负责人修改并重新提交后再结项");
+        if (pendingReviewCount > 0)
+            throw new ServiceException("存在已到期且待老板确认的KPI结算，请先确认KPI及奖金后再结项");
+        throw new ServiceException("存在已到期但尚未确认的KPI结算，请先完成结算后再结项");
+    }
+
+    private String value(Object value)
+    {
+        return value == null ? null : String.valueOf(value);
+    }
+
     private boolean sameLong(Object value, Long expected)
     {
         return value != null && expected != null && String.valueOf(value).equals(String.valueOf(expected));
@@ -1423,13 +1728,13 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             throw new ServiceException("计划结束日期不能早于开始日期");
     }
 
-    private void validateParent(Long parentId, Long currentProjectId, Long initiatorUserId)
+    private void validateParent(Long parentId, Long currentProjectId, Long sponsorOwnerUserId)
     {
         if (parentId == null) return;
         if (parentId.equals(currentProjectId)) throw new ServiceException("项目不能成为自己的父项目");
         BusinessProject cursor = requireProject(parentId);
-        if (!initiatorUserId.equals(cursor.getInitiatorUserId()))
-            throw new ServiceException("上级项目必须由同一位老板立项");
+        if (!sponsorOwnerUserId.equals(projectSponsorUserId(cursor)))
+            throw new ServiceException("上级项目必须属于同一位归属老板");
         int depth = 1;
         while (cursor.getParentId() != null)
         {
@@ -1445,6 +1750,11 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         Map<String, Object> user = mapper.selectActiveUserById(userId);
         if (user == null) throw new ServiceException("所选账号不存在或已停用");
         return user;
+    }
+
+    private Long projectSponsorUserId(BusinessProject project)
+    {
+        return project.getSponsorOwnerUserId() == null ? project.getInitiatorUserId() : project.getSponsorOwnerUserId();
     }
 
     private String displayName(Map<String, Object> user)

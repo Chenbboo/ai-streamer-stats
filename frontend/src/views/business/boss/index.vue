@@ -1,128 +1,209 @@
 <template>
   <div class="app-container business-page">
     <header class="hero">
-      <div><span class="eyebrow">OWNER COMMAND CENTER</span><h1>老板工作台</h1><p>集中查看本人立项项目的状态、计划审批、延期与高风险预警。</p></div>
-      <div class="hero-actions"><el-button icon="Refresh" :loading="loading" @click="load">刷新</el-button><el-button type="primary" icon="Plus" @click="startProject">开启项目</el-button></div>
+      <div><span class="eyebrow">OWNER COMMAND CENTER</span><h1>老板工作台</h1><p>只保留需要判断的事项、今日经营结果和项目整体状态。</p></div>
+      <div class="hero-actions"><el-button icon="Refresh" :loading="loading" @click="load">刷新</el-button><el-button type="primary" icon="DocumentChecked" @click="openProposals">立项审批</el-button></div>
     </header>
 
-    <section class="metric-grid">
-      <article v-for="item in metrics" :key="item.key" class="metric-card" :class="`tone-${item.tone}`">
-        <span>{{ item.label }}</span><strong>{{ summary[item.key] || 0 }}</strong><small>{{ item.hint }}</small>
-      </article>
-    </section>
+    <section class="panel pending-panel">
+      <div class="panel-head">
+        <div><h2>待老板处理</h2><p>立项、项目状态、KPI、人员成本和结算统一集中在这里。</p></div>
+        <el-tag :type="totalPendingCount ? 'warning' : 'success'">{{ totalPendingCount }} 项</el-tag>
+      </div>
+      <div v-if="!totalPendingCount && !loading" class="empty-state">当前没有需要老板处理的事项</div>
 
-    <section class="panel accounting-overview">
-      <div class="panel-head"><div><h2>经营结果</h2><p>负责人填报业务成本，系统自动计算人员成本并汇总今日经营结果</p></div><div class="accounting-actions"><el-tag v-if="accounting.draftFactCount" type="warning">{{ accounting.draftFactCount }} 条其他草稿待确认</el-tag><el-button link type="primary" @click="openAccounting()">进入每日收支</el-button></div></div>
-      <div class="accounting-periods"><article class="period-card today-card"><div><span>今日经营结果</span><small>{{ accounting.bizDate || '—' }} · 已确认口径</small></div><strong :class="amountTone(accounting.today?.profitAmount)">{{ signed(accounting.today?.profitAmount) }}</strong><div class="period-breakdown"><span>收入 {{ money(accounting.today?.revenueAmount) }}</span><span>业务成本 {{ money(accounting.today?.businessCost) }}</span><span>人员成本 {{ money(accounting.today?.personnelCost) }}</span><span>总成本 {{ money(accounting.today?.costAmount) }}</span><span>调整 {{ signed(accounting.today?.adjustmentAmount) }}</span><span>{{ accounting.today?.projectCount || 0 }} 个已核算项目</span></div></article></div>
-      <div class="company-result-grid"><button v-for="company in accounting.companies || []" :key="company.companyDeptId" @click="openAccounting({companyDeptId:company.companyDeptId,dateFrom:accounting.bizDate,dateTo:accounting.bizDate})"><span>{{ company.companyName }}</span><b :class="amountTone(company.profitAmount)">{{ signed(company.profitAmount) }}</b><small>收入 {{ money(company.revenueAmount) }} · 业务 {{ money(company.businessCost) }} · 人员 {{ money(company.personnelCost) }}</small></button><div v-if="!accounting.companies?.length" class="accounting-empty">今日尚未生成公司经营日报</div></div>
-      <div class="accounting-detail-grid">
-        <div><div class="subsection-head"><b>经营异常与待处理</b><span>{{ accounting.alerts?.length || 0 }} 项</span></div><div v-if="!accounting.alerts?.length" class="accounting-empty">暂无亏损、超预算或项目归属异常</div><button v-for="alert in accounting.alerts || []" :key="`${alert.alertType}-${alert.projectId}`" class="alert-row" @click="alert.alertType==='MISSING_COMPANY'?openProject(alert):openAccounting({projectId:alert.projectId})"><el-tag size="small" :type="alert.alertType==='LOSS'?'danger':'warning'">{{ alertLabel[alert.alertType] }}</el-tag><span><b>{{ alert.projectName }}</b><small>{{ alert.alertMessage }}</small></span></button></div>
-        <div><div class="subsection-head"><b>今日项目经营排行</b><span>按今日经营结果排序</span></div><div v-if="!accounting.ranking?.length" class="accounting-empty">今日尚未生成项目日报</div><button v-for="(row,index) in accounting.ranking || []" :key="row.projectId" class="ranking-row" @click="openAccounting({projectId:row.projectId,dateFrom:accounting.bizDate,dateTo:accounting.bizDate})"><i>{{ index+1 }}</i><span><b>{{ row.projectName }}</b><small>{{ row.companyName || '待设置公司' }}</small></span><strong :class="amountTone(row.profitAmount)">{{ signed(row.profitAmount) }}</strong></button></div>
+      <div v-if="totalPendingCount" class="pending-toolbar">
+        <el-radio-group v-model="pendingFilter" size="small" @change="changePendingFilter">
+          <el-radio-button v-for="option in pendingFilterOptions" :key="option.value" :value="option.value">{{ option.label }} {{ option.count }}</el-radio-button>
+        </el-radio-group>
+        <span>每页 {{ pendingPageSize }} 项</span>
+      </div>
+
+      <article v-for="row in pendingRows" :key="row.itemKey" class="decision-row">
+        <div class="decision-copy">
+          <div class="decision-title"><el-tag size="small" :type="pendingTone(row)">{{ pendingLabel(row) }}</el-tag><b>{{ row.userName || row.projectName }}</b></div>
+          <span>{{ pendingDescription(row) }}</span><small>{{ pendingMeta(row) }}</small>
+        </div>
+        <div class="decision-actions">
+          <template v-if="row.category==='PROPOSAL'"><el-button size="small" type="success" @click="decideProposal(row,'APPROVED')">批准并启动</el-button><el-button size="small" type="warning" plain @click="decideProposal(row,'RETURNED')">退回修改</el-button><el-button size="small" @click="openProposal(row)">详情</el-button></template>
+          <template v-else-if="row.category==='KPI_MISSING'"><el-button size="small" type="primary" @click="openKpi(row)">{{ Number(row.targetCount) ? '发布KPI方案' : '设置KPI' }}</el-button><el-button size="small" @click="openProject(row)">项目详情</el-button></template>
+          <template v-else-if="row.category==='KPI_REVIEW'"><el-button size="small" type="primary" @click="openKpi(row)">审核结算</el-button><el-button size="small" @click="openProject(row)">项目详情</el-button></template>
+          <template v-else-if="row.category==='PERSONNEL_COST'"><el-button size="small" type="primary" @click="openPersonnelIssue(row)">{{ row.costStatus==='MISSING_REGION' ? '设置国家' : '设置月薪' }}</el-button></template>
+          <template v-else><el-button v-for="action in decisionActions(row)" :key="action.key" size="small" :type="action.type" :plain="action.plain" @click="doTransition(row,action.key)">{{ action.label }}</el-button><el-button size="small" @click="openProject(row)">详情</el-button></template>
+        </div>
+      </article>
+
+      <div v-if="totalPendingCount > pendingPageSize" class="pending-pagination">
+        <span>共 {{ totalPendingCount }} 项</span>
+        <el-pagination v-model:current-page="pendingPage" :page-size="pendingPageSize" :total="totalPendingCount" layout="prev, pager, next" background small @current-change="loadPendingPage" />
       </div>
     </section>
 
-    <section class="workflow-panel">
-      <div v-for="(stage,index) in workflowStages" :key="stage.key" class="workflow-stage"><span>{{ index + 1 }}</span><div><b>{{ stage.label }}</b><small>{{ summary[stage.key] || 0 }} 个项目</small></div></div>
-    </section>
-
-    <section class="panel decision-panel">
-      <div class="panel-head"><div><h2>待老板处理</h2><p>从立项、计划确认到暂停恢复和验收结项，所有老板决策集中在这里</p></div><el-tag type="warning">{{ decisions.length }} 项</el-tag></div>
-      <div v-if="!decisions.length && !loading" class="empty-tasks">当前没有需要老板处理的项目</div>
-      <article v-for="row in decisions" :key="row.projectId" class="decision-row">
-        <div class="decision-copy"><b>{{ row.projectName }}</b><span>{{ decisionHint(row) }}</span><small>{{ row.mainOwnerName || '未指定负责人' }} · {{ statusLabel[row.status] }}</small></div>
-        <div class="decision-actions">
-          <el-button v-for="action in decisionActions(row)" :key="action.key" size="small" :type="action.type" :plain="action.plain" @click="doTransition(row,action.key)">{{ action.label }}</el-button>
-          <el-button size="small" @click="openProject(row)">查看详情</el-button>
+    <section class="panel accounting-overview">
+      <div class="panel-head"><div><h2>今日经营</h2><p>{{ accounting.bizDate || '—' }} · 已确认口径，详细分项进入每日收支查看。</p></div><div class="panel-actions"><el-tag v-if="accounting.missingDailyResultCount" type="warning">{{ accounting.missingDailyResultCount }} 个项目待核算</el-tag><el-tag v-if="accounting.draftFactCount" type="warning">{{ accounting.draftFactCount }} 条草稿</el-tag><el-button link type="primary" @click="openAccounting()">进入每日收支</el-button></div></div>
+      <div class="finance-grid">
+        <article><span>确认收入</span><strong>{{ money(accounting.today?.revenueAmount) }}</strong></article>
+        <article><span>总成本</span><strong>{{ money(accounting.today?.costAmount) }}</strong><small>业务、人员及项目奖金</small></article>
+        <article><span>经营结果</span><strong :class="amountTone(accounting.today?.profitAmount)">{{ signed(accounting.today?.profitAmount) }}</strong></article>
+      </div>
+      <div class="alert-section">
+        <div class="subsection-head">
+          <div><b>经营异常</b><span>优先关注亏损、预算和项目归属问题</span></div>
+          <el-tag :type="accounting.alerts?.length ? 'danger' : 'success'" effect="plain" round>{{ accounting.alerts?.length || 0 }} 项</el-tag>
         </div>
-      </article>
+        <div v-if="!accounting.alerts?.length" class="empty-state compact">暂无亏损、超预算或项目归属异常</div>
+        <div v-else class="alert-grid">
+          <button v-for="alert in visibleAlerts" :key="`${alert.alertType}-${alert.projectId}`" :class="['alert-card', `alert-card--${alertClass(alert.alertType)}`]" @click="alert.alertType==='MISSING_COMPANY'?openProject(alert):openAccounting({projectId:alert.projectId})">
+            <span class="alert-icon">!</span>
+            <span class="alert-content">
+              <span class="alert-meta"><el-tag size="small" :type="alertTone(alert.alertType)" effect="light">{{ alertLabel[alert.alertType] }}</el-tag><small>点击处理</small></span>
+              <b>{{ alert.projectName }}</b>
+              <span>{{ alert.alertMessage }}</span>
+            </span>
+            <span class="alert-arrow">›</span>
+          </button>
+        </div>
+        <div v-if="(accounting.alerts?.length || 0) > visibleAlerts.length" class="alert-footer"><el-button link type="primary" @click="openAccounting()">查看全部异常</el-button></div>
+      </div>
     </section>
 
-    <section class="panel directory-panel">
-      <div class="panel-head"><div><h2>全公司项目名称目录</h2><p>两位老板共享项目名称和立项归属；非本人项目的运营详情仍然隔离</p></div><span class="directory-count">{{ companyProjects.length }} 个项目</span></div>
-      <el-table :data="companyProjects" v-loading="loading" size="small" empty-text="尚未创建项目"><el-table-column prop="projectName" label="项目名称" min-width="220" /><el-table-column label="立项老板" width="140"><template #default="{row}"><el-tag size="small" type="warning">{{ row.initiatorName }}立项</el-tag></template></el-table-column><el-table-column label="权限" width="150"><template #default="{row}"><el-button v-if="row.canOpen" link type="primary" @click="openProject(row)">打开项目</el-button><span v-else class="isolated-label">仅名称可见</span></template></el-table-column></el-table>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head"><div><h2>我的经营项目态势</h2><p>优先处理本人立项项目的待确认计划、逾期任务和高风险事项</p></div><el-button link type="primary" @click="router.push('/business/projects')">查看我的项目</el-button></div>
-      <el-table :data="projects" v-loading="loading" empty-text="尚未创建项目">
+    <section class="panel project-panel">
+      <div class="panel-head"><div><h2>项目概览</h2><p>每个项目只展示一次；项目详情、KPI 和经营数据从这里进入。</p></div><div class="panel-actions"><span class="project-count">共 {{ summary.totalCount || projects.length }} 个</span><el-button link type="primary" @click="router.push('/business/projects')">查看全部项目</el-button></div></div>
+      <el-table :data="projects" v-loading="projectLoading" empty-text="尚未创建项目">
         <el-table-column label="项目" min-width="220"><template #default="{ row }"><button class="project-link" @click="openProject(row)">{{ row.projectName }}</button><small class="subline">{{ row.projectNo }} · {{ typeLabel[row.projectType] || row.projectType }}</small></template></el-table-column>
-        <el-table-column prop="mainOwnerName" label="负责人" width="130" />
-        <el-table-column label="状态" width="120"><template #default="{ row }"><el-tag :type="statusTone[row.status] || 'info'">{{ statusLabel[row.status] || row.status }}</el-tag></template></el-table-column>
-        <el-table-column label="计划" min-width="180"><template #default="{ row }">{{ row.planStartDate || '—' }} 至 {{ row.planEndDate || '—' }}</template></el-table-column>
-        <el-table-column label="进度" width="150"><template #default="{ row }"><el-progress :percentage="progress(row)" :stroke-width="8" /></template></el-table-column>
-        <el-table-column label="风险" width="90" align="center"><template #default="{ row }"><el-badge :value="row.openRiskCount || 0" :hidden="!row.openRiskCount" type="danger"><span class="risk-anchor">风险</span></el-badge></template></el-table-column>
-        <el-table-column label="决策" width="180" fixed="right"><template #default="{ row }">
-          <el-button v-if="primaryAction(row)" link :type="primaryAction(row).type" @click="doTransition(row,primaryAction(row).key)">{{ primaryAction(row).label }}</el-button>
-          <el-button link type="primary" @click="openProject(row)">详情</el-button>
-        </template></el-table-column>
+        <el-table-column prop="mainOwnerName" label="负责人" width="120" />
+        <el-table-column label="状态" width="105"><template #default="{ row }"><el-tag :type="statusTone[row.status] || 'info'">{{ statusLabel[row.status] || row.status }}</el-tag></template></el-table-column>
+        <el-table-column label="进度" width="145"><template #default="{ row }"><el-progress :percentage="progress(row)" :stroke-width="8" /></template></el-table-column>
+        <el-table-column label="KPI状态" width="125"><template #default="{ row }"><el-tag :type="kpiMeta(row).tone">{{ kpiMeta(row).label }}</el-tag></template></el-table-column>
+        <el-table-column label="风险" width="90" align="center"><template #default="{ row }"><el-tag v-if="row.openRiskCount" type="danger">{{ row.openRiskCount }} 项</el-tag><span v-else class="safe-text">无</span></template></el-table-column>
+        <el-table-column label="操作" width="180" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="openKpi(row)">{{ kpiMeta(row).action }}</el-button><el-button link @click="openProject(row)">详情</el-button></template></el-table-column>
       </el-table>
-    </section>
-
-    <section class="panel personal-panel">
-      <div class="panel-head"><div><h2>我的待办</h2><p>分配给我的未完成任务，按截止时间排序</p></div></div>
-      <div v-if="!tasks.length && !loading" class="empty-tasks">当前没有未完成任务</div>
-      <button v-for="task in tasks" :key="task.taskId" class="task-row" @click="openProject(task)">
-        <span class="priority-dot" :class="`priority-${task.priority?.toLowerCase()}`"></span>
-        <span class="task-copy"><b>{{ task.taskName }}</b><small>{{ task.projectName }} · {{ task.projectNo }}</small></span>
-        <span class="task-meta">{{ taskStatusLabel[task.status] || task.status }}<small :class="{ overdue: isOverdue(task.dueDate) }">{{ task.dueDate || '未设期限' }}</small></span>
-      </button>
+      <div v-if="projectPage.total > projectPage.pageSize" class="project-pagination">
+        <span>第 {{ projectPage.pageNum }} 页，共 {{ projectPage.total }} 个项目</span>
+        <el-pagination v-model:current-page="projectPage.pageNum" :page-size="projectPage.pageSize" :total="projectPage.total" layout="prev, pager, next" background @current-change="loadProjectPage" />
+      </div>
     </section>
   </div>
 </template>
 
 <script setup name="BusinessBoss">
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getBossBusinessDashboard, getBossProjectDirectory, transitionBusinessProject } from '@/api/business/project'
+import { getBossBusinessDashboard, getBossBusinessPending, transitionBusinessProject } from '@/api/business/project'
 import { getBusinessBossAccountingOverview } from '@/api/business/accounting'
+import { getProjectKpiOverview } from '@/api/business/kpi'
+import { reviewProjectProposal } from '@/api/business/proposal'
 
 const router = useRouter()
 const loading = ref(false)
+const projectLoading = ref(false)
 const summary = ref({})
 const projects = ref([])
-const tasks = ref([])
-const decisions = ref([])
-const companyProjects = ref([])
-const accounting=ref({today:{},alerts:[],ranking:[],companies:[],draftFactCount:0})
-const metrics = [
-  { key: 'totalCount', label: '我的项目', hint: '本人立项项目总量', tone: 'ink' },
-  { key: 'activeCount', label: '执行中', hint: '已确认基线', tone: 'blue' },
-  { key: 'pendingDecisionCount', label: '待我处理', hint: '立项、计划、暂停和验收', tone: 'violet' },
-  { key: 'acceptanceCount', label: '待验收', hint: '等待最终确认', tone: 'green' },
-  { key: 'overdueProjectCount', label: '存在逾期', hint: '至少一项任务逾期', tone: 'orange' },
-  { key: 'highRiskProjectCount', label: '高风险', hint: '高/严重未关闭风险', tone: 'red' }
-]
+const projectPage = reactive({pageNum:1,pageSize:10,total:0})
+const kpiOverviews = ref([])
+const accounting = ref({today:{},alerts:[],draftFactCount:0})
 const statusLabel = { DRAFT: '草稿', PLANNING: '规划中', ACTIVE: '执行中', PAUSED: '已暂停', ACCEPTANCE: '待验收', CLOSED: '已关闭', CANCELED: '已取消' }
 const statusTone = { DRAFT: 'info', PLANNING: 'warning', ACTIVE: 'primary', PAUSED: 'info', ACCEPTANCE: 'success', CLOSED: 'success', CANCELED: 'danger' }
-const typeLabel = { LIVE: '直播', JEWELRY: '珠宝', ECOMMERCE: '电商', OPERATIONS: '运营', INTERNAL: '内部', OTHER: '其他' }
-const taskStatusLabel = { TODO: '待开始', DOING: '进行中', BLOCKED: '受阻' }
-const alertLabel={LOSS:'当日亏损',OVER_BUDGET:'预算超支',MISSING_COMPANY:'待设公司'}
-const workflowStages = [{key:'draftCount',label:'立项草稿'},{key:'planningCount',label:'规划与计划'},{key:'activeCount',label:'执行监管'},{key:'pausedCount',label:'暂停处理'},{key:'acceptanceCount',label:'验收结项'}]
+const typeLabel = { GENERAL: '通用', LIVE: '直播', JEWELRY: '珠宝', CONTENT: '内容', ECOMMERCE: '电商', OPERATIONS: '运营', INTERNAL: '内部', OTHER: '其他' }
+const alertLabel = {LOSS:'当日亏损',OVER_BUDGET:'预算超支',MISSING_COMPANY:'待设公司'}
+const alertTone = type => ({LOSS:'danger',OVER_BUDGET:'warning',MISSING_COMPANY:'info'}[type] || 'warning')
+const alertClass = type => String(type || 'warning').toLowerCase().replaceAll('_','-')
 const actionMeta = {START_PLANNING:{label:'进入规划',type:'primary'},CONFIRM_BASELINE:{label:'确认并启动',type:'success'},RETURN_PLAN:{label:'退回计划',type:'warning',plain:true},RESUME:{label:'恢复执行',type:'primary'},REVIEW_ACCEPTANCE:{label:'查看验收资料',type:'success'}}
+const kpiOverviewMap = computed(() => new Map(kpiOverviews.value.map(item => [Number(item.projectId), item])))
+const pendingPageSize = 5
+const pendingPage = ref(1)
+const pendingFilter = ref('ALL')
+const pendingRows = ref([])
+const pendingCounts = ref({})
+const pendingTotal = ref(0)
+const totalPendingCount = computed(() => pendingTotal.value)
+const pendingFilterOptions = computed(() => [
+  {value:'ALL',label:'全部',count:Number(pendingCounts.value.totalCount || 0)},
+  {value:'PROPOSAL',label:'立项审批',count:Number(pendingCounts.value.proposalCount || 0)},
+  {value:'KPI_MISSING',label:'KPI待设置/发布',count:Number(pendingCounts.value.kpiMissingCount || 0)},
+  {value:'KPI_REVIEW',label:'KPI结算确认',count:Number(pendingCounts.value.kpiReviewCount || 0)},
+  {value:'PERSONNEL_COST',label:'人员成本',count:Number(pendingCounts.value.personnelCostCount || 0)},
+  {value:'PROJECT',label:'项目状态',count:Number(pendingCounts.value.projectCount || 0)}
+].filter(option => option.value === 'ALL' || option.count))
+const visibleAlerts = computed(() => (accounting.value.alerts || []).slice(0, 5))
 const progress = row => row.taskCount ? Math.round((row.completedTaskCount || 0) * 100 / row.taskCount) : 0
 const openProject = (row,tab) => router.push({ path: '/business/projects', query: { id: row.projectId, ...(tab?{tab}:{}) } })
-const startProject = () => router.push({path:'/business/projects',query:{create:'1'}})
-const openAccounting=(query={})=>router.push({path:'/business/accounting',query})
-const money=value=>Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})
-const signed=value=>`${Number(value||0)>0?'+':''}${money(value)}`
-const amountTone=value=>Number(value||0)<0?'amount-loss':'amount-profit'
-const isOverdue = date => date && date < new Date().toISOString().slice(0, 10)
+const openProposals = () => router.push({path:'/business/project-proposals',query:{tab:'review'}})
+const openProposal = row => router.push({path:'/business/project-proposals',query:{tab:'review',id:row.proposalId}})
+const openAccounting = (query={}) => router.push({path:'/business/accounting',query})
+const openPersonnelIssue = row => router.push({path:'/business/staff',query:{userId:row.userId,action:row.costStatus==='MISSING_REGION'?'edit':'cost'}})
+const openKpi = row => { const overview=kpiOverviewMap.value.get(Number(row.projectId)); const planId=row.planId || overview?.planId; router.push({path:'/business/kpi-bonus',query:{projectId:row.projectId,...(planId?{planId}:{})}}) }
+const money = value => Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})
+const signed = value => `${Number(value||0)>0?'+':''}${money(value)}`
+const amountTone = value => Number(value||0)<0?'amount-loss':'amount-profit'
+const kpiMeta = row => {
+  const overview=kpiOverviewMap.value.get(Number(row.projectId))
+  if (!overview || !Number(overview.targetCount)) return {label:'未设置',tone:'info',action:'设置KPI'}
+  if (!overview.planId) return {label:'待发布',tone:'warning',action:'继续配置'}
+  const meta={DRAFT:{label:'填报中',tone:'primary'},SUBMITTED:{label:'待确认',tone:'warning'},RETURNED:{label:'已退回',tone:'danger'},CONFIRMED:{label:'已确认',tone:'success'}}[overview.settlementStatus]
+  return {...(meta||{label:`方案 v${overview.planVersion}`,tone:'info'}),action:overview.settlementStatus==='SUBMITTED'?'审核结算':'查看KPI'}
+}
 const decisionActions = row => row.status==='DRAFT'?[{key:'START_PLANNING',...actionMeta.START_PLANNING}]:row.status==='PLANNING'&&row.baselineStatus==='SUBMITTED'?[{key:'CONFIRM_BASELINE',...actionMeta.CONFIRM_BASELINE},{key:'RETURN_PLAN',...actionMeta.RETURN_PLAN}]:row.status==='PAUSED'?[{key:'RESUME',...actionMeta.RESUME}]:row.status==='ACCEPTANCE'?[{key:'REVIEW_ACCEPTANCE',...actionMeta.REVIEW_ACCEPTANCE}]:[]
-const primaryAction = row => decisionActions(row)[0]
-const decisionHint = row => row.status==='DRAFT'?'确认项目进入规划，由负责人开始拆解计划':row.status==='PLANNING'?'计划已提交，等待确认或退回':row.status==='PAUSED'?'项目处于暂停状态，决定是否恢复执行':row.status==='ACCEPTANCE'?'验收资料已提交，等待关闭或退回执行':'需要老板处理'
+const decisionHint = row => row.status==='DRAFT'?'历史草稿等待确认进入规划':row.status==='PLANNING'?'历史计划已提交，等待确认或退回':row.status==='PAUSED'?'项目处于暂停状态，决定是否恢复执行':row.status==='ACCEPTANCE'?'验收资料已提交，等待关闭或退回执行':'需要老板处理'
+const personnelIssueHint = row => row.costStatus==='MISSING_REGION'?'国家/地区尚未明确，系统无法确定按 21.75 天还是 26 天折算。':row.costStatus==='LEGACY_COST'?'当前仍是历史成本口径，请更新为人民币月度用人成本。':'尚未设置今天生效的人民币月度用人成本。'
+const pendingLabel = row => row.category==='PROPOSAL'?'立项审批':row.category==='KPI_MISSING'?(Number(row.targetCount)?'KPI待发布':'KPI未设置'):row.category==='KPI_REVIEW'?'KPI结算待确认':row.category==='PERSONNEL_COST'?'人员成本':'项目状态'
+const pendingTone = row => row.category==='KPI_MISSING'||row.costStatus==='MISSING_REGION'?'danger':row.category==='PROPOSAL'||row.category==='KPI_REVIEW'||row.category==='PERSONNEL_COST'?'warning':'info'
+const pendingDescription = row => row.category==='PROPOSAL'?(row.objective || '新的立项申请等待审批'):row.category==='KPI_MISSING'?(Number(row.targetCount)?`已有 ${row.targetCount} 项 KPI 目标，但尚未发布考核与奖金方案。`:'项目已进入执行流程，但还没有设置当前 KPI 目标。'):row.category==='KPI_REVIEW'?'负责人已提交 KPI 结果，确认后项目奖金会立即计入成本，并解除该周期的结项限制。':row.category==='PERSONNEL_COST'?personnelIssueHint(row):decisionHint(row)
+const pendingMeta = row => {
+  if(row.category==='PROPOSAL')return `${row.applicantName} 负责 · ${row.companyName || '未设置公司'} · ${row.planStartDate || '—'} 至 ${row.planEndDate || '—'}`
+  if(row.category==='KPI_REVIEW')return `方案 v${row.planVersion} · 截止 ${row.cycleEnd || '—'} · 综合得分 ${row.totalScore ?? '—'} · 预计项目奖金 ¥${money(row.bonusAmount)}`
+  if(row.category==='PERSONNEL_COST')return row.projectCount?`${row.companyName || '未设置所属公司'} · 影响 ${row.projectCount} 个项目：${row.projectNameText || '—'}`:`${row.companyName || '未设置所属公司'} · 尚未加入执行中项目`
+  return `${row.mainOwnerName || '未指定负责人'} · ${statusLabel[row.status] || row.status || '—'}`
+}
+
+async function loadPendingPage() {
+  const result = await getBossBusinessPending({pageNum:pendingPage.value,pageSize:pendingPageSize,category:pendingFilter.value})
+  const page = result.data || {}
+  pendingRows.value = page.rows || []
+  pendingTotal.value = Number(page.total || 0)
+  pendingCounts.value = page.counts || {}
+}
+async function loadVisibleProjectKpis() {
+  const projectIds = projects.value.map(row => row.projectId).filter(Boolean)
+  if (!projectIds.length) { kpiOverviews.value = []; return }
+  const result = await getProjectKpiOverview({projectIds:projectIds.join(',')})
+  kpiOverviews.value = result.data || []
+}
+async function changePendingFilter() {
+  pendingPage.value = 1
+  await loadPendingPage()
+}
 
 async function load() {
   loading.value = true
   try {
-    const [dashboardResult,directoryResult,accountingResult] = await Promise.all([getBossBusinessDashboard(),getBossProjectDirectory(),getBusinessBossAccountingOverview()])
+    const [dashboardResult,accountingResult,pendingResult] = await Promise.all([getBossBusinessDashboard({projectPageNum:projectPage.pageNum,projectPageSize:projectPage.pageSize,decisionPageSize:1}),getBusinessBossAccountingOverview(),getBossBusinessPending({pageNum:pendingPage.value,pageSize:pendingPageSize,category:pendingFilter.value})])
     const data = dashboardResult.data || {}
     summary.value = data.summary || {}
-    projects.value = data.projects || []
-    decisions.value = data.decisions || []
-    tasks.value = data.tasks || []
-    companyProjects.value = directoryResult.data || []
-    accounting.value=accountingResult.data||{today:{},alerts:[],ranking:[],companies:[]}
+    const page = data.projectPage || {}
+    projects.value = page.rows || data.projects || []
+    projectPage.total = Number(page.total ?? summary.value.totalCount ?? projects.value.length)
+    projectPage.pageNum = Number(page.pageNum || projectPage.pageNum)
+    projectPage.pageSize = Number(page.pageSize || projectPage.pageSize)
+    accounting.value = accountingResult.data || {today:{},alerts:[]}
+    const pending = pendingResult.data || {}
+    pendingRows.value = pending.rows || []
+    pendingTotal.value = Number(pending.total || 0)
+    pendingCounts.value = pending.counts || {}
+    await loadVisibleProjectKpis()
   } finally { loading.value = false }
 }
+async function loadProjectPage() {
+  projectLoading.value = true
+  try {
+    const result = await getBossBusinessDashboard({projectPageNum:projectPage.pageNum,projectPageSize:projectPage.pageSize,decisionPageSize:1})
+    const data = result.data || {}
+    const page = data.projectPage || {}
+    projects.value = page.rows || data.projects || []
+    projectPage.total = Number(page.total ?? projectPage.total)
+    await loadVisibleProjectKpis()
+  } finally { projectLoading.value = false }
+}
+async function decideProposal(row,decision){let comment='';if(decision==='RETURNED'){const result=await ElMessageBox.prompt('请填写退回原因','退回立项申请',{inputValidator:value=>!!value?.trim()||'必须填写退回原因'});comment=result.value}else await ElMessageBox.confirm(`批准“${row.projectName}”后将直接创建执行中项目，并由 ${row.applicantName} 负责。确认批准吗？`,'批准立项',{type:'warning'});await reviewProjectProposal(row.proposalId,{decision,comment});ElMessage.success(decision==='APPROVED'?'已批准立项并启动项目':'申请已退回修改');await load()}
 async function doTransition(row, action) {
   if(action==='REVIEW_ACCEPTANCE')return openProject(row,'acceptance')
   const meta = actionMeta[action] || {label:'执行操作'}
@@ -139,7 +220,6 @@ load()
 </script>
 
 <style scoped>
-.business-page{min-height:calc(100vh - 84px);padding:24px;background:#f3f5f8;color:#172033}.hero{display:flex;align-items:flex-end;justify-content:space-between;padding:26px 30px;border-radius:16px;background:linear-gradient(120deg,#10233f,#1d4566);color:#fff;box-shadow:0 12px 35px rgba(15,35,62,.18)}.eyebrow{font-size:11px;letter-spacing:.18em;color:#8ed8d0}.hero h1{margin:5px 0 4px;font-size:28px}.hero p{margin:0;color:#c8d5e2}.hero-actions{display:flex;gap:10px}.metric-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin:18px 0}.metric-card{position:relative;overflow:hidden;padding:18px;border:1px solid #e0e5eb;border-radius:12px;background:#fff}.metric-card:before{position:absolute;top:0;left:0;width:100%;height:3px;background:var(--tone);content:""}.metric-card span,.metric-card small{display:block;color:#738093}.metric-card strong{display:block;margin:8px 0 5px;font-size:27px}.tone-ink{--tone:#1c314f}.tone-blue{--tone:#3977c5}.tone-violet{--tone:#7357b4}.tone-green{--tone:#1a907f}.tone-orange{--tone:#d58227}.tone-red{--tone:#cb4b55}.workflow-panel{display:grid;grid-template-columns:repeat(5,1fr);margin-bottom:14px;border:1px solid #dfe5eb;border-radius:14px;background:#fff;overflow:hidden}.workflow-stage{display:flex;align-items:center;gap:10px;padding:15px;border-right:1px solid #e5e9ee}.workflow-stage:last-child{border:0}.workflow-stage>span{display:grid;width:28px;height:28px;flex:0 0 28px;place-items:center;border-radius:50%;background:#e8f0f8;color:#2c6197;font-weight:700}.workflow-stage b,.workflow-stage small{display:block}.workflow-stage small{margin-top:3px;color:#8793a1}.panel{padding:20px;border:1px solid #e0e5eb;border-radius:14px;background:#fff}.decision-panel,.directory-panel{margin-bottom:14px}.directory-count{color:#728092;font-size:13px}.isolated-label{color:#9a6c25;font-size:12px}.personal-panel{margin-top:14px}.panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.panel-head h2{margin:0;font-size:18px}.panel-head p{margin:4px 0 0;color:#8490a0;font-size:13px}.decision-row{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:14px 0;border-top:1px solid #edf0f3}.decision-copy{display:flex;min-width:0;flex-direction:column}.decision-copy span{margin-top:5px;color:#536477}.decision-copy small{margin-top:4px;color:#8a95a3}.decision-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}.decision-actions .el-button+.el-button{margin-left:0}.project-link{padding:0;border:0;background:none;color:#24364d;font:inherit;font-weight:650;cursor:pointer}.project-link:hover{color:#409eff}.subline{display:block;margin-top:4px;color:#8a94a3}.risk-anchor{display:inline-block;padding:4px 8px;color:#697586}.el-progress{max-width:120px}.task-row{display:flex;width:100%;align-items:center;padding:13px 8px;border:0;border-top:1px solid #edf0f3;background:#fff;text-align:left;cursor:pointer}.task-row:hover{background:#f7fafc}.priority-dot{width:8px;height:8px;flex:0 0 8px;margin-right:12px;border-radius:50%;background:#789}.priority-high{background:#d44b54}.priority-medium{background:#db912e}.priority-low{background:#47917c}.task-copy{display:flex;min-width:0;flex:1;flex-direction:column}.task-copy b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.task-copy small,.task-meta small{margin-top:4px;color:#8994a2}.task-meta{display:flex;align-items:flex-end;flex-direction:column;color:#536174;font-size:13px}.task-meta small.overdue{color:#d7474f}.empty-tasks{padding:28px 0;text-align:center;color:#9aa4b1}@media(max-width:1200px){.metric-grid{grid-template-columns:repeat(3,1fr)}.workflow-panel{grid-template-columns:repeat(3,1fr)}.workflow-stage:nth-child(3){border-right:0}.workflow-stage:nth-child(-n+3){border-bottom:1px solid #e5e9ee}}@media(max-width:760px){.business-page{padding:14px}.hero{align-items:flex-start;flex-direction:column;gap:18px;padding:22px}.hero-actions{width:100%}.hero-actions .el-button{flex:1}.metric-grid{grid-template-columns:repeat(2,1fr)}.workflow-panel{grid-template-columns:1fr}.workflow-stage{border-right:0;border-bottom:1px solid #e5e9ee}.workflow-stage:nth-child(-n+3){border-bottom:1px solid #e5e9ee}.panel{padding:14px}.panel-head p{display:none}.decision-row{align-items:flex-start;flex-direction:column}.decision-actions{width:100%;justify-content:flex-start}.decision-actions .el-button{flex:1}.task-row{align-items:flex-start}.task-meta{min-width:80px}}
-.accounting-overview{margin-bottom:14px}.accounting-actions{display:flex;align-items:center;gap:10px}.accounting-periods{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.period-card{display:grid;grid-template-columns:1fr auto;gap:10px;padding:17px;border:1px solid #dfe6ec;border-radius:12px;background:#f8fafc}.period-card span,.period-card small{display:block}.period-card small{margin-top:5px;color:#8793a1}.period-card>strong{font-size:25px}.period-breakdown{display:flex;grid-column:1/-1;flex-wrap:wrap;gap:8px 20px;padding-top:10px;border-top:1px solid #e5e9ee;color:#596879;font-size:13px}.today-card{border-left:3px solid #3977c5}.month-card{border-left:3px solid #258a78}.amount-profit{color:#21836a}.amount-loss{color:#cf4852}.company-result-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:10px}.company-result-grid button{padding:13px 15px;border:1px solid #e1e6eb;border-radius:10px;background:#fff;text-align:left;cursor:pointer}.company-result-grid span,.company-result-grid b,.company-result-grid small{display:block}.company-result-grid b{margin:6px 0;font-size:19px}.company-result-grid small{color:#8793a1}.accounting-detail-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;margin-top:18px}.accounting-detail-grid>div{min-width:0}.subsection-head{display:flex;justify-content:space-between;padding-bottom:9px;border-bottom:1px solid #e8ecf0}.subsection-head span{color:#8a95a2;font-size:12px}.alert-row,.ranking-row{display:flex;width:100%;align-items:center;gap:10px;padding:11px 4px;border:0;border-bottom:1px solid #edf0f3;background:#fff;text-align:left;cursor:pointer}.alert-row>span,.ranking-row>span{display:flex;min-width:0;flex:1;flex-direction:column}.alert-row small,.ranking-row small{margin-top:4px;color:#8994a2}.ranking-row i{display:grid;width:25px;height:25px;place-items:center;border-radius:50%;background:#edf3f8;color:#3c6388;font-style:normal}.ranking-row strong{white-space:nowrap}.accounting-empty{padding:20px 8px;color:#9aa4b1;text-align:center}@media(max-width:760px){.accounting-periods,.company-result-grid,.accounting-detail-grid{grid-template-columns:1fr}.accounting-actions{align-items:flex-end;flex-direction:column}}
-.accounting-periods{grid-template-columns:1fr}
+.business-page{min-height:calc(100vh - 84px);padding:24px;background:#f3f5f8;color:#172033}.hero{display:flex;align-items:flex-end;justify-content:space-between;padding:26px 30px;border-radius:16px;background:linear-gradient(120deg,#10233f,#1d4566);color:#fff;box-shadow:0 12px 35px rgba(15,35,62,.18)}.eyebrow{font-size:11px;letter-spacing:.18em;color:#8ed8d0}.hero h1{margin:5px 0 4px;font-size:28px}.hero p{margin:0;color:#c8d5e2}.hero-actions,.panel-actions{display:flex;align-items:center;gap:10px}.panel{margin-top:14px;padding:20px;border:1px solid #e0e5eb;border-radius:14px;background:#fff}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px}.panel-head h2{margin:0;font-size:18px}.panel-head p{margin:4px 0 0;color:#8490a0;font-size:13px}.pending-toolbar,.pending-pagination{display:flex;align-items:center;justify-content:space-between;gap:12px}.pending-toolbar{padding:10px 12px;border:1px solid #e4e9ee;border-radius:10px;background:#f8fafc}.pending-toolbar>span,.pending-pagination>span{color:#7e8a98;font-size:12px;white-space:nowrap}.pending-pagination{justify-content:flex-end;padding-top:16px;border-top:1px solid #edf0f3}.decision-row{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:14px 0;border-top:1px solid #edf0f3}.decision-copy{display:flex;min-width:0;flex:1;flex-direction:column}.decision-title{display:flex;align-items:center;gap:9px}.decision-copy span{margin-top:5px;color:#536477}.decision-copy small{margin-top:4px;color:#8a95a3}.decision-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}.decision-actions .el-button+.el-button{margin-left:0}.empty-state{padding:28px 0;text-align:center;color:#9aa4b1}.empty-state.compact{padding:18px 0}.finance-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.finance-grid article{padding:17px 18px;border:1px solid #dfe6ec;border-radius:12px;background:#f8fafc}.finance-grid span,.finance-grid small,.finance-grid strong{display:block}.finance-grid span,.finance-grid small{color:#7f8b98}.finance-grid strong{margin-top:8px;font-size:25px}.finance-grid small{margin-top:5px;font-size:12px}.amount-profit{color:#21836a}.amount-loss{color:#cf4852}.alert-section{margin-top:18px;padding:16px;border:1px solid #e5eaf0;border-radius:12px;background:#f8fafc}.subsection-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.subsection-head>div{display:flex;align-items:baseline;gap:10px}.subsection-head>div span{color:#8a95a2;font-size:12px}.alert-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.alert-card{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:11px;min-height:112px;padding:14px;border:1px solid #e0e6ec;border-radius:11px;background:#fff;color:inherit;text-align:left;cursor:pointer;transition:border-color .18s,box-shadow .18s,transform .18s}.alert-card:hover{border-color:#b9c7d5;box-shadow:0 7px 18px rgba(31,53,74,.09);transform:translateY(-1px)}.alert-icon{display:flex;width:30px;height:30px;align-items:center;justify-content:center;border-radius:9px;background:#fff0f1;color:#d94e58;font-size:17px;font-weight:800}.alert-card--over-budget .alert-icon{background:#fff5e6;color:#c8841c}.alert-card--missing-company .alert-icon{background:#eef4fb;color:#4f78a8}.alert-content{display:flex;min-width:0;flex-direction:column}.alert-meta{display:flex;align-items:center;justify-content:space-between;gap:8px}.alert-meta small{color:#9aa4af;font-size:11px}.alert-content>b{margin-top:9px;overflow:hidden;color:#223248;text-overflow:ellipsis;white-space:nowrap}.alert-content>span:last-child{margin-top:4px;color:#788695;font-size:12px;line-height:1.45}.alert-arrow{margin-top:39px;color:#a3adb8;font-size:24px;line-height:1}.alert-card:hover .alert-arrow{color:#58748d}.alert-footer{display:flex;justify-content:flex-end;padding-top:8px}.project-count{color:#728092;font-size:13px}.project-link{padding:0;border:0;background:none;color:#24364d;font:inherit;font-weight:650;cursor:pointer}.project-link:hover{color:#409eff}.subline{display:block;margin-top:4px;color:#8a94a3}.safe-text{color:#7d8997}.el-progress{max-width:120px}@media(max-width:1050px){.alert-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:900px){.finance-grid{grid-template-columns:1fr}.panel-head{align-items:flex-start}.panel-actions{align-items:flex-end;flex-direction:column}}@media(max-width:760px){.business-page{padding:14px}.hero{align-items:flex-start;flex-direction:column;gap:18px;padding:22px}.hero-actions{width:100%}.hero-actions .el-button{flex:1}.panel{padding:14px}.panel-head p{display:none}.pending-toolbar{align-items:stretch;flex-direction:column}.pending-toolbar :deep(.el-radio-group){display:grid;grid-template-columns:repeat(2,1fr)}.pending-toolbar :deep(.el-radio-button__inner){width:100%;padding:8px 5px}.pending-toolbar>span{text-align:right}.pending-pagination{align-items:flex-end;flex-direction:column}.decision-row{align-items:flex-start;flex-direction:column}.decision-actions{width:100%;justify-content:flex-start}.decision-actions .el-button{flex:1}.subsection-head{align-items:flex-start}.subsection-head>div{align-items:flex-start;flex-direction:column;gap:3px}.alert-grid{grid-template-columns:1fr}.alert-card{min-height:0}}
+.project-pagination{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:16px}.project-pagination>span{color:#7e8a98;font-size:12px}
 </style>

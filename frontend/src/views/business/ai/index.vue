@@ -75,14 +75,14 @@ const aiMessages=ref([])
 const aiMessagesEl=ref()
 const aiEngine=ref('DeepSeek V4 Flash')
 const conversationStorageKey='business:boss-ai:active-conversation'
-const aiPrompts=['帮我创建一个新项目','帮我审核待审批计划','今天经营怎么样？','有哪些项目需要我处理？']
+const aiPrompts=['有哪些立项申请待我审批？','帮我查看项目风险','今天经营怎么样？','有哪些项目需要我处理？']
 const accountingLabel={PROFIT:'利润项目',COST:'成本项目',VALUE:'价值项目',HYBRID:'混合核算'}
 const managementLabel={SIMPLE:'精简模式',STANDARD:'标准模式',DELIVERY:'交付模式'}
 const capabilities=[
-  {icon:'建',title:'对话创建项目',description:'收集立项信息，确认后正式创建',prompt:'帮我创建一个新项目'},
+  {icon:'审',title:'查看立项审批',description:'立项由负责人申请，老板在立项审批中一次决定',prompt:'有哪些立项申请待我审批？'},
   {icon:'¥',title:'查今日经营',description:'收入、业务成本、人员成本与盈亏',prompt:'今天经营怎么样？'},
   {icon:'项',title:'看项目态势',description:'项目状态、进度、逾期和风险',prompt:'现在所有项目的整体情况怎么样？'},
-  {icon:'审',title:'审核负责人计划',description:'读懂计划、检查缺项，确认后批准或退回',prompt:'帮我审核待审批计划'},
+  {icon:'险',title:'检查项目风险',description:'汇总逾期、风险与需要老板关注的项目',prompt:'帮我查看项目风险'},
   {icon:'验',title:'审核项目验收',description:'核对成果、交付凭证，确认后结项或退回',prompt:'帮我审核待验收项目'},
   {icon:'待',title:'找待处理事项',description:'汇总需要老板判断和处理的事情',prompt:'有哪些项目需要我处理？'},
   {icon:'人',title:'看人员概况',description:'两家公司人员数量和分布',prompt:'现在的人员分布怎么样？'}

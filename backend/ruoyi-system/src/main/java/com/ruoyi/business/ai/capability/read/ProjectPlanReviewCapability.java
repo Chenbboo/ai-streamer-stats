@@ -11,7 +11,6 @@ import com.ruoyi.business.ai.capability.AiSchemas;
 import com.ruoyi.business.ai.capability.project.ProjectPlanCapabilitySupport;
 
 /** Read-only review of a submitted project plan. */
-@Component
 public class ProjectPlanReviewCapability implements AiCapability
 {
     private final ProjectPlanCapabilitySupport support;

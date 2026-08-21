@@ -69,14 +69,6 @@ public class BusinessProjectController extends BaseController
         return success(projectService.userOptions(keyword));
     }
 
-    @PreAuthorize("@ss.hasPermi('business:project:add')")
-    @Log(title = "经营项目", businessType = BusinessType.INSERT)
-    @PostMapping("/project")
-    public AjaxResult add(@RequestBody BusinessProject project)
-    {
-        return success(projectService.createProject(project, currentUserId(), currentUserName()));
-    }
-
     @PreAuthorize("@ss.hasPermi('business:project:edit')")
     @Log(title = "经营项目", businessType = BusinessType.UPDATE)
     @PutMapping("/project")
@@ -284,9 +276,16 @@ public class BusinessProjectController extends BaseController
 
     @PreAuthorize("@ss.hasPermi('business:boss:view')")
     @GetMapping("/boss/dashboard")
-    public AjaxResult bossDashboard()
+    public AjaxResult bossDashboard(@RequestParam Map<String, Object> query)
     {
-        return success(projectService.dashboard(currentUserId(), isAdministrator(), true));
+        return success(projectService.dashboard(query, currentUserId(), isAdministrator(), true));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:boss:view')")
+    @GetMapping("/boss/pending")
+    public AjaxResult bossPending(@RequestParam Map<String, Object> query)
+    {
+        return success(projectService.bossPending(query, currentUserId(), isAdministrator()));
     }
 
     @PreAuthorize("@ss.hasPermi('business:boss:view')")

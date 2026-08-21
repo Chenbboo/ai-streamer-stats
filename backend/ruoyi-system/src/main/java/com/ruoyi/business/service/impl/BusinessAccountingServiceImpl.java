@@ -38,26 +38,109 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     }
 
     @Override
-    @Transactional
     public Map<String,Object> bossOverview(Long userId,boolean viewAll)
     {
         String today=new SimpleDateFormat("yyyy-MM-dd").format(new Date());
         Date bizDate=java.sql.Date.valueOf(today);
-        List<Long> missingProjects=mapper.selectProjectsMissingDailyResult(userId,viewAll,bizDate);
-        if(missingProjects!=null)
-            for(Long projectId:missingProjects)recalculateInternal(projectId,bizDate,"system-auto");
         Map<String,Object> todayQuery=new HashMap<String,Object>();todayQuery.put("userId",userId);
         todayQuery.put("viewAll",viewAll);todayQuery.put("dateFrom",today);todayQuery.put("dateTo",today);
         Map<String,Object> alertQuery=new HashMap<String,Object>();alertQuery.put("userId",userId);
         alertQuery.put("viewAll",viewAll);alertQuery.put("bizDate",today);
+        // 人员成本是否完整是公司级责任：即使员工尚未加入任何项目，也必须提醒对应公司老板设置。
+        List<Map<String,Object>> personnelRows=mapper.selectCompanyPersonnelCostReadiness(userId,viewAll,bizDate);
         Map<String,Object> result=new LinkedHashMap<String,Object>();
         result.put("bizDate",today);
+        result.put("missingDailyResultCount",mapper.countProjectsMissingDailyResult(userId,viewAll,bizDate));
         result.put("today",mapper.selectDailySummary(todayQuery));
         result.put("draftFactCount",mapper.countDraftFacts(todayQuery));
         result.put("alerts",mapper.selectAccountingAlerts(alertQuery));
+        result.put("personnelReadiness",summarizePersonnelReadiness(personnelRows));
         result.put("ranking",mapper.selectProjectProfitRanking(todayQuery));
         result.put("companies",mapper.selectCompanyAccountingSummary(todayQuery));
         return result;
+    }
+
+    @Override
+    public Map<String,Object> personnelCostOverview(Map<String,Object> query,Long userId,boolean viewAll)
+    {
+        Map<String,Object> scoped=scope(query,userId,viewAll);
+        String bizDate=String.valueOf(scoped.get("bizDate"));
+        if(StringUtils.isBlank(bizDate)||"null".equals(bizDate))
+            bizDate=new SimpleDateFormat("yyyy-MM-dd").format(new Date());
+        scoped.put("bizDate",bizDate);
+        List<Map<String,Object>> rows=mapper.selectPersonnelCostOverview(scoped);
+        int readyCount=0,issueCount=0,overAllocatedCount=0;
+        BigDecimal personnelCost=BigDecimal.ZERO;
+        if(rows!=null)for(Map<String,Object> row:rows)
+        {
+            String status=String.valueOf(row.get("costStatus"));
+            if("READY".equals(status)||"LEAVE".equals(status))readyCount++;else issueCount++;
+            if("OVER_ALLOCATED".equals(status))overAllocatedCount++;
+            personnelCost=personnelCost.add(decimal(row.get("personnelCost")));
+        }
+        Map<String,Object> result=new LinkedHashMap<String,Object>();
+        result.put("bizDate",bizDate);result.put("rows",rows);
+        result.put("readyCount",readyCount);result.put("issueCount",issueCount);
+        result.put("overAllocatedCount",overAllocatedCount);result.put("personnelCost",personnelCost);
+        result.put("readiness",summarizePersonnelReadiness(rows));
+        return result;
+    }
+
+    private Map<String,Object> summarizePersonnelReadiness(List<Map<String,Object>> rows)
+    {
+        Map<Long,Map<String,Object>> issueByUser=new LinkedHashMap<Long,Map<String,Object>>();
+        if(rows!=null)for(Map<String,Object> row:rows)
+        {
+            String status=String.valueOf(row.get("costStatus"));
+            if(!Arrays.asList("MISSING_REGION","MISSING_COST","LEGACY_COST").contains(status))continue;
+            Long staffUserId=longValue(row.get("userId"));
+            Map<String,Object> issue=issueByUser.get(staffUserId);
+            if(issue==null)
+            {
+                issue=new LinkedHashMap<String,Object>();
+                issue.put("userId",staffUserId);issue.put("userName",row.get("userName"));
+                issue.put("companyDeptId",row.get("companyDeptId"));issue.put("companyName",row.get("companyName"));
+                issue.put("countryRegion",row.get("profileCountryRegion"));issue.put("costStatus",status);
+                issue.put("queriedProjectCount",row.get("projectCount"));
+                issue.put("projectIds",new java.util.ArrayList<Long>());
+                issue.put("projectNames",new java.util.ArrayList<String>());
+                issueByUser.put(staffUserId,issue);
+            }
+            if("MISSING_REGION".equals(status)||("LEGACY_COST".equals(status)&&"MISSING_COST".equals(issue.get("costStatus"))))
+                issue.put("costStatus",status);
+            @SuppressWarnings("unchecked") List<Long> projectIds=(List<Long>)issue.get("projectIds");
+            Long projectId=longValue(row.get("projectId"));
+            if(projectId!=null&&!projectIds.contains(projectId))
+            {
+                projectIds.add(projectId);
+                @SuppressWarnings("unchecked") List<String> projectNames=(List<String>)issue.get("projectNames");
+                projectNames.add(String.valueOf(row.get("projectName")));
+            }
+            String projectNameText=row.get("projectNameText")==null?null:String.valueOf(row.get("projectNameText"));
+            if(StringUtils.isNotBlank(projectNameText))
+            {
+                @SuppressWarnings("unchecked") List<String> projectNames=(List<String>)issue.get("projectNames");
+                for(String name:projectNameText.split("、"))
+                    if(StringUtils.isNotBlank(name)&&!projectNames.contains(name))projectNames.add(name);
+            }
+        }
+        int missingRegionCount=0,missingCostCount=0,legacyCostCount=0;
+        List<Map<String,Object>> issues=new java.util.ArrayList<Map<String,Object>>(issueByUser.values());
+        for(Map<String,Object> issue:issues)
+        {
+            String status=String.valueOf(issue.get("costStatus"));
+            if("MISSING_REGION".equals(status))missingRegionCount++;
+            else if("LEGACY_COST".equals(status))legacyCostCount++;
+            else missingCostCount++;
+            @SuppressWarnings("unchecked") List<Long> projectIds=(List<Long>)issue.get("projectIds");
+            Object queriedCount=issue.remove("queriedProjectCount");
+            issue.put("projectCount",queriedCount==null?projectIds.size():Integer.valueOf(String.valueOf(queriedCount)));
+            issue.remove("projectIds");
+        }
+        Map<String,Object> result=new LinkedHashMap<String,Object>();
+        result.put("issueCount",issues.size());result.put("missingRegionCount",missingRegionCount);
+        result.put("missingCostCount",missingCostCount);result.put("legacyCostCount",legacyCostCount);
+        result.put("issues",issues);return result;
     }
 
     @Override public List<Map<String,Object>> facts(Map<String,Object> query,Long userId,boolean viewAll)
@@ -221,6 +304,32 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     { if(bizDate==null)throw new ServiceException("人员成本核算日期不能为空");return recalculateInternal(projectId,bizDate,userName); }
 
     @Override
+    @Transactional
+    public BusinessOperatingFact recordProjectBonus(Long projectId,Date bizDate,BigDecimal amount,
+        Long settlementId,Long userId,String userName)
+    {
+        if(projectId==null||bizDate==null||settlementId==null)throw new ServiceException("项目奖金入账参数不完整");
+        if(amount==null||amount.compareTo(BigDecimal.ZERO)<0)throw new ServiceException("项目奖金不能为负数");
+        if(amount.compareTo(BigDecimal.ZERO)==0)return null;
+        String idempotencyKey="KPI-BONUS-SETTLEMENT-"+settlementId;
+        BusinessOperatingFact existing=mapper.selectFactByIdempotencyKey(idempotencyKey);
+        if(existing!=null)return existing;
+        Map<String,Object> project=mapper.selectProjectForAccounting(projectId);
+        if(project==null||project.get("companyDeptId")==null)throw new ServiceException("项目不存在或未设置归属公司");
+        Map<String,Object> category=mapper.selectCategoryByCode("PROJECT_BONUS_COST");
+        if(category==null)throw new ServiceException("项目绩效奖金成本类别尚未初始化");
+        BusinessOperatingFact fact=new BusinessOperatingFact();
+        fact.setProjectId(projectId);fact.setCompanyDeptId(longValue(project.get("companyDeptId")));fact.setBizDate(bizDate);
+        fact.setCategoryId(longValue(category.get("categoryId")));fact.setCategoryCode("PROJECT_BONUS_COST");
+        fact.setCategoryName(String.valueOf(category.get("categoryName")));fact.setFactKind("COST");fact.setAmount(amount);
+        fact.setCurrency("CNY");fact.setDescription("项目KPI奖金池结算 #"+settlementId);
+        fact.setSourceDomain("KPI");fact.setSourceType("PROJECT_BONUS");fact.setSourceId(String.valueOf(settlementId));
+        fact.setStatus("CONFIRMED");fact.setIdempotencyKey(idempotencyKey);fact.setConfirmedUserId(userId);
+        fact.setConfirmedUserName(userName);fact.setConfirmedTime(new Date());fact.setCreateUserId(userId);fact.setCreateBy(userName);
+        mapper.insertFact(fact);recalculateInternal(projectId,bizDate,userName);return fact;
+    }
+
+    @Override
     public Map<String,Object> resultDetail(Long resultId,Long userId,boolean viewAll)
     {
         Map<String,Object> query=new HashMap<String,Object>();query.put("userId",userId);query.put("viewAll",viewAll);
@@ -235,9 +344,10 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             if("PERSONNEL_COST_PERSON".equals(String.valueOf(item.get("componentCode"))))personnelItems.add(item);
             else items.add(item);
         }
-        // Older result versions only stored the total. Rebuild the breakdown with the same formula for display.
-        if(personnelItems.isEmpty())
-            personnelItems=mapper.selectProjectPersonnelCostDetails(longValue(found.get("projectId")),dateValue(found.get("bizDate")));
+        // Active allocations are rebuilt with structured formula fields; retired historical rows keep their stored snapshot.
+        List<Map<String,Object>> calculatedPersonnelItems=mapper.selectProjectPersonnelCostDetails(
+            longValue(found.get("projectId")),dateValue(found.get("bizDate")));
+        if(calculatedPersonnelItems!=null&&!calculatedPersonnelItems.isEmpty())personnelItems=calculatedPersonnelItems;
         found.put("items",items);found.put("personnelItems",personnelItems);return found;
     }
 
@@ -247,16 +357,17 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         if(project==null||project.get("companyDeptId")==null)throw new ServiceException("项目不存在或未设置归属公司");
         Map<String,Object> sums=mapper.sumProjectFacts(projectId,bizDate);
         BigDecimal revenue=decimal(sums.get("revenueAmount")),cost=decimal(sums.get("costAmount"));
+        BigDecimal bonus=decimal(sums.get("bonusCost"));
         BigDecimal adjustment=decimal(sums.get("adjustmentAmount")),value=decimal(sums.get("valueScore"));
         BigDecimal personnel=decimal(mapper.sumProjectPersonnelCost(projectId,bizDate));
-        BigDecimal profit=revenue.subtract(cost).subtract(personnel).add(adjustment);
+        BigDecimal profit=revenue.subtract(cost).subtract(personnel).subtract(bonus).add(adjustment);
         Map<String,Object> result=new HashMap<String,Object>();result.put("projectId",projectId);
         result.put("companyDeptId",project.get("companyDeptId"));result.put("bizDate",bizDate);
         result.put("accountingMode",project.get("accountingMode"));result.put("revenueAmount",revenue);
-        result.put("costAmount",cost);result.put("personnelCost",personnel);result.put("adjustmentAmount",adjustment);
+        result.put("costAmount",cost);result.put("personnelCost",personnel);result.put("bonusCost",bonus);result.put("adjustmentAmount",adjustment);
         result.put("profitAmount",profit);result.put("budgetSpent",decimal(mapper.sumProjectCostToDate(projectId,bizDate)));
         result.put("valueScore",value);result.put("resultVersion",mapper.selectNextResultVersion(projectId,bizDate));
-        result.put("calculationDetail","收入 - 业务成本 - 内部人员成本 + 核算调整；价值型项目将利润解释为净投入结果");
+        result.put("calculationDetail","收入 - 业务成本 - 内部人员成本 - 项目绩效奖金 + 核算调整；价值型项目将利润解释为净投入结果");
         result.put("createBy",userName);mapper.retireCurrentResult(projectId,bizDate);mapper.insertDailyResult(result);
         addItem(result,"REVENUE","确认收入",revenue,"已确认收入经营事实合计");
         addItem(result,"BUSINESS_COST","业务成本",cost,"已确认成本经营事实合计");
@@ -265,6 +376,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         if(personnelItems!=null)for(Map<String,Object> personnelItem:personnelItems)
             addItem(result,"PERSONNEL_COST_PERSON",String.valueOf(personnelItem.get("componentName")),
                 decimal(personnelItem.get("amount")),String.valueOf(personnelItem.get("calculationDetail")));
+        addItem(result,"PROJECT_BONUS_COST","项目绩效奖金",bonus,"老板确认项目KPI结算后立即计入；不代表已向个人发放");
         addItem(result,"ADJUSTMENT","核算调整",adjustment,"已确认调整事实合计");
         return result;
     }

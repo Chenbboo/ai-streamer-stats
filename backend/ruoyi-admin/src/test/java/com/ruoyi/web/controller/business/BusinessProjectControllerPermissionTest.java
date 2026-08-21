@@ -36,7 +36,6 @@ class BusinessProjectControllerPermissionTest
     {
         Map<String, String> expected = new HashMap<String, String>();
         expected.put("list", "@ss.hasPermi('business:project:list')");
-        expected.put("add", "@ss.hasPermi('business:project:add')");
         expected.put("edit", "@ss.hasPermi('business:project:edit')");
         expected.put("changeOwner", "@ss.hasPermi('business:project:manage')");
         expected.put("submitAcceptance", "@ss.hasAnyPermi('business:project:submit,business:project:manage')");

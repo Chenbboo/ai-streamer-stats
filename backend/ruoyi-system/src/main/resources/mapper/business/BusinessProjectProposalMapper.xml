@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.business.mapper.BusinessProjectProposalMapper">
+
+    <resultMap id="ProposalResult" type="com.ruoyi.business.domain.BusinessProjectProposal">
+        <id property="proposalId" column="proposal_id"/>
+        <result property="proposalNo" column="proposal_no"/>
+        <result property="submissionVersion" column="submission_version"/>
+        <result property="projectName" column="project_name"/>
+        <result property="applicantUserId" column="applicant_user_id"/>
+        <result property="applicantName" column="applicant_name"/>
+        <result property="sponsorOwnerUserId" column="sponsor_owner_user_id"/>
+        <result property="sponsorOwnerName" column="sponsor_owner_name"/>
+        <result property="companyDeptId" column="company_dept_id"/>
+        <result property="companyName" column="company_name"/>
+        <result property="parentProjectId" column="parent_project_id"/>
+        <result property="parentProjectName" column="parent_project_name"/>
+        <result property="projectType" column="project_type"/>
+        <result property="accountingMode" column="accounting_mode"/>
+        <result property="managementMode" column="management_mode"/>
+        <result property="objective" column="objective"/>
+        <result property="applicationReason" column="application_reason"/>
+        <result property="planStartDate" column="plan_start_date"/>
+        <result property="planEndDate" column="plan_end_date"/>
+        <result property="priority" column="priority"/>
+        <result property="baseCurrency" column="base_currency"/>
+        <result property="budgetLimit" column="budget_limit"/>
+        <result property="noBudget" column="no_budget"/>
+        <result property="executionSource" column="execution_source"/>
+        <result property="status" column="status"/>
+        <result property="submittedTime" column="submitted_time"/>
+        <result property="reviewedUserId" column="reviewed_user_id"/>
+        <result property="reviewedUserName" column="reviewed_user_name"/>
+        <result property="reviewedTime" column="reviewed_time"/>
+        <result property="reviewComment" column="review_comment"/>
+        <result property="createdProjectId" column="created_project_id"/>
+        <result property="version" column="version"/>
+        <result property="delFlag" column="del_flag"/>
+        <result property="createBy" column="create_by"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateBy" column="update_by"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="remark" column="remark"/>
+    </resultMap>
+
+    <sql id="proposalColumns">
+        p.proposal_id,p.proposal_no,p.submission_version,p.project_name,
+        p.applicant_user_id,p.applicant_name,p.sponsor_owner_user_id,p.sponsor_owner_name,
+        p.company_dept_id,company.dept_name company_name,p.parent_project_id,parent.project_name parent_project_name,
+        p.project_type,p.accounting_mode,p.management_mode,p.objective,p.application_reason,
+        p.plan_start_date,p.plan_end_date,p.priority,p.base_currency,p.budget_limit,p.no_budget,
+        p.execution_source,p.status,p.submitted_time,p.reviewed_user_id,p.reviewed_user_name,p.reviewed_time,
+        p.review_comment,p.created_project_id,p.version,p.del_flag,p.create_by,p.create_time,p.update_by,p.update_time,p.remark
+    </sql>
+
+    <select id="selectOwnList" resultMap="ProposalResult">
+        select <include refid="proposalColumns"/>
+        from biz_project_proposal p
+        left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+        left join biz_project parent on parent.project_id=p.parent_project_id and parent.del_flag='0'
+        where p.del_flag='0'
+        <if test="viewAll != true">and p.applicant_user_id=#{userId}</if>
+        <if test="status != null and status != ''">and p.status=#{status}</if>
+        <if test="keyword != null and keyword != ''">
+            and (p.project_name like concat('%',#{keyword},'%') or p.proposal_no like concat('%',#{keyword},'%'))
+        </if>
+        order by p.update_time desc,p.create_time desc,p.proposal_id desc
+    </select>
+
+    <select id="selectReviewList" resultMap="ProposalResult">
+        select <include refid="proposalColumns"/>
+        from biz_project_proposal p
+        left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+        left join biz_project parent on parent.project_id=p.parent_project_id and parent.del_flag='0'
+        where p.del_flag='0' and p.sponsor_owner_user_id=#{userId}
+        <if test="status != null and status != ''">and p.status=#{status}</if>
+        <if test="status == null or status == ''">and p.status='PENDING'</if>
+        <if test="keyword != null and keyword != ''">
+            and (p.project_name like concat('%',#{keyword},'%') or p.applicant_name like concat('%',#{keyword},'%'))
+        </if>
+        order by p.submitted_time,p.proposal_id
+    </select>
+
+    <select id="selectDirectory" resultMap="ProposalResult">
+        select p.proposal_id,p.proposal_no,p.project_name,p.applicant_user_id,p.applicant_name,
+          p.sponsor_owner_user_id,p.sponsor_owner_name,p.status,p.create_time,p.update_time,p.del_flag
+        from biz_project_proposal p where p.del_flag='0'
+        <if test="keyword != null and keyword != ''">
+          and (p.project_name like concat('%',#{keyword},'%') or p.applicant_name like concat('%',#{keyword},'%'))
+        </if>
+        order by p.create_time desc,p.proposal_id desc
+    </select>
+
+    <select id="selectById" resultMap="ProposalResult">
+        select <include refid="proposalColumns"/>
+        from biz_project_proposal p
+        left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+        left join biz_project parent on parent.project_id=p.parent_project_id and parent.del_flag='0'
+        where p.proposal_id=#{proposalId} and p.del_flag='0'
+    </select>
+
+    <insert id="insertProposal" parameterType="com.ruoyi.business.domain.BusinessProjectProposal"
+            useGeneratedKeys="true" keyProperty="proposalId">
+        insert into biz_project_proposal(proposal_no,submission_version,project_name,applicant_user_id,applicant_name,
+          sponsor_owner_user_id,sponsor_owner_name,company_dept_id,parent_project_id,project_type,accounting_mode,
+          management_mode,objective,application_reason,plan_start_date,plan_end_date,priority,base_currency,
+          budget_limit,no_budget,execution_source,status,version,del_flag,create_by,create_time,update_by,update_time,remark)
+        values(#{proposalNo},0,#{projectName},#{applicantUserId},#{applicantName},#{sponsorOwnerUserId},#{sponsorOwnerName},
+          #{companyDeptId},#{parentProjectId},#{projectType},#{accountingMode},#{managementMode},#{objective},
+          #{applicationReason},#{planStartDate},#{planEndDate},#{priority},#{baseCurrency},#{budgetLimit},#{noBudget},
+          #{executionSource},'DRAFT',0,'0',#{createBy},sysdate(),#{createBy},sysdate(),#{remark})
+    </insert>
+
+    <update id="updateDraft" parameterType="com.ruoyi.business.domain.BusinessProjectProposal">
+        update biz_project_proposal set project_name=#{projectName},sponsor_owner_user_id=#{sponsorOwnerUserId},
+          sponsor_owner_name=#{sponsorOwnerName},company_dept_id=#{companyDeptId},parent_project_id=#{parentProjectId},
+          project_type=#{projectType},accounting_mode=#{accountingMode},management_mode=#{managementMode},
+          objective=#{objective},application_reason=#{applicationReason},plan_start_date=#{planStartDate},
+          plan_end_date=#{planEndDate},priority=#{priority},base_currency=#{baseCurrency},budget_limit=#{budgetLimit},
+          no_budget=#{noBudget},execution_source=#{executionSource},review_comment=null,reviewed_user_id=null,
+          reviewed_user_name=null,reviewed_time=null,update_by=#{updateBy},update_time=sysdate(),version=version+1,remark=#{remark}
+        where proposal_id=#{proposalId} and applicant_user_id=#{applicantUserId} and del_flag='0'
+          and status in ('DRAFT','RETURNED','WITHDRAWN') and version=#{version}
+    </update>
+
+    <update id="softDelete">
+        update biz_project_proposal set del_flag='2',update_by=#{userName},update_time=sysdate(),version=version+1
+        where proposal_id=#{proposalId} and applicant_user_id=#{applicantUserId} and status='DRAFT'
+          and del_flag='0' and version=#{version}
+    </update>
+
+    <update id="submit">
+        update biz_project_proposal set status='PENDING',submission_version=submission_version+1,
+          submitted_time=sysdate(),review_comment=null,reviewed_user_id=null,reviewed_user_name=null,reviewed_time=null,
+          update_by=#{userName},update_time=sysdate(),version=version+1
+        where proposal_id=#{proposalId} and applicant_user_id=#{applicantUserId}
+          and status in ('DRAFT','RETURNED','WITHDRAWN') and del_flag='0' and version=#{version}
+    </update>
+
+    <update id="withdraw">
+        update biz_project_proposal set status='WITHDRAWN',review_comment=#{comment},update_by=#{userName},
+          update_time=sysdate(),version=version+1
+        where proposal_id=#{proposalId} and applicant_user_id=#{applicantUserId}
+          and status='PENDING' and del_flag='0' and version=#{version}
+    </update>
+
+    <update id="review">
+        update biz_project_proposal set status=#{decision},reviewed_user_id=#{reviewedUserId},
+          reviewed_user_name=#{reviewedUserName},reviewed_time=sysdate(),review_comment=#{reviewComment},
+          created_project_id=#{createdProjectId},update_by=#{userName},update_time=sysdate(),version=version+1
+        where proposal_id=#{proposalId} and sponsor_owner_user_id=#{sponsorOwnerUserId}
+          and status='PENDING' and del_flag='0' and version=#{version}
+    </update>
+
+    <insert id="insertEvent" parameterType="map">
+        insert into biz_project_proposal_event(proposal_id,submission_version,event_type,from_status,to_status,
+          operator_user_id,operator_name,event_comment,snapshot_json,create_time)
+        values(#{proposalId},#{submissionVersion},#{eventType},#{fromStatus},#{toStatus},#{operatorUserId},
+          #{operatorName},#{comment},#{snapshotJson},sysdate())
+    </insert>
+
+    <select id="selectEvents" resultType="map">
+        select event_id eventId,proposal_id proposalId,submission_version submissionVersion,event_type eventType,
+          from_status fromStatus,to_status toStatus,operator_user_id operatorUserId,operator_name operatorName,
+          event_comment comment,create_time createTime
+        from biz_project_proposal_event where proposal_id=#{proposalId} order by event_id desc
+    </select>
+
+    <select id="selectActiveUser" resultType="map">
+        select u.user_id userId,u.user_name userName,u.nick_name nickName,u.dept_id deptId
+        from sys_user u left join biz_staff_profile profile on profile.user_id=u.user_id
+        where u.user_id=#{userId} and u.del_flag='0' and u.status='0'
+          and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT' limit 1
+    </select>
+
+    <select id="selectActiveBoss" resultType="map">
+        select u.user_id userId,u.user_name userName,u.nick_name nickName
+        from sys_user u join sys_user_role ur on ur.user_id=u.user_id
+        join sys_role r on r.role_id=ur.role_id and r.role_key='company_owner' and r.del_flag='0' and r.status='0'
+        left join biz_staff_profile profile on profile.user_id=u.user_id
+        where u.user_id=#{userId} and u.del_flag='0' and u.status='0'
+          and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT' limit 1
+    </select>
+
+    <select id="selectCompany" resultType="map">
+        select dept_id deptId,dept_name deptName from sys_dept
+        where dept_id=#{deptId} and parent_id=100 and del_flag='0' and status='0' limit 1
+    </select>
+
+    <select id="selectParentProject" resultType="map">
+        select project_id projectId,project_name projectName,
+          coalesce(sponsor_owner_user_id,initiator_user_id) sponsorOwnerUserId
+        from biz_project where project_id=#{projectId} and del_flag='0'
+          and status not in ('CLOSED','CANCELED') limit 1
+    </select>
+
+    <select id="selectBossOptions" resultType="map">
+        select distinct u.user_id userId,u.user_name userName,u.nick_name nickName
+        from sys_user u join sys_user_role ur on ur.user_id=u.user_id
+        join sys_role r on r.role_id=ur.role_id and r.role_key='company_owner' and r.del_flag='0' and r.status='0'
+        left join biz_staff_profile profile on profile.user_id=u.user_id
+        where u.del_flag='0' and u.status='0' and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT'
+        <if test="excludeUserId != null">and u.user_id&lt;&gt;#{excludeUserId}</if>
+        order by u.user_id
+    </select>
+
+    <select id="selectCompanyOptions" resultType="map">
+        select company.dept_id deptId,company.dept_name deptName
+        from sys_dept company
+        where company.parent_id=100 and company.del_flag='0' and company.status='0'
+        order by company.order_num,company.dept_id
+    </select>
+</mapper>

@@ -14,7 +14,6 @@ import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.StringUtils;
 
 /** Boss approval or return of a submitted project plan. */
-@Component
 public class DecideProjectPlanCapability implements AiConfirmableCapability
 {
     private final ProjectPlanCapabilitySupport support;

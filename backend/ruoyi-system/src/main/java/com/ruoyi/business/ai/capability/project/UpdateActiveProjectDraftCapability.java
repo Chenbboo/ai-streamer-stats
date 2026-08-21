@@ -16,7 +16,6 @@ import com.ruoyi.business.ai.capability.AiSchemas;
 import com.ruoyi.business.mapper.BusinessAiMapper;
 import com.ruoyi.common.exception.ServiceException;
 
-@Component
 public class UpdateActiveProjectDraftCapability extends ProjectDraftCapabilitySupport implements AiCapability
 {
     private static final Set<String> ALLOWED_FIELDS = Collections.unmodifiableSet(new LinkedHashSet<String>(Arrays.asList(

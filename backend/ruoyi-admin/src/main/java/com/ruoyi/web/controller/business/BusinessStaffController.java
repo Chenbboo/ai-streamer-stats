@@ -32,7 +32,7 @@ public class BusinessStaffController extends BaseController
     public TableDataInfo list(SysUser query)
     {
         startPage();
-        return staffService.listStaff(query);
+        return staffService.listStaff(query, SecurityUtils.getUserId(), SecurityUtils.isAdmin());
     }
 
     @PreAuthorize("@ss.hasPermi('business:staff:list')")

@@ -43,6 +43,8 @@ public interface BusinessProjectMapper
     int insertProjectKpi(BusinessProjectKpi kpi);
 
     List<BusinessStaffCostPolicy> selectStaffCostPolicies(Long userId);
+    Long selectStaffCompanyLeaderUserId(@Param("userId") Long userId,
+        @Param("lockForUpdate") boolean lockForUpdate);
     BusinessStaffCostPolicy selectStaffCostPolicyById(Long policyId);
     BusinessStaffCostPolicy selectEffectiveStaffCostPolicy(@Param("userId") Long userId,
         @Param("effectiveDate") java.util.Date effectiveDate);
@@ -54,6 +56,8 @@ public interface BusinessProjectMapper
     int insertStaffCostPolicy(BusinessStaffCostPolicy policy);
 
     List<Map<String, Object>> selectProjectStaffAllocations(Long projectId);
+    List<Map<String, Object>> selectOwnerPersonnelCostReadiness(@Param("userId") Long userId,
+        @Param("bizDate") java.util.Date bizDate, @Param("viewAll") boolean viewAll);
     BusinessProjectStaffAllocation selectProjectStaffAllocationById(Long allocationId);
     java.math.BigDecimal sumOverlappingAllocationPercent(@Param("userId") Long userId,
         @Param("effectiveFrom") java.util.Date effectiveFrom, @Param("effectiveTo") java.util.Date effectiveTo,
@@ -120,6 +124,17 @@ public interface BusinessProjectMapper
     List<Map<String, Object>> selectEvents(Long projectId);
     Map<String, Object> selectDashboardSummary(@Param("userId") Long userId, @Param("viewAll") boolean viewAll,
         @Param("boss") boolean boss);
+    List<BusinessProject> selectDashboardProjectPage(@Param("userId") Long userId,
+        @Param("viewAll") boolean viewAll, @Param("boss") boolean boss,
+        @Param("offset") int offset, @Param("pageSize") int pageSize);
+    List<BusinessProject> selectDashboardDecisionPage(@Param("userId") Long userId,
+        @Param("viewAll") boolean viewAll, @Param("boss") boolean boss,
+        @Param("offset") int offset, @Param("pageSize") int pageSize);
+    Map<String, Object> selectBossPendingCounts(@Param("userId") Long userId,
+        @Param("viewAll") boolean viewAll, @Param("bizDate") java.util.Date bizDate);
+    List<Map<String, Object>> selectBossPendingPage(@Param("userId") Long userId,
+        @Param("viewAll") boolean viewAll, @Param("bizDate") java.util.Date bizDate,
+        @Param("category") String category, @Param("offset") int offset, @Param("pageSize") int pageSize);
     List<Map<String, Object>> selectMyDueTasks(@Param("userId") Long userId,
         @Param("viewAll") boolean viewAll, @Param("boss") boolean boss);
     List<Map<String, Object>> selectMyWorkTasks(@Param("userId") Long userId,
@@ -160,6 +175,7 @@ public interface BusinessProjectMapper
         @Param("viewerUserId") Long viewerUserId, @Param("viewAll") boolean viewAll,
         @Param("boss") boolean boss);
     Map<String, Object> selectActiveUserById(Long userId);
+    String selectStaffCountryRegion(Long userId);
     Map<String, Object> selectCompanyById(Long deptId);
     Long selectRoleIdByKey(String roleKey);
     int countUserRoleByKey(@Param("userId") Long userId, @Param("roleKey") String roleKey);

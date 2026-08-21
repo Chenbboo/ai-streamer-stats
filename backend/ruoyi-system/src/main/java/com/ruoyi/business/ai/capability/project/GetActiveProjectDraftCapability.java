@@ -10,7 +10,6 @@ import com.ruoyi.business.ai.capability.AiCapabilityRisk;
 import com.ruoyi.business.ai.capability.AiSchemas;
 import com.ruoyi.business.mapper.BusinessAiMapper;
 
-@Component
 public class GetActiveProjectDraftCapability extends ProjectDraftCapabilitySupport implements AiCapability
 {
     @Autowired

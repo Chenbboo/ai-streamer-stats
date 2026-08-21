@@ -37,7 +37,35 @@ class BusinessStaffServiceImplTest
     @InjectMocks private BusinessStaffServiceImpl service;
 
     @Test
-    void creatingStaffAlwaysAssignsProjectUserRole()
+    void staffDirectoryOnlyEnablesCostActionsForOwnedCompany()
+    {
+        SysUser shanghaiStaff = new SysUser(147L);
+        shanghaiStaff.setUserName("shanghai147"); shanghaiStaff.setNickName("上海员工"); shanghaiStaff.setStatus("0");
+        SysUser vietnamStaff = new SysUser(148L);
+        vietnamStaff.setUserName("vietnam148"); vietnamStaff.setNickName("越南员工"); vietnamStaff.setStatus("0");
+        BusinessStaffProfile shanghaiProfile = new BusinessStaffProfile();
+        shanghaiProfile.setUserId(147L); shanghaiProfile.setCompanyDeptId(110L);
+        shanghaiProfile.setCompanyName("上海美丸文化公司"); shanghaiProfile.setCompanyLeaderUserId(120L);
+        shanghaiProfile.setEmploymentStatus("ACTIVE");
+        BusinessStaffProfile vietnamProfile = new BusinessStaffProfile();
+        vietnamProfile.setUserId(148L); vietnamProfile.setCompanyDeptId(111L);
+        vietnamProfile.setCompanyName("越南meimaru公司"); vietnamProfile.setCompanyLeaderUserId(143L);
+        vietnamProfile.setEmploymentStatus("ACTIVE");
+        when(userService.selectUserList(any())).thenReturn(Arrays.asList(shanghaiStaff, vietnamStaff));
+        when(profileMapper.selectByUserIds(any())).thenReturn(Arrays.asList(shanghaiProfile, vietnamProfile));
+
+        List<?> rows = service.listStaff(new SysUser(), 120L, false).getRows();
+
+        @SuppressWarnings("unchecked") Map<String, Object> shanghai = (Map<String, Object>) rows.get(0);
+        @SuppressWarnings("unchecked") Map<String, Object> vietnam = (Map<String, Object>) rows.get(1);
+        assertEquals(true, shanghai.get("canViewCost"));
+        assertEquals(true, shanghai.get("canManageCost"));
+        assertEquals(false, vietnam.get("canViewCost"));
+        assertEquals(false, vietnam.get("canManageCost"));
+    }
+
+    @Test
+    void creatingStaffAlwaysAssignsProjectAndCompanyStaffRoles()
     {
         BusinessStaffProfile input = new BusinessStaffProfile();
         input.setUserName("newstaff");
@@ -51,6 +79,7 @@ class BusinessStaffServiceImplTest
         when(deptService.selectDeptById(110L)).thenReturn(company);
         when(userService.checkUserNameUnique(input)).thenReturn(true);
         when(projectMapper.selectRoleIdByKey("project_user")).thenReturn(18L);
+        when(projectMapper.selectRoleIdByKey("company_staff")).thenReturn(20L);
         when(userService.insertUser(input)).thenAnswer(invocation -> { input.setUserId(99L); return 1; });
         when(profileMapper.upsert(input)).thenReturn(1);
         when(profileMapper.selectByUserId(99L)).thenReturn(input);
@@ -63,6 +92,7 @@ class BusinessStaffServiceImplTest
 
         assertEquals(99L, created.get("userId"));
         assertEquals(18L, input.getRoleIds()[0]);
+        assertEquals(20L, input.getRoleIds()[1]);
         assertEquals("0", input.getStatus());
         assertEquals("jianglan", input.getCreateBy());
         assertEquals("项目参与人员", created.get("roleNames"));

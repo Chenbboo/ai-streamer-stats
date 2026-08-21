@@ -14,19 +14,18 @@
       d.dept_name companyName,p.accounting_mode accountingMode,p.base_currency currency,p.initiator_name initiatorName
     from biz_project p left join sys_dept d on d.dept_id=p.company_dept_id and d.del_flag='0'
     where p.del_flag='0' and p.status not in('CANCELED')
-    <if test="viewAll == false">and p.initiator_user_id=#{userId}</if>
+    <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
     order by d.order_num,p.project_name
   </select>
-  <select id="selectProjectsMissingDailyResult" resultType="long">
-    select distinct p.project_id
+  <select id="countProjectsMissingDailyResult" resultType="int">
+    select count(distinct p.project_id)
     from biz_project p
     join biz_project_staff_allocation a on a.project_id=p.project_id and a.status='ACTIVE'
       and a.effective_from&lt;=#{bizDate} and (a.effective_to is null or a.effective_to&gt;=#{bizDate})
     where p.del_flag='0' and p.status not in('CLOSED','CANCELED')
-      <if test="viewAll == false">and p.initiator_user_id=#{userId}</if>
+      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
       and not exists(select 1 from biz_project_daily_result r where r.project_id=p.project_id
         and r.biz_date=#{bizDate} and r.is_current='1')
-    order by p.project_id
   </select>
   <select id="selectFacts" resultType="map">
     select f.fact_id factId,f.project_id projectId,p.project_name projectName,p.project_no projectNo,
@@ -40,7 +39,7 @@
     from biz_operating_fact f join biz_project p on p.project_id=f.project_id and p.del_flag='0'
     left join sys_dept d on d.dept_id=f.company_dept_id
     <where>
-      <if test="viewAll == false">p.initiator_user_id=#{userId}</if>
+      <if test="viewAll == false">coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
       <if test="projectId != null">and f.project_id=#{projectId}</if>
       <if test="factId != null">and f.fact_id=#{factId}</if>
       <if test="companyDeptId != null">and f.company_dept_id=#{companyDeptId}</if>
@@ -58,6 +57,15 @@
       version,confirmed_user_id confirmedUserId,confirmed_user_name confirmedUserName,confirmed_time confirmedTime,
       create_user_id createUserId,create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
     from biz_operating_fact where fact_id=#{factId} limit 1
+  </select>
+  <select id="selectFactByIdempotencyKey" resultType="com.ruoyi.business.domain.BusinessOperatingFact">
+    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,
+      category_code categoryCode,category_name categoryName,fact_kind factKind,amount,quantity,currency,unit,
+      description,counterparty,attachment_urls attachmentUrls,source_domain sourceDomain,source_type sourceType,
+      source_id sourceId,source_line_key sourceLineKey,status,reversal_fact_id reversalFactId,idempotency_key idempotencyKey,
+      version,confirmed_user_id confirmedUserId,confirmed_user_name confirmedUserName,confirmed_time confirmedTime,
+      create_user_id createUserId,create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
+    from biz_operating_fact where idempotency_key=#{idempotencyKey} limit 1
   </select>
   <select id="selectCategoryById" resultType="map">
     select category_id categoryId,category_code categoryCode,category_name categoryName,fact_kind factKind,
@@ -80,7 +88,9 @@
   </select>
   <select id="selectProjectForAccounting" resultType="map">
     select project_id projectId,project_name projectName,company_dept_id companyDeptId,accounting_mode accountingMode,
-      base_currency currency,budget_limit budgetLimit,initiator_user_id initiatorUserId,initiator_name initiatorName,
+      base_currency currency,budget_limit budgetLimit,
+      coalesce(sponsor_owner_user_id,initiator_user_id) initiatorUserId,
+      coalesce(sponsor_owner_name,initiator_name) initiatorName,
       main_owner_user_id mainOwnerUserId,main_owner_name mainOwnerName,status
     from biz_project where project_id=#{projectId} and del_flag='0' limit 1
   </select>
@@ -116,7 +126,8 @@
   </update>
   <select id="sumProjectFacts" resultType="map">
     select coalesce(sum(case when fact_kind='REVENUE' then amount else 0 end),0) revenueAmount,
-      coalesce(sum(case when fact_kind='COST' then amount else 0 end),0) costAmount,
+      coalesce(sum(case when fact_kind='COST' and category_code&lt;&gt;'PROJECT_BONUS_COST' then amount else 0 end),0) costAmount,
+      coalesce(sum(case when fact_kind='COST' and category_code='PROJECT_BONUS_COST' then amount else 0 end),0) bonusCost,
       coalesce(sum(case when fact_kind='ADJUSTMENT' then amount else 0 end),0) adjustmentAmount,
       coalesce(sum(case when fact_kind='VALUE' then coalesce(quantity,amount,0) else 0 end),0) valueScore
     from biz_operating_fact where project_id=#{projectId} and biz_date=#{bizDate} and status in('CONFIRMED','REVERSED')
@@ -125,14 +136,15 @@
     select coalesce(sum(case
       when leave_record.leave_id is not null then 0
       when a.allocation_mode='PERCENTAGE' and c.cost_mode='DAILY' then c.unit_cost*coalesce(e.actual_percent,a.allocation_value)/100
-      when a.allocation_mode='PERCENTAGE' and c.cost_mode='MONTHLY' then c.unit_cost/21.75*coalesce(e.actual_percent,a.allocation_value)/100
+      when a.allocation_mode='PERCENTAGE' and c.cost_mode='MONTHLY' then c.unit_cost/c.standard_work_days*coalesce(e.actual_percent,a.allocation_value)/100
       when a.allocation_mode='PERCENTAGE' and c.cost_mode='HOURLY' then c.unit_cost*8*coalesce(e.actual_percent,a.allocation_value)/100
       when a.allocation_mode='FIXED_DAILY' then a.allocation_value
       when a.allocation_mode='HOURS' and c.cost_mode='HOURLY' then c.unit_cost*a.allocation_value
       when a.allocation_mode='ATTENDANCE' and c.cost_mode='DAILY' then c.unit_cost*a.allocation_value
       when a.allocation_mode='PER_TASK' and c.cost_mode='FIXED_TASK' then c.unit_cost*a.allocation_value
       else 0 end),0)
-    from biz_project_staff_allocation a join biz_staff_cost_policy c on c.policy_id=a.cost_policy_id
+    from biz_project_staff_allocation a join biz_staff_cost_policy c on c.user_id=a.user_id and c.status='ACTIVE'
+      and c.effective_from&lt;=#{bizDate} and (c.effective_to is null or c.effective_to&gt;=#{bizDate})
     left join biz_project_effort_report e on e.project_id=a.project_id and e.user_id=a.user_id
       and e.biz_date=#{bizDate} and e.report_status='CONFIRMED'
     left join biz_staff_leave leave_record on leave_record.user_id=a.user_id
@@ -141,11 +153,18 @@
       and (a.effective_to is null or a.effective_to&gt;=#{bizDate})
   </select>
   <select id="selectProjectPersonnelCostDetails" resultType="map">
-    select a.user_id userId,a.user_name componentName,
+    select a.user_id userId,a.user_name componentName,c.country_region_snapshot countryRegion,
+      c.unit_cost monthlyCost,c.currency,c.standard_work_days standardWorkDays,
+      round(c.unit_cost/nullif(c.standard_work_days,0),4) dailyCost,
+      a.allocation_value plannedPercent,e.actual_percent actualPercent,
+      coalesce(e.actual_percent,a.allocation_value) appliedPercent,
+      case when leave_record.leave_id is not null then 'LEAVE'
+           when e.effort_id is not null then 'ACTUAL' else 'PLAN' end inputSource,
+      leave_record.leave_type leaveType,
       case
         when leave_record.leave_id is not null then 0
         when a.allocation_mode='PERCENTAGE' and c.cost_mode='DAILY' then c.unit_cost*coalesce(e.actual_percent,a.allocation_value)/100
-        when a.allocation_mode='PERCENTAGE' and c.cost_mode='MONTHLY' then c.unit_cost/21.75*coalesce(e.actual_percent,a.allocation_value)/100
+        when a.allocation_mode='PERCENTAGE' and c.cost_mode='MONTHLY' then c.unit_cost/c.standard_work_days*coalesce(e.actual_percent,a.allocation_value)/100
         when a.allocation_mode='PERCENTAGE' and c.cost_mode='HOURLY' then c.unit_cost*8*coalesce(e.actual_percent,a.allocation_value)/100
         when a.allocation_mode='FIXED_DAILY' then a.allocation_value
         when a.allocation_mode='HOURS' and c.cost_mode='HOURLY' then c.unit_cost*a.allocation_value
@@ -158,7 +177,8 @@
           case when e.effort_id is not null then '已确认实际投入 ' else '计划投入 ' end,
           cast(coalesce(e.actual_percent,a.allocation_value) as char),'%；',
           case c.cost_mode
-            when 'MONTHLY' then concat('月成本 ',cast(c.unit_cost as char),' / 21.75 天')
+            when 'MONTHLY' then concat('月度用人成本 ',cast(c.unit_cost as char),' / ',cast(c.standard_work_days as char),' 天（',
+              case c.country_region_snapshot when 'VN' then '越南' when 'CN' then '中国' else c.country_region_snapshot end,'）')
             when 'DAILY' then concat('日成本 ',cast(c.unit_cost as char))
             when 'HOURLY' then concat('时成本 ',cast(c.unit_cost as char),' × 8 小时')
             else concat('成本单价 ',cast(c.unit_cost as char)) end)
@@ -167,7 +187,8 @@
         when a.allocation_mode='ATTENDANCE' then concat(cast(a.allocation_value as char),' 人天 × 日成本 ',cast(c.unit_cost as char))
         when a.allocation_mode='PER_TASK' then concat(cast(a.allocation_value as char),' 项任务 × 单项成本 ',cast(c.unit_cost as char))
         else '当前投入方式未产生人员成本' end calculationDetail
-    from biz_project_staff_allocation a join biz_staff_cost_policy c on c.policy_id=a.cost_policy_id
+    from biz_project_staff_allocation a join biz_staff_cost_policy c on c.user_id=a.user_id and c.status='ACTIVE'
+      and c.effective_from&lt;=#{bizDate} and (c.effective_to is null or c.effective_to&gt;=#{bizDate})
     left join biz_project_effort_report e on e.project_id=a.project_id and e.user_id=a.user_id
       and e.biz_date=#{bizDate} and e.report_status='CONFIRMED'
     left join biz_staff_leave leave_record on leave_record.user_id=a.user_id
@@ -188,9 +209,9 @@
   <update id="retireCurrentResult">update biz_project_daily_result set is_current='0' where project_id=#{projectId} and biz_date=#{bizDate} and is_current='1'</update>
   <insert id="insertDailyResult" parameterType="map" useGeneratedKeys="true" keyProperty="resultId">
     insert into biz_project_daily_result(project_id,company_dept_id,biz_date,accounting_mode,revenue_amount,cost_amount,
-      personnel_cost,adjustment_amount,profit_amount,budget_spent,value_score,data_cutoff_time,close_status,
+      personnel_cost,bonus_cost,adjustment_amount,profit_amount,budget_spent,value_score,data_cutoff_time,close_status,
       result_version,is_current,calculation_detail,create_by,create_time)
-    values(#{projectId},#{companyDeptId},#{bizDate},#{accountingMode},#{revenueAmount},#{costAmount},#{personnelCost},
+    values(#{projectId},#{companyDeptId},#{bizDate},#{accountingMode},#{revenueAmount},#{costAmount},#{personnelCost},#{bonusCost},
       #{adjustmentAmount},#{profitAmount},#{budgetSpent},#{valueScore},sysdate(),'OPEN',#{resultVersion},'1',
       #{calculationDetail},#{createBy},sysdate())
   </insert>
@@ -201,14 +222,14 @@
   <select id="selectDailyResults" resultType="map">
     select r.result_id resultId,r.project_id projectId,p.project_name projectName,p.project_no projectNo,
       r.company_dept_id companyDeptId,d.dept_name companyName,r.biz_date bizDate,r.accounting_mode accountingMode,
-      r.revenue_amount revenueAmount,r.cost_amount costAmount,r.personnel_cost personnelCost,
+      r.revenue_amount revenueAmount,r.cost_amount costAmount,r.personnel_cost personnelCost,r.bonus_cost bonusCost,
       r.adjustment_amount adjustmentAmount,r.profit_amount profitAmount,r.budget_spent budgetSpent,
       r.value_score valueScore,r.data_cutoff_time dataCutoffTime,r.close_status closeStatus,r.result_version resultVersion,
       r.calculation_detail calculationDetail,p.budget_limit budgetLimit,p.initiator_name initiatorName,p.base_currency currency
     from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
     left join sys_dept d on d.dept_id=r.company_dept_id
     <where>r.is_current='1'
-      <if test="viewAll == false">and p.initiator_user_id=#{userId}</if>
+      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
       <if test="projectId != null">and r.project_id=#{projectId}</if>
       <if test="companyDeptId != null">and r.company_dept_id=#{companyDeptId}</if>
       <if test="dateFrom != null and dateFrom != ''">and r.biz_date&gt;=#{dateFrom}</if>
@@ -223,12 +244,13 @@
     select coalesce(sum(r.revenue_amount),0) revenueAmount,
       coalesce(sum(r.cost_amount),0) businessCost,
       coalesce(sum(r.personnel_cost),0) personnelCost,
-      coalesce(sum(r.cost_amount+r.personnel_cost),0) costAmount,
+      coalesce(sum(r.bonus_cost),0) bonusCost,
+      coalesce(sum(r.cost_amount+r.personnel_cost+r.bonus_cost),0) costAmount,
       coalesce(sum(r.adjustment_amount),0) adjustmentAmount,coalesce(sum(r.profit_amount),0) profitAmount,
       count(distinct r.project_id) projectCount,count(*) resultCount
     from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
     where r.is_current='1'
-      <if test="viewAll == false">and p.initiator_user_id=#{userId}</if>
+      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
       <if test="projectId != null">and r.project_id=#{projectId}</if>
       <if test="companyDeptId != null">and r.company_dept_id=#{companyDeptId}</if>
       <if test="dateFrom != null and dateFrom != ''">and r.biz_date&gt;=#{dateFrom}</if>
@@ -236,7 +258,7 @@
   </select>
   <select id="countDraftFacts" resultType="int">
     select count(*) from biz_operating_fact f join biz_project p on p.project_id=f.project_id and p.del_flag='0'
-    where f.status='DRAFT'<if test="viewAll == false"> and p.initiator_user_id=#{userId}</if>
+    where f.status='DRAFT'<if test="viewAll == false"> and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
   </select>
   <select id="selectAccountingAlerts" resultType="map">
     select * from (
@@ -246,41 +268,138 @@
       from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
       left join sys_dept d on d.dept_id=p.company_dept_id
       where r.is_current='1' and r.biz_date=#{bizDate} and r.profit_amount&lt;0
-      <if test="viewAll == false">and p.initiator_user_id=#{userId}</if>
+      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
       union all
       select 'OVER_BUDGET',r.project_id,p.project_name,p.company_dept_id,d.dept_name,r.biz_date,
         r.budget_spent,concat('累计成本 ',round(r.budget_spent,2),' 已超过预算 ',round(p.budget_limit,2)),2
       from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
       left join sys_dept d on d.dept_id=p.company_dept_id
       where r.is_current='1' and r.biz_date=#{bizDate} and p.budget_limit is not null and r.budget_spent&gt;p.budget_limit
-      <if test="viewAll == false">and p.initiator_user_id=#{userId}</if>
+      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
       union all
       select 'MISSING_COMPANY',p.project_id,p.project_name,null,null,#{bizDate},null,'项目尚未设置归属公司，无法录入收支',3
       from biz_project p where p.del_flag='0' and p.company_dept_id is null and p.status not in('CLOSED','CANCELED')
-      <if test="viewAll == false">and p.initiator_user_id=#{userId}</if>
+      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
     ) alerts order by sortOrder,projectName limit 20
   </select>
   <select id="selectProjectProfitRanking" resultType="map">
     select r.project_id projectId,p.project_name projectName,p.company_dept_id companyDeptId,d.dept_name companyName,
       sum(r.revenue_amount) revenueAmount,sum(r.cost_amount) businessCost,sum(r.personnel_cost) personnelCost,
-      sum(r.cost_amount+r.personnel_cost) costAmount,
+      sum(r.bonus_cost) bonusCost,sum(r.cost_amount+r.personnel_cost+r.bonus_cost) costAmount,
       sum(r.adjustment_amount) adjustmentAmount,sum(r.profit_amount) profitAmount,max(r.data_cutoff_time) dataCutoffTime
     from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
     left join sys_dept d on d.dept_id=p.company_dept_id
     where r.is_current='1' and r.biz_date between #{dateFrom} and #{dateTo}
-    <if test="viewAll == false">and p.initiator_user_id=#{userId}</if>
+    <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
     group by r.project_id,p.project_name,p.company_dept_id,d.dept_name
     order by profitAmount desc,r.project_id limit 10
   </select>
   <select id="selectCompanyAccountingSummary" resultType="map">
     select r.company_dept_id companyDeptId,d.dept_name companyName,sum(r.revenue_amount) revenueAmount,
-      sum(r.cost_amount) businessCost,sum(r.personnel_cost) personnelCost,
-      sum(r.cost_amount+r.personnel_cost) costAmount,sum(r.adjustment_amount) adjustmentAmount,
+      sum(r.cost_amount) businessCost,sum(r.personnel_cost) personnelCost,sum(r.bonus_cost) bonusCost,
+      sum(r.cost_amount+r.personnel_cost+r.bonus_cost) costAmount,sum(r.adjustment_amount) adjustmentAmount,
       sum(r.profit_amount) profitAmount,count(distinct r.project_id) projectCount,max(r.data_cutoff_time) dataCutoffTime
     from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
     left join sys_dept d on d.dept_id=r.company_dept_id
     where r.is_current='1' and r.biz_date between #{dateFrom} and #{dateTo}
-    <if test="viewAll == false">and p.initiator_user_id=#{userId}</if>
+    <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
     group by r.company_dept_id,d.dept_name order by r.company_dept_id
+  </select>
+  <select id="selectPersonnelCostOverview" resultType="map">
+    select p.project_id projectId,p.project_name projectName,p.company_dept_id companyDeptId,
+      company.dept_name companyName,m.user_id userId,m.user_name_snapshot userName,m.member_role memberRole,
+      profile.country_region profileCountryRegion,
+      coalesce(c.country_region_snapshot,profile.country_region,
+        case when vietnam.dept_id is not null then 'VN' else 'CN' end) countryRegion,
+      c.policy_id policyId,c.unit_cost monthlyCost,c.currency,c.standard_work_days standardWorkDays,
+      round(c.unit_cost/nullif(c.standard_work_days,0),4) dailyCost,
+      a.allocation_id allocationId,a.allocation_value plannedPercent,e.actual_percent actualPercent,
+      coalesce(e.actual_percent,a.allocation_value) appliedPercent,
+      coalesce(total_plan.total_planned_percent,0) totalPlannedPercent,
+      case when leave_record.leave_id is not null then 'LEAVE'
+           when e.effort_id is not null then 'ACTUAL' else 'PLAN' end inputSource,
+      leave_record.leave_type leaveType,
+      case when leave_record.leave_id is not null then 0
+           when c.cost_mode='MONTHLY' and c.currency='CNY' and a.allocation_mode='PERCENTAGE'
+             then round(c.unit_cost/nullif(c.standard_work_days,0)*coalesce(e.actual_percent,a.allocation_value)/100,4)
+           else 0 end personnelCost,
+      case when profile.country_region is null or profile.country_region not in ('CN','VN') then 'MISSING_REGION'
+           when c.policy_id is null then 'MISSING_COST'
+           when c.cost_mode&lt;&gt;'MONTHLY' or c.currency&lt;&gt;'CNY' or c.standard_work_days is null then 'LEGACY_COST'
+           when a.allocation_id is null then 'MISSING_ALLOCATION'
+           when coalesce(total_plan.total_planned_percent,0)&gt;100 then 'OVER_ALLOCATED'
+           when leave_record.leave_id is not null then 'LEAVE'
+           else 'READY' end costStatus
+    from biz_project p
+    join biz_project_member m on m.project_id=p.project_id and m.status='0' and m.member_role&lt;&gt;'OBSERVER'
+    left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+    left join sys_user staff_user on staff_user.user_id=m.user_id and staff_user.del_flag='0'
+    left join biz_staff_profile profile on profile.user_id=m.user_id
+    left join sys_dept staff_dept on staff_dept.dept_id=staff_user.dept_id and staff_dept.del_flag='0'
+    left join sys_dept vietnam on vietnam.dept_name='越南meimaru公司' and vietnam.del_flag='0'
+      and (vietnam.dept_id=staff_dept.dept_id or find_in_set(vietnam.dept_id,staff_dept.ancestors))
+    left join biz_project_staff_allocation a on a.project_id=p.project_id and a.user_id=m.user_id
+      and a.status='ACTIVE' and a.allocation_mode='PERCENTAGE' and a.effective_from&lt;=#{bizDate}
+      and (a.effective_to is null or a.effective_to&gt;=#{bizDate})
+    left join biz_staff_cost_policy c on c.user_id=m.user_id and c.status='ACTIVE'
+      and c.effective_from&lt;=#{bizDate} and (c.effective_to is null or c.effective_to&gt;=#{bizDate})
+    left join biz_project_effort_report e on e.project_id=p.project_id and e.user_id=m.user_id
+      and e.biz_date=#{bizDate} and e.report_status='CONFIRMED'
+    left join biz_staff_leave leave_record on leave_record.user_id=m.user_id
+      and leave_record.leave_date=#{bizDate} and leave_record.status='ACTIVE'
+    left join (
+      select a2.user_id,sum(a2.allocation_value) total_planned_percent
+      from biz_project_staff_allocation a2
+      join biz_project p2 on p2.project_id=a2.project_id and p2.del_flag='0'
+        and p2.status not in('CLOSED','CANCELED')
+      where a2.status='ACTIVE' and a2.allocation_mode='PERCENTAGE' and a2.effective_from&lt;=#{bizDate}
+        and (a2.effective_to is null or a2.effective_to&gt;=#{bizDate})
+        <if test="viewAll == false">and coalesce(p2.sponsor_owner_user_id,p2.initiator_user_id)=#{userId}</if>
+      group by a2.user_id
+    ) total_plan on total_plan.user_id=m.user_id
+    where p.del_flag='0' and p.status not in('CLOSED','CANCELED')
+      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="projectId != null">and p.project_id=#{projectId}</if>
+      <if test="companyDeptId != null">and p.company_dept_id=#{companyDeptId}</if>
+    order by field(costStatus,'MISSING_COST','LEGACY_COST','MISSING_ALLOCATION','OVER_ALLOCATED','READY','LEAVE'),
+      p.project_name,m.user_name_snapshot,m.user_id
+  </select>
+  <select id="selectCompanyPersonnelCostReadiness" resultType="map">
+    select u.user_id userId,coalesce(nullif(u.nick_name,''),u.user_name) userName,
+      company.dept_id companyDeptId,company.dept_name companyName,profile.country_region profileCountryRegion,
+      case when profile.country_region is null or profile.country_region not in ('CN','VN') then 'MISSING_REGION'
+           when valid_cost.user_id is not null then 'READY'
+           when any_cost.user_id is not null then 'LEGACY_COST'
+           else 'MISSING_COST' end costStatus,
+      count(distinct project.project_id) projectCount,
+      group_concat(distinct project.project_name order by project.project_name separator '、') projectNameText
+    from sys_user u
+    join sys_dept staff_dept on staff_dept.dept_id=u.dept_id and staff_dept.del_flag='0'
+    join sys_dept company on company.parent_id=100 and company.del_flag='0' and company.status='0'
+      and (company.dept_id=staff_dept.dept_id or find_in_set(company.dept_id,staff_dept.ancestors))
+    left join biz_staff_profile profile on profile.user_id=u.user_id
+    left join (
+      select user_id from biz_staff_cost_policy
+      where status='ACTIVE' and effective_from&lt;=#{bizDate}
+        and (effective_to is null or effective_to&gt;=#{bizDate})
+      group by user_id
+    ) any_cost on any_cost.user_id=u.user_id
+    left join (
+      select user_id from biz_staff_cost_policy
+      where status='ACTIVE' and cost_mode='MONTHLY' and currency='CNY'
+        and standard_work_days is not null and standard_work_days&gt;0
+        and effective_from&lt;=#{bizDate} and (effective_to is null or effective_to&gt;=#{bizDate})
+      group by user_id
+    ) valid_cost on valid_cost.user_id=u.user_id
+    left join biz_project_member member on member.user_id=u.user_id and member.status='0'
+      and member.member_role&lt;&gt;'OBSERVER'
+    left join biz_project project on project.project_id=member.project_id and project.del_flag='0'
+      and project.status not in('CLOSED','CANCELED')
+    where u.del_flag='0' and u.status='0' and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT'
+      <if test="viewAll == false">and company.leader_user_id=#{userId}</if>
+    group by u.user_id,u.nick_name,u.user_name,company.dept_id,company.dept_name,profile.country_region,
+      valid_cost.user_id,any_cost.user_id
+    having costStatus&lt;&gt;'READY'
+    order by company.order_num,field(costStatus,'MISSING_REGION','MISSING_COST','LEGACY_COST'),userName,u.user_id
   </select>
 </mapper>

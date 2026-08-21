@@ -181,7 +181,7 @@ class ProjectMutationCapabilitiesTest
         SaveProjectAllocationCapability save = new SaveProjectAllocationCapability(projectService);
         RetireProjectAllocationCapability retire = new RetireProjectAllocationCapability(projectService);
         Map<String, Object> input = map("projectId", 16L, "allocationId", 90L, "staffUserId", 66L,
-            "allocationMode", "percentage", "allocationValue", 30, "effectiveFrom", "2026-08-18");
+            "allocationValue", 30, "effectiveFrom", "2026-08-18");
         BusinessProjectStaffAllocation saved = new BusinessProjectStaffAllocation(); saved.setAllocationId(91L);
         saved.setProjectId(16L); saved.setUserId(66L); saved.setAllocationMode("PERCENTAGE");
         saved.setAllocationValue(new BigDecimal("30")); saved.setVersion(2);

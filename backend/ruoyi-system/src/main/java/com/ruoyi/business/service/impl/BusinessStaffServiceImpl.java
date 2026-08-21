@@ -38,14 +38,24 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
     @Autowired private BusinessStaffProfileMapper profileMapper;
 
     @Override
-    public TableDataInfo listStaff(SysUser query)
+    public TableDataInfo listStaff(SysUser query, Long viewerUserId, boolean administrator)
     {
         SysUser safeQuery = query == null ? new SysUser() : query;
         List<SysUser> users = userService.selectUserList(safeQuery);
         long total = new PageInfo<SysUser>(users).getTotal();
         Map<Long, BusinessStaffProfile> profiles = profilesFor(users);
         List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
-        for (SysUser user : users) rows.add(toView(user, profiles.get(user.getUserId())));
+        for (SysUser user : users)
+        {
+            BusinessStaffProfile profile = profiles.get(user.getUserId());
+            Map<String, Object> row = toView(user, profile);
+            boolean activeStaff = "0".equals(user.getStatus()) && profile != null
+                && !"LEFT".equals(profile.getEmploymentStatus());
+            boolean companyOwner = activeStaff && sameLong(profile.getCompanyLeaderUserId(), viewerUserId);
+            row.put("canViewCost", activeStaff && (administrator || companyOwner));
+            row.put("canManageCost", !administrator && companyOwner);
+            rows.add(row);
+        }
         TableDataInfo result = new TableDataInfo();
         result.setCode(200);
         result.setMsg("查询成功");
@@ -174,9 +184,11 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
         normalizeAndValidateContact(input);
         validateContactUnique(input);
         prepareAndValidateProfile(input, null);
-        Long roleId = projectMapper.selectRoleIdByKey("project_user");
-        if (roleId == null) throw new ServiceException("项目参与人员角色尚未初始化");
-        input.setRoleIds(new Long[] { roleId });
+        Long projectUserRoleId = projectMapper.selectRoleIdByKey("project_user");
+        Long companyStaffRoleId = projectMapper.selectRoleIdByKey("company_staff");
+        if (projectUserRoleId == null || companyStaffRoleId == null)
+            throw new ServiceException("公司人员和项目参与人员角色尚未初始化");
+        input.setRoleIds(new Long[] { projectUserRoleId, companyStaffRoleId });
         input.setPostIds(new Long[0]);
         input.setStatus("0");
         if (StringUtils.isBlank(input.getSex())) input.setSex("2");
@@ -402,6 +414,8 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
         row.put("workLocation", profile == null ? null : profile.getWorkLocation());
         row.put("companyDeptId", profile == null ? null : profile.getCompanyDeptId());
         row.put("companyName", profile == null ? null : profile.getCompanyName());
+        row.put("canViewCost", false);
+        row.put("canManageCost", false);
         boolean admin = SecurityUtils.isAdmin(user.getUserId());
         boolean owner = !admin && projectMapper.countUserRoleByKey(user.getUserId(), "company_owner") > 0;
         row.put("protectedAccount", admin || owner);

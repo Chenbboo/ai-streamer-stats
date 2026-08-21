@@ -15,6 +15,7 @@
     <result property="workLocation" column="work_location"/>
     <result property="companyDeptId" column="company_dept_id"/>
     <result property="companyName" column="company_name"/>
+    <result property="companyLeaderUserId" column="company_leader_user_id"/>
   </resultMap>
 
   <sql id="profileSelect">
@@ -25,7 +26,8 @@
            coalesce(nullif(manager.nick_name,''),manager.user_name) manager_name,
            coalesce(p.employment_type,'FULL_TIME') employment_type,
            coalesce(p.employment_status,'ACTIVE') employment_status,
-           p.hire_date,p.work_location,company.dept_id company_dept_id,company.dept_name company_name
+           p.hire_date,p.work_location,company.dept_id company_dept_id,company.dept_name company_name,
+           company.leader_user_id company_leader_user_id
     from sys_user u
     left join biz_staff_profile p on p.user_id=u.user_id
     left join sys_user manager on manager.user_id=p.manager_user_id and manager.del_flag='0'

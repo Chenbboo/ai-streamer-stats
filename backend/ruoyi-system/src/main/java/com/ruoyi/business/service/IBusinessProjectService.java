@@ -3,6 +3,7 @@ package com.ruoyi.business.service;
 import java.util.List;
 import java.util.Map;
 import com.ruoyi.business.domain.BusinessProject;
+import com.ruoyi.business.domain.BusinessProjectProposal;
 import com.ruoyi.business.domain.BusinessProjectAcceptance;
 import com.ruoyi.business.domain.BusinessProjectMember;
 import com.ruoyi.business.domain.BusinessProjectMilestone;
@@ -20,6 +21,7 @@ public interface IBusinessProjectService
     List<BusinessProject> listProjects(Map<String, Object> query, Long userId, boolean viewAll, boolean boss);
     BusinessProject getProject(Long projectId, Long userId, boolean viewAll, boolean boss);
     BusinessProject createProject(BusinessProject project, Long userId, String userName);
+    BusinessProject createApprovedProject(BusinessProjectProposal proposal, Long reviewerUserId, String reviewerUserName);
     BusinessProject updateProject(BusinessProject project, Long userId, String userName, boolean boss);
     Map<String, Object> operatingConfig(Long projectId, Long userId, boolean viewAll, boolean boss);
     BusinessProject updateBudget(Long projectId, java.math.BigDecimal budgetLimit, String currency, String reason,
@@ -54,6 +56,8 @@ public interface IBusinessProjectService
     BusinessProjectRisk saveRisk(BusinessProjectRisk risk, Long userId, String userName, boolean boss);
     void deleteRisk(Long projectId, Long riskId, Long userId, boolean boss);
     Map<String, Object> dashboard(Long userId, boolean viewAll, boolean boss);
+    Map<String, Object> dashboard(Map<String, Object> query, Long userId, boolean viewAll, boolean boss);
+    Map<String, Object> bossPending(Map<String, Object> query, Long userId, boolean viewAll);
     Map<String, Object> ownerWorkbench(Long projectId, Long userId, boolean viewAll);
     Map<String, Object> workDashboard(String period, String anchorDate, Long userId);
     BusinessProjectEffort saveMyEffort(BusinessProjectEffort effort, Long userId, String userName);

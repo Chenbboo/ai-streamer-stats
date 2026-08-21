@@ -13,6 +13,7 @@ public interface BusinessAccountingMapper
     List<Map<String,Object>> selectProjectOptions(@Param("userId") Long userId,@Param("viewAll") boolean viewAll);
     List<Map<String,Object>> selectFacts(Map<String,Object> query);
     BusinessOperatingFact selectFactById(Long factId);
+    BusinessOperatingFact selectFactByIdempotencyKey(String idempotencyKey);
     Map<String,Object> selectCategoryById(Long categoryId);
     Map<String,Object> selectCategoryByCode(String categoryCode);
     BusinessOperatingFact selectCurrentProjectDailySpend(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
@@ -37,6 +38,9 @@ public interface BusinessAccountingMapper
     List<Map<String,Object>> selectAccountingAlerts(Map<String,Object> query);
     List<Map<String,Object>> selectProjectProfitRanking(Map<String,Object> query);
     List<Map<String,Object>> selectCompanyAccountingSummary(Map<String,Object> query);
-    List<Long> selectProjectsMissingDailyResult(@Param("userId") Long userId,@Param("viewAll") boolean viewAll,
+    List<Map<String,Object>> selectPersonnelCostOverview(Map<String,Object> query);
+    List<Map<String,Object>> selectCompanyPersonnelCostReadiness(@Param("userId") Long userId,
+        @Param("viewAll") boolean viewAll, @Param("bizDate") Date bizDate);
+    int countProjectsMissingDailyResult(@Param("userId") Long userId,@Param("viewAll") boolean viewAll,
         @Param("bizDate") Date bizDate);
 }

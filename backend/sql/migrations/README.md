@@ -57,6 +57,11 @@ V032__business_ai_foundation.sql
 V033__business_boss_ai_page.sql
 V034__business_ai_workflow_engine.sql
 V035__jewelry_maker_basic_product_edit.sql
+V036__business_project_proposal.sql
+V037__business_project_kpi_bonus.sql
+V038__business_staff_monthly_cost.sql
+V039__bind_company_owners.sql
+V040__jewelry_purchase_amount_precision.sql
 ../live_ai_config.sql
 ../jewelry_erp_menu.sql
 ../jewelry_manual_assembly.sql
@@ -104,6 +109,11 @@ V032__business_ai_foundation.sql
 V033__business_boss_ai_page.sql
 V034__business_ai_workflow_engine.sql
 V035__jewelry_maker_basic_product_edit.sql
+V036__business_project_proposal.sql
+V037__business_project_kpi_bonus.sql
+V038__business_staff_monthly_cost.sql
+V039__bind_company_owners.sql
+V040__jewelry_purchase_amount_precision.sql
 ../live_ai_config.sql
 ../jewelry_erp_menu.sql
 ../jewelry_manual_assembly.sql
@@ -126,3 +136,8 @@ V035__jewelry_maker_basic_product_edit.sql
 - 项目预算、KPI、人员内部核算成本和项目分摊均按版本或历史记录追溯，不允许静默覆盖。
 * `V034__business_ai_workflow_engine.sql`：AI 持久化工作流实例与事件记录，支持多轮操作在刷新、重启和模型误判后继续。
 * `V035__jewelry_maker_basic_product_edit.sql`：制单员可直接维护商品名称与图片，完整商品属性仍仅由管理员修改。
+* `V036__business_project_proposal.sql`：全员提交本人负责的立项申请，指定老板一次审批后创建正式项目并直接进入执行。
+* `V037__business_project_kpi_bonus.sql`：老板发布项目 KPI 和人民币综合阶梯奖金，负责人填报结算，老板确认后立即形成项目奖金成本。
+* `V038__business_staff_monthly_cost.sql`：人员内部成本统一按人民币月度金额维护，并保存中国 21.75 天、越南 26 天的折算快照。
+* `V039__bind_company_owners.sql`：将上海美丸文化公司绑定江澜、越南 meimaru 公司绑定王赋章，用于组织管理和人员成本范围；不会覆盖立项申请手动指定的审批/归属老板。
+* `V040__jewelry_purchase_amount_precision.sql`：扩展珠宝采购金额精度；属于珠宝 ERP 独立迁移，不改变项目经营、立项、KPI 或人员成本规则。

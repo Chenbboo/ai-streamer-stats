@@ -101,6 +101,7 @@ class BusinessAiCapabilityFlowTest
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("老板 AI 直接立项旧流程已停用，改由立项申请页面")
     void activeProjectWorkflowUsesModelDraftUnderstandingWithinScopedTools()
     {
         AiExecutionContext actor = context("business:project:add");
@@ -150,6 +151,7 @@ class BusinessAiCapabilityFlowTest
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("老板 AI 直接立项旧流程已停用，改由立项申请页面")
     void waitingConfirmationProjectCanReturnToModelDraftEditing()
     {
         AiExecutionContext actor = context("business:project:add");

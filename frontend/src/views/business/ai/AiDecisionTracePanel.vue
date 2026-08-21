@@ -33,9 +33,9 @@
 const props=defineProps({trace:{type:Object,required:true}})
 const labels={
   CREATE_PROJECT:'创建新项目',
-  CREATE_PROJECT_WORKFLOW:'创建项目资料收集',
+  CREATE_PROJECT_WORKFLOW:'历史创建项目资料收集',
   NO_MODEL_ROUTE:'模型未给出路由',
-  'project.create':'正式创建项目',
+  'project.create':'历史正式创建项目',
   'project.draft.update':'更新立项草稿',
   'conversation.safe.respond':'安全对话回复'
 }
