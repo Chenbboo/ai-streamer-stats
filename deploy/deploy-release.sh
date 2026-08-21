@@ -139,7 +139,7 @@ rollback() {
   systemctl start ai-streamer.service
   exit "$status"
 }
-trap rollback ERR
+trap rollback ERR INT TERM HUP
 
 systemctl stop ai-streamer.service
 service_stopped=1
@@ -193,7 +193,7 @@ grep -Eq '"code"[[:space:]]*:[[:space:]]*401' <<< "$unauthorized_body"
 mv "$frontend_old" "$backup_dir/frontend-live-before-switch"
 frontend_switched=0
 deploy_complete=1
-trap - ERR
+trap - ERR INT TERM HUP
 
 echo "release=$release"
 echo "backup_dir=$backup_dir"
