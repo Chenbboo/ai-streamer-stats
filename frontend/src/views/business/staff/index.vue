@@ -145,9 +145,9 @@ const projectStatusLabel={DRAFT:'草稿',PLANNING:'规划中',ACTIVE:'执行中'
 const costModeLabel={DAILY:'日成本',HOURLY:'时成本',MONTHLY:'月成本',FIXED_PROJECT:'项目固定成本',FIXED_TASK:'任务固定成本',VARIABLE:'浮动成本'}
 const isAdmin=computed(()=>userStore.roles.includes('admin')||userStore.permissions.includes('*:*:*'))
 const isBoss=computed(()=>isAdmin.value||userStore.permissions.includes('business:boss:view'))
-const activeCostStaff=row=>row?.status==='0'&&row?.employmentStatus!=='LEFT'
-const canViewRowCost=row=>activeCostStaff(row)&&(isAdmin.value||(isBoss.value&&!!row?.canViewCost))
-const canManageRowCost=row=>activeCostStaff(row)&&(isAdmin.value||(isBoss.value&&!!row?.canManageCost))
+const costEligibleStaff=row=>row?.employmentStatus!=='LEFT'
+const canViewRowCost=row=>costEligibleStaff(row)&&(isAdmin.value||(row?.status==='0'&&isBoss.value&&!!row?.canViewCost))
+const canManageRowCost=row=>costEligibleStaff(row)&&(isAdmin.value||(row?.status==='0'&&isBoss.value&&!!row?.canManageCost))
 const canViewSelectedCost=computed(()=>canViewRowCost(selectedPerson.value))
 const canManageSelectedCost=computed(()=>canManageRowCost(selectedPerson.value))
 const query=reactive({pageNum:1,pageSize:10,userId:route.query.userId?Number(route.query.userId):null,nickName:'',deptId:null,status:''})

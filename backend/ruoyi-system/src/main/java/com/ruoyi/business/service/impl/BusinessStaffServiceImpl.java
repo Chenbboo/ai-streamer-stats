@@ -49,11 +49,11 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
         {
             BusinessStaffProfile profile = profiles.get(user.getUserId());
             Map<String, Object> row = toView(user, profile);
-            boolean activeStaff = "0".equals(user.getStatus()) && profile != null
-                && !"LEFT".equals(profile.getEmploymentStatus());
+            boolean costEligibleStaff = profile != null && !"LEFT".equals(profile.getEmploymentStatus());
+            boolean activeStaff = "0".equals(user.getStatus()) && costEligibleStaff;
             boolean companyOwner = activeStaff && sameLong(profile.getCompanyLeaderUserId(), viewerUserId);
-            row.put("canViewCost", activeStaff && (administrator || companyOwner));
-            row.put("canManageCost", activeStaff && (administrator || companyOwner));
+            row.put("canViewCost", (administrator && costEligibleStaff) || companyOwner);
+            row.put("canManageCost", (administrator && costEligibleStaff) || companyOwner);
             rows.add(row);
         }
         TableDataInfo result = new TableDataInfo();

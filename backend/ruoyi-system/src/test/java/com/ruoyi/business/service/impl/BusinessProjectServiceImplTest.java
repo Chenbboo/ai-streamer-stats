@@ -1017,7 +1017,7 @@ class BusinessProjectServiceImplTest
     {
         Map<String, Object> staff = new HashMap<String, Object>();
         staff.put("nickName", "上海员工");
-        when(mapper.selectActiveUserById(147L)).thenReturn(staff);
+        when(mapper.selectCostEligibleUserById(147L)).thenReturn(staff);
         when(mapper.selectStaffCostPolicies(147L)).thenReturn(Collections.emptyList());
         when(mapper.selectStaffCountryRegion(147L)).thenReturn("CN");
         when(mapper.selectNextStaffCostVersion(147L)).thenReturn(1);

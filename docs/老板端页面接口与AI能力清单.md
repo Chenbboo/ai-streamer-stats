@@ -84,8 +84,8 @@
 
 | 页面能力 | 接口 | 权限 | AI 状态 | AI 工具/说明 | 下一步 |
 |---|---|---|---|---|---|
-| 查看人员成本政策 | `GET /business/staff/{staffUserId}/cost-policies` | `business:staff:list` | ✅ | `staff.cost-policy.get`；普通老板只能查看本人负责公司的人民币月度成本、国家和标准工作日版本快照；系统管理员可查看全部人员 | 已完成 |
-| 设置人员成本政策 | `POST /business/staff/cost-policy` | `business:staff:manage` | ✅ | `staff.cost-policy.save`；只填人民币月度金额，系统按中国 21.75 / 越南 26 天折算；普通老板按公司 `leader_user_id` 隔离，系统管理员可设置全部人员 | 已完成 |
+| 查看人员成本政策 | `GET /business/staff/{staffUserId}/cost-policies` | `business:staff:list` | ✅ | `staff.cost-policy.get`；普通老板只能查看本人负责公司的人民币月度成本、国家和标准工作日版本快照；系统管理员可查看全部未离职人员，包括登录账号已停用的人员 | 已完成 |
+| 设置人员成本政策 | `POST /business/staff/cost-policy` | `business:staff:manage` | ✅ | `staff.cost-policy.save`；只填人民币月度金额，系统按中国 21.75 / 越南 26 天折算；普通老板按公司 `leader_user_id` 隔离，系统管理员可设置全部未离职人员，包括登录账号已停用的人员 | 已完成 |
 | 新增/修改成员计划投入 | `POST /business/project/staff-allocation` | `business:project:allocation` + 项目主负责人身份 | ✅ | `project.allocation.save`；老板不能代填，超过 100% 时只处理例外审批 | 已完成职责收紧 |
 | 停用成员计划投入 | `DELETE /business/project/{projectId}/staff-allocation/{allocationId}` | `business:project:allocation` + 项目主负责人身份 | ✅ | `project.allocation.retire`；老板只读 | 已完成职责收紧 |
 | 查看负责人工作台和投入状态 | `GET /business/owner/dashboard` | `business:project:owner:view` | 🟡 | 页面接口已区分“等待老板补国家/月度成本”和“负责人待设投入”，且不向负责人返回月薪金额；可直达对应项目设置投入 | 项目负责人 AI 阶段完善 |

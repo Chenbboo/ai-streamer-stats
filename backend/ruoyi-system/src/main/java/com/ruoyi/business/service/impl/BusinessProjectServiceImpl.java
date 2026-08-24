@@ -446,7 +446,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         boolean administrator = SecurityUtils.isAdmin(userId);
         if (!administrator && (!boss || mapper.countUserRoleByKey(userId, "company_owner") < 1))
             throw new ServiceException("只有公司负责人可以查看人员内部核算成本");
-        requireActiveUser(staffUserId);
+        if (administrator) requireCostEligibleUser(staffUserId);
+        else requireActiveUser(staffUserId);
         if (!administrator) requireStaffCostCompanyOwner(staffUserId, userId, false);
         return mapper.selectStaffCostPolicies(staffUserId);
     }
@@ -460,7 +461,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (!administrator && (!boss || mapper.countUserRoleByKey(userId, "company_owner") < 1))
             throw new ServiceException("只有系统管理员或公司负责人可以设置人员内部核算成本");
         if (policy == null || policy.getUserId() == null) throw new ServiceException("请选择人员");
-        requireActiveUser(policy.getUserId());
+        if (administrator) requireCostEligibleUser(policy.getUserId());
+        else requireActiveUser(policy.getUserId());
         if (!administrator) requireStaffCostCompanyOwner(policy.getUserId(), userId, true);
         if (policy.getUnitCost() == null || policy.getUnitCost().compareTo(BigDecimal.ZERO) < 0)
             throw new ServiceException("月度用人成本不能为空或为负数");
@@ -1748,6 +1750,14 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (userId == null) throw new ServiceException("请选择有效账号");
         Map<String, Object> user = mapper.selectActiveUserById(userId);
         if (user == null) throw new ServiceException("所选账号不存在或已停用");
+        return user;
+    }
+
+    private Map<String, Object> requireCostEligibleUser(Long userId)
+    {
+        if (userId == null) throw new ServiceException("请选择有效人员");
+        Map<String, Object> user = mapper.selectCostEligibleUserById(userId);
+        if (user == null) throw new ServiceException("所选人员不存在或已离职");
         return user;
     }
 

@@ -91,6 +91,23 @@ class BusinessStaffServiceImplTest
     }
 
     @Test
+    void administratorCanManageCostForEmployedStaffWithDisabledLogin()
+    {
+        SysUser disabledStaff = new SysUser(111L);
+        disabledStaff.setUserName("disabled111"); disabledStaff.setStatus("1");
+        BusinessStaffProfile profile = new BusinessStaffProfile();
+        profile.setUserId(111L); profile.setEmploymentStatus("ACTIVE");
+        when(userService.selectUserList(any())).thenReturn(Arrays.asList(disabledStaff));
+        when(profileMapper.selectByUserIds(any())).thenReturn(Arrays.asList(profile));
+
+        List<?> rows = service.listStaff(new SysUser(), 1L, true).getRows();
+
+        @SuppressWarnings("unchecked") Map<String, Object> row = (Map<String, Object>) rows.get(0);
+        assertEquals(true, row.get("canViewCost"));
+        assertEquals(true, row.get("canManageCost"));
+    }
+
+    @Test
     void creatingStaffAlwaysAssignsProjectAndCompanyStaffRoles()
     {
         BusinessStaffProfile input = new BusinessStaffProfile();
