@@ -736,7 +736,7 @@
         null userName,proposal.objective,proposal.applicant_name applicantName,company.dept_name companyName,
         proposal.plan_start_date planStartDate,proposal.plan_end_date planEndDate,null mainOwnerName,
         proposal.status,null baselineStatus,null targetCount,null planId,null planVersion,null cycleEnd,
-        null totalScore,null bonusAmount,null costStatus,null projectCount,null projectNameText,
+        null totalScore,null bonusAmount,null costStatus,null countryRegion,null projectCount,null projectNameText,
         coalesce(proposal.submitted_time,proposal.update_time,proposal.create_time) sortTime
       from biz_project_proposal proposal
       left join sys_dept company on company.dept_id=proposal.company_dept_id and company.del_flag='0'
@@ -750,7 +750,7 @@
         p.main_owner_name mainOwnerName,p.status,p.baseline_status baselineStatus,
         (select count(*) from biz_project_kpi target where target.project_id=p.project_id and target.status='CURRENT') targetCount,
         plan.plan_id planId,plan.plan_version planVersion,plan.cycle_end cycleEnd,
-        null totalScore,null bonusAmount,null costStatus,null projectCount,null projectNameText,p.update_time sortTime
+        null totalScore,null bonusAmount,null costStatus,null countryRegion,null projectCount,null projectNameText,p.update_time sortTime
       from biz_project p
       left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
       left join biz_project_kpi_plan plan on plan.plan_id=(select latest.plan_id from biz_project_kpi_plan latest
@@ -766,7 +766,7 @@
         null objective,null applicantName,company.dept_name companyName,null planStartDate,null planEndDate,
         p.main_owner_name mainOwnerName,p.status,p.baseline_status baselineStatus,null targetCount,
         plan.plan_id planId,plan.plan_version planVersion,plan.cycle_end cycleEnd,
-        settlement.total_score totalScore,settlement.bonus_amount bonusAmount,null costStatus,
+        settlement.total_score totalScore,settlement.bonus_amount bonusAmount,null costStatus,null countryRegion,
         null projectCount,null projectNameText,coalesce(settlement.submitted_time,settlement.update_time) sortTime
       from biz_project p
       left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
@@ -786,6 +786,7 @@
         case when profile.country_region is null or profile.country_region not in ('CN','VN') then 'MISSING_REGION'
              when valid_cost.user_id is not null then 'READY'
              when any_cost.user_id is not null then 'LEGACY_COST' else 'MISSING_COST' end costStatus,
+        profile.country_region countryRegion,
         count(distinct project.project_id) projectCount,
         group_concat(distinct project.project_name order by project.project_name separator '、') projectNameText,
         coalesce(u.update_time,u.create_time) sortTime
@@ -814,7 +815,7 @@
         null proposalId,p.project_id projectId,null userId,p.project_name projectName,null userName,
         null objective,null applicantName,company.dept_name companyName,null planStartDate,null planEndDate,
         p.main_owner_name mainOwnerName,p.status,p.baseline_status baselineStatus,null targetCount,
-        null planId,null planVersion,null cycleEnd,null totalScore,null bonusAmount,null costStatus,
+        null planId,null planVersion,null cycleEnd,null totalScore,null bonusAmount,null costStatus,null countryRegion,
         null projectCount,null projectNameText,p.update_time sortTime
       from biz_project p
       left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'

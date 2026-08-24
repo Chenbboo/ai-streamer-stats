@@ -127,6 +127,14 @@ public class BusinessProjectController extends BaseController
         return success(projectService.saveStaffCostPolicy(policy, currentUserId(), currentUserName(), isBoss()));
     }
 
+    @PreAuthorize("@ss.hasPermi('business:staff:manage')")
+    @Log(title = "批量人员内部核算成本", businessType = BusinessType.INSERT)
+    @PostMapping("/staff/cost-policies")
+    public AjaxResult saveStaffCostPolicies(@RequestBody List<BusinessStaffCostPolicy> policies)
+    {
+        return success(projectService.saveStaffCostPolicies(policies, currentUserId(), currentUserName(), isBoss()));
+    }
+
     @PreAuthorize("@ss.hasPermi('business:project:allocation')")
     @Log(title = "项目人员成本分摊", businessType = BusinessType.INSERT)
     @PostMapping("/project/staff-allocation")
