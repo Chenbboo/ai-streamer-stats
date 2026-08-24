@@ -4,9 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.atLeastOnce;
@@ -922,6 +924,49 @@ class BusinessProjectServiceImplTest
         assertEquals("VN", saved.getCountryRegion());
         assertEquals(new BigDecimal("26"), saved.getStandardWorkDays());
         assertEquals(Integer.valueOf(3), saved.getPolicyVersion());
+    }
+
+    @Test
+    void batchStaffMonthlyCostSavesEveryPersonWithTheirRegionRule()
+    {
+        Map<String, Object> chinaStaff = new HashMap<String, Object>();
+        chinaStaff.put("nickName", "中国员工");
+        Map<String, Object> vietnamStaff = new HashMap<String, Object>();
+        vietnamStaff.put("nickName", "越南员工");
+        when(mapper.selectActiveUserById(147L)).thenReturn(chinaStaff);
+        when(mapper.selectActiveUserById(148L)).thenReturn(vietnamStaff);
+        when(mapper.countUserRoleByKey(8L, "company_owner")).thenReturn(1);
+        when(mapper.selectStaffCompanyLeaderUserId(anyLong(), eq(true))).thenReturn(8L);
+        when(mapper.selectStaffCountryRegion(147L)).thenReturn("CN");
+        when(mapper.selectStaffCountryRegion(148L)).thenReturn("VN");
+        when(mapper.selectNextStaffCostVersion(anyLong())).thenReturn(1);
+        BusinessStaffCostPolicy china = new BusinessStaffCostPolicy();
+        china.setUserId(147L); china.setUnitCost(new BigDecimal("10000"));
+        china.setEffectiveFrom(java.sql.Date.valueOf("2026-08-24"));
+        BusinessStaffCostPolicy vietnam = new BusinessStaffCostPolicy();
+        vietnam.setUserId(148L); vietnam.setUnitCost(new BigDecimal("10000"));
+        vietnam.setEffectiveFrom(java.sql.Date.valueOf("2026-08-24"));
+
+        List<BusinessStaffCostPolicy> saved = service.saveStaffCostPolicies(
+            Arrays.asList(china, vietnam), 8L, "boss8", true);
+
+        assertEquals(2, saved.size());
+        assertEquals(new BigDecimal("21.75"), saved.get(0).getStandardWorkDays());
+        assertEquals(new BigDecimal("26"), saved.get(1).getStandardWorkDays());
+        verify(mapper, times(2)).insertStaffCostPolicy(any(BusinessStaffCostPolicy.class));
+    }
+
+    @Test
+    void batchStaffMonthlyCostRejectsDuplicatePeopleBeforeWriting()
+    {
+        BusinessStaffCostPolicy first = new BusinessStaffCostPolicy(); first.setUserId(147L);
+        BusinessStaffCostPolicy duplicate = new BusinessStaffCostPolicy(); duplicate.setUserId(147L);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveStaffCostPolicies(Arrays.asList(first, duplicate), 8L, "boss8", true));
+
+        assertTrue(error.getMessage().contains("重复人员"));
+        verify(mapper, never()).insertStaffCostPolicy(any());
     }
 
     @Test

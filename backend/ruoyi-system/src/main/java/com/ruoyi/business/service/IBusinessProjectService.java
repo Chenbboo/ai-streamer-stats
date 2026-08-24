@@ -31,6 +31,8 @@ public interface IBusinessProjectService
     List<BusinessStaffCostPolicy> staffCostPolicies(Long staffUserId, Long userId, boolean boss);
     BusinessStaffCostPolicy saveStaffCostPolicy(BusinessStaffCostPolicy policy,
         Long userId, String userName, boolean boss);
+    List<BusinessStaffCostPolicy> saveStaffCostPolicies(List<BusinessStaffCostPolicy> policies,
+        Long userId, String userName, boolean boss);
     BusinessProjectStaffAllocation saveStaffAllocation(BusinessProjectStaffAllocation allocation,
         Long userId, String userName, boolean boss);
     void removeStaffAllocation(Long projectId, Long allocationId, Long userId, String userName, boolean boss);

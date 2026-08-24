@@ -1,7 +1,7 @@
 export default {
   // 首页
   home: {
-    title: 'meimaru管理系统',
+    title: '美丸管理系统',
     subtitle: '欢迎使用，请从左侧菜单选择功能'
   },
   // 登录

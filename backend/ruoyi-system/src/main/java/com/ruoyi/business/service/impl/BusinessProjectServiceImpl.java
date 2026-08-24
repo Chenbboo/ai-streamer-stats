@@ -485,6 +485,26 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         return policy;
     }
 
+    @Override
+    @Transactional
+    public List<BusinessStaffCostPolicy> saveStaffCostPolicies(List<BusinessStaffCostPolicy> policies,
+        Long userId, String userName, boolean boss)
+    {
+        if (policies == null || policies.isEmpty()) throw new ServiceException("请选择要设置成本的人员");
+        if (policies.size() > 200) throw new ServiceException("单次最多设置200名人员的成本");
+        Map<Long, Boolean> userIds = new HashMap<Long, Boolean>();
+        for (BusinessStaffCostPolicy policy : policies)
+        {
+            if (policy == null || policy.getUserId() == null) throw new ServiceException("请选择人员");
+            if (userIds.put(policy.getUserId(), Boolean.TRUE) != null)
+                throw new ServiceException("批量设置中存在重复人员");
+        }
+        List<BusinessStaffCostPolicy> saved = new ArrayList<BusinessStaffCostPolicy>();
+        for (BusinessStaffCostPolicy policy : policies)
+            saved.add(saveStaffCostPolicy(policy, userId, userName, boss));
+        return saved;
+    }
+
     private void requireStaffCostCompanyOwner(Long staffUserId, Long operatorUserId, boolean lockForUpdate)
     {
         Long companyLeaderUserId = mapper.selectStaffCompanyLeaderUserId(staffUserId, lockForUpdate);
