@@ -142,7 +142,7 @@
             <el-tag size="small" :type="kpiMeta(row).tone" effect="light">KPI {{ kpiMeta(row).label }}</el-tag>
             <span>风险：{{ row.openRiskCount ? `${row.openRiskCount} 项` : '无' }}</span>
             <span class="project-actions">
-              <el-button v-if="kpiMeta(row).label !== '已确认'" size="small" type="primary" @click="openKpi(row)">{{ kpiMeta(row).action }}</el-button>
+              <el-button v-if="kpiMeta(row).label !== '已确认'" size="small" :type="kpiMeta(row).action === '查看KPI' ? 'success' : 'primary'" @click="openKpi(row)">{{ kpiMeta(row).action }}</el-button>
               <el-button size="small" @click="openProject(row)">详情</el-button>
             </span>
           </div>
