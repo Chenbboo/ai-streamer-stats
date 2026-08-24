@@ -35,7 +35,7 @@
             </el-select>
           </el-form-item>
           <el-form-item label="外部单号"><el-input v-model="form.externalNo" :disabled="readonly"/></el-form-item>
-          <el-form-item v-if="form.docType==='CUSTOMER_RETURN'" label="原销售单" required>
+          <el-form-item v-if="form.docType==='CUSTOMER_RETURN'" label="原销售单（可选）">
             <el-select v-model="form.sourceDocumentId" filterable clearable :disabled="readonly" @change="salesSourceChanged">
               <el-option v-for="d in salesDocuments" :key="d.documentId"
                 :label="`${d.docNo} · ${d.bizDate} · ${d.salesChannel || '未填写渠道'}`" :value="d.documentId"/>
@@ -50,14 +50,14 @@
           <el-form-item v-if="form.docType==='CUSTOMER_RETURN'" label="实际退款总额" required>
             <el-input-number v-model="form.actualRefundAmount" :min="0" :precision="2" :disabled="readonly" />
           </el-form-item>
-          <el-form-item v-if="needsSalesChannel" label="销售渠道" required><el-input v-model="form.salesChannel" :disabled="readonly || form.docType==='CUSTOMER_RETURN' || !!form.sourceDocumentId"/></el-form-item>
+          <el-form-item v-if="needsSalesChannel" label="销售渠道" required><el-input v-model="form.salesChannel" :disabled="readonly || !!form.sourceDocumentId"/></el-form-item>
           <el-form-item v-if="form.docType==='SALES_OUT'" label="达人/主播"><el-input v-model="form.influencerName" :disabled="readonly"/></el-form-item>
           <el-form-item v-if="form.docType==='SALES_OUT'" label="平台扣点率（%）"><el-input-number v-model="platformPercent" :min="0" :max="100" :step="1" :precision="2" :disabled="readonly"/></el-form-item>
           <el-form-item v-if="form.docType==='SALES_OUT'" label="达人佣金率（%）"><el-input-number v-model="commissionPercent" :min="0" :max="100" :step="1" :precision="2" :disabled="readonly"/></el-form-item>
           <el-form-item v-if="form.docType==='SALES_OUT'" label="税率（%）"><el-input-number v-model="taxPercent" :min="0" :max="100" :step="1" :precision="2" :disabled="readonly"/></el-form-item>
         </div></el-form>
         <el-alert v-if="form.docType==='CUSTOMER_RETURN' && !form.sourceDocumentId && !readonly"
-          title="客户退货必须先选择已入账的原销售单，销售渠道、商品和成本将由系统自动带入。"
+          title="原销售单为可选项。无法确认原单时可直接填写销售渠道并手工添加退货商品；未关联退货将自动标记为需复核。"
           type="warning" :closable="false" show-icon />
         <el-alert v-if="form.docType==='SUPPLIER_RETURN' && !form.sourceDocumentId && !readonly"
           title="请先选择供应商及其已入账的原采购单，系统会带出剩余可退商品、原采购价和采购金额。"
@@ -90,7 +90,7 @@
           <el-table-column label="商品" min-width="390">
             <template #default="{ row }">
               <div class="product-picker">
-                <el-select v-model="row.productId" filterable :disabled="readonly || ['SUPPLIER_RETURN','CUSTOMER_RETURN','RETURN_INSPECT'].includes(form.docType)" @change="productChanged(row)">
+                <el-select v-model="row.productId" filterable :disabled="readonly || ['SUPPLIER_RETURN','RETURN_INSPECT'].includes(form.docType) || (form.docType==='CUSTOMER_RETURN' && !!form.sourceDocumentId)" @change="productChanged(row)">
                   <el-option v-for="p in availableProducts(row)" :key="p.productId" :label="p.sku + ' · ' + p.productName" :value="p.productId" />
                 </el-select>
                 <el-button v-if="form.docType==='PURCHASE_IN' && !readonly" type="primary" plain icon="Plus"
@@ -153,7 +153,7 @@
           <el-table-column v-if="form.docType==='COST_ADJUST'" label="当前库存" width="110" align="right"><template #default="{row}">{{row.qty}}</template></el-table-column>
           <el-table-column v-if="form.docType==='SUPPLIER_RETURN'" label="剩余可退" width="105" align="right"><template #default="{row}">{{row.remainingReturnQty}}</template></el-table-column>
           <el-table-column v-if="showQuantityColumn" label="数量" width="130">
-            <template #default="{ row }"><el-input-number v-model="row.qty" :min="1" :max="form.docType==='SUPPLIER_RETURN' && form.sourceDocumentId?Number(row.remainingReturnQty||0):undefined" :disabled="readonly || (['SUPPLIER_RETURN','CUSTOMER_RETURN'].includes(form.docType) && !form.sourceDocumentId)" /></template>
+            <template #default="{ row }"><el-input-number v-model="row.qty" :min="1" :max="form.docType==='SUPPLIER_RETURN' && form.sourceDocumentId?Number(row.remainingReturnQty||0):undefined" :disabled="readonly || (form.docType==='SUPPLIER_RETURN' && !form.sourceDocumentId)" /></template>
           </el-table-column>
           <el-table-column v-if="form.docType==='SUPPLIER_RETURN'" label="原采购单价" width="125" align="right"><template #default="{row}">{{fourDecimalMoney(row.sourceUnitPrice)}}</template></el-table-column>
           <el-table-column v-if="showPriceColumn" :label="priceLabel" width="170"><template #default="{row}"><el-input-number v-model="row.unitPrice" :min="0" :precision="unitPricePrecision" :step="unitPriceStep" :disabled="readonly || (form.docType==='CUSTOMER_RETURN' && !!form.sourceDocumentId) || (form.docType==='SALES_OUT' && normalizedPricingMode(row)==='INCLUDED')" style="width:100%"/></template></el-table-column>
@@ -191,7 +191,7 @@
             </template>
           </el-table-column>
           <el-table-column v-if="showAdjustmentColumn" label="调整原因" min-width="180"><template #default="{row}"><el-input v-model="row.lineReason" :disabled="readonly"/></template></el-table-column>
-          <el-table-column v-if="!readonly && (form.docType!=='CUSTOMER_RETURN' || form.sourceDocumentId)" width="60"><template #default="{ $index }"><el-button link type="danger" icon="Delete" @click="removeItem($index)"/></template></el-table-column>
+          <el-table-column v-if="!readonly" width="60"><template #default="{ $index }"><el-button link type="danger" icon="Delete" @click="removeItem($index)"/></template></el-table-column>
         </el-table>
         <div v-if="form.docType==='SALES_OUT' && bundleSummaries.length" class="bundle-summaries">
           <div v-for="group in bundleSummaries" :key="group.groupNo">
@@ -204,7 +204,7 @@
             <span v-if="canViewFinance" :class="{loss:group.profit<0}">预计毛利 ¥{{money(group.profit)}}</span>
           </div>
         </div>
-        <el-button v-if="!readonly && !['SUPPLIER_RETURN','CUSTOMER_RETURN','RETURN_INSPECT'].includes(form.docType)" plain icon="Plus" class="add-line" @click="addNormalItem">增加一行</el-button>
+        <el-button v-if="!readonly && !['SUPPLIER_RETURN','RETURN_INSPECT'].includes(form.docType) && (form.docType!=='CUSTOMER_RETURN' || !form.sourceDocumentId)" plain icon="Plus" class="add-line" @click="addNormalItem">增加一行</el-button>
         <div class="document-total">
           <span>SKU {{ form.items.length }} 种</span>
           <span>总件数 <b>{{ estimatedQty }}</b></span>
@@ -337,10 +337,10 @@ const showPriceColumn=computed(()=>['PURCHASE_IN','SALES_OUT','SUPPLIER_RETURN',
 const showCostColumn=computed(()=>form.docType==='COST_ADJUST'||(canViewFinance.value&&form.docType!=='PURCHASE_IN'))
 const showSalesBundleColumns=computed(()=>['SALES_OUT','CUSTOMER_RETURN'].includes(form.docType)||(readonly.value&&form.items?.some(item=>['MAIN','ADDON'].includes(item.saleRole))))
 const excelImportSupported=computed(()=>['PURCHASE_IN','SALES_OUT','STOCK_ADJUST'].includes(form.docType))
-const priceLabel=computed(()=>form.docType==='PURCHASE_IN'?'采购单价':form.docType==='SALES_OUT'?'成交单价':form.docType==='SUPPLIER_RETURN'?'实际退货单价':form.docType==='COST_ADJUST'?'调整后平均成本':'原成交单价')
+const priceLabel=computed(()=>form.docType==='PURCHASE_IN'?'采购单价':form.docType==='SALES_OUT'?'成交单价':form.docType==='SUPPLIER_RETURN'?'实际退货单价':form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId?'实际退款单价':form.docType==='COST_ADJUST'?'调整后平均成本':'原成交单价')
 const unitPricePrecision=computed(()=>isFourDecimalUnitPriceDocument(form)?4:2)
 const unitPriceStep=computed(()=>isFourDecimalUnitPriceDocument(form)?0.0001:0.01)
-const amountLabel=computed(()=>form.docType==='PURCHASE_IN'?'采购金额':form.docType==='SALES_OUT'?'成交总额':form.docType==='SUPPLIER_RETURN'?'退货金额':form.docType==='COST_ADJUST'?'库存金额变化':'原成交金额')
+const amountLabel=computed(()=>form.docType==='PURCHASE_IN'?'采购金额':form.docType==='SALES_OUT'?'成交总额':form.docType==='SUPPLIER_RETURN'?'退货金额':form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId?'退款金额':form.docType==='COST_ADJUST'?'库存金额变化':'原成交金额')
 const totalAmountLabel=computed(()=>form.docType==='PURCHASE_IN'?'采购总额':form.docType==='SALES_OUT'?'成交总额':form.docType==='SUPPLIER_RETURN'?'退货总额':form.docType==='COST_ADJUST'?'库存金额变化':'退款总额')
 const needsReason=computed(()=>['SUPPLIER_RETURN','CUSTOMER_RETURN','STOCK_ADJUST','COST_ADJUST'].includes(form.docType))
 const reasonLabel=computed(()=>form.docType==='STOCK_ADJUST'?'调整原因':form.docType==='COST_ADJUST'?'调价原因':'退货原因')
@@ -671,8 +671,8 @@ async function inspectionSourceChanged(id){
 async function typeChanged(){form.items=[blankItem()];form.supplierId=null;form.supplierNameSnapshot='';form.salesChannel='';form.platformRate=0;form.commissionRate=0;form.taxRate=0;form.returnReason='';form.sourceDocumentId=null;form.sourceDocNo='';form.unlinkedReason='';form.actualRefundAmount=null;purchaseDocuments.value=[];importPreview.value={};importCompression.value=null;if(form.docType==='COST_ADJUST')await reloadProducts('COST_ADJUST')}
 function validateDocument(requireSubmit=false){
   if(form.docType==='SUPPLIER_RETURN'&&!form.sourceDocumentId){proxy.$modal.msgError('供应商退货必须选择原采购单');return false}
-  if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId){proxy.$modal.msgError('客户退货必须选择原销售单');return false}
   if(form.docType==='CUSTOMER_RETURN'&&(form.actualRefundAmount===null||Number(form.actualRefundAmount)<0)){proxy.$modal.msgError('请填写实际退款总额');return false}
+  if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&form.items.some(x=>Number(x.unitPrice||0)<=0)){proxy.$modal.msgError('未关联原销售单时，请填写每件商品的实际退款单价');return false}
   if(form.docType==='RETURN_INSPECT'&&!form.sourceDocumentId){proxy.$modal.msgError('退货质检必须选择原客户退货单');return false}
   if(!form.items.length||form.items.some(x=>!x.productId)){proxy.$modal.msgError('请完整选择商品');return false}
   if(form.docType==='SUPPLIER_RETURN'&&form.items.some(x=>!x.sourceItemId)){proxy.$modal.msgError('退供商品必须来自原采购单');return false}

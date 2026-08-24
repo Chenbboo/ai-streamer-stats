@@ -488,18 +488,27 @@ class JewelryErpServiceImplTest
     }
 
     @Test
-    void customerReturnMustLinkOriginalSale()
+    void unlinkedCustomerReturnCanBeSavedAndIsFlaggedForReview()
     {
         JewelryDocument customerReturn = document(null, "CUSTOMER_RETURN", null);
         customerReturn.setSalesChannel("shop");
         customerReturn.setReturnReason("customer return");
+        customerReturn.setActualRefundAmount(decimal("900.00"));
         customerReturn.setItems(Arrays.asList(item(null, 1, "1000.00")));
+        when(mapper.insertDocument(customerReturn)).thenAnswer(invocation -> {
+            customerReturn.setDocumentId(93L);
+            return 1;
+        });
+        when(mapper.selectDocumentById(93L)).thenReturn(customerReturn);
+        when(mapper.selectDocumentItems(93L)).thenReturn(customerReturn.getItems());
 
-        ServiceException error = assertThrows(ServiceException.class,
-            () -> service.saveDocument(customerReturn, MAKER_ID, "maker"));
+        JewelryDocument saved = service.saveDocument(customerReturn, MAKER_ID, "maker");
 
-        assertTrue(error.getMessage().contains("必须关联原销售单"));
-        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+        assertEquals(93L, saved.getDocumentId());
+        assertEquals("REVIEW", customerReturn.getRiskStatus());
+        assertMoney("100.00", customerReturn.getItems().get(0).getUnitCost());
+        assertMoney("-900.00", customerReturn.getTotalAmount());
+        verify(mapper).insertDocument(customerReturn);
     }
 
     @Test

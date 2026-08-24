@@ -684,8 +684,6 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             throw new ServiceException("请填写退货原因");
         if ("COST_ADJUST".equals(document.getDocType()) && text(document.getReturnReason()).trim().isEmpty())
             throw new ServiceException("请填写调价原因");
-        if ("CUSTOMER_RETURN".equals(document.getDocType()) && document.getSourceDocumentId() == null)
-            throw new ServiceException("客户退货必须关联原销售单");
         Map<Long, JewelryDocumentItem> supplierReturnSourceItems = new HashMap<Long, JewelryDocumentItem>();
         JewelryDocument supplierReturnSource = null;
         if ("SUPPLIER_RETURN".equals(document.getDocType()))
@@ -852,8 +850,17 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     document.setCommissionRate(money(source.getCommissionRate()));
                     document.setTaxRate(money(source.getTaxRate()));
                 }
-                else if (money(item.getUnitPrice()).signum() <= 0)
-                    throw new ServiceException("未关联原销售单时必须填写实际退款单价");
+                else
+                {
+                    if (!itemKeys.add(String.valueOf(item.getProductId())))
+                        throw new ServiceException("同一商品不能在一张单据中重复出现");
+                    if (money(item.getUnitPrice()).signum() <= 0)
+                        throw new ServiceException("未关联原销售单时必须填写实际退款单价");
+                    item.setSourceItemId(null);
+                    item.setBundleGroupNo(null);
+                    item.setSaleRole("NORMAL");
+                    item.setPricingMode("SEPARATE");
+                }
             }
             else if ("RETURN_INSPECT".equals(document.getDocType()))
             {
