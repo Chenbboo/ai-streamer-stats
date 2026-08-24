@@ -456,13 +456,12 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     public BusinessStaffCostPolicy saveStaffCostPolicy(BusinessStaffCostPolicy policy,
         Long userId, String userName, boolean boss)
     {
-        if (SecurityUtils.isAdmin(userId))
-            throw new ServiceException("系统管理员只能审计人员成本，不能代替公司负责人设置");
-        if (!boss || mapper.countUserRoleByKey(userId, "company_owner") < 1)
-            throw new ServiceException("只有公司负责人可以设置人员内部核算成本");
+        boolean administrator = SecurityUtils.isAdmin(userId);
+        if (!administrator && (!boss || mapper.countUserRoleByKey(userId, "company_owner") < 1))
+            throw new ServiceException("只有系统管理员或公司负责人可以设置人员内部核算成本");
         if (policy == null || policy.getUserId() == null) throw new ServiceException("请选择人员");
         requireActiveUser(policy.getUserId());
-        requireStaffCostCompanyOwner(policy.getUserId(), userId, true);
+        if (!administrator) requireStaffCostCompanyOwner(policy.getUserId(), userId, true);
         if (policy.getUnitCost() == null || policy.getUnitCost().compareTo(BigDecimal.ZERO) < 0)
             throw new ServiceException("月度用人成本不能为空或为负数");
         String countryRegion = mapper.selectStaffCountryRegion(policy.getUserId());
