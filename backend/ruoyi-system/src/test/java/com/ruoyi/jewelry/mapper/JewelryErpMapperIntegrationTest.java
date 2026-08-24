@@ -129,6 +129,41 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void supplierReturnSourcesTrackPendingAndPostedReturnedQuantities()
+    {
+        insertDocument(1L, "PURCHASE-1", "PURCHASE_IN", "POSTED", null);
+        execute("update jewelry_document set supplier_id=9 where document_id=1");
+        insertItem(101L, 1L, null, 10L, 5);
+        execute("update jewelry_document_item set unit_price=12.3456 where item_id=101");
+        insertDocument(2L, "RETURN-PENDING", "SUPPLIER_RETURN", "PENDING_FIRST", 1L);
+        insertDocument(3L, "RETURN-REJECTED", "SUPPLIER_RETURN", "REJECTED", 1L);
+        insertDocument(4L, "RETURN-DRAFT", "SUPPLIER_RETURN", "DRAFT", 1L);
+        insertItem(201L, 2L, 101L, 10L, 2);
+        insertItem(301L, 3L, 101L, 10L, 1);
+        insertItem(401L, 4L, 101L, 10L, 1);
+
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            assertEquals(2, mapper.selectSupplierReturnedQtyBySourceItem(101L, null));
+            assertEquals(new BigDecimal("12.345600"), mapper.selectDocumentItems(2L).get(0).getSourceUnitPrice());
+            List<JewelryDocumentItem> items = mapper.selectSupplierReturnSourceItems(1L, null);
+            assertEquals(1, items.size());
+            assertEquals(3, items.get(0).getRemainingReturnQty());
+            assertEquals(1, mapper.selectSupplierReturnSourceList(9L).size());
+        }
+
+        insertDocument(5L, "RETURN-POSTED", "SUPPLIER_RETURN", "POSTED", 1L);
+        insertItem(501L, 5L, 101L, 10L, 3);
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            assertEquals(5, mapper.selectSupplierReturnedQtyBySourceItem(101L, null));
+            assertEquals(0, mapper.selectSupplierReturnSourceList(9L).size());
+        }
+    }
+
+    @Test
     void inspectionAndDefectReservationsRespectTheirOwnAvailableQuantities()
     {
         insertStock(1L, 5, 0, 3, 1, 2, 0, "100.00");

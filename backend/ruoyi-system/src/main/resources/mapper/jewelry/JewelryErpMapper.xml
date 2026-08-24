@@ -19,6 +19,7 @@
         <result property="returnReason" column="return_reason"/>
         <result property="sourceDocumentId" column="source_document_id"/>
         <result property="sourceDocType" column="source_doc_type"/>
+        <result property="sourceDocNo" column="source_doc_no"/>
         <result property="unlinkedReason" column="unlinked_reason"/>
         <result property="actualRefundAmount" column="actual_refund_amount"/>
         <result property="totalQty" column="total_qty"/>
@@ -59,10 +60,12 @@
         <result property="goodQty" column="good_qty"/>
         <result property="defectQty" column="defect_qty"/>
         <result property="remainingInspectQty" column="remaining_inspect_qty"/>
+        <result property="remainingReturnQty" column="remaining_return_qty"/>
         <result property="systemQty" column="system_qty"/>
         <result property="countedQty" column="counted_qty"/>
         <result property="adjustmentQty" column="adjustment_qty"/>
         <result property="unitPrice" column="unit_price"/>
+        <result property="sourceUnitPrice" column="source_unit_price"/>
         <result property="unitCost" column="unit_cost"/>
         <result property="packFee" column="pack_fee"/>
         <result property="shipFee" column="ship_fee"/>
@@ -372,7 +375,7 @@
     </select>
 
     <select id="selectDocumentList" resultMap="documentMap">
-        select d.*,src.doc_type source_doc_type
+        select d.*,src.doc_type source_doc_type,src.doc_no source_doc_no
         from jewelry_document d
         left join jewelry_document src on src.document_id=d.source_document_id
         <where>
@@ -387,7 +390,7 @@
         order by d.document_id desc
     </select>
     <select id="selectDocumentById" resultMap="documentMap">
-        select d.*,src.doc_type source_doc_type
+        select d.*,src.doc_type source_doc_type,src.doc_no source_doc_no
         from jewelry_document d
         left join jewelry_document src on src.document_id=d.source_document_id
         where d.document_id=#{documentId}
@@ -401,6 +404,11 @@
     <select id="countActiveCustomerReturnsBySource" resultType="int">
         select count(*) from jewelry_document
         where doc_type='CUSTOMER_RETURN' and source_document_id=#{sourceDocumentId}
+          and status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
+    </select>
+    <select id="countActiveSupplierReturnsBySource" resultType="int">
+        select count(*) from jewelry_document
+        where doc_type='SUPPLIER_RETURN' and source_document_id=#{sourceDocumentId}
           and status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
     </select>
     <select id="countPendingCostChangesByProduct" resultType="int">
@@ -428,6 +436,58 @@
           and i.source_item_id=#{sourceItemId}
           and d.status in ('DRAFT','PENDING_FIRST','PENDING_SECOND','POSTED')
           <if test="excludeDocumentId != null">and d.document_id != #{excludeDocumentId}</if>
+    </select>
+    <select id="selectSupplierReturnedQtyBySourceItem" resultType="int">
+        select coalesce(sum(i.qty),0)
+        from jewelry_document_item i
+        join jewelry_document d on d.document_id=i.document_id
+        where d.doc_type='SUPPLIER_RETURN'
+          and i.source_item_id=#{sourceItemId}
+          and d.status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
+          <if test="excludeDocumentId != null">and d.document_id != #{excludeDocumentId}</if>
+    </select>
+    <select id="selectSupplierReturnSourceList" resultMap="documentMap">
+        select d.*
+        from jewelry_document d
+        where d.doc_type='PURCHASE_IN' and d.status='POSTED'
+          and d.supplier_id=#{supplierId}
+          and not exists (
+            select 1 from jewelry_document reversal
+            where reversal.doc_type='REVERSAL' and reversal.source_document_id=d.document_id
+          )
+          and exists (
+            select 1
+            from jewelry_document_item source_item
+            where source_item.document_id=d.document_id
+              and source_item.qty &gt; coalesce((
+                select sum(return_item.qty)
+                from jewelry_document_item return_item
+                join jewelry_document return_doc on return_doc.document_id=return_item.document_id
+                where return_doc.doc_type='SUPPLIER_RETURN'
+                  and return_doc.source_document_id=d.document_id
+                  and return_item.source_item_id=source_item.item_id
+                  and return_doc.status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
+              ),0)
+          )
+        order by d.biz_date desc,d.document_id desc
+    </select>
+    <select id="selectSupplierReturnSourceItems" resultMap="itemMap">
+        select source_item.*,
+          source_item.qty-coalesce(returned.returned_qty,0) remaining_return_qty
+        from jewelry_document_item source_item
+        left join (
+          select return_item.source_item_id,sum(return_item.qty) returned_qty
+          from jewelry_document_item return_item
+          join jewelry_document return_doc on return_doc.document_id=return_item.document_id
+          where return_doc.doc_type='SUPPLIER_RETURN'
+            and return_doc.source_document_id=#{sourceDocumentId}
+            and return_doc.status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
+            <if test="excludeDocumentId != null">and return_doc.document_id != #{excludeDocumentId}</if>
+          group by return_item.source_item_id
+        ) returned on returned.source_item_id=source_item.item_id
+        where source_item.document_id=#{sourceDocumentId}
+          and source_item.qty &gt; coalesce(returned.returned_qty,0)
+        order by source_item.item_id
     </select>
     <select id="selectInspectedQtyBySourceItem" resultType="int">
         select coalesce(sum(i.good_qty+i.defect_qty),0)
@@ -457,7 +517,11 @@
         order by source_item.item_id
     </select>
     <select id="selectDocumentItems" resultMap="itemMap">
-        select * from jewelry_document_item where document_id=#{documentId} order by item_id
+        select item.*,source_item.unit_price source_unit_price
+        from jewelry_document_item item
+        left join jewelry_document_item source_item on source_item.item_id=item.source_item_id
+        where item.document_id=#{documentId}
+        order by item.item_id
     </select>
     <insert id="insertDocument" useGeneratedKeys="true" keyProperty="documentId">
         insert into jewelry_document(doc_no,doc_type,biz_date,status,supplier_id,supplier_name_snapshot,sales_channel,

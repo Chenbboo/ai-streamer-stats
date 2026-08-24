@@ -21,10 +21,12 @@ public class JewelryDocumentItem
     private Integer goodQty;
     private Integer defectQty;
     private Integer remainingInspectQty;
+    private Integer remainingReturnQty;
     private Integer systemQty;
     private Integer countedQty;
     private Integer adjustmentQty;
     private BigDecimal unitPrice;
+    private BigDecimal sourceUnitPrice;
     private BigDecimal unitCost;
     private BigDecimal packFee;
     private BigDecimal shipFee;
@@ -72,6 +74,8 @@ public class JewelryDocumentItem
     public void setDefectQty(Integer defectQty) { this.defectQty = defectQty; }
     public Integer getRemainingInspectQty() { return remainingInspectQty; }
     public void setRemainingInspectQty(Integer remainingInspectQty) { this.remainingInspectQty = remainingInspectQty; }
+    public Integer getRemainingReturnQty() { return remainingReturnQty; }
+    public void setRemainingReturnQty(Integer remainingReturnQty) { this.remainingReturnQty = remainingReturnQty; }
     public Integer getSystemQty() { return systemQty; }
     public void setSystemQty(Integer systemQty) { this.systemQty = systemQty; }
     public Integer getCountedQty() { return countedQty; }
@@ -80,6 +84,8 @@ public class JewelryDocumentItem
     public void setAdjustmentQty(Integer adjustmentQty) { this.adjustmentQty = adjustmentQty; }
     public BigDecimal getUnitPrice() { return unitPrice; }
     public void setUnitPrice(BigDecimal unitPrice) { this.unitPrice = unitPrice; }
+    public BigDecimal getSourceUnitPrice() { return sourceUnitPrice; }
+    public void setSourceUnitPrice(BigDecimal sourceUnitPrice) { this.sourceUnitPrice = sourceUnitPrice; }
     public BigDecimal getUnitCost() { return unitCost; }
     public void setUnitCost(BigDecimal unitCost) { this.unitCost = unitCost; }
     public BigDecimal getPackFee() { return packFee; }

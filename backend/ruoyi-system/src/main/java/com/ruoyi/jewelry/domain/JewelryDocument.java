@@ -28,6 +28,7 @@ public class JewelryDocument extends BaseEntity
     private String returnReason;
     private Long sourceDocumentId;
     private String sourceDocType;
+    private String sourceDocNo;
     private String unlinkedReason;
     private BigDecimal actualRefundAmount;
     private Integer totalQty;
@@ -81,6 +82,8 @@ public class JewelryDocument extends BaseEntity
     public void setSourceDocumentId(Long sourceDocumentId) { this.sourceDocumentId = sourceDocumentId; }
     public String getSourceDocType() { return sourceDocType; }
     public void setSourceDocType(String sourceDocType) { this.sourceDocType = sourceDocType; }
+    public String getSourceDocNo() { return sourceDocNo; }
+    public void setSourceDocNo(String sourceDocNo) { this.sourceDocNo = sourceDocNo; }
     public String getUnlinkedReason() { return unlinkedReason; }
     public void setUnlinkedReason(String unlinkedReason) { this.unlinkedReason = unlinkedReason; }
     public BigDecimal getActualRefundAmount() { return actualRefundAmount; }

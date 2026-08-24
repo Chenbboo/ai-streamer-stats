@@ -15,6 +15,13 @@ export const getJewelryStockWarningDays = () => request({ url: '/jewelry/stock/w
 export const updateJewelryStockWarningDays = (days) => request({ url: '/jewelry/stock/warning-days', method: 'put', data: { days } })
 export const listJewelryDocuments = (params) => request({ url: '/jewelry/document/list', method: 'get', params })
 export const getJewelryDocument = (id) => request({ url: `/jewelry/document/${id}`, method: 'get' })
+export const listSupplierReturnSources = (supplierId) => request({
+  url: '/jewelry/document/supplier-return-sources', method: 'get', params: { supplierId }
+})
+export const getSupplierReturnSource = (id, excludeDocumentId) => request({
+  url: `/jewelry/document/supplier-return-source/${id}`,
+  method: 'get', params: excludeDocumentId ? { excludeDocumentId } : undefined
+})
 export const getReturnInspectionSource = (id, excludeDocumentId) => request({
   url: `/jewelry/document/return-inspection-source/${id}`,
   method: 'get',

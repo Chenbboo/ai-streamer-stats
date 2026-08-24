@@ -700,6 +700,68 @@ class JewelryErpServiceImplTest
     }
 
     @Test
+    void supplierReturnMustLinkPostedPurchaseFromSameSupplier()
+    {
+        JewelryDocument supplierReturn = document(null, "SUPPLIER_RETURN", null);
+        supplierReturn.setSupplierId(9L);
+        supplierReturn.setReturnReason("质量问题");
+        supplierReturn.setItems(Arrays.asList(item(null, 1, "100.00")));
+
+        ServiceException missingSource = assertThrows(ServiceException.class,
+            () -> service.saveDocument(supplierReturn, MAKER_ID, "maker"));
+        assertTrue(missingSource.getMessage().contains("必须关联原采购单"));
+
+        JewelryDocument purchase = document(90L, "PURCHASE_IN", "POSTED");
+        purchase.setSupplierId(8L);
+        supplierReturn.setSourceDocumentId(90L);
+        when(mapper.selectDocumentById(90L)).thenReturn(purchase);
+
+        ServiceException wrongSupplier = assertThrows(ServiceException.class,
+            () -> service.saveDocument(supplierReturn, MAKER_ID, "maker"));
+        assertTrue(wrongSupplier.getMessage().contains("供应商不一致"));
+    }
+
+    @Test
+    void supplierReturnCannotExceedSourcePurchaseRemainingQuantity()
+    {
+        JewelryDocument purchase = document(90L, "PURCHASE_IN", "POSTED");
+        purchase.setSupplierId(9L);
+        JewelryDocumentItem purchaseItem = item(901L, 5, "100.00");
+
+        JewelryDocument supplierReturn = document(null, "SUPPLIER_RETURN", null);
+        supplierReturn.setSupplierId(9L);
+        supplierReturn.setSourceDocumentId(90L);
+        supplierReturn.setReturnReason("质量问题");
+        JewelryDocumentItem returnItem = item(null, 3, "100.00");
+        returnItem.setSourceItemId(901L);
+        supplierReturn.setItems(Arrays.asList(returnItem));
+
+        when(mapper.selectDocumentById(90L)).thenReturn(purchase);
+        when(mapper.selectDocumentItems(90L)).thenReturn(Arrays.asList(purchaseItem));
+        when(mapper.selectSupplierReturnedQtyBySourceItem(901L, null)).thenReturn(3);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveDocument(supplierReturn, MAKER_ID, "maker"));
+
+        assertTrue(error.getMessage().contains("剩余可退数量2件"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void purchaseReversalIsBlockedByActiveSupplierReturn()
+    {
+        JewelryDocument purchase = document(90L, "PURCHASE_IN", "POSTED");
+        when(mapper.selectDocumentByIdForUpdate(90L)).thenReturn(purchase);
+        when(mapper.countActiveSupplierReturnsBySource(90L)).thenReturn(1);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.createReversal(90L, MAKER_ID, "maker"));
+
+        assertTrue(error.getMessage().contains("供应商退货"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
     void returnInspectionMovesGoodAndDefectQuantitiesToTheirStocks()
     {
         JewelryDocument document = document(11L, "RETURN_INSPECT", "PENDING_SECOND");

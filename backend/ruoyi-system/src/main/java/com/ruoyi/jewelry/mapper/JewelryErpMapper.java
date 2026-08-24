@@ -43,9 +43,15 @@ public interface JewelryErpMapper
     JewelryDocument selectDocumentByIdForUpdate(Long documentId);
     int countReversalBySource(Long sourceDocumentId);
     int countActiveCustomerReturnsBySource(Long sourceDocumentId);
+    int countActiveSupplierReturnsBySource(Long sourceDocumentId);
     int countPendingCostChangesByProduct(Long productId);
     int countPendingPurchasesByProduct(Long productId);
     int selectReturnedQtyBySourceItem(@Param("sourceItemId") Long sourceItemId,
+        @Param("excludeDocumentId") Long excludeDocumentId);
+    int selectSupplierReturnedQtyBySourceItem(@Param("sourceItemId") Long sourceItemId,
+        @Param("excludeDocumentId") Long excludeDocumentId);
+    List<JewelryDocument> selectSupplierReturnSourceList(Long supplierId);
+    List<JewelryDocumentItem> selectSupplierReturnSourceItems(@Param("sourceDocumentId") Long sourceDocumentId,
         @Param("excludeDocumentId") Long excludeDocumentId);
     int selectInspectedQtyBySourceItem(@Param("sourceItemId") Long sourceItemId,
         @Param("excludeDocumentId") Long excludeDocumentId);

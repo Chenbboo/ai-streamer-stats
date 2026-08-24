@@ -290,6 +290,25 @@ public class JewelryErpController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
+    @GetMapping("/document/supplier-return-sources")
+    public AjaxResult supplierReturnSources(@RequestParam Long supplierId)
+    {
+        List<JewelryDocument> sources = service.listSupplierReturnSources(supplierId);
+        if (isMakerOnly()) redactDocumentFinance(sources);
+        return success(sources);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
+    @GetMapping("/document/supplier-return-source/{id}")
+    public AjaxResult supplierReturnSource(@PathVariable Long id,
+        @RequestParam(required = false) Long excludeDocumentId)
+    {
+        JewelryDocument source = service.getSupplierReturnSource(id, excludeDocumentId);
+        if (isMakerOnly()) redactDocumentFinance(source);
+        return success(source);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
     @GetMapping("/document/return-inspection-source/{id}")
     public AjaxResult returnInspectionSource(@PathVariable Long id,
         @RequestParam(required = false) Long excludeDocumentId)
