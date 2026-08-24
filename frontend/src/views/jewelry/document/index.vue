@@ -48,7 +48,7 @@
             </el-select>
           </el-form-item>
           <el-form-item v-if="form.docType==='CUSTOMER_RETURN'" label="实际退款总额" required>
-            <el-input-number v-model="form.actualRefundAmount" :min="0" :precision="2" :disabled="readonly" />
+            <el-input-number v-model="form.actualRefundAmount" :min="0" :precision="2" :disabled="readonly" @change="actualRefundTotalChanged" />
           </el-form-item>
           <el-form-item v-if="needsSalesChannel" label="销售渠道" required><el-input v-model="form.salesChannel" :disabled="readonly || !!form.sourceDocumentId"/></el-form-item>
           <el-form-item v-if="form.docType==='SALES_OUT'" label="达人/主播"><el-input v-model="form.influencerName" :disabled="readonly"/></el-form-item>
@@ -312,6 +312,7 @@ const productDialog=ref(false),productSaving=ref(false),productFormRef=ref(),act
 const importDialog=ref(false),importLoading=ref(false),applyingImport=ref(false),importPreview=ref({})
 const importCompression=ref(null)
 const importProgress=reactive({active:false,percentage:0,text:''})
+const actualRefundManuallyEdited=ref(false)
 const blankQuickProduct=()=>({sku:'',productName:'',productType:'FINISHED',category:'',specification:'普通',imageUrl:'',imageUrls:'',unit:'件',warningQty:5,status:'0',defaultPackFee:0,defaultShipFee:0,defaultCertFee:0})
 const quickProduct=reactive(blankQuickProduct())
 const productRules={sku:[{required:true,message:'请输入SKU',trigger:'blur'}],productName:[{required:true,message:'请输入商品名称',trigger:'blur'}],productType:[{required:true,type:'enum',enum:jewelryProductTypes.map(item=>item.value),message:'请选择商品类型'}],specification:[{required:true,type:'enum',enum:jewelrySpecifications.map(item=>item.value),message:'请选择规格类型'}]}
@@ -391,6 +392,11 @@ const bundleSummaries=computed(()=>{
 })
 const accessoryPackagingProblems=computed(()=>bundleSummaries.value.filter(group=>group.packagingShortage>0))
 const refundAmountDiffers=computed(()=>form.docType==='CUSTOMER_RETURN'&&!!form.sourceDocumentId&&form.actualRefundAmount!==null&&Math.abs(Number(form.actualRefundAmount)-expectedReturnRefund.value)>0.009)
+watch([()=>form.docType,()=>form.sourceDocumentId,expectedReturnRefund],([docType,sourceDocumentId,refundTotal])=>{
+  if(docType==='CUSTOMER_RETURN'&&!sourceDocumentId&&!actualRefundManuallyEdited.value){
+    form.actualRefundAmount=Math.round((Number(refundTotal||0)+Number.EPSILON)*100)/100
+  }
+})
 const riskFingerprint=computed(()=>JSON.stringify({
   open:dialog.value,readonly:readonly.value,docType:form.docType,
   platformRate:form.platformRate,commissionRate:form.commissionRate,taxRate:form.taxRate,
@@ -428,6 +434,7 @@ const isFourDecimalAmountDocument=document=>{
 const isFourDecimalUnitPriceDocument=document=>{
   const docType=typeof document==='string'?document:document?.docType
   return ['PURCHASE_IN','SUPPLIER_RETURN'].includes(docType)
+    ||(docType==='CUSTOMER_RETURN'&&(typeof document==='string'||!document?.sourceDocumentId))
     ||(docType==='REVERSAL'&&['PURCHASE_IN','SUPPLIER_RETURN'].includes(document?.sourceDocType))
 }
 const documentAmount=(value,document)=>isFourDecimalAmountDocument(document)?fourDecimalMoney(value):money(value)
@@ -438,9 +445,9 @@ const documentStatusLabel=row=>isDualApproval(row)&&row.status==='PENDING_SECOND
 async function preload(){const [p,s,sales,returns]=await Promise.all([listJewelryProductOptions({status:'0'}),listJewelrySuppliers({pageNum:1,pageSize:500,status:'0'}),listJewelryDocuments({pageNum:1,pageSize:500,docType:'SALES_OUT',status:'POSTED'}),listJewelryDocuments({pageNum:1,pageSize:500,docType:'CUSTOMER_RETURN',status:'POSTED'})]);products.value=p.data||[];suppliers.value=s.rows||[];salesDocuments.value=sales.rows||[];returnDocuments.value=returns.rows||[]}
 async function reloadProducts(purpose){const r=await listJewelryProductOptions({status:'0',...(purpose?{purpose}:{})});products.value=r.data||[]}
 async function load(){loading.value=true;try{const r=await listJewelryDocuments(query);rows.value=r.rows||[];total.value=r.total||0}finally{loading.value=false}}
-function open(){Object.assign(form,blank());purchaseDocuments.value=[];readonly.value=false;dialog.value=true}
+function open(){actualRefundManuallyEdited.value=false;Object.assign(form,blank());purchaseDocuments.value=[];readonly.value=false;dialog.value=true}
 function normalizeLoadedDocument(){form.items=(form.items||[]).map(item=>{const normalized={...blankItem(),...item,remainingInspectQty:item.remainingInspectQty??(form.docType==='RETURN_INSPECT'?Number(item.goodQty||0)+Number(item.defectQty||0):0),saleRole:item.saleRole||'NORMAL',pricingMode:item.pricingMode||'SEPARATE'};if(form.docType==='SALES_OUT'&&normalized.saleRole==='ADDON'&&normalized.productTypeSnapshot==='ACCESSORY'){normalized.pricingMode='INCLUDED';normalized.unitPrice=0;normalized.packFee=0;normalized.shipFee=0;normalized.certFee=0;normalized.otherFee1=0;normalized.otherFee2=0;normalized.otherFee3=0}return normalized});if(form.docType==='CUSTOMER_RETURN'&&form.actualRefundAmount===null)form.actualRefundAmount=Math.abs(Number(form.totalAmount||0))}
-async function edit(row){Object.assign(form,(await getJewelryDocument(row.documentId)).data);normalizeLoadedDocument();if(form.docType==='COST_ADJUST')await reloadProducts('COST_ADJUST');if(form.docType==='SUPPLIER_RETURN'){await loadSupplierReturnSources(form.supplierId);if(form.sourceDocumentId)await loadSupplierReturnSource(form.sourceDocumentId,true)}if(form.docType==='RETURN_INSPECT'&&form.sourceDocumentId)await loadInspectionSource(form.sourceDocumentId,true);readonly.value=false;dialog.value=true}
+async function edit(row){Object.assign(form,(await getJewelryDocument(row.documentId)).data);normalizeLoadedDocument();actualRefundManuallyEdited.value=form.docType==='CUSTOMER_RETURN'&&form.actualRefundAmount!==null;if(form.docType==='COST_ADJUST')await reloadProducts('COST_ADJUST');if(form.docType==='SUPPLIER_RETURN'){await loadSupplierReturnSources(form.supplierId);if(form.sourceDocumentId)await loadSupplierReturnSource(form.sourceDocumentId,true)}if(form.docType==='RETURN_INSPECT'&&form.sourceDocumentId)await loadInspectionSource(form.sourceDocumentId,true);readonly.value=false;dialog.value=true}
 async function view(row){Object.assign(form,(await getJewelryDocument(row.documentId)).data);normalizeLoadedDocument();readonly.value=true;dialog.value=true}
 const normalizedSaleRole=row=>row?.saleRole||'NORMAL'
 const normalizedPricingMode=row=>row?.pricingMode||'SEPARATE'
@@ -640,6 +647,7 @@ async function supplierReturnSourceChanged(id){
   try{await loadSupplierReturnSource(id,false)}catch(error){form.sourceDocumentId=null;form.items=[blankItem()];proxy.$modal.msgError(error?.message||'加载采购单失败')}
 }
 async function salesSourceChanged(id){
+  actualRefundManuallyEdited.value=false
   form.unlinkedReason=''
   form.actualRefundAmount=null
   if(!id){form.items=[blankItem()];form.salesChannel='';form.influencerName='';form.platformRate=0;form.commissionRate=0;form.taxRate=0;return}
@@ -668,7 +676,8 @@ async function inspectionSourceChanged(id){
   if(!id){form.items=[blankItem()];return}
   try{await loadInspectionSource(id,false)}catch(error){form.sourceDocumentId=null;form.items=[blankItem()];proxy.$modal.msgError(error?.message||'加载客户退货单失败')}
 }
-async function typeChanged(){form.items=[blankItem()];form.supplierId=null;form.supplierNameSnapshot='';form.salesChannel='';form.platformRate=0;form.commissionRate=0;form.taxRate=0;form.returnReason='';form.sourceDocumentId=null;form.sourceDocNo='';form.unlinkedReason='';form.actualRefundAmount=null;purchaseDocuments.value=[];importPreview.value={};importCompression.value=null;if(form.docType==='COST_ADJUST')await reloadProducts('COST_ADJUST')}
+function actualRefundTotalChanged(){actualRefundManuallyEdited.value=true}
+async function typeChanged(){actualRefundManuallyEdited.value=false;form.items=[blankItem()];form.supplierId=null;form.supplierNameSnapshot='';form.salesChannel='';form.platformRate=0;form.commissionRate=0;form.taxRate=0;form.returnReason='';form.sourceDocumentId=null;form.sourceDocNo='';form.unlinkedReason='';form.actualRefundAmount=null;purchaseDocuments.value=[];importPreview.value={};importCompression.value=null;if(form.docType==='COST_ADJUST')await reloadProducts('COST_ADJUST')}
 function validateDocument(requireSubmit=false){
   if(form.docType==='SUPPLIER_RETURN'&&!form.sourceDocumentId){proxy.$modal.msgError('供应商退货必须选择原采购单');return false}
   if(form.docType==='CUSTOMER_RETURN'&&(form.actualRefundAmount===null||Number(form.actualRefundAmount)<0)){proxy.$modal.msgError('请填写实际退款总额');return false}

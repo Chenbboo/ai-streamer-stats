@@ -494,7 +494,7 @@ class JewelryErpServiceImplTest
         customerReturn.setSalesChannel("shop");
         customerReturn.setReturnReason("customer return");
         customerReturn.setActualRefundAmount(decimal("900.00"));
-        customerReturn.setItems(Arrays.asList(item(null, 1, "1000.00")));
+        customerReturn.setItems(Arrays.asList(item(null, 1, "1000.1234")));
         when(mapper.insertDocument(customerReturn)).thenAnswer(invocation -> {
             customerReturn.setDocumentId(93L);
             return 1;
@@ -506,6 +506,7 @@ class JewelryErpServiceImplTest
 
         assertEquals(93L, saved.getDocumentId());
         assertEquals("REVIEW", customerReturn.getRiskStatus());
+        assertMoney("1000.1234", customerReturn.getItems().get(0).getUnitPrice());
         assertMoney("100.00", customerReturn.getItems().get(0).getUnitCost());
         assertMoney("-900.00", customerReturn.getTotalAmount());
         verify(mapper).insertDocument(customerReturn);
