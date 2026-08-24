@@ -1124,6 +1124,13 @@
           and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT'
         limit 1
     </select>
+    <select id="selectCostEligibleUserById" resultType="map">
+        select u.user_id userId,u.user_name userName,u.nick_name nickName
+        from sys_user u left join biz_staff_profile profile on profile.user_id=u.user_id
+        where u.user_id=#{userId} and u.del_flag='0'
+          and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT'
+        limit 1
+    </select>
     <select id="selectStaffCountryRegion" resultType="string">
         select coalesce(p.country_region,
           case when vietnam.dept_id is not null then 'VN' else 'CN' end)

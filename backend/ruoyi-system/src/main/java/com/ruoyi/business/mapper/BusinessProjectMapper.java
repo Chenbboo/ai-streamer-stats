@@ -175,6 +175,7 @@ public interface BusinessProjectMapper
         @Param("viewerUserId") Long viewerUserId, @Param("viewAll") boolean viewAll,
         @Param("boss") boolean boss);
     Map<String, Object> selectActiveUserById(Long userId);
+    Map<String, Object> selectCostEligibleUserById(Long userId);
     String selectStaffCountryRegion(Long userId);
     Map<String, Object> selectCompanyById(Long deptId);
     Long selectRoleIdByKey(String roleKey);
