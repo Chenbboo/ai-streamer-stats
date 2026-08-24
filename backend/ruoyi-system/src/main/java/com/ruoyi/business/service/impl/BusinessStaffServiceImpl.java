@@ -53,7 +53,7 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
                 && !"LEFT".equals(profile.getEmploymentStatus());
             boolean companyOwner = activeStaff && sameLong(profile.getCompanyLeaderUserId(), viewerUserId);
             row.put("canViewCost", activeStaff && (administrator || companyOwner));
-            row.put("canManageCost", !administrator && companyOwner);
+            row.put("canManageCost", activeStaff && (administrator || companyOwner));
             rows.add(row);
         }
         TableDataInfo result = new TableDataInfo();

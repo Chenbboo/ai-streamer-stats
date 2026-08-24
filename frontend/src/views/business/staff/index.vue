@@ -31,7 +31,7 @@
             <el-dropdown trigger="click" @command="handlePersonCommand($event,row)">
               <el-button link type="primary">管理<span class="dropdown-caret">⌄</span></el-button>
               <template #dropdown><el-dropdown-menu>
-                <el-dropdown-item v-if="isBoss && row.canManageCost" command="cost">设置用人成本</el-dropdown-item>
+                <el-dropdown-item v-if="canManageRowCost(row)" command="cost">设置用人成本</el-dropdown-item>
                 <el-dropdown-item command="edit">编辑人员资料</el-dropdown-item>
                 <el-dropdown-item v-if="!row.protectedAccount" command="password" divided>重置密码</el-dropdown-item>
               </el-dropdown-menu></template>
@@ -45,7 +45,7 @@
           <div class="card-head"><div><b>{{ row.nickName }}</b><span>{{ row.employeeNo || row.userName }}</span></div><el-tag :type="employmentTag(row.employmentStatus)">{{ employmentStatusLabel(row.employmentStatus) }}</el-tag></div>
           <p>{{ row.companyName || '集团层级' }} · {{ row.deptName || '未设置部门' }}</p>
           <p>直属负责人：{{ row.managerName || '未设置' }}</p>
-          <div class="card-foot"><span>{{ formatPhone(row) }}</span><div class="row-actions" @click.stop><el-button link type="primary" @click="openDetail(row)">查看</el-button><el-dropdown trigger="click" @command="handlePersonCommand($event,row)"><el-button link type="primary">管理<span class="dropdown-caret">⌄</span></el-button><template #dropdown><el-dropdown-menu><el-dropdown-item v-if="isBoss && row.canManageCost" command="cost">设置用人成本</el-dropdown-item><el-dropdown-item command="edit">编辑人员资料</el-dropdown-item><el-dropdown-item v-if="!row.protectedAccount" command="password" divided>重置密码</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></div>
+          <div class="card-foot"><span>{{ formatPhone(row) }}</span><div class="row-actions" @click.stop><el-button link type="primary" @click="openDetail(row)">查看</el-button><el-dropdown trigger="click" @command="handlePersonCommand($event,row)"><el-button link type="primary">管理<span class="dropdown-caret">⌄</span></el-button><template #dropdown><el-dropdown-menu><el-dropdown-item v-if="canManageRowCost(row)" command="cost">设置用人成本</el-dropdown-item><el-dropdown-item command="edit">编辑人员资料</el-dropdown-item><el-dropdown-item v-if="!row.protectedAccount" command="password" divided>重置密码</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></div>
         </article>
         <el-empty v-if="!loading && !rows.length" description="暂无人员" />
       </div>
@@ -95,7 +95,7 @@
           <div><span>用工类型</span><b>{{ employmentTypeLabel(selectedPerson.employmentType) }}</b></div><div><span>任职状态</span><b>{{ employmentStatusLabel(selectedPerson.employmentStatus) }}</b></div>
           <div><span>入职日期</span><b>{{ selectedPerson.hireDate || '未设置' }}</b></div><div><span>系统角色</span><b>{{ selectedPerson.roleNames || selectedPerson.accountType }}</b></div>
         </div></section>
-        <section v-if="canViewSelectedCost" class="detail-section cost-policy-section"><div class="detail-section-head"><div><h3>内部核算成本</h3><p>仅所属公司负责人可维护，系统管理员仅可审计查看。</p></div><el-button v-if="canManageSelectedCost" size="small" type="primary" @click="openCostPolicy">设置新版本</el-button></div>
+        <section v-if="canViewSelectedCost" class="detail-section cost-policy-section"><div class="detail-section-head"><div><h3>内部核算成本</h3><p>系统管理员可维护全部人员，普通老板仅可维护本人负责公司的人员。</p></div><el-button v-if="canManageSelectedCost" size="small" type="primary" @click="openCostPolicy">设置新版本</el-button></div>
           <el-table :data="costPolicies" size="small" empty-text="尚未设置内部核算成本"><el-table-column label="版本" width="70"><template #default="{row}">v{{ row.policyVersion }}</template></el-table-column><el-table-column label="月度用人成本" min-width="130"><template #default="{row}"><b>{{ money(row.unitCost) }} {{ row.currency }}</b><small v-if="row.costMode!=='MONTHLY'">历史{{ costModeLabel[row.costMode] }}</small></template></el-table-column><el-table-column label="日成本" min-width="105"><template #default="{row}">{{ policyDailyCost(row) }}</template></el-table-column><el-table-column label="折算规则" min-width="120"><template #default="{row}">{{ policyRule(row) }}</template></el-table-column><el-table-column label="生效区间" min-width="170"><template #default="{row}">{{ row.effectiveFrom }} 至 {{ row.effectiveTo || '长期' }}</template></el-table-column><el-table-column prop="remark" label="说明" /></el-table>
         </section>
         <section class="detail-section project-responsibility"><h3>项目责任</h3>
@@ -143,9 +143,13 @@ const emptyProjectSummary=()=>({projects:[],ownerCount:0,memberCount:0,openCount
 const projectSummary=ref(emptyProjectSummary())
 const projectStatusLabel={DRAFT:'草稿',PLANNING:'规划中',ACTIVE:'执行中',PAUSED:'已暂停',ACCEPTANCE:'待验收',CLOSED:'已关闭',CANCELED:'已取消'}
 const costModeLabel={DAILY:'日成本',HOURLY:'时成本',MONTHLY:'月成本',FIXED_PROJECT:'项目固定成本',FIXED_TASK:'任务固定成本',VARIABLE:'浮动成本'}
-const isBoss=computed(()=>userStore.roles.includes('admin')||userStore.permissions.includes('*:*:*')||userStore.permissions.includes('business:boss:view'))
-const canViewSelectedCost=computed(()=>isBoss.value&&!!selectedPerson.value?.canViewCost)
-const canManageSelectedCost=computed(()=>isBoss.value&&!!selectedPerson.value?.canManageCost)
+const isAdmin=computed(()=>userStore.roles.includes('admin')||userStore.permissions.includes('*:*:*'))
+const isBoss=computed(()=>isAdmin.value||userStore.permissions.includes('business:boss:view'))
+const activeCostStaff=row=>row?.status==='0'&&row?.employmentStatus!=='LEFT'
+const canViewRowCost=row=>activeCostStaff(row)&&(isAdmin.value||(isBoss.value&&!!row?.canViewCost))
+const canManageRowCost=row=>activeCostStaff(row)&&(isAdmin.value||(isBoss.value&&!!row?.canManageCost))
+const canViewSelectedCost=computed(()=>canViewRowCost(selectedPerson.value))
+const canManageSelectedCost=computed(()=>canManageRowCost(selectedPerson.value))
 const query=reactive({pageNum:1,pageSize:10,userId:route.query.userId?Number(route.query.userId):null,nickName:'',deptId:null,status:''})
 const form=reactive({})
 const managerOptions=computed(()=>staffOptions.value.filter(person=>person.userId!==form.userId))
@@ -164,7 +168,7 @@ function search(){query.pageNum=1;load()}
 function resetSearch(){Object.assign(query,{pageNum:1,userId:null,nickName:'',deptId:null,status:''});load()}
 function openCreate(){resetForm();dialogOpen.value=true;nextTick(()=>formRef.value?.clearValidate())}
 function openEdit(row){resetForm(row);dialogOpen.value=true;nextTick(()=>formRef.value?.clearValidate())}
-async function openDetail(row){selectedPerson.value=row;detailOpen.value=true;projectSummary.value=emptyProjectSummary();costPolicies.value=[];projectLoading.value=true;try{const requests=[getBusinessStaffProjects(row.userId)];if(isBoss.value&&row.canViewCost)requests.push(getBusinessStaffCostPolicies(row.userId));const results=await Promise.all(requests);projectSummary.value=results[0].data||emptyProjectSummary();if(results[1])costPolicies.value=results[1].data||[]}finally{projectLoading.value=false}}
+async function openDetail(row){selectedPerson.value=row;detailOpen.value=true;projectSummary.value=emptyProjectSummary();costPolicies.value=[];projectLoading.value=true;try{const requests=[getBusinessStaffProjects(row.userId)];if(canViewRowCost(row))requests.push(getBusinessStaffCostPolicies(row.userId));const results=await Promise.all(requests);projectSummary.value=results[0].data||emptyProjectSummary();if(results[1])costPolicies.value=results[1].data||[]}finally{projectLoading.value=false}}
 function projectRoleLabel(project){if(project.responsibilityRole==='OWNER')return '主负责人';if(project.responsibilityRole==='DEPUTY')return '副负责人';if(project.responsibilityRole==='OBSERVER')return '观察者';return project.everOwner?'成员（曾任负责人）':'成员'}
 function openPersonProject(project){detailOpen.value=false;router.push({path:'/business/projects',query:{id:project.projectId}})}
 function changeRegion(value){if(value==='CN')form.phoneCountryCode='+86';if(value==='VN')form.phoneCountryCode='+84'}
@@ -174,7 +178,7 @@ async function resetPassword(row){const {value}=await ElMessageBox.prompt(`请�
 const money=value=>value===null||value===undefined?'—':Number(value).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:4})
 const selectedStandardDays=computed(()=>selectedPerson.value?.countryRegion==='VN'?26:selectedPerson.value?.countryRegion==='CN'?21.75:null)
 const calculatedDailyCost=computed(()=>costForm.unitCost!==null&&costForm.unitCost!==undefined&&selectedStandardDays.value?money(Number(costForm.unitCost)/selectedStandardDays.value):'—')
-function openCostPolicy(){if(!canManageSelectedCost.value)return ElMessage.warning('只能设置本人负责公司的人员成本');if(!selectedStandardDays.value)return ElMessage.warning('请先把人员的国家/地区设置为中国或越南');Object.keys(costForm).forEach(key=>delete costForm[key]);Object.assign(costForm,{userId:selectedPerson.value.userId,costMode:'MONTHLY',unitCost:null,currency:'CNY',effectiveFrom:new Date().toISOString().slice(0,10),effectiveTo:null,remark:''});costDialog.value=true}
+function openCostPolicy(){if(!canManageSelectedCost.value)return ElMessage.warning('没有该人员的用人成本设置权限');if(!selectedStandardDays.value)return ElMessage.warning('请先把人员的国家/地区设置为中国或越南');Object.keys(costForm).forEach(key=>delete costForm[key]);Object.assign(costForm,{userId:selectedPerson.value.userId,costMode:'MONTHLY',unitCost:null,currency:'CNY',effectiveFrom:new Date().toISOString().slice(0,10),effectiveTo:null,remark:''});costDialog.value=true}
 function openCostPolicyFor(row){selectedPerson.value=row;openCostPolicy()}
 function handlePersonCommand(command,row){if(command==='cost')return openCostPolicyFor(row);if(command==='edit')return openEdit(row);if(command==='password')return resetPassword(row)}
 async function saveCostPolicy(){if(costForm.unitCost===null||costForm.unitCost===undefined)return ElMessage.warning('请填写月度用人成本');if(!costForm.effectiveFrom)return ElMessage.warning('请选择生效日期');saving.value=true;try{await saveBusinessStaffCostPolicy(costForm);costPolicies.value=(await getBusinessStaffCostPolicies(selectedPerson.value.userId)).data||[];costDialog.value=false;ElMessage.success('月度用人成本新版本已保存')}finally{saving.value=false}}

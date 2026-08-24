@@ -65,6 +65,32 @@ class BusinessStaffServiceImplTest
     }
 
     @Test
+    void administratorCanManageCostsForAllActiveCompanies()
+    {
+        SysUser shanghaiStaff = new SysUser(147L);
+        shanghaiStaff.setUserName("shanghai147"); shanghaiStaff.setStatus("0");
+        SysUser vietnamStaff = new SysUser(148L);
+        vietnamStaff.setUserName("vietnam148"); vietnamStaff.setStatus("0");
+        BusinessStaffProfile shanghaiProfile = new BusinessStaffProfile();
+        shanghaiProfile.setUserId(147L); shanghaiProfile.setCompanyLeaderUserId(120L);
+        shanghaiProfile.setEmploymentStatus("ACTIVE");
+        BusinessStaffProfile vietnamProfile = new BusinessStaffProfile();
+        vietnamProfile.setUserId(148L); vietnamProfile.setCompanyLeaderUserId(143L);
+        vietnamProfile.setEmploymentStatus("ACTIVE");
+        when(userService.selectUserList(any())).thenReturn(Arrays.asList(shanghaiStaff, vietnamStaff));
+        when(profileMapper.selectByUserIds(any())).thenReturn(Arrays.asList(shanghaiProfile, vietnamProfile));
+
+        List<?> rows = service.listStaff(new SysUser(), 1L, true).getRows();
+
+        @SuppressWarnings("unchecked") Map<String, Object> shanghai = (Map<String, Object>) rows.get(0);
+        @SuppressWarnings("unchecked") Map<String, Object> vietnam = (Map<String, Object>) rows.get(1);
+        assertEquals(true, shanghai.get("canViewCost"));
+        assertEquals(true, shanghai.get("canManageCost"));
+        assertEquals(true, vietnam.get("canViewCost"));
+        assertEquals(true, vietnam.get("canManageCost"));
+    }
+
+    @Test
     void creatingStaffAlwaysAssignsProjectAndCompanyStaffRoles()
     {
         BusinessStaffProfile input = new BusinessStaffProfile();

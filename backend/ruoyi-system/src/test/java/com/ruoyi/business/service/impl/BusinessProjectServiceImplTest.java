@@ -1013,21 +1013,28 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
-    void administratorMayAuditButCannotWriteStaffCostPolicy()
+    void administratorCanWriteStaffCostPolicyForAnyCompany()
     {
         Map<String, Object> staff = new HashMap<String, Object>();
         staff.put("nickName", "上海员工");
         when(mapper.selectActiveUserById(147L)).thenReturn(staff);
         when(mapper.selectStaffCostPolicies(147L)).thenReturn(Collections.emptyList());
+        when(mapper.selectStaffCountryRegion(147L)).thenReturn("CN");
+        when(mapper.selectNextStaffCostVersion(147L)).thenReturn(1);
 
         assertEquals(0, service.staffCostPolicies(147L, 1L, true).size());
 
         BusinessStaffCostPolicy input = new BusinessStaffCostPolicy();
         input.setUserId(147L);
-        ServiceException error = assertThrows(ServiceException.class,
-            () -> service.saveStaffCostPolicy(input, 1L, "admin", true));
-        assertTrue(error.getMessage().contains("只能审计"));
-        verify(mapper, never()).insertStaffCostPolicy(any());
+        input.setUnitCost(new BigDecimal("10000"));
+        input.setEffectiveFrom(java.sql.Date.valueOf("2026-08-24"));
+
+        BusinessStaffCostPolicy saved = service.saveStaffCostPolicy(input, 1L, "admin", true);
+
+        assertEquals("MONTHLY", saved.getCostMode());
+        assertEquals("CNY", saved.getCurrency());
+        assertEquals(new BigDecimal("21.75"), saved.getStandardWorkDays());
+        verify(mapper).insertStaffCostPolicy(saved);
     }
 
     @Test
