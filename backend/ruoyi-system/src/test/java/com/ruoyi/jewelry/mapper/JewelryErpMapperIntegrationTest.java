@@ -129,6 +129,27 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void staffListReturnsOneRowWhenUserAlsoHasANonJewelryRole()
+    {
+        execute("insert into sys_user(user_id,user_name,status,del_flag) values(1,'erp-admin','0','0')");
+        execute("insert into sys_role(role_id,role_key,role_name,del_flag) values"
+            + "(1,'common','普通角色','0'),(2,'jewelry_admin','珠宝ERP管理员','0')");
+        execute("insert into sys_user_role(user_id,role_id) values(1,1),(1,2)");
+        execute("insert into jewelry_staff(staff_id,user_id,staff_no,real_name,status)"
+            + " values(1,1,'010','测试管理员','0')");
+
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            List<Map<String, Object>> staff = mapper.selectStaffList(Collections.emptyMap());
+
+            assertEquals(1, staff.size());
+            assertTrue(staff.get(0).containsValue("010"));
+            assertTrue(staff.get(0).containsValue("jewelry_admin"));
+        }
+    }
+
+    @Test
     void supplierReturnSourcesTrackPendingAndPostedReturnedQuantities()
     {
         insertDocument(1L, "PURCHASE-1", "PURCHASE_IN", "POSTED", null);
@@ -503,6 +524,14 @@ class JewelryErpMapperIntegrationTest
 
     private void createSchema() throws Exception
     {
+        execute("create table sys_user (user_id bigint primary key,user_name varchar(64),"
+            + "status char(1),del_flag char(1))");
+        execute("create table sys_role (role_id bigint primary key,role_key varchar(100),"
+            + "role_name varchar(100),del_flag char(1))");
+        execute("create table sys_user_role (user_id bigint,role_id bigint)");
+        execute("create table jewelry_staff (staff_id bigint primary key,user_id bigint,"
+            + "staff_no varchar(32),real_name varchar(64),phone varchar(32),status char(1),"
+            + "joined_date date,remark varchar(500))");
         execute("create table jewelry_product ("
             + "product_id bigint auto_increment primary key,sku varchar(64) not null unique,"
             + "product_name varchar(128) not null,product_type varchar(16) not null,category varchar(64),"

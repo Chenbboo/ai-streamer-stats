@@ -86,8 +86,14 @@
                su.user_name userName, su.status accountStatus, sr.role_key roleKey, sr.role_name roleName
         from jewelry_staff js
         join sys_user su on su.user_id = js.user_id and su.del_flag = '0'
-        left join sys_user_role sur on sur.user_id = su.user_id
-        left join sys_role sr on sr.role_id = sur.role_id and sr.role_key like 'jewelry_%'
+        left join (
+            select sur.user_id, min(sur.role_id) role_id
+            from sys_user_role sur
+            join sys_role er on er.role_id = sur.role_id and er.del_flag = '0'
+            where er.role_key in ('jewelry_maker','jewelry_reviewer','jewelry_admin')
+            group by sur.user_id
+        ) jur on jur.user_id = su.user_id
+        left join sys_role sr on sr.role_id = jur.role_id
         <where>
             <if test="keyword != null and keyword != ''">
                 and (js.real_name like concat('%',#{keyword},'%') or js.staff_no like concat('%',#{keyword},'%')
