@@ -5,6 +5,7 @@ import java.util.Map;
 import org.apache.ibatis.annotations.Param;
 import com.ruoyi.business.domain.BusinessProject;
 import com.ruoyi.business.domain.BusinessProjectAcceptance;
+import com.ruoyi.business.domain.BusinessProjectStageAcceptance;
 import com.ruoyi.business.domain.BusinessProjectMember;
 import com.ruoyi.business.domain.BusinessProjectMilestone;
 import com.ruoyi.business.domain.BusinessProjectRisk;
@@ -92,7 +93,21 @@ public interface BusinessProjectMapper
         @Param("reviewedUserId") Long reviewedUserId, @Param("reviewedUserName") String reviewedUserName,
         @Param("reviewComment") String reviewComment, @Param("userName") String userName);
 
+    List<BusinessProjectStageAcceptance> selectStageAcceptances(Long projectId);
+    BusinessProjectStageAcceptance selectLatestPendingStageAcceptance(@Param("projectId") Long projectId,
+        @Param("milestoneId") Long milestoneId);
+    Integer selectNextStageAcceptanceVersion(@Param("projectId") Long projectId,
+        @Param("milestoneId") Long milestoneId);
+    int insertStageAcceptance(BusinessProjectStageAcceptance acceptance);
+    int reviewStageAcceptance(@Param("stageAcceptanceId") Long stageAcceptanceId,
+        @Param("reviewStatus") String reviewStatus, @Param("reviewedUserId") Long reviewedUserId,
+        @Param("reviewedUserName") String reviewedUserName, @Param("reviewComment") String reviewComment,
+        @Param("userName") String userName);
+    int updateMilestoneStatus(@Param("projectId") Long projectId, @Param("milestoneId") Long milestoneId,
+        @Param("status") String status, @Param("userName") String userName);
+
     List<BusinessProjectMilestone> selectMilestones(Long projectId);
+    BusinessProjectMilestone selectMilestoneById(Long milestoneId);
     int insertMilestone(BusinessProjectMilestone milestone);
     int updateMilestone(BusinessProjectMilestone milestone);
     int deleteMilestone(@Param("projectId") Long projectId, @Param("milestoneId") Long milestoneId);

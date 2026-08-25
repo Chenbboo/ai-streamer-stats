@@ -18,6 +18,9 @@
         <result property="projectType" column="project_type"/>
         <result property="accountingMode" column="accounting_mode"/>
         <result property="managementMode" column="management_mode"/>
+        <result property="closeMethod" column="close_method"/>
+        <result property="managementReason" column="management_reason"/>
+        <result property="acceptanceCriteria" column="acceptance_criteria"/>
         <result property="objective" column="objective"/>
         <result property="applicationReason" column="application_reason"/>
         <result property="planStartDate" column="plan_start_date"/>
@@ -47,7 +50,8 @@
         p.proposal_id,p.proposal_no,p.submission_version,p.project_name,
         p.applicant_user_id,p.applicant_name,p.sponsor_owner_user_id,p.sponsor_owner_name,
         p.company_dept_id,company.dept_name company_name,p.parent_project_id,parent.project_name parent_project_name,
-        p.project_type,p.accounting_mode,p.management_mode,p.objective,p.application_reason,
+        p.project_type,p.accounting_mode,p.management_mode,p.close_method,p.management_reason,p.acceptance_criteria,
+        p.objective,p.application_reason,
         p.plan_start_date,p.plan_end_date,p.priority,p.base_currency,p.budget_limit,p.no_budget,
         p.execution_source,p.status,p.submitted_time,p.reviewed_user_id,p.reviewed_user_name,p.reviewed_time,
         p.review_comment,p.created_project_id,p.version,p.del_flag,p.create_by,p.create_time,p.update_by,p.update_time,p.remark
@@ -103,11 +107,13 @@
             useGeneratedKeys="true" keyProperty="proposalId">
         insert into biz_project_proposal(proposal_no,submission_version,project_name,applicant_user_id,applicant_name,
           sponsor_owner_user_id,sponsor_owner_name,company_dept_id,parent_project_id,project_type,accounting_mode,
-          management_mode,objective,application_reason,plan_start_date,plan_end_date,priority,base_currency,
+          management_mode,close_method,management_reason,acceptance_criteria,objective,application_reason,
+          plan_start_date,plan_end_date,priority,base_currency,
           budget_limit,no_budget,execution_source,status,version,del_flag,create_by,create_time,update_by,update_time,remark)
         values(#{proposalNo},0,#{projectName},#{applicantUserId},#{applicantName},#{sponsorOwnerUserId},#{sponsorOwnerName},
-          #{companyDeptId},#{parentProjectId},#{projectType},#{accountingMode},#{managementMode},#{objective},
-          #{applicationReason},#{planStartDate},#{planEndDate},#{priority},#{baseCurrency},#{budgetLimit},#{noBudget},
+          #{companyDeptId},#{parentProjectId},#{projectType},#{accountingMode},#{managementMode},#{closeMethod},
+          #{managementReason},#{acceptanceCriteria},#{objective},#{applicationReason},#{planStartDate},#{planEndDate},
+          #{priority},#{baseCurrency},#{budgetLimit},#{noBudget},
           #{executionSource},'DRAFT',0,'0',#{createBy},sysdate(),#{createBy},sysdate(),#{remark})
     </insert>
 
@@ -115,6 +121,7 @@
         update biz_project_proposal set project_name=#{projectName},sponsor_owner_user_id=#{sponsorOwnerUserId},
           sponsor_owner_name=#{sponsorOwnerName},company_dept_id=#{companyDeptId},parent_project_id=#{parentProjectId},
           project_type=#{projectType},accounting_mode=#{accountingMode},management_mode=#{managementMode},
+          close_method=#{closeMethod},management_reason=#{managementReason},acceptance_criteria=#{acceptanceCriteria},
           objective=#{objective},application_reason=#{applicationReason},plan_start_date=#{planStartDate},
           plan_end_date=#{planEndDate},priority=#{priority},base_currency=#{baseCurrency},budget_limit=#{budgetLimit},
           no_budget=#{noBudget},execution_source=#{executionSource},review_comment=null,reviewed_user_id=null,

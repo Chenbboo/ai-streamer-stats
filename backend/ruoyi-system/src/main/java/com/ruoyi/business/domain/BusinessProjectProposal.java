@@ -27,6 +27,9 @@ public class BusinessProjectProposal extends BaseEntity
     private String projectType;
     private String accountingMode;
     private String managementMode;
+    private String closeMethod;
+    private String managementReason;
+    private String acceptanceCriteria;
     private String objective;
     private String applicationReason;
     @JsonFormat(pattern = "yyyy-MM-dd") private Date planStartDate;
@@ -80,6 +83,12 @@ public class BusinessProjectProposal extends BaseEntity
     public void setAccountingMode(String accountingMode) { this.accountingMode = accountingMode; }
     public String getManagementMode() { return managementMode; }
     public void setManagementMode(String managementMode) { this.managementMode = managementMode; }
+    public String getCloseMethod() { return closeMethod; }
+    public void setCloseMethod(String closeMethod) { this.closeMethod = closeMethod; }
+    public String getManagementReason() { return managementReason; }
+    public void setManagementReason(String managementReason) { this.managementReason = managementReason; }
+    public String getAcceptanceCriteria() { return acceptanceCriteria; }
+    public void setAcceptanceCriteria(String acceptanceCriteria) { this.acceptanceCriteria = acceptanceCriteria; }
     public String getObjective() { return objective; }
     public void setObjective(String objective) { this.objective = objective; }
     public String getApplicationReason() { return applicationReason; }

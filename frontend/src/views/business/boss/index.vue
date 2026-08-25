@@ -134,9 +134,13 @@
         <article v-for="row in projects" :key="row.projectId" class="project-card">
           <div class="project-card-head">
             <button class="project-link" @click="openProject(row)">{{ row.projectName }}</button>
-            <el-tag :type="statusTone[row.status] || 'info'" effect="light" round>{{ statusLabel[row.status] || row.status }}</el-tag>
+            <span><el-tag size="small" effect="plain">{{ managementLabel[row.managementMode] || row.managementMode }}</el-tag><el-tag size="small" type="success" effect="plain">{{ closeMethodLabel[row.closeMethod] || row.closeMethod }}</el-tag><el-tag :type="statusTone[row.status] || 'info'" effect="light" round>{{ statusLabel[row.status] || row.status }}</el-tag></span>
           </div>
-          <div class="progress-row"><span>进度</span><el-progress :percentage="progress(row)" :stroke-width="8" /><span>{{ progress(row) }}%</span></div>
+          <div class="progress-row">
+            <span>进度</span>
+            <el-progress :percentage="progress(row)" :status="row.status === 'CLOSED' ? 'success' : undefined" :stroke-width="8" />
+            <span :title="progressHint(row)">{{ progressText(row) }}</span>
+          </div>
           <div class="project-card-foot">
             <span>{{ row.mainOwnerName || '未指定' }} 负责</span>
             <el-tag size="small" :type="kpiMeta(row).tone" effect="light">KPI {{ kpiMeta(row).label }}</el-tag>
@@ -222,9 +226,12 @@ const costForm = reactive({ unitCost: null, effectiveFrom: '', effectiveTo: null
 
 const statusLabel = { DRAFT: '草稿', PLANNING: '规划中', ACTIVE: '执行中', PAUSED: '已暂停', ACCEPTANCE: '待验收', CLOSED: '已关闭', CANCELED: '已取消' }
 const statusTone = { DRAFT: 'info', PLANNING: 'warning', ACTIVE: 'primary', PAUSED: 'info', ACCEPTANCE: 'success', CLOSED: 'success', CANCELED: 'danger' }
+const managementLabel={LIGHT:'轻量',STANDARD:'标准',KEY_CONTROL:'重点监管',SIMPLE:'轻量',DELIVERY:'标准'}
+const closeMethodLabel={DIRECT:'直接结项',RESULT_ACCEPTANCE:'成果验收',STAGED_ACCEPTANCE:'阶段验收'}
 const actionMeta = { START_PLANNING: { label: '进入规划', type: 'primary' }, CONFIRM_BASELINE: { label: '确认并启动', type: 'success' }, RETURN_PLAN: { label: '退回计划', type: 'warning', plain: true }, RESUME: { label: '恢复执行', type: 'primary' }, REVIEW_ACCEPTANCE: { label: '查看验收资料', type: 'success' } }
 
-const kpiOverviewMap = computed(() => new Map(kpiOverviews.value.map(item => [Number(item.projectId), item])))
+const idKey = value => value === null || value === undefined ? '' : String(value)
+const kpiOverviewMap = computed(() => new Map(kpiOverviews.value.map(item => [idKey(item.projectId), item])))
 const totalPendingCount = computed(() => pendingTotal.value)
 const personnelRows = computed(() => pendingRows.value.filter(row => row.category === 'PERSONNEL_COST'))
 const batchEligibleRows = computed(() => personnelRows.value.filter(row => row.costStatus !== 'MISSING_REGION'))
@@ -272,15 +279,37 @@ const costPreviews = computed(() => {
   })
 })
 
-const progress = row => row.taskCount ? Math.round((row.completedTaskCount || 0) * 100 / row.taskCount) : 0
-const openProject = (row, tab) => router.push({ path: '/business/projects', query: { id: row.projectId, ...(tab ? { tab } : {}) } })
+const progress = row => {
+  if (row.status === 'CLOSED') return 100
+  if (row.status === 'CANCELED') return 0
+  const value = Number(row.progressPercent)
+  if (Number.isFinite(value)) return Math.min(100, Math.max(0, Math.round(value)))
+  return row.taskCount ? Math.round((row.completedTaskCount || 0) * 100 / row.taskCount) : 0
+}
+const progressText = row => !Number(row.taskCount) && !['CLOSED', 'CANCELED'].includes(row.status) ? '暂无量化项' : `${progress(row)}%`
+const progressHint = row => Number(row.taskCount)
+  ? `按 ${row.taskCount} 项一次性任务的实时进度计算，已完成 ${row.completedTaskCount || 0} 项`
+  : row.status === 'CLOSED' ? '项目已正式结项' : row.status === 'CANCELED' ? '项目已取消' : '请在项目中添加一次性任务并更新任务进度'
+function projectIdFromRow(row) {
+  if (idKey(row?.projectId)) return row.projectId
+  const keyMatch = idKey(row?.itemKey).match(/^kpi-(?:missing|review)-(\d+)$/)
+  if (keyMatch) return keyMatch[1]
+  return projects.value.find(project => project.projectName === row?.projectName)?.projectId
+}
+const openProject = (row, tab) => {
+  const projectId = projectIdFromRow(row)
+  if (!idKey(projectId)) return ElMessage.warning('未识别到当前项目，请刷新后重试')
+  router.push({ path: '/business/projects', query: { id: projectId, ...(tab ? { tab } : {}) } })
+}
 const openProposals = () => router.push({ path: '/business/project-proposals', query: { tab: 'review' } })
 const openProposal = row => router.push({ path: '/business/project-proposals', query: { tab: 'review', id: row.proposalId } })
 const openAccounting = (query = {}) => router.push({ path: '/business/accounting', query })
 const openKpi = row => {
-  const overview = kpiOverviewMap.value.get(Number(row.projectId))
+  const projectId = projectIdFromRow(row)
+  if (!idKey(projectId)) return ElMessage.warning('未识别到当前项目，请刷新后重试')
+  const overview = kpiOverviewMap.value.get(idKey(projectId))
   const planId = row.planId || overview?.planId
-  router.push({ path: '/business/kpi-bonus', query: { projectId: row.projectId, ...(planId ? { planId } : {}) } })
+  router.push({ path: '/business/kpi-bonus', query: { projectId, ...(planId ? { planId } : {}) } })
 }
 const money = value => Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const costMoney = value => value === null || value === undefined ? '—' : Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
@@ -289,7 +318,7 @@ const signed = value => `${Number(value || 0) > 0 ? '+' : ''}${money(value)}`
 const amountTone = value => Number(value || 0) < 0 ? 'amount-loss' : 'amount-profit'
 const alertClass = type => String(type || 'warning').toLowerCase().replaceAll('_', '-')
 const kpiMeta = row => {
-  const overview = kpiOverviewMap.value.get(Number(row.projectId))
+  const overview = kpiOverviewMap.value.get(idKey(row.projectId))
   if (!overview || !Number(overview.targetCount)) return { label: '未设置', tone: 'warning', action: '设置KPI' }
   if (!overview.planId) return { label: '待发布', tone: 'warning', action: '继续配置' }
   const meta = { DRAFT: { label: '填报中', tone: 'primary' }, SUBMITTED: { label: '待确认', tone: 'warning' }, RETURNED: { label: '已退回', tone: 'danger' }, CONFIRMED: { label: '已确认', tone: 'success' } }[overview.settlementStatus]
@@ -413,6 +442,14 @@ async function loadProjectPage() {
     projectLoading.value = false
   }
 }
+async function refreshProjectProgress() {
+  if (projectLoading.value || document.hidden) return
+  const result = await getBossBusinessDashboard({ projectPageNum: projectPage.pageNum, projectPageSize: projectPage.pageSize, decisionPageSize: 1 })
+  const data = result.data || {}
+  const page = data.projectPage || {}
+  projects.value = page.rows || data.projects || []
+  projectPage.total = Number(page.total ?? projectPage.total)
+}
 async function decideProposal(row, decision) {
   let comment = ''
   if (decision === 'RETURNED') {
@@ -440,7 +477,12 @@ async function doTransition(row, action) {
   await load()
 }
 
-load()
+let progressRefreshTimer
+onMounted(() => {
+  load()
+  progressRefreshTimer = window.setInterval(() => refreshProjectProgress().catch(() => {}), 15000)
+})
+onBeforeUnmount(() => window.clearInterval(progressRefreshTimer))
 </script>
 
 <style scoped>

@@ -57,7 +57,10 @@ public class CreateProjectCapability implements AiConfirmableCapability
         enumProperty(schema, "projectType", "项目类型", "LIVE", "JEWELRY", "ECOMMERCE", "OPERATIONS",
             "INTERNAL", "GENERAL", "OTHER");
         enumProperty(schema, "accountingMode", "核算方式", "PROFIT", "COST", "VALUE", "HYBRID");
-        enumProperty(schema, "managementMode", "管理模式", "SIMPLE", "STANDARD", "DELIVERY");
+        enumProperty(schema, "managementMode", "管理模式：过程管控强度", "LIGHT", "STANDARD", "KEY_CONTROL");
+        enumProperty(schema, "closeMethod", "结项方式", "DIRECT", "RESULT_ACCEPTANCE", "STAGED_ACCEPTANCE");
+        AiSchemas.property(schema, "managementReason", "string", "重点监管原因和监管事项；KEY_CONTROL 必填");
+        AiSchemas.property(schema, "acceptanceCriteria", "string", "成果或阶段验收标准；非直接结项必填");
         enumProperty(schema, "priority", "优先级", "LOW", "MEDIUM", "HIGH");
         AiSchemas.property(schema, "baseCurrency", "string", "三位币种代码，例如 CNY 或 VND");
         AiSchemas.property(schema, "budgetLimit", "number", "预算上限；明确不设预算时省略");
@@ -144,8 +147,16 @@ public class CreateProjectCapability implements AiConfirmableCapability
         project.setPlanEndDate(end);
         project.setAccountingMode(accountingMode);
         project.setProjectType(defaultValue(AiCapabilityInputs.upper(input.get("projectType")), "GENERAL"));
-        project.setManagementMode(allowed(AiCapabilityInputs.upper(input.get("managementMode")),
-            "SIMPLE", "STANDARD", "DELIVERY"));
+        project.setManagementMode(allowed(defaultValue(AiCapabilityInputs.upper(input.get("managementMode")), "STANDARD"),
+            "LIGHT", "STANDARD", "KEY_CONTROL"));
+        project.setCloseMethod(allowed(defaultValue(AiCapabilityInputs.upper(input.get("closeMethod")), "DIRECT"),
+            "DIRECT", "RESULT_ACCEPTANCE", "STAGED_ACCEPTANCE"));
+        project.setManagementReason(AiCapabilityInputs.text(input.get("managementReason")));
+        project.setAcceptanceCriteria(AiCapabilityInputs.text(input.get("acceptanceCriteria")));
+        if ("KEY_CONTROL".equals(project.getManagementMode()) && StringUtils.isBlank(project.getManagementReason()))
+            throw new ServiceException("重点监管项目必须说明监管原因");
+        if (!"DIRECT".equals(project.getCloseMethod()) && StringUtils.isBlank(project.getAcceptanceCriteria()))
+            throw new ServiceException("成果验收或阶段验收项目必须提供验收标准");
         project.setPriority(allowed(AiCapabilityInputs.upper(input.get("priority")), "LOW", "MEDIUM", "HIGH"));
         project.setBaseCurrency(defaultValue(AiCapabilityInputs.upper(input.get("baseCurrency")), "CNY"));
         if (project.getBaseCurrency().length() != 3) throw new ServiceException("币种必须使用三位代码");
@@ -168,6 +179,9 @@ public class CreateProjectCapability implements AiConfirmableCapability
         result.put("projectType", project.getProjectType());
         result.put("accountingMode", project.getAccountingMode());
         result.put("managementMode", project.getManagementMode());
+        result.put("closeMethod", project.getCloseMethod());
+        result.put("managementReason", project.getManagementReason());
+        result.put("acceptanceCriteria", project.getAcceptanceCriteria());
         result.put("priority", project.getPriority());
         result.put("budgetLimit", project.getBudgetLimit());
         result.put("baseCurrency", project.getBaseCurrency());

@@ -89,7 +89,31 @@ class BusinessProjectProposalServiceImplTest
         assertEquals("申请人九", created.getApplicantName());
         assertEquals(23L, created.getSponsorOwnerUserId());
         assertEquals("审批老板", created.getSponsorOwnerName());
+        assertEquals("LIGHT", created.getManagementMode());
         verify(mapper).insertEvent(any());
+    }
+
+    @Test
+    void createNormalizesManagementModeBeforeValidation()
+    {
+        proposal.setProposalId(null);
+        proposal.setManagementMode(" light ");
+        proposal.setCloseMethod(" direct ");
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
+        when(mapper.selectCompany(111L)).thenReturn(Collections.<String,Object>singletonMap("deptId",111L));
+        when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","审批老板"));
+        doAnswer(invocation -> {
+            BusinessProjectProposal input = invocation.getArgument(0);
+            input.setProposalId(77L); input.setStatus("DRAFT"); input.setVersion(0); input.setSubmissionVersion(0);
+            return 1;
+        }).when(mapper).insertProposal(any(BusinessProjectProposal.class));
+        when(mapper.selectById(77L)).thenAnswer(invocation -> proposal);
+        when(mapper.selectEvents(77L)).thenReturn(Collections.<Map<String,Object>>emptyList());
+
+        BusinessProjectProposal created = service.create(proposal, 9L, "applicant9");
+
+        assertEquals("LIGHT", created.getManagementMode());
+        assertEquals("DIRECT", created.getCloseMethod());
     }
 
     @Test

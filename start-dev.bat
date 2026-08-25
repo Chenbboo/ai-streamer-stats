@@ -1,9 +1,9 @@
 @echo off
 chcp 65001 >nul
 echo 启动后端(新窗口)...
-start "ruoyi-backend" cmd /k "cd /d J:\codex-projects\ai-streamer-stats\backend && mvn spring-boot:run -pl ruoyi-admin -am -U"
+start "ruoyi-backend" cmd /k "cd /d ""%~dp0backend"" && mvn spring-boot:run -pl ruoyi-admin -am -U"
 echo 启动前端(新窗口)...
-start "ruoyi-frontend" cmd /k "cd /d J:\codex-projects\ai-streamer-stats\frontend && pnpm dev"
+start "ruoyi-frontend" cmd /k "cd /d ""%~dp0frontend"" && pnpm dev"
 echo.
 echo 两个窗口都启动后:
 echo   后端就绪标志: 窗口出现 "若依启动成功"

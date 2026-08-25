@@ -2568,8 +2568,12 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         project.setPlanEndDate(endDate);
         project.setProjectType(defaultValue(upper(arguments.get("projectType")), "GENERAL"));
         project.setAccountingMode(accountingMode);
-        project.setManagementMode(allowed(defaultValue(upper(arguments.get("managementMode")), "SIMPLE"),
-            new String[] { "SIMPLE", "STANDARD", "DELIVERY" }, "SIMPLE"));
+        project.setManagementMode(allowed(defaultValue(upper(arguments.get("managementMode")), "STANDARD"),
+            new String[] { "LIGHT", "STANDARD", "KEY_CONTROL" }, "STANDARD"));
+        project.setCloseMethod(allowed(defaultValue(upper(arguments.get("closeMethod")), "DIRECT"),
+            new String[] { "DIRECT", "RESULT_ACCEPTANCE", "STAGED_ACCEPTANCE" }, "DIRECT"));
+        project.setManagementReason(stringValue(arguments.get("managementReason")));
+        project.setAcceptanceCriteria(stringValue(arguments.get("acceptanceCriteria")));
         project.setPriority(allowed(defaultValue(upper(arguments.get("priority")), "MEDIUM"),
             new String[] { "LOW", "MEDIUM", "HIGH" }, "MEDIUM"));
         project.setBaseCurrency(baseCurrency);
@@ -2602,6 +2606,7 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         projectView.put("projectType", project.getProjectType());
         projectView.put("accountingMode", accountingMode);
         projectView.put("managementMode", project.getManagementMode());
+        projectView.put("closeMethod", project.getCloseMethod());
         projectView.put("priority", project.getPriority());
         projectView.put("budgetLimit", project.getBudgetLimit());
         projectView.put("baseCurrency", project.getBaseCurrency());
@@ -2627,6 +2632,9 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         payload.put("projectType", project.getProjectType());
         payload.put("accountingMode", project.getAccountingMode());
         payload.put("managementMode", project.getManagementMode());
+        payload.put("closeMethod", project.getCloseMethod());
+        payload.put("managementReason", project.getManagementReason());
+        payload.put("acceptanceCriteria", project.getAcceptanceCriteria());
         payload.put("priority", project.getPriority());
         payload.put("baseCurrency", project.getBaseCurrency());
         payload.put("budgetLimit", project.getBudgetLimit());

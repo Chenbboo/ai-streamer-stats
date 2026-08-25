@@ -37,6 +37,7 @@ select
   count(case when table_name='biz_project_risk' then 1 end)=0 as missing_biz_project_risk,
   count(case when table_name='biz_project_event' then 1 end)=0 as missing_biz_project_event
   ,count(case when table_name='biz_project_acceptance' then 1 end)=0 as missing_biz_project_acceptance,
+  count(case when table_name='biz_project_stage_acceptance' then 1 end)=0 as missing_biz_project_stage_acceptance,
   count(case when table_name='biz_project_kpi' then 1 end)=0 as missing_biz_project_kpi,
   count(case when table_name='biz_project_budget_history' then 1 end)=0 as missing_biz_project_budget_history,
   count(case when table_name='biz_staff_cost_policy' then 1 end)=0 as missing_biz_staff_cost_policy,

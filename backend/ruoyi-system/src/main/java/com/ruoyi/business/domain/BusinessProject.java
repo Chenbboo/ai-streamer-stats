@@ -23,6 +23,11 @@ public class BusinessProject extends BaseEntity
     private String projectType;
     private String accountingMode;
     private String managementMode;
+    private String closeMethod;
+    private String managementReason;
+    private String acceptanceCriteria;
+    /** 仅用于治理模式变更时提交原因，不作为项目主档字段持久化。 */
+    private String governanceChangeReason;
     private String objective;
     private String status;
     private String baselineStatus;
@@ -47,6 +52,8 @@ public class BusinessProject extends BaseEntity
     private Integer memberCount;
     private Integer taskCount;
     private Integer completedTaskCount;
+    /** 基于任务实时进度计算的项目完成百分比；已关闭项目固定为 100。 */
+    private Integer progressPercent;
     private Integer openRiskCount;
     /** 关联的执行数据源；当前一期仅支持 LIVE。 */
     private String executionSource;
@@ -57,6 +64,8 @@ public class BusinessProject extends BaseEntity
     private List<BusinessProjectRisk> risks;
     private List<Map<String, Object>> ownerHistory;
     private List<BusinessProjectAcceptance> acceptances;
+    private List<BusinessProjectStageAcceptance> stageAcceptances;
+    private Map<String, Object> governanceProfile;
     private List<Map<String, Object>> events;
 
     public Long getProjectId() { return projectId; }
@@ -81,6 +90,14 @@ public class BusinessProject extends BaseEntity
     public void setAccountingMode(String accountingMode) { this.accountingMode = accountingMode; }
     public String getManagementMode() { return managementMode; }
     public void setManagementMode(String managementMode) { this.managementMode = managementMode; }
+    public String getCloseMethod() { return closeMethod; }
+    public void setCloseMethod(String closeMethod) { this.closeMethod = closeMethod; }
+    public String getManagementReason() { return managementReason; }
+    public void setManagementReason(String managementReason) { this.managementReason = managementReason; }
+    public String getAcceptanceCriteria() { return acceptanceCriteria; }
+    public void setAcceptanceCriteria(String acceptanceCriteria) { this.acceptanceCriteria = acceptanceCriteria; }
+    public String getGovernanceChangeReason() { return governanceChangeReason; }
+    public void setGovernanceChangeReason(String governanceChangeReason) { this.governanceChangeReason = governanceChangeReason; }
     public String getObjective() { return objective; }
     public void setObjective(String objective) { this.objective = objective; }
     public String getStatus() { return status; }
@@ -129,6 +146,8 @@ public class BusinessProject extends BaseEntity
     public void setTaskCount(Integer taskCount) { this.taskCount = taskCount; }
     public Integer getCompletedTaskCount() { return completedTaskCount; }
     public void setCompletedTaskCount(Integer completedTaskCount) { this.completedTaskCount = completedTaskCount; }
+    public Integer getProgressPercent() { return progressPercent; }
+    public void setProgressPercent(Integer progressPercent) { this.progressPercent = progressPercent; }
     public Integer getOpenRiskCount() { return openRiskCount; }
     public void setOpenRiskCount(Integer openRiskCount) { this.openRiskCount = openRiskCount; }
     public String getExecutionSource() { return executionSource; }
@@ -147,6 +166,10 @@ public class BusinessProject extends BaseEntity
     public void setOwnerHistory(List<Map<String, Object>> ownerHistory) { this.ownerHistory = ownerHistory; }
     public List<BusinessProjectAcceptance> getAcceptances() { return acceptances; }
     public void setAcceptances(List<BusinessProjectAcceptance> acceptances) { this.acceptances = acceptances; }
+    public List<BusinessProjectStageAcceptance> getStageAcceptances() { return stageAcceptances; }
+    public void setStageAcceptances(List<BusinessProjectStageAcceptance> stageAcceptances) { this.stageAcceptances = stageAcceptances; }
+    public Map<String, Object> getGovernanceProfile() { return governanceProfile; }
+    public void setGovernanceProfile(Map<String, Object> governanceProfile) { this.governanceProfile = governanceProfile; }
     public List<Map<String, Object>> getEvents() { return events; }
     public void setEvents(List<Map<String, Object>> events) { this.events = events; }
 }

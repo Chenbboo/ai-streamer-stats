@@ -14,6 +14,9 @@
         <result property="projectType" column="project_type"/>
         <result property="accountingMode" column="accounting_mode"/>
         <result property="managementMode" column="management_mode"/>
+        <result property="closeMethod" column="close_method"/>
+        <result property="managementReason" column="management_reason"/>
+        <result property="acceptanceCriteria" column="acceptance_criteria"/>
         <result property="objective" column="objective"/>
         <result property="status" column="status"/>
         <result property="baselineStatus" column="baseline_status"/>
@@ -43,6 +46,7 @@
         <result property="memberCount" column="member_count"/>
         <result property="taskCount" column="task_count"/>
         <result property="completedTaskCount" column="completed_task_count"/>
+        <result property="progressPercent" column="progress_percent"/>
         <result property="openRiskCount" column="open_risk_count"/>
     </resultMap>
 
@@ -70,7 +74,8 @@
 
     <sql id="projectColumns">
         p.project_id,p.project_no,p.source_proposal_id,p.parent_id,parent.project_name parent_name,p.company_dept_id,company.dept_name company_name,p.project_name,p.project_type,
-        p.accounting_mode,p.management_mode,p.objective,p.status,p.baseline_status,
+        p.accounting_mode,p.management_mode,p.close_method,p.management_reason,p.acceptance_criteria,
+        p.objective,p.status,p.baseline_status,
         p.applicant_user_id,p.applicant_name,p.sponsor_owner_user_id,p.sponsor_owner_name,p.initiator_user_id,p.initiator_name,
         p.main_owner_user_id,p.main_owner_name,
         p.plan_start_date,p.plan_end_date,p.actual_start_date,p.actual_end_date,p.priority,p.base_currency,
@@ -79,6 +84,13 @@
         (select count(*) from biz_project_member m where m.project_id=p.project_id and m.status='0') member_count,
         (select count(*) from biz_project_task t where t.project_id=p.project_id) task_count,
         (select count(*) from biz_project_task t where t.project_id=p.project_id and t.status='DONE') completed_task_count,
+        case
+          when p.status='CLOSED' then 100
+          when p.status='CANCELED' then 0
+          else coalesce((select round(avg(case when t.status='DONE' then 100
+            else least(100,greatest(0,coalesce(t.progress,0))) end))
+            from biz_project_task t where t.project_id=p.project_id),0)
+        end progress_percent,
         (select count(*) from biz_project_risk r where r.project_id=p.project_id and r.status='OPEN') open_risk_count
     </sql>
 
@@ -110,6 +122,8 @@
             </if>
             <if test="status != null and status != ''">and p.status=#{status}</if>
             <if test="accountingMode != null and accountingMode != ''">and p.accounting_mode=#{accountingMode}</if>
+            <if test="managementMode != null and managementMode != ''">and p.management_mode=#{managementMode}</if>
+            <if test="closeMethod != null and closeMethod != ''">and p.close_method=#{closeMethod}</if>
             <if test="parentId != null">and p.parent_id=#{parentId}</if>
             <if test="mainOwnerUserId != null">and p.main_owner_user_id=#{mainOwnerUserId}</if>
         </where>
@@ -126,12 +140,14 @@
 
     <insert id="insertProject" parameterType="com.ruoyi.business.domain.BusinessProject"
             useGeneratedKeys="true" keyProperty="projectId">
-        insert into biz_project(project_no,parent_id,company_dept_id,project_name,project_type,accounting_mode,management_mode,objective,status,
+        insert into biz_project(project_no,parent_id,company_dept_id,project_name,project_type,accounting_mode,management_mode,
+          close_method,management_reason,acceptance_criteria,objective,status,
           baseline_status,applicant_user_id,applicant_name,sponsor_owner_user_id,sponsor_owner_name,
           initiator_user_id,initiator_name,main_owner_user_id,main_owner_name,source_proposal_id,
           plan_start_date,plan_end_date,actual_start_date,priority,base_currency,
           budget_limit,baseline_version,version,del_flag,create_by,create_time,remark)
-        values(#{projectNo},#{parentId},#{companyDeptId},#{projectName},#{projectType},#{accountingMode},#{managementMode},#{objective},#{status},
+        values(#{projectNo},#{parentId},#{companyDeptId},#{projectName},#{projectType},#{accountingMode},#{managementMode},
+          #{closeMethod},#{managementReason},#{acceptanceCriteria},#{objective},#{status},
           #{baselineStatus},#{applicantUserId},#{applicantName},#{sponsorOwnerUserId},#{sponsorOwnerName},
           #{initiatorUserId},#{initiatorName},#{mainOwnerUserId},#{mainOwnerName},#{sourceProposalId},
           #{planStartDate},#{planEndDate},#{actualStartDate},#{priority},
@@ -141,7 +157,8 @@
     <update id="updateProject" parameterType="com.ruoyi.business.domain.BusinessProject">
         update biz_project set
           parent_id=#{parentId},company_dept_id=#{companyDeptId},project_name=#{projectName},project_type=#{projectType},
-          accounting_mode=#{accountingMode},management_mode=#{managementMode},objective=#{objective},plan_start_date=#{planStartDate},
+          accounting_mode=#{accountingMode},management_mode=#{managementMode},close_method=#{closeMethod},
+          management_reason=#{managementReason},acceptance_criteria=#{acceptanceCriteria},objective=#{objective},plan_start_date=#{planStartDate},
           plan_end_date=#{planEndDate},priority=#{priority},base_currency=#{baseCurrency},
           budget_limit=#{budgetLimit},remark=#{remark},update_by=#{updateBy},update_time=sysdate(),version=version+1
         where project_id=#{projectId} and del_flag='0' and version=#{version}
@@ -442,11 +459,14 @@
     </select>
 
     <select id="selectMembers" resultType="com.ruoyi.business.domain.BusinessProjectMember">
-        select member_id memberId,project_id projectId,user_id userId,user_name_snapshot userNameSnapshot,
-          member_role memberRole,status,joined_date joinedDate,left_date leftDate,create_by createBy,
-          create_time createTime,update_by updateBy,update_time updateTime,remark
-        from biz_project_member where project_id=#{projectId}
-        order by status,field(member_role,'OWNER','DEPUTY','MEMBER','OBSERVER'),member_id
+        select m.member_id memberId,m.project_id projectId,m.user_id userId,
+          m.user_name_snapshot userNameSnapshot,u.user_name accountName,m.member_role memberRole,
+          m.status,m.joined_date joinedDate,m.left_date leftDate,m.create_by createBy,
+          m.create_time createTime,m.update_by updateBy,m.update_time updateTime,m.remark
+        from biz_project_member m
+        left join sys_user u on u.user_id=m.user_id
+        where m.project_id=#{projectId}
+        order by m.status,field(m.member_role,'OWNER','DEPUTY','MEMBER','OBSERVER'),m.member_id
     </select>
 
     <insert id="upsertMember" parameterType="com.ruoyi.business.domain.BusinessProjectMember"
@@ -515,11 +535,64 @@
         where acceptance_id=#{acceptanceId} and review_status='PENDING'
     </update>
 
+    <select id="selectStageAcceptances" resultType="com.ruoyi.business.domain.BusinessProjectStageAcceptance">
+        select a.stage_acceptance_id stageAcceptanceId,a.project_id projectId,a.milestone_id milestoneId,
+          m.milestone_name milestoneName,a.submission_version submissionVersion,a.result_summary resultSummary,
+          a.deliverables,a.attachment_urls attachmentUrls,a.submitted_user_id submittedUserId,
+          a.submitted_user_name submittedUserName,a.submitted_time submittedTime,a.review_status reviewStatus,
+          a.reviewed_user_id reviewedUserId,a.reviewed_user_name reviewedUserName,a.review_comment reviewComment,
+          a.reviewed_time reviewedTime,a.create_by createBy,a.create_time createTime,a.update_by updateBy,
+          a.update_time updateTime,a.remark
+        from biz_project_stage_acceptance a
+        join biz_project_milestone m on m.milestone_id=a.milestone_id and m.project_id=a.project_id
+        where a.project_id=#{projectId}
+        order by m.sort_order,a.submission_version desc,a.stage_acceptance_id desc
+    </select>
+    <select id="selectLatestPendingStageAcceptance" resultType="com.ruoyi.business.domain.BusinessProjectStageAcceptance">
+        select a.stage_acceptance_id stageAcceptanceId,a.project_id projectId,a.milestone_id milestoneId,
+          m.milestone_name milestoneName,a.submission_version submissionVersion,a.result_summary resultSummary,
+          a.deliverables,a.attachment_urls attachmentUrls,a.submitted_user_id submittedUserId,
+          a.submitted_user_name submittedUserName,a.submitted_time submittedTime,a.review_status reviewStatus
+        from biz_project_stage_acceptance a
+        join biz_project_milestone m on m.milestone_id=a.milestone_id and m.project_id=a.project_id
+        where a.project_id=#{projectId} and a.milestone_id=#{milestoneId} and a.review_status='PENDING'
+        order by a.submission_version desc limit 1
+    </select>
+    <select id="selectNextStageAcceptanceVersion" resultType="int">
+        select coalesce(max(submission_version),0)+1 from biz_project_stage_acceptance
+        where project_id=#{projectId} and milestone_id=#{milestoneId}
+    </select>
+    <insert id="insertStageAcceptance" parameterType="com.ruoyi.business.domain.BusinessProjectStageAcceptance"
+            useGeneratedKeys="true" keyProperty="stageAcceptanceId">
+        insert into biz_project_stage_acceptance(project_id,milestone_id,submission_version,result_summary,
+          deliverables,attachment_urls,submitted_user_id,submitted_user_name,submitted_time,review_status,
+          create_by,create_time,remark)
+        values(#{projectId},#{milestoneId},#{submissionVersion},#{resultSummary},#{deliverables},#{attachmentUrls},
+          #{submittedUserId},#{submittedUserName},sysdate(),'PENDING',#{createBy},sysdate(),#{remark})
+    </insert>
+    <update id="reviewStageAcceptance">
+        update biz_project_stage_acceptance set review_status=#{reviewStatus},reviewed_user_id=#{reviewedUserId},
+          reviewed_user_name=#{reviewedUserName},review_comment=#{reviewComment},reviewed_time=sysdate(),
+          update_by=#{userName},update_time=sysdate()
+        where stage_acceptance_id=#{stageAcceptanceId} and review_status='PENDING'
+    </update>
+    <update id="updateMilestoneStatus">
+        update biz_project_milestone set status=#{status},actual_date=if(#{status}='DONE',current_date(),null),
+          update_by=#{userName},update_time=sysdate()
+        where project_id=#{projectId} and milestone_id=#{milestoneId}
+    </update>
+
     <select id="selectMilestones" resultType="com.ruoyi.business.domain.BusinessProjectMilestone">
         select milestone_id milestoneId,project_id projectId,milestone_name milestoneName,plan_date planDate,
           actual_date actualDate,weight,status,sort_order sortOrder,create_by createBy,create_time createTime,
           update_by updateBy,update_time updateTime,remark
         from biz_project_milestone where project_id=#{projectId} order by sort_order,milestone_id
+    </select>
+    <select id="selectMilestoneById" resultType="com.ruoyi.business.domain.BusinessProjectMilestone">
+        select milestone_id milestoneId,project_id projectId,milestone_name milestoneName,plan_date planDate,
+          actual_date actualDate,weight,status,sort_order sortOrder,create_by createBy,create_time createTime,
+          update_by updateBy,update_time updateTime,remark
+        from biz_project_milestone where milestone_id=#{milestoneId}
     </select>
     <insert id="insertMilestone" parameterType="com.ruoyi.business.domain.BusinessProjectMilestone"
             useGeneratedKeys="true" keyProperty="milestoneId">
@@ -890,7 +963,8 @@
         order by t.due_date is null,t.due_date,t.priority='HIGH' desc limit 20
     </select>
     <select id="selectMyWorkTasks" resultType="map">
-        select t.task_id taskId,t.project_id projectId,p.project_name projectName,p.project_no projectNo,
+        select t.task_id taskId,t.project_id projectId,t.parent_task_id parentTaskId,t.milestone_id milestoneId,
+          t.assignee_user_id assigneeUserId,p.project_name projectName,p.project_no projectNo,
           p.initiator_name initiatorName,p.main_owner_name mainOwnerName,p.status projectStatus,
           t.task_name taskName,t.status,t.progress,t.priority,t.plan_start_date planStartDate,
           t.due_date dueDate,t.version,t.remark

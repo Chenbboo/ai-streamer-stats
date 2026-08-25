@@ -11,6 +11,7 @@ public class BusinessProjectMember extends BaseEntity
     private Long projectId;
     private Long userId;
     private String userNameSnapshot;
+    private String accountName;
     private String memberRole;
     private String status;
     @JsonFormat(pattern = "yyyy-MM-dd") private Date joinedDate;
@@ -24,6 +25,8 @@ public class BusinessProjectMember extends BaseEntity
     public void setUserId(Long userId) { this.userId = userId; }
     public String getUserNameSnapshot() { return userNameSnapshot; }
     public void setUserNameSnapshot(String userNameSnapshot) { this.userNameSnapshot = userNameSnapshot; }
+    public String getAccountName() { return accountName; }
+    public void setAccountName(String accountName) { this.accountName = accountName; }
     public String getMemberRole() { return memberRole; }
     public void setMemberRole(String memberRole) { this.memberRole = memberRole; }
     public String getStatus() { return status; }

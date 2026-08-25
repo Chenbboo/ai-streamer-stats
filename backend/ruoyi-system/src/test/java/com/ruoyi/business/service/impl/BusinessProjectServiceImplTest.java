@@ -29,7 +29,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import com.ruoyi.business.domain.BusinessProject;
 import com.ruoyi.business.domain.BusinessProjectProposal;
 import com.ruoyi.business.domain.BusinessProjectAcceptance;
+import com.ruoyi.business.domain.BusinessProjectStageAcceptance;
+import com.ruoyi.business.domain.BusinessProjectMilestone;
 import com.ruoyi.business.domain.BusinessProjectMember;
+import com.ruoyi.business.domain.BusinessProjectRisk;
 import com.ruoyi.business.domain.BusinessProjectTask;
 import com.ruoyi.business.domain.BusinessProjectRoutine;
 import com.ruoyi.business.domain.BusinessProjectRoutineReport;
@@ -277,7 +280,8 @@ class BusinessProjectServiceImplTest
         assertEquals("审批老板", created.getSponsorOwnerName());
         assertEquals("负责人九", created.getMainOwnerName());
         assertEquals("LIVE", created.getExecutionSource());
-        assertEquals("SIMPLE", created.getManagementMode());
+        assertEquals("LIGHT", created.getManagementMode());
+        assertEquals("DIRECT", created.getCloseMethod());
         assertTrue(created.getProjectNo().startsWith("XM"));
         ArgumentCaptor<BusinessProjectMember> member = ArgumentCaptor.forClass(BusinessProjectMember.class);
         verify(mapper).upsertMember(member.capture());
@@ -449,6 +453,7 @@ class BusinessProjectServiceImplTest
     {
         BusinessProject project = project(62L, 9L, "ACTIVE", "APPROVED");
         project.setManagementMode("DELIVERY");
+        project.setCloseMethod("RESULT_ACCEPTANCE");
         BusinessProjectTask task = new BusinessProjectTask();
         task.setStatus("DOING");
         when(mapper.selectProjectById(62L)).thenReturn(project);
@@ -464,6 +469,57 @@ class BusinessProjectServiceImplTest
         assertTrue(error.getMessage().contains("未完成任务"));
         verify(mapper, never()).updateProjectStatus(any(), any(), any(), any(),
             org.mockito.ArgumentMatchers.anyBoolean(), any(), any());
+    }
+
+    @Test
+    void acceptanceErrorNamesEveryOutstandingBlocker()
+    {
+        BusinessProject project = project(63L, 9L, "ACTIVE", "APPROVED");
+        project.setCloseMethod("RESULT_ACCEPTANCE");
+        BusinessProjectTask task = new BusinessProjectTask();
+        task.setTaskName("交付复盘"); task.setStatus("DOING"); task.setProgress(80);
+        BusinessProjectMilestone milestone = new BusinessProjectMilestone();
+        milestone.setMilestoneName("最终交付"); milestone.setStatus("DOING");
+        BusinessProjectRisk risk = new BusinessProjectRisk();
+        risk.setRiskTitle("账号封禁风险"); risk.setSeverity("HIGH"); risk.setStatus("OPEN");
+        when(mapper.selectProjectById(63L)).thenReturn(project);
+        when(mapper.selectMemberRole(63L, 9L)).thenReturn("OWNER");
+        when(mapper.selectTasks(63L)).thenReturn(Collections.singletonList(task));
+        when(mapper.selectMilestones(63L)).thenReturn(Collections.singletonList(milestone));
+        when(mapper.selectRisks(63L)).thenReturn(Collections.singletonList(risk));
+        BusinessProjectAcceptance acceptance = new BusinessProjectAcceptance();
+        acceptance.setResultSummary("结果摘要"); acceptance.setDeliverables("交付成果");
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.submitAcceptance(63L, acceptance, 9L, "owner9", false));
+
+        assertTrue(error.getMessage().contains("存在未完成任务：交付复盘"));
+        assertTrue(error.getMessage().contains("存在未完成里程碑：最终交付"));
+        assertTrue(error.getMessage().contains("存在高风险或严重风险未处理：账号封禁风险"));
+    }
+
+    @Test
+    void completedProgressLeavesOnlyOpenHighRiskInAcceptanceError()
+    {
+        BusinessProject project = project(64L, 9L, "ACTIVE", "APPROVED");
+        project.setCloseMethod("RESULT_ACCEPTANCE");
+        BusinessProjectTask task = new BusinessProjectTask();
+        task.setTaskName("最终成片"); task.setStatus("DOING"); task.setProgress(100);
+        BusinessProjectRisk risk = new BusinessProjectRisk();
+        risk.setRiskTitle("交付风险"); risk.setSeverity("CRITICAL"); risk.setStatus("OPEN");
+        when(mapper.selectProjectById(64L)).thenReturn(project);
+        when(mapper.selectMemberRole(64L, 9L)).thenReturn("OWNER");
+        when(mapper.selectTasks(64L)).thenReturn(Collections.singletonList(task));
+        when(mapper.selectMilestones(64L)).thenReturn(Collections.emptyList());
+        when(mapper.selectRisks(64L)).thenReturn(Collections.singletonList(risk));
+        BusinessProjectAcceptance acceptance = new BusinessProjectAcceptance();
+        acceptance.setResultSummary("结果摘要"); acceptance.setDeliverables("交付成果");
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.submitAcceptance(64L, acceptance, 9L, "owner9", false));
+
+        assertTrue(error.getMessage().contains("存在高风险或严重风险未处理：交付风险"));
+        assertTrue(!error.getMessage().contains("未完成任务"));
     }
 
     @Test
@@ -486,9 +542,11 @@ class BusinessProjectServiceImplTest
     {
         BusinessProject active = project(71L, 9L, "ACTIVE", "APPROVED");
         active.setManagementMode("DELIVERY");
+        active.setCloseMethod("RESULT_ACCEPTANCE");
         active.setInitiatorUserId(8L);
         BusinessProject acceptanceState = project(71L, 9L, "ACCEPTANCE", "APPROVED");
         acceptanceState.setManagementMode("DELIVERY");
+        acceptanceState.setCloseMethod("RESULT_ACCEPTANCE");
         acceptanceState.setInitiatorUserId(8L);
         BusinessProjectTask done = new BusinessProjectTask();
         done.setStatus("DONE");
@@ -514,6 +572,74 @@ class BusinessProjectServiceImplTest
         assertEquals(2, evidence.getSubmissionVersion());
         assertEquals("负责人九", evidence.getSubmittedUserName());
         verify(mapper).insertEvent(any());
+    }
+
+    @Test
+    void oneHundredPercentProgressMarksAssignedTaskDone()
+    {
+        BusinessProject project = project(78L, 9L, "ACTIVE", "APPROVED");
+        BusinessProjectTask current = new BusinessProjectTask();
+        current.setTaskId(31L); current.setProjectId(78L); current.setTaskName("完成复盘");
+        current.setAssigneeUserId(147L); current.setStatus("DOING"); current.setProgress(80);
+        current.setPriority("MEDIUM"); current.setVersion(1);
+        when(mapper.selectProjectById(78L)).thenReturn(project);
+        when(mapper.selectMemberRole(78L, 147L)).thenReturn("MEMBER");
+        when(mapper.selectTaskById(31L)).thenReturn(current);
+        when(mapper.updateTask(current)).thenReturn(1);
+        BusinessProjectTask update = new BusinessProjectTask();
+        update.setProjectId(78L); update.setTaskId(31L); update.setStatus("DOING");
+        update.setProgress(100); update.setVersion(1);
+
+        BusinessProjectTask saved = service.saveTask(update, 147L, "member147", false);
+
+        assertEquals("DONE", saved.getStatus());
+        assertEquals(100, saved.getProgress());
+    }
+
+    @Test
+    void completedMilestoneTasksCanSubmitStageAcceptance()
+    {
+        BusinessProject active = project(75L, 9L, "ACTIVE", "APPROVED");
+        active.setCloseMethod("STAGED_ACCEPTANCE");
+        active.setInitiatorUserId(8L);
+        BusinessProjectMilestone milestone = new BusinessProjectMilestone();
+        milestone.setMilestoneId(501L); milestone.setProjectId(75L); milestone.setMilestoneName("首播验证");
+        milestone.setStatus("DOING");
+        BusinessProjectTask task = new BusinessProjectTask();
+        task.setMilestoneId(501L); task.setStatus("DONE");
+        Map<String, Object> submitter = new HashMap<String, Object>(); submitter.put("nickName", "负责人九");
+        when(mapper.selectProjectById(75L)).thenReturn(active);
+        when(mapper.selectMemberRole(75L, 9L)).thenReturn("OWNER");
+        when(mapper.selectMilestoneById(501L)).thenReturn(milestone);
+        when(mapper.selectTasks(75L)).thenReturn(Collections.singletonList(task));
+        when(mapper.selectActiveUserById(9L)).thenReturn(submitter);
+        when(mapper.selectNextStageAcceptanceVersion(75L, 501L)).thenReturn(1);
+        when(mapper.insertStageAcceptance(any())).thenReturn(1);
+
+        BusinessProjectStageAcceptance evidence = new BusinessProjectStageAcceptance();
+        evidence.setMilestoneId(501L); evidence.setResultSummary("首播完成"); evidence.setDeliverables("数据复盘报告");
+        BusinessProject result = service.submitStageAcceptance(75L, evidence, 9L, "owner9", false);
+
+        assertEquals("ACTIVE", result.getStatus());
+        assertEquals("首播验证", evidence.getMilestoneName());
+        verify(mapper).updateMilestoneStatus(75L, 501L, "REVIEWING", "owner9");
+    }
+
+    @Test
+    void stagedProjectCannotCloseBeforeEveryMilestoneIsApproved()
+    {
+        BusinessProject active = project(76L, 9L, "ACTIVE", "APPROVED");
+        active.setCloseMethod("STAGED_ACCEPTANCE"); active.setInitiatorUserId(8L);
+        BusinessProjectMilestone milestone = new BusinessProjectMilestone(); milestone.setStatus("REVIEWING");
+        when(mapper.selectProjectById(76L)).thenReturn(active);
+        when(mapper.selectMilestones(76L)).thenReturn(Collections.singletonList(milestone));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.transition(76L, "CLOSE", "完成", 8L, "boss8", true));
+
+        assertTrue(error.getMessage().contains("未通过阶段验收"));
+        verify(mapper, never()).updateProjectStatus(any(), any(), any(), any(),
+            org.mockito.ArgumentMatchers.anyBoolean(), any(), any());
     }
 
     @Test
@@ -747,6 +873,7 @@ class BusinessProjectServiceImplTest
     void initiatingBossCanApprovePendingAcceptance()
     {
         BusinessProject pendingProject = project(72L, 9L, "ACCEPTANCE", "APPROVED");
+        pendingProject.setCloseMethod("RESULT_ACCEPTANCE");
         pendingProject.setInitiatorUserId(8L);
         BusinessProject closedProject = project(72L, 9L, "CLOSED", "APPROVED");
         closedProject.setInitiatorUserId(8L);
@@ -777,6 +904,7 @@ class BusinessProjectServiceImplTest
     void dueSubmittedKpiSettlementBlocksAcceptanceApproval()
     {
         BusinessProject pendingProject = project(73L, 9L, "ACCEPTANCE", "APPROVED");
+        pendingProject.setCloseMethod("RESULT_ACCEPTANCE");
         pendingProject.setInitiatorUserId(8L);
         BusinessProjectAcceptance pending = new BusinessProjectAcceptance();
         pending.setAcceptanceId(701L);
@@ -1359,7 +1487,8 @@ class BusinessProjectServiceImplTest
         project.setMainOwnerName("owner");
         project.setStatus(status);
         project.setBaselineStatus(baselineStatus);
-        project.setManagementMode("SIMPLE");
+        project.setManagementMode("LIGHT");
+        project.setCloseMethod("DIRECT");
         project.setVersion(0);
         return project;
     }

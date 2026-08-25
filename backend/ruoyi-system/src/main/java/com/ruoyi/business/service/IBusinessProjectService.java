@@ -5,6 +5,7 @@ import java.util.Map;
 import com.ruoyi.business.domain.BusinessProject;
 import com.ruoyi.business.domain.BusinessProjectProposal;
 import com.ruoyi.business.domain.BusinessProjectAcceptance;
+import com.ruoyi.business.domain.BusinessProjectStageAcceptance;
 import com.ruoyi.business.domain.BusinessProjectMember;
 import com.ruoyi.business.domain.BusinessProjectMilestone;
 import com.ruoyi.business.domain.BusinessProjectRisk;
@@ -41,6 +42,10 @@ public interface IBusinessProjectService
     BusinessProject submitAcceptance(Long projectId, BusinessProjectAcceptance acceptance,
         Long userId, String userName, boolean boss);
     BusinessProject reviewAcceptance(Long projectId, String decision, String comment,
+        Long userId, String userName, boolean boss);
+    BusinessProject submitStageAcceptance(Long projectId, BusinessProjectStageAcceptance acceptance,
+        Long userId, String userName, boolean boss);
+    BusinessProject reviewStageAcceptance(Long projectId, Long milestoneId, String decision, String comment,
         Long userId, String userName, boolean boss);
     BusinessProject transition(Long projectId, String action, String comment,
         Long userId, String userName, boolean boss);

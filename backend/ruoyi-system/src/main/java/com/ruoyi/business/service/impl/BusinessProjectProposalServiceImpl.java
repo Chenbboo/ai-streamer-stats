@@ -6,6 +6,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -25,7 +26,8 @@ import com.ruoyi.common.utils.uuid.IdUtils;
 public class BusinessProjectProposalServiceImpl implements IBusinessProjectProposalService
 {
     private static final List<String> ACCOUNTING_MODES = Arrays.asList("PROFIT", "COST", "VALUE", "HYBRID");
-    private static final List<String> MANAGEMENT_MODES = Arrays.asList("SIMPLE", "STANDARD", "DELIVERY");
+    private static final List<String> MANAGEMENT_MODES = Arrays.asList("LIGHT", "STANDARD", "KEY_CONTROL");
+    private static final List<String> CLOSE_METHODS = Arrays.asList("DIRECT", "RESULT_ACCEPTANCE", "STAGED_ACCEPTANCE");
     private static final List<String> PRIORITIES = Arrays.asList("LOW", "MEDIUM", "HIGH");
 
     @Autowired private BusinessProjectProposalMapper mapper;
@@ -222,8 +224,26 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         if (StringUtils.isBlank(proposal.getProjectType())) proposal.setProjectType("GENERAL");
         if (StringUtils.isBlank(proposal.getAccountingMode())) proposal.setAccountingMode("PROFIT");
         if (!ACCOUNTING_MODES.contains(proposal.getAccountingMode())) throw new ServiceException("项目核算方式不正确");
-        if (StringUtils.isBlank(proposal.getManagementMode())) proposal.setManagementMode("SIMPLE");
+        proposal.setManagementMode(normalizeCode(proposal.getManagementMode()));
+        proposal.setCloseMethod(normalizeCode(proposal.getCloseMethod()));
+        if ("SIMPLE".equals(proposal.getManagementMode())) proposal.setManagementMode("LIGHT");
+        if ("DELIVERY".equals(proposal.getManagementMode()))
+        {
+            proposal.setManagementMode("STANDARD");
+            if (StringUtils.isBlank(proposal.getCloseMethod())) proposal.setCloseMethod("RESULT_ACCEPTANCE");
+        }
+        if (StringUtils.isBlank(proposal.getManagementMode())) proposal.setManagementMode("STANDARD");
         if (!MANAGEMENT_MODES.contains(proposal.getManagementMode())) throw new ServiceException("项目管理模式不正确");
+        if (StringUtils.isBlank(proposal.getCloseMethod())) proposal.setCloseMethod("DIRECT");
+        if (!CLOSE_METHODS.contains(proposal.getCloseMethod())) throw new ServiceException("项目结项方式不正确");
+        if (StringUtils.isNotBlank(proposal.getManagementReason()) && proposal.getManagementReason().length() > 1000)
+            throw new ServiceException("管理模式说明不能超过1000个字符");
+        if ("KEY_CONTROL".equals(proposal.getManagementMode()) && StringUtils.isBlank(proposal.getManagementReason()))
+            throw new ServiceException("重点监管项目必须说明选择原因和主要监管事项");
+        if (StringUtils.isNotBlank(proposal.getAcceptanceCriteria()) && proposal.getAcceptanceCriteria().length() > 2000)
+            throw new ServiceException("验收标准不能超过2000个字符");
+        if (!"DIRECT".equals(proposal.getCloseMethod()) && StringUtils.isBlank(proposal.getAcceptanceCriteria()))
+            throw new ServiceException("成果验收或阶段验收项目必须填写验收标准");
         if (StringUtils.isBlank(proposal.getPriority())) proposal.setPriority("MEDIUM");
         if (!PRIORITIES.contains(proposal.getPriority())) throw new ServiceException("项目优先级不正确");
         if (StringUtils.isBlank(proposal.getBaseCurrency())) proposal.setBaseCurrency("CNY");
@@ -318,6 +338,11 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         Object nickName = user.get("nickName");
         return nickName != null && StringUtils.isNotBlank(String.valueOf(nickName))
             ? String.valueOf(nickName) : String.valueOf(user.get("userName"));
+    }
+
+    private String normalizeCode(String value)
+    {
+        return StringUtils.isBlank(value) ? null : value.trim().toUpperCase(Locale.ROOT);
     }
 
     private String trim(String value) { return value == null ? null : value.trim(); }

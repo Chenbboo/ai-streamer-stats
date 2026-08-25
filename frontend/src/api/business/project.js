@@ -14,6 +14,8 @@ export const removeBusinessStaffAllocation = (projectId, allocationId) => reques
 export const changeBusinessProjectOwner = (id, data) => request({ url: `/business/project/${id}/owner`, method: 'put', data })
 export const submitBusinessProjectAcceptance = (id, data) => request({ url: `/business/project/${id}/acceptance`, method: 'post', data })
 export const reviewBusinessProjectAcceptance = (id, data) => request({ url: `/business/project/${id}/acceptance/review`, method: 'put', data })
+export const submitBusinessProjectStageAcceptance = (id, data) => request({ url: `/business/project/${id}/stage-acceptance`, method: 'post', data })
+export const reviewBusinessProjectStageAcceptance = (id, milestoneId, data) => request({ url: `/business/project/${id}/stage-acceptance/${milestoneId}/review`, method: 'put', data })
 export const transitionBusinessProject = (id, data) => request({ url: `/business/project/${id}/transition`, method: 'post', data })
 export const saveBusinessProjectMember = data => request({ url: '/business/project/member', method: 'post', data })
 export const removeBusinessProjectMember = (projectId, userId) => request({ url: `/business/project/${projectId}/member/${userId}`, method: 'delete' })

@@ -270,6 +270,17 @@
       where r.is_current='1' and r.biz_date=#{bizDate} and r.profit_amount&lt;0
       <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
       union all
+      select 'BUDGET_WARNING',r.project_id,p.project_name,p.company_dept_id,d.dept_name,r.biz_date,
+        r.budget_spent,concat(
+          case when p.management_mode='KEY_CONTROL' and r.budget_spent&gt;=p.budget_limit*0.9 then '重点监管项目预算已达高警戒线：' else '预算预警：' end,
+          round(r.budget_spent/p.budget_limit*100,1),'%，累计成本 ',round(r.budget_spent,2),' / ',round(p.budget_limit,2)),2
+      from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+      left join sys_dept d on d.dept_id=p.company_dept_id
+      where r.is_current='1' and r.biz_date=#{bizDate} and p.budget_limit&gt;0
+        and r.budget_spent&gt;=p.budget_limit*(case p.management_mode when 'KEY_CONTROL' then 0.7 when 'STANDARD' then 0.8 else 1 end)
+        and r.budget_spent&lt;=p.budget_limit
+      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      union all
       select 'OVER_BUDGET',r.project_id,p.project_name,p.company_dept_id,d.dept_name,r.biz_date,
         r.budget_spent,concat('累计成本 ',round(r.budget_spent,2),' 已超过预算 ',round(p.budget_limit,2)),2
       from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'

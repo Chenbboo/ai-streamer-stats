@@ -139,6 +139,22 @@
     join biz_project_kpi_plan_item item on item.item_id=result.plan_item_id
     where result.settlement_id=#{settlementId} order by item.sort_order,item.item_id
   </select>
+  <delete id="deleteSettlementResults">
+    delete from biz_project_kpi_result where settlement_id=#{settlementId}
+  </delete>
+  <delete id="deleteDraftSettlement">
+    delete from biz_project_kpi_settlement
+    where plan_id=#{planId} and status in('DRAFT','RETURNED') and accounting_fact_id is null
+  </delete>
+  <delete id="deleteBonusTiers">
+    delete from biz_project_bonus_tier where plan_id=#{planId}
+  </delete>
+  <delete id="deletePlanItems">
+    delete from biz_project_kpi_plan_item where plan_id=#{planId}
+  </delete>
+  <delete id="deletePublishedPlan">
+    delete from biz_project_kpi_plan where plan_id=#{planId} and status='PUBLISHED'
+  </delete>
   <insert id="upsertSettlementResult" parameterType="com.ruoyi.business.domain.BusinessProjectKpiResult">
     insert into biz_project_kpi_result(settlement_id,plan_item_id,actual_value,completion_rate,weighted_score,
       result_note,attachment_urls,input_user_id,input_user_name,input_time,update_by,update_time)

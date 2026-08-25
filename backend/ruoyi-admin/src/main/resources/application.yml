@@ -6,8 +6,8 @@ ruoyi:
   version: 3.9.2
   # 版权年份
   copyrightYear: 2026
-  # 文件路径 示例（ Windows配置D:/ruoyi/uploadPath，Linux配置 /home/ruoyi/uploadPath）
-  profile: ${RUOYI_PROFILE:J:/codex-projects/ai-streamer-stats/uploads}
+  # 文件路径。默认保存到后端启动目录下的 uploads，可通过 RUOYI_PROFILE 覆盖
+  profile: ${RUOYI_PROFILE:./uploads}
   # 获取ip地址开关
   addressEnabled: false
   # 验证码类型 math 数字计算 char 字符验证

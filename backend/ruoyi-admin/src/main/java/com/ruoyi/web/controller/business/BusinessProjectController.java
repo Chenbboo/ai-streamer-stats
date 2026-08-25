@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.business.domain.BusinessProject;
 import com.ruoyi.business.domain.BusinessProjectAcceptance;
+import com.ruoyi.business.domain.BusinessProjectStageAcceptance;
 import com.ruoyi.business.domain.BusinessProjectMember;
 import com.ruoyi.business.domain.BusinessProjectMilestone;
 import com.ruoyi.business.domain.BusinessProjectRisk;
@@ -178,6 +179,26 @@ public class BusinessProjectController extends BaseController
     {
         return success(projectService.reviewAcceptance(projectId, text(body, "decision"), text(body, "comment"),
             currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:project:submit,business:project:manage')")
+    @Log(title = "项目阶段验收资料", businessType = BusinessType.INSERT)
+    @PostMapping("/project/{projectId}/stage-acceptance")
+    public AjaxResult submitStageAcceptance(@PathVariable Long projectId,
+        @RequestBody BusinessProjectStageAcceptance acceptance)
+    {
+        return success(projectService.submitStageAcceptance(projectId, acceptance,
+            currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:manage')")
+    @Log(title = "项目阶段验收评审", businessType = BusinessType.UPDATE)
+    @PutMapping("/project/{projectId}/stage-acceptance/{milestoneId}/review")
+    public AjaxResult reviewStageAcceptance(@PathVariable Long projectId, @PathVariable Long milestoneId,
+        @RequestBody Map<String, Object> body)
+    {
+        return success(projectService.reviewStageAcceptance(projectId, milestoneId,
+            text(body, "decision"), text(body, "comment"), currentUserId(), currentUserName(), isBoss()));
     }
 
     @PreAuthorize("@ss.hasAnyPermi('business:project:submit,business:project:manage')")

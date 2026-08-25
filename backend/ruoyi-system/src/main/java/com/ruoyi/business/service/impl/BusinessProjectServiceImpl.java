@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.business.domain.BusinessProject;
 import com.ruoyi.business.domain.BusinessProjectProposal;
 import com.ruoyi.business.domain.BusinessProjectAcceptance;
+import com.ruoyi.business.domain.BusinessProjectStageAcceptance;
 import com.ruoyi.business.domain.BusinessProjectMember;
 import com.ruoyi.business.domain.BusinessProjectMilestone;
 import com.ruoyi.business.domain.BusinessProjectRisk;
@@ -42,7 +43,8 @@ import com.ruoyi.common.utils.uuid.IdUtils;
 public class BusinessProjectServiceImpl implements IBusinessProjectService
 {
     private static final List<String> ACCOUNTING_MODES = Arrays.asList("PROFIT", "COST", "VALUE", "HYBRID");
-    private static final List<String> MANAGEMENT_MODES = Arrays.asList("SIMPLE", "STANDARD", "DELIVERY");
+    private static final List<String> MANAGEMENT_MODES = Arrays.asList("LIGHT", "STANDARD", "KEY_CONTROL");
+    private static final List<String> CLOSE_METHODS = Arrays.asList("DIRECT", "RESULT_ACCEPTANCE", "STAGED_ACCEPTANCE");
     private static final List<String> ROUTINE_FREQUENCIES = Arrays.asList("DAILY", "WEEKLY", "MONTHLY");
     private static final List<String> PRIORITIES = Arrays.asList("LOW", "MEDIUM", "HIGH");
     private static final List<String> MEMBER_ROLES = Arrays.asList("DEPUTY", "MEMBER", "OBSERVER");
@@ -90,7 +92,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         project.setRisks(mapper.selectRisks(projectId));
         project.setOwnerHistory(mapper.selectOwnerHistory(projectId));
         project.setAcceptances(mapper.selectAcceptances(projectId));
+        project.setStageAcceptances(mapper.selectStageAcceptances(projectId));
         project.setEvents(mapper.selectEvents(projectId));
+        project.setGovernanceProfile(buildGovernanceProfile(project));
         Map<String, Object> executionRelation = mapper.selectActiveExecutionRelation(projectId);
         if (executionRelation != null && executionRelation.get("sourceDomain") != null)
         {
@@ -129,6 +133,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         project.setProjectType(proposal.getProjectType());
         project.setAccountingMode(proposal.getAccountingMode());
         project.setManagementMode(proposal.getManagementMode());
+        project.setCloseMethod(proposal.getCloseMethod());
+        project.setManagementReason(proposal.getManagementReason());
+        project.setAcceptanceCriteria(proposal.getAcceptanceCriteria());
         project.setObjective(proposal.getObjective());
         project.setPlanStartDate(proposal.getPlanStartDate());
         project.setPlanEndDate(proposal.getPlanEndDate());
@@ -256,6 +263,22 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         ensureMutable(current);
         input.setBaseCurrency(current.getBaseCurrency());
         input.setBudgetLimit(current.getBudgetLimit());
+        if (StringUtils.isBlank(input.getManagementMode())) input.setManagementMode(current.getManagementMode());
+        if (StringUtils.isBlank(input.getCloseMethod())) input.setCloseMethod(effectiveCloseMethod(current));
+        if (input.getManagementReason() == null) input.setManagementReason(current.getManagementReason());
+        if (input.getAcceptanceCriteria() == null) input.setAcceptanceCriteria(current.getAcceptanceCriteria());
+        boolean governanceChanged = !normalizeManagementMode(current.getManagementMode()).equals(normalizeManagementMode(input.getManagementMode()))
+            || !effectiveCloseMethod(current).equals(input.getCloseMethod());
+        if (governanceChanged && Arrays.asList("ACTIVE", "PAUSED", "ACCEPTANCE").contains(current.getStatus()))
+        {
+            if (StringUtils.isBlank(input.getGovernanceChangeReason())) throw new ServiceException("执行中的项目调整管理模式或结项方式时必须填写变更原因");
+            if (input.getGovernanceChangeReason().length() > 500) throw new ServiceException("治理方式变更原因不能超过500个字符");
+            if ("ACCEPTANCE".equals(current.getStatus())) throw new ServiceException("验收中的项目不能调整管理模式或结项方式");
+            if (!boss) throw new ServiceException("执行中的项目只有老板可以调整管理模式或结项方式");
+            if (closeMethodRank(input.getCloseMethod()) < closeMethodRank(effectiveCloseMethod(current))
+                && hasAcceptanceRecords(current.getProjectId()))
+                throw new ServiceException("项目已有验收记录，不能降低结项管控要求");
+        }
         if (!boss)
         {
             if (!Arrays.asList("DRAFT", "PLANNING").contains(current.getStatus())
@@ -271,7 +294,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         input.setVersion(current.getVersion());
         input.setUpdateBy(userName);
         if (mapper.updateProject(input) != 1) throw changed();
-        addEvent(current.getProjectId(), "EDIT", current.getStatus(), current.getStatus(), userId, userName, "更新项目资料");
+        addEvent(current.getProjectId(), governanceChanged ? "GOVERNANCE_CHANGE" : "EDIT",
+            current.getStatus(), current.getStatus(), userId, userName,
+            governanceChanged ? input.getGovernanceChangeReason() : "更新项目资料");
         if (boss && input.getExecutionSource() != null) syncExecutionSource(input, userId, userName);
         return getProject(current.getProjectId(), userId, SecurityUtils.isAdmin(userId), boss);
     }
@@ -659,8 +684,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         requireAccess(project, userId, SecurityUtils.isAdmin(userId), boss);
         requireOwnerOrBoss(mapper.selectMemberRole(projectId, userId), project, userId, boss);
         requireStatus(project, "ACTIVE");
-        if (!"DELIVERY".equals(project.getManagementMode()))
-            throw new ServiceException("只有交付模式项目需要提交验收资料");
+        if (!"RESULT_ACCEPTANCE".equals(effectiveCloseMethod(project)))
+            throw new ServiceException("只有选择成果验收的项目需要提交整体验收资料");
+        if ("KEY_CONTROL".equals(normalizeManagementMode(project.getManagementMode()))) ensureKeyMilestonesReady(projectId);
         ensureReadyForAcceptance(projectId);
         if (acceptance == null || StringUtils.isBlank(acceptance.getResultSummary()))
             throw new ServiceException("请填写项目结果摘要");
@@ -692,6 +718,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         BusinessProject project = requireProject(projectId);
         requireBoss(project, userId, boss);
         requireStatus(project, "ACCEPTANCE");
+        if (!"RESULT_ACCEPTANCE".equals(effectiveCloseMethod(project)))
+            throw new ServiceException("当前项目不使用成果验收结项");
         BusinessProjectAcceptance pending = mapper.selectLatestPendingAcceptance(projectId);
         if (pending == null) throw new ServiceException("没有待评审的验收资料");
         if (!"APPROVED".equals(decision) && !"RETURNED".equals(decision))
@@ -700,6 +728,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (StringUtils.isNotEmpty(comment) && comment.length() > 2000) throw new ServiceException("验收意见不能超过2000个字符");
         if ("APPROVED".equals(decision))
         {
+            if ("KEY_CONTROL".equals(normalizeManagementMode(project.getManagementMode()))) ensureKeyMilestonesReady(projectId);
             ensureReadyForAcceptance(projectId);
             ensureKpiReadyForClose(projectId);
         }
@@ -711,6 +740,64 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             throw changed();
         addEvent(projectId, "APPROVED".equals(decision) ? "CLOSE" : "RETURN_ACTIVE",
             "ACCEPTANCE", to, userId, userName, StringUtils.isBlank(comment) ? "验收通过" : comment);
+        return getProject(projectId, userId, SecurityUtils.isAdmin(userId), boss);
+    }
+
+    @Override
+    @Transactional
+    public BusinessProject submitStageAcceptance(Long projectId, BusinessProjectStageAcceptance acceptance,
+        Long userId, String userName, boolean boss)
+    {
+        BusinessProject project = requireProject(projectId);
+        requireAccess(project, userId, SecurityUtils.isAdmin(userId), boss);
+        requireOwnerOrBoss(mapper.selectMemberRole(projectId, userId), project, userId, boss);
+        requireStatus(project, "ACTIVE");
+        if (!"STAGED_ACCEPTANCE".equals(effectiveCloseMethod(project)))
+            throw new ServiceException("当前项目不使用阶段验收");
+        if (acceptance == null || acceptance.getMilestoneId() == null) throw new ServiceException("请选择需要验收的里程碑");
+        BusinessProjectMilestone milestone = mapper.selectMilestoneById(acceptance.getMilestoneId());
+        if (milestone == null || !projectId.equals(milestone.getProjectId())) throw new ServiceException("里程碑不属于当前项目");
+        if ("DONE".equals(milestone.getStatus())) throw new ServiceException("该里程碑已经验收通过");
+        if (mapper.selectLatestPendingStageAcceptance(projectId, milestone.getMilestoneId()) != null)
+            throw new ServiceException("该里程碑已有待评审的验收资料");
+        ensureMilestoneTasksReady(projectId, milestone.getMilestoneId());
+        validateStageAcceptance(acceptance);
+        acceptance.setProjectId(projectId);
+        acceptance.setMilestoneName(milestone.getMilestoneName());
+        acceptance.setSubmissionVersion(mapper.selectNextStageAcceptanceVersion(projectId, milestone.getMilestoneId()));
+        acceptance.setSubmittedUserId(userId);
+        acceptance.setSubmittedUserName(displayName(requireActiveUser(userId)));
+        acceptance.setReviewStatus("PENDING");
+        acceptance.setCreateBy(userName);
+        if (mapper.insertStageAcceptance(acceptance) != 1) throw new ServiceException("提交阶段验收失败");
+        mapper.updateMilestoneStatus(projectId, milestone.getMilestoneId(), "REVIEWING", userName);
+        addEvent(projectId, "REQUEST_STAGE_ACCEPTANCE", "ACTIVE", "ACTIVE", userId, userName,
+            "提交里程碑“" + milestone.getMilestoneName() + "”阶段验收");
+        return getProject(projectId, userId, SecurityUtils.isAdmin(userId), boss);
+    }
+
+    @Override
+    @Transactional
+    public BusinessProject reviewStageAcceptance(Long projectId, Long milestoneId, String decision, String comment,
+        Long userId, String userName, boolean boss)
+    {
+        BusinessProject project = requireProject(projectId);
+        requireBoss(project, userId, boss);
+        requireStatus(project, "ACTIVE");
+        if (!"STAGED_ACCEPTANCE".equals(effectiveCloseMethod(project)))
+            throw new ServiceException("当前项目不使用阶段验收");
+        if (!"APPROVED".equals(decision) && !"RETURNED".equals(decision)) throw new ServiceException("验收决定不正确");
+        if ("RETURNED".equals(decision) && StringUtils.isBlank(comment)) throw new ServiceException("退回原因不能为空");
+        if (StringUtils.isNotEmpty(comment) && comment.length() > 2000) throw new ServiceException("验收意见不能超过2000个字符");
+        BusinessProjectStageAcceptance pending = mapper.selectLatestPendingStageAcceptance(projectId, milestoneId);
+        if (pending == null) throw new ServiceException("该里程碑没有待评审的验收资料");
+        if (mapper.reviewStageAcceptance(pending.getStageAcceptanceId(), decision, userId,
+            displayName(requireActiveUser(userId)), comment, userName) != 1)
+            throw new ServiceException("阶段验收资料已被其他人处理，请刷新后重试");
+        mapper.updateMilestoneStatus(projectId, milestoneId, "APPROVED".equals(decision) ? "DONE" : "DOING", userName);
+        addEvent(projectId, "APPROVED".equals(decision) ? "APPROVE_STAGE" : "RETURN_STAGE",
+            "ACTIVE", "ACTIVE", userId, userName,
+            StringUtils.isBlank(comment) ? "阶段验收通过" : comment);
         return getProject(projectId, userId, SecurityUtils.isAdmin(userId), boss);
     }
 
@@ -782,8 +869,12 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         else if ("CLOSE".equals(action))
         {
             requireBoss(project, userId, boss); requireStatus(project, "ACTIVE");
-            if ("DELIVERY".equals(project.getManagementMode()))
-                throw new ServiceException("交付模式项目请在验收资料中完成验收");
+            String closeMethod = effectiveCloseMethod(project);
+            if ("RESULT_ACCEPTANCE".equals(closeMethod))
+                throw new ServiceException("该项目需提交成果验收资料并评审通过后结项");
+            if ("STAGED_ACCEPTANCE".equals(closeMethod)) ensureStagesReadyForClose(projectId);
+            else if ("KEY_CONTROL".equals(normalizeManagementMode(project.getManagementMode()))) ensureKeyMilestonesReady(projectId);
+            if (!"LIGHT".equals(normalizeManagementMode(project.getManagementMode()))) ensureHighRisksClosed(projectId);
             if (StringUtils.isBlank(comment)) throw new ServiceException("请填写项目完成结论");
             ensureKpiReadyForClose(projectId);
             to = "CLOSED";
@@ -848,6 +939,15 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (milestone.getWeight() == null) milestone.setWeight(BigDecimal.ZERO);
         if (milestone.getWeight().compareTo(BigDecimal.ZERO) < 0) throw new ServiceException("里程碑权重不能为负数");
         if (StringUtils.isBlank(milestone.getStatus())) milestone.setStatus("PENDING");
+        if (!Arrays.asList("PENDING", "DOING", "REVIEWING", "DONE").contains(milestone.getStatus()))
+            throw new ServiceException("里程碑状态不正确");
+        if ("STAGED_ACCEPTANCE".equals(effectiveCloseMethod(project)) && "DONE".equals(milestone.getStatus()))
+        {
+            BusinessProjectMilestone currentMilestone = milestone.getMilestoneId() == null
+                ? null : mapper.selectMilestoneById(milestone.getMilestoneId());
+            if (currentMilestone == null || !"DONE".equals(currentMilestone.getStatus()))
+                throw new ServiceException("阶段验收项目的里程碑只能由老板验收通过后完成");
+        }
         if (milestone.getSortOrder() == null) milestone.setSortOrder(0);
         if (milestone.getMilestoneId() == null)
         {
@@ -868,6 +968,10 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     public void deleteMilestone(Long projectId, Long milestoneId, Long userId, boolean boss)
     {
         BusinessProject project = requireProject(projectId); requireManage(project, userId, boss); ensureMutable(project);
+        List<BusinessProjectStageAcceptance> records = mapper.selectStageAcceptances(projectId);
+        if (records != null)
+            for (BusinessProjectStageAcceptance record : records)
+                if (milestoneId.equals(record.getMilestoneId())) throw new ServiceException("已有阶段验收记录的里程碑不能删除");
         if (mapper.deleteMilestone(projectId, milestoneId) != 1)
             throw new ServiceException("里程碑不存在或仍有关联任务");
     }
@@ -896,8 +1000,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
                 throw new ServiceException("任务状态不正确");
             int progress = task.getProgress() == null ? 0 : task.getProgress();
             if (progress < 0 || progress > 100) throw new ServiceException("任务进度必须在0到100之间");
-            current.setStatus(task.getStatus());
-            current.setProgress("DONE".equals(task.getStatus()) ? 100 : progress);
+            current.setStatus(progress == 100 ? "DONE" : task.getStatus());
+            current.setProgress("DONE".equals(current.getStatus()) ? 100 : progress);
             current.setUpdateBy(userName);
             if (mapper.updateTask(current) != 1) throw changed();
             addEvent(project.getProjectId(), "TASK_PROGRESS", project.getStatus(), project.getStatus(), userId, userName,
@@ -915,6 +1019,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (task.getProgress() < 0 || task.getProgress() > 100) throw new ServiceException("任务进度必须在0到100之间");
         if (StringUtils.isBlank(task.getStatus())) task.setStatus("TODO");
         if (!TASK_STATUSES.contains(task.getStatus())) throw new ServiceException("任务状态不正确");
+        if (task.getProgress() == 100) task.setStatus("DONE");
         if ("DONE".equals(task.getStatus())) task.setProgress(100);
         if (StringUtils.isBlank(task.getPriority())) task.setPriority("MEDIUM");
         if (!PRIORITIES.contains(task.getPriority())) throw new ServiceException("任务优先级不正确");
@@ -1632,27 +1737,100 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     {
         List<BusinessProjectTask> tasks = mapper.selectTasks(projectId);
         if (tasks == null || tasks.isEmpty()) throw new ServiceException("项目至少需要一项任务才能验收");
+        List<String> blockers = new ArrayList<String>();
+        List<String> unfinishedTasks = new ArrayList<String>();
         for (BusinessProjectTask task : tasks)
         {
-            if (!"DONE".equals(task.getStatus())) throw new ServiceException("仍有未完成任务，暂不能申请或通过验收");
+            if (!isTaskComplete(task)) unfinishedTasks.add(StringUtils.defaultIfEmpty(task.getTaskName(), "未命名任务"));
         }
+        if (!unfinishedTasks.isEmpty()) blockers.add("存在未完成任务：" + String.join("、", unfinishedTasks));
         List<BusinessProjectMilestone> milestones = mapper.selectMilestones(projectId);
+        List<String> unfinishedMilestones = new ArrayList<String>();
         if (milestones != null)
         {
             for (BusinessProjectMilestone milestone : milestones)
             {
-                if (!"DONE".equals(milestone.getStatus())) throw new ServiceException("仍有未完成里程碑，暂不能申请或通过验收");
+                if (!"DONE".equals(milestone.getStatus()))
+                    unfinishedMilestones.add(StringUtils.defaultIfEmpty(milestone.getMilestoneName(), "未命名里程碑"));
             }
         }
+        if (!unfinishedMilestones.isEmpty()) blockers.add("存在未完成里程碑：" + String.join("、", unfinishedMilestones));
         List<BusinessProjectRisk> risks = mapper.selectRisks(projectId);
+        List<String> openHighRisks = new ArrayList<String>();
         if (risks != null)
         {
             for (BusinessProjectRisk risk : risks)
             {
                 if ("OPEN".equals(risk.getStatus()) && ("HIGH".equals(risk.getSeverity()) || "CRITICAL".equals(risk.getSeverity())))
-                    throw new ServiceException("仍有高风险或严重风险未处理，暂不能申请或通过验收");
+                    openHighRisks.add(StringUtils.defaultIfEmpty(risk.getRiskTitle(), "未命名风险"));
             }
         }
+        if (!openHighRisks.isEmpty()) blockers.add("存在高风险或严重风险未处理：" + String.join("、", openHighRisks));
+        if (!blockers.isEmpty()) throw new ServiceException(String.join("；", blockers) + "，暂不能申请或通过验收");
+    }
+
+    private boolean isTaskComplete(BusinessProjectTask task)
+    {
+        return "DONE".equals(task.getStatus()) || (task.getProgress() != null && task.getProgress() >= 100);
+    }
+
+    private void ensureMilestoneTasksReady(Long projectId, Long milestoneId)
+    {
+        List<BusinessProjectTask> tasks = mapper.selectTasks(projectId);
+        boolean linkedTaskFound = false;
+        if (tasks != null)
+        {
+            for (BusinessProjectTask task : tasks)
+            {
+                if (milestoneId.equals(task.getMilestoneId()))
+                {
+                    linkedTaskFound = true;
+                    if (!isTaskComplete(task))
+                        throw new ServiceException("该里程碑仍有未完成任务，暂不能提交阶段验收");
+                }
+            }
+        }
+        if (!linkedTaskFound) throw new ServiceException("该里程碑至少需要关联一项任务才能提交阶段验收");
+    }
+
+    private void ensureStagesReadyForClose(Long projectId)
+    {
+        List<BusinessProjectMilestone> milestones = mapper.selectMilestones(projectId);
+        if (milestones == null || milestones.isEmpty()) throw new ServiceException("阶段验收项目至少需要一个里程碑");
+        for (BusinessProjectMilestone milestone : milestones)
+        {
+            if (!"DONE".equals(milestone.getStatus())) throw new ServiceException("仍有里程碑未通过阶段验收，暂不能结项");
+        }
+        ensureHighRisksClosed(projectId);
+    }
+
+    private void ensureKeyMilestonesReady(Long projectId)
+    {
+        List<BusinessProjectMilestone> milestones = mapper.selectMilestones(projectId);
+        if (milestones == null || milestones.isEmpty()) throw new ServiceException("重点监管项目至少需要一个里程碑");
+        for (BusinessProjectMilestone milestone : milestones)
+            if (!"DONE".equals(milestone.getStatus())) throw new ServiceException("重点监管项目仍有未完成里程碑，暂不能结项或验收");
+    }
+
+    private void ensureHighRisksClosed(Long projectId)
+    {
+        List<BusinessProjectRisk> risks = mapper.selectRisks(projectId);
+        if (risks == null) return;
+        for (BusinessProjectRisk risk : risks)
+        {
+            if ("OPEN".equals(risk.getStatus()) && ("HIGH".equals(risk.getSeverity()) || "CRITICAL".equals(risk.getSeverity())))
+                throw new ServiceException("仍有高风险或严重风险未处理，暂不能结项");
+        }
+    }
+
+    private void validateStageAcceptance(BusinessProjectStageAcceptance acceptance)
+    {
+        if (StringUtils.isBlank(acceptance.getResultSummary())) throw new ServiceException("请填写阶段结果摘要");
+        if (StringUtils.isBlank(acceptance.getDeliverables())) throw new ServiceException("请填写阶段交付成果");
+        if (acceptance.getResultSummary().length() > 2000) throw new ServiceException("阶段结果摘要不能超过2000个字符");
+        if (acceptance.getDeliverables().length() > 4000) throw new ServiceException("阶段交付成果不能超过4000个字符");
+        if (StringUtils.isNotEmpty(acceptance.getAttachmentUrls()) && acceptance.getAttachmentUrls().length() > 4000)
+            throw new ServiceException("验收附件数量或地址长度超出限制");
     }
 
     private void ensureKpiReadyForClose(Long projectId)
@@ -1736,8 +1914,18 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             throw new ServiceException("项目归属公司不正确");
         if (StringUtils.isBlank(project.getAccountingMode())) project.setAccountingMode("PROFIT");
         if (!ACCOUNTING_MODES.contains(project.getAccountingMode())) throw new ServiceException("项目核算模式不正确");
-        if (StringUtils.isBlank(project.getManagementMode())) project.setManagementMode("SIMPLE");
+        project.setManagementMode(normalizeManagementMode(project.getManagementMode()));
         if (!MANAGEMENT_MODES.contains(project.getManagementMode())) throw new ServiceException("项目管理模式不正确");
+        if (StringUtils.isBlank(project.getCloseMethod())) project.setCloseMethod("DIRECT");
+        if (!CLOSE_METHODS.contains(project.getCloseMethod())) throw new ServiceException("项目结项方式不正确");
+        if ("KEY_CONTROL".equals(project.getManagementMode()) && StringUtils.isBlank(project.getManagementReason()))
+            throw new ServiceException("重点监管项目必须填写选择该模式的理由");
+        if (StringUtils.isNotEmpty(project.getManagementReason()) && project.getManagementReason().length() > 1000)
+            throw new ServiceException("管理模式选择理由不能超过1000个字符");
+        if (!"DIRECT".equals(project.getCloseMethod()) && StringUtils.isBlank(project.getAcceptanceCriteria()))
+            throw new ServiceException("成果验收或阶段验收项目必须填写验收标准");
+        if (StringUtils.isNotEmpty(project.getAcceptanceCriteria()) && project.getAcceptanceCriteria().length() > 2000)
+            throw new ServiceException("验收标准不能超过2000个字符");
         if (StringUtils.isBlank(project.getPriority())) project.setPriority("MEDIUM");
         if (!PRIORITIES.contains(project.getPriority())) throw new ServiceException("项目优先级不正确");
         if (StringUtils.isBlank(project.getBaseCurrency())) project.setBaseCurrency("CNY");
@@ -1747,6 +1935,57 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (project.getPlanStartDate() != null && project.getPlanEndDate() != null
             && project.getPlanStartDate().after(project.getPlanEndDate()))
             throw new ServiceException("计划结束日期不能早于开始日期");
+    }
+
+    private String normalizeManagementMode(String mode)
+    {
+        if (StringUtils.isBlank(mode)) return "STANDARD";
+        if ("SIMPLE".equals(mode)) return "LIGHT";
+        if ("DELIVERY".equals(mode)) return "STANDARD";
+        return mode;
+    }
+
+    private String effectiveCloseMethod(BusinessProject project)
+    {
+        if (StringUtils.isNotBlank(project.getCloseMethod())) return project.getCloseMethod();
+        return "DELIVERY".equals(project.getManagementMode()) ? "RESULT_ACCEPTANCE" : "DIRECT";
+    }
+
+    private int closeMethodRank(String closeMethod)
+    {
+        if ("STAGED_ACCEPTANCE".equals(closeMethod)) return 3;
+        if ("RESULT_ACCEPTANCE".equals(closeMethod)) return 2;
+        return 1;
+    }
+
+    private boolean hasAcceptanceRecords(Long projectId)
+    {
+        List<BusinessProjectAcceptance> acceptances = mapper.selectAcceptances(projectId);
+        if (acceptances != null && !acceptances.isEmpty()) return true;
+        List<BusinessProjectStageAcceptance> stageAcceptances = mapper.selectStageAcceptances(projectId);
+        return stageAcceptances != null && !stageAcceptances.isEmpty();
+    }
+
+    private Map<String, Object> buildGovernanceProfile(BusinessProject project)
+    {
+        String mode = normalizeManagementMode(project.getManagementMode());
+        String closeMethod = effectiveCloseMethod(project);
+        Map<String, Object> profile = new LinkedHashMap<String, Object>();
+        profile.put("managementMode", mode);
+        profile.put("closeMethod", closeMethod);
+        profile.put("riskRequired", !"LIGHT".equals(mode));
+        profile.put("milestoneRequired", "KEY_CONTROL".equals(mode) || "STAGED_ACCEPTANCE".equals(closeMethod));
+        profile.put("changeApprovalRequired", "KEY_CONTROL".equals(mode));
+        profile.put("reportCycle", "LIGHT".equals(mode) ? "EXCEPTION" : ("KEY_CONTROL".equals(mode) ? "WEEKLY_AND_EVENT" : "WEEKLY"));
+        profile.put("budgetAlertThresholds", "LIGHT".equals(mode)
+            ? Arrays.asList(100) : ("KEY_CONTROL".equals(mode) ? Arrays.asList(70, 90, 100) : Arrays.asList(80, 100)));
+        List<String> modules = new ArrayList<String>(Arrays.asList("OVERVIEW", "MEMBER", "TASK", "EFFORT", "COST", "KPI"));
+        if (!"LIGHT".equals(mode)) modules.add("RISK");
+        if (!"LIGHT".equals(mode) || "STAGED_ACCEPTANCE".equals(closeMethod)) modules.add("MILESTONE");
+        if ("RESULT_ACCEPTANCE".equals(closeMethod)) modules.add("RESULT_ACCEPTANCE");
+        if ("STAGED_ACCEPTANCE".equals(closeMethod)) modules.add("STAGE_ACCEPTANCE");
+        profile.put("enabledModules", modules);
+        return profile;
     }
 
     private void validateParent(Long parentId, Long currentProjectId, Long sponsorOwnerUserId)

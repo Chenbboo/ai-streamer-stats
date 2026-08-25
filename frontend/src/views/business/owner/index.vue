@@ -23,6 +23,9 @@
     </div>
 
     <template v-if="project">
+      <el-alert class="governance-alert" :title="`${managementLabel[project.managementMode] || project.managementMode} · ${closeMethodLabel[project.closeMethod] || project.closeMethod}`" :description="governanceDescription" type="info" :closable="false" show-icon>
+        <template #default><el-button link type="primary" @click="openProject">查看治理要求与验收进度</el-button></template>
+      </el-alert>
       <section class="metric-grid">
         <article><span>昨日汇报总额</span><b>{{ xu(yesterdayReportedTotalXu) }} <em>Xu</em></b><small>{{ reportedSourceRoutineCount }} 人已提交 · {{ unreportedSourceRoutineCount }} 人未提交</small></article>
         <article><span>持续工作</span><b>{{ todayRoutines.length }}</b><small>{{ sourceRoutineCount }} 项直播同步 · {{ unreportedRoutineCount }} 项未完成</small></article>
@@ -303,6 +306,9 @@ const totalEffortDays=computed(()=>effortMembers.value.reduce((sum,item)=>sum+it
 const projectProgress=computed(()=>project.value?.taskCount?Math.round(Number(project.value.completedTaskCount||0)*100/Number(project.value.taskCount)):0)
 const statusLabel={DRAFT:'草稿',PLANNING:'规划中',ACTIVE:'执行中',PAUSED:'已暂停',ACCEPTANCE:'待验收',CLOSED:'已结项',CANCELED:'已取消'}
 const statusTone={DRAFT:'info',PLANNING:'warning',ACTIVE:'primary',PAUSED:'info',ACCEPTANCE:'success',CLOSED:'success',CANCELED:'danger'}
+const managementLabel={LIGHT:'轻量管理',STANDARD:'标准管理',KEY_CONTROL:'重点监管',SIMPLE:'轻量管理',DELIVERY:'标准管理'}
+const closeMethodLabel={DIRECT:'直接结项',RESULT_ACCEPTANCE:'成果验收',STAGED_ACCEPTANCE:'阶段验收'}
+const governanceDescription=computed(()=>{const p=project.value;if(!p)return '';const cycle=p.governanceProfile?.reportCycle==='EXCEPTION'?'异常时更新':p.governanceProfile?.reportCycle==='WEEKLY_AND_EVENT'?'每周更新并在重大事件时专项汇报':'每周更新';const close={DIRECT:'完成KPI前置条件后由老板直接结项。',RESULT_ACCEPTANCE:'完成全部任务后提交整体验收资料。',STAGED_ACCEPTANCE:'按里程碑逐项提交阶段验收。'}[p.closeMethod]||'';return `过程要求：${cycle}；${close}`})
 const frequencyLabel={DAILY:'每日',WEEKLY:'每周',MONTHLY:'每月'}
 const memberRoleLabel={OWNER:'主负责人',DEPUTY:'副负责人',MEMBER:'成员',OBSERVER:'观察者'}
 const memberRoleTone={OWNER:'primary',DEPUTY:'success',MEMBER:'info',OBSERVER:'warning'}
