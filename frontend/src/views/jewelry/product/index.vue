@@ -6,6 +6,7 @@
         <el-segmented v-model="query.productType" :options="typeFilters" @change="load"/>
       </el-form-item>
       <el-form-item><el-button type="primary" icon="Search" @click="load">查询</el-button></el-form-item>
+      <el-form-item><el-button icon="Download" v-hasPermi="['jewelry:product:list']" @click="handleExport">导出 Excel</el-button></el-form-item>
     </el-form>
     <el-button type="primary" plain icon="Plus" class="mb8" v-hasPermi="['jewelry:product:add']" @click="open()">新增商品</el-button>
     <el-table v-loading="loading" :data="rows" border>
@@ -85,6 +86,7 @@ const imageSrc=url=>/^https?:/i.test(url)?url:baseUrl+url
 const typeLabel=value=>jewelryProductType(value)?.label||value||'—'
 const typeTag=value=>jewelryProductType(value)?.tagType||'info'
 async function load(){loading.value=true;try{const params={...query};if(!params.productType)delete params.productType;const r=await listJewelryProducts(params);rows.value=r.rows||[];total.value=r.total||0}finally{loading.value=false}}
+function handleExport(){const params={keyword:query.keyword,productType:query.productType};if(!params.productType)delete params.productType;proxy.download('/jewelry/product/export',params,`商品档案_${new Date().getTime()}.xlsx`)}
 function open(row){Object.assign(form,blank(),row||{});form.imageUrls=form.imageUrls||form.imageUrl||'';dialog.value=true}
 async function save(){await formRef.value.validate();form.imageUrl=String(form.imageUrls||'').split(',')[0]||'';await saveJewelryProduct(form);proxy.$modal.msgSuccess('保存成功');dialog.value=false;load()}
 load()

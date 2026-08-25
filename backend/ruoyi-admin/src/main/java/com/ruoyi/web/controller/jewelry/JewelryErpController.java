@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import javax.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -19,12 +20,16 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.core.page.TableDataInfo;
+import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.common.utils.SecurityUtils;
+import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.jewelry.domain.JewelryDocument;
+import com.ruoyi.jewelry.domain.JewelryProductExportRow;
 import com.ruoyi.jewelry.mapper.JewelryErpMapper;
 import com.ruoyi.jewelry.service.JewelryDocumentExcelService;
 import com.ruoyi.jewelry.service.IJewelryErpService;
@@ -130,6 +135,20 @@ public class JewelryErpController extends BaseController
         List<Map<String, Object>> rows = service.listProducts(query);
         if (isMakerOnly()) removeKeys(rows, "avgCost");
         return getDataTable(rows);
+    }
+
+    @Log(title = "珠宝商品档案", businessType = BusinessType.EXPORT)
+    @PreAuthorize("@ss.hasPermi('jewelry:product:list')")
+    @PostMapping("/product/export")
+    public void exportProducts(HttpServletResponse response, @RequestParam Map<String, Object> query)
+    {
+        List<Map<String, Object>> rows = service.listProducts(query);
+        if (isMakerOnly()) removeKeys(rows, "avgCost");
+        List<JewelryProductExportRow> exportRows = rows.stream()
+            .map(JewelryProductExportRow::from)
+            .collect(Collectors.toList());
+        ExcelUtil<JewelryProductExportRow> util = new ExcelUtil<JewelryProductExportRow>(JewelryProductExportRow.class);
+        util.exportExcel(response, exportRows, "商品档案");
     }
 
     @PreAuthorize("@ss.hasPermi('jewelry:product:list')")

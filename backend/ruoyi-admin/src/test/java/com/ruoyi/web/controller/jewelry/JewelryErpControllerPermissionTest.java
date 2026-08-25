@@ -76,6 +76,7 @@ class JewelryErpControllerPermissionTest
         expected.put("addStaff", "@ss.hasPermi('jewelry:staff:add')");
         expected.put("editStaff", "@ss.hasPermi('jewelry:staff:edit')");
         expected.put("productList", "@ss.hasPermi('jewelry:product:list')");
+        expected.put("exportProducts", "@ss.hasPermi('jewelry:product:list')");
         expected.put("supplierList", "@ss.hasPermi('jewelry:supplier:list')");
         expected.put("stockList", "@ss.hasPermi('jewelry:stock:list')");
         expected.put("transactions", "@ss.hasPermi('jewelry:stock:list')");
