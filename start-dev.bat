@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 echo 启动后端(新窗口)...
-start "ruoyi-backend" cmd /k "cd /d ""%~dp0backend"" && mvn spring-boot:run -pl ruoyi-admin -am -U"
+start "ruoyi-backend" cmd /k "cd /d ""%~dp0backend"" && call mvn -pl ruoyi-admin -am -DskipTests package && java -jar ruoyi-admin\target\ruoyi-admin.jar"
 echo 启动前端(新窗口)...
 start "ruoyi-frontend" cmd /k "cd /d ""%~dp0frontend"" && pnpm dev"
 echo.
