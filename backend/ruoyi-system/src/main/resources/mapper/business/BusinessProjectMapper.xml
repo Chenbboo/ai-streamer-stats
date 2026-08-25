@@ -827,7 +827,8 @@
       from biz_project p
       left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
       left join biz_project_kpi_plan plan on plan.plan_id=(select latest.plan_id from biz_project_kpi_plan latest
-        where latest.project_id=p.project_id order by latest.cycle_end desc,latest.plan_version desc limit 1)
+        where latest.project_id=p.project_id and latest.status&lt;&gt;'VOIDED'
+        order by latest.cycle_end desc,latest.plan_version desc limit 1)
       where p.del_flag='0' and p.status in ('ACTIVE','PAUSED','ACCEPTANCE')
         and ((select count(*) from biz_project_kpi target
           where target.project_id=p.project_id and target.status='CURRENT')=0 or plan.plan_id is null)
@@ -844,7 +845,8 @@
       from biz_project p
       left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
       join biz_project_kpi_plan plan on plan.plan_id=(select latest.plan_id from biz_project_kpi_plan latest
-        where latest.project_id=p.project_id order by latest.cycle_end desc,latest.plan_version desc limit 1)
+        where latest.project_id=p.project_id and latest.status&lt;&gt;'VOIDED'
+        order by latest.cycle_end desc,latest.plan_version desc limit 1)
       join biz_project_kpi_settlement settlement on settlement.plan_id=plan.plan_id and settlement.status='SUBMITTED'
       where p.del_flag='0'
       <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
@@ -902,14 +904,16 @@
           <if test="viewAll == false">and proposal.sponsor_owner_user_id=#{userId}</if>) proposalCount,
         (select count(*) from biz_project p
           left join biz_project_kpi_plan plan on plan.plan_id=(select latest.plan_id from biz_project_kpi_plan latest
-            where latest.project_id=p.project_id order by latest.cycle_end desc,latest.plan_version desc limit 1)
+            where latest.project_id=p.project_id and latest.status&lt;&gt;'VOIDED'
+            order by latest.cycle_end desc,latest.plan_version desc limit 1)
           where p.del_flag='0' and p.status in ('ACTIVE','PAUSED','ACCEPTANCE')
             and ((select count(*) from biz_project_kpi target
               where target.project_id=p.project_id and target.status='CURRENT')=0 or plan.plan_id is null)
           <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>) kpiMissingCount,
         (select count(*) from biz_project p
           join biz_project_kpi_plan plan on plan.plan_id=(select latest.plan_id from biz_project_kpi_plan latest
-            where latest.project_id=p.project_id order by latest.cycle_end desc,latest.plan_version desc limit 1)
+            where latest.project_id=p.project_id and latest.status&lt;&gt;'VOIDED'
+            order by latest.cycle_end desc,latest.plan_version desc limit 1)
           join biz_project_kpi_settlement settlement on settlement.plan_id=plan.plan_id and settlement.status='SUBMITTED'
           where p.del_flag='0'
           <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>) kpiReviewCount,

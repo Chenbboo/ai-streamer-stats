@@ -12,7 +12,7 @@
     from biz_project p
     left join biz_project_kpi_plan plan on plan.plan_id=(
       select latest.plan_id from biz_project_kpi_plan latest
-      where latest.project_id=p.project_id
+      where latest.project_id=p.project_id and latest.status&lt;&gt;'VOIDED'
       order by latest.cycle_end desc,latest.plan_version desc limit 1)
     left join biz_project_kpi_settlement settlement on settlement.plan_id=plan.plan_id
     where p.del_flag='0'
@@ -78,19 +78,20 @@
       settlement.reviewed_time reviewedTime
     from biz_project_kpi_plan plan
     left join biz_project_kpi_settlement settlement on settlement.plan_id=plan.plan_id
-    where plan.project_id=#{projectId}
+    where plan.project_id=#{projectId} and plan.status&lt;&gt;'VOIDED'
     order by plan.cycle_end desc,plan.plan_version desc
   </select>
   <select id="selectLatestPlanId" resultType="long">
-    select plan_id from biz_project_kpi_plan where project_id=#{projectId}
+    select plan_id from biz_project_kpi_plan where project_id=#{projectId} and status&lt;&gt;'VOIDED'
     order by cycle_end desc,plan_version desc limit 1
   </select>
   <select id="selectPlanById" resultType="com.ruoyi.business.domain.BusinessProjectKpiPlan">
     select plan_id planId,project_id projectId,plan_version planVersion,cycle_type cycleType,
       cycle_start cycleStart,cycle_end cycleEnd,bonus_mode bonusMode,currency,status,
       published_user_id publishedUserId,published_user_name publishedUserName,published_time publishedTime,
-      closed_time closedTime,create_by createBy,create_time createTime,remark
-    from biz_project_kpi_plan where plan_id=#{planId} limit 1
+      closed_time closedTime,voided_user_id voidedUserId,voided_user_name voidedUserName,
+      voided_time voidedTime,create_by createBy,create_time createTime,remark
+    from biz_project_kpi_plan where plan_id=#{planId} and status&lt;&gt;'VOIDED' limit 1
   </select>
   <select id="selectPlanItems" resultType="com.ruoyi.business.domain.BusinessProjectKpiPlanItem">
     select item_id itemId,plan_id planId,kpi_id kpiId,kpi_code kpiCode,kpi_name kpiName,
@@ -116,18 +117,20 @@
       period_end periodEnd,status,total_score totalScore,bonus_amount bonusAmount,currency,
       submitted_user_id submittedUserId,submitted_user_name submittedUserName,submitted_time submittedTime,
       reviewed_user_id reviewedUserId,reviewed_user_name reviewedUserName,reviewed_time reviewedTime,
-      review_comment reviewComment,accounting_fact_id accountingFactId,version,
+       review_comment reviewComment,accounting_fact_id accountingFactId,voided_user_id voidedUserId,
+       voided_user_name voidedUserName,voided_time voidedTime,version,
       create_by createBy,create_time createTime,update_by updateBy,update_time updateTime
-    from biz_project_kpi_settlement where settlement_id=#{settlementId} limit 1
+    from biz_project_kpi_settlement where settlement_id=#{settlementId} and status&lt;&gt;'VOIDED' limit 1
   </select>
   <select id="selectSettlementByPlanId" resultType="com.ruoyi.business.domain.BusinessProjectKpiSettlement">
     select settlement_id settlementId,plan_id planId,project_id projectId,period_start periodStart,
       period_end periodEnd,status,total_score totalScore,bonus_amount bonusAmount,currency,
       submitted_user_id submittedUserId,submitted_user_name submittedUserName,submitted_time submittedTime,
       reviewed_user_id reviewedUserId,reviewed_user_name reviewedUserName,reviewed_time reviewedTime,
-      review_comment reviewComment,accounting_fact_id accountingFactId,version,
+       review_comment reviewComment,accounting_fact_id accountingFactId,voided_user_id voidedUserId,
+       voided_user_name voidedUserName,voided_time voidedTime,version,
       create_by createBy,create_time createTime,update_by updateBy,update_time updateTime
-    from biz_project_kpi_settlement where plan_id=#{planId} limit 1
+    from biz_project_kpi_settlement where plan_id=#{planId} and status&lt;&gt;'VOIDED' limit 1
   </select>
   <select id="selectSettlementResults" resultType="com.ruoyi.business.domain.BusinessProjectKpiResult">
     select result.result_id resultId,result.settlement_id settlementId,result.plan_item_id planItemId,
@@ -139,22 +142,16 @@
     join biz_project_kpi_plan_item item on item.item_id=result.plan_item_id
     where result.settlement_id=#{settlementId} order by item.sort_order,item.item_id
   </select>
-  <delete id="deleteSettlementResults">
-    delete from biz_project_kpi_result where settlement_id=#{settlementId}
-  </delete>
-  <delete id="deleteDraftSettlement">
-    delete from biz_project_kpi_settlement
+  <update id="voidDraftSettlement">
+    update biz_project_kpi_settlement set status='VOIDED',voided_user_id=#{userId},
+      voided_user_name=#{userName},voided_time=sysdate(),update_by=#{userName},update_time=sysdate(),version=version+1
     where plan_id=#{planId} and status in('DRAFT','RETURNED') and accounting_fact_id is null
-  </delete>
-  <delete id="deleteBonusTiers">
-    delete from biz_project_bonus_tier where plan_id=#{planId}
-  </delete>
-  <delete id="deletePlanItems">
-    delete from biz_project_kpi_plan_item where plan_id=#{planId}
-  </delete>
-  <delete id="deletePublishedPlan">
-    delete from biz_project_kpi_plan where plan_id=#{planId} and status='PUBLISHED'
-  </delete>
+  </update>
+  <update id="voidPublishedPlan">
+    update biz_project_kpi_plan set status='VOIDED',voided_user_id=#{userId},
+      voided_user_name=#{userName},voided_time=sysdate()
+    where plan_id=#{planId} and status='PUBLISHED'
+  </update>
   <insert id="upsertSettlementResult" parameterType="com.ruoyi.business.domain.BusinessProjectKpiResult">
     insert into biz_project_kpi_result(settlement_id,plan_item_id,actual_value,completion_rate,weighted_score,
       result_note,attachment_urls,input_user_id,input_user_name,input_time,update_by,update_time)

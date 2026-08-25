@@ -138,23 +138,20 @@ class BusinessProjectKpiServiceImplTest
         verify(mapper).closePlan(10L);
     }
 
-    @Test void bossCanDeleteUnsubmittedPlan()
+    @Test void bossCanVoidUnsubmittedPlanWithoutDeletingAuditData()
     {
         BusinessProjectKpiPlan plan=plan();plan.setPlanId(10L);plan.setPlanVersion(1);
         BusinessProjectKpiSettlement draft=settlement("DRAFT",0);
         when(mapper.selectPlanById(10L)).thenReturn(plan);
         when(projectMapper.selectProjectById(1L)).thenReturn(project());
         when(mapper.selectSettlementByPlanId(10L)).thenReturn(draft);
-        when(mapper.deleteDraftSettlement(10L)).thenReturn(1);
-        when(mapper.deletePublishedPlan(10L)).thenReturn(1);
+        when(mapper.voidDraftSettlement(10L,8L,"boss8")).thenReturn(1);
+        when(mapper.voidPublishedPlan(10L,8L,"boss8")).thenReturn(1);
 
-        service.deletePlan(10L,8L,"boss8",false,true);
+        service.voidPlan(10L,8L,"boss8",false,true);
 
-        verify(mapper).deleteSettlementResults(20L);
-        verify(mapper).deleteDraftSettlement(10L);
-        verify(mapper).deleteBonusTiers(10L);
-        verify(mapper).deletePlanItems(10L);
-        verify(mapper).deletePublishedPlan(10L);
+        verify(mapper).voidDraftSettlement(10L,8L,"boss8");
+        verify(mapper).voidPublishedPlan(10L,8L,"boss8");
     }
 
     @Test void confirmedPlanCannotBeDeleted()
@@ -166,11 +163,11 @@ class BusinessProjectKpiServiceImplTest
         when(mapper.selectSettlementByPlanId(10L)).thenReturn(confirmed);
 
         ServiceException error=assertThrows(ServiceException.class,
-            ()->service.deletePlan(10L,8L,"boss8",false,true));
+            ()->service.voidPlan(10L,8L,"boss8",false,true));
 
-        assertTrue(error.getMessage().contains("仅可删除未提交、未入账"));
-        verify(mapper,never()).deleteDraftSettlement(any());
-        verify(mapper,never()).deletePublishedPlan(any());
+        assertTrue(error.getMessage().contains("仅可作废未提交、未入账"));
+        verify(mapper,never()).voidDraftSettlement(any(),any(),any());
+        verify(mapper,never()).voidPublishedPlan(any(),any(),any());
     }
 
     private BusinessProject project()

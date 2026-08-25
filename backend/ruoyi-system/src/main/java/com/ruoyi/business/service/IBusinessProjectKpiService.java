@@ -12,7 +12,7 @@ public interface IBusinessProjectKpiService
     Map<String, Object> workspace(Long projectId, Long planId, Long userId, boolean viewAll, boolean boss);
     Map<String, Object> publishPlan(BusinessProjectKpiPlan plan, Long userId, String userName,
         boolean viewAll, boolean boss);
-    void deletePlan(Long planId, Long userId, String userName, boolean viewAll, boolean boss);
+    void voidPlan(Long planId, Long userId, String userName, boolean viewAll, boolean boss);
     BusinessProjectKpiSettlement saveResults(Long settlementId, BusinessProjectKpiSettlement input,
         Long userId, String userName, boolean viewAll);
     BusinessProjectKpiSettlement submit(Long settlementId, Long userId, String userName, boolean viewAll);

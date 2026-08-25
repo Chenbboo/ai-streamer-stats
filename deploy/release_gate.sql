@@ -36,6 +36,25 @@ from (
   )
 
   union all
+  select if(count(*)=1,0,1)
+  from information_schema.tables
+  where table_schema=database() and table_name='biz_project_stage_acceptance'
+
+  union all
+  select if(count(*)=6,0,1)
+  from information_schema.columns
+  where table_schema=database()
+    and ((table_name='biz_project' and column_name in ('close_method','management_reason','acceptance_criteria'))
+      or (table_name='biz_project_proposal' and column_name in ('close_method','management_reason','acceptance_criteria')))
+
+  union all
+  select if(count(*)=6,0,1)
+  from information_schema.columns
+  where table_schema=database()
+    and ((table_name='biz_project_kpi_plan' and column_name in ('voided_user_id','voided_user_name','voided_time'))
+      or (table_name='biz_project_kpi_settlement' and column_name in ('voided_user_id','voided_user_name','voided_time')))
+
+  union all
   select count(*)
   from biz_project p
   where p.del_flag='0' and not exists (

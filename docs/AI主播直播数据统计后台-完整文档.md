@@ -460,8 +460,9 @@ Target schema: {"type":"report","provider":"model","totalXu":1234,"rawText":"ori
 
 ### 上传路径
 
-```
-J:/codex-projects/ai-streamer-stats/uploads/
+```text
+<仓库目录>/backend/uploads/  # start-dev.bat 本地启动
+/opt/ai-streamer/uploads/         # 生产环境
   └── live/
       └── {2026-07-07/}
           └── {streamerId/}
@@ -470,11 +471,13 @@ J:/codex-projects/ai-streamer-stats/uploads/
               └── ...
 ```
 
+`start-dev.bat` 会把 `RUOYI_PROFILE` 设为仓库中的 `backend/uploads`；生产 systemd 服务通过 `/opt/ai-streamer/business-ai.env` 设置 `RUOYI_PROFILE=/opt/ai-streamer/uploads`。不要依赖进程当前目录来定位历史上传文件。
+
 ### 配置（application.yml）
 
 ```yaml
 ruoyi:
-  profile: J:/codex-projects/ai-streamer-stats/uploads
+  profile: ${RUOYI_PROFILE:./uploads}
 
 spring:
   servlet:

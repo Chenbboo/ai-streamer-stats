@@ -140,25 +140,22 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
 
     @Override
     @Transactional
-    public void deletePlan(Long planId, Long userId, String userName, boolean viewAll, boolean boss)
+    public void voidPlan(Long planId, Long userId, String userName, boolean viewAll, boolean boss)
     {
         BusinessProjectKpiPlan plan = mapper.selectPlanById(planId);
         if (plan == null) throw new ServiceException("KPI方案不存在");
         BusinessProject project = requireProject(plan.getProjectId());
         requireBoss(project, userId, viewAll, boss);
         BusinessProjectKpiSettlement settlement = mapper.selectSettlementByPlanId(planId);
-        if (settlement == null) throw new ServiceException("KPI方案结算不存在，不能删除");
+        if (settlement == null) throw new ServiceException("KPI方案结算不存在，不能作废");
         if (!Arrays.asList("DRAFT", "RETURNED").contains(settlement.getStatus())
             || settlement.getAccountingFactId() != null)
-            throw new ServiceException("仅可删除未提交、未入账的KPI方案");
+            throw new ServiceException("仅可作废未提交、未入账的KPI方案");
 
-        mapper.deleteSettlementResults(settlement.getSettlementId());
-        if (mapper.deleteDraftSettlement(planId) != 1) throw changed();
-        mapper.deleteBonusTiers(planId);
-        mapper.deletePlanItems(planId);
-        if (mapper.deletePublishedPlan(planId) != 1) throw changed();
-        addEvent(project, "KPI_PLAN_DELETED", userId, userName,
-            "删除未提交的项目KPI方案 v" + plan.getPlanVersion() + "，周期 "
+        if (mapper.voidDraftSettlement(planId, userId, userName) != 1) throw changed();
+        if (mapper.voidPublishedPlan(planId, userId, userName) != 1) throw changed();
+        addEvent(project, "KPI_PLAN_VOIDED", userId, userName,
+            "作废未提交的项目KPI方案 v" + plan.getPlanVersion() + "，周期 "
                 + date(plan.getCycleStart()) + " 至 " + date(plan.getCycleEnd()));
     }
 

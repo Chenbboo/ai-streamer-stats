@@ -65,6 +65,20 @@ from information_schema.columns
 where table_schema=database() and table_name='biz_project_daily_result' and column_name='bonus_cost';
 
 select
+  count(case when column_name='voided_user_id' then 1 end)=0 as missing_kpi_plan_voided_user_id,
+  count(case when column_name='voided_user_name' then 1 end)=0 as missing_kpi_plan_voided_user_name,
+  count(case when column_name='voided_time' then 1 end)=0 as missing_kpi_plan_voided_time
+from information_schema.columns
+where table_schema=database() and table_name='biz_project_kpi_plan';
+
+select
+  count(case when column_name='voided_user_id' then 1 end)=0 as missing_kpi_settlement_voided_user_id,
+  count(case when column_name='voided_user_name' then 1 end)=0 as missing_kpi_settlement_voided_user_name,
+  count(case when column_name='voided_time' then 1 end)=0 as missing_kpi_settlement_voided_time
+from information_schema.columns
+where table_schema=database() and table_name='biz_project_kpi_settlement';
+
+select
   count(case when column_name='initiator_user_id' then 1 end)=0 as missing_project_initiator_user_id,
   count(case when column_name='initiator_name' then 1 end)=0 as missing_project_initiator_name,
   count(case when column_name='company_dept_id' then 1 end)=0 as missing_project_company_dept_id
@@ -580,6 +594,16 @@ from biz_project_kpi_settlement settlement
 left join biz_project_kpi_plan plan on plan.plan_id=settlement.plan_id
 left join biz_project project on project.project_id=settlement.project_id and project.del_flag='0'
 where plan.plan_id is null or project.project_id is null
+union all
+select 'voided_kpi_plan_with_active_settlement',count(*)
+from biz_project_kpi_plan plan
+join biz_project_kpi_settlement settlement on settlement.plan_id=plan.plan_id
+where plan.status='VOIDED' and settlement.status<>'VOIDED'
+union all
+select 'voided_kpi_settlement_with_active_plan',count(*)
+from biz_project_kpi_settlement settlement
+join biz_project_kpi_plan plan on plan.plan_id=settlement.plan_id
+where settlement.status='VOIDED' and plan.status<>'VOIDED'
 union all
 select 'confirmed_bonus_missing_fact',count(*)
 from biz_project_kpi_settlement settlement

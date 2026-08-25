@@ -57,11 +57,11 @@ public class BusinessProjectKpiController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('business:kpi:manage')")
-    @Log(title = "项目KPI奖金方案", businessType = BusinessType.DELETE)
+    @Log(title = "作废项目KPI奖金方案", businessType = BusinessType.UPDATE)
     @DeleteMapping("/plan/{planId}")
-    public AjaxResult deletePlan(@PathVariable Long planId)
+    public AjaxResult voidPlan(@PathVariable Long planId)
     {
-        service.deletePlan(planId, userId(), userName(), isAdministrator(), isBoss());
+        service.voidPlan(planId, userId(), userName(), isAdministrator(), isBoss());
         return success();
     }
 

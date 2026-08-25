@@ -43,8 +43,8 @@
 | 草稿项目进入规划 | `POST /business/project/{id}/transition` | `business:project:manage` | ⚠️ | 旧流程能力；新立项不得调用 | 下线新入口，历史记录只读兼容 |
 | 批准或退回负责人计划 | 同上 | `business:project:manage` | ⚠️ | 旧基线二次审批；新项目不再使用 | 下线新入口，历史在途数据单独迁移 |
 | 恢复暂停项目 | 同上 | `business:project:manage` | ✅ | `boss_prepare_project_transition`，确认后执行 | 后续迁入通用 capability |
-| 暂停、直接关闭、取消项目 | 同上 | `business:project:manage` | ✅ | `project.transition`，统一确认后执行；非交付项目直接关闭前由服务端强制检查已发布方案和全部到期结算 | 已完成，保持 KPI 门槛 |
-| 审核待验收项目并结项或退回 | `GET/PUT/POST` 验收相关接口 | `business:boss:view` / `business:project:manage` | ✅ | `project.acceptance.review` + `project.acceptance.decide`；验收通过前执行与直接关闭相同的 KPI 校验，退回不受该门槛影响 | 已迁入通用 capability |
+| 暂停、直接结项、取消项目 | 同上 | `business:project:manage` | ✅ | `project.transition`，统一确认后执行；直接结项前由服务端强制检查已发布方案和全部到期结算 | 已完成，保持 KPI 门槛 |
+| 审核成果验收或阶段验收 | `GET/PUT/POST` 验收相关接口 | `business:boss:view` / `business:project:manage` | ✅ | `project.acceptance.review` + `project.acceptance.decide`；成果验收通过或阶段验收全部完成后关闭前执行同一 KPI 校验，退回不受该门槛影响 | 已迁入通用 capability |
 
 ## 4. 项目中心能力
 

@@ -26,6 +26,9 @@ public class BusinessProjectKpiSettlement extends BaseEntity
     private Date reviewedTime;
     private String reviewComment;
     private Long accountingFactId;
+    private Long voidedUserId;
+    private String voidedUserName;
+    private Date voidedTime;
     private Integer version;
     private List<BusinessProjectKpiResult> results;
 
@@ -63,6 +66,12 @@ public class BusinessProjectKpiSettlement extends BaseEntity
     public void setReviewComment(String reviewComment) { this.reviewComment = reviewComment; }
     public Long getAccountingFactId() { return accountingFactId; }
     public void setAccountingFactId(Long accountingFactId) { this.accountingFactId = accountingFactId; }
+    public Long getVoidedUserId() { return voidedUserId; }
+    public void setVoidedUserId(Long voidedUserId) { this.voidedUserId = voidedUserId; }
+    public String getVoidedUserName() { return voidedUserName; }
+    public void setVoidedUserName(String voidedUserName) { this.voidedUserName = voidedUserName; }
+    public Date getVoidedTime() { return voidedTime; }
+    public void setVoidedTime(Date voidedTime) { this.voidedTime = voidedTime; }
     public Integer getVersion() { return version; }
     public void setVersion(Integer version) { this.version = version; }
     public List<BusinessProjectKpiResult> getResults() { return results; }

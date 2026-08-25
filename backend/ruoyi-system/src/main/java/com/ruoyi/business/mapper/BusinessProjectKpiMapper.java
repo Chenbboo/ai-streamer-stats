@@ -31,11 +31,10 @@ public interface BusinessProjectKpiMapper
     BusinessProjectKpiSettlement selectSettlementById(Long settlementId);
     BusinessProjectKpiSettlement selectSettlementByPlanId(Long planId);
     List<BusinessProjectKpiResult> selectSettlementResults(Long settlementId);
-    int deleteSettlementResults(Long settlementId);
-    int deleteDraftSettlement(Long planId);
-    int deleteBonusTiers(Long planId);
-    int deletePlanItems(Long planId);
-    int deletePublishedPlan(Long planId);
+    int voidDraftSettlement(@Param("planId") Long planId, @Param("userId") Long userId,
+        @Param("userName") String userName);
+    int voidPublishedPlan(@Param("planId") Long planId, @Param("userId") Long userId,
+        @Param("userName") String userName);
     int upsertSettlementResult(BusinessProjectKpiResult result);
     int updateSettlementPreview(@Param("settlementId") Long settlementId,
         @Param("totalScore") java.math.BigDecimal totalScore,

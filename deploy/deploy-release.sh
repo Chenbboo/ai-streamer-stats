@@ -14,6 +14,7 @@ frontend_new="$app_root/frontend.$release.new"
 frontend_old="$app_root/frontend.$release.old"
 config="$app_root/application-prod.yml"
 ai_env="$app_root/business-ai.env"
+upload_dir="$app_root/uploads"
 dropin_dir=/etc/systemd/system/ai-streamer.service.d
 dropin_file="$dropin_dir/10-business-ai.conf"
 service_stopped=0
@@ -35,7 +36,7 @@ required=(
   migrations/verify_business_schema.sql migrations/release_gate.sql
 )
 for file in "${required[@]}"; do test -s "$stage_dir/$file"; done
-for version in $(seq -w 10 41); do
+for version in $(seq -w 10 42); do
   matches=("$stage_dir/migrations/V0${version}"__*.sql)
   test "${#matches[@]}" = 1
   test -s "${matches[0]}"
@@ -62,6 +63,7 @@ test "$token_secret" != abcdefghijklmnopqrstuvwxyz
 test "$token_secret" != replace-with-at-least-32-random-characters
 test "$api_key" != replace-with-production-key
 grep -Eq '^RUOYI_LOG_LEVEL=info$' "$ai_env"
+grep -Eq '^RUOYI_PROFILE=/opt/ai-streamer/uploads$' "$ai_env"
 grep -Eq '^SPRING_DEVTOOLS_RESTART_ENABLED=false$' "$ai_env"
 grep -Eq '^SWAGGER_ENABLED=false$' "$ai_env"
 grep -Eq '^DRUID_STAT_VIEW_ENABLED=false$' "$ai_env"
@@ -161,6 +163,7 @@ test "$role_before" = "$role_after"
 
 install -m 0644 "$stage_dir/ruoyi-admin.jar" "$app_root/ruoyi-admin.jar"
 chmod 0600 "$config"
+install -d -m 0755 "$upload_dir"
 mkdir -p "$dropin_dir"
 install -m 0644 "$stage_dir/ai-streamer-business-ai.conf" "$dropin_file"
 systemctl daemon-reload

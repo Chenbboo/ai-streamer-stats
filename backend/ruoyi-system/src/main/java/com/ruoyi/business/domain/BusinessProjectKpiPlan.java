@@ -21,6 +21,9 @@ public class BusinessProjectKpiPlan extends BaseEntity
     private String publishedUserName;
     private Date publishedTime;
     private Date closedTime;
+    private Long voidedUserId;
+    private String voidedUserName;
+    private Date voidedTime;
     private List<BusinessProjectKpiPlanItem> items;
     private List<BusinessProjectBonusTier> tiers;
     private BusinessProjectKpiSettlement settlement;
@@ -51,6 +54,12 @@ public class BusinessProjectKpiPlan extends BaseEntity
     public void setPublishedTime(Date publishedTime) { this.publishedTime = publishedTime; }
     public Date getClosedTime() { return closedTime; }
     public void setClosedTime(Date closedTime) { this.closedTime = closedTime; }
+    public Long getVoidedUserId() { return voidedUserId; }
+    public void setVoidedUserId(Long voidedUserId) { this.voidedUserId = voidedUserId; }
+    public String getVoidedUserName() { return voidedUserName; }
+    public void setVoidedUserName(String voidedUserName) { this.voidedUserName = voidedUserName; }
+    public Date getVoidedTime() { return voidedTime; }
+    public void setVoidedTime(Date voidedTime) { this.voidedTime = voidedTime; }
     public List<BusinessProjectKpiPlanItem> getItems() { return items; }
     public void setItems(List<BusinessProjectKpiPlanItem> items) { this.items = items; }
     public List<BusinessProjectBonusTier> getTiers() { return tiers; }

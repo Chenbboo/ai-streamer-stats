@@ -1,5 +1,7 @@
 @echo off
 chcp 65001 >nul
+set "RUOYI_PROFILE=%~dp0backend\uploads"
+if not exist "%RUOYI_PROFILE%" mkdir "%RUOYI_PROFILE%"
 echo 启动后端(新窗口)...
 start "ruoyi-backend" cmd /k "cd /d ""%~dp0backend"" && call mvn -pl ruoyi-admin -am -DskipTests package && java -jar ruoyi-admin\target\ruoyi-admin.jar"
 echo 启动前端(新窗口)...
