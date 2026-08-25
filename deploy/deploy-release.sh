@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Keep this file LF-only so release bundles remain executable on Linux.
 set -Eeuo pipefail
 
 release="${1:?usage: deploy-release.sh <git-release-id>}"
