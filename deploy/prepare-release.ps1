@@ -25,14 +25,20 @@ try {
     }
 
     Push-Location $backendRoot
-    try { mvn clean package } finally { Pop-Location }
+    try {
+        mvn clean package
+        if ($LASTEXITCODE -ne 0) { throw 'Backend build failed.' }
+    } finally { Pop-Location }
 
     Push-Location $frontendRoot
     try {
         $env:CI = 'true'
         pnpm install --frozen-lockfile
+        if ($LASTEXITCODE -ne 0) { throw 'Frontend dependency installation failed.' }
         pnpm audit --prod --audit-level high --registry=https://registry.npmjs.org
+        if ($LASTEXITCODE -ne 0) { throw 'Frontend production dependency audit failed.' }
         pnpm run build:prod
+        if ($LASTEXITCODE -ne 0) { throw 'Frontend production build failed.' }
     } finally { Pop-Location }
 
     if (Test-Path -LiteralPath $releaseRoot) {
