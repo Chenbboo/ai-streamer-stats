@@ -54,6 +54,8 @@ class ProjectGovernanceCapabilitiesTest
         ArgumentCaptor<BusinessProjectMilestone> milestoneValue = ArgumentCaptor.forClass(BusinessProjectMilestone.class);
         verify(service).saveMilestone(milestoneValue.capture(), eq(23L), eq("jianglan"), eq(true));
         assertEquals("2026-09-01", new java.text.SimpleDateFormat("yyyy-MM-dd").format(milestoneValue.getValue().getPlanDate()));
+        assertEquals(null, milestoneValue.getValue().getWeight());
+        assertEquals(false, ((Map<?, ?>) milestone.inputSchema().get("properties")).containsKey("weight"));
 
         SaveProjectRiskCapability risk = new SaveProjectRiskCapability(service);
         BusinessProjectRisk savedRisk = new BusinessProjectRisk(); savedRisk.setProjectId(17L); savedRisk.setRiskId(9L);

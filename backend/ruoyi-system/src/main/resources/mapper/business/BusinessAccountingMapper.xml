@@ -84,7 +84,26 @@
       version,confirmed_user_id confirmedUserId,confirmed_user_name confirmedUserName,confirmed_time confirmedTime,
       create_user_id createUserId,create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
     from biz_operating_fact where project_id=#{projectId} and biz_date=#{bizDate}
+      and source_type='DAILY_TOTAL' and status in('DRAFT','CONFIRMED')
+    order by case when status='DRAFT' then 0 else 1 end,fact_id desc limit 1
+  </select>
+  <select id="selectConfirmedProjectDailySpend" resultType="com.ruoyi.business.domain.BusinessOperatingFact">
+    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,
+      category_code categoryCode,category_name categoryName,fact_kind factKind,amount,quantity,currency,unit,
+      description,counterparty,attachment_urls attachmentUrls,source_domain sourceDomain,source_type sourceType,
+      source_id sourceId,source_line_key sourceLineKey,status,reversal_fact_id reversalFactId,idempotency_key idempotencyKey,
+      version,confirmed_user_id confirmedUserId,confirmed_user_name confirmedUserName,confirmed_time confirmedTime,
+      create_user_id createUserId,create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
+    from biz_operating_fact where project_id=#{projectId} and biz_date=#{bizDate}
       and source_type='DAILY_TOTAL' and status='CONFIRMED' order by fact_id desc limit 1
+  </select>
+  <select id="selectProjectRevenueSummary" resultType="map">
+    select coalesce(sum(case when status in('CONFIRMED','REVERSED') then amount else 0 end),0) confirmedAmount,
+      coalesce(sum(case when status='DRAFT' then amount else 0 end),0) draftAmount,
+      sum(case when status in('CONFIRMED','REVERSED') then 1 else 0 end) confirmedCount,
+      sum(case when status='DRAFT' then 1 else 0 end) draftCount
+    from biz_operating_fact
+    where project_id=#{projectId} and biz_date=#{bizDate} and fact_kind='REVENUE'
   </select>
   <select id="selectProjectForAccounting" resultType="map">
     select project_id projectId,project_name projectName,company_dept_id companyDeptId,accounting_mode accountingMode,
@@ -368,7 +387,12 @@
         <if test="viewAll == false">and coalesce(p2.sponsor_owner_user_id,p2.initiator_user_id)=#{userId}</if>
       group by a2.user_id
     ) total_plan on total_plan.user_id=m.user_id
-    where p.del_flag='0' and p.status not in('CLOSED','CANCELED')
+    where p.del_flag='0' and p.status&lt;&gt;'CANCELED'
+      and (p.status&lt;&gt;'CLOSED' or exists (
+        select 1 from biz_project_daily_result closed_result
+        where closed_result.project_id=p.project_id and closed_result.biz_date=#{bizDate}
+          and closed_result.is_current='1'
+      ))
       <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
       <if test="projectId != null">and p.project_id=#{projectId}</if>
       <if test="companyDeptId != null">and p.company_dept_id=#{companyDeptId}</if>

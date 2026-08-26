@@ -22,6 +22,8 @@ import com.ruoyi.business.domain.BusinessProjectMember;
 import com.ruoyi.business.domain.BusinessProjectMilestone;
 import com.ruoyi.business.domain.BusinessProjectRisk;
 import com.ruoyi.business.domain.BusinessProjectTask;
+import com.ruoyi.business.domain.BusinessProjectTaskReport;
+import com.ruoyi.business.domain.BusinessProjectProgressReport;
 import com.ruoyi.business.domain.BusinessProjectRoutine;
 import com.ruoyi.business.domain.BusinessProjectRoutineReport;
 import com.ruoyi.business.domain.BusinessProjectEffort;
@@ -530,6 +532,52 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         return saved;
     }
 
+    @Override
+    @Transactional
+    public void deleteStaffCostPolicy(Long policyId, Long userId, String userName, boolean boss)
+    {
+        BusinessStaffCostPolicy policy = requireManageableStaffCostPolicy(policyId, userId, boss);
+        if (!"ACTIVE".equals(policy.getStatus())) throw new ServiceException("成本版本已作废，不能删除");
+        if (policy.getEffectiveFrom() == null || !policy.getEffectiveFrom().after(DateUtils.getNowDate()))
+            throw new ServiceException("已生效的成本版本不能删除，请改为作废");
+        if (policy.getReferenceCount() != null && policy.getReferenceCount() > 0)
+            throw new ServiceException("成本版本已被项目投入引用，不能删除，请改为作废");
+        if (mapper.deleteUnusedFutureStaffCostPolicy(policyId) != 1)
+            throw new ServiceException("成本版本已生效、已被引用或状态已变化，请刷新后重试");
+        mapper.restorePrecedingStaffCostPolicy(policy.getUserId(), policy.getEffectiveFrom());
+    }
+
+    @Override
+    @Transactional
+    public void voidStaffCostPolicy(Long policyId, String reason,
+        Long userId, String userName, boolean boss)
+    {
+        if (StringUtils.isBlank(reason)) throw new ServiceException("请填写作废原因");
+        reason = reason.trim();
+        if (reason.length() > 500) throw new ServiceException("作废原因不能超过500个字符");
+        BusinessStaffCostPolicy policy = requireManageableStaffCostPolicy(policyId, userId, boss);
+        if (!"ACTIVE".equals(policy.getStatus())) throw new ServiceException("成本版本已作废，请勿重复操作");
+        if (mapper.voidStaffCostPolicy(policyId, reason, userId, userName) != 1)
+            throw new ServiceException("成本版本状态已变化，请刷新后重试");
+    }
+
+    private BusinessStaffCostPolicy requireManageableStaffCostPolicy(Long policyId, Long userId, boolean boss)
+    {
+        if (policyId == null) throw new ServiceException("成本版本ID不能为空");
+        boolean administrator = SecurityUtils.isAdmin(userId);
+        if (!administrator && (!boss || mapper.countUserRoleByKey(userId, "company_owner") < 1))
+            throw new ServiceException("只有系统管理员或公司负责人可以维护人员内部核算成本");
+        BusinessStaffCostPolicy policy = mapper.selectStaffCostPolicyById(policyId);
+        if (policy == null) throw new ServiceException("成本版本不存在");
+        if (administrator) requireCostEligibleUser(policy.getUserId());
+        else
+        {
+            requireActiveUser(policy.getUserId());
+            requireStaffCostCompanyOwner(policy.getUserId(), userId, false);
+        }
+        return policy;
+    }
+
     private void requireStaffCostCompanyOwner(Long staffUserId, Long operatorUserId, boolean lockForUpdate)
     {
         Long companyLeaderUserId = mapper.selectStaffCompanyLeaderUserId(staffUserId, lockForUpdate);
@@ -752,8 +800,6 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         requireAccess(project, userId, SecurityUtils.isAdmin(userId), boss);
         requireOwnerOrBoss(mapper.selectMemberRole(projectId, userId), project, userId, boss);
         requireStatus(project, "ACTIVE");
-        if (!"STAGED_ACCEPTANCE".equals(effectiveCloseMethod(project)))
-            throw new ServiceException("当前项目不使用阶段验收");
         if (acceptance == null || acceptance.getMilestoneId() == null) throw new ServiceException("请选择需要验收的里程碑");
         BusinessProjectMilestone milestone = mapper.selectMilestoneById(acceptance.getMilestoneId());
         if (milestone == null || !projectId.equals(milestone.getProjectId())) throw new ServiceException("里程碑不属于当前项目");
@@ -784,8 +830,6 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         BusinessProject project = requireProject(projectId);
         requireBoss(project, userId, boss);
         requireStatus(project, "ACTIVE");
-        if (!"STAGED_ACCEPTANCE".equals(effectiveCloseMethod(project)))
-            throw new ServiceException("当前项目不使用阶段验收");
         if (!"APPROVED".equals(decision) && !"RETURNED".equals(decision)) throw new ServiceException("验收决定不正确");
         if ("RETURNED".equals(decision) && StringUtils.isBlank(comment)) throw new ServiceException("退回原因不能为空");
         if (StringUtils.isNotEmpty(comment) && comment.length() > 2000) throw new ServiceException("验收意见不能超过2000个字符");
@@ -822,8 +866,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         {
             requireOwnerOrBoss(memberRole, project, userId, boss); requireStatus(project, "PLANNING");
             if (!"DRAFT".equals(project.getBaselineStatus())) throw new ServiceException("项目计划已经提交");
-            if (StringUtils.isBlank(project.getObjective()) || project.getPlanStartDate() == null || project.getPlanEndDate() == null)
-                throw new ServiceException("提交前请完善项目目标和计划日期");
+            if (StringUtils.isBlank(project.getObjective()) || project.getPlanStartDate() == null)
+                throw new ServiceException("提交前请完善项目目标和计划开始日期");
             List<BusinessProjectRoutine> manualRoutines = mapper.selectRoutines(projectId, new Date());
             Map<String, Object> executionRelation = mapper.selectActiveExecutionRelation(projectId);
             List<BusinessProjectRoutine> sourceRoutines = executionRelation == null
@@ -862,18 +906,41 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         {
             throw new ServiceException("请填写验收资料后提交验收");
         }
+        else if ("REQUEST_CLOSE".equals(action))
+        {
+            if (!"OWNER".equals(memberRole)) throw new ServiceException("只有项目主负责人可以发起结项");
+            requireStatus(project, "ACTIVE");
+            if (!"STAGED_ACCEPTANCE".equals(effectiveCloseMethod(project)))
+                throw new ServiceException("只有阶段验收项目需要发起结项确认");
+            ensureStagesReadyForClose(projectId);
+            ensureKpiReadyForClose(projectId);
+            to = "ACCEPTANCE";
+            if (StringUtils.isBlank(comment)) comment = "全部里程碑已验收，发起项目结项确认";
+        }
         else if ("RETURN_ACTIVE".equals(action))
         {
-            throw new ServiceException("请在验收资料中填写意见并退回执行");
+            requireBoss(project, userId, boss); requireStatus(project, "ACCEPTANCE");
+            if (!"STAGED_ACCEPTANCE".equals(effectiveCloseMethod(project)))
+                throw new ServiceException("请在验收资料中填写意见并退回执行");
+            if (StringUtils.isBlank(comment)) throw new ServiceException("退回原因不能为空");
+            to = "ACTIVE";
         }
         else if ("CLOSE".equals(action))
         {
-            requireBoss(project, userId, boss); requireStatus(project, "ACTIVE");
+            requireBoss(project, userId, boss);
             String closeMethod = effectiveCloseMethod(project);
             if ("RESULT_ACCEPTANCE".equals(closeMethod))
                 throw new ServiceException("该项目需提交成果验收资料并评审通过后结项");
-            if ("STAGED_ACCEPTANCE".equals(closeMethod)) ensureStagesReadyForClose(projectId);
-            else if ("KEY_CONTROL".equals(normalizeManagementMode(project.getManagementMode()))) ensureKeyMilestonesReady(projectId);
+            if ("STAGED_ACCEPTANCE".equals(closeMethod))
+            {
+                requireStatus(project, "ACCEPTANCE");
+                ensureStagesReadyForClose(projectId);
+            }
+            else
+            {
+                requireStatus(project, "ACTIVE");
+                if ("KEY_CONTROL".equals(normalizeManagementMode(project.getManagementMode()))) ensureKeyMilestonesReady(projectId);
+            }
             if (!"LIGHT".equals(normalizeManagementMode(project.getManagementMode()))) ensureHighRisksClosed(projectId);
             if (StringUtils.isBlank(comment)) throw new ServiceException("请填写项目完成结论");
             ensureKpiReadyForClose(projectId);
@@ -936,18 +1003,25 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         BusinessProject project = requireProject(milestone.getProjectId());
         requireManage(project, userId, boss); ensureMutable(project);
         if (StringUtils.isBlank(milestone.getMilestoneName())) throw new ServiceException("里程碑名称不能为空");
-        if (milestone.getWeight() == null) milestone.setWeight(BigDecimal.ZERO);
-        if (milestone.getWeight().compareTo(BigDecimal.ZERO) < 0) throw new ServiceException("里程碑权重不能为负数");
-        if (StringUtils.isBlank(milestone.getStatus())) milestone.setStatus("PENDING");
+        BusinessProjectMilestone currentMilestone = null;
+        if (milestone.getMilestoneId() != null)
+        {
+            currentMilestone = mapper.selectMilestoneById(milestone.getMilestoneId());
+            if (currentMilestone == null || !project.getProjectId().equals(currentMilestone.getProjectId()))
+                throw new ServiceException("里程碑不存在");
+            if ("REVIEWING".equals(currentMilestone.getStatus()) || "DONE".equals(currentMilestone.getStatus()))
+                throw new ServiceException("待验收或已完成的里程碑已锁定，不能直接修改");
+        }
+        milestone.setWeight(currentMilestone == null || currentMilestone.getWeight() == null
+            ? BigDecimal.ZERO : currentMilestone.getWeight());
+        if (StringUtils.isBlank(milestone.getStatus()))
+            milestone.setStatus(currentMilestone == null ? "PENDING" : currentMilestone.getStatus());
         if (!Arrays.asList("PENDING", "DOING", "REVIEWING", "DONE").contains(milestone.getStatus()))
             throw new ServiceException("里程碑状态不正确");
-        if ("STAGED_ACCEPTANCE".equals(effectiveCloseMethod(project)) && "DONE".equals(milestone.getStatus()))
-        {
-            BusinessProjectMilestone currentMilestone = milestone.getMilestoneId() == null
-                ? null : mapper.selectMilestoneById(milestone.getMilestoneId());
-            if (currentMilestone == null || !"DONE".equals(currentMilestone.getStatus()))
-                throw new ServiceException("阶段验收项目的里程碑只能由老板验收通过后完成");
-        }
+        if (("REVIEWING".equals(milestone.getStatus()) || "DONE".equals(milestone.getStatus()))
+            && (currentMilestone == null || !milestone.getStatus().equals(currentMilestone.getStatus())))
+            throw new ServiceException("里程碑必须由负责人提交验收，并由老板确认后才能完成");
+        milestone.setActualDate(null);
         if (milestone.getSortOrder() == null) milestone.setSortOrder(0);
         if (milestone.getMilestoneId() == null)
         {
@@ -1015,6 +1089,20 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             if (role == null) throw new ServiceException("任务负责人必须是有效项目成员");
             task.setAssigneeName(displayName(requireActiveUser(task.getAssigneeUserId())));
         }
+        if (task.getTaskId() != null)
+        {
+            BusinessProjectTask current = mapper.selectTaskById(task.getTaskId());
+            if (current == null || !project.getProjectId().equals(current.getProjectId()))
+                throw new ServiceException("任务不存在");
+            // 项目负责人只安排任务，执行进度只能由任务负责人的完成填报产生。
+            task.setStatus(current.getStatus());
+            task.setProgress(current.getProgress());
+        }
+        else
+        {
+            task.setStatus("TODO");
+            task.setProgress(0);
+        }
         if (task.getProgress() == null) task.setProgress(0);
         if (task.getProgress() < 0 || task.getProgress() > 100) throw new ServiceException("任务进度必须在0到100之间");
         if (StringUtils.isBlank(task.getStatus())) task.setStatus("TODO");
@@ -1042,10 +1130,91 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
 
     @Override
     @Transactional
+    public BusinessProjectTaskReport submitTaskReport(BusinessProjectTaskReport report,
+        Long userId, String userName)
+    {
+        if (report == null || report.getTaskId() == null) throw new ServiceException("请选择一次性任务");
+        BusinessProjectTask task = mapper.selectTaskById(report.getTaskId());
+        if (task == null) throw new ServiceException("任务不存在");
+        if (!userId.equals(task.getAssigneeUserId())) throw new ServiceException("只能由任务负责人本人填报");
+        BusinessProject project = requireProject(task.getProjectId());
+        if (!"ACTIVE".equals(project.getStatus())) throw new ServiceException("项目执行中才能填报任务完成情况");
+        Date today = DateUtils.getNowDate();
+        if (report.getBizDate() == null) report.setBizDate(today);
+        if (!new SimpleDateFormat("yyyy-MM-dd").format(today)
+            .equals(new SimpleDateFormat("yyyy-MM-dd").format(report.getBizDate())))
+            throw new ServiceException("只能填报今日任务完成情况");
+        if (report.getProgress() == null || report.getProgress() < 0 || report.getProgress() > 100)
+            throw new ServiceException("任务进度必须在0到100之间");
+        if (report.getProgress() < (task.getProgress() == null ? 0 : task.getProgress()))
+            throw new ServiceException("任务进度只能增加，不能低于当前进度");
+        if (StringUtils.isBlank(report.getCompletionSummary())) throw new ServiceException("请填写实际完成情况");
+        if (StringUtils.isBlank(report.getEvidenceUrls())) throw new ServiceException("请上传成果凭证");
+        if (report.getCompletionSummary().length() > 2000) throw new ServiceException("实际完成情况不能超过2000字");
+        if (report.getEvidenceUrls().length() > 4000) throw new ServiceException("成果凭证文件过多");
+        report.setCompletionSummary(report.getCompletionSummary().trim());
+
+        task.setProgress(report.getProgress());
+        task.setStatus(report.getProgress() >= 100 ? "DONE" : report.getProgress() > 0 ? "DOING" : "TODO");
+        task.setUpdateBy(userName);
+        if (mapper.updateTask(task) != 1) throw changed();
+
+        report.setProjectId(project.getProjectId());
+        report.setSubmittedUserId(userId);
+        report.setSubmittedUserName(displayName(requireActiveUser(userId)));
+        report.setCreateBy(userName);
+        mapper.upsertTaskReport(report);
+        addEvent(project.getProjectId(), "TASK_PROGRESS", project.getStatus(), project.getStatus(), userId, userName,
+            task.getTaskName() + " / " + task.getProgress() + "%");
+        return mapper.selectTaskReport(task.getTaskId(), report.getBizDate());
+    }
+
+    @Override
+    @Transactional
+    public BusinessProjectProgressReport submitProjectProgressReport(BusinessProjectProgressReport report,
+        Long userId, String userName, boolean viewAll)
+    {
+        if (report == null || report.getProjectId() == null) throw new ServiceException("请选择项目");
+        BusinessProject project = requireProject(report.getProjectId());
+        if (!viewAll && !userId.equals(project.getMainOwnerUserId()))
+            throw new ServiceException("只能由项目主负责人本人填报项目进度");
+        if (!"ACTIVE".equals(project.getStatus())) throw new ServiceException("项目执行中才能填报项目完成情况");
+
+        Date today = DateUtils.getNowDate();
+        if (report.getBizDate() == null) report.setBizDate(today);
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
+        if (!dateFormat.format(today).equals(dateFormat.format(report.getBizDate())))
+            throw new ServiceException("只能填报今日项目完成情况");
+        if (report.getProgress() == null || report.getProgress() < 0 || report.getProgress() > 100)
+            throw new ServiceException("项目进度必须在0到100之间");
+        BusinessProjectProgressReport latest = mapper.selectLatestProjectProgressReport(project.getProjectId());
+        int currentProgress = latest == null || latest.getProgress() == null ? 0 : latest.getProgress();
+        if (report.getProgress() < currentProgress)
+            throw new ServiceException("项目进度只能增加，不能低于当前进度");
+        if (StringUtils.isBlank(report.getCompletionSummary())) throw new ServiceException("请填写实际完成情况");
+        if (StringUtils.isBlank(report.getEvidenceUrls())) throw new ServiceException("请上传成果凭证");
+        if (report.getCompletionSummary().length() > 2000) throw new ServiceException("实际完成情况不能超过2000字");
+        if (report.getEvidenceUrls().length() > 4000) throw new ServiceException("成果凭证文件过多");
+
+        report.setCompletionSummary(report.getCompletionSummary().trim());
+        report.setSubmittedUserId(userId);
+        report.setSubmittedUserName(displayName(requireActiveUser(userId)));
+        report.setCreateBy(userName);
+        mapper.upsertProjectProgressReport(report);
+        String eventSummary = report.getCompletionSummary().length() > 900
+            ? report.getCompletionSummary().substring(0, 900) : report.getCompletionSummary();
+        addEvent(project.getProjectId(), "PROJECT_PROGRESS", project.getStatus(), project.getStatus(), userId, userName,
+            report.getProgress() + "% / " + eventSummary);
+        return mapper.selectProjectProgressReport(project.getProjectId(), report.getBizDate());
+    }
+
+    @Override
+    @Transactional
     public void deleteTask(Long projectId, Long taskId, Long userId, boolean boss)
     {
         BusinessProject project = requireProject(projectId); requireManage(project, userId, boss); ensureMutable(project);
         if (mapper.countTaskChildren(projectId, taskId) > 0) throw new ServiceException("请先处理子任务");
+        if (mapper.countTaskReports(taskId) > 0) throw new ServiceException("任务已有完成填报，为保留追溯记录不能删除");
         if (mapper.deleteTask(projectId, taskId) != 1) throw new ServiceException("任务不存在");
     }
 
@@ -1253,7 +1422,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         int pageSize = positiveInt(query, "pageSize", 5, 50);
         String category = query == null || query.get("category") == null
             ? "ALL" : String.valueOf(query.get("category")).trim().toUpperCase();
-        if (!Arrays.asList("ALL", "PROPOSAL", "KPI_MISSING", "KPI_REVIEW", "PERSONNEL_COST", "PROJECT")
+        if (!Arrays.asList("ALL", "PROPOSAL", "ACCOUNTING", "STAGE_ACCEPTANCE", "KPI_MISSING", "KPI_REVIEW", "PERSONNEL_COST", "PROJECT")
             .contains(category)) category = "ALL";
         Date bizDate = new Date();
         Map<String, Object> counts = mapper.selectBossPendingCounts(userId, viewAll, bizDate);
@@ -1275,6 +1444,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     {
         Map<String, String> keys = new HashMap<String, String>();
         keys.put("PROPOSAL", "proposalCount");
+        keys.put("ACCOUNTING", "accountingCount");
+        keys.put("STAGE_ACCEPTANCE", "stageAcceptanceCount");
         keys.put("KPI_MISSING", "kpiMissingCount");
         keys.put("KPI_REVIEW", "kpiReviewCount");
         keys.put("PERSONNEL_COST", "personnelCostCount");
@@ -1345,12 +1516,24 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         accounting.put("bizDate", today);
         accounting.put("dailySpend", accountingMapper.selectCurrentProjectDailySpend(selectedId,
             java.sql.Date.valueOf(today)));
+        accounting.put("dailyRevenue", accountingMapper.selectProjectRevenueSummary(selectedId,
+            java.sql.Date.valueOf(today)));
+        List<Map<String, Object>> revenueCategories = new ArrayList<Map<String, Object>>();
+        List<Map<String, Object>> categories = accountingMapper.selectCategories();
+        if (categories != null) for (Map<String, Object> category : categories)
+            if ("REVENUE".equals(String.valueOf(category.get("factKind")))) revenueCategories.add(category);
+        accounting.put("revenueCategories", revenueCategories);
 
         result.put("project", detail);
         result.put("operating", operating);
         result.put("openTasks", openTasks);
+        List<BusinessProjectTaskReport> taskReports = mapper.selectTaskReports(selectedId);
+        result.put("taskReports", taskReports == null
+            ? Collections.<BusinessProjectTaskReport>emptyList() : taskReports);
         result.put("todayRoutines", detail.getRoutines());
         result.put("accounting", accounting);
+        result.put("todayProjectProgress", mapper.selectProjectProgressReport(selectedId,
+            java.sql.Date.valueOf(today)));
         String[] week = weekRange(today);
         result.put("effortWeek", mapper.selectProjectEffortWeek(selectedId, week[0], week[1]));
         result.put("effortWeekFrom", week[0]);

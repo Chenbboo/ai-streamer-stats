@@ -178,7 +178,6 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         if(category==null)throw new ServiceException("项目直接费用类别尚未初始化");
 
         BusinessOperatingFact previous=mapper.selectCurrentProjectDailySpend(fact.getProjectId(),fact.getBizDate());
-        if(previous!=null)createReversal(previous,"负责人修改今日项目总花费",userId,userName);
         fact.setCompanyDeptId(longValue(project.get("companyDeptId")));
         fact.setCategoryId(longValue(category.get("categoryId")));
         fact.setCategoryCode(String.valueOf(category.get("categoryCode")));
@@ -186,11 +185,18 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         fact.setCurrency(String.valueOf(project.get("currency")));
         if(StringUtils.isBlank(fact.getDescription()))fact.setDescription("今日项目总花费");
         fact.setSourceDomain("PROJECT_DAILY");fact.setSourceType("DAILY_TOTAL");fact.setSourceId(bizDate);
-        fact.setStatus("CONFIRMED");fact.setIdempotencyKey("PROJECT-DAILY-SPEND-"+fact.getProjectId()+"-"+bizDate+"-"+IdUtils.fastSimpleUUID());
-        fact.setConfirmedUserId(userId);fact.setConfirmedUserName(userName);fact.setConfirmedTime(new Date());
-        fact.setFactId(null);fact.setCreateUserId(userId);fact.setCreateBy(userName);mapper.insertFact(fact);
-        recalculateInternal(fact.getProjectId(),fact.getBizDate(),userName);
-        return fact;
+        fact.setStatus("DRAFT");
+        if(previous!=null&&"DRAFT".equals(previous.getStatus()))
+        {
+            fact.setFactId(previous.getFactId());fact.setVersion(previous.getVersion());fact.setUpdateBy(userName);
+            if(mapper.updateDraftFact(fact)!=1)throw changed();
+        }
+        else
+        {
+            fact.setFactId(null);fact.setIdempotencyKey("PROJECT-DAILY-SPEND-"+fact.getProjectId()+"-"+bizDate+"-"+IdUtils.fastSimpleUUID());
+            fact.setCreateUserId(userId);fact.setCreateBy(userName);mapper.insertFact(fact);
+        }
+        return mapper.selectFactById(fact.getFactId());
     }
 
     private BusinessOperatingFact saveFactInternal(BusinessOperatingFact fact,Long userId,String userName,
@@ -258,6 +264,12 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     {
         BusinessOperatingFact fact=requireFact(factId,userId,viewAll);
         if(!"DRAFT".equals(fact.getStatus()))throw new ServiceException("只有草稿可以确认入账");
+        if("DAILY_TOTAL".equals(fact.getSourceType()))
+        {
+            BusinessOperatingFact previous=mapper.selectConfirmedProjectDailySpend(fact.getProjectId(),fact.getBizDate());
+            if(previous!=null&&!previous.getFactId().equals(fact.getFactId()))
+                createReversal(previous,"老板确认负责人修改后的今日项目总花费",userId,userName);
+        }
         if(mapper.confirmFact(factId,userId,userName,fact.getVersion())!=1)throw changed();
         recalculateInternal(fact.getProjectId(),fact.getBizDate(),userName);
         return mapper.selectFactById(factId);

@@ -7,6 +7,8 @@ export const getBusinessStaffProjects = id => request({ url: `/business/staff/${
 export const getBusinessStaffCostPolicies = id => request({ url: `/business/staff/${id}/cost-policies`, method: 'get' })
 export const saveBusinessStaffCostPolicy = data => request({ url: '/business/staff/cost-policy', method: 'post', data })
 export const saveBusinessStaffCostPolicies = data => request({ url: '/business/staff/cost-policies', method: 'post', data })
+export const deleteBusinessStaffCostPolicy = id => request({ url: `/business/staff/cost-policy/${id}`, method: 'delete' })
+export const voidBusinessStaffCostPolicy = (id, reason) => request({ url: `/business/staff/cost-policy/${id}/void`, method: 'put', data: { reason } })
 export const addBusinessStaff = data => request({ url: '/business/staff', method: 'post', data })
 export const updateBusinessStaff = data => request({ url: '/business/staff', method: 'put', data })
 export const changeBusinessStaffStatus = data => request({ url: '/business/staff/status', method: 'put', data })

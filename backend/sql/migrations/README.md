@@ -62,6 +62,12 @@ V037__business_project_kpi_bonus.sql
 V038__business_staff_monthly_cost.sql
 V039__bind_company_owners.sql
 V040__jewelry_purchase_amount_precision.sql
+V041__project_governance_modes.sql
+V042__kpi_plan_soft_delete.sql
+V043__business_task_progress_report.sql
+V044__business_project_progress_report.sql
+V045__open_ended_project_plan.sql
+V046__staff_cost_policy_retirement.sql
 ../live_ai_config.sql
 ../jewelry_erp_menu.sql
 ../jewelry_manual_assembly.sql
@@ -114,6 +120,12 @@ V037__business_project_kpi_bonus.sql
 V038__business_staff_monthly_cost.sql
 V039__bind_company_owners.sql
 V040__jewelry_purchase_amount_precision.sql
+V041__project_governance_modes.sql
+V042__kpi_plan_soft_delete.sql
+V043__business_task_progress_report.sql
+V044__business_project_progress_report.sql
+V045__open_ended_project_plan.sql
+V046__staff_cost_policy_retirement.sql
 ../live_ai_config.sql
 ../jewelry_erp_menu.sql
 ../jewelry_manual_assembly.sql
@@ -141,3 +153,9 @@ V040__jewelry_purchase_amount_precision.sql
 * `V038__business_staff_monthly_cost.sql`：人员内部成本统一按人民币月度金额维护，并保存中国 21.75 天、越南 26 天的折算快照。
 * `V039__bind_company_owners.sql`：将上海美丸文化公司绑定江澜、越南 meimaru 公司绑定王赋章，用于组织管理和人员成本范围；不会覆盖立项申请手动指定的审批/归属老板。
 * `V040__jewelry_purchase_amount_precision.sql`：扩展珠宝采购金额精度；属于珠宝 ERP 独立迁移，不改变项目经营、立项、KPI 或人员成本规则。
+* `V041__project_governance_modes.sql`：将项目管理强度与结项方式解耦，并增加阶段验收记录。
+* `V042__kpi_plan_soft_delete.sql`：KPI 方案和结算改为可审计作废。
+* `V043__business_task_progress_report.sql`：保存一次性任务负责人的每日进度、完成说明和成果凭证。
+* `V044__business_project_progress_report.sql`：保存项目主负责人每日填报的项目整体进度、完成说明和成果凭证；项目总进度不再从一次性任务推算。
+* `V045__open_ended_project_plan.sql`：项目计划结束日期改为可选，支持持续经营且没有固定结束时间的项目。
+* `V046__staff_cost_policy_retirement.sql`：人员成本版本增加作废人、时间和原因审计字段；未生效且未被引用的误录版本可受控删除。

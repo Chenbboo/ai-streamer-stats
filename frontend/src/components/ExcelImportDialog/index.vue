@@ -1,6 +1,6 @@
 <template>
   <el-dialog :title="title" v-model="visible" :width="width" append-to-body @close="handleClose">
-    <el-upload ref="uploadRef" :limit="1" accept=".xlsx, .xls" :headers="headers" :action="uploadUrl" :disabled="isUploading" :on-progress="handleProgress" :on-change="handleFileChange" :on-remove="handleFileRemove" :on-success="handleSuccess" :auto-upload="false" drag>
+    <el-upload ref="uploadRef" :limit="1" accept=".xlsx, .xls" :headers="headers" :action="uploadUrl" :disabled="isUploading" :on-progress="handleProgress" :on-change="handleFileChange" :on-remove="handleFileRemove" :on-success="handleSuccess" :auto-upload="false" :show-file-list="false" drag>
       <el-icon class="el-icon--upload"><upload-filled /></el-icon>
       <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
       <template #tip>
@@ -13,6 +13,17 @@
         </div>
       </template>
     </el-upload>
+    <div v-if="selectedFile" class="selected-file-card">
+      <div class="selected-file-card__thumb">
+        <el-icon><Document /></el-icon>
+        <strong>{{ selectedFileExtension }}</strong>
+      </div>
+      <div class="selected-file-card__info">
+        <b :title="selectedFile.name">{{ selectedFile.name }}</b>
+        <span>{{ formatFileSize(selectedFile.size || selectedFile.raw?.size) }} · 已选择，等待导入</span>
+      </div>
+      <el-button v-if="!isUploading" type="danger" link icon="Delete" @click.stop="clearSelectedFile">移除</el-button>
+    </div>
     <template #footer>
       <div class="dialog-footer">
         <el-button type="primary" @click="handleSubmit">确 定</el-button>
@@ -74,6 +85,10 @@ const uploadUrl = computed(() => {
 })
 
 const templateUrl = computed(() => !!props.templateAction)
+const selectedFileExtension = computed(() => {
+  const extension = selectedFile.value?.name?.split('.').pop()?.toUpperCase()
+  return extension || 'XLS'
+})
 
 // 打开对话框（供父组件通过 ref 调用）
 function open() {
@@ -113,6 +128,19 @@ const handleFileRemove = (file, fileList) => {
   selectedFile.value = null
 }
 
+function clearSelectedFile() {
+  selectedFile.value = null
+  uploadRef.value?.clearFiles()
+}
+
+function formatFileSize(size) {
+  const bytes = Number(size)
+  if (!Number.isFinite(bytes) || bytes <= 0) return '未知大小'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
 // 上传成功
 function handleSuccess(response) {
   visible.value = false
@@ -135,3 +163,56 @@ function handleSubmit() {
 
 defineExpose({ open })
 </script>
+
+<style scoped lang="scss">
+.selected-file-card {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--el-color-success-light-7);
+  border-radius: 10px;
+  background: var(--el-color-success-light-9);
+}
+.selected-file-card__thumb {
+  display: flex;
+  width: 64px;
+  height: 64px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 3px;
+  border-radius: 8px;
+  color: #23825b;
+  background: #fff;
+}
+.selected-file-card__thumb .el-icon { font-size: 28px; }
+.selected-file-card__thumb strong {
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: #fff;
+  background: #23825b;
+  font-size: 10px;
+}
+.selected-file-card__info {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+}
+.selected-file-card__info b {
+  overflow: hidden;
+  color: var(--el-text-color-primary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.selected-file-card__info span {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+</style>

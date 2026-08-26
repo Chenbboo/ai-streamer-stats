@@ -18,7 +18,7 @@
       <section class="panel">
         <div class="panel-head"><div><h2>参与的项目</h2><p>最近更新的项目</p></div><el-button link type="primary" @click="router.push('/business/projects')">全部</el-button></div>
         <button v-for="project in projects" :key="project.projectId" class="project-card" @click="openProject(project.projectId)">
-          <span class="project-top"><b>{{ project.projectName }}</b><el-tag size="small" :type="statusTone[project.status] || 'info'">{{ statusLabel[project.status] }}</el-tag></span><small>{{ project.mainOwnerName }} · {{ project.planEndDate ? `计划至 ${project.planEndDate}` : '未设结束日期' }}</small><el-progress :percentage="progress(project)" :stroke-width="6" />
+          <span class="project-top"><b>{{ project.projectName }}</b><el-tag size="small" :type="statusTone[project.status] || 'info'">{{ projectStatusLabel(project) }}</el-tag></span><small>{{ project.mainOwnerName }} · {{ project.planEndDate ? `计划至 ${project.planEndDate}` : '未设结束日期' }}</small><el-progress :percentage="progress(project)" :stroke-width="6" />
         </button>
         <div v-if="!projects.length && !loading" class="empty">尚未加入项目</div>
       </section>
@@ -32,6 +32,7 @@ import { getMyBusinessDashboard } from '@/api/business/project'
 const router=useRouter(), userStore=useUserStore(), loading=ref(false), summary=ref({}),projects=ref([]),tasks=ref([])
 const statusLabel={DRAFT:'草稿',PLANNING:'规划中',ACTIVE:'执行中',PAUSED:'已暂停',ACCEPTANCE:'待验收',CLOSED:'已关闭',CANCELED:'已取消'}
 const statusTone={DRAFT:'info',PLANNING:'warning',ACTIVE:'primary',PAUSED:'info',ACCEPTANCE:'success',CLOSED:'success',CANCELED:'danger'}
+const projectStatusLabel=project=>project?.status==='ACCEPTANCE'&&project?.closeMethod==='STAGED_ACCEPTANCE'?'待结项':statusLabel[project?.status]||project?.status
 const taskStatusLabel={TODO:'待开始',DOING:'进行中',BLOCKED:'受阻'}
 const progress=p=>p.taskCount?Math.round((p.completedTaskCount||0)*100/p.taskCount):0
 const isOverdue=date=>date&&date<new Date().toISOString().slice(0,10)

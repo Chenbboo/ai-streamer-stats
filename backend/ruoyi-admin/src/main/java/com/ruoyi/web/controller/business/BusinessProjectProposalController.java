@@ -57,7 +57,7 @@ public class BusinessProjectProposalController extends BaseController
 
     @PreAuthorize("@ss.hasPermi('business:project:proposal:list')")
     @GetMapping("/{proposalId}")
-    public AjaxResult detail(@PathVariable Long proposalId)
+    public AjaxResult detail(@PathVariable("proposalId") Long proposalId)
     {
         return success(proposalService.get(proposalId, userId(), isBoss(), isAdmin()));
     }
@@ -88,7 +88,7 @@ public class BusinessProjectProposalController extends BaseController
     @PreAuthorize("@ss.hasPermi('business:project:proposal:edit')")
     @Log(title = "立项申请", businessType = BusinessType.DELETE)
     @DeleteMapping("/{proposalId}")
-    public AjaxResult delete(@PathVariable Long proposalId)
+    public AjaxResult delete(@PathVariable("proposalId") Long proposalId)
     {
         proposalService.delete(proposalId, userId(), userName());
         return success();
@@ -97,7 +97,7 @@ public class BusinessProjectProposalController extends BaseController
     @PreAuthorize("@ss.hasPermi('business:project:proposal:submit')")
     @Log(title = "提交立项申请", businessType = BusinessType.UPDATE)
     @PostMapping("/{proposalId}/submit")
-    public AjaxResult submit(@PathVariable Long proposalId)
+    public AjaxResult submit(@PathVariable("proposalId") Long proposalId)
     {
         return success(proposalService.submit(proposalId, userId(), userName()));
     }
@@ -105,7 +105,7 @@ public class BusinessProjectProposalController extends BaseController
     @PreAuthorize("@ss.hasPermi('business:project:proposal:submit')")
     @Log(title = "撤回立项申请", businessType = BusinessType.UPDATE)
     @PostMapping("/{proposalId}/withdraw")
-    public AjaxResult withdraw(@PathVariable Long proposalId,
+    public AjaxResult withdraw(@PathVariable("proposalId") Long proposalId,
         @RequestBody(required = false) Map<String, Object> body)
     {
         return success(proposalService.withdraw(proposalId, text(body, "comment"), userId(), userName()));
@@ -114,7 +114,7 @@ public class BusinessProjectProposalController extends BaseController
     @PreAuthorize("@ss.hasPermi('business:project:proposal:review')")
     @Log(title = "审批立项申请", businessType = BusinessType.UPDATE)
     @PutMapping("/{proposalId}/review")
-    public AjaxResult review(@PathVariable Long proposalId, @RequestBody Map<String, Object> body)
+    public AjaxResult review(@PathVariable("proposalId") Long proposalId, @RequestBody Map<String, Object> body)
     {
         return success(proposalService.review(proposalId, text(body, "decision"), text(body, "comment"),
             userId(), userName(), isBoss()));

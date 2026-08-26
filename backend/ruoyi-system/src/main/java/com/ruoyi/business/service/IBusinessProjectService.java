@@ -10,6 +10,8 @@ import com.ruoyi.business.domain.BusinessProjectMember;
 import com.ruoyi.business.domain.BusinessProjectMilestone;
 import com.ruoyi.business.domain.BusinessProjectRisk;
 import com.ruoyi.business.domain.BusinessProjectTask;
+import com.ruoyi.business.domain.BusinessProjectTaskReport;
+import com.ruoyi.business.domain.BusinessProjectProgressReport;
 import com.ruoyi.business.domain.BusinessProjectRoutine;
 import com.ruoyi.business.domain.BusinessProjectRoutineReport;
 import com.ruoyi.business.domain.BusinessProjectEffort;
@@ -34,6 +36,8 @@ public interface IBusinessProjectService
         Long userId, String userName, boolean boss);
     List<BusinessStaffCostPolicy> saveStaffCostPolicies(List<BusinessStaffCostPolicy> policies,
         Long userId, String userName, boolean boss);
+    void deleteStaffCostPolicy(Long policyId, Long userId, String userName, boolean boss);
+    void voidStaffCostPolicy(Long policyId, String reason, Long userId, String userName, boolean boss);
     BusinessProjectStaffAllocation saveStaffAllocation(BusinessProjectStaffAllocation allocation,
         Long userId, String userName, boolean boss);
     void removeStaffAllocation(Long projectId, Long allocationId, Long userId, String userName, boolean boss);
@@ -55,6 +59,10 @@ public interface IBusinessProjectService
         Long userId, String userName, boolean boss);
     void deleteMilestone(Long projectId, Long milestoneId, Long userId, boolean boss);
     BusinessProjectTask saveTask(BusinessProjectTask task, Long userId, String userName, boolean boss);
+    BusinessProjectTaskReport submitTaskReport(BusinessProjectTaskReport report,
+        Long userId, String userName);
+    BusinessProjectProgressReport submitProjectProgressReport(BusinessProjectProgressReport report,
+        Long userId, String userName, boolean viewAll);
     void deleteTask(Long projectId, Long taskId, Long userId, boolean boss);
     BusinessProjectRoutine saveRoutine(BusinessProjectRoutine routine, Long userId, String userName, boolean boss);
     void removeRoutine(Long projectId, Long routineId, Long userId, String userName, boolean boss);
