@@ -17,6 +17,8 @@ public interface BusinessAccountingMapper
     Map<String,Object> selectCategoryById(Long categoryId);
     Map<String,Object> selectCategoryByCode(String categoryCode);
     BusinessOperatingFact selectCurrentProjectDailySpend(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
+    BusinessOperatingFact selectConfirmedProjectDailySpend(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
+    Map<String,Object> selectProjectRevenueSummary(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     Map<String,Object> selectProjectForAccounting(Long projectId);
     String selectAccountingMemberRole(@Param("projectId") Long projectId,@Param("userId") Long userId);
     int insertFact(BusinessOperatingFact fact);

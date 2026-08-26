@@ -174,7 +174,7 @@ public class ProjectPlanCapabilitySupport
         {
             Map<String, Object> row = new LinkedHashMap<String, Object>();
             row.put("milestoneId", value.getMilestoneId()); row.put("milestoneName", value.getMilestoneName());
-            row.put("planDate", date(value.getPlanDate())); row.put("weight", value.getWeight());
+            row.put("planDate", date(value.getPlanDate()));
             row.put("status", value.getStatus()); rows.add(row);
         }
         return rows;

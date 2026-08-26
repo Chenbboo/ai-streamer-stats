@@ -28,10 +28,8 @@ public class SaveProjectMilestoneCapability implements AiConfirmableCapability
         AiSchemas.property(s, "milestoneId", "number", "修改时的里程碑ID");
         AiSchemas.property(s, "milestoneName", "string", "里程碑名称");
         AiSchemas.property(s, "planDate", "string", "计划日期 YYYY-MM-DD");
-        AiSchemas.property(s, "actualDate", "string", "实际完成日期 YYYY-MM-DD");
-        AiSchemas.property(s, "weight", "number", "权重，不能小于0");
-        Map<String, Object> status = AiSchemas.property(s, "status", "string", "PENDING、DOING或DONE");
-        status.put("enum", Arrays.asList("PENDING", "DOING", "DONE"));
+        Map<String, Object> status = AiSchemas.property(s, "status", "string", "负责人可维护PENDING或DOING；验收状态由系统流程写入");
+        status.put("enum", Arrays.asList("PENDING", "DOING"));
         AiSchemas.property(s, "sortOrder", "number", "显示顺序");
         return AiSchemas.required(s, "projectId", "milestoneName");
     }
@@ -47,8 +45,6 @@ public class SaveProjectMilestoneCapability implements AiConfirmableCapability
         value.setMilestoneId(AiCapabilityInputs.number(input.get("milestoneId")));
         value.setMilestoneName(AiCapabilityInputs.text(input.get("milestoneName")));
         value.setPlanDate(AiCapabilityInputs.date(input.get("planDate")));
-        value.setActualDate(AiCapabilityInputs.date(input.get("actualDate")));
-        value.setWeight(AiCapabilityInputs.decimal(input.get("weight")));
         value.setStatus(AiCapabilityInputs.upper(input.get("status")));
         value.setSortOrder(AiCapabilityInputs.integer(input.get("sortOrder")));
         BusinessProjectMilestone saved = service.saveMilestone(value, invocation.getActor().getUserId(),

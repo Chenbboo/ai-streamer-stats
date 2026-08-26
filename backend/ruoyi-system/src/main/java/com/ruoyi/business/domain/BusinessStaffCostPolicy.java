@@ -19,6 +19,11 @@ public class BusinessStaffCostPolicy extends BaseEntity
     @JsonFormat(pattern = "yyyy-MM-dd") private Date effectiveTo;
     private Integer policyVersion;
     private String status;
+    private Integer referenceCount;
+    private Long voidedUserId;
+    private String voidedUserName;
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss") private Date voidedTime;
+    private String voidReason;
 
     public Long getPolicyId() { return policyId; }
     public void setPolicyId(Long policyId) { this.policyId = policyId; }
@@ -42,4 +47,14 @@ public class BusinessStaffCostPolicy extends BaseEntity
     public void setPolicyVersion(Integer policyVersion) { this.policyVersion = policyVersion; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public Integer getReferenceCount() { return referenceCount; }
+    public void setReferenceCount(Integer referenceCount) { this.referenceCount = referenceCount; }
+    public Long getVoidedUserId() { return voidedUserId; }
+    public void setVoidedUserId(Long voidedUserId) { this.voidedUserId = voidedUserId; }
+    public String getVoidedUserName() { return voidedUserName; }
+    public void setVoidedUserName(String voidedUserName) { this.voidedUserName = voidedUserName; }
+    public Date getVoidedTime() { return voidedTime; }
+    public void setVoidedTime(Date voidedTime) { this.voidedTime = voidedTime; }
+    public String getVoidReason() { return voidReason; }
+    public void setVoidReason(String voidReason) { this.voidReason = voidReason; }
 }

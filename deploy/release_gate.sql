@@ -41,6 +41,16 @@ from (
   where table_schema=database() and table_name='biz_project_stage_acceptance'
 
   union all
+  select if(count(*)=1,0,1)
+  from information_schema.tables
+  where table_schema=database() and table_name='biz_project_task_report'
+
+  union all
+  select if(count(*)=1,0,1)
+  from information_schema.tables
+  where table_schema=database() and table_name='biz_project_progress_report'
+
+  union all
   select if(count(*)=6,0,1)
   from information_schema.columns
   where table_schema=database()
@@ -53,6 +63,12 @@ from (
   where table_schema=database()
     and ((table_name='biz_project_kpi_plan' and column_name in ('voided_user_id','voided_user_name','voided_time'))
       or (table_name='biz_project_kpi_settlement' and column_name in ('voided_user_id','voided_user_name','voided_time')))
+
+  union all
+  select if(count(*)=4,0,1)
+  from information_schema.columns
+  where table_schema=database() and table_name='biz_staff_cost_policy'
+    and column_name in ('voided_user_id','voided_user_name','voided_time','void_reason')
 
   union all
   select count(*)

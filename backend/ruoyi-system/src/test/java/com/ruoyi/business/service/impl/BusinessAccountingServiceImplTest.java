@@ -221,7 +221,7 @@ class BusinessAccountingServiceImplTest
         verify(mapper,never()).confirmFact(any(),any(),any(),any());
     }
 
-    @Test void projectOwnerDailyTotalSpendIsConfirmedAndRecalculatedImmediately()
+    @Test void projectOwnerDailyTotalSpendWaitsForBossConfirmation()
     {
         Map<String,Object> project=project(32L,8L);
         project.put("mainOwnerUserId",9L);project.put("status","ACTIVE");
@@ -229,26 +229,49 @@ class BusinessAccountingServiceImplTest
         category.put("categoryCode","DIRECT_EXPENSE");
         when(mapper.selectProjectForAccounting(32L)).thenReturn(project);
         when(mapper.selectCategoryByCode("DIRECT_EXPENSE")).thenReturn(category);
-        when(mapper.sumProjectFacts(eq(32L),any())).thenAnswer(invocation->{
-            Map<String,Object> sums=new HashMap<String,Object>();sums.put("revenueAmount",BigDecimal.ZERO);
-            sums.put("costAmount",new BigDecimal("500"));sums.put("adjustmentAmount",BigDecimal.ZERO);
-            sums.put("valueScore",BigDecimal.ZERO);return sums;
-        });
-        when(mapper.sumProjectPersonnelCost(eq(32L),any())).thenReturn(new BigDecimal("91.9540"));
-        when(mapper.sumProjectCostToDate(eq(32L),any())).thenReturn(new BigDecimal("591.9540"));
-        when(mapper.selectNextResultVersion(eq(32L),any())).thenReturn(2);
         doAnswer(invocation->{((BusinessOperatingFact)invocation.getArgument(0)).setFactId(320L);return 1;})
             .when(mapper).insertFact(any());
-        doAnswer(invocation->{((Map<String,Object>)invocation.getArgument(0)).put("resultId",321L);return 1;})
-            .when(mapper).insertDailyResult(any());
+        when(mapper.selectFactById(320L)).thenAnswer(invocation->{
+            BusinessOperatingFact saved=new BusinessOperatingFact();saved.setFactId(320L);saved.setStatus("DRAFT");
+            saved.setSourceType("DAILY_TOTAL");saved.setCategoryCode("DIRECT_EXPENSE");return saved;
+        });
         BusinessOperatingFact spend=new BusinessOperatingFact();spend.setProjectId(32L);
         spend.setBizDate(new Date());spend.setAmount(new BigDecimal("500"));spend.setDescription("投流与物流合计");
 
         BusinessOperatingFact saved=service.saveProjectDailySpend(spend,9L,"owner9",false);
 
-        assertEquals("CONFIRMED",saved.getStatus());
+        assertEquals("DRAFT",saved.getStatus());
         assertEquals("DAILY_TOTAL",saved.getSourceType());
         assertEquals("DIRECT_EXPENSE",saved.getCategoryCode());
+        verify(mapper,never()).insertDailyResult(any());
+        verify(mapper,never()).confirmFact(any(),any(),any(),any());
+    }
+
+    @Test void bossConfirmationReplacesPreviousDailySpendAndThenRecalculates()
+    {
+        Date day=java.sql.Date.valueOf("2026-08-26");
+        BusinessOperatingFact draft=new BusinessOperatingFact();draft.setFactId(321L);draft.setProjectId(32L);
+        draft.setBizDate(day);draft.setStatus("DRAFT");draft.setSourceType("DAILY_TOTAL");draft.setVersion(1);
+        BusinessOperatingFact previous=new BusinessOperatingFact();previous.setFactId(300L);previous.setProjectId(32L);
+        previous.setBizDate(day);previous.setStatus("CONFIRMED");previous.setVersion(2);previous.setAmount(new BigDecimal("400"));
+        previous.setDescription("原今日项目总花费");previous.setFactKind("COST");
+        when(mapper.selectFactById(321L)).thenReturn(draft);
+        when(mapper.selectProjectForAccounting(32L)).thenReturn(project(32L,8L));
+        when(mapper.selectConfirmedProjectDailySpend(32L,day)).thenReturn(previous);
+        when(mapper.markFactReversed(300L,"boss8",2)).thenReturn(1);
+        when(mapper.confirmFact(321L,8L,"boss8",1)).thenReturn(1);
+        when(mapper.sumProjectFacts(32L,day)).thenReturn(Collections.emptyMap());
+        when(mapper.sumProjectPersonnelCost(32L,day)).thenReturn(BigDecimal.ZERO);
+        when(mapper.sumProjectCostToDate(32L,day)).thenReturn(BigDecimal.ZERO);
+        when(mapper.selectNextResultVersion(32L,day)).thenReturn(2);
+
+        service.confirmFact(321L,8L,"boss8",false);
+
+        ArgumentCaptor<BusinessOperatingFact> inserted=ArgumentCaptor.forClass(BusinessOperatingFact.class);
+        verify(mapper).insertFact(inserted.capture());
+        assertEquals(new BigDecimal("-400"),inserted.getValue().getAmount());
+        assertEquals("REVERSAL",inserted.getValue().getSourceDomain());
+        verify(mapper).confirmFact(321L,8L,"boss8",1);
         verify(mapper).insertDailyResult(any());
     }
 

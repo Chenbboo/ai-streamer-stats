@@ -20,6 +20,8 @@ import com.ruoyi.business.domain.BusinessProjectMember;
 import com.ruoyi.business.domain.BusinessProjectMilestone;
 import com.ruoyi.business.domain.BusinessProjectRisk;
 import com.ruoyi.business.domain.BusinessProjectTask;
+import com.ruoyi.business.domain.BusinessProjectTaskReport;
+import com.ruoyi.business.domain.BusinessProjectProgressReport;
 import com.ruoyi.business.domain.BusinessProjectRoutine;
 import com.ruoyi.business.domain.BusinessProjectRoutineReport;
 import com.ruoyi.business.domain.BusinessProjectEffort;
@@ -136,6 +138,25 @@ public class BusinessProjectController extends BaseController
         return success(projectService.saveStaffCostPolicies(policies, currentUserId(), currentUserName(), isBoss()));
     }
 
+    @PreAuthorize("@ss.hasPermi('business:staff:manage')")
+    @Log(title = "人员内部核算成本", businessType = BusinessType.DELETE)
+    @DeleteMapping("/staff/cost-policy/{policyId}")
+    public AjaxResult deleteStaffCostPolicy(@PathVariable Long policyId)
+    {
+        projectService.deleteStaffCostPolicy(policyId, currentUserId(), currentUserName(), isBoss());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:staff:manage')")
+    @Log(title = "人员内部核算成本", businessType = BusinessType.UPDATE)
+    @PutMapping("/staff/cost-policy/{policyId}/void")
+    public AjaxResult voidStaffCostPolicy(@PathVariable Long policyId, @RequestBody Map<String, Object> body)
+    {
+        projectService.voidStaffCostPolicy(policyId, text(body, "reason"),
+            currentUserId(), currentUserName(), isBoss());
+        return success();
+    }
+
     @PreAuthorize("@ss.hasPermi('business:project:allocation')")
     @Log(title = "项目人员成本分摊", businessType = BusinessType.INSERT)
     @PostMapping("/project/staff-allocation")
@@ -250,6 +271,23 @@ public class BusinessProjectController extends BaseController
     public AjaxResult saveTask(@RequestBody BusinessProjectTask task)
     {
         return success(projectService.saveTask(task, currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:report')")
+    @Log(title = "一次性任务完成填报", businessType = BusinessType.INSERT)
+    @PostMapping("/project/task-report")
+    public AjaxResult submitTaskReport(@RequestBody BusinessProjectTaskReport report)
+    {
+        return success(projectService.submitTaskReport(report, currentUserId(), currentUserName()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:report')")
+    @Log(title = "项目完成进度填报", businessType = BusinessType.INSERT)
+    @PostMapping("/project/progress-report")
+    public AjaxResult submitProjectProgressReport(@RequestBody BusinessProjectProgressReport report)
+    {
+        return success(projectService.submitProjectProgressReport(report, currentUserId(), currentUserName(),
+            isAdministrator()));
     }
 
     @PreAuthorize("@ss.hasPermi('business:project:task')")

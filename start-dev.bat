@@ -2,8 +2,14 @@
 chcp 65001 >nul
 set "RUOYI_PROFILE=%~dp0backend\uploads"
 if not exist "%RUOYI_PROFILE%" mkdir "%RUOYI_PROFILE%"
-echo 启动后端(新窗口)...
-start "ruoyi-backend" cmd /k "cd /d ""%~dp0backend"" && call mvn -pl ruoyi-admin -am -DskipTests package && java -jar ruoyi-admin\target\ruoyi-admin.jar"
+set "BACKEND_PID="
+for /f "delims=" %%P in ('powershell.exe -NoProfile -Command "$connection=Get-NetTCPConnection -State Listen -LocalPort 8080 -ErrorAction SilentlyContinue; if($connection){$connection[0].OwningProcess}"') do set "BACKEND_PID=%%P"
+if defined BACKEND_PID (
+  echo 后端已在 8080 端口运行 ^(PID %BACKEND_PID%^)，跳过重复打包和启动。
+) else (
+  echo 启动后端(新窗口)...
+  start "ruoyi-backend" cmd /k "cd /d ""%~dp0backend"" && call mvn -pl ruoyi-admin -am -DskipTests clean package && java -jar ruoyi-admin\target\ruoyi-admin.jar"
+)
 echo 启动前端(新窗口)...
 start "ruoyi-frontend" cmd /k "cd /d ""%~dp0frontend"" && pnpm dev"
 echo.

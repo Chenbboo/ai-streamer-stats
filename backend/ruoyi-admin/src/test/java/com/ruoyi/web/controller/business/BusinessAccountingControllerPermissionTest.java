@@ -37,6 +37,24 @@ class BusinessAccountingControllerPermissionTest
         assertEquals("@ss.hasPermi('business:boss:view')",method.getAnnotation(PreAuthorize.class).value());
     }
 
+    @Test
+    void projectRevenueAndSpendAreSubmitOnlyAndAccountingActionsRemainBossOnly()
+    {
+        assertPermission("saveProjectFact","@ss.hasPermi('business:project:report')");
+        assertPermission("saveProjectDailySpend","@ss.hasPermi('business:project:report')");
+        assertPermission("confirm","@ss.hasPermi('business:accounting:confirm')");
+        assertPermission("reverse","@ss.hasPermi('business:accounting:confirm')");
+        assertPermission("recalculate","@ss.hasPermi('business:accounting:recalculate')");
+    }
+
+    private void assertPermission(String methodName,String permission)
+    {
+        Method method=Arrays.stream(BusinessAccountingController.class.getDeclaredMethods())
+            .filter(candidate->candidate.getName().equals(methodName))
+            .findFirst().orElseThrow(()->new AssertionError("找不到端点："+methodName));
+        assertEquals(permission,method.getAnnotation(PreAuthorize.class).value());
+    }
+
     private boolean isEndpoint(Method method)
     {
         return method.getAnnotation(GetMapping.class)!=null

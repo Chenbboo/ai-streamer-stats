@@ -219,8 +219,9 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         if (proposal.getObjective().length() > 1000) throw new ServiceException("项目目标不能超过1000个字符");
         if (StringUtils.isBlank(proposal.getApplicationReason())) throw new ServiceException("请填写立项理由");
         if (proposal.getApplicationReason().length() > 2000) throw new ServiceException("立项理由不能超过2000个字符");
-        if (proposal.getPlanStartDate() == null || proposal.getPlanEndDate() == null) throw new ServiceException("请选择计划周期");
-        if (proposal.getPlanStartDate().after(proposal.getPlanEndDate())) throw new ServiceException("计划结束日期不能早于开始日期");
+        if (proposal.getPlanStartDate() == null) throw new ServiceException("请选择计划开始日期");
+        if (proposal.getPlanEndDate() != null && proposal.getPlanStartDate().after(proposal.getPlanEndDate()))
+            throw new ServiceException("计划结束日期不能早于开始日期");
         if (StringUtils.isBlank(proposal.getProjectType())) proposal.setProjectType("GENERAL");
         if (StringUtils.isBlank(proposal.getAccountingMode())) proposal.setAccountingMode("PROFIT");
         if (!ACCOUNTING_MODES.contains(proposal.getAccountingMode())) throw new ServiceException("项目核算方式不正确");

@@ -34,6 +34,7 @@ import com.ruoyi.business.domain.BusinessProjectMilestone;
 import com.ruoyi.business.domain.BusinessProjectMember;
 import com.ruoyi.business.domain.BusinessProjectRisk;
 import com.ruoyi.business.domain.BusinessProjectTask;
+import com.ruoyi.business.domain.BusinessProjectTaskReport;
 import com.ruoyi.business.domain.BusinessProjectRoutine;
 import com.ruoyi.business.domain.BusinessProjectRoutineReport;
 import com.ruoyi.business.domain.BusinessProjectEffort;
@@ -163,7 +164,7 @@ class BusinessProjectServiceImplTest
     void bossPendingUsesOneServerPageAndCategoryCounts()
     {
         Map<String,Object> counts=new HashMap<String,Object>();
-        counts.put("proposalCount",2L);counts.put("kpiMissingCount",7L);
+        counts.put("proposalCount",2L);counts.put("accountingCount",5L);counts.put("stageAcceptanceCount",6L);counts.put("kpiMissingCount",7L);
         counts.put("kpiReviewCount",1L);counts.put("personnelCostCount",3L);counts.put("projectCount",4L);
         Map<String,Object> row=new HashMap<String,Object>();row.put("category","KPI_MISSING");row.put("projectId",17L);
         when(mapper.selectBossPendingCounts(eq(23L),eq(false),any(Date.class))).thenReturn(counts);
@@ -178,6 +179,45 @@ class BusinessProjectServiceImplTest
         assertEquals(2,result.get("pageNum"));
         assertEquals("KPI_MISSING",result.get("category"));
         assertEquals(Collections.singletonList(row),result.get("rows"));
+    }
+
+    @Test
+    void bossPendingIncludesStageAcceptancesInTheDefaultAllCategory()
+    {
+        Map<String,Object> counts=new HashMap<String,Object>();
+        counts.put("proposalCount",0L);counts.put("accountingCount",0L);counts.put("stageAcceptanceCount",1L);
+        counts.put("kpiMissingCount",0L);counts.put("kpiReviewCount",0L);counts.put("personnelCostCount",0L);
+        counts.put("projectCount",0L);
+        Map<String,Object> row=new HashMap<String,Object>();row.put("category","STAGE_ACCEPTANCE");
+        row.put("stageAcceptanceId",701L);row.put("attachmentUrls","/profile/upload/result.pdf");
+        when(mapper.selectBossPendingCounts(eq(23L),eq(false),any(Date.class))).thenReturn(counts);
+        when(mapper.selectBossPendingPage(eq(23L),eq(false),any(Date.class),eq("ALL"),eq(0),eq(5)))
+            .thenReturn(Collections.singletonList(row));
+
+        Map<String,Object> result=service.bossPending(Collections.<String,Object>emptyMap(),23L,false);
+
+        assertEquals(1L,result.get("total"));
+        assertEquals("ALL",result.get("category"));
+        assertEquals(Collections.singletonList(row),result.get("rows"));
+        assertEquals(1L,((Map<?,?>)result.get("counts")).get("totalCount"));
+    }
+
+    @Test
+    void bossPendingIncludesAccountingDraftsInTheAllCategory()
+    {
+        Map<String,Object> counts=new HashMap<String,Object>();
+        counts.put("proposalCount",0L);counts.put("accountingCount",1L);counts.put("kpiMissingCount",0L);
+        counts.put("kpiReviewCount",0L);counts.put("personnelCostCount",0L);counts.put("projectCount",0L);
+        Map<String,Object> row=new HashMap<String,Object>();row.put("category","ACCOUNTING");row.put("factId",301L);
+        when(mapper.selectBossPendingCounts(eq(23L),eq(false),any(Date.class))).thenReturn(counts);
+        when(mapper.selectBossPendingPage(eq(23L),eq(false),any(Date.class),eq("ALL"),eq(0),eq(5)))
+            .thenReturn(Collections.singletonList(row));
+
+        Map<String,Object> result=service.bossPending(Collections.<String,Object>emptyMap(),23L,false);
+
+        assertEquals(1L,result.get("total"));
+        assertEquals(Collections.singletonList(row),result.get("rows"));
+        assertEquals(1L,((Map<?,?>)result.get("counts")).get("totalCount"));
     }
 
     @Test
@@ -210,10 +250,27 @@ class BusinessProjectServiceImplTest
         alert.put("missingMemberNames","石头、蒋豪");
         when(mapper.selectOwnerPersonnelCostReadiness(eq(23L),any(Date.class),eq(false)))
             .thenReturn(Collections.singletonList(alert));
+        Map<String,Object> revenueCategory = new HashMap<String,Object>();
+        revenueCategory.put("categoryId",1L);revenueCategory.put("factKind","REVENUE");
+        Map<String,Object> costCategory = new HashMap<String,Object>();
+        costCategory.put("categoryId",2L);costCategory.put("factKind","COST");
+        when(accountingMapper.selectCategories()).thenReturn(Arrays.asList(revenueCategory,costCategory));
+        Map<String,Object> dailyRevenue = new HashMap<String,Object>();
+        dailyRevenue.put("confirmedAmount",new BigDecimal("120.00"));
+        dailyRevenue.put("draftAmount",new BigDecimal("30.00"));
+        when(accountingMapper.selectProjectRevenueSummary(eq(81L),any(Date.class))).thenReturn(dailyRevenue);
+        BusinessProjectTaskReport taskReport = new BusinessProjectTaskReport();
+        taskReport.setReportId(901L);taskReport.setTaskId(301L);taskReport.setProjectId(81L);
+        taskReport.setProgress(60);taskReport.setCompletionSummary("完成粗剪");taskReport.setSubmittedUserName("石头");
+        when(mapper.selectTaskReports(81L)).thenReturn(Collections.singletonList(taskReport));
 
         Map<String,Object> result=service.ownerWorkbench(81L,23L,false);
 
         assertEquals(Collections.singletonList(alert),result.get("allocationAlerts"));
+        Map<?,?> accounting=(Map<?,?>)result.get("accounting");
+        assertEquals(Collections.singletonList(revenueCategory),accounting.get("revenueCategories"));
+        assertEquals(dailyRevenue,accounting.get("dailyRevenue"));
+        assertEquals(Collections.singletonList(taskReport),result.get("taskReports"));
     }
 
     @Test
@@ -626,20 +683,160 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
-    void stagedProjectCannotCloseBeforeEveryMilestoneIsApproved()
+    void resultAcceptanceProjectCanSubmitMilestoneAcceptance()
+    {
+        BusinessProject active = project(77L, 9L, "ACTIVE", "APPROVED");
+        active.setCloseMethod("RESULT_ACCEPTANCE");
+        BusinessProjectMilestone milestone = new BusinessProjectMilestone();
+        milestone.setMilestoneId(502L); milestone.setProjectId(77L); milestone.setMilestoneName("交付版本");
+        milestone.setStatus("DOING");
+        BusinessProjectTask task = new BusinessProjectTask();
+        task.setMilestoneId(502L); task.setStatus("DONE");
+        Map<String, Object> submitter = new HashMap<String, Object>(); submitter.put("nickName", "负责人九");
+        when(mapper.selectProjectById(77L)).thenReturn(active);
+        when(mapper.selectMemberRole(77L, 9L)).thenReturn("OWNER");
+        when(mapper.selectMilestoneById(502L)).thenReturn(milestone);
+        when(mapper.selectTasks(77L)).thenReturn(Collections.singletonList(task));
+        when(mapper.selectActiveUserById(9L)).thenReturn(submitter);
+        when(mapper.selectNextStageAcceptanceVersion(77L, 502L)).thenReturn(1);
+        when(mapper.insertStageAcceptance(any())).thenReturn(1);
+
+        BusinessProjectStageAcceptance evidence = new BusinessProjectStageAcceptance();
+        evidence.setMilestoneId(502L); evidence.setResultSummary("交付完成"); evidence.setDeliverables("产品包和验收报告");
+        service.submitStageAcceptance(77L, evidence, 9L, "owner9", false);
+
+        verify(mapper).updateMilestoneStatus(77L, 502L, "REVIEWING", "owner9");
+    }
+
+    @Test
+    void milestoneCannotBeMarkedDoneWithoutBossAcceptance()
+    {
+        BusinessProject active = project(77L, 9L, "ACTIVE", "APPROVED");
+        active.setCloseMethod("RESULT_ACCEPTANCE");
+        when(mapper.selectProjectById(77L)).thenReturn(active);
+        when(mapper.selectMemberRole(77L, 9L)).thenReturn("OWNER");
+        BusinessProjectMilestone input = new BusinessProjectMilestone();
+        input.setProjectId(77L); input.setMilestoneName("交付版本"); input.setStatus("DONE");
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveMilestone(input, 9L, "owner9", false));
+
+        assertTrue(error.getMessage().contains("提交验收"));
+        verify(mapper, never()).insertMilestone(any());
+    }
+
+    @Test
+    void newMilestoneAlwaysUsesZeroWeight()
+    {
+        BusinessProject active = project(77L, 9L, "ACTIVE", "APPROVED");
+        when(mapper.selectProjectById(77L)).thenReturn(active);
+        when(mapper.selectMemberRole(77L, 9L)).thenReturn("OWNER");
+        BusinessProjectMilestone input = new BusinessProjectMilestone();
+        input.setProjectId(77L); input.setMilestoneName("交付版本"); input.setStatus("PENDING");
+        input.setWeight(new BigDecimal("75"));
+
+        BusinessProjectMilestone saved = service.saveMilestone(input, 9L, "owner9", false);
+
+        assertEquals(BigDecimal.ZERO, saved.getWeight());
+        verify(mapper).insertMilestone(input);
+    }
+
+    @Test
+    void editingMilestonePreservesHistoricalWeight()
+    {
+        BusinessProject active = project(77L, 9L, "ACTIVE", "APPROVED");
+        BusinessProjectMilestone current = new BusinessProjectMilestone();
+        current.setMilestoneId(502L); current.setProjectId(77L); current.setMilestoneName("交付版本");
+        current.setStatus("DOING"); current.setWeight(new BigDecimal("35"));
+        when(mapper.selectProjectById(77L)).thenReturn(active);
+        when(mapper.selectMemberRole(77L, 9L)).thenReturn("OWNER");
+        when(mapper.selectMilestoneById(502L)).thenReturn(current);
+        when(mapper.updateMilestone(any())).thenReturn(1);
+        BusinessProjectMilestone input = new BusinessProjectMilestone();
+        input.setMilestoneId(502L); input.setProjectId(77L); input.setMilestoneName("交付版本 v2");
+        input.setStatus("DOING"); input.setWeight(new BigDecimal("80"));
+
+        BusinessProjectMilestone saved = service.saveMilestone(input, 9L, "owner9", false);
+
+        assertEquals(new BigDecimal("35"), saved.getWeight());
+        verify(mapper).updateMilestone(input);
+    }
+
+    @Test
+    void stagedProjectCannotRequestCloseBeforeEveryMilestoneIsApproved()
     {
         BusinessProject active = project(76L, 9L, "ACTIVE", "APPROVED");
         active.setCloseMethod("STAGED_ACCEPTANCE"); active.setInitiatorUserId(8L);
         BusinessProjectMilestone milestone = new BusinessProjectMilestone(); milestone.setStatus("REVIEWING");
         when(mapper.selectProjectById(76L)).thenReturn(active);
+        when(mapper.selectMemberRole(76L, 9L)).thenReturn("OWNER");
         when(mapper.selectMilestones(76L)).thenReturn(Collections.singletonList(milestone));
 
         ServiceException error = assertThrows(ServiceException.class,
-            () -> service.transition(76L, "CLOSE", "完成", 8L, "boss8", true));
+            () -> service.transition(76L, "REQUEST_CLOSE", null, 9L, "owner9", false));
 
         assertTrue(error.getMessage().contains("未通过阶段验收"));
         verify(mapper, never()).updateProjectStatus(any(), any(), any(), any(),
             org.mockito.ArgumentMatchers.anyBoolean(), any(), any());
+    }
+
+    @Test
+    void ownerRequestsCloseAfterEveryStageAndKpiAreConfirmed()
+    {
+        BusinessProject active = project(79L, 9L, "ACTIVE", "APPROVED");
+        active.setCloseMethod("STAGED_ACCEPTANCE"); active.setInitiatorUserId(8L);
+        BusinessProject pending = project(79L, 9L, "ACCEPTANCE", "APPROVED");
+        pending.setCloseMethod("STAGED_ACCEPTANCE"); pending.setInitiatorUserId(8L);
+        BusinessProjectMilestone milestone = new BusinessProjectMilestone(); milestone.setStatus("DONE");
+        when(mapper.selectProjectById(79L)).thenReturn(active, pending);
+        when(mapper.selectMemberRole(79L, 9L)).thenReturn("OWNER");
+        when(mapper.selectMilestones(79L)).thenReturn(Collections.singletonList(milestone));
+        when(mapper.selectRisks(79L)).thenReturn(Collections.emptyList());
+        when(kpiMapper.selectPlanSummaries(79L))
+            .thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
+        when(mapper.updateProjectStatus(79L, "ACTIVE", "ACCEPTANCE", null, false, "owner9", 0)).thenReturn(1);
+
+        BusinessProject result = service.transition(79L, "REQUEST_CLOSE", null, 9L, "owner9", false);
+
+        assertEquals("ACCEPTANCE", result.getStatus());
+        verify(mapper).insertEvent(any());
+    }
+
+    @Test
+    void bossConfirmsPendingStagedProjectClose()
+    {
+        BusinessProject pending = project(80L, 9L, "ACCEPTANCE", "APPROVED");
+        pending.setCloseMethod("STAGED_ACCEPTANCE"); pending.setInitiatorUserId(8L);
+        BusinessProject closed = project(80L, 9L, "CLOSED", "APPROVED");
+        closed.setCloseMethod("STAGED_ACCEPTANCE"); closed.setInitiatorUserId(8L);
+        BusinessProjectMilestone milestone = new BusinessProjectMilestone(); milestone.setStatus("DONE");
+        when(mapper.selectProjectById(80L)).thenReturn(pending, closed);
+        when(mapper.selectMilestones(80L)).thenReturn(Collections.singletonList(milestone));
+        when(mapper.selectRisks(80L)).thenReturn(Collections.emptyList());
+        when(kpiMapper.selectPlanSummaries(80L))
+            .thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
+        when(mapper.updateProjectStatus(80L, "ACCEPTANCE", "CLOSED", null, false, "boss8", 0)).thenReturn(1);
+
+        BusinessProject result = service.transition(80L, "CLOSE", "同意结项", 8L, "boss8", true);
+
+        assertEquals("CLOSED", result.getStatus());
+        verify(mapper).insertEvent(any());
+    }
+
+    @Test
+    void bossReturnsPendingStagedProjectForMoreWork()
+    {
+        BusinessProject pending = project(82L, 9L, "ACCEPTANCE", "APPROVED");
+        pending.setCloseMethod("STAGED_ACCEPTANCE"); pending.setInitiatorUserId(8L);
+        BusinessProject active = project(82L, 9L, "ACTIVE", "APPROVED");
+        active.setCloseMethod("STAGED_ACCEPTANCE"); active.setInitiatorUserId(8L);
+        when(mapper.selectProjectById(82L)).thenReturn(pending, active);
+        when(mapper.updateProjectStatus(82L, "ACCEPTANCE", "ACTIVE", null, false, "boss8", 0)).thenReturn(1);
+
+        BusinessProject result = service.transition(82L, "RETURN_ACTIVE", "补充结项复盘", 8L, "boss8", true);
+
+        assertEquals("ACTIVE", result.getStatus());
+        verify(mapper).insertEvent(any());
     }
 
     @Test
@@ -666,6 +863,31 @@ class BusinessProjectServiceImplTest
         assertEquals("SUBMITTED", result.getBaselineStatus());
         verify(mapper).updateProjectStatus(73L, "PLANNING", "PLANNING", "SUBMITTED", false, "owner9", 0);
         verify(mapper).insertEvent(any());
+    }
+
+    @Test
+    void openEndedProjectCanSubmitBaseline()
+    {
+        BusinessProject project = project(88L,9L,"PLANNING","DRAFT");
+        project.setObjective("持续运营，不设置固定结束日期");
+        project.setPlanStartDate(new Date());
+        project.setPlanEndDate(null);
+        BusinessProject submitted = project(88L,9L,"PLANNING","SUBMITTED");
+        submitted.setObjective(project.getObjective());
+        submitted.setPlanStartDate(project.getPlanStartDate());
+        submitted.setPlanEndDate(null);
+        BusinessProjectRoutine routine = new BusinessProjectRoutine();
+        routine.setRoutineId(1L);
+        when(mapper.selectProjectById(88L)).thenReturn(project,submitted);
+        when(mapper.selectMemberRole(88L,9L)).thenReturn("OWNER");
+        when(mapper.selectTasks(88L)).thenReturn(Collections.emptyList());
+        when(mapper.selectRoutines(org.mockito.ArgumentMatchers.eq(88L),any())).thenReturn(Collections.singletonList(routine));
+        when(mapper.updateProjectStatus(88L,"PLANNING","PLANNING","SUBMITTED",false,"owner9",0)).thenReturn(1);
+
+        BusinessProject result=service.transition(88L,"SUBMIT_BASELINE",null,9L,"owner9",false);
+
+        assertEquals("SUBMITTED",result.getBaselineStatus());
+        verify(mapper).updateProjectStatus(88L,"PLANNING","PLANNING","SUBMITTED",false,"owner9",0);
     }
 
     @Test
@@ -1211,6 +1433,83 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
+    void futureUnusedStaffCostPolicyCanBeDeleted()
+    {
+        BusinessStaffCostPolicy policy = staffCostPolicy(31L, 147L, "2099-08-30", "ACTIVE", 0);
+        Map<String, Object> staff = new HashMap<String, Object>(); staff.put("nickName", "上海员工");
+        when(mapper.selectStaffCostPolicyById(31L)).thenReturn(policy);
+        when(mapper.countUserRoleByKey(8L, "company_owner")).thenReturn(1);
+        when(mapper.selectActiveUserById(147L)).thenReturn(staff);
+        when(mapper.selectStaffCompanyLeaderUserId(147L, false)).thenReturn(8L);
+        when(mapper.deleteUnusedFutureStaffCostPolicy(31L)).thenReturn(1);
+
+        service.deleteStaffCostPolicy(31L, 8L, "boss8", true);
+
+        verify(mapper).deleteUnusedFutureStaffCostPolicy(31L);
+        verify(mapper).restorePrecedingStaffCostPolicy(147L, policy.getEffectiveFrom());
+    }
+
+    @Test
+    void referencedStaffCostPolicyCannotBeDeleted()
+    {
+        BusinessStaffCostPolicy policy = staffCostPolicy(32L, 147L, "2099-08-30", "ACTIVE", 2);
+        Map<String, Object> staff = new HashMap<String, Object>(); staff.put("nickName", "上海员工");
+        when(mapper.selectStaffCostPolicyById(32L)).thenReturn(policy);
+        when(mapper.countUserRoleByKey(8L, "company_owner")).thenReturn(1);
+        when(mapper.selectActiveUserById(147L)).thenReturn(staff);
+        when(mapper.selectStaffCompanyLeaderUserId(147L, false)).thenReturn(8L);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.deleteStaffCostPolicy(32L, 8L, "boss8", true));
+
+        assertTrue(error.getMessage().contains("已被项目投入引用"));
+        verify(mapper, never()).deleteUnusedFutureStaffCostPolicy(anyLong());
+    }
+
+    @Test
+    void effectiveStaffCostPolicyCannotBeDeleted()
+    {
+        BusinessStaffCostPolicy policy = staffCostPolicy(33L, 147L, "2020-08-30", "ACTIVE", 0);
+        Map<String, Object> staff = new HashMap<String, Object>(); staff.put("nickName", "上海员工");
+        when(mapper.selectStaffCostPolicyById(33L)).thenReturn(policy);
+        when(mapper.countUserRoleByKey(8L, "company_owner")).thenReturn(1);
+        when(mapper.selectActiveUserById(147L)).thenReturn(staff);
+        when(mapper.selectStaffCompanyLeaderUserId(147L, false)).thenReturn(8L);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.deleteStaffCostPolicy(33L, 8L, "boss8", true));
+
+        assertTrue(error.getMessage().contains("已生效"));
+        verify(mapper, never()).deleteUnusedFutureStaffCostPolicy(anyLong());
+    }
+
+    @Test
+    void staffCostPolicyCanBeVoidedWithAuditReason()
+    {
+        BusinessStaffCostPolicy policy = staffCostPolicy(34L, 147L, "2020-08-30", "ACTIVE", 3);
+        Map<String, Object> staff = new HashMap<String, Object>(); staff.put("nickName", "上海员工");
+        when(mapper.selectStaffCostPolicyById(34L)).thenReturn(policy);
+        when(mapper.countUserRoleByKey(8L, "company_owner")).thenReturn(1);
+        when(mapper.selectActiveUserById(147L)).thenReturn(staff);
+        when(mapper.selectStaffCompanyLeaderUserId(147L, false)).thenReturn(8L);
+        when(mapper.voidStaffCostPolicy(34L, "金额录入错误", 8L, "boss8")).thenReturn(1);
+
+        service.voidStaffCostPolicy(34L, "  金额录入错误  ", 8L, "boss8", true);
+
+        verify(mapper).voidStaffCostPolicy(34L, "金额录入错误", 8L, "boss8");
+    }
+
+    @Test
+    void staffCostPolicyVoidRequiresReason()
+    {
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.voidStaffCostPolicy(34L, "  ", 8L, "boss8", true));
+
+        assertTrue(error.getMessage().contains("作废原因"));
+        verify(mapper, never()).selectStaffCostPolicyById(anyLong());
+    }
+
+    @Test
     void percentageAllocationOverOneHundredRequiresRecordedException()
     {
         BusinessProject project = project(82L, 9L, "ACTIVE", "APPROVED");
@@ -1477,6 +1776,18 @@ class BusinessProjectServiceImplTest
         assertEquals("RETURNED",result.getReportStatus());
         verify(accountingService,never()).recalculatePersonnelCost(any(),any(),any());
         verify(mapper).insertEvent(any());
+    }
+
+    private BusinessStaffCostPolicy staffCostPolicy(Long policyId, Long userId, String effectiveFrom,
+        String status, int referenceCount)
+    {
+        BusinessStaffCostPolicy policy = new BusinessStaffCostPolicy();
+        policy.setPolicyId(policyId);
+        policy.setUserId(userId);
+        policy.setEffectiveFrom(java.sql.Date.valueOf(effectiveFrom));
+        policy.setStatus(status);
+        policy.setReferenceCount(referenceCount);
+        return policy;
     }
 
     private BusinessProject project(Long id, Long ownerId, String status, String baselineStatus)

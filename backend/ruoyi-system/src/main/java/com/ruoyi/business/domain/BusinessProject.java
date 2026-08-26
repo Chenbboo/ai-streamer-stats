@@ -52,8 +52,14 @@ public class BusinessProject extends BaseEntity
     private Integer memberCount;
     private Integer taskCount;
     private Integer completedTaskCount;
-    /** 基于任务实时进度计算的项目完成百分比；已关闭项目固定为 100。 */
+    /** 项目负责人最新填报的项目完成百分比；已关闭项目固定为 100。 */
     private Integer progressPercent;
+    private Long progressReportId;
+    @JsonFormat(pattern = "yyyy-MM-dd") private Date progressBizDate;
+    private String progressSummary;
+    private String progressEvidenceUrls;
+    private String progressReporterName;
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss") private Date progressReportTime;
     private Integer openRiskCount;
     /** 关联的执行数据源；当前一期仅支持 LIVE。 */
     private String executionSource;
@@ -148,6 +154,18 @@ public class BusinessProject extends BaseEntity
     public void setCompletedTaskCount(Integer completedTaskCount) { this.completedTaskCount = completedTaskCount; }
     public Integer getProgressPercent() { return progressPercent; }
     public void setProgressPercent(Integer progressPercent) { this.progressPercent = progressPercent; }
+    public Long getProgressReportId() { return progressReportId; }
+    public void setProgressReportId(Long progressReportId) { this.progressReportId = progressReportId; }
+    public Date getProgressBizDate() { return progressBizDate; }
+    public void setProgressBizDate(Date progressBizDate) { this.progressBizDate = progressBizDate; }
+    public String getProgressSummary() { return progressSummary; }
+    public void setProgressSummary(String progressSummary) { this.progressSummary = progressSummary; }
+    public String getProgressEvidenceUrls() { return progressEvidenceUrls; }
+    public void setProgressEvidenceUrls(String progressEvidenceUrls) { this.progressEvidenceUrls = progressEvidenceUrls; }
+    public String getProgressReporterName() { return progressReporterName; }
+    public void setProgressReporterName(String progressReporterName) { this.progressReporterName = progressReporterName; }
+    public Date getProgressReportTime() { return progressReportTime; }
+    public void setProgressReportTime(Date progressReportTime) { this.progressReportTime = progressReportTime; }
     public Integer getOpenRiskCount() { return openRiskCount; }
     public void setOpenRiskCount(Integer openRiskCount) { this.openRiskCount = openRiskCount; }
     public String getExecutionSource() { return executionSource; }

@@ -10,6 +10,8 @@ import com.ruoyi.business.domain.BusinessProjectMember;
 import com.ruoyi.business.domain.BusinessProjectMilestone;
 import com.ruoyi.business.domain.BusinessProjectRisk;
 import com.ruoyi.business.domain.BusinessProjectTask;
+import com.ruoyi.business.domain.BusinessProjectTaskReport;
+import com.ruoyi.business.domain.BusinessProjectProgressReport;
 import com.ruoyi.business.domain.BusinessProjectRoutine;
 import com.ruoyi.business.domain.BusinessProjectRoutineReport;
 import com.ruoyi.business.domain.BusinessProjectEffort;
@@ -55,6 +57,11 @@ public interface BusinessProjectMapper
     int closeOpenEndedStaffCostPolicy(@Param("userId") Long userId,
         @Param("effectiveFrom") java.util.Date effectiveFrom);
     int insertStaffCostPolicy(BusinessStaffCostPolicy policy);
+    int deleteUnusedFutureStaffCostPolicy(Long policyId);
+    int voidStaffCostPolicy(@Param("policyId") Long policyId, @Param("reason") String reason,
+        @Param("voidedUserId") Long voidedUserId, @Param("voidedUserName") String voidedUserName);
+    int restorePrecedingStaffCostPolicy(@Param("userId") Long userId,
+        @Param("deletedEffectiveFrom") java.util.Date deletedEffectiveFrom);
 
     List<Map<String, Object>> selectProjectStaffAllocations(Long projectId);
     List<Map<String, Object>> selectOwnerPersonnelCostReadiness(@Param("userId") Long userId,
@@ -118,6 +125,15 @@ public interface BusinessProjectMapper
     int updateTask(BusinessProjectTask task);
     int deleteTask(@Param("projectId") Long projectId, @Param("taskId") Long taskId);
     int countTaskChildren(@Param("projectId") Long projectId, @Param("taskId") Long taskId);
+    int countTaskReports(@Param("taskId") Long taskId);
+    int upsertTaskReport(BusinessProjectTaskReport report);
+    BusinessProjectTaskReport selectTaskReport(@Param("taskId") Long taskId,
+        @Param("bizDate") java.util.Date bizDate);
+    List<BusinessProjectTaskReport> selectTaskReports(Long projectId);
+    int upsertProjectProgressReport(BusinessProjectProgressReport report);
+    BusinessProjectProgressReport selectProjectProgressReport(@Param("projectId") Long projectId,
+        @Param("bizDate") java.util.Date bizDate);
+    BusinessProjectProgressReport selectLatestProjectProgressReport(@Param("projectId") Long projectId);
 
     List<BusinessProjectRoutine> selectRoutines(@Param("projectId") Long projectId,
         @Param("bizDate") java.util.Date bizDate);

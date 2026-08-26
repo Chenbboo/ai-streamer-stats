@@ -70,14 +70,18 @@
       </article>
 
       <article class="panel">
-        <div class="panel-head"><div><h2>一次性任务</h2><p>只展示分配给你且尚未完成的事项。</p></div></div>
-        <el-empty v-if="!tasks.length" description="这个周期没有未完成的一次性任务" />
+        <div class="panel-head"><div><h2>一次性任务</h2><p>{{ isToday ? '由任务负责人本人填报今日完成情况和总进度。' : '查看该周期内分配给你的任务。' }}</p></div></div>
+        <el-empty v-if="!tasks.length" description="这个周期没有分配给你的一次性任务" />
         <div v-for="task in tasks" :key="task.taskId" class="work-card task-card">
           <div class="card-top"><div><el-tag size="small" effect="plain">{{ task.projectName }}</el-tag><span>{{ task.initiatorName }}立项</span></div><el-tag size="small" :type="taskTone[task.status]">{{ taskStatusLabel[task.status] }}</el-tag></div>
           <h3>{{ task.taskName }}</h3>
-          <p class="target">{{ task.planStartDate || '未设开始日期' }} 至 {{ task.dueDate || '长期' }}</p>
+          <p class="target">截止日期：{{ task.dueDate || '未设置' }}</p>
           <el-progress :percentage="task.progress || 0" :stroke-width="7" />
-          <div class="task-actions"><el-button v-if="task.status==='TODO'" @click="updateTask(task,'DOING')">开始</el-button><el-button v-if="task.status!=='DONE'" type="success" plain @click="updateTask(task,'DONE')">完成</el-button></div>
+          <p v-if="task.todayTaskReportId" class="note">今日已填报：{{ task.todayProgress }}%<template v-if="task.todayCompletionSummary">，{{ task.todayCompletionSummary }}</template></p>
+          <div class="task-actions">
+            <el-button v-if="isToday && task.projectStatus==='ACTIVE'" type="primary" :plain="!!task.todayTaskReportId" @click="openTaskReport(task)">{{ task.todayTaskReportId ? '修改今日填报' : '填报今日完成量' }}</el-button>
+            <span v-else-if="isToday" class="task-report-tip">项目执行中才能填报</span>
+          </div>
         </div>
       </article>
     </section>
@@ -93,14 +97,25 @@
       </el-form>
       <template #footer><el-button @click="reportDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="submitRoutine">保存今日完成量</el-button></template>
     </el-dialog>
+
+    <el-dialog v-model="taskReportDialog" :title="taskReportForm.reportId?'修改今日完成量':'填报今日完成量'" width="min(620px, 94vw)" append-to-body>
+      <el-alert :title="`${taskReportForm.taskName || ''} · ${data.today || today()}`" type="info" :closable="false" show-icon />
+      <el-form :model="taskReportForm" label-width="108px" class="report-form task-report-form">
+        <el-form-item label="任务内容"><el-input :model-value="taskReportForm.taskName" disabled /></el-form-item>
+        <el-form-item label="实际完成情况" required><el-input v-model="taskReportForm.completionSummary" type="textarea" :rows="4" maxlength="1000" show-word-limit placeholder="请用文字说明今日实际完成的内容" /></el-form-item>
+        <el-form-item label="任务进度" required><el-slider v-model="taskReportForm.progress" show-input :min="0" :max="100" :disabled="Number(taskReportForm.minimumProgress || 0) >= 100" @input="keepTaskProgress" /><small class="progress-tip">当前进度 {{ taskReportForm.minimumProgress || 0 }}%，只能向上调整。</small></el-form-item>
+        <el-form-item label="成果凭证" required><file-upload v-model="taskReportForm.evidenceUrls" :limit="10" :file-size="20" :file-type="['pdf','doc','docx','xls','xlsx','jpg','jpeg','png','mp4','mov']" /></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="taskReportDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="submitTask">保存今日完成量</el-button></template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup name="BusinessWorkSchedule">
-import { getBusinessWorkDashboard, saveBusinessTask, submitBusinessRoutineReport, saveBusinessWorkEffort } from '@/api/business/project'
+import { getBusinessWorkDashboard, submitBusinessTaskReport, submitBusinessRoutineReport, saveBusinessWorkEffort } from '@/api/business/project'
 import { ElMessage } from 'element-plus'
 
-const loading=ref(false),saving=ref(false),savingEffortId=ref(null),data=ref({}),period=ref('DAY'),anchorDate=ref(today()),reportDialog=ref(false),reportForm=ref({})
+const loading=ref(false),saving=ref(false),savingEffortId=ref(null),data=ref({}),period=ref('DAY'),anchorDate=ref(today()),reportDialog=ref(false),reportForm=ref({}),taskReportDialog=ref(false),taskReportForm=ref({})
 const summary=computed(()=>data.value.summary||{}),tasks=computed(()=>data.value.tasks||[]),routines=computed(()=>data.value.routines||[]),efforts=computed(()=>data.value.efforts||[])
 const isToday=computed(()=>period.value==='DAY'&&data.value.dateFrom===data.value.today)
 const periodTitle=computed(()=>({DAY:'今日',WEEK:'本周',MONTH:'本月'}[period.value]))
@@ -142,7 +157,9 @@ async function submitRoutine(){
     ElMessage({type:'success',message:'提交成功，今日完成量已更新',duration:3000,showClose:true})
   }finally{saving.value=false}
 }
-async function updateTask(task,status){await saveBusinessTask({...task,status,progress:status==='DONE'?100:Math.max(Number(task.progress||0),10)});ElMessage.success(status==='DONE'?'任务已完成':'任务已开始');await load()}
+function openTaskReport(task){const minimumProgress=Number(task.progress||0);taskReportForm.value={reportId:task.todayTaskReportId||null,taskId:task.taskId,projectId:task.projectId,bizDate:data.value.today,taskName:task.taskName,minimumProgress,progress:Math.max(minimumProgress,Number(task.todayProgress??minimumProgress)),completionSummary:task.todayCompletionSummary||'',evidenceUrls:task.todayEvidenceUrls||''};taskReportDialog.value=true}
+function keepTaskProgress(value){const minimum=Number(taskReportForm.value.minimumProgress||0);if(Number(value)<minimum)taskReportForm.value.progress=minimum}
+async function submitTask(){const form=taskReportForm.value;if(!form.completionSummary?.trim())return ElMessage.warning('请填写实际完成情况');if(form.progress===null||form.progress===undefined||Number(form.progress)<Number(form.minimumProgress||0)||Number(form.progress)>100)return ElMessage.warning(`任务进度只能增加，不能低于 ${form.minimumProgress||0}%`);if(!form.evidenceUrls)return ElMessage.warning('请上传成果凭证');saving.value=true;try{await submitBusinessTaskReport(form);taskReportDialog.value=false;await load();ElMessage.success('今日任务完成量已保存')}finally{saving.value=false}}
 function beginEffortAdjustment(item){item._savedActualPercent=Number(item.actualPercent||0);item._savedDeviationReason=item.deviationReason||'';item.editing=true}
 function cancelEffortAdjustment(item){item.actualPercent=item._savedActualPercent;item.deviationReason=item._savedDeviationReason;item.editing=false}
 async function saveEffort(item){if(item.reportStatus==='LEAVE')return ElMessage.info('今日已登记请假，无需填报投入');if(item.reportStatus==='UNSUBMITTED'&&Number(item.actualPercent)===Number(item.plannedPercent)){item.editing=false;return ElMessage.info('实际投入与计划一致，无需申报')}if(Number(item.actualPercent)!==Number(item.plannedPercent)&&!item.deviationReason?.trim())return ElMessage.warning('实际投入与计划不一致时请填写偏差原因');savingEffortId.value=item.projectId;try{await saveBusinessWorkEffort({projectId:item.projectId,bizDate:anchorDate.value,actualPercent:item.actualPercent,deviationReason:Number(item.actualPercent)===Number(item.plannedPercent)?'':item.deviationReason||''});ElMessage.success('投入偏差已提交负责人确认');await load()}finally{savingEffortId.value=null}}
@@ -152,4 +169,8 @@ load()
 <style scoped>
 .work-page{min-height:calc(100vh - 84px);padding:24px;background:#f3f6f8;color:#172335}.work-hero{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:25px 28px;border-radius:16px;background:linear-gradient(120deg,#173b59,#1d6d70);color:#fff}.work-hero span{font-size:11px;letter-spacing:.17em;color:#6de0da}.work-hero h1{margin:5px 0;font-size:28px}.work-hero p{margin:0;color:#c1d4de}.schedule-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:16px 0;padding:14px;border:1px solid #dfe6eb;border-radius:12px;background:#fff}.date-tools{display:flex;gap:8px}.period-summary{display:grid;grid-template-columns:2fr repeat(4,1fr);gap:10px;margin-bottom:14px}.period-summary>div{padding:16px 18px;border:1px solid #dfe6eb;border-radius:12px;background:#fff}.period-summary span,.period-summary b{display:block}.period-summary span{color:#7d8997}.period-summary b{margin-top:7px;font-size:19px}.work-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.panel{min-width:0;padding:18px;border:1px solid #dfe6eb;border-radius:13px;background:#fff}.panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.panel-head h2{margin:0;font-size:18px}.panel-head p{margin:5px 0 12px;color:#84919f;font-size:12px}.effort-panel{margin-bottom:14px}.effort-panel>.panel-head>strong{color:#167268;font-size:18px}.effort-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.effort-card{padding:15px;border:1px solid #dce8e5;border-radius:11px;background:#f8fbfa}.effort-values{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:14px 0}.effort-values span{color:#73827e}.effort-values b{color:#1d3f3a}.effort-default,.effort-result{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 12px;border-radius:8px;background:#eef6f4;color:#667b76;font-size:13px}.effort-result{align-items:flex-start;flex-direction:column}.effort-result p{margin:0;color:#536a64;line-height:1.6}.effort-result .el-button{align-self:stretch}.effort-editor{display:flex;flex-direction:column;gap:10px}.effort-editor-value,.effort-editor-actions{display:flex;align-items:center;justify-content:space-between;gap:10px}.effort-editor-value span{color:#73827e}.effort-editor-actions{justify-content:flex-end}.work-card{margin-top:10px;padding:15px;border:1px solid #e3e8ed;border-radius:11px;background:#fbfcfd}.card-top,.card-top>div,.result-line,.task-actions{display:flex;align-items:center}.card-top{justify-content:space-between;gap:10px}.card-top>div{min-width:0;gap:8px}.card-top span{color:#8793a0;font-size:12px}.work-card h3{margin:13px 0 7px}.target,.note,.issue{margin:5px 0;color:#788694;font-size:13px}.result-line{justify-content:space-between;margin:13px 0;padding:11px;border-radius:8px;background:#eff7f5}.result-line span{color:#708078}.result-line b{font-size:17px}.issue{color:#c84550}.task-card :deep(.el-progress){margin:13px 0}.task-actions{justify-content:flex-end;gap:8px}.task-actions .el-button{margin:0}.report-form{margin-top:18px}@media(max-width:900px){.period-summary{grid-template-columns:repeat(2,1fr)}.work-grid,.effort-grid{grid-template-columns:1fr}}@media(max-width:640px){.work-page{padding:12px}.work-hero{align-items:flex-start;flex-direction:column;padding:20px}.work-hero>.el-button{width:100%}.schedule-bar{align-items:stretch;flex-direction:column}.schedule-bar :deep(.el-radio-group){display:grid;grid-template-columns:repeat(3,1fr)}.schedule-bar :deep(.el-radio-button__inner){width:100%;padding:9px 5px}.date-tools{display:grid;grid-template-columns:1fr auto}.period-summary{grid-template-columns:1fr 1fr}.period-summary>div{padding:13px}.period-summary b{font-size:15px}.effort-panel>.panel-head{flex-direction:column}.card-top{align-items:flex-start}.card-top>div{align-items:flex-start;flex-direction:column;gap:5px}.effort-values,.effort-default{align-items:stretch;flex-direction:column}.effort-editor-value :deep(.el-input-number){width:100%}}
 .effort-result p.effort-returned{color:#c84550}
+.task-report-tip{color:#9aa4af;font-size:12px}
+.task-report-form :deep(.el-slider){padding:0 12px}
+.task-report-form :deep(.el-slider__runway.show-input){margin-right:88px}
+.progress-tip{display:block;width:100%;margin-top:6px;color:#909399;font-size:12px}
 </style>

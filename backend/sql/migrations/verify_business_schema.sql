@@ -56,7 +56,11 @@ where table_schema=database() and table_name like 'biz\_%';
 
 select
   count(case when column_name='country_region_snapshot' then 1 end)=0 as missing_staff_cost_country_snapshot,
-  count(case when column_name='standard_work_days' then 1 end)=0 as missing_staff_cost_standard_work_days
+  count(case when column_name='standard_work_days' then 1 end)=0 as missing_staff_cost_standard_work_days,
+  count(case when column_name='voided_user_id' then 1 end)=0 as missing_staff_cost_voided_user_id,
+  count(case when column_name='voided_user_name' then 1 end)=0 as missing_staff_cost_voided_user_name,
+  count(case when column_name='voided_time' then 1 end)=0 as missing_staff_cost_voided_time,
+  count(case when column_name='void_reason' then 1 end)=0 as missing_staff_cost_void_reason
 from information_schema.columns
 where table_schema=database() and table_name='biz_staff_cost_policy';
 
@@ -624,3 +628,26 @@ select 'project_owner_missing_kpi_settle_permission',count(*)
 from sys_role role
 where role.role_key='project_owner' and role.del_flag='0'
   and not exists(select 1 from sys_role_menu rm where rm.role_id=role.role_id and rm.menu_id=4073);
+
+select 'missing_project_task_report_table' check_name,count(*)=0 problem_rows
+from information_schema.tables
+where table_schema=database() and table_name='biz_project_task_report'
+union all
+select 'missing_project_task_report_columns',7-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='biz_project_task_report'
+  and column_name in('task_id','project_id','biz_date','progress','completion_summary','evidence_urls','submitted_user_id');
+
+select 'missing_project_progress_report_table' check_name,count(*)=0 problem_rows
+from information_schema.tables
+where table_schema=database() and table_name='biz_project_progress_report'
+union all
+select 'missing_project_progress_report_columns',7-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='biz_project_progress_report'
+  and column_name in('project_id','biz_date','progress','completion_summary','evidence_urls','submitted_user_id','submitted_user_name');
+
+select 'proposal_plan_end_date_not_nullable' check_name,count(*) problem_rows
+from information_schema.columns
+where table_schema=database() and table_name='biz_project_proposal'
+  and column_name='plan_end_date' and is_nullable<>'YES';
