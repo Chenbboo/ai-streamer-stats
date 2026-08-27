@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <el-form inline>
-      <el-form-item><el-input v-model="query.docNo" placeholder="盘点单号" clearable /></el-form-item>
+      <el-form-item><el-input v-model="query.docNo" placeholder="记录单号" clearable /></el-form-item>
       <el-form-item>
         <el-select v-model="query.status" placeholder="全部状态" clearable style="width: 140px">
           <el-option v-for="item in statuses" :key="item.value" :label="item.label" :value="item.value" />
@@ -22,23 +22,37 @@
     </el-button>
 
     <el-table :data="rows" v-loading="loading" border>
-      <el-table-column prop="docNo" label="盘点单号" width="190" />
-      <el-table-column prop="bizDate" label="盘点日期" width="110" />
-      <el-table-column prop="totalQty" label="差异件数" width="100" align="right" />
+      <el-table-column prop="docNo" label="记录单号" width="190" />
+      <el-table-column prop="bizDate" label="业务日期" width="110" />
+      <el-table-column label="记录类型" width="110">
+        <template #default="{ row }">
+          <el-tag :type="row.docType === 'COST_ADJUST' ? 'warning' : 'primary'">
+            {{ row.docType === 'COST_ADJUST' ? '仅调成本' : '库存盘点' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="库存变化" width="160" align="right">
+        <template #default="{ row }">
+          <span v-if="row.docType === 'COST_ADJUST'" :class="amountClass(row.totalAmount)">
+            金额 {{ signedMoney(row.totalAmount) }}
+          </span>
+          <span v-else>{{ Number(row.totalQty || 0) }} 件</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="creatorName" label="制单人" width="110" />
-      <el-table-column label="审核员" width="110"><template #default="{ row }">{{ row.firstReviewerName || '—' }}</template></el-table-column>
-      <el-table-column label="管理员" width="110"><template #default="{ row }">{{ row.secondReviewerName || '—' }}</template></el-table-column>
+      <el-table-column label="审核员" width="110"><template #default="{ row }">{{ reviewerName(row) }}</template></el-table-column>
+      <el-table-column label="管理员" width="110"><template #default="{ row }">{{ administratorName(row) }}</template></el-table-column>
       <el-table-column label="状态" width="110">
         <template #default="{ row }">
           <el-tag :type="statusType(row.status)">{{ documentStatusLabel(row) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="remark" label="盘点说明" min-width="180" show-overflow-tooltip />
+      <el-table-column prop="remark" label="说明" min-width="180" show-overflow-tooltip />
       <el-table-column label="操作" width="220" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="view(row)">查看</el-button>
           <el-button
-            v-if="['DRAFT', 'REJECTED'].includes(row.status)"
+            v-if="row.docType === 'STOCK_ADJUST' && ['DRAFT', 'REJECTED'].includes(row.status)"
             v-hasPermi="['jewelry:document:edit']"
             link
             type="primary"
@@ -47,7 +61,7 @@
             编辑
           </el-button>
           <el-button
-            v-if="row.status === 'DRAFT'"
+            v-if="row.docType === 'STOCK_ADJUST' && row.status === 'DRAFT'"
             v-hasPermi="['jewelry:document:submit']"
             link
             type="success"
@@ -56,7 +70,7 @@
             提交
           </el-button>
           <el-button
-            v-if="row.status === 'PENDING_FIRST'"
+            v-if="row.docType === 'STOCK_ADJUST' && row.status === 'PENDING_FIRST'"
             v-hasPermi="['jewelry:document:withdraw']"
             link
             type="warning"
@@ -77,7 +91,7 @@
 
     <el-dialog
       v-model="dialog"
-      :title="readonly ? '查看盘点单' : (form.documentId ? '编辑盘点单' : '新建盘点单')"
+      :title="dialogTitle"
       width="94%"
       top="4vh"
       destroy-on-close
@@ -101,7 +115,7 @@
 
       <el-alert
         v-if="!readonly"
-        title="系统只保存存在差异的商品；提交后先由审核员初审，再由管理员复核，复核通过后才调整可售库存。审批中如可售库存发生变化，需要重新编辑盘点结果。"
+        :title="isAdministrator ? '管理员可在数量不变时只修改成本，保存后立即入账、无需审批；数量有盘盈盘亏时仍保存为盘点草稿并走两级审批。' : '系统只保存存在数量差异的商品；盘盈成本由制单时填写，管理员终审时仍可调整。提交后先由审核员初审，再由管理员复核。'"
         type="info"
         :closable="false"
         show-icon
@@ -111,24 +125,27 @@
       <el-table :data="visibleItems" border height="52vh" row-key="productId">
         <el-table-column prop="skuSnapshot" label="SKU" width="150" fixed />
         <el-table-column prop="productNameSnapshot" label="商品名称" min-width="180" fixed />
-        <el-table-column prop="systemQty" label="系统可售库存" width="125" align="right" />
-        <el-table-column label="实盘可售库存" width="150" align="center">
+        <el-table-column prop="systemQty" :label="form.docType === 'COST_ADJUST' ? '调整时库存' : '系统可售库存'" width="125" align="right" />
+        <el-table-column :label="form.docType === 'COST_ADJUST' ? '库存数量' : '实盘可售库存'" width="150" align="center">
           <template #default="{ row }">
             <el-input-number v-model="row.countedQty" :min="0" :disabled="readonly" controls-position="right" />
           </template>
         </el-table-column>
-        <el-table-column label="差异数量" width="105" align="right">
+        <el-table-column v-if="form.docType !== 'COST_ADJUST'" label="差异数量" width="105" align="right">
           <template #default="{ row }">
             <span :class="differenceClass(row)">{{ difference(row) > 0 ? '+' : '' }}{{ difference(row) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="盘盈核定成本" width="160">
+        <el-table-column v-if="form.docType === 'COST_ADJUST'" label="调整前成本" width="125" align="right">
+          <template #default="{ row }">{{ money(row.originalUnitCost) }}</template>
+        </el-table-column>
+        <el-table-column :label="form.docType === 'COST_ADJUST' ? '调整后成本' : '盘盈核定成本'" width="160">
           <template #default="{ row }">
             <el-input-number
               v-model="row.unitCost"
               :min="0"
               :precision="2"
-              :disabled="readonly || difference(row) <= 0"
+              :disabled="!canEditCost(row)"
               controls-position="right"
             />
           </template>
@@ -137,24 +154,30 @@
           <template #default="{ row }">
             <el-input
               v-model="row.lineReason"
-              :disabled="readonly || difference(row) === 0"
-              placeholder="有差异时必填"
+              :disabled="readonly || (difference(row) === 0 && !isStandaloneCostChange(row))"
+              placeholder="数量或成本变化时必填"
               maxlength="100"
             />
           </template>
         </el-table-column>
       </el-table>
 
-      <div class="count-summary">
+      <div v-if="form.docType === 'COST_ADJUST'" class="count-summary">
+        <span>成本调整 SKU <b>{{ form.items.length }}</b> 个</span>
+        <span>库存金额变化 <b :class="amountClass(form.totalAmount)">{{ signedMoney(form.totalAmount) }}</b></span>
+        <span>审批方式 <b>{{ isDirectCostDocument(form) ? '管理员直接入账' : '审核员 + 管理员' }}</b></span>
+      </div>
+      <div v-else class="count-summary">
         <span>盘盈 <b class="positive">+{{ summary.gain }}</b> 件</span>
         <span>盘亏 <b class="negative">-{{ summary.loss }}</b> 件</span>
         <span>净差异 <b>{{ summary.net > 0 ? '+' : '' }}{{ summary.net }}</b> 件</span>
         <span>差异 SKU <b>{{ summary.lines }}</b> 个</span>
+        <span v-if="isAdministrator">仅调成本 SKU <b>{{ summary.costLines }}</b> 个</span>
       </div>
 
       <template #footer>
         <el-button @click="dialog = false">关闭</el-button>
-        <el-button v-if="!readonly" type="primary" @click="save">保存草稿</el-button>
+        <el-button v-if="!readonly" type="primary" @click="save">{{saveButtonLabel}}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -162,6 +185,7 @@
 
 <script setup name="JewelryInventory">
 import {
+  directAdjustJewelryCosts,
   getJewelryDocument,
   listJewelryDocuments,
   listJewelryStock,
@@ -169,8 +193,10 @@ import {
   submitJewelryDocument,
   withdrawJewelryDocument
 } from '@/api/jewelry/erp'
+import useUserStore from '@/store/modules/user'
 
 const { proxy } = getCurrentInstance()
+const userStore = useUserStore()
 const rows = ref([])
 const total = ref(0)
 const loading = ref(false)
@@ -185,7 +211,7 @@ const statuses = [
   { value: 'REJECTED', label: '已驳回' },
   { value: 'REVERSED', label: '已红冲' }
 ]
-const query = reactive({ pageNum: 1, pageSize: 10, docNo: '', status: '', docType: 'STOCK_ADJUST' })
+const query = reactive({ pageNum: 1, pageSize: 10, docNo: '', status: '', docType: 'INVENTORY_CHANGE' })
 const blankForm = () => ({
   documentId: null,
   docType: 'STOCK_ADJUST',
@@ -201,6 +227,10 @@ const form = reactive(blankForm())
 
 const difference = row => Number(row.countedQty || 0) - Number(row.systemQty || 0)
 const differenceClass = row => difference(row) > 0 ? 'positive' : difference(row) < 0 ? 'negative' : ''
+const isAdministrator = computed(() => (userStore.roles || []).some(role => ['admin', 'jewelry_admin'].includes(role)))
+const costChanged = row => Number(row.unitCost || 0) !== Number(row.originalUnitCost || 0)
+const isStandaloneCostChange = row => isAdministrator.value && difference(row) === 0 && costChanged(row)
+const canEditCost = row => !readonly.value && (difference(row) > 0 || (isAdministrator.value && difference(row) === 0))
 const visibleItems = computed(() => {
   const keyword = itemKeyword.value.trim().toLowerCase()
   if (!keyword) return form.items
@@ -213,11 +243,25 @@ const summary = computed(() => form.items.reduce((result, item) => {
   if (diff > 0) result.gain += diff
   if (diff < 0) result.loss += -diff
   if (diff !== 0) result.lines += 1
+  if (isStandaloneCostChange(item)) result.costLines += 1
   result.net += diff
   return result
-}, { gain: 0, loss: 0, net: 0, lines: 0 }))
+}, { gain: 0, loss: 0, net: 0, lines: 0, costLines: 0 }))
+const saveButtonLabel = computed(() => summary.value.costLines > 0 && summary.value.lines === 0
+  ? '保存并调整成本' : '保存草稿')
+const dialogTitle = computed(() => {
+  if (readonly.value && form.docType === 'COST_ADJUST') return '查看成本调整记录'
+  return readonly.value ? '查看盘点单' : (form.documentId ? '编辑盘点单' : '新建盘点单')
+})
 
 const labelOfStatus = value => statuses.find(item => item.value === value)?.label || value
+const money = value => Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const signedMoney = value => `${Number(value || 0) > 0 ? '+' : ''}¥${money(value)}`
+const amountClass = value => Number(value || 0) > 0 ? 'positive' : Number(value || 0) < 0 ? 'negative' : ''
+const isDirectCostDocument = row => row.docType === 'COST_ADJUST' && row.status === 'POSTED'
+  && !row.firstReviewerUserId && !row.secondReviewerUserId
+const reviewerName = row => row.firstReviewerName || (isDirectCostDocument(row) ? '无需审批' : '—')
+const administratorName = row => row.secondReviewerName || (isDirectCostDocument(row) ? row.creatorName : '—')
 const documentStatusLabel = row => row.status === 'PENDING_SECOND' ? '待管理员复核'
   : row.status === 'PENDING_FIRST' ? '待审核员审核' : labelOfStatus(row.status)
 const statusType = value => value === 'POSTED' ? 'success'
@@ -248,6 +292,7 @@ async function open() {
     qty: 0,
     unitPrice: 0,
     unitCost: Number(item.avgCost || 0),
+    originalUnitCost: Number(item.avgCost || 0),
     packFee: 0,
     shipFee: 0,
     certFee: 0,
@@ -261,6 +306,7 @@ async function open() {
 async function edit(row) {
   const detail = (await getJewelryDocument(row.documentId)).data
   Object.assign(form, detail)
+  form.items = (form.items || []).map(item => ({ ...item, originalUnitCost: Number(item.unitCost || 0) }))
   itemKeyword.value = ''
   readonly.value = false
   dialog.value = true
@@ -269,6 +315,12 @@ async function edit(row) {
 async function view(row) {
   const detail = (await getJewelryDocument(row.documentId)).data
   Object.assign(form, detail)
+  form.items = (form.items || []).map(item => form.docType === 'COST_ADJUST' ? ({
+    ...item,
+    countedQty: Number(item.systemQty ?? item.qty ?? 0),
+    originalUnitCost: Number(item.unitCost || 0),
+    unitCost: Number(item.unitPrice || 0)
+  }) : ({ ...item, originalUnitCost: Number(item.unitCost || 0) }))
   itemKeyword.value = ''
   readonly.value = true
   dialog.value = true
@@ -276,11 +328,17 @@ async function view(row) {
 
 async function save() {
   const changedItems = form.items.filter(item => difference(item) !== 0)
-  if (!changedItems.length) {
-    proxy.$modal.msgError('当前没有盘点差异，无需保存')
+  const costOnlyItems = form.items.filter(isStandaloneCostChange)
+  if (!changedItems.length && !costOnlyItems.length) {
+    proxy.$modal.msgError('当前没有数量或成本变化，无需保存')
     return
   }
-  const invalidReason = changedItems.find(item => !String(item.lineReason || '').trim())
+  if (changedItems.length && costOnlyItems.length) {
+    proxy.$modal.msgError('数量盘点和仅调成本请分开保存')
+    return
+  }
+  const activeItems = changedItems.length ? changedItems : costOnlyItems
+  const invalidReason = activeItems.find(item => !String(item.lineReason || '').trim())
   if (invalidReason) {
     proxy.$modal.msgError(`${invalidReason.productNameSnapshot} 需要填写调整原因`)
     return
@@ -290,8 +348,51 @@ async function save() {
     proxy.$modal.msgError(`${invalidCost.productNameSnapshot} 盘盈时需要填写核定单位成本`)
     return
   }
-  await saveJewelryDocument({ ...form, items: changedItems })
-  proxy.$modal.msgSuccess('盘点草稿已保存')
+  if (costOnlyItems.length) {
+    const zeroStock = costOnlyItems.find(item => Number(item.systemQty || 0) <= 0)
+    if (zeroStock) {
+      proxy.$modal.msgError(`${zeroStock.productNameSnapshot} 当前库存为0，不能单独调整成本`)
+      return
+    }
+    const returnReason = costOnlyItems.map(item =>
+      `${item.skuSnapshot || item.productNameSnapshot}：${String(item.lineReason || '').trim()}`
+    ).join('；').slice(0, 500)
+    const items = costOnlyItems.map(item => ({
+      productId: item.productId,
+      skuSnapshot: item.skuSnapshot,
+      productNameSnapshot: item.productNameSnapshot,
+      productTypeSnapshot: item.productTypeSnapshot,
+      specificationSnapshot: item.specificationSnapshot,
+      qty: Number(item.systemQty || 0),
+      systemQty: Number(item.systemQty || 0),
+      countedQty: Number(item.systemQty || 0),
+      adjustmentQty: 0,
+      unitPrice: Number(item.unitCost || 0),
+      unitCost: Number(item.originalUnitCost || 0),
+      packFee: 0,
+      shipFee: 0,
+      certFee: 0,
+      otherFee1: 0,
+      otherFee2: 0,
+      otherFee3: 0,
+      lineReason: String(item.lineReason || '').trim()
+    }))
+    await proxy.$modal.confirm(`确认直接调整 ${costOnlyItems.length} 个 SKU 的库存成本？保存后立即入账且无需审批。`)
+    await directAdjustJewelryCosts({
+      docType: 'COST_ADJUST',
+      bizDate: form.bizDate,
+      returnReason,
+      remark: form.remark,
+      platformRate: 0,
+      commissionRate: 0,
+      taxRate: 0,
+      items
+    })
+    proxy.$modal.msgSuccess('库存成本已由管理员直接调整并入账')
+  } else {
+    await saveJewelryDocument({ ...form, items: changedItems })
+    proxy.$modal.msgSuccess('盘点草稿已保存')
+  }
   dialog.value = false
   load()
 }

@@ -13,6 +13,7 @@ export const listJewelryStock = (params) => request({ url: '/jewelry/stock/list'
 export const listJewelryTransactions = (params) => request({ url: '/jewelry/stock/transactions', method: 'get', params })
 export const getJewelryStockWarningDays = () => request({ url: '/jewelry/stock/warning-days', method: 'get' })
 export const updateJewelryStockWarningDays = (days) => request({ url: '/jewelry/stock/warning-days', method: 'put', data: { days } })
+export const directAdjustJewelryCosts = (data) => request({ url: '/jewelry/stock/direct-cost-adjust', method: 'post', data })
 export const listJewelryDocuments = (params) => request({ url: '/jewelry/document/list', method: 'get', params })
 export const getJewelryDocument = (id) => request({ url: `/jewelry/document/${id}`, method: 'get' })
 export const listSupplierReturnSources = (supplierId) => request({
@@ -45,10 +46,10 @@ export const previewJewelryDocumentImport = (docType, file) => {
 export const submitJewelryDocument = (id) => request({ url: `/jewelry/document/${id}/submit`, method: 'post' })
 export const withdrawJewelryDocument = (id) => request({ url: `/jewelry/document/${id}/withdraw`, method: 'post' })
 export const createJewelryReversal = (id) => request({ url: `/jewelry/document/${id}/reverse`, method: 'post' })
-export const approveJewelryDocument = (id, comment, expectedTotalCost) => request({
+export const approveJewelryDocument = (id, comment, expectedTotalCost, stockAdjustmentCosts) => request({
   url: `/jewelry/approval/${id}/approve`,
   method: 'post',
-  data: { comment, expectedTotalCost }
+  data: { comment, expectedTotalCost, stockAdjustmentCosts }
 })
 export const rejectJewelryDocument = (id, comment) => request({ url: `/jewelry/approval/${id}/reject`, method: 'post', data: { comment } })
 export const calculateJewelryProfit = (data) => request({ url: '/jewelry/calculator', method: 'post', data })

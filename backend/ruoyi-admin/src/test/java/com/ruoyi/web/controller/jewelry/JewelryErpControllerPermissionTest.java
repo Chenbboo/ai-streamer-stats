@@ -41,6 +41,7 @@ import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.core.domain.model.LoginUser;
 import com.ruoyi.jewelry.service.JewelryDocumentExcelService;
 import com.ruoyi.jewelry.service.IJewelryErpService;
+import com.ruoyi.jewelry.domain.JewelryDocument;
 
 class JewelryErpControllerPermissionTest
 {
@@ -80,6 +81,7 @@ class JewelryErpControllerPermissionTest
         expected.put("supplierList", "@ss.hasPermi('jewelry:supplier:list')");
         expected.put("stockList", "@ss.hasPermi('jewelry:stock:list')");
         expected.put("transactions", "@ss.hasPermi('jewelry:stock:list')");
+        expected.put("directAdjustCosts", "@ss.hasPermi('jewelry:stock:config')");
         expected.put("documentList", "@ss.hasPermi('jewelry:document:list')");
         expected.put("document", "@ss.hasPermi('jewelry:document:list')");
         expected.put("assessDocumentRisk", "@ss.hasAnyPermi('jewelry:document:add,jewelry:document:edit')");
@@ -220,6 +222,26 @@ class JewelryErpControllerPermissionTest
         verify(service, never()).updateProductBasic(any());
     }
 
+    @Test
+    void onlyAdministratorCanUseDirectCostAdjustment()
+    {
+        IJewelryErpService service = mock(IJewelryErpService.class);
+        JewelryDocument document = new JewelryDocument();
+        document.setDocType("COST_ADJUST");
+        when(service.directAdjustCosts(any(), eq(20L), eq("jewelry_admin"), eq("jewelry_admin")))
+            .thenReturn(document);
+        JewelryErpController controller = new JewelryErpController();
+        ReflectionTestUtils.setField(controller, "service", service);
+
+        loginAs("jewelry_maker", Collections.singleton("jewelry:stock:config"));
+        assertFalse(controller.directAdjustCosts(document).isSuccess());
+        verify(service, never()).directAdjustCosts(any(), any(), any(), any());
+
+        loginAs("jewelry_admin", Collections.singleton("jewelry:stock:config"));
+        assertTrue(controller.directAdjustCosts(document).isSuccess());
+        verify(service).directAdjustCosts(document, 20L, "jewelry_admin", "jewelry_admin");
+    }
+
     private void loginAsMakerWithProductAdd()
     {
         loginAs("jewelry_maker", Collections.singleton("jewelry:product:add"));
@@ -234,6 +256,7 @@ class JewelryErpControllerPermissionTest
         user.setUserName(roleKey);
         user.setRoles(Collections.singletonList(role));
         LoginUser loginUser = new LoginUser(user, new HashSet<String>(permissions));
+        loginUser.setUserId(20L);
         SecurityContextHolder.getContext().setAuthentication(
             new UsernamePasswordAuthenticationToken(loginUser, null));
     }

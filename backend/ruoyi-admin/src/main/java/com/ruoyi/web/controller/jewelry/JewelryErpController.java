@@ -26,6 +26,7 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.jewelry.domain.JewelryDocument;
@@ -383,6 +384,15 @@ public class JewelryErpController extends BaseController
         return success(saved);
     }
 
+    @PreAuthorize("@ss.hasPermi('jewelry:stock:config')")
+    @PostMapping("/stock/direct-cost-adjust")
+    public AjaxResult directAdjustCosts(@RequestBody JewelryDocument document)
+    {
+        if (!isErpAdministrator()) return error("只有管理员可以直接调整库存成本");
+        return success(service.directAdjustCosts(document, SecurityUtils.getUserId(), SecurityUtils.getUsername(),
+            "jewelry_admin"));
+    }
+
     @PreAuthorize("@ss.hasPermi('jewelry:document:edit')")
     @DeleteMapping("/document/{id}")
     public AjaxResult deleteDraft(@PathVariable Long id)
@@ -421,7 +431,8 @@ public class JewelryErpController extends BaseController
         Object expectedCost = body == null ? null : body.get("expectedTotalCost");
         service.approve(id, body == null ? "" : string(body.get("comment")),
             expectedCost == null ? null : decimal(expectedCost),
-            SecurityUtils.getUserId(), SecurityUtils.getUsername(), approvalRole(id));
+            SecurityUtils.getUserId(), SecurityUtils.getUsername(), approvalRole(id),
+            stockAdjustmentCosts(body));
         return success();
     }
 
@@ -509,6 +520,10 @@ public class JewelryErpController extends BaseController
             if (roleKey.equals(role.getRoleKey())) return true;
         return false;
     }
+    private boolean isErpAdministrator()
+    {
+        return SecurityUtils.getLoginUser().getUser().isAdmin() || hasErpRole("jewelry_admin");
+    }
     private String string(Object value) { return value == null ? "" : String.valueOf(value).trim(); }
     private String defaultString(Object value, String fallback)
     {
@@ -524,5 +539,35 @@ public class JewelryErpController extends BaseController
     {
         return value == null || string(value).isEmpty() ? java.math.BigDecimal.ZERO :
             new java.math.BigDecimal(string(value));
+    }
+
+    private Map<Long, java.math.BigDecimal> stockAdjustmentCosts(Map<String, Object> body)
+    {
+        Map<Long, java.math.BigDecimal> costs = new HashMap<Long, java.math.BigDecimal>();
+        if (body == null || body.get("stockAdjustmentCosts") == null) return costs;
+        Object value = body.get("stockAdjustmentCosts");
+        if (!(value instanceof List<?>))
+            throw new ServiceException("盘盈核定成本数据格式不正确");
+        for (Object entry : (List<?>) value)
+        {
+            if (!(entry instanceof Map<?, ?>))
+                throw new ServiceException("盘盈核定成本数据格式不正确");
+            Map<?, ?> item = (Map<?, ?>) entry;
+            Long itemId;
+            java.math.BigDecimal unitCost;
+            try
+            {
+                itemId = number(item.get("itemId"));
+                unitCost = decimal(item.get("unitCost"));
+            }
+            catch (NumberFormatException error)
+            {
+                throw new ServiceException("盘盈核定成本明细不正确");
+            }
+            if (itemId == null || costs.containsKey(itemId))
+                throw new ServiceException("盘盈核定成本明细不正确");
+            costs.put(itemId, unitCost);
+        }
+        return costs;
     }
 }

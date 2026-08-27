@@ -868,6 +868,85 @@ class JewelryErpServiceImplTest
     }
 
     @Test
+    void administratorCanReviseStockGainCostDuringFinalApproval()
+    {
+        JewelryDocument document = document(123L, "STOCK_ADJUST", "PENDING_SECOND");
+        document.setFirstReviewerUserId(REVIEWER_ONE_ID);
+        JewelryDocumentItem item = item(223L, 2, "0");
+        item.setSystemQty(10);
+        item.setCountedQty(12);
+        item.setAdjustmentQty(2);
+        item.setUnitCost(decimal("400.00"));
+        stubDocument(document, item);
+        when(mapper.selectStockForUpdate(PRODUCT_ID))
+            .thenReturn(stock(10, 0, 0, 0, 0, 0, "300.00", "0", "0"));
+        Map<Long, BigDecimal> revisedCosts = new HashMap<Long, BigDecimal>();
+        revisedCosts.put(223L, decimal("450.00"));
+
+        service.approve(123L, "按复核成本入账", null, REVIEWER_TWO_ID, "admin", "jewelry_admin",
+            revisedCosts);
+
+        assertMoney("450.00", item.getUnitCost());
+        assertMoney("900.00", item.getCostAmount());
+        verify(mapper).updateDocumentItemCost(item);
+        verify(mapper).updateDocumentFinancials(document);
+        verify(mapper).insertEvent(eq(123L), eq("ADMIN_COST_EDIT"), eq("PENDING_SECOND"),
+            eq("PENDING_SECOND"), eq(REVIEWER_TWO_ID), eq("admin"),
+            org.mockito.ArgumentMatchers.contains("400→450"));
+        verify(mapper).applyStock(eq(PRODUCT_ID), eq(12), eq(0), eq(0), eq(0), eq(0), eq(0),
+            decimalEq("325.000000"), decimalEq("0"), decimalEq("0"));
+    }
+
+    @Test
+    void reviewerCannotReviseStockGainCostDuringFirstApproval()
+    {
+        JewelryDocument document = document(124L, "STOCK_ADJUST", "PENDING_FIRST");
+        JewelryDocumentItem item = item(224L, 2, "0");
+        item.setSystemQty(10);
+        item.setCountedQty(12);
+        item.setAdjustmentQty(2);
+        item.setUnitCost(decimal("400.00"));
+        stubDocument(document, item);
+        Map<Long, BigDecimal> revisedCosts = new HashMap<Long, BigDecimal>();
+        revisedCosts.put(224L, decimal("450.00"));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.approve(124L, "", null, REVIEWER_ONE_ID, "reviewer", "jewelry_reviewer",
+                revisedCosts));
+
+        assertTrue(error.getMessage().contains("只有管理员终审"));
+        verify(mapper, never()).updateDocumentItemCost(any(JewelryDocumentItem.class));
+        verify(mapper, never()).applyStock(anyLong(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(),
+            any(), any(), any());
+    }
+
+    @Test
+    void administratorCannotReviseCostForStockLossLine()
+    {
+        JewelryDocument document = document(125L, "STOCK_ADJUST", "PENDING_SECOND");
+        document.setFirstReviewerUserId(REVIEWER_ONE_ID);
+        JewelryDocumentItem item = item(225L, 2, "0");
+        item.setSystemQty(10);
+        item.setCountedQty(8);
+        item.setAdjustmentQty(-2);
+        item.setUnitCost(decimal("300.00"));
+        stubDocument(document, item);
+        when(mapper.selectStockForUpdate(PRODUCT_ID))
+            .thenReturn(stock(10, 2, 0, 0, 0, 0, "300.00", "0", "0"));
+        Map<Long, BigDecimal> revisedCosts = new HashMap<Long, BigDecimal>();
+        revisedCosts.put(225L, decimal("450.00"));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.approve(125L, "", null, REVIEWER_TWO_ID, "admin", "jewelry_admin",
+                revisedCosts));
+
+        assertTrue(error.getMessage().contains("不是盘盈明细"));
+        verify(mapper, never()).updateDocumentItemCost(any(JewelryDocumentItem.class));
+        verify(mapper, never()).applyStock(anyLong(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(),
+            any(), any(), any());
+    }
+
+    @Test
     void reviewerApprovalMovesStockAdjustmentToAdministratorReviewWithoutPosting()
     {
         JewelryDocument document = document(122L, "STOCK_ADJUST", "PENDING_FIRST");
@@ -1598,6 +1677,55 @@ class JewelryErpServiceImplTest
         assertEquals("COST_ADJUST", transaction.getValue().get("transactionType"));
         assertEquals(0, transaction.getValue().get("onHandChange"));
         assertMoney("200.00", (BigDecimal) transaction.getValue().get("costAmountChange"));
+    }
+
+    @Test
+    void administratorDirectCostAdjustmentPostsImmediatelyWithoutApproval()
+    {
+        JewelryDocument document = document(null, "COST_ADJUST", null);
+        document.setReturnReason("修正盘点成本");
+        JewelryDocumentItem item = item(null, 10, "120.00");
+        document.setItems(Arrays.asList(item));
+        when(mapper.insertDocument(document)).thenAnswer(invocation -> {
+            document.setDocumentId(409L);
+            return 1;
+        });
+        when(mapper.selectDocumentById(409L)).thenReturn(document);
+        when(mapper.selectDocumentItems(409L)).thenReturn(Arrays.asList(item));
+
+        JewelryDocument posted = service.directAdjustCosts(document, REVIEWER_TWO_ID, "admin",
+            "jewelry_admin");
+
+        assertEquals("POSTED", posted.getStatus());
+        assertMoney("100.00", item.getUnitCost());
+        assertMoney("120.00", item.getUnitPrice());
+        verify(mapper).updateDocumentStatus(409L, "DRAFT", "POSTED", REVIEWER_TWO_ID, "admin", null, null);
+        verify(mapper).insertEvent(409L, "ADMIN_DIRECT_COST_ADJUST", "DRAFT", "POSTED",
+            REVIEWER_TWO_ID, "admin", "修正盘点成本");
+        verify(mapper, never()).insertApproval(anyLong(), anyInt(), anyString(), anyLong(), anyString(), anyString());
+        verify(mapper).applyStock(eq(PRODUCT_ID), eq(10), eq(0), eq(0), eq(0), eq(0), eq(0),
+            decimalEq("120.00"), decimalEq("0"), decimalEq("0"));
+        ArgumentCaptor<Map<String, Object>> transaction = ArgumentCaptor.forClass(Map.class);
+        verify(mapper).insertStockTransaction(transaction.capture());
+        assertEquals("COST_ADJUST", transaction.getValue().get("transactionType"));
+        assertEquals(0, transaction.getValue().get("onHandChange"));
+        assertMoney("200.00", (BigDecimal) transaction.getValue().get("costAmountChange"));
+    }
+
+    @Test
+    void nonAdministratorCannotUseDirectCostAdjustment()
+    {
+        JewelryDocument document = document(null, "COST_ADJUST", null);
+        document.setReturnReason("尝试调价");
+        document.setItems(Arrays.asList(item(null, 10, "120.00")));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.directAdjustCosts(document, REVIEWER_ONE_ID, "reviewer", "jewelry_reviewer"));
+
+        assertTrue(error.getMessage().contains("只有管理员"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+        verify(mapper, never()).applyStock(anyLong(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(),
+            any(), any(), any());
     }
 
     @Test

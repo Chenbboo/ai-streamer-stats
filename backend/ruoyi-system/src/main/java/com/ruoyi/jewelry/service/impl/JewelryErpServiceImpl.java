@@ -316,6 +316,29 @@ public class JewelryErpServiceImpl implements IJewelryErpService
 
     @Override
     @Transactional
+    public JewelryDocument directAdjustCosts(JewelryDocument document, Long userId, String userName,
+        String operatorRole)
+    {
+        if (!"jewelry_admin".equals(operatorRole))
+            throw new ServiceException("只有管理员可以直接调整库存成本");
+        if (document == null || !"COST_ADJUST".equals(document.getDocType()))
+            throw new ServiceException("直接调价只能用于库存成本调整");
+        if (document.getDocumentId() != null)
+            throw new ServiceException("直接调价必须新建，不能修改已有单据");
+
+        JewelryDocument saved = saveDocument(document, userId, userName);
+        validateCostChangeConflicts(saved);
+        validateCostAdjustmentSnapshot(saved);
+        post(saved, userId, userName);
+        changeStatus(saved, "DRAFT", "POSTED", userId, userName, null, null);
+        saved.setStatus("POSTED");
+        mapper.insertEvent(saved.getDocumentId(), "ADMIN_DIRECT_COST_ADJUST", "DRAFT", "POSTED",
+            userId, userName, text(saved.getReturnReason()));
+        return getDocument(saved.getDocumentId());
+    }
+
+    @Override
+    @Transactional
     public void deleteDraft(Long documentId, Long userId)
     {
         JewelryDocument document = mapper.selectDocumentByIdForUpdate(documentId);
@@ -584,7 +607,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     @Override
     @Transactional
     public void approve(Long documentId, String comment, BigDecimal expectedTotalCost, Long userId, String userName,
-        String approvalRole)
+        String approvalRole, Map<Long, BigDecimal> stockAdjustmentCosts)
     {
         JewelryDocument document = getDocument(documentId);
         ensureReviewer(document, userId);
@@ -597,6 +620,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         if (dualApproval)
         {
             ensureDualApprovalRole(document, pendingStatus, userId, approvalRole);
+            if (stockAdjustmentCosts != null && !stockAdjustmentCosts.isEmpty()
+                && (!"STOCK_ADJUST".equals(document.getDocType()) || !"PENDING_SECOND".equals(pendingStatus)
+                    || !"jewelry_admin".equals(approvalRole)))
+                throw new ServiceException("只有管理员终审盘点单时可以修改盘盈核定成本");
             if ("STOCK_ADJUST".equals(document.getDocType())) validateStockAdjustmentSnapshot(document);
             if ("COST_ADJUST".equals(document.getDocType())) validateCostAdjustmentSnapshot(document);
             if (isCostChangeDocument(document)) validateCostChangeConflicts(document);
@@ -608,6 +635,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     userId, userName, text(comment));
                 return;
             }
+            if ("STOCK_ADJUST".equals(document.getDocType()))
+                applyStockAdjustmentCostOverrides(document, stockAdjustmentCosts, userId, userName);
         }
         else if ("PURCHASE_IN".equals(document.getDocType()))
         {
@@ -639,6 +668,47 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         changeStatus(document, pendingStatus, "POSTED", userId, userName, null, stage);
         mapper.insertApproval(documentId, stage, "PASS", userId, userName, text(comment));
         mapper.insertEvent(documentId, "APPROVE", pendingStatus, "POSTED", userId, userName, text(comment));
+    }
+
+    private void applyStockAdjustmentCostOverrides(JewelryDocument document,
+        Map<Long, BigDecimal> stockAdjustmentCosts, Long userId, String userName)
+    {
+        if (stockAdjustmentCosts == null || stockAdjustmentCosts.isEmpty()) return;
+        Map<Long, JewelryDocumentItem> itemsById = new HashMap<Long, JewelryDocumentItem>();
+        for (JewelryDocumentItem item : document.getItems())
+            if (item.getItemId() != null) itemsById.put(item.getItemId(), item);
+
+        List<JewelryDocumentItem> changedItems = new ArrayList<JewelryDocumentItem>();
+        List<String> changes = new ArrayList<String>();
+        for (Map.Entry<Long, BigDecimal> entry : stockAdjustmentCosts.entrySet())
+        {
+            JewelryDocumentItem item = itemsById.get(entry.getKey());
+            if (item == null)
+                throw new ServiceException("盘盈核定成本明细不存在，请刷新后重试");
+            if (item.getAdjustmentQty() == null || item.getAdjustmentQty() <= 0)
+                throw new ServiceException(item.getProductNameSnapshot() + " 不是盘盈明细，不能修改核定成本");
+            BigDecimal revisedCost = money(entry.getValue());
+            if (revisedCost.signum() <= 0)
+                throw new ServiceException(item.getProductNameSnapshot() + " 的盘盈核定成本必须大于0");
+            BigDecimal originalCost = money(item.getUnitCost());
+            if (originalCost.compareTo(revisedCost) == 0) continue;
+            item.setUnitCost(revisedCost);
+            changedItems.add(item);
+            changes.add(text(item.getSkuSnapshot()) + "：" + costText(originalCost) + "→" + costText(revisedCost));
+        }
+        if (changedItems.isEmpty()) return;
+
+        calculateDocument(document);
+        for (JewelryDocumentItem item : changedItems) mapper.updateDocumentItemCost(item);
+        String auditComment = "管理员调整盘盈核定成本：" + String.join("；", changes);
+        if (auditComment.length() > 480) auditComment = auditComment.substring(0, 477) + "...";
+        mapper.insertEvent(document.getDocumentId(), "ADMIN_COST_EDIT", "PENDING_SECOND", "PENDING_SECOND",
+            userId, userName, auditComment);
+    }
+
+    private String costText(BigDecimal value)
+    {
+        return money(value).stripTrailingZeros().toPlainString();
     }
 
     @Override

@@ -26,17 +26,25 @@ public interface IJewelryErpService
     Map<String, Object> assessDocumentRisk(JewelryDocument document);
     Map<String, Object> calculateProfit(Map<String, Object> input);
     JewelryDocument saveDocument(JewelryDocument document, Long userId, String userName);
+    JewelryDocument directAdjustCosts(JewelryDocument document, Long userId, String userName, String operatorRole);
     void deleteDraft(Long documentId, Long userId);
     JewelryDocument createReversal(Long sourceDocumentId, Long userId, String userName);
     void submit(Long documentId, Long userId, String userName);
     void withdraw(Long documentId, Long userId, String userName);
     void approve(Long documentId, String comment, BigDecimal expectedTotalCost, Long userId, String userName,
-        String approvalRole);
+        String approvalRole, Map<Long, BigDecimal> stockAdjustmentCosts);
     void reject(Long documentId, String comment, Long userId, String userName, String approvalRole);
 
     default void approve(Long documentId, String comment, BigDecimal expectedTotalCost, Long userId, String userName)
     {
         approve(documentId, comment, expectedTotalCost, userId, userName, "jewelry_reviewer");
+    }
+
+    default void approve(Long documentId, String comment, BigDecimal expectedTotalCost, Long userId, String userName,
+        String approvalRole)
+    {
+        approve(documentId, comment, expectedTotalCost, userId, userName, approvalRole,
+            java.util.Collections.<Long, BigDecimal>emptyMap());
     }
 
     default void reject(Long documentId, String comment, Long userId, String userName)

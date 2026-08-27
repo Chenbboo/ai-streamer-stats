@@ -303,6 +303,25 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void inventoryChangeFilterIncludesStockAndCostAdjustmentsOnly()
+    {
+        insertDocument(1L, "PD-POSTED", "STOCK_ADJUST", "POSTED", null);
+        insertDocument(2L, "TJ-POSTED", "COST_ADJUST", "POSTED", null);
+        insertDocument(3L, "CG-POSTED", "PURCHASE_IN", "POSTED", null);
+
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            JewelryDocument query = new JewelryDocument();
+            query.setDocType("INVENTORY_CHANGE");
+
+            assertEquals(2, mapper.selectDocumentList(query).size());
+            assertEquals("COST_ADJUST", mapper.selectDocumentList(query).get(0).getDocType());
+            assertEquals("STOCK_ADJUST", mapper.selectDocumentList(query).get(1).getDocType());
+        }
+    }
+
+    @Test
     void returnedQuantityIgnoresRejectedDocumentsAndCanExcludeCurrentDraft()
     {
         insertDocument(1L, "SALE-1", "SALES_OUT", "POSTED", null);

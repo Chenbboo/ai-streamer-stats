@@ -28,6 +28,7 @@
         <el-descriptions-item label="审批人"><span v-if="isDualApproval(detail)">审核员：{{detail.firstReviewerName||'待审核'}}；管理员：{{detail.secondReviewerName||'待复核'}}</span><span v-else>{{detail.secondReviewerName || detail.firstReviewerName || '—'}}</span></el-descriptions-item>
       </el-descriptions>
       <el-alert v-if="detail?.riskStatus==='LOSS'" title="该销售单预计亏损，请核对成交价、商品成本及各项费率后再审批。" type="error" :closable="false" show-icon class="mt20"/>
+      <el-alert v-if="isAdminStockReview(detail)" title="管理员可调整盘盈明细的核定成本；点击“通过并入账”时，修改后的成本会与库存调整一并保存。" type="warning" :closable="false" show-icon class="mt20"/>
       <div v-if="detail?.docType==='ASSEMBLY'" class="assembly-review mt20">
         <el-image
           v-if="firstImage(assemblyOutput(detail)?.imageUrls)"
@@ -67,12 +68,23 @@
         <el-table-column v-if="detail.docType!=='STOCK_ADJUST'" prop="qty" :label="detail.docType==='COST_ADJUST'?'当前库存':'数量'"/>
         <el-table-column v-if="detail.docType==='RETURN_INSPECT'" prop="goodQty" label="良品"/>
         <el-table-column v-if="detail.docType==='RETURN_INSPECT'" prop="defectQty" label="次品"/>
-        <el-table-column prop="unitCost" :label="detail.docType==='COST_ADJUST'?'当前平均成本':'成本'"/>
+        <el-table-column v-if="detail.docType==='STOCK_ADJUST'" label="盘盈核定成本" width="170">
+          <template #default="{row}">
+            <el-input-number v-if="canEditGainCost(row)" v-model="row.unitCost" :min="0.01" :precision="2" :step="1" controls-position="right" style="width:145px"/>
+            <span v-else>{{money(row.unitCost)}}</span>
+          </template>
+        </el-table-column>
+        <el-table-column v-else prop="unitCost" :label="detail.docType==='COST_ADJUST'?'当前平均成本':'成本'"/>
         <el-table-column :label="detail.docType==='COST_ADJUST'?'调整后平均成本':'单价'"><template #default="{row}">{{unitPriceMoney(row.unitPrice,detail)}}</template></el-table-column>
         <el-table-column :label="detail.docType==='ASSEMBLY'?'成本金额':detail.docType==='COST_ADJUST'?'库存金额变化':'金额'"><template #default="{row}">{{documentMoney(detail.docType==='ASSEMBLY'?row.costAmount:row.amount,detail)}}</template></el-table-column>
         <el-table-column label="毛利"><template #default="{row}"><span v-if="['ASSEMBLY','COST_ADJUST'].includes(detail.docType)">—</span><span v-else :class="{loss:Number(row.profitAmount)<0}">{{money(row.profitAmount)}}</span></template></el-table-column>
         <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="lineReason" label="调整原因" min-width="160"/>
       </el-table>
+      <template #footer v-if="detail&&canAct(detail)">
+        <el-button @click="drawer=false">关闭</el-button>
+        <el-button type="danger" v-hasPermi="['jewelry:approval:reject']" @click="act(detail,false,true)">驳回</el-button>
+        <el-button type="success" v-hasPermi="['jewelry:approval:approve']" @click="act(detail,true,true)">{{isAdminStockReview(detail)?'通过并入账':'通过'}}</el-button>
+      </template>
     </el-drawer>
 
     <el-dialog v-model="profitDialog" title="毛利计算明细" width="680px" append-to-body>
@@ -159,6 +171,9 @@ const typeLabels={PURCHASE_IN:'采购入库',SALES_OUT:'销售出库',SUPPLIER_R
 const typeLabel=value=>typeLabels[value]||value
 const isDualApproval=row=>['STOCK_ADJUST','COST_ADJUST'].includes(row?.docType)||(row?.docType==='REVERSAL'&&['STOCK_ADJUST','COST_ADJUST'].includes(row?.sourceDocType))
 const isCostAdjustment=row=>row?.docType==='COST_ADJUST'||(row?.docType==='REVERSAL'&&row?.sourceDocType==='COST_ADJUST')
+const isAdministrator=()=>((userStore.roles||[]).some(role=>['admin','jewelry_admin'].includes(role)))
+const isAdminStockReview=row=>row?.docType==='STOCK_ADJUST'&&row?.status==='PENDING_SECOND'&&isAdministrator()
+const canEditGainCost=row=>isAdminStockReview(detail.value)&&Number(row?.adjustmentQty||0)>0
 const canAct=row=>{
   if(!isDualApproval(row))return true
   const roles=userStore.roles||[]
@@ -220,8 +235,9 @@ watch(()=>route.query.status,status=>{
   if(approvalStatuses.includes(status)&&query.status!=='PENDING'){query.status='PENDING';query.pageNum=1;load()}
 })
 async function showProfit(row){profitDialog.value=true;profitLoading.value=true;profitDetail.value=null;try{profitDetail.value=(await getJewelryDocument(row.documentId)).data}finally{profitLoading.value=false}}
-async function act(row,pass){
-  let comment='',expectedTotalCost
+async function act(row,pass,fromDetail=false){
+  if(pass&&isAdminStockReview(row)&&!fromDetail){await show(row);return}
+  let comment='',expectedTotalCost,stockAdjustmentCosts
   if(!pass){
     const result=await proxy.$prompt('请输入驳回原因','驳回单据',{inputValidator:value=>!!value||'原因不能为空'})
     comment=result.value
@@ -238,11 +254,22 @@ async function act(row,pass){
     }else if(row.riskStatus==='LOSS'){
       warning=`该单据预计亏损 ¥${money(Math.abs(Number(row.totalProfit||0)))}，确认仍要通过 ${row.docNo}？`
     }
+    if(isAdminStockReview(row)){
+      const current=detail.value?.documentId===row.documentId?detail.value:(await getJewelryDocument(row.documentId)).data
+      const gains=(current.items||[]).filter(item=>Number(item.adjustmentQty||0)>0)
+      if(gains.some(item=>!Number.isFinite(Number(item.unitCost))||Number(item.unitCost)<=0)){
+        proxy.$modal.msgError('盘盈核定成本必须大于0')
+        return
+      }
+      stockAdjustmentCosts=gains.map(item=>({itemId:item.itemId,unitCost:item.unitCost}))
+      warning=`确认按当前盘盈核定成本通过 ${row.docNo} 并正式调整库存？`
+    }
     await proxy.$modal.confirm(warning,row.riskStatus==='LOSS'?'亏损风险确认':'审批确认',{type:row.riskStatus==='LOSS'?'error':'warning'})
   }
-  if(pass)await approveJewelryDocument(row.documentId,comment,expectedTotalCost)
+  if(pass)await approveJewelryDocument(row.documentId,comment,expectedTotalCost,stockAdjustmentCosts)
   else await rejectJewelryDocument(row.documentId,comment)
   proxy.$modal.msgSuccess(pass&&isDualApproval(row)&&row.status==='PENDING_FIRST'?'已转交管理员复核':'操作成功')
+  if(fromDetail)drawer.value=false
   load()
 }
 load()

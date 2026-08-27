@@ -388,7 +388,12 @@
         left join jewelry_document src on src.document_id=d.source_document_id
         <where>
             <if test="docNo != null and docNo != ''">and d.doc_no like concat('%',#{docNo},'%')</if>
-            <if test="docType != null and docType != ''">and d.doc_type=#{docType}</if>
+            <choose>
+                <when test="docType == 'INVENTORY_CHANGE'">
+                    and d.doc_type in ('STOCK_ADJUST','COST_ADJUST')
+                </when>
+                <when test="docType != null and docType != ''">and d.doc_type=#{docType}</when>
+            </choose>
             <choose>
                 <when test="status == 'PENDING'">and d.status in ('PENDING_FIRST','PENDING_SECOND')</when>
                 <when test="status != null and status != ''">and d.status=#{status}</when>
