@@ -1470,7 +1470,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 int adjustment = item.getAdjustmentQty();
                 if (item.getSystemQty() == null || before != item.getSystemQty())
                     throw new ServiceException(item.getProductNameSnapshot()
-                        + " 的账面库存已变化，请撤回或驳回后重新盘点");
+                        + " 的可售库存已变化，请撤回或驳回后重新盘点");
                 onHand += adjustment;
                 if (adjustment < 0) reserved -= -adjustment;
                 if (onHand < 0) throw new ServiceException("调整后库存不能为负数");
@@ -1799,7 +1799,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             int currentQty = intValue(stock.get("onHandQty"));
             if (item.getSystemQty() == null || currentQty != item.getSystemQty())
                 throw new ServiceException(item.getProductNameSnapshot()
-                    + " 的账面库存已变化，请编辑盘点单刷新数据后再提交");
+                    + " 的可售库存已变化，请编辑盘点单刷新数据后再提交");
             int expected = item.getCountedQty() - item.getSystemQty();
             if (expected == 0 || expected != item.getAdjustmentQty())
                 throw new ServiceException(item.getProductNameSnapshot() + " 的盘点差异数据不一致");

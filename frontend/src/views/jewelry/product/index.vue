@@ -25,7 +25,7 @@
       <el-table-column prop="category" label="分类" min-width="130" show-overflow-tooltip/>
       <el-table-column prop="specification" label="规格类型" width="100"/>
       <el-table-column prop="unit" label="单位" width="70"/>
-      <el-table-column prop="onHandQty" label="库存" width="90" align="right"/>
+      <el-table-column prop="onHandQty" label="可售库存" width="100" align="right"/>
       <el-table-column v-if="canViewFinance" prop="avgCost" label="平均成本" width="110" align="right"/>
       <el-table-column prop="warningQty" label="预警值" width="90" align="right"/>
       <el-table-column label="状态" width="80"><template #default="{row}">{{row.status==='0'?'启用':'停用'}}</template></el-table-column>

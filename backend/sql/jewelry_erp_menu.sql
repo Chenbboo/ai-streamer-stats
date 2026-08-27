@@ -62,7 +62,7 @@ create table if not exists jewelry_supplier (
 
 create table if not exists jewelry_stock (
   product_id bigint not null comment '商品ID',
-  on_hand_qty int not null default 0 comment '账面库存',
+  on_hand_qty int not null default 0 comment '可售库存',
   reserved_out_qty int not null default 0 comment '出库待审冻结',
   inspection_qty int not null default 0 comment '售后待检',
   inspection_reserved_qty int not null default 0 comment '待检处理冻结',

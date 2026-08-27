@@ -241,11 +241,13 @@
         )
         select p.product_id productId,p.sku,p.product_name productName,p.product_type productType,
                p.specification,p.category,p.warning_qty warningQty,
+               (s.on_hand_qty+s.inspection_qty+s.defect_qty) totalStockQty,
                s.on_hand_qty onHandQty,s.reserved_out_qty reservedOutQty,
                (s.on_hand_qty-s.reserved_out_qty) availableQty,s.inspection_qty inspectionQty,
                s.inspection_reserved_qty inspectionReservedQty,s.defect_qty defectQty,
                s.defect_reserved_qty defectReservedQty,s.avg_cost avgCost,
-               round(s.on_hand_qty*s.avg_cost,2) stockAmount,s.update_time updateTime,
+               round(s.on_hand_qty*s.avg_cost+s.inspection_cost_amount+s.defect_cost_amount,2) stockAmount,
+               s.update_time updateTime,
                date(age_tx.create_time) oldestInboundDate,
                case when s.on_hand_qty &gt; 0 and age_tx.create_time is not null
                  then datediff(curdate(),date(age_tx.create_time)) else 0 end stockAgeDays,
@@ -331,7 +333,7 @@
           from sys_config where config_key='jewelry.stock.warning.days'
         )
         select (select count(*) from jewelry_product where status='0') productCount,
-          coalesce((select sum(on_hand_qty) from jewelry_stock),0) stockQty,
+          coalesce((select sum(on_hand_qty+inspection_qty+defect_qty) from jewelry_stock),0) stockQty,
           coalesce((select sum(on_hand_qty-reserved_out_qty) from jewelry_stock),0) availableQty,
           coalesce((select sum(inspection_qty) from jewelry_stock),0) inspectionQty,
           coalesce((select round(sum(on_hand_qty*avg_cost+inspection_cost_amount+defect_cost_amount),2)

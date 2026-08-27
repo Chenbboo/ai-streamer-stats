@@ -844,7 +844,7 @@ class JewelryErpServiceImplTest
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.submit(12L, MAKER_ID, "maker"));
 
-        assertTrue(error.getMessage().contains("账面库存已变化"));
+        assertTrue(error.getMessage().contains("可售库存已变化"));
         verify(mapper, never()).reserveOutbound(anyLong(), anyInt());
     }
 

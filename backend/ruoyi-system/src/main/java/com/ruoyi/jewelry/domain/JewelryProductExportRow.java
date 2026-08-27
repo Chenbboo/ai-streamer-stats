@@ -28,10 +28,10 @@ public class JewelryProductExportRow
     @Excel(name = "单位", sort = 6, width = 10)
     private String unit;
 
-    @Excel(name = "库存", sort = 7, cellType = ColumnType.NUMERIC)
+    @Excel(name = "可售库存", sort = 7, cellType = ColumnType.NUMERIC)
     private Integer onHandQty;
 
-    @Excel(name = "平均成本", sort = 8, cellType = ColumnType.NUMERIC, scale = 4)
+    @Excel(name = "可售平均成本", sort = 8, cellType = ColumnType.NUMERIC, scale = 4)
     private BigDecimal avgCost;
 
     @Excel(name = "预警值", sort = 9, cellType = ColumnType.NUMERIC)

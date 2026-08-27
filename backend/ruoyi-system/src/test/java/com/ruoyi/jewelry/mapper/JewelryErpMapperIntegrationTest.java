@@ -123,6 +123,8 @@ class JewelryErpMapperIntegrationTest
         query.put("productType", "ACCESSORY");
         String filteredSql = statement.getBoundSql(query).getSql().replaceAll("\\s+", " ");
         assertTrue(filteredSql.contains("p.product_type=?"));
+        assertTrue(filteredSql.contains("(s.on_hand_qty+s.inspection_qty+s.defect_qty) totalStockQty"));
+        assertTrue(filteredSql.contains("s.on_hand_qty*s.avg_cost+s.inspection_cost_amount+s.defect_cost_amount"));
 
         String unfilteredSql = statement.getBoundSql(Collections.emptyMap()).getSql().replaceAll("\\s+", " ");
         assertFalse(unfilteredSql.contains("p.product_type=?"));

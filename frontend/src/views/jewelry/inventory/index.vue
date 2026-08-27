@@ -101,7 +101,7 @@
 
       <el-alert
         v-if="!readonly"
-        title="系统只保存存在差异的商品；提交后先由审核员初审，再由管理员复核，复核通过后才调整库存。审批中如账面库存发生变化，需要重新编辑盘点结果。"
+        title="系统只保存存在差异的商品；提交后先由审核员初审，再由管理员复核，复核通过后才调整可售库存。审批中如可售库存发生变化，需要重新编辑盘点结果。"
         type="info"
         :closable="false"
         show-icon
@@ -111,8 +111,8 @@
       <el-table :data="visibleItems" border height="52vh" row-key="productId">
         <el-table-column prop="skuSnapshot" label="SKU" width="150" fixed />
         <el-table-column prop="productNameSnapshot" label="商品名称" min-width="180" fixed />
-        <el-table-column prop="systemQty" label="系统库存" width="105" align="right" />
-        <el-table-column label="实盘库存" width="150" align="center">
+        <el-table-column prop="systemQty" label="系统可售库存" width="125" align="right" />
+        <el-table-column label="实盘可售库存" width="150" align="center">
           <template #default="{ row }">
             <el-input-number v-model="row.countedQty" :min="0" :disabled="readonly" controls-position="right" />
           </template>
