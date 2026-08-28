@@ -152,6 +152,74 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void influencerPriceAndHistoryRoundTrip()
+    {
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification,status)"
+            + " values(100,'SKU-100','测试商品','FINISHED','普通','0')");
+        insertDocument(900L, "SALE-900", "SALES_OUT", "DRAFT", null);
+        final Long[] influencerId = new Long[1];
+        Map<String, Object> influencer = new HashMap<String, Object>();
+        influencer.put("influencerCode", "KOL-001");
+        influencer.put("externalInfluencerId", "DY-778899");
+        influencer.put("influencerName", "测试主播");
+        influencer.put("platform", "抖音");
+        influencer.put("platformAccount", "douyin-001");
+        influencer.put("salesChannel", "抖音");
+        influencer.put("contactPhone", "13800000000");
+        influencer.put("status", "0");
+        influencer.put("createBy", "maker");
+        influencer.put("remark", "");
+
+        try (SqlSession session = sqlSessionFactory.openSession(false))
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            assertEquals(1, mapper.insertInfluencer(influencer));
+            influencerId[0] = ((Number) influencer.get("influencerId")).longValue();
+            String generatedCode = String.format("DR%06d", influencerId[0]);
+            assertEquals(1, mapper.updateInfluencerCode(influencerId[0], generatedCode, "maker"));
+            influencer.put("influencerCode", generatedCode);
+            Map<String, Object> pending = new HashMap<String, Object>();
+            pending.put("influencerId", influencerId[0]);
+            pending.put("productId", 100L);
+            pending.put("fixedUnitPrice", new BigDecimal("88.1234"));
+            pending.put("sourceDocumentId", 900L);
+            pending.put("userName", "maker");
+            assertEquals(1, mapper.insertPendingInfluencerProductPrice(pending));
+            assertEquals(1, mapper.promoteInfluencerProductPrice(influencerId[0], 100L, 900L, "reviewer"));
+
+            Map<String, Object> history = new HashMap<String, Object>();
+            history.put("influencerId", influencerId[0]);
+            history.put("productId", 100L);
+            history.put("oldPrice", null);
+            history.put("newPrice", new BigDecimal("88.1234"));
+            history.put("sourceType", "FIRST_SALE");
+            history.put("sourceDocumentId", 900L);
+            history.put("priceVersion", 1);
+            history.put("changeReason", "首笔销售入账自动建立固定价");
+            history.put("operatorUserId", 20L);
+            history.put("operatorName", "reviewer");
+            assertEquals(1, mapper.insertInfluencerPriceHistory(history));
+            session.commit();
+        }
+
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            Map<String, Object> stored = mapper.selectInfluencerList(
+                Collections.<String, Object>singletonMap("keyword", "测试")).get(0);
+            assertEquals(influencer.get("influencerCode"), mapValue(stored, "influencerCode"));
+            assertEquals("DY-778899", mapValue(stored, "externalInfluencerId"));
+            assertEquals(1L, ((Number) mapValue(stored, "pricedProductCount")).longValue());
+            Map<String, Object> productPrice = mapper.selectInfluencerProductPrices(influencerId[0]).get(0);
+            assertEquals("PRICED", mapValue(productPrice, "priceStatus"));
+            assertEquals("SKU-100", mapValue(productPrice, "sku"));
+            assertEquals(0, new BigDecimal(String.valueOf(mapValue(productPrice, "fixedUnitPrice")))
+                .compareTo(new BigDecimal("88.1234")));
+            assertEquals(1, mapper.selectInfluencerPriceHistory(influencerId[0]).size());
+        }
+    }
+
+    @Test
     void supplierReturnSourcesTrackPendingAndPostedReturnedQuantities()
     {
         insertDocument(1L, "PURCHASE-1", "PURCHASE_IN", "POSTED", null);
@@ -573,8 +641,9 @@ class JewelryErpMapperIntegrationTest
             + "document_id bigint auto_increment primary key,doc_no varchar(32) not null unique,"
             + "doc_type varchar(32) not null,biz_date date not null,status varchar(24) not null,"
             + "supplier_id bigint,supplier_name_snapshot varchar(128) default '',"
-            + "sales_channel varchar(64) default '',external_no varchar(64) default '',"
-            + "influencer_name varchar(64) default '',platform_rate decimal(9,6) default 0,"
+            + "sales_channel varchar(64) default '',external_no varchar(64) default '',influencer_id bigint,"
+            + "influencer_name varchar(64) default '',influencer_price_snapshot decimal(18,4),"
+            + "influencer_price_version int,platform_rate decimal(9,6) default 0,"
             + "commission_rate decimal(9,6) default 0,tax_rate decimal(9,6) default 0,"
             + "return_reason varchar(255) default '',source_document_id bigint,"
             + "unlinked_reason varchar(255) default '',actual_refund_amount decimal(20,2),"
@@ -597,7 +666,8 @@ class JewelryErpMapperIntegrationTest
             + "product_type_snapshot varchar(16),specification_snapshot varchar(16),image_urls varchar(1000),"
             + "qty int not null default 0,good_qty int not null default 0,defect_qty int not null default 0,"
             + "system_qty int,counted_qty int,adjustment_qty int not null default 0,"
-            + "unit_price decimal(18,6) not null default 0,unit_cost decimal(18,6) not null default 0,"
+            + "unit_price decimal(18,6) not null default 0,influencer_price_snapshot decimal(18,4),"
+            + "influencer_price_version int,unit_cost decimal(18,6) not null default 0,"
             + "pack_fee decimal(18,6) not null default 0,ship_fee decimal(18,6) not null default 0,"
             + "cert_fee decimal(18,6) not null default 0,other_fee1 decimal(18,6) not null default 0,"
             + "other_fee2 decimal(18,6) not null default 0,other_fee3 decimal(18,6) not null default 0,"
@@ -606,6 +676,25 @@ class JewelryErpMapperIntegrationTest
             + "profit_rate decimal(9,6) not null default 0,line_reason varchar(255) default '')");
         execute("create table jewelry_approval (approval_id bigint auto_increment primary key,document_id bigint not null)");
         execute("create table jewelry_document_event (event_id bigint auto_increment primary key,document_id bigint not null)");
+        execute("create table jewelry_influencer (influencer_id bigint auto_increment primary key,"
+            + "influencer_code varchar(32) not null unique,influencer_name varchar(128) not null,"
+            + "external_influencer_id varchar(64) default '',"
+            + "platform varchar(64) default '',platform_account varchar(128) default '',sales_channel varchar(64) default '',"
+            + "fixed_unit_price decimal(18,4),price_status varchar(16) default 'UNPRICED',price_version int default 0,"
+            + "price_source_document_id bigint,price_effective_time timestamp,last_sale_time timestamp,"
+            + "contact_phone varchar(32) default '',status char(1) default '0',create_by varchar(64),create_time timestamp,"
+            + "update_by varchar(64),update_time timestamp,remark varchar(500))");
+        execute("create table jewelry_influencer_product_price (price_id bigint auto_increment primary key,"
+            + "influencer_id bigint not null,product_id bigint not null,fixed_unit_price decimal(18,4) not null,"
+            + "price_status varchar(16) not null default 'PENDING',price_version int not null default 0,"
+            + "pending_source_document_id bigint,price_source_document_id bigint,price_effective_time timestamp,"
+            + "create_by varchar(64),create_time timestamp,update_by varchar(64),update_time timestamp,"
+            + "unique(influencer_id,product_id))");
+        execute("create table jewelry_influencer_price_history (history_id bigint auto_increment primary key,"
+            + "influencer_id bigint not null,product_id bigint not null,old_price decimal(18,4),new_price decimal(18,4) not null,"
+            + "source_type varchar(24) not null,source_document_id bigint,price_version int not null,"
+            + "change_reason varchar(500) not null,operator_user_id bigint not null,operator_name varchar(64) not null,"
+            + "create_time timestamp not null)");
     }
 
     private void insertStock(Long productId, int onHand, int reserved, int inspection,
@@ -659,6 +748,15 @@ class JewelryErpMapperIntegrationTest
     private BigDecimal decimalValue(String sql)
     {
         return new BigDecimal(String.valueOf(scalar(sql)));
+    }
+
+    private Object mapValue(Map<String, Object> row, String key)
+    {
+        return row.entrySet().stream()
+            .filter(entry -> entry.getKey().equalsIgnoreCase(key))
+            .map(Map.Entry::getValue)
+            .findFirst()
+            .orElse(null);
     }
 
     private Object scalar(String sql)

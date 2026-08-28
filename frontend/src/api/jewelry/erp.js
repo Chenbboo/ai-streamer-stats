@@ -9,6 +9,13 @@ export const listJewelryProductOptions = (params) => request({ url: '/jewelry/pr
 export const saveJewelryProduct = (data) => request({ url: '/jewelry/product', method: 'post', data })
 export const listJewelrySuppliers = (params) => request({ url: '/jewelry/supplier/list', method: 'get', params })
 export const saveJewelrySupplier = (data) => request({ url: '/jewelry/supplier', method: 'post', data })
+export const listJewelryInfluencers = (params) => request({ url: '/jewelry/influencer/list', method: 'get', params })
+export const listJewelryInfluencerOptions = (params) => request({ url: '/jewelry/influencer/options', method: 'get', params })
+export const saveJewelryInfluencer = (data) => request({ url: '/jewelry/influencer', method: 'post', data })
+export const getJewelryInfluencerProductPrices = (id) => request({ url: `/jewelry/influencer/${id}/product-prices`, method: 'get' })
+export const changeJewelryInfluencerPrice = (id, productId, data) => request({ url: `/jewelry/influencer/${id}/product/${productId}/fixed-price`, method: 'put', data })
+export const getJewelryInfluencerPriceHistory = (id) => request({ url: `/jewelry/influencer/${id}/price-history`, method: 'get' })
+export const getJewelryInfluencerBundleItems = (id) => request({ url: `/jewelry/influencer/${id}/bundle-items`, method: 'get' })
 export const listJewelryStock = (params) => request({ url: '/jewelry/stock/list', method: 'get', params })
 export const listJewelryTransactions = (params) => request({ url: '/jewelry/stock/transactions', method: 'get', params })
 export const getJewelryStockWarningDays = () => request({ url: '/jewelry/stock/warning-days', method: 'get' })
@@ -21,6 +28,10 @@ export const listSupplierReturnSources = (supplierId) => request({
 })
 export const getSupplierReturnSource = (id, excludeDocumentId) => request({
   url: `/jewelry/document/supplier-return-source/${id}`,
+  method: 'get', params: excludeDocumentId ? { excludeDocumentId } : undefined
+})
+export const getCustomerReturnSource = (id, excludeDocumentId) => request({
+  url: `/jewelry/document/customer-return-source/${id}`,
   method: 'get', params: excludeDocumentId ? { excludeDocumentId } : undefined
 })
 export const getReturnInspectionSource = (id, excludeDocumentId) => request({

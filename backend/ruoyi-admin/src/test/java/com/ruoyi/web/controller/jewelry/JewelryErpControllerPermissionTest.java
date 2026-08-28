@@ -79,11 +79,18 @@ class JewelryErpControllerPermissionTest
         expected.put("productList", "@ss.hasPermi('jewelry:product:list')");
         expected.put("exportProducts", "@ss.hasPermi('jewelry:product:list')");
         expected.put("supplierList", "@ss.hasPermi('jewelry:supplier:list')");
+        expected.put("influencerList", "@ss.hasPermi('jewelry:influencer:list')");
+        expected.put("influencerOptions", "@ss.hasPermi('jewelry:influencer:list')");
+        expected.put("influencerProductPrices", "@ss.hasPermi('jewelry:influencer:list')");
+        expected.put("influencerPriceHistory", "@ss.hasPermi('jewelry:influencer:list')");
+        expected.put("influencerBundleItems", "@ss.hasPermi('jewelry:influencer:list')");
+        expected.put("changeInfluencerPrice", "@ss.hasPermi('jewelry:influencer:price')");
         expected.put("stockList", "@ss.hasPermi('jewelry:stock:list')");
         expected.put("transactions", "@ss.hasPermi('jewelry:stock:list')");
         expected.put("directAdjustCosts", "@ss.hasPermi('jewelry:stock:config')");
         expected.put("documentList", "@ss.hasPermi('jewelry:document:list')");
         expected.put("document", "@ss.hasPermi('jewelry:document:list')");
+        expected.put("customerReturnSource", "@ss.hasPermi('jewelry:document:list')");
         expected.put("assessDocumentRisk", "@ss.hasAnyPermi('jewelry:document:add,jewelry:document:edit')");
         expected.put("deleteDraft", "@ss.hasPermi('jewelry:document:edit')");
         expected.put("submit", "@ss.hasPermi('jewelry:document:submit')");
@@ -110,6 +117,8 @@ class JewelryErpControllerPermissionTest
             authorization("saveProduct"));
         assertEquals("@ss.hasAnyPermi('jewelry:supplier:add,jewelry:supplier:edit')",
             authorization("saveSupplier"));
+        assertEquals("@ss.hasAnyPermi('jewelry:influencer:add,jewelry:influencer:edit')",
+            authorization("saveInfluencer"));
         assertEquals("@ss.hasAnyPermi('jewelry:document:add,jewelry:document:edit')",
             authorization("saveDocument"));
     }

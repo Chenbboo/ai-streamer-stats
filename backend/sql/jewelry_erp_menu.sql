@@ -60,6 +60,44 @@ create table if not exists jewelry_supplier (
   unique key uk_jewelry_supplier_code (supplier_code)
 ) engine=InnoDB default charset=utf8mb4 comment='珠宝ERP供应商档案';
 
+create table if not exists jewelry_influencer (
+  influencer_id bigint not null auto_increment comment '主键ID',
+  influencer_code varchar(32) not null comment '达人编码',
+  external_influencer_id varchar(64) default '' comment '达人ID',
+  influencer_name varchar(128) not null comment '达人/主播名称',
+  platform varchar(64) default '' comment '平台',
+  platform_account varchar(128) default '' comment '平台账号',
+  sales_channel varchar(64) default '' comment '默认销售渠道',
+  last_sale_time datetime default null,
+  contact_phone varchar(32) default '',
+  status char(1) not null default '0',
+  create_by varchar(64) default '',create_time datetime default null,
+  update_by varchar(64) default '',update_time datetime default null,remark varchar(500) default null,
+  primary key (influencer_id),unique key uk_jewelry_influencer_code (influencer_code),
+  key idx_jewelry_influencer_name (influencer_name),key idx_jewelry_influencer_platform (platform,platform_account)
+) engine=InnoDB default charset=utf8mb4 comment='珠宝ERP达人主播档案';
+
+create table if not exists jewelry_influencer_product_price (
+  price_id bigint not null auto_increment,influencer_id bigint not null,product_id bigint not null,
+  fixed_unit_price decimal(18,4) not null,price_status varchar(16) not null default 'PENDING',
+  price_version int not null default 0,pending_source_document_id bigint default null,
+  price_source_document_id bigint default null,price_effective_time datetime default null,
+  create_by varchar(64) default '',create_time datetime default null,
+  update_by varchar(64) default '',update_time datetime default null,primary key (price_id),
+  unique key uk_jewelry_influencer_product (influencer_id,product_id),
+  key idx_jewelry_influencer_price_pending (pending_source_document_id),
+  key idx_jewelry_influencer_product_status (influencer_id,price_status)
+) engine=InnoDB default charset=utf8mb4 comment='珠宝ERP达人商品固定价';
+
+create table if not exists jewelry_influencer_price_history (
+  history_id bigint not null auto_increment,influencer_id bigint not null,product_id bigint not null,
+  old_price decimal(18,4) default null,new_price decimal(18,4) not null,
+  source_type varchar(24) not null,source_document_id bigint default null,price_version int not null,
+  change_reason varchar(500) not null,operator_user_id bigint not null,operator_name varchar(64) not null,
+  create_time datetime not null,primary key (history_id),
+  key idx_jewelry_influencer_price_history (influencer_id,product_id,history_id)
+) engine=InnoDB default charset=utf8mb4 comment='珠宝ERP达人固定价历史';
+
 create table if not exists jewelry_stock (
   product_id bigint not null comment '商品ID',
   on_hand_qty int not null default 0 comment '可售库存',
@@ -86,7 +124,10 @@ create table if not exists jewelry_document (
   supplier_name_snapshot varchar(128) default '' comment '供应商名称快照',
   sales_channel varchar(64) default '' comment '销售渠道',
   external_no varchar(64) default '' comment '平台或供应商单号',
-  influencer_name varchar(64) default '' comment '达人或主播名称',
+  influencer_id bigint default null comment '达人ID',
+  influencer_name varchar(128) default '' comment '达人或主播名称',
+  influencer_price_snapshot decimal(18,4) default null comment '达人固定价快照',
+  influencer_price_version int default null comment '达人价格版本快照',
   platform_rate decimal(9,6) default 0 comment '平台扣点率',
   commission_rate decimal(9,6) default 0 comment '达人佣金率',
   tax_rate decimal(9,6) default 0 comment '税率',
@@ -142,6 +183,8 @@ create table if not exists jewelry_document_item (
   counted_qty int default null,
   adjustment_qty int not null default 0,
   unit_price decimal(18,6) not null default 0,
+  influencer_price_snapshot decimal(18,4) default null comment '达人商品固定价快照',
+  influencer_price_version int default null comment '达人商品价格版本快照',
   unit_cost decimal(18,6) not null default 0,
   pack_fee decimal(18,6) not null default 0,
   ship_fee decimal(18,6) not null default 0,
@@ -276,6 +319,7 @@ insert into sys_menu(
 (3002, 'ERP概览', 3000, 2, 'overview', 'jewelry/overview/index', '', '', 1, 0, 'C', '0', '0', 'jewelry:overview:list', 'dashboard', 'admin', sysdate(), '', null, '珠宝ERP概览', 'Tổng quan ERP'),
 (3003, '商品档案', 3000, 3, 'product', 'jewelry/product/index', '', '', 1, 0, 'C', '0', '0', 'jewelry:product:list', 'shopping', 'admin', sysdate(), '', null, '珠宝商品档案', 'Sản phẩm'),
 (3004, '供应商档案', 3000, 4, 'supplier', 'jewelry/supplier/index', '', '', 1, 0, 'C', '0', '0', 'jewelry:supplier:list', 'peoples', 'admin', sysdate(), '', null, '珠宝供应商档案', 'Nhà cung cấp'),
+(3011, '达人/主播库', 3000, 5, 'influencer', 'jewelry/influencer/index', '', '', 1, 0, 'C', '0', '0', 'jewelry:influencer:list', 'peoples', 'admin', sysdate(), '', null, '达人主播固定价档案', 'Danh sách KOL/Streamer'),
 (3005, '库存台账', 3000, 5, 'stock', 'jewelry/stock/index', '', '', 1, 0, 'C', '0', '0', 'jewelry:stock:list', 'table', 'admin', sysdate(), '', null, '珠宝库存台账', 'Sổ kho'),
 (3006, '单据管理', 3000, 6, 'document', 'jewelry/document/index', '', '', 1, 0, 'C', '0', '0', 'jewelry:document:list', 'form', 'admin', sysdate(), '', null, '珠宝业务单据', 'Chứng từ'),
 (3007, '审批中心', 3000, 7, 'approval', 'jewelry/approval/index', '', '', 1, 0, 'C', '0', '0', 'jewelry:approval:list', 'edit', 'admin', sysdate(), '', null, '珠宝单据审批', 'Phê duyệt'),
@@ -296,18 +340,21 @@ insert into sys_menu(
 (3112, '通过审批', 3007, 1, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:approval:approve', '#', 'admin', sysdate(), '', null, '', 'Duyệt'),
 (3113, '驳回审批', 3007, 2, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:approval:reject', '#', 'admin', sysdate(), '', null, '', 'Từ chối'),
 (3114, '修改库存预警', 3005, 1, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:stock:config', '#', 'admin', sysdate(), '', null, '', 'Sửa cảnh báo tồn kho'),
-(3118, '修改商品名称图片', 3003, 3, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:product:basic-edit', '#', 'admin', sysdate(), '', null, '仅允许修改已有商品名称和图片', 'Sửa tên và ảnh sản phẩm');
+(3118, '修改商品名称图片', 3003, 3, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:product:basic-edit', '#', 'admin', sysdate(), '', null, '仅允许修改已有商品名称和图片', 'Sửa tên và ảnh sản phẩm'),
+(3119, '新增达人/主播', 3011, 1, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:influencer:add', '#', 'admin', sysdate(), '', null, '', 'Thêm KOL/Streamer'),
+(3120, '修改达人/主播', 3011, 2, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:influencer:edit', '#', 'admin', sysdate(), '', null, '', 'Sửa KOL/Streamer'),
+(3121, '修改达人商品固定价', 3011, 3, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:influencer:price', '#', 'admin', sysdate(), '', null, '', 'Sửa giá cố định theo sản phẩm');
 
 -- 制单员菜单权限。
 insert ignore into sys_role_menu(role_id, menu_id)
 select r.role_id, m.menu_id from sys_role r
-join sys_menu m on m.menu_id in (3000,3002,3003,3004,3005,3006,3009,3103,3107,3108,3109,3110,3118)
+join sys_menu m on m.menu_id in (3000,3002,3003,3004,3005,3006,3009,3010,3011,3103,3107,3108,3109,3110,3118,3119)
 where r.role_key = 'jewelry_maker' and r.del_flag = '0';
 
 -- 审核员菜单权限。
 insert ignore into sys_role_menu(role_id, menu_id)
 select r.role_id, m.menu_id from sys_role r
-join sys_menu m on m.menu_id in (3000,3002,3003,3004,3005,3006,3007,3008,3009,3112,3113)
+join sys_menu m on m.menu_id in (3000,3002,3003,3004,3005,3006,3007,3008,3009,3010,3011,3112,3113)
 where r.role_key = 'jewelry_reviewer' and r.del_flag = '0';
 
 -- ERP管理员菜单权限。

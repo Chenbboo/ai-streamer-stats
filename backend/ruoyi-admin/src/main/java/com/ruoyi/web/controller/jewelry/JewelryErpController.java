@@ -218,6 +218,66 @@ public class JewelryErpController extends BaseController
         return toAjax(service.saveSupplier(body));
     }
 
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:list')")
+    @GetMapping("/influencer/list")
+    public TableDataInfo influencerList(@RequestParam Map<String, Object> query)
+    {
+        startPage();
+        return getDataTable(service.listInfluencers(query));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:list')")
+    @GetMapping("/influencer/options")
+    public AjaxResult influencerOptions(@RequestParam Map<String, Object> query)
+    {
+        query.put("status", "0");
+        return success(service.listInfluencers(query));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('jewelry:influencer:add,jewelry:influencer:edit')")
+    @PostMapping("/influencer")
+    public AjaxResult saveInfluencer(@RequestBody Map<String, Object> body)
+    {
+        boolean editing = body.get("influencerId") != null;
+        if (editing && !hasPermission("jewelry:influencer:edit")) return error("无权修改达人/主播档案");
+        if (!editing && !hasPermission("jewelry:influencer:add")) return error("无权新增达人/主播档案");
+        body.put(editing ? "updateBy" : "createBy", SecurityUtils.getUsername());
+        body.put("status", defaultString(body.get("status"), "0"));
+        return toAjax(service.saveInfluencer(body));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:price')")
+    @PutMapping("/influencer/{id}/product/{productId}/fixed-price")
+    public AjaxResult changeInfluencerPrice(@PathVariable Long id, @PathVariable Long productId,
+        @RequestBody Map<String, Object> body)
+    {
+        if (!isErpAdministrator()) return error("只有管理员可以修改达人商品固定价");
+        service.changeInfluencerProductPrice(id, productId, decimal(body.get("fixedUnitPrice")), string(body.get("reason")),
+            SecurityUtils.getUserId(), SecurityUtils.getUsername());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:list')")
+    @GetMapping("/influencer/{id}/product-prices")
+    public AjaxResult influencerProductPrices(@PathVariable Long id)
+    {
+        return success(service.listInfluencerProductPrices(id));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:list')")
+    @GetMapping("/influencer/{id}/price-history")
+    public AjaxResult influencerPriceHistory(@PathVariable Long id)
+    {
+        return success(service.listInfluencerPriceHistory(id));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:list')")
+    @GetMapping("/influencer/{id}/bundle-items")
+    public AjaxResult influencerBundleItems(@PathVariable Long id)
+    {
+        return success(service.listInfluencerBundleItems(id));
+    }
+
     @PreAuthorize("@ss.hasPermi('jewelry:stock:list')")
     @GetMapping("/stock/list")
     public TableDataInfo stockList(@RequestParam Map<String, Object> query)
@@ -324,6 +384,16 @@ public class JewelryErpController extends BaseController
         @RequestParam(required = false) Long excludeDocumentId)
     {
         JewelryDocument source = service.getSupplierReturnSource(id, excludeDocumentId);
+        if (isMakerOnly()) redactDocumentFinance(source);
+        return success(source);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
+    @GetMapping("/document/customer-return-source/{id}")
+    public AjaxResult customerReturnSource(@PathVariable Long id,
+        @RequestParam(required = false) Long excludeDocumentId)
+    {
+        JewelryDocument source = service.getCustomerReturnSource(id, excludeDocumentId);
         if (isMakerOnly()) redactDocumentFinance(source);
         return success(source);
     }

@@ -21,7 +21,10 @@ public class JewelryDocument extends BaseEntity
     private String supplierNameSnapshot;
     private String salesChannel;
     private String externalNo;
+    private Long influencerId;
     private String influencerName;
+    private BigDecimal influencerPriceSnapshot;
+    private Integer influencerPriceVersion;
     private BigDecimal platformRate;
     private BigDecimal commissionRate;
     private BigDecimal taxRate;
@@ -68,8 +71,14 @@ public class JewelryDocument extends BaseEntity
     public void setSalesChannel(String salesChannel) { this.salesChannel = salesChannel; }
     public String getExternalNo() { return externalNo; }
     public void setExternalNo(String externalNo) { this.externalNo = externalNo; }
+    public Long getInfluencerId() { return influencerId; }
+    public void setInfluencerId(Long influencerId) { this.influencerId = influencerId; }
     public String getInfluencerName() { return influencerName; }
     public void setInfluencerName(String influencerName) { this.influencerName = influencerName; }
+    public BigDecimal getInfluencerPriceSnapshot() { return influencerPriceSnapshot; }
+    public void setInfluencerPriceSnapshot(BigDecimal influencerPriceSnapshot) { this.influencerPriceSnapshot = influencerPriceSnapshot; }
+    public Integer getInfluencerPriceVersion() { return influencerPriceVersion; }
+    public void setInfluencerPriceVersion(Integer influencerPriceVersion) { this.influencerPriceVersion = influencerPriceVersion; }
     public BigDecimal getPlatformRate() { return platformRate; }
     public void setPlatformRate(BigDecimal platformRate) { this.platformRate = platformRate; }
     public BigDecimal getCommissionRate() { return commissionRate; }

@@ -651,3 +651,30 @@ select 'proposal_plan_end_date_not_nullable' check_name,count(*) problem_rows
 from information_schema.columns
 where table_schema=database() and table_name='biz_project_proposal'
   and column_name='plan_end_date' and is_nullable<>'YES';
+
+select 'missing_jewelry_influencer_tables' check_name,3-count(*) problem_rows
+from information_schema.tables
+where table_schema=database()
+  and table_name in('jewelry_influencer','jewelry_influencer_product_price','jewelry_influencer_price_history')
+union all
+select 'missing_jewelry_influencer_profile_columns',3-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='jewelry_influencer'
+  and column_name in('influencer_code','external_influencer_id','influencer_name')
+union all
+select 'missing_jewelry_influencer_document_columns',1-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='jewelry_document'
+  and column_name='influencer_id'
+union all
+select 'missing_jewelry_influencer_item_price_columns',2-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='jewelry_document_item'
+  and column_name in('influencer_price_snapshot','influencer_price_version')
+union all
+select 'missing_jewelry_influencer_menu',count(*)=0
+from sys_menu where menu_id=3011 and perms='jewelry:influencer:list' and status='0'
+union all
+select 'missing_jewelry_influencer_bundle_table',count(*)=0
+from information_schema.tables
+where table_schema=database() and table_name='jewelry_influencer_bundle_item';

@@ -12,6 +12,13 @@ public interface IJewelryErpService
     int updateProductBasic(Map<String, Object> product);
     List<Map<String, Object>> listSuppliers(Map<String, Object> query);
     int saveSupplier(Map<String, Object> supplier);
+    List<Map<String, Object>> listInfluencers(Map<String, Object> query);
+    int saveInfluencer(Map<String, Object> influencer);
+    List<Map<String, Object>> listInfluencerProductPrices(Long influencerId);
+    void changeInfluencerProductPrice(Long influencerId, Long productId, BigDecimal newPrice, String reason,
+        Long userId, String userName);
+    List<Map<String, Object>> listInfluencerPriceHistory(Long influencerId);
+    List<Map<String, Object>> listInfluencerBundleItems(Long influencerId);
     List<Map<String, Object>> listStock(Map<String, Object> query);
     List<Map<String, Object>> listTransactions(Map<String, Object> query);
     int getStockWarningDays();
@@ -23,6 +30,7 @@ public interface IJewelryErpService
     JewelryDocument getReturnInspectionSource(Long sourceDocumentId, Long excludeDocumentId);
     List<JewelryDocument> listSupplierReturnSources(Long supplierId);
     JewelryDocument getSupplierReturnSource(Long sourceDocumentId, Long excludeDocumentId);
+    JewelryDocument getCustomerReturnSource(Long sourceDocumentId, Long excludeDocumentId);
     Map<String, Object> assessDocumentRisk(JewelryDocument document);
     Map<String, Object> calculateProfit(Map<String, Object> input);
     JewelryDocument saveDocument(JewelryDocument document, Long userId, String userName);

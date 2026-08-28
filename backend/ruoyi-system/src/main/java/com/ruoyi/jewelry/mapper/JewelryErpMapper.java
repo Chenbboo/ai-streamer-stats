@@ -31,6 +31,33 @@ public interface JewelryErpMapper
     int insertSupplier(Map<String, Object> supplier);
     int updateSupplier(Map<String, Object> supplier);
 
+    List<Map<String, Object>> selectInfluencerList(Map<String, Object> query);
+    Map<String, Object> selectInfluencerById(Long influencerId);
+    Map<String, Object> selectInfluencerByIdForUpdate(Long influencerId);
+    int insertInfluencer(Map<String, Object> influencer);
+    int updateInfluencerCode(@Param("influencerId") Long influencerId,
+        @Param("influencerCode") String influencerCode, @Param("updateBy") String updateBy);
+    int updateInfluencer(Map<String, Object> influencer);
+    List<Map<String, Object>> selectInfluencerProductPrices(Long influencerId);
+    Map<String, Object> selectInfluencerProductPrice(@Param("influencerId") Long influencerId,
+        @Param("productId") Long productId);
+    Map<String, Object> selectInfluencerProductPriceForUpdate(@Param("influencerId") Long influencerId,
+        @Param("productId") Long productId);
+    int insertPendingInfluencerProductPrice(Map<String, Object> price);
+    int promoteInfluencerProductPrice(@Param("influencerId") Long influencerId,
+        @Param("productId") Long productId, @Param("sourceDocumentId") Long sourceDocumentId,
+        @Param("userName") String userName);
+    int updateInfluencerProductPrice(@Param("influencerId") Long influencerId,
+        @Param("productId") Long productId, @Param("fixedUnitPrice") java.math.BigDecimal fixedUnitPrice,
+        @Param("priceVersion") Integer priceVersion, @Param("userName") String userName);
+    int deletePendingInfluencerProductPricesByDocument(Long documentId);
+    int touchInfluencerLastSale(@Param("influencerId") Long influencerId,
+        @Param("userName") String userName);
+    int insertInfluencerPriceHistory(Map<String, Object> history);
+    List<Map<String, Object>> selectInfluencerPriceHistory(Long influencerId);
+    int upsertInfluencerBundleItem(Map<String, Object> binding);
+    List<Map<String, Object>> selectInfluencerBundleItems(Long influencerId);
+
     List<Map<String, Object>> selectStockList(Map<String, Object> query);
     Map<String, Object> selectStockForUpdate(Long productId);
     List<Map<String, Object>> selectStockTransactions(Map<String, Object> query);
@@ -52,6 +79,8 @@ public interface JewelryErpMapper
         @Param("excludeDocumentId") Long excludeDocumentId);
     List<JewelryDocument> selectSupplierReturnSourceList(Long supplierId);
     List<JewelryDocumentItem> selectSupplierReturnSourceItems(@Param("sourceDocumentId") Long sourceDocumentId,
+        @Param("excludeDocumentId") Long excludeDocumentId);
+    List<JewelryDocumentItem> selectCustomerReturnSourceItems(@Param("sourceDocumentId") Long sourceDocumentId,
         @Param("excludeDocumentId") Long excludeDocumentId);
     int selectInspectedQtyBySourceItem(@Param("sourceItemId") Long sourceItemId,
         @Param("excludeDocumentId") Long excludeDocumentId);

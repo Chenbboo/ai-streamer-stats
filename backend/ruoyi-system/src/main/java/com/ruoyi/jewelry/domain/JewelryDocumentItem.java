@@ -26,6 +26,8 @@ public class JewelryDocumentItem
     private Integer countedQty;
     private Integer adjustmentQty;
     private BigDecimal unitPrice;
+    private BigDecimal influencerPriceSnapshot;
+    private Integer influencerPriceVersion;
     private BigDecimal sourceUnitPrice;
     private BigDecimal unitCost;
     private BigDecimal packFee;
@@ -84,6 +86,10 @@ public class JewelryDocumentItem
     public void setAdjustmentQty(Integer adjustmentQty) { this.adjustmentQty = adjustmentQty; }
     public BigDecimal getUnitPrice() { return unitPrice; }
     public void setUnitPrice(BigDecimal unitPrice) { this.unitPrice = unitPrice; }
+    public BigDecimal getInfluencerPriceSnapshot() { return influencerPriceSnapshot; }
+    public void setInfluencerPriceSnapshot(BigDecimal influencerPriceSnapshot) { this.influencerPriceSnapshot = influencerPriceSnapshot; }
+    public Integer getInfluencerPriceVersion() { return influencerPriceVersion; }
+    public void setInfluencerPriceVersion(Integer influencerPriceVersion) { this.influencerPriceVersion = influencerPriceVersion; }
     public BigDecimal getSourceUnitPrice() { return sourceUnitPrice; }
     public void setSourceUnitPrice(BigDecimal sourceUnitPrice) { this.sourceUnitPrice = sourceUnitPrice; }
     public BigDecimal getUnitCost() { return unitCost; }

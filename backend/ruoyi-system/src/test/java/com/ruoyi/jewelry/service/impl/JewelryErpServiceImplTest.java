@@ -40,6 +40,8 @@ class JewelryErpServiceImplTest
     private static final Long REVIEWER_ONE_ID = 20L;
     private static final Long REVIEWER_TWO_ID = 30L;
     private static final Long PRODUCT_ID = 100L;
+    private static final Long SALES_INFLUENCER_ID = 9001L;
+    private static final Long RETURN_INFLUENCER_ID = 9002L;
 
     @Mock
     private JewelryErpMapper mapper;
@@ -56,6 +58,10 @@ class JewelryErpServiceImplTest
         lenient().when(mapper.selectStockForUpdate(anyLong()))
             .thenReturn(stock(10, 0, 0, 0, 0, 0, "100.00", "0", "0"));
         lenient().when(mapper.selectSupplierById(anyLong())).thenReturn(activeSupplier());
+        lenient().when(mapper.selectInfluencerById(SALES_INFLUENCER_ID)).thenReturn(activeInfluencer(false));
+        lenient().when(mapper.selectInfluencerById(RETURN_INFLUENCER_ID)).thenReturn(activeInfluencer(true));
+        lenient().when(mapper.selectInfluencerProductPrices(RETURN_INFLUENCER_ID))
+            .thenReturn(Arrays.asList(pricedProductPrice(PRODUCT_ID, "50.0000", 1)));
     }
 
     @Test
@@ -438,8 +444,15 @@ class JewelryErpServiceImplTest
         item.setOtherFee1(decimal("1.00"));
         item.setOtherFee2(decimal("2.00"));
         item.setOtherFee3(decimal("3.00"));
+        item.setInfluencerPriceSnapshot(decimal("1000.0000"));
+        item.setInfluencerPriceVersion(0);
         stubDocument(document, item);
         when(mapper.selectStockForUpdate(PRODUCT_ID)).thenReturn(stock(10, 2, 0, 0, 0, 0, "300.00", "0", "0"));
+        when(mapper.selectInfluencerByIdForUpdate(SALES_INFLUENCER_ID)).thenReturn(activeInfluencer(false));
+        when(mapper.selectInfluencerProductPriceForUpdate(SALES_INFLUENCER_ID, PRODUCT_ID))
+            .thenReturn(pendingProductPrice(PRODUCT_ID, "1000.0000", 8L));
+        when(mapper.promoteInfluencerProductPrice(SALES_INFLUENCER_ID, PRODUCT_ID, 8L, "reviewer2"))
+            .thenReturn(1);
 
         service.approve(8L, "", null, REVIEWER_TWO_ID, "reviewer2");
 
@@ -462,6 +475,8 @@ class JewelryErpServiceImplTest
         main.setPackFee(decimal("10.00"));
         main.setBundleGroupNo(1);
         main.setSaleRole("MAIN");
+        main.setInfluencerPriceSnapshot(decimal("1000.0000"));
+        main.setInfluencerPriceVersion(0);
         JewelryDocumentItem accessory = itemForProduct(182L, 200L, 3);
         accessory.setProductTypeSnapshot("ACCESSORY");
         accessory.setBundleGroupNo(1);
@@ -473,6 +488,11 @@ class JewelryErpServiceImplTest
             .thenReturn(stock(10, 2, 0, 0, 0, 0, "600.00", "0", "0"));
         when(mapper.selectStockForUpdate(200L))
             .thenReturn(stock(10, 3, 0, 0, 0, 0, "4.00", "0", "0"));
+        when(mapper.selectInfluencerByIdForUpdate(SALES_INFLUENCER_ID)).thenReturn(activeInfluencer(false));
+        when(mapper.selectInfluencerProductPriceForUpdate(SALES_INFLUENCER_ID, PRODUCT_ID))
+            .thenReturn(pendingProductPrice(PRODUCT_ID, "1000.0000", 81L));
+        when(mapper.promoteInfluencerProductPrice(SALES_INFLUENCER_ID, PRODUCT_ID, 81L, "reviewer2"))
+            .thenReturn(1);
 
         service.approve(81L, "", null, REVIEWER_TWO_ID, "reviewer2");
 
@@ -485,6 +505,15 @@ class JewelryErpServiceImplTest
         verify(mapper).applyStock(eq(200L), eq(7), eq(0), eq(0), eq(0), eq(0), eq(0),
             decimalEq("4.00"), decimalEq("0"), decimalEq("0"));
         verify(mapper).updateDocumentFinancials(document);
+        ArgumentCaptor<Map<String, Object>> binding = ArgumentCaptor.forClass(Map.class);
+        verify(mapper).upsertInfluencerBundleItem(binding.capture());
+        assertEquals(SALES_INFLUENCER_ID, binding.getValue().get("influencerId"));
+        assertEquals(PRODUCT_ID, binding.getValue().get("mainProductId"));
+        assertEquals(200L, binding.getValue().get("addonProductId"));
+        assertEquals(2, binding.getValue().get("mainQty"));
+        assertEquals(3, binding.getValue().get("addonQty"));
+        assertEquals("INCLUDED", binding.getValue().get("pricingMode"));
+        assertEquals(81L, binding.getValue().get("sourceDocumentId"));
     }
 
     @Test
@@ -509,6 +538,39 @@ class JewelryErpServiceImplTest
         assertMoney("1000.1234", customerReturn.getItems().get(0).getUnitPrice());
         assertMoney("100.00", customerReturn.getItems().get(0).getUnitCost());
         assertMoney("-900.00", customerReturn.getTotalAmount());
+        verify(mapper).insertDocument(customerReturn);
+    }
+
+    @Test
+    void unlinkedCustomerReturnAllowsInfluencerIncludedBundleAddonAtZeroRefundPrice()
+    {
+        Long addonProductId = 101L;
+        JewelryDocument customerReturn = document(null, "CUSTOMER_RETURN", null);
+        customerReturn.setSalesChannel("douyin");
+        customerReturn.setReturnReason("退回搭售散件");
+        customerReturn.setActualRefundAmount(decimal("5.95"));
+        JewelryDocumentItem addon = item(null, 1, "5.9500");
+        addon.setProductId(addonProductId);
+        customerReturn.setItems(Arrays.asList(addon));
+        Map<String, Object> binding = new HashMap<String, Object>();
+        binding.put("addonProductId", addonProductId);
+        binding.put("pricingMode", "INCLUDED");
+        when(mapper.selectInfluencerBundleItems(RETURN_INFLUENCER_ID))
+            .thenReturn(Arrays.asList(binding));
+        when(mapper.insertDocument(customerReturn)).thenAnswer(invocation -> {
+            customerReturn.setDocumentId(94L);
+            return 1;
+        });
+        when(mapper.selectDocumentById(94L)).thenReturn(customerReturn);
+        when(mapper.selectDocumentItems(94L)).thenReturn(customerReturn.getItems());
+
+        service.saveDocument(customerReturn, MAKER_ID, "maker");
+
+        assertMoney("0", addon.getUnitPrice());
+        assertMoney("0", addon.getInfluencerPriceSnapshot());
+        assertEquals(0, addon.getInfluencerPriceVersion());
+        assertEquals("ADDON", addon.getSaleRole());
+        assertEquals("INCLUDED", addon.getPricingMode());
         verify(mapper).insertDocument(customerReturn);
     }
 
@@ -539,6 +601,37 @@ class JewelryErpServiceImplTest
 
         assertTrue(error.getMessage().contains("累计退货数量不能超过原销售数量3件"));
         verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void customerReturnSourceKeepsBundleLinesAndRemainingQuantities()
+    {
+        JewelryDocument sale = document(9L, "SALES_OUT", "POSTED");
+        JewelryDocumentItem main = item(901L, 3, "1000.00");
+        main.setItemId(901L);
+        main.setBundleGroupNo(1);
+        main.setSaleRole("MAIN");
+        main.setRemainingReturnQty(1);
+        JewelryDocumentItem addon = item(902L, 3, "0");
+        addon.setItemId(902L);
+        addon.setProductId(200L);
+        addon.setBundleGroupNo(1);
+        addon.setSaleRole("ADDON");
+        addon.setPricingMode("INCLUDED");
+        addon.setRemainingReturnQty(3);
+
+        when(mapper.selectDocumentById(9L)).thenReturn(sale);
+        when(mapper.selectCustomerReturnSourceItems(9L, 88L)).thenReturn(Arrays.asList(main, addon));
+
+        JewelryDocument source = service.getCustomerReturnSource(9L, 88L);
+
+        assertEquals(2, source.getItems().size());
+        assertEquals("MAIN", source.getItems().get(0).getSaleRole());
+        assertEquals(1, source.getItems().get(0).getRemainingReturnQty());
+        assertEquals("ADDON", source.getItems().get(1).getSaleRole());
+        assertEquals(3, source.getItems().get(1).getRemainingReturnQty());
+        verify(mapper).countReversalBySource(9L);
+        verify(mapper).selectCustomerReturnSourceItems(9L, 88L);
     }
 
     @Test
@@ -622,6 +715,7 @@ class JewelryErpServiceImplTest
         item.setPackFee(decimal("5.00"));
         item.setShipFee(decimal("8.00"));
         item.setCertFee(decimal("2.00"));
+        item.setInfluencerPriceSnapshot(decimal("1000.0000"));
         document.setItems(Arrays.asList(item));
 
         Method calculate = JewelryErpServiceImpl.class.getDeclaredMethod(
@@ -1806,6 +1900,125 @@ class JewelryErpServiceImplTest
             any(), any(), any());
     }
 
+    @Test
+    void pricedInfluencerLocksSalesPriceDuringRiskAssessment()
+    {
+        Long influencerId = 9100L;
+        Map<String, Object> influencer = activeInfluencer(true);
+        influencer.put("influencerId", influencerId);
+        when(mapper.selectInfluencerById(influencerId)).thenReturn(influencer);
+        when(mapper.selectInfluencerProductPrices(influencerId))
+            .thenReturn(Arrays.asList(pricedProductPrice(PRODUCT_ID, "1888.1234", 3)));
+        JewelryDocument document = document(null, "SALES_OUT", null);
+        document.setInfluencerId(influencerId);
+        document.setSalesChannel("douyin");
+        JewelryDocumentItem item = item(null, 1, "1.00");
+        document.setItems(Arrays.asList(item));
+
+        service.assessDocumentRisk(document);
+
+        assertEquals(0, decimal("1888.1234").compareTo(item.getUnitPrice()));
+        assertEquals(0, decimal("1888.1234").compareTo(item.getInfluencerPriceSnapshot()));
+        assertEquals(3, item.getInfluencerPriceVersion());
+        assertEquals(null, document.getInfluencerPriceSnapshot());
+    }
+
+    @Test
+    void newInfluencerGetsSystemGeneratedCode()
+    {
+        Map<String, Object> influencer = new HashMap<String, Object>();
+        influencer.put("influencerName", "自动编码达人");
+        influencer.put("status", "0");
+        influencer.put("createBy", "maker");
+        when(mapper.insertInfluencer(any())).thenAnswer(invocation ->
+        {
+            Map<String, Object> inserted = invocation.getArgument(0);
+            inserted.put("influencerId", 42L);
+            return 1;
+        });
+        when(mapper.updateInfluencerCode(42L, "DR000042", "maker")).thenReturn(1);
+
+        assertEquals(1, service.saveInfluencer(influencer));
+
+        assertEquals("DR000042", influencer.get("influencerCode"));
+        verify(mapper).updateInfluencerCode(42L, "DR000042", "maker");
+    }
+
+    @Test
+    void savingSalesDraftCreatesPendingPriceForEachUnpricedProduct()
+    {
+        JewelryDocument document = document(null, "SALES_OUT", null);
+        document.setSalesChannel("douyin");
+        JewelryDocumentItem item = item(null, 1, "128.5678");
+        document.setItems(Arrays.asList(item));
+        when(mapper.insertDocument(document)).thenAnswer(invocation ->
+        {
+            document.setDocumentId(9201L);
+            return 1;
+        });
+        when(mapper.selectDocumentById(9201L)).thenReturn(document);
+        when(mapper.selectDocumentItems(9201L)).thenReturn(document.getItems());
+
+        service.saveDocument(document, MAKER_ID, "maker");
+
+        ArgumentCaptor<Map<String, Object>> pending = ArgumentCaptor.forClass(Map.class);
+        verify(mapper).insertPendingInfluencerProductPrice(pending.capture());
+        assertEquals(SALES_INFLUENCER_ID, pending.getValue().get("influencerId"));
+        assertEquals(PRODUCT_ID, pending.getValue().get("productId"));
+        assertEquals(9201L, pending.getValue().get("sourceDocumentId"));
+        assertEquals(0, decimal("128.5678").compareTo((BigDecimal) pending.getValue().get("fixedUnitPrice")));
+        assertEquals(0, decimal("128.5678").compareTo(item.getInfluencerPriceSnapshot()));
+        assertEquals(0, item.getInfluencerPriceVersion());
+    }
+
+    @Test
+    void firstSalesPostingEstablishesInfluencerPriceAndHistory()
+    {
+        JewelryDocument document = document(9101L, "SALES_OUT", "PENDING_FIRST");
+        JewelryDocumentItem item = item(9102L, 1, "999.1234");
+        item.setInfluencerPriceSnapshot(decimal("999.1234"));
+        item.setInfluencerPriceVersion(0);
+        stubDocument(document, item);
+        when(mapper.selectInfluencerByIdForUpdate(SALES_INFLUENCER_ID)).thenReturn(activeInfluencer(false));
+        when(mapper.selectInfluencerProductPriceForUpdate(SALES_INFLUENCER_ID, PRODUCT_ID))
+            .thenReturn(pendingProductPrice(PRODUCT_ID, "999.1234", 9101L));
+        when(mapper.promoteInfluencerProductPrice(SALES_INFLUENCER_ID, PRODUCT_ID, 9101L, "reviewer1"))
+            .thenReturn(1);
+        when(mapper.selectStockForUpdate(PRODUCT_ID))
+            .thenReturn(stock(10, 1, 0, 0, 0, 0, "100.00", "0", "0"));
+
+        service.approve(9101L, "", null, REVIEWER_ONE_ID, "reviewer1");
+
+        ArgumentCaptor<Map<String, Object>> history = ArgumentCaptor.forClass(Map.class);
+        verify(mapper).insertInfluencerPriceHistory(history.capture());
+        assertEquals("FIRST_SALE", history.getValue().get("sourceType"));
+        assertEquals(9101L, history.getValue().get("sourceDocumentId"));
+        assertEquals(PRODUCT_ID, history.getValue().get("productId"));
+        assertEquals(0, decimal("999.1234").compareTo((BigDecimal) history.getValue().get("newPrice")));
+    }
+
+    @Test
+    void administratorPriceChangeIsVersionedAndAudited()
+    {
+        Map<String, Object> influencer = activeInfluencer(true);
+        influencer.put("influencerId", RETURN_INFLUENCER_ID);
+        when(mapper.selectInfluencerByIdForUpdate(RETURN_INFLUENCER_ID)).thenReturn(influencer);
+        when(mapper.selectInfluencerProductPriceForUpdate(RETURN_INFLUENCER_ID, PRODUCT_ID))
+            .thenReturn(pricedProductPrice(PRODUCT_ID, "50.0000", 4));
+        when(mapper.updateInfluencerProductPrice(RETURN_INFLUENCER_ID, PRODUCT_ID,
+            decimal("66.1234"), 4, "admin")).thenReturn(1);
+
+        service.changeInfluencerProductPrice(RETURN_INFLUENCER_ID, PRODUCT_ID, decimal("66.1234"), "合同改价",
+            REVIEWER_TWO_ID, "admin");
+
+        ArgumentCaptor<Map<String, Object>> history = ArgumentCaptor.forClass(Map.class);
+        verify(mapper).insertInfluencerPriceHistory(history.capture());
+        assertEquals("ADMIN_CHANGE", history.getValue().get("sourceType"));
+        assertEquals(PRODUCT_ID, history.getValue().get("productId"));
+        assertEquals(5, history.getValue().get("priceVersion"));
+        assertEquals("合同改价", history.getValue().get("changeReason"));
+    }
+
     private void stubDocument(JewelryDocument document, JewelryDocumentItem item)
     {
         when(mapper.selectDocumentById(document.getDocumentId())).thenReturn(document);
@@ -1824,6 +2037,8 @@ class JewelryErpServiceImplTest
         document.setPlatformRate(BigDecimal.ZERO);
         document.setCommissionRate(BigDecimal.ZERO);
         document.setTaxRate(BigDecimal.ZERO);
+        if ("SALES_OUT".equals(type)) document.setInfluencerId(SALES_INFLUENCER_ID);
+        if ("CUSTOMER_RETURN".equals(type)) document.setInfluencerId(RETURN_INFLUENCER_ID);
         return document;
     }
 
@@ -1884,6 +2099,37 @@ class JewelryErpServiceImplTest
         supplier.put("supplierName", "Test supplier");
         supplier.put("status", "0");
         return supplier;
+    }
+
+    private Map<String, Object> activeInfluencer(boolean priced)
+    {
+        Map<String, Object> influencer = new HashMap<String, Object>();
+        influencer.put("influencerId", priced ? RETURN_INFLUENCER_ID : SALES_INFLUENCER_ID);
+        influencer.put("influencerName", priced ? "退货达人" : "销售达人");
+        influencer.put("salesChannel", "douyin");
+        influencer.put("status", "0");
+        return influencer;
+    }
+
+    private Map<String, Object> pricedProductPrice(Long productId, String price, int version)
+    {
+        Map<String, Object> record = new HashMap<String, Object>();
+        record.put("productId", productId);
+        record.put("fixedUnitPrice", decimal(price));
+        record.put("priceStatus", "PRICED");
+        record.put("priceVersion", version);
+        return record;
+    }
+
+    private Map<String, Object> pendingProductPrice(Long productId, String price, Long sourceDocumentId)
+    {
+        Map<String, Object> record = new HashMap<String, Object>();
+        record.put("productId", productId);
+        record.put("fixedUnitPrice", decimal(price));
+        record.put("priceStatus", "PENDING");
+        record.put("priceVersion", 0);
+        record.put("pendingSourceDocumentId", sourceDocumentId);
+        return record;
     }
 
     private Map<String, Object> stock(int onHand, int reserved, int inspection, int inspectionReserved,

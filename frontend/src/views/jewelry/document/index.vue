@@ -51,21 +51,33 @@
             <el-input-number v-model="form.actualRefundAmount" :min="0" :precision="2" :disabled="readonly" @change="actualRefundTotalChanged" />
           </el-form-item>
           <el-form-item v-if="needsSalesChannel" label="销售渠道" required><el-input v-model="form.salesChannel" :disabled="readonly || !!form.sourceDocumentId"/></el-form-item>
-          <el-form-item v-if="form.docType==='SALES_OUT'" label="达人/主播"><el-input v-model="form.influencerName" :disabled="readonly"/></el-form-item>
+          <el-form-item v-if="form.docType==='SALES_OUT' || (form.docType==='CUSTOMER_RETURN' && !form.sourceDocumentId)" label="达人/主播" required>
+            <el-select v-model="form.influencerId" filterable :disabled="readonly" @change="influencerChanged">
+              <el-option v-for="item in influencers" :key="item.influencerId"
+                :label="`${item.influencerName}${item.externalInfluencerId?`（ID：${item.externalInfluencerId}）`:''} · ${item.platform || '未填平台'} · 已定价${Number(item.pricedProductCount||0)}种${Number(item.pendingProductCount||0)>0?` / 待生效${Number(item.pendingProductCount)}种`:''}`"
+                :value="item.influencerId"/>
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="['SALES_OUT','CUSTOMER_RETURN'].includes(form.docType) && form.influencerId" label="商品定价情况">
+            <el-input :model-value="selectedInfluencerPriceSummary" disabled/>
+          </el-form-item>
           <el-form-item v-if="form.docType==='SALES_OUT'" label="平台扣点率（%）"><el-input-number v-model="platformPercent" :min="0" :max="100" :step="1" :precision="2" :disabled="readonly"/></el-form-item>
           <el-form-item v-if="form.docType==='SALES_OUT'" label="达人佣金率（%）"><el-input-number v-model="commissionPercent" :min="0" :max="100" :step="1" :precision="2" :disabled="readonly"/></el-form-item>
           <el-form-item v-if="form.docType==='SALES_OUT'" label="税率（%）"><el-input-number v-model="taxPercent" :min="0" :max="100" :step="1" :precision="2" :disabled="readonly"/></el-form-item>
         </div></el-form>
         <el-alert v-if="form.docType==='CUSTOMER_RETURN' && !form.sourceDocumentId && !readonly"
-          title="原销售单为可选项。无法确认原单时可直接填写销售渠道并手工添加退货商品；未关联退货将自动标记为需复核。"
+          title="原销售单为可选项。未关联时请先选择达人/主播，商品下拉框只显示该达人已定价商品和已绑定搭售散件；整套退货请优先选择原销售单，系统会自动带出准确的组合与数量。"
           type="warning" :closable="false" show-icon />
+        <el-alert v-if="form.docType==='CUSTOMER_RETURN' && form.sourceDocumentId && form.items.some(item=>normalizedSaleRole(item)==='ADDON') && !readonly"
+          title="已按原销售组合带出主商品和搭售散件。修改主商品退货数量会按原组合比例同步散件数量；未实际退回的散件可单独修改数量或删除。"
+          type="success" :closable="false" show-icon />
         <el-alert v-if="form.docType==='SUPPLIER_RETURN' && !form.sourceDocumentId && !readonly"
           title="请先选择供应商及其已入账的原采购单，系统会带出剩余可退商品、原采购价和采购金额。"
           type="warning" :closable="false" show-icon />
         <el-alert v-if="form.docType==='RETURN_INSPECT' && !form.sourceDocumentId && !readonly"
           title="退货质检必须先选择已入账的客户退货单，系统会带出尚未处理的退货明细。"
           type="warning" :closable="false" show-icon />
-        <el-alert v-if="refundAmountDiffers" :title="`实际退款 ¥${money(form.actualRefundAmount)} 与所选明细原成交金额 ¥${money(expectedReturnRefund)} 不一致，提交后将标记为需复核。`"
+        <el-alert v-if="refundAmountDiffers" :title="`实际退款 ¥${money(form.actualRefundAmount)} 与系统应退金额 ¥${money(expectedReturnRefund)} 不一致，提交后将标记为需复核。`"
           type="warning" :closable="false" show-icon />
         <el-alert v-if="(canViewFinance && estimatedProfit < 0) || serverRiskStatus==='LOSS' || form.riskStatus==='LOSS'" title="当前销售单预计亏损，提交后审批页面将显示亏损风险。" type="error" :closable="false" show-icon />
         <div v-if="excelImportSupported && !readonly" class="item-toolbar">
@@ -152,11 +164,24 @@
           </el-table-column>
           <el-table-column v-if="form.docType==='COST_ADJUST'" label="当前库存" width="110" align="right"><template #default="{row}">{{row.qty}}</template></el-table-column>
           <el-table-column v-if="form.docType==='SUPPLIER_RETURN'" label="剩余可退" width="105" align="right"><template #default="{row}">{{row.remainingReturnQty}}</template></el-table-column>
+          <el-table-column v-if="form.docType==='CUSTOMER_RETURN' && form.sourceDocumentId" label="原销售数量" width="105" align="right"><template #default="{row}">{{row.sourceQty}}</template></el-table-column>
+          <el-table-column v-if="form.docType==='CUSTOMER_RETURN' && form.sourceDocumentId" label="剩余可退" width="105" align="right"><template #default="{row}">{{row.remainingReturnQty}}</template></el-table-column>
           <el-table-column v-if="showQuantityColumn" label="数量" width="130">
-            <template #default="{ row }"><el-input-number v-model="row.qty" :min="1" :max="form.docType==='SUPPLIER_RETURN' && form.sourceDocumentId?Number(row.remainingReturnQty||0):undefined" :disabled="readonly || (form.docType==='SUPPLIER_RETURN' && !form.sourceDocumentId)" /></template>
+            <template #default="{ row }"><el-input-number v-model="row.qty" :min="1" :max="linkedReturnMaxQty(row)" :disabled="readonly || (form.docType==='SUPPLIER_RETURN' && !form.sourceDocumentId)" @change="linkedReturnQtyChanged(row)" /></template>
           </el-table-column>
           <el-table-column v-if="form.docType==='SUPPLIER_RETURN'" label="原采购单价" width="125" align="right"><template #default="{row}">{{fourDecimalMoney(row.sourceUnitPrice)}}</template></el-table-column>
-          <el-table-column v-if="showPriceColumn" :label="priceLabel" width="170"><template #default="{row}"><el-input-number v-model="row.unitPrice" :min="0" :precision="unitPricePrecision" :step="unitPriceStep" :disabled="readonly || (form.docType==='CUSTOMER_RETURN' && !!form.sourceDocumentId) || (form.docType==='SALES_OUT' && normalizedPricingMode(row)==='INCLUDED')" style="width:100%"/></template></el-table-column>
+          <el-table-column v-if="form.docType==='CUSTOMER_RETURN' && !form.sourceDocumentId" label="系统应退单价" width="135" align="right">
+            <template #default="{row}">{{row.influencerPriceSnapshot==null?'—':fourDecimalMoney(row.influencerPriceSnapshot)}}</template>
+          </el-table-column>
+          <el-table-column v-if="showPriceColumn" :label="priceLabel" width="180"><template #default="{row}">
+            <div class="unit-price-cell">
+              <el-input-number v-model="row.unitPrice" :min="0" :precision="unitPricePrecision" :step="unitPriceStep" :disabled="readonly || (form.docType==='CUSTOMER_RETURN' && (!!form.sourceDocumentId || isIncludedInfluencerAddon(row))) || (form.docType==='SALES_OUT' && (normalizedPricingMode(row)==='INCLUDED' || Number(row.influencerPriceVersion||0)>0))" style="width:100%"/>
+              <small v-if="form.docType==='CUSTOMER_RETURN' && isIncludedInfluencerAddon(row)" class="fixed-price-note">已包含在主商品退款价中</small>
+              <small v-if="form.docType==='SALES_OUT' && normalizedPricingMode(row)!=='INCLUDED' && row.productId" :class="row.influencerPriceStatus==='PENDING'?'pending-price-note':'fixed-price-note'">
+                {{Number(row.influencerPriceVersion||0)>0?'达人商品固定价':row.influencerPriceStatus==='PENDING'?'本草稿待生效价格':'保存草稿后关联达人库'}}
+              </small>
+            </div>
+          </template></el-table-column>
           <el-table-column v-if="showCostColumn" :label="form.docType==='COST_ADJUST'?'当前平均成本':'单位成本'" width="140"><template #default="{row}"><span>{{money(row.unitCost)}}</span></template></el-table-column>
           <el-table-column v-if="form.docType==='SALES_OUT'" label="包装费/件" width="220">
             <template #default="{row}">
@@ -303,16 +328,18 @@
 </template>
 <script setup name="JewelryDocument">
 import {saveAs} from 'file-saver'
-import {listJewelryDocuments,getJewelryDocument,listSupplierReturnSources,getSupplierReturnSource,getReturnInspectionSource,saveJewelryDocument,deleteJewelryDraft,assessJewelryDocumentRisk,submitJewelryDocument,withdrawJewelryDocument,createJewelryReversal,listJewelryProducts,listJewelryProductOptions,listJewelrySuppliers,saveJewelryProduct,downloadJewelryDocumentImportTemplate,previewJewelryDocumentImport} from '@/api/jewelry/erp'
+import {listJewelryDocuments,getJewelryDocument,listSupplierReturnSources,getSupplierReturnSource,getCustomerReturnSource,getReturnInspectionSource,saveJewelryDocument,deleteJewelryDraft,assessJewelryDocumentRisk,submitJewelryDocument,withdrawJewelryDocument,createJewelryReversal,listJewelryProducts,listJewelryProductOptions,listJewelrySuppliers,listJewelryInfluencerOptions,getJewelryInfluencerProductPrices,getJewelryInfluencerBundleItems,saveJewelryProduct,downloadJewelryDocumentImportTemplate,previewJewelryDocumentImport} from '@/api/jewelry/erp'
 import {compressXlsxImages,formatFileSize} from '@/utils/xlsxImageCompressor'
 import {jewelryProductTypes,jewelrySpecifications,jewelryProductType} from '@/utils/jewelryProduct'
 import useUserStore from '@/store/modules/user'
-const {proxy}=getCurrentInstance(),rows=ref([]),total=ref(0),loading=ref(false),dialog=ref(false),readonly=ref(false),savingAction=ref(''),products=ref([]),suppliers=ref([]),purchaseDocuments=ref([]),salesDocuments=ref([]),returnDocuments=ref([])
+const {proxy}=getCurrentInstance(),rows=ref([]),total=ref(0),loading=ref(false),dialog=ref(false),readonly=ref(false),savingAction=ref(''),products=ref([]),suppliers=ref([]),influencers=ref([]),purchaseDocuments=ref([]),salesDocuments=ref([]),returnDocuments=ref([])
 const productDialog=ref(false),productSaving=ref(false),productFormRef=ref(),activeProductRow=ref(null)
 const importDialog=ref(false),importLoading=ref(false),applyingImport=ref(false),importPreview=ref({})
 const importCompression=ref(null)
 const importProgress=reactive({active:false,percentage:0,text:''})
 const actualRefundManuallyEdited=ref(false)
+const influencerProductPrices=ref([])
+const influencerBundleItems=ref([])
 const blankQuickProduct=()=>({sku:'',productName:'',productType:'FINISHED',category:'',specification:'普通',imageUrl:'',imageUrls:'',unit:'件',warningQty:5,status:'0',defaultPackFee:0,defaultShipFee:0,defaultCertFee:0})
 const quickProduct=reactive(blankQuickProduct())
 const productRules={sku:[{required:true,message:'请输入SKU',trigger:'blur'}],productName:[{required:true,message:'请输入商品名称',trigger:'blur'}],productType:[{required:true,type:'enum',enum:jewelryProductTypes.map(item=>item.value),message:'请选择商品类型'}],specification:[{required:true,type:'enum',enum:jewelrySpecifications.map(item=>item.value),message:'请选择规格类型'}]}
@@ -324,8 +351,8 @@ const types=[{value:'PURCHASE_IN',label:'采购入库'},{value:'SALES_OUT',label
 const editableTypes=types.filter(item=>!['REVERSAL','ASSEMBLY'].includes(item.value))
 const statuses=[{value:'DRAFT',label:'草稿'},{value:'PENDING_FIRST',label:'待审核'},{value:'PENDING_SECOND',label:'待审核'},{value:'POSTED',label:'已入账'},{value:'REJECTED',label:'已驳回'},{value:'REVERSED',label:'已红冲'}]
 const query=reactive({pageNum:1,pageSize:10,docNo:'',docType:'',status:''})
-const blankItem=()=>({productId:null,sourceItemId:null,itemRole:'NORMAL',bundleGroupNo:null,saleRole:'NORMAL',pricingMode:'SEPARATE',productTypeSnapshot:'',specificationSnapshot:'',imageUrls:'',qty:1,goodQty:0,defectQty:0,remainingInspectQty:0,remainingReturnQty:0,systemQty:0,countedQty:0,adjustmentQty:0,unitPrice:0,sourceUnitPrice:0,unitCost:0,packFee:0,shipFee:0,certFee:0,otherFee1:0,otherFee2:0,otherFee3:0,lineReason:''})
-const blank=()=>({documentId:null,docType:'PURCHASE_IN',bizDate:new Date().toISOString().slice(0,10),supplierId:null,supplierNameSnapshot:'',externalNo:'',salesChannel:'',influencerName:'',platformRate:0,commissionRate:0,taxRate:0,returnReason:'',sourceDocumentId:null,sourceDocNo:'',unlinkedReason:'',actualRefundAmount:null,riskStatus:'',remark:'',items:[blankItem()]})
+const blankItem=()=>({productId:null,sourceItemId:null,itemRole:'NORMAL',bundleGroupNo:null,saleRole:'NORMAL',pricingMode:'SEPARATE',productTypeSnapshot:'',specificationSnapshot:'',imageUrls:'',qty:1,sourceQty:0,goodQty:0,defectQty:0,remainingInspectQty:0,remainingReturnQty:0,systemQty:0,countedQty:0,adjustmentQty:0,unitPrice:0,sourceUnitPrice:0,unitCost:0,packFee:0,shipFee:0,certFee:0,otherFee1:0,otherFee2:0,otherFee3:0,influencerPriceSnapshot:null,influencerPriceVersion:0,influencerPriceStatus:'',lineReason:''})
+const blank=()=>({documentId:null,docType:'PURCHASE_IN',bizDate:new Date().toISOString().slice(0,10),supplierId:null,supplierNameSnapshot:'',externalNo:'',salesChannel:'',influencerId:null,influencerName:'',influencerPriceSnapshot:null,influencerPriceVersion:0,platformRate:0,commissionRate:0,taxRate:0,returnReason:'',sourceDocumentId:null,sourceDocNo:'',unlinkedReason:'',actualRefundAmount:null,riskStatus:'',remark:'',items:[blankItem()]})
 const form=reactive(blank())
 const serverRiskStatus=ref('')
 let riskTimer=null,riskSequence=0
@@ -365,7 +392,10 @@ const financialPackFeePerUnit=row=>{
 const otherFeesPerUnit=row=>Number(row.otherFee1||0)+Number(row.otherFee2||0)+Number(row.otherFee3||0)
 const lineProfit=row=>{if(isAccessoryPackaging(row))return 0;const qty=effectiveQty(row),amount=lineAmount(row),fees=(financialPackFeePerUnit(row)+Number(row.shipFee||0)+Number(row.certFee||0)+otherFeesPerUnit(row))*qty;return amount-Number(row.unitCost||0)*qty-fees-lineDeductions(row)}
 const estimatedQty=computed(()=>form.items.reduce((sum,row)=>sum+effectiveQty(row),0))
-const expectedReturnRefund=computed(()=>form.items.reduce((sum,row)=>sum+lineAmount(row),0))
+const enteredReturnRefund=computed(()=>form.items.reduce((sum,row)=>sum+lineAmount(row),0))
+const expectedReturnRefund=computed(()=>form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId
+  ?form.items.reduce((sum,row)=>sum+Number(row.influencerPriceSnapshot||0)*effectiveQty(row),0)
+  :enteredReturnRefund.value)
 const estimatedAmount=computed(()=>form.docType==='CUSTOMER_RETURN'?Number(form.actualRefundAmount||0):form.items.reduce((sum,row)=>sum+lineAmount(row),0))
 const adjustedInventoryAmount=computed(()=>form.docType==='COST_ADJUST'?form.items.reduce((sum,row)=>sum+Number(row.unitPrice||0)*effectiveQty(row),0):0)
 const estimatedDeductions=computed(()=>form.items.reduce((sum,row)=>sum+lineDeductions(row),0))
@@ -391,16 +421,17 @@ const bundleSummaries=computed(()=>{
   return [...groups.values()].sort((a,b)=>a.groupNo-b.groupNo)
 })
 const accessoryPackagingProblems=computed(()=>bundleSummaries.value.filter(group=>group.packagingShortage>0))
-const refundAmountDiffers=computed(()=>form.docType==='CUSTOMER_RETURN'&&!!form.sourceDocumentId&&form.actualRefundAmount!==null&&Math.abs(Number(form.actualRefundAmount)-expectedReturnRefund.value)>0.009)
-watch([()=>form.docType,()=>form.sourceDocumentId,expectedReturnRefund],([docType,sourceDocumentId,refundTotal])=>{
-  if(docType==='CUSTOMER_RETURN'&&!sourceDocumentId&&!actualRefundManuallyEdited.value){
+const refundAmountDiffers=computed(()=>form.docType==='CUSTOMER_RETURN'&&form.actualRefundAmount!==null&&Math.abs(Number(form.actualRefundAmount)-expectedReturnRefund.value)>0.009)
+watch([()=>form.docType,()=>form.sourceDocumentId,enteredReturnRefund],([docType,sourceDocumentId,refundTotal])=>{
+  if(docType==='CUSTOMER_RETURN'&&!actualRefundManuallyEdited.value){
     form.actualRefundAmount=Math.round((Number(refundTotal||0)+Number.EPSILON)*100)/100
   }
 })
 const riskFingerprint=computed(()=>JSON.stringify({
   open:dialog.value,readonly:readonly.value,docType:form.docType,
+  influencerId:form.influencerId,
   platformRate:form.platformRate,commissionRate:form.commissionRate,taxRate:form.taxRate,
-  items:(form.items||[]).map(({productId,qty,unitPrice,packFee,shipFee,certFee,otherFee1,otherFee2,otherFee3,bundleGroupNo,saleRole,pricingMode})=>({productId,qty,unitPrice,packFee,shipFee,certFee,otherFee1,otherFee2,otherFee3,bundleGroupNo,saleRole,pricingMode}))
+  items:(form.items||[]).map(({productId,qty,unitPrice,packFee,shipFee,certFee,otherFee1,otherFee2,otherFee3,bundleGroupNo,saleRole,pricingMode,influencerPriceSnapshot,influencerPriceVersion})=>({productId,qty,unitPrice,packFee,shipFee,certFee,otherFee1,otherFee2,otherFee3,bundleGroupNo,saleRole,pricingMode,influencerPriceSnapshot,influencerPriceVersion}))
 }))
 watch(riskFingerprint,()=>{
   serverRiskStatus.value=''
@@ -433,7 +464,7 @@ const isFourDecimalAmountDocument=document=>{
 }
 const isFourDecimalUnitPriceDocument=document=>{
   const docType=typeof document==='string'?document:document?.docType
-  return ['PURCHASE_IN','SUPPLIER_RETURN'].includes(docType)
+  return ['PURCHASE_IN','SUPPLIER_RETURN','SALES_OUT'].includes(docType)
     ||(docType==='CUSTOMER_RETURN'&&(typeof document==='string'||!document?.sourceDocumentId))
     ||(docType==='REVERSAL'&&['PURCHASE_IN','SUPPLIER_RETURN'].includes(document?.sourceDocType))
 }
@@ -442,17 +473,108 @@ const unitPriceText=value=>isFourDecimalUnitPriceDocument(form)?fourDecimalMoney
 const imageSrc=value=>/^https?:/i.test(value||'')?value:import.meta.env.VITE_APP_BASE_API+(value||'')
 const labelOf=(list,value)=>list.find(x=>x.value===value)?.label||value;const statusType=s=>s==='POSTED'?'success':['REJECTED','REVERSED'].includes(s)?'danger':s==='DRAFT'?'info':'warning'
 const documentStatusLabel=row=>isDualApproval(row)&&row.status==='PENDING_SECOND'?'待管理员复核':isDualApproval(row)&&row.status==='PENDING_FIRST'?'待审核员审核':labelOf(statuses,row.status)
-async function preload(){const [p,s,sales,returns]=await Promise.all([listJewelryProductOptions({status:'0'}),listJewelrySuppliers({pageNum:1,pageSize:500,status:'0'}),listJewelryDocuments({pageNum:1,pageSize:500,docType:'SALES_OUT',status:'POSTED'}),listJewelryDocuments({pageNum:1,pageSize:500,docType:'CUSTOMER_RETURN',status:'POSTED'})]);products.value=p.data||[];suppliers.value=s.rows||[];salesDocuments.value=sales.rows||[];returnDocuments.value=returns.rows||[]}
+async function preload(){const [p,s,i,sales,returns]=await Promise.all([listJewelryProductOptions({status:'0'}),listJewelrySuppliers({pageNum:1,pageSize:500,status:'0'}),listJewelryInfluencerOptions({}),listJewelryDocuments({pageNum:1,pageSize:500,docType:'SALES_OUT',status:'POSTED'}),listJewelryDocuments({pageNum:1,pageSize:500,docType:'CUSTOMER_RETURN',status:'POSTED'})]);products.value=p.data||[];suppliers.value=s.rows||[];influencers.value=i.data||[];salesDocuments.value=sales.rows||[];returnDocuments.value=returns.rows||[]}
 async function reloadProducts(purpose){const r=await listJewelryProductOptions({status:'0',...(purpose?{purpose}:{})});products.value=r.data||[]}
 async function load(){loading.value=true;try{const r=await listJewelryDocuments(query);rows.value=r.rows||[];total.value=r.total||0}finally{loading.value=false}}
-function open(){actualRefundManuallyEdited.value=false;Object.assign(form,blank());purchaseDocuments.value=[];readonly.value=false;dialog.value=true}
-function normalizeLoadedDocument(){form.items=(form.items||[]).map(item=>{const normalized={...blankItem(),...item,remainingInspectQty:item.remainingInspectQty??(form.docType==='RETURN_INSPECT'?Number(item.goodQty||0)+Number(item.defectQty||0):0),saleRole:item.saleRole||'NORMAL',pricingMode:item.pricingMode||'SEPARATE'};if(form.docType==='SALES_OUT'&&normalized.saleRole==='ADDON'&&normalized.productTypeSnapshot==='ACCESSORY'){normalized.pricingMode='INCLUDED';normalized.unitPrice=0;normalized.packFee=0;normalized.shipFee=0;normalized.certFee=0;normalized.otherFee1=0;normalized.otherFee2=0;normalized.otherFee3=0}return normalized});if(form.docType==='CUSTOMER_RETURN'&&form.actualRefundAmount===null)form.actualRefundAmount=Math.abs(Number(form.totalAmount||0))}
-async function edit(row){Object.assign(form,(await getJewelryDocument(row.documentId)).data);normalizeLoadedDocument();actualRefundManuallyEdited.value=form.docType==='CUSTOMER_RETURN'&&form.actualRefundAmount!==null;if(form.docType==='COST_ADJUST')await reloadProducts('COST_ADJUST');if(form.docType==='SUPPLIER_RETURN'){await loadSupplierReturnSources(form.supplierId);if(form.sourceDocumentId)await loadSupplierReturnSource(form.sourceDocumentId,true)}if(form.docType==='RETURN_INSPECT'&&form.sourceDocumentId)await loadInspectionSource(form.sourceDocumentId,true);readonly.value=false;dialog.value=true}
-async function view(row){Object.assign(form,(await getJewelryDocument(row.documentId)).data);normalizeLoadedDocument();readonly.value=true;dialog.value=true}
+function open(){actualRefundManuallyEdited.value=false;Object.assign(form,blank());purchaseDocuments.value=[];influencerProductPrices.value=[];influencerBundleItems.value=[];readonly.value=false;dialog.value=true}
+function normalizeLoadedDocument(){form.items=(form.items||[]).map(item=>{const normalized={...blankItem(),...item,remainingInspectQty:item.remainingInspectQty??(form.docType==='RETURN_INSPECT'?Number(item.goodQty||0)+Number(item.defectQty||0):0),saleRole:item.saleRole||'NORMAL',pricingMode:item.pricingMode||'SEPARATE'};normalized.influencerPriceStatus=Number(normalized.influencerPriceVersion||0)>0?'PRICED':normalized.influencerPriceSnapshot!=null?'PENDING':'';if(form.docType==='SALES_OUT'&&normalized.saleRole==='ADDON'&&normalized.productTypeSnapshot==='ACCESSORY'){normalized.pricingMode='INCLUDED';normalized.unitPrice=0;normalized.packFee=0;normalized.shipFee=0;normalized.certFee=0;normalized.otherFee1=0;normalized.otherFee2=0;normalized.otherFee3=0;clearRowInfluencerPrice(normalized)}return normalized});if(form.docType==='CUSTOMER_RETURN'&&form.actualRefundAmount===null)form.actualRefundAmount=Math.abs(Number(form.totalAmount||0))}
+async function edit(row){Object.assign(form,(await getJewelryDocument(row.documentId)).data);normalizeLoadedDocument();actualRefundManuallyEdited.value=form.docType==='CUSTOMER_RETURN'&&form.actualRefundAmount!==null;if(form.influencerId&&['SALES_OUT','CUSTOMER_RETURN'].includes(form.docType)){await loadInfluencerReferences(form.influencerId);if(form.docType==='SALES_OUT'||!form.sourceDocumentId)applyInfluencerPriceToRows()}else{influencerProductPrices.value=[];influencerBundleItems.value=[]}if(form.docType==='COST_ADJUST')await reloadProducts('COST_ADJUST');if(form.docType==='SUPPLIER_RETURN'){await loadSupplierReturnSources(form.supplierId);if(form.sourceDocumentId)await loadSupplierReturnSource(form.sourceDocumentId,true)}if(form.docType==='CUSTOMER_RETURN'&&form.sourceDocumentId)await loadCustomerReturnSource(form.sourceDocumentId,true);if(form.docType==='RETURN_INSPECT'&&form.sourceDocumentId)await loadInspectionSource(form.sourceDocumentId,true);readonly.value=false;dialog.value=true}
+async function view(row){Object.assign(form,(await getJewelryDocument(row.documentId)).data);normalizeLoadedDocument();if(form.influencerId)await loadInfluencerReferences(form.influencerId);else{influencerProductPrices.value=[];influencerBundleItems.value=[]}readonly.value=true;dialog.value=true}
 const normalizedSaleRole=row=>row?.saleRole||'NORMAL'
 const normalizedPricingMode=row=>row?.pricingMode||'SEPARATE'
 const productOf=row=>products.value.find(product=>product.productId===row.productId)
-const availableProducts=row=>normalizedSaleRole(row)==='ADDON'?products.value.filter(product=>product.productType!=='FINISHED'):products.value
+const influencerOf=id=>influencers.value.find(item=>String(item.influencerId)===String(id))
+const selectedInfluencerPriceSummary=computed(()=>{
+  if(!form.influencerId)return '—'
+  const priced=influencerProductPrices.value.filter(item=>item.priceStatus==='PRICED').length
+  const pending=influencerProductPrices.value.filter(item=>item.priceStatus==='PENDING').length
+  const bundleAddons=new Set(influencerBundleItems.value.map(item=>String(item.addonProductId))).size
+  return `已定价 ${priced} 种${bundleAddons?`，搭售散件 ${bundleAddons} 种`:''}${pending?`，待生效 ${pending} 种`:''}`
+})
+const influencerPriceOf=productId=>influencerProductPrices.value.find(item=>String(item.productId)===String(productId))
+const influencerBundleOfAddon=productId=>influencerBundleItems.value.find(item=>String(item.addonProductId)===String(productId))
+const isUnlinkedInfluencerReturn=()=>form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId
+const isIncludedInfluencerAddon=row=>isUnlinkedInfluencerReturn()&&row?.influencerPriceStatus==='BUNDLE'&&!!influencerBundleOfAddon(row.productId)
+const influencerReturnAllowedProductIds=()=>new Set([
+  ...influencerProductPrices.value.filter(item=>item.priceStatus==='PRICED').map(item=>String(item.productId)),
+  ...influencerBundleItems.value.map(item=>String(item.addonProductId))
+])
+async function loadInfluencerReferences(id){
+  if(!id){influencerProductPrices.value=[];influencerBundleItems.value=[];return}
+  const [prices,bundles]=await Promise.all([getJewelryInfluencerProductPrices(id),getJewelryInfluencerBundleItems(id)])
+  influencerProductPrices.value=prices.data||[]
+  influencerBundleItems.value=bundles.data||[]
+}
+function clearRowInfluencerPrice(row){row.influencerPriceSnapshot=null;row.influencerPriceVersion=0;row.influencerPriceStatus=''}
+function applyInfluencerProductPrice(row,{notify=true}={}){
+  if(!row?.productId||!form.influencerId){clearRowInfluencerPrice(row);return true}
+  if(form.docType==='SALES_OUT'&&normalizedPricingMode(row)==='INCLUDED'){
+    clearRowInfluencerPrice(row);row.unitPrice=0;return true
+  }
+  const price=influencerPriceOf(row.productId)
+  if(price?.priceStatus==='PRICED'){
+    row.influencerPriceSnapshot=Number(price.fixedUnitPrice)
+    row.influencerPriceVersion=Number(price.priceVersion||0)
+    row.influencerPriceStatus='PRICED'
+    if(form.docType==='SALES_OUT'||(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId))row.unitPrice=Number(price.fixedUnitPrice)
+    return true
+  }
+  const bundle=influencerBundleOfAddon(row.productId)
+  if(isUnlinkedInfluencerReturn()&&bundle){
+    row.influencerPriceSnapshot=0
+    row.influencerPriceVersion=0
+    row.influencerPriceStatus='BUNDLE'
+    row.saleRole='ADDON'
+    row.pricingMode=bundle.pricingMode||'INCLUDED'
+    row.unitPrice=0
+    return true
+  }
+  if(price?.priceStatus==='PENDING'){
+    const belongsToCurrentDraft=form.documentId&&String(price.pendingSourceDocumentId)===String(form.documentId)
+    if(form.docType==='SALES_OUT'&&belongsToCurrentDraft){
+      row.influencerPriceSnapshot=Number(price.fixedUnitPrice)
+      row.influencerPriceVersion=0
+      row.influencerPriceStatus='PENDING'
+      row.unitPrice=Number(price.fixedUnitPrice)
+      return true
+    }
+    clearRowInfluencerPrice(row)
+    if(notify)proxy.$modal.msgWarning(form.docType==='CUSTOMER_RETURN'?'该达人对应商品的价格尚未审核生效，暂不能用于无原单退货':'该达人对应商品的价格正在其他销售单中等待生效，暂不能重复定价')
+    return false
+  }
+  clearRowInfluencerPrice(row)
+  if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId){
+    if(notify)proxy.$modal.msgWarning('该达人尚未建立此商品的固定成交价，不能用于无原单退货')
+    return false
+  }
+  return true
+}
+function applyInfluencerPriceToRows(){
+  for(const row of form.items)applyInfluencerProductPrice(row,{notify:false})
+}
+async function influencerChanged(id){
+  const influencer=influencerOf(id)
+  if(!influencer){form.influencerName='';influencerProductPrices.value=[];influencerBundleItems.value=[];form.items.forEach(clearRowInfluencerPrice);return}
+  form.influencerName=influencer.influencerName||''
+  if(!form.salesChannel&&influencer.salesChannel)form.salesChannel=influencer.salesChannel
+  await loadInfluencerReferences(id)
+  if(isUnlinkedInfluencerReturn()){
+    const allowedIds=influencerReturnAllowedProductIds()
+    for(const row of form.items){if(row.productId&&!allowedIds.has(String(row.productId)))Object.assign(row,blankItem())}
+  }
+  for(const row of form.items){if(normalizedPricingMode(row)!=='INCLUDED')row.unitPrice=0}
+  applyInfluencerPriceToRows()
+  if(form.docType==='CUSTOMER_RETURN'&&!actualRefundManuallyEdited.value)form.actualRefundAmount=Math.round((expectedReturnRefund.value+Number.EPSILON)*100)/100
+}
+const availableProducts=row=>{
+  let available=products.value
+  if(isUnlinkedInfluencerReturn()){
+    if(!form.influencerId)return []
+    const allowedIds=influencerReturnAllowedProductIds()
+    available=available.filter(product=>allowedIds.has(String(product.productId)))
+  }
+  return normalizedSaleRole(row)==='ADDON'?available.filter(product=>product.productType!=='FINISHED'):available
+}
 const saleGroupKey=row=>normalizedSaleRole(row)==='NORMAL'?'NORMAL':String(row.bundleGroupNo||'')
 const canAddAddon=row=>normalizedSaleRole(row)!=='ADDON'&&productOf(row)?.productType==='FINISHED'
 const nextBundleGroupNo=()=>Math.max(0,...form.items.map(item=>Number(item.bundleGroupNo||0)))+1
@@ -484,6 +606,10 @@ function productChanged(row){
     row.certFee=Number(product.defaultCertFee||0)
     row.otherFee1=0;row.otherFee2=0;row.otherFee3=0
   }
+  if(['SALES_OUT','CUSTOMER_RETURN'].includes(form.docType)&&form.influencerId&&!applyInfluencerProductPrice(row)){
+    row.productId=null
+    clearRowInfluencerPrice(row)
+  }
 }
 function addAddon(mainRow){
   if(normalizedSaleRole(mainRow)==='NORMAL'){
@@ -496,7 +622,7 @@ function addAddon(mainRow){
   while(insertAt<form.items.length&&form.items[insertAt].bundleGroupNo===mainRow.bundleGroupNo)insertAt+=1
   form.items.splice(insertAt,0,addon)
 }
-function pricingModeChanged(row){if(isAccessoryPackaging(row))row.pricingMode='INCLUDED';if(normalizedPricingMode(row)==='INCLUDED'){row.unitPrice=0;row.packFee=0;row.shipFee=0;row.certFee=0;row.otherFee1=0;row.otherFee2=0;row.otherFee3=0}}
+function pricingModeChanged(row){if(isAccessoryPackaging(row))row.pricingMode='INCLUDED';if(normalizedPricingMode(row)==='INCLUDED'){row.unitPrice=0;row.packFee=0;row.shipFee=0;row.certFee=0;row.otherFee1=0;row.otherFee2=0;row.otherFee3=0;clearRowInfluencerPrice(row)}else applyInfluencerProductPrice(row)}
 function addNormalItem(){form.items.push(blankItem())}
 async function removeItem(index){
   const row=form.items[index]
@@ -646,19 +772,70 @@ async function supplierReturnSourceChanged(id){
   if(!id){form.items=[blankItem()];return}
   try{await loadSupplierReturnSource(id,false)}catch(error){form.sourceDocumentId=null;form.items=[blankItem()];proxy.$modal.msgError(error?.message||'加载采购单失败')}
 }
+const linkedReturnMaxQty=row=>{
+  if(form.docType==='SUPPLIER_RETURN'&&form.sourceDocumentId&&row.sourceItemId)return Math.max(1,Number(row.remainingReturnQty||0))
+  if(form.docType==='CUSTOMER_RETURN'&&form.sourceDocumentId&&row.sourceItemId)return Math.max(1,Number(row.remainingReturnQty||0))
+  return undefined
+}
+function initialCustomerReturnQty(sourceItem,sourceItems){
+  const remaining=Number(sourceItem.remainingReturnQty||0)
+  if(!sourceItem.bundleGroupNo||normalizedSaleRole(sourceItem)!=='ADDON')return Math.min(1,remaining)
+  const main=sourceItems.find(item=>item.bundleGroupNo===sourceItem.bundleGroupNo&&normalizedSaleRole(item)==='MAIN')
+  if(!main||Number(main.qty||0)<=0)return Math.min(1,remaining)
+  const mainQty=Math.min(1,Number(main.remainingReturnQty||0))
+  const proportional=Math.max(1,Math.round(mainQty*Number(sourceItem.qty||0)/Number(main.qty||1)))
+  return Math.min(remaining,proportional)
+}
+function linkedReturnQtyChanged(row){
+  if(form.docType!=='CUSTOMER_RETURN'||!form.sourceDocumentId||normalizedSaleRole(row)!=='MAIN'||!row.bundleGroupNo)return
+  const mainSourceQty=Number(row.sourceQty||0)
+  if(mainSourceQty<=0)return
+  for(const addon of form.items.filter(item=>item.bundleGroupNo===row.bundleGroupNo&&normalizedSaleRole(item)==='ADDON')){
+    const proportional=Math.max(1,Math.round(Number(row.qty||0)*Number(addon.sourceQty||0)/mainSourceQty))
+    addon.qty=Math.min(Number(addon.remainingReturnQty||0),proportional)
+  }
+}
+async function loadCustomerReturnSource(id,preserveCurrent=false){
+  const currentBySourceItem=new Map((form.items||[]).filter(item=>item.sourceItemId).map(item=>[item.sourceItemId,item]))
+  const source=(await getCustomerReturnSource(id,form.documentId)).data
+  const sourceItems=source.items||[]
+  form.sourceDocNo=source.docNo||''
+  form.salesChannel=source.salesChannel||''
+  form.influencerId=source.influencerId||null
+  form.influencerName=source.influencerName||''
+  await loadInfluencerReferences(form.influencerId)
+  form.platformRate=0
+  form.commissionRate=0
+  form.taxRate=0
+  form.items=sourceItems.map(sourceItem=>{
+    const current=preserveCurrent?currentBySourceItem.get(sourceItem.itemId):null
+    return {...blankItem(),...(current||{}),productId:sourceItem.productId,sourceItemId:sourceItem.itemId,
+      qty:current?Number(current.qty||0):initialCustomerReturnQty(sourceItem,sourceItems),
+      sourceQty:Number(sourceItem.qty||0),remainingReturnQty:Number(sourceItem.remainingReturnQty||0),
+      unitPrice:Number(sourceItem.unitPrice||0),unitCost:Number(sourceItem.unitCost||0),packFee:0,
+      shipFee:Number(sourceItem.shipFee||0),certFee:Number(sourceItem.certFee||0),bundleGroupNo:sourceItem.bundleGroupNo,
+      saleRole:sourceItem.saleRole||'NORMAL',pricingMode:sourceItem.pricingMode||'SEPARATE',
+      productTypeSnapshot:sourceItem.productTypeSnapshot||'',specificationSnapshot:sourceItem.specificationSnapshot||'',
+      influencerPriceSnapshot:sourceItem.influencerPriceSnapshot??sourceItem.unitPrice,
+      influencerPriceVersion:Number(sourceItem.influencerPriceVersion||0),
+      influencerPriceStatus:Number(sourceItem.influencerPriceVersion||0)>0?'PRICED':''}
+  })
+  if(!form.items.length)throw new Error('该销售单已没有可退商品')
+}
 async function salesSourceChanged(id){
   actualRefundManuallyEdited.value=false
   form.unlinkedReason=''
   form.actualRefundAmount=null
-  if(!id){form.items=[blankItem()];form.salesChannel='';form.influencerName='';form.platformRate=0;form.commissionRate=0;form.taxRate=0;return}
-  const source=(await getJewelryDocument(id)).data
-  form.salesChannel=source.salesChannel||''
-  form.influencerName=source.influencerName||''
-  form.platformRate=0
-  form.commissionRate=0
-  form.taxRate=0
-  form.items=(source.items||[]).map(item=>({...blankItem(),productId:item.productId,qty:1,unitPrice:Number(item.unitPrice||0),unitCost:Number(item.unitCost||0),packFee:0,shipFee:Number(item.shipFee||0),certFee:Number(item.certFee||0),sourceItemId:item.itemId,bundleGroupNo:item.bundleGroupNo,saleRole:item.saleRole||'NORMAL',pricingMode:item.pricingMode||'SEPARATE',productTypeSnapshot:item.productTypeSnapshot||'',specificationSnapshot:item.specificationSnapshot||''}))
-  form.actualRefundAmount=expectedReturnRefund.value
+  form.sourceDocNo=''
+  if(!id){form.items=[blankItem()];form.salesChannel='';form.influencerId=null;form.influencerName='';influencerProductPrices.value=[];form.platformRate=0;form.commissionRate=0;form.taxRate=0;return}
+  try{
+    await loadCustomerReturnSource(id,false)
+    form.actualRefundAmount=expectedReturnRefund.value
+  }catch(error){
+    form.sourceDocumentId=null
+    form.items=[blankItem()]
+    proxy.$modal.msgError(error?.message||'加载销售单失败')
+  }
 }
 async function loadInspectionSource(id,preserveCurrent=false){
   const currentBySourceItem=new Map((form.items||[]).filter(item=>item.sourceItemId).map(item=>[item.sourceItemId,item]))
@@ -677,11 +854,15 @@ async function inspectionSourceChanged(id){
   try{await loadInspectionSource(id,false)}catch(error){form.sourceDocumentId=null;form.items=[blankItem()];proxy.$modal.msgError(error?.message||'加载客户退货单失败')}
 }
 function actualRefundTotalChanged(){actualRefundManuallyEdited.value=true}
-async function typeChanged(){actualRefundManuallyEdited.value=false;form.items=[blankItem()];form.supplierId=null;form.supplierNameSnapshot='';form.salesChannel='';form.platformRate=0;form.commissionRate=0;form.taxRate=0;form.returnReason='';form.sourceDocumentId=null;form.sourceDocNo='';form.unlinkedReason='';form.actualRefundAmount=null;purchaseDocuments.value=[];importPreview.value={};importCompression.value=null;if(form.docType==='COST_ADJUST')await reloadProducts('COST_ADJUST')}
+async function typeChanged(){actualRefundManuallyEdited.value=false;form.items=[blankItem()];form.supplierId=null;form.supplierNameSnapshot='';form.salesChannel='';form.influencerId=null;form.influencerName='';influencerProductPrices.value=[];form.influencerPriceSnapshot=null;form.influencerPriceVersion=0;form.platformRate=0;form.commissionRate=0;form.taxRate=0;form.returnReason='';form.sourceDocumentId=null;form.sourceDocNo='';form.unlinkedReason='';form.actualRefundAmount=null;purchaseDocuments.value=[];importPreview.value={};importCompression.value=null;if(form.docType==='COST_ADJUST')await reloadProducts('COST_ADJUST')}
 function validateDocument(requireSubmit=false){
   if(form.docType==='SUPPLIER_RETURN'&&!form.sourceDocumentId){proxy.$modal.msgError('供应商退货必须选择原采购单');return false}
   if(form.docType==='CUSTOMER_RETURN'&&(form.actualRefundAmount===null||Number(form.actualRefundAmount)<0)){proxy.$modal.msgError('请填写实际退款总额');return false}
-  if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&form.items.some(x=>Number(x.unitPrice||0)<=0)){proxy.$modal.msgError('未关联原销售单时，请填写每件商品的实际退款单价');return false}
+  if(form.docType==='SALES_OUT'&&!form.influencerId){proxy.$modal.msgError('销售出库必须选择达人/主播');return false}
+  if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&!form.influencerId){proxy.$modal.msgError('未关联原销售单时必须选择达人/主播');return false}
+  if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&form.items.some(x=>x.influencerPriceSnapshot==null)){proxy.$modal.msgError('所选达人尚未关联部分商品，无法计算系统应退金额');return false}
+  if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&form.items.some(x=>Number(x.unitPrice||0)<=0&&!isIncludedInfluencerAddon(x))){proxy.$modal.msgError('未关联原销售单时，请填写每件计价商品的实际退款单价');return false}
+  if(form.docType==='SALES_OUT'&&form.items.some(x=>normalizedPricingMode(x)!=='INCLUDED'&&Number(x.unitPrice||0)<=0)){proxy.$modal.msgError('请填写每件计价商品的成交单价；未定价商品保存草稿后会关联到达人库');return false}
   if(form.docType==='RETURN_INSPECT'&&!form.sourceDocumentId){proxy.$modal.msgError('退货质检必须选择原客户退货单');return false}
   if(!form.items.length||form.items.some(x=>!x.productId)){proxy.$modal.msgError('请完整选择商品');return false}
   if(form.docType==='SUPPLIER_RETURN'&&form.items.some(x=>!x.sourceItemId)){proxy.$modal.msgError('退供商品必须来自原采购单');return false}
@@ -723,4 +904,4 @@ async function withdraw(row){await proxy.$modal.confirm(`确认撤回单据 ${ro
 async function reverse(row){await proxy.$modal.confirm(`确认对单据 ${row.docNo} 发起整单红冲？${['STOCK_ADJUST','COST_ADJUST'].includes(row.docType)?'红冲单需要审核员和管理员两级审批。':'红冲单审核通过后入账。'}`);await createJewelryReversal(row.documentId);proxy.$modal.msgSuccess('红冲草稿已生成');load()}
 preload();load()
 </script>
-<style scoped>.sheet{border:1px solid #cfd5dc}.sheet-head{display:grid;grid-template-columns:repeat(6,minmax(150px,1fr));gap:12px;padding:14px;background:#f4f6f8}.sheet-head :deep(.el-form-item){margin:0}.sheet-head :deep(.el-input-number),.sheet-head :deep(.el-select),.sheet-head :deep(.el-date-editor){width:100%}.item-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-top:1px solid #d9dee5;background:#fafbfc}.item-toolbar>div:first-child{display:flex;align-items:baseline;gap:10px}.item-toolbar b{color:#334155;font-size:14px}.item-toolbar span{color:#8490a0;font-size:12px}.item-toolbar-actions{display:flex;align-items:center;gap:8px}.excel-compress-progress{display:flex!important;flex-direction:column;align-items:stretch!important;gap:4px!important;width:180px}.excel-compress-progress span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.excel-compress-progress :deep(.el-progress){width:100%}.item-table{border-left:0;border-right:0}.item-table :deep(.el-input-number){width:100%;min-width:0}.item-table :deep(.bundle-addon-row){background:#fffaf0}.item-table :deep(.bundle-addon-row td:nth-child(2) .product-picker){padding-left:18px;border-left:3px solid #e6a23c}.product-picker{display:flex;align-items:center;gap:8px}.product-picker .el-select{flex:1;min-width:0}.product-picker .el-button{flex:none}.pack-fee-cell{display:flex;flex-direction:column;gap:3px}.pack-fee-cell small{line-height:1.35;color:#6b7280}.packaging-cost-note{color:#b45309}.packaging-shortage{color:#dc2626!important;font-weight:600}.packaging-covered{color:#16803c!important}.bundle-summaries{display:flex;gap:10px;flex-wrap:wrap;padding:10px 12px 0}.bundle-summaries>div{display:flex;gap:14px;align-items:center;padding:8px 12px;border:1px solid #f1d39c;border-radius:4px;background:#fffaf0;color:#6b7280;font-size:13px}.bundle-summaries b{color:#92400e}.add-line{margin:12px}.document-total{display:flex;justify-content:flex-end;gap:28px;padding:12px 16px;border-top:1px solid #d9dee5;background:#f8fafc;color:#475569}.document-total b{color:#111827}.loss,.document-total .loss,.document-total .loss b{color:#dc2626;font-weight:700}.sheet-foot{padding:12px 14px 0;border-top:1px solid #d9dee5}.import-summary{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}.import-summary span:last-child{color:#7c8796}.import-error{color:#c2413a}@media(max-width:1200px){.sheet-head{grid-template-columns:repeat(3,1fr)}}@media(max-width:760px){.sheet-head{grid-template-columns:1fr}.item-toolbar{align-items:stretch;flex-direction:column;gap:10px}.item-toolbar>div:first-child{align-items:flex-start;flex-direction:column;gap:2px}.item-toolbar-actions{flex-wrap:wrap}.excel-compress-progress{width:100%}.product-picker{align-items:stretch;flex-direction:column}.bundle-summaries>div{align-items:flex-start;flex-direction:column;gap:4px}.document-total{justify-content:flex-start;flex-wrap:wrap;gap:12px 20px}}</style>
+<style scoped>.sheet{border:1px solid #cfd5dc}.sheet-head{display:grid;grid-template-columns:repeat(6,minmax(150px,1fr));gap:12px;padding:14px;background:#f4f6f8}.sheet-head :deep(.el-form-item){margin:0}.sheet-head :deep(.el-input-number),.sheet-head :deep(.el-select),.sheet-head :deep(.el-date-editor){width:100%}.item-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-top:1px solid #d9dee5;background:#fafbfc}.item-toolbar>div:first-child{display:flex;align-items:baseline;gap:10px}.item-toolbar b{color:#334155;font-size:14px}.item-toolbar span{color:#8490a0;font-size:12px}.item-toolbar-actions{display:flex;align-items:center;gap:8px}.excel-compress-progress{display:flex!important;flex-direction:column;align-items:stretch!important;gap:4px!important;width:180px}.excel-compress-progress span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.excel-compress-progress :deep(.el-progress){width:100%}.item-table{border-left:0;border-right:0}.item-table :deep(.el-input-number){width:100%;min-width:0}.item-table :deep(.bundle-addon-row){background:#fffaf0}.item-table :deep(.bundle-addon-row td:nth-child(2) .product-picker){padding-left:18px;border-left:3px solid #e6a23c}.product-picker{display:flex;align-items:center;gap:8px}.product-picker .el-select{flex:1;min-width:0}.product-picker .el-button{flex:none}.unit-price-cell{display:flex;flex-direction:column;gap:3px}.unit-price-cell small{line-height:1.25}.fixed-price-note{color:#16803c}.pending-price-note{color:#b45309}.pack-fee-cell{display:flex;flex-direction:column;gap:3px}.pack-fee-cell small{line-height:1.35;color:#6b7280}.packaging-cost-note{color:#b45309}.packaging-shortage{color:#dc2626!important;font-weight:600}.packaging-covered{color:#16803c!important}.bundle-summaries{display:flex;gap:10px;flex-wrap:wrap;padding:10px 12px 0}.bundle-summaries>div{display:flex;gap:14px;align-items:center;padding:8px 12px;border:1px solid #f1d39c;border-radius:4px;background:#fffaf0;color:#6b7280;font-size:13px}.bundle-summaries b{color:#92400e}.add-line{margin:12px}.document-total{display:flex;justify-content:flex-end;gap:28px;padding:12px 16px;border-top:1px solid #d9dee5;background:#f8fafc;color:#475569}.document-total b{color:#111827}.loss,.document-total .loss,.document-total .loss b{color:#dc2626;font-weight:700}.sheet-foot{padding:12px 14px 0;border-top:1px solid #d9dee5}.import-summary{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}.import-summary span:last-child{color:#7c8796}.import-error{color:#c2413a}@media(max-width:1200px){.sheet-head{grid-template-columns:repeat(3,1fr)}}@media(max-width:760px){.sheet-head{grid-template-columns:1fr}.item-toolbar{align-items:stretch;flex-direction:column;gap:10px}.item-toolbar>div:first-child{align-items:flex-start;flex-direction:column;gap:2px}.item-toolbar-actions{flex-wrap:wrap}.excel-compress-progress{width:100%}.product-picker{align-items:stretch;flex-direction:column}.bundle-summaries>div{align-items:flex-start;flex-direction:column;gap:4px}.document-total{justify-content:flex-start;flex-wrap:wrap;gap:12px 20px}}</style>
