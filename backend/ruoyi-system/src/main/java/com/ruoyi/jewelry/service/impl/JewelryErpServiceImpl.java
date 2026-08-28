@@ -1474,12 +1474,22 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     item.setPricingMode("INCLUDED");
                     continue;
                 }
-                if (current == null || !"PRICED".equals(textValue(current.get("priceStatus"))))
-                    throw new ServiceException(text(item.getProductNameSnapshot()) + " 尚未关联到该达人，不能无原单退货");
-                BigDecimal fixed = fourDecimal(nullableDecimal(current.get("fixedUnitPrice")));
-                item.setInfluencerPriceSnapshot(fixed);
-                item.setInfluencerPriceVersion(intValue(current.get("priceVersion")));
-                if (fourDecimal(item.getUnitPrice()).signum() <= 0) item.setUnitPrice(fixed);
+                if (current != null && "PRICED".equals(textValue(current.get("priceStatus"))))
+                {
+                    BigDecimal fixed = fourDecimal(nullableDecimal(current.get("fixedUnitPrice")));
+                    item.setInfluencerPriceSnapshot(fixed);
+                    item.setInfluencerPriceVersion(intValue(current.get("priceVersion")));
+                    if (fourDecimal(item.getUnitPrice()).signum() <= 0) item.setUnitPrice(fixed);
+                    continue;
+                }
+                BigDecimal entered = fourDecimal(item.getUnitPrice());
+                if (entered.signum() <= 0)
+                    throw new ServiceException(text(item.getProductNameSnapshot()) + " 未建立达人固定价，请填写实际退款单价");
+                item.setUnitPrice(entered);
+                item.setInfluencerPriceSnapshot(null);
+                item.setInfluencerPriceVersion(null);
+                item.setSaleRole("NORMAL");
+                item.setPricingMode("SEPARATE");
                 continue;
             }
 

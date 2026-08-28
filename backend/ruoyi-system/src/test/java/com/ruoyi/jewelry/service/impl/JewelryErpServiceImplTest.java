@@ -517,13 +517,15 @@ class JewelryErpServiceImplTest
     }
 
     @Test
-    void unlinkedCustomerReturnCanBeSavedAndIsFlaggedForReview()
+    void unlinkedCustomerReturnAllowsArbitraryUnpricedProductAndIsFlaggedForReview()
     {
         JewelryDocument customerReturn = document(null, "CUSTOMER_RETURN", null);
         customerReturn.setSalesChannel("shop");
         customerReturn.setReturnReason("customer return");
         customerReturn.setActualRefundAmount(decimal("900.00"));
-        customerReturn.setItems(Arrays.asList(item(null, 1, "1000.1234")));
+        JewelryDocumentItem arbitraryProduct = item(null, 1, "1000.1234");
+        arbitraryProduct.setProductId(777L);
+        customerReturn.setItems(Arrays.asList(arbitraryProduct));
         when(mapper.insertDocument(customerReturn)).thenAnswer(invocation -> {
             customerReturn.setDocumentId(93L);
             return 1;
@@ -536,6 +538,8 @@ class JewelryErpServiceImplTest
         assertEquals(93L, saved.getDocumentId());
         assertEquals("REVIEW", customerReturn.getRiskStatus());
         assertMoney("1000.1234", customerReturn.getItems().get(0).getUnitPrice());
+        assertEquals(null, customerReturn.getItems().get(0).getInfluencerPriceSnapshot());
+        assertEquals(null, customerReturn.getItems().get(0).getInfluencerPriceVersion());
         assertMoney("100.00", customerReturn.getItems().get(0).getUnitCost());
         assertMoney("-900.00", customerReturn.getTotalAmount());
         verify(mapper).insertDocument(customerReturn);

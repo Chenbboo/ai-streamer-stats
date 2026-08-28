@@ -66,7 +66,7 @@
           <el-form-item v-if="form.docType==='SALES_OUT'" label="税率（%）"><el-input-number v-model="taxPercent" :min="0" :max="100" :step="1" :precision="2" :disabled="readonly"/></el-form-item>
         </div></el-form>
         <el-alert v-if="form.docType==='CUSTOMER_RETURN' && !form.sourceDocumentId && !readonly"
-          title="原销售单为可选项。未关联时请先选择达人/主播，商品下拉框只显示该达人已定价商品和已绑定搭售散件；整套退货请优先选择原销售单，系统会自动带出准确的组合与数量。"
+          title="原销售单为可选项。未关联时可选择商品档案中的任意商品：达人已定价商品自动带价，已绑定包装搭售件锁定为0，其他商品请手填实际退款单价并进入复核；整套退货仍建议优先选择原销售单。"
           type="warning" :closable="false" show-icon />
         <el-alert v-if="form.docType==='CUSTOMER_RETURN' && form.sourceDocumentId && form.items.some(item=>normalizedSaleRole(item)==='ADDON') && !readonly"
           title="已按原销售组合带出主商品和搭售散件。修改主商品退货数量会按原组合比例同步散件数量；未实际退回的散件可单独修改数量或删除。"
@@ -177,6 +177,7 @@
             <div class="unit-price-cell">
               <el-input-number v-model="row.unitPrice" :min="0" :precision="unitPricePrecision" :step="unitPriceStep" :disabled="readonly || (form.docType==='CUSTOMER_RETURN' && (!!form.sourceDocumentId || isIncludedInfluencerAddon(row))) || (form.docType==='SALES_OUT' && (normalizedPricingMode(row)==='INCLUDED' || Number(row.influencerPriceVersion||0)>0))" style="width:100%"/>
               <small v-if="form.docType==='CUSTOMER_RETURN' && isIncludedInfluencerAddon(row)" class="fixed-price-note">已包含在主商品退款价中</small>
+              <small v-else-if="isUnlinkedInfluencerReturn() && row.productId && row.influencerPriceSnapshot==null" class="pending-price-note">无达人固定价，请手填；提交后需复核</small>
               <small v-if="form.docType==='SALES_OUT' && normalizedPricingMode(row)!=='INCLUDED' && row.productId" :class="row.influencerPriceStatus==='PENDING'?'pending-price-note':'fixed-price-note'">
                 {{Number(row.influencerPriceVersion||0)>0?'达人商品固定价':row.influencerPriceStatus==='PENDING'?'本草稿待生效价格':'保存草稿后关联达人库'}}
               </small>
@@ -495,10 +496,6 @@ const influencerPriceOf=productId=>influencerProductPrices.value.find(item=>Stri
 const influencerBundleOfAddon=productId=>influencerBundleItems.value.find(item=>String(item.addonProductId)===String(productId))
 const isUnlinkedInfluencerReturn=()=>form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId
 const isIncludedInfluencerAddon=row=>isUnlinkedInfluencerReturn()&&row?.influencerPriceStatus==='BUNDLE'&&!!influencerBundleOfAddon(row.productId)
-const influencerReturnAllowedProductIds=()=>new Set([
-  ...influencerProductPrices.value.filter(item=>item.priceStatus==='PRICED').map(item=>String(item.productId)),
-  ...influencerBundleItems.value.map(item=>String(item.addonProductId))
-])
 async function loadInfluencerReferences(id){
   if(!id){influencerProductPrices.value=[];influencerBundleItems.value=[];return}
   const [prices,bundles]=await Promise.all([getJewelryInfluencerProductPrices(id),getJewelryInfluencerBundleItems(id)])
@@ -539,13 +536,17 @@ function applyInfluencerProductPrice(row,{notify=true}={}){
       return true
     }
     clearRowInfluencerPrice(row)
-    if(notify)proxy.$modal.msgWarning(form.docType==='CUSTOMER_RETURN'?'该达人对应商品的价格尚未审核生效，暂不能用于无原单退货':'该达人对应商品的价格正在其他销售单中等待生效，暂不能重复定价')
+    if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId){
+      if(notify)proxy.$modal.msgWarning('该达人对应商品的固定价尚未生效，请填写实际退款单价；提交后将进入复核')
+      return true
+    }
+    if(notify)proxy.$modal.msgWarning('该达人对应商品的价格正在其他销售单中等待生效，暂不能重复定价')
     return false
   }
   clearRowInfluencerPrice(row)
   if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId){
-    if(notify)proxy.$modal.msgWarning('该达人尚未建立此商品的固定成交价，不能用于无原单退货')
-    return false
+    if(notify)proxy.$modal.msgWarning('该达人尚未建立此商品的固定价，请填写实际退款单价；提交后将进入复核')
+    return true
   }
   return true
 }
@@ -558,21 +559,12 @@ async function influencerChanged(id){
   form.influencerName=influencer.influencerName||''
   if(!form.salesChannel&&influencer.salesChannel)form.salesChannel=influencer.salesChannel
   await loadInfluencerReferences(id)
-  if(isUnlinkedInfluencerReturn()){
-    const allowedIds=influencerReturnAllowedProductIds()
-    for(const row of form.items){if(row.productId&&!allowedIds.has(String(row.productId)))Object.assign(row,blankItem())}
-  }
   for(const row of form.items){if(normalizedPricingMode(row)!=='INCLUDED')row.unitPrice=0}
   applyInfluencerPriceToRows()
   if(form.docType==='CUSTOMER_RETURN'&&!actualRefundManuallyEdited.value)form.actualRefundAmount=Math.round((expectedReturnRefund.value+Number.EPSILON)*100)/100
 }
 const availableProducts=row=>{
   let available=products.value
-  if(isUnlinkedInfluencerReturn()){
-    if(!form.influencerId)return []
-    const allowedIds=influencerReturnAllowedProductIds()
-    available=available.filter(product=>allowedIds.has(String(product.productId)))
-  }
   return normalizedSaleRole(row)==='ADDON'?available.filter(product=>product.productType!=='FINISHED'):available
 }
 const saleGroupKey=row=>normalizedSaleRole(row)==='NORMAL'?'NORMAL':String(row.bundleGroupNo||'')
@@ -860,7 +852,6 @@ function validateDocument(requireSubmit=false){
   if(form.docType==='CUSTOMER_RETURN'&&(form.actualRefundAmount===null||Number(form.actualRefundAmount)<0)){proxy.$modal.msgError('请填写实际退款总额');return false}
   if(form.docType==='SALES_OUT'&&!form.influencerId){proxy.$modal.msgError('销售出库必须选择达人/主播');return false}
   if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&!form.influencerId){proxy.$modal.msgError('未关联原销售单时必须选择达人/主播');return false}
-  if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&form.items.some(x=>x.influencerPriceSnapshot==null)){proxy.$modal.msgError('所选达人尚未关联部分商品，无法计算系统应退金额');return false}
   if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&form.items.some(x=>Number(x.unitPrice||0)<=0&&!isIncludedInfluencerAddon(x))){proxy.$modal.msgError('未关联原销售单时，请填写每件计价商品的实际退款单价');return false}
   if(form.docType==='SALES_OUT'&&form.items.some(x=>normalizedPricingMode(x)!=='INCLUDED'&&Number(x.unitPrice||0)<=0)){proxy.$modal.msgError('请填写每件计价商品的成交单价；未定价商品保存草稿后会关联到达人库');return false}
   if(form.docType==='RETURN_INSPECT'&&!form.sourceDocumentId){proxy.$modal.msgError('退货质检必须选择原客户退货单');return false}
