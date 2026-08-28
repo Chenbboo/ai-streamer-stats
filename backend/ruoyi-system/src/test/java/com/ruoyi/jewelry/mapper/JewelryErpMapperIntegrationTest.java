@@ -695,6 +695,12 @@ class JewelryErpMapperIntegrationTest
             + "source_type varchar(24) not null,source_document_id bigint,price_version int not null,"
             + "change_reason varchar(500) not null,operator_user_id bigint not null,operator_name varchar(64) not null,"
             + "create_time timestamp not null)");
+        execute("create table jewelry_influencer_bundle_item (bundle_item_id bigint auto_increment primary key,"
+            + "influencer_id bigint not null,main_product_id bigint not null,addon_product_id bigint not null,"
+            + "main_qty int not null,addon_qty int not null,pricing_mode varchar(16) not null default 'INCLUDED',"
+            + "source_document_id bigint not null,last_sale_time timestamp not null,create_by varchar(64),"
+            + "create_time timestamp,update_by varchar(64),update_time timestamp,"
+            + "unique(influencer_id,main_product_id,addon_product_id))");
     }
 
     private void insertStock(Long productId, int onHand, int reserved, int inspection,
