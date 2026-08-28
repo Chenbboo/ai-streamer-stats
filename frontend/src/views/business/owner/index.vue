@@ -32,9 +32,26 @@
         <article><span>昨日汇报总额</span><b>{{ xu(yesterdayReportedTotalXu) }} <em>Xu</em></b><small>{{ reportedSourceRoutineCount }} 人已提交 · {{ unreportedSourceRoutineCount }} 人未提交</small></article>
         <article><span>持续工作</span><b>{{ todayRoutines.length }}</b><small>{{ sourceRoutineCount }} 项直播同步 · {{ unreportedRoutineCount }} 项未完成</small></article>
         <article><span>未完成任务</span><b>{{ openTasks.length }}</b><small>{{ overdueTaskCount }} 项已逾期</small></article>
-        <article><span>今日投入待确认</span><b>{{ pendingTodayEfforts.length }}</b><small>{{ todayEfforts.length }} 名成员参与项目</small></article>
+        <article :class="{ 'metric-warning': pendingEffortRequests.length }"><span>投入偏差待确认</span><b>{{ pendingEffortRequests.length }}</b><small>全部负责项目 · 当前项目 {{ pendingTodayEfforts.length }} 项</small></article>
         <article :class="{ 'metric-warning': personnelSetupIssueCount }"><span>人员成本待处理</span><b>{{ personnelSetupIssueCount }}</b><small>{{ missingAllocationMemberCount }} 人待设投入 · {{ bossBlockingMemberCount }} 人等待老板</small></article>
         <article><span>项目进度</span><b>{{ projectProgress }}%</b><small>{{ project.progressBizDate ? `${project.progressBizDate} 负责人填报` : '负责人尚未填报' }}</small></article>
+      </section>
+
+      <section v-if="pendingEffortRequests.length" class="panel pending-effort-panel">
+        <div class="panel-head">
+          <div><h2>待确认投入偏差</h2><p>汇总你负责的全部项目，不受当前项目选择影响。</p></div>
+          <el-tag type="warning" effect="plain">{{ pendingEffortRequests.length }} 项待处理</el-tag>
+        </div>
+        <div v-for="item in pendingEffortRequests" :key="item.effortId" class="pending-effort-row">
+          <span><b>{{ item.userName }}申报了投入偏差</b><small>{{ item.projectName }} · {{ item.bizDate }}</small></span>
+          <div class="pending-effort-change"><span>计划 {{ item.plannedPercent }}%</span><b>→</b><span>实际 {{ item.actualPercent }}%</span></div>
+          <p>原因：{{ item.deviationReason || '未填写' }}</p>
+          <div class="pending-effort-actions">
+            <el-button size="small" @click="switchProject(item.projectId)">查看项目</el-button>
+            <el-button size="small" type="success" plain :loading="saving" @click="confirmPendingEffort(item)">确认</el-button>
+            <el-button size="small" type="danger" plain :loading="saving" @click="returnPendingEffort(item)">退回</el-button>
+          </div>
+        </div>
       </section>
 
       <section v-if="allocationAlerts.length" class="panel allocation-alert-panel">
@@ -87,7 +104,7 @@
                 <small v-else>{{ routine.assigneeName || '未分配' }} · 目标 {{ routine.targetValue }} {{ routine.unit }} · 累计 {{ routine.cumulativeActual || 0 }} {{ routine.unit }}</small>
                 <el-progress :percentage="routineRate(routine)" :status="routine.todayReportId && Number(routine.todayActual) >= Number(routine.targetValue) ? 'success' : undefined" :stroke-width="7" />
                 <p v-if="routine.todaySummary">今日说明：{{ routine.todaySummary }}</p>
-                <p v-if="routine.todayIssueReason" class="danger">未达原因：{{ routine.todayIssueReason }}</p>
+                <p v-if="routineBelowTarget(routine) && routine.todayIssueReason" class="danger">未达原因：{{ routine.todayIssueReason }}</p>
               </div>
               <div class="routine-result">
                 <span>{{ routine.sourceManaged ? '昨日直播日报' : (routineLeave(routine) ? '今日状态' : '今日完成') }}</span>
@@ -96,7 +113,7 @@
                 <b v-else-if="!routine.sourceManaged && !routineLeave(routine)">{{ routine.todayReportId ? routine.todayActual : '—' }} {{ routine.unit }}</b><el-tag v-else-if="!routine.sourceManaged" type="info">今日请假</el-tag>
                 <el-button v-if="routine.todayEvidenceUrls" size="small" type="primary" plain @click="openEvidence(routine)">查看成果凭证（{{ evidenceCount(routine.todayEvidenceUrls) }}）</el-button>
                 <el-button v-if="canSubmitRoutine(routine)" v-hasPermi="['business:project:report']" size="small" :type="routine.todayReportId?'default':'primary'" :disabled="!canReport" @click="openRoutineReport(routine)">{{ routine.todayReportId ? '修改填报' : '填报完成量' }}</el-button>
-                <small v-else class="assignee-report-hint">{{ routine.sourceManaged ? '完成状态由直播数据管理自动回传' : (routineLeave(routine) ? '今日请假，无需填报' : `由 ${routine.assigneeName || '实际执行人'} 本人填报`) }}</small>
+                <small v-else class="assignee-report-hint">{{ routine.sourceManaged ? '完成状态由直播数据管理自动回传' : (!routine.assigneeUserId ? '等待重新分配负责人' : (routineLeave(routine) ? '今日请假，无需填报' : `由 ${routine.assigneeName} 本人填报`)) }}</small>
               </div>
             </div>
           </article>
@@ -192,8 +209,9 @@
             <div v-else class="daily-spend-row">
               <span><small>今日填报花费</small><b>{{ money(accounting.dailySpend.amount) }} {{ accounting.dailySpend.currency || project.baseCurrency }}</b></span>
               <span><small>说明</small><b>{{ accounting.dailySpend.description || '无' }}</b></span>
-              <el-tag :type="accounting.dailySpend.status==='DRAFT'?'warning':'success'">{{ accounting.dailySpend.status==='DRAFT'?'等待老板确认':'已计入经营结果' }}</el-tag>
+              <el-tag :type="accounting.dailySpend.status==='RETURNED'?'danger':accounting.dailySpend.status==='DRAFT'?'warning':'success'">{{ accounting.dailySpend.status==='RETURNED'?'已退回':accounting.dailySpend.status==='DRAFT'?'等待老板确认':'已计入经营结果' }}</el-tag>
             </div>
+            <el-alert v-if="accounting.dailySpend?.status==='RETURNED'" :title="`老板已退回：${accounting.dailySpend.returnReason||'请修改后重新提交'}`" type="warning" :closable="false" show-icon />
           </article>
 
           <article class="panel revenue-summary-panel">
@@ -233,16 +251,33 @@
                 <el-tag size="small" :type="memberRoleTone[member.memberRole] || 'info'">{{ memberRoleLabel[member.memberRole] || member.memberRole }}</el-tag>
                 <div class="participant-action">
                   <template v-if="participantLeave(member)">
-                    <el-tag size="small" type="warning">今日请假</el-tag>
-                    <el-button link type="danger" :loading="saving" @click="cancelLeave(member)">取消</el-button>
+                    <el-tag v-if="cancelPendingLeaveRequest(member)" size="small" type="warning">取消请假待审批</el-tag>
+                    <template v-else><el-tag size="small" type="success">请假已批准</el-tag><el-button v-if="approvedLeaveRequest(member)" link type="danger" :loading="saving" @click="withdrawLeave(approvedLeaveRequest(member))">申请取消</el-button></template>
+                  </template>
+                  <template v-else-if="pendingLeaveRequest(member)">
+                    <el-tag size="small" type="warning">请假待审批</el-tag>
+                    <el-button link type="danger" :loading="saving" @click="withdrawLeave(pendingLeaveRequest(member))">撤回</el-button>
                   </template>
                   <template v-else>
                     <el-tag v-if="participantEffort(member)" size="small" :type="effortStatusTone[participantEffort(member).reportStatus]">{{ effortStatusLabel[participantEffort(member).reportStatus] }}</el-tag>
                     <el-tag v-else size="small" type="info">今日无投入计划</el-tag>
-                    <el-button link type="primary" :loading="saving" @click="openLeave(member)">今日请假</el-button>
+                    <el-button link type="primary" :loading="saving" @click="openLeave(member)">申请请假</el-button>
                   </template>
                 </div>
               </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head"><div><h2>请假申请记录</h2><p>负责人提交、老板审批；批准后才影响全部项目投入和人员成本。</p></div></div>
+            <div v-if="!leaveRequests.length" class="empty-block compact">暂无请假申请</div>
+            <div v-for="request in leaveRequests" :key="request.requestId" class="leave-request-row">
+              <span><b>{{ request.userName }} · {{ leaveTypeLabel[request.leaveType] || request.leaveType }}</b><small>{{ leaveDateText(request) }} · {{ request.reason }}</small></span>
+              <el-tag size="small" :type="leaveStatusTone[request.status]">{{ leaveStatusLabel[request.status] || request.status }}</el-tag>
+              <el-button v-if="request.status==='PENDING'" link type="danger" :loading="saving" @click="withdrawLeave(request)">撤回</el-button>
+              <el-button v-else-if="request.status==='APPROVED'" link type="danger" :loading="saving" @click="withdrawLeave(request)">申请取消</el-button>
+              <business-file-upload v-if="request.attachmentUrls" class="leave-request-files" :model-value="request.attachmentUrls" :project-id="request.submittedProjectId" disabled :drag="false" :is-show-tip="false" />
+              <small v-if="request.reviewComment" class="leave-review-comment">审批意见：{{ request.reviewComment }}</small>
             </div>
           </article>
         </aside>
@@ -263,7 +298,7 @@
         <el-form-item label="币种"><el-input v-model="revenueForm.currency" maxlength="3" /></el-form-item>
         <el-form-item label="收入说明" required><el-input v-model="revenueForm.description" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="请说明收入来源或对应业务" /></el-form-item>
         <el-form-item label="付款单位"><el-input v-model="revenueForm.counterparty" maxlength="200" /></el-form-item>
-        <el-form-item label="凭证附件"><file-upload v-model="revenueForm.attachmentUrls" :limit="10" :file-size="20" :file-type="['pdf','doc','docx','xls','xlsx','jpg','jpeg','png']" /></el-form-item>
+        <el-form-item label="凭证附件"><business-file-upload v-model="revenueForm.attachmentUrls" :project-id="revenueForm.projectId" /></el-form-item>
         <el-form-item label="备注"><el-input v-model="revenueForm.remark" type="textarea" :rows="2" maxlength="500" show-word-limit /></el-form-item>
       </el-form>
       <template #footer><el-button @click="revenueDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="submitRevenue">提交收入草稿</el-button></template>
@@ -275,7 +310,7 @@
         <el-form-item label="项目名称"><el-input :model-value="projectProgressForm.projectName" disabled /></el-form-item>
         <el-form-item label="实际完成情况" required><el-input v-model="projectProgressForm.completionSummary" type="textarea" :rows="4" maxlength="2000" show-word-limit placeholder="请说明今天推动项目完成的内容和结果" /></el-form-item>
         <el-form-item label="项目进度" required><el-slider v-model="projectProgressForm.progress" show-input :min="0" :max="100" :disabled="Number(projectProgressForm.minimumProgress || 0) >= 100" @input="keepProjectProgress" /><small class="progress-tip">当前项目进度 {{ projectProgressForm.minimumProgress || 0 }}%，只能向上调整，与一次性任务进度无关。</small></el-form-item>
-        <el-form-item label="成果凭证" required><file-upload v-model="projectProgressForm.evidenceUrls" :limit="10" :file-size="20" :file-type="['pdf','doc','docx','xls','xlsx','jpg','jpeg','png','mp4','mov']" /></el-form-item>
+        <el-form-item label="成果凭证" required><business-file-upload v-model="projectProgressForm.evidenceUrls" :project-id="projectProgressForm.projectId" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="projectProgressDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="submitProjectProgress">保存今日项目完成量</el-button></template>
     </el-dialog>
@@ -287,7 +322,7 @@
         <el-form-item label="实际完成" required><el-input-number v-model="routineReportForm.actualValue" :min="0" :precision="4" style="width:100%" /></el-form-item>
         <el-form-item label="今日说明"><el-input v-model="routineReportForm.summary" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="可填写成果位置、质量情况或下一步安排" /></el-form-item>
         <el-form-item v-if="routineReportNeedsReason" label="未达原因" required><el-input v-model="routineReportForm.issueReason" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="说明未达到今日目标的原因和改进安排" /></el-form-item>
-        <el-form-item label="成果凭证" :required="routineReportForm.evidenceRequired==='1'"><file-upload v-model="routineReportForm.evidenceUrls" :limit="10" :file-size="20" :file-type="['pdf','doc','docx','xls','xlsx','jpg','jpeg','png','mp4','mov']" /></el-form-item>
+        <el-form-item label="成果凭证" :required="routineReportForm.evidenceRequired==='1'"><business-file-upload v-model="routineReportForm.evidenceUrls" :project-id="routineReportForm.projectId" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="routineReportDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="submitRoutineReport">保存今日完成量</el-button></template>
     </el-dialog>
@@ -317,18 +352,13 @@
         <span>{{ evidencePreview.bizDate || accounting.bizDate || today() }}</span>
         <span>共 {{ evidencePreview.files.length }} 个凭证</span>
       </div>
-      <div class="evidence-preview-grid">
-        <div v-for="file in evidencePreview.files" :key="file.path" class="evidence-preview-item">
-          <el-image v-if="file.kind==='image'" :src="file.url" :preview-src-list="evidenceImageUrls" :initial-index="file.imageIndex" fit="contain" preview-teleported />
-          <video v-else-if="file.kind==='video'" :src="file.url" controls preload="metadata" />
-          <div v-else class="evidence-file-card">
-            <el-icon><Document /></el-icon>
-            <span>{{ file.name }}</span>
-            <el-link :href="file.url" target="_blank" type="primary">打开附件</el-link>
-          </div>
-          <small v-if="file.kind!=='file'">{{ file.name }}</small>
-        </div>
-      </div>
+      <business-file-upload
+        :model-value="evidencePreview.rawUrls"
+        :project-id="evidencePreview.projectId || project?.projectId"
+        disabled
+        :drag="false"
+        :is-show-tip="false"
+      />
       <template #footer><el-button type="primary" @click="evidenceDialog=false">关闭</el-button></template>
     </el-dialog>
 
@@ -340,24 +370,27 @@
       <template #footer><el-button @click="effortReturnDialog=false">取消</el-button><el-button type="danger" :loading="saving" @click="submitEffortReturn">确认退回</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="leaveDialog" title="登记今日请假" width="min(520px, 94vw)" append-to-body>
-      <el-alert title="请假按人员和日期统一生效：该员工今天参与的所有项目都不再计算人员成本。负责人不能代填工作完成量。" type="info" :closable="false" show-icon />
+    <el-dialog v-model="leaveDialog" title="提交员工请假申请" width="min(620px, 94vw)" append-to-body>
+      <el-alert title="提交后由归属老板审批；只有批准后才会对该员工同期参与的全部项目生效，并重新计算人员成本。" type="info" :closable="false" show-icon />
       <el-form :model="leaveForm" label-width="88px" class="report-form">
         <el-form-item label="请假人员"><el-input :model-value="leaveForm.userName" disabled /></el-form-item>
-        <el-form-item label="请假日期"><el-input :model-value="leaveForm.leaveDate" disabled /></el-form-item>
-        <el-form-item label="请假原因" required><el-input v-model="leaveForm.reason" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="例如：病假、事假；请填写便于核对的说明" /></el-form-item>
+        <el-form-item label="请假类型" required><el-select v-model="leaveForm.leaveType" style="width:100%"><el-option v-for="(label,key) in leaveTypeLabel" :key="key" :label="label" :value="key" /></el-select></el-form-item>
+        <el-form-item label="请假日期" required><el-date-picker v-model="leaveForm.dates" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" :disabled-date="disablePastLeaveDate" style="width:100%" /></el-form-item>
+        <el-form-item label="请假原因" required><el-input v-model="leaveForm.reason" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="请填写便于老板判断的具体原因" /></el-form-item>
+        <el-form-item label="证明附件"><business-file-upload v-model="leaveForm.attachmentUrls" :project-id="project?.projectId" /></el-form-item>
       </el-form>
-      <template #footer><el-button @click="leaveDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="submitLeave">确认请假</el-button></template>
+      <template #footer><el-button @click="leaveDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="submitLeave">提交老板审批</el-button></template>
     </el-dialog>
 
     <el-dialog v-model="reportDialog" :title="accounting.dailySpend ? '修改今日项目总花费' : '填写今日项目总花费'" width="min(620px, 94vw)" append-to-body>
       <el-alert title="这里仅填写项目当天发生的业务花费，不含人员成本；提交后由老板确认，确认前不计入经营结果。" type="info" :closable="false" show-icon />
+      <el-alert v-if="reportForm.status==='RETURNED'" class="returned-spend-alert" :title="`退回原因：${reportForm.returnReason||'未填写'}`" type="warning" :closable="false" show-icon />
       <el-form :model="reportForm" label-width="104px" class="report-form">
         <el-form-item label="归属项目"><el-input :model-value="project?.projectName" disabled /></el-form-item>
         <el-form-item label="业务日期"><el-input :model-value="accounting.bizDate" disabled /></el-form-item>
         <el-form-item label="今日总花费" required><el-input-number v-model="reportForm.amount" :min="0" :precision="2" style="width:100%" /></el-form-item>
         <el-form-item label="费用说明"><el-input v-model="reportForm.description" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="选填，例如：投流、采购、物流等合计" /></el-form-item>
-        <el-form-item label="凭证附件"><file-upload v-model="reportForm.attachmentUrls" :limit="10" :file-size="20" :file-type="['pdf','doc','docx','xls','xlsx','jpg','jpeg','png']" /></el-form-item>
+        <el-form-item label="凭证附件"><business-file-upload v-model="reportForm.attachmentUrls" :project-id="reportForm.projectId" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="reportDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="submitDailySpend">提交老板确认</el-button></template>
     </el-dialog>
@@ -365,7 +398,7 @@
 </template>
 
 <script setup name="BusinessOwnerWorkbench">
-import { getBusinessOwnerWorkbench, submitBusinessProjectProgressReport, submitBusinessRoutineReport, confirmBusinessMemberEffort, returnBusinessMemberEffort, markBusinessMemberLeave, cancelBusinessMemberLeave } from '@/api/business/project'
+import { getBusinessOwnerWorkbench, submitBusinessProjectProgressReport, submitBusinessRoutineReport, confirmBusinessMemberEffort, returnBusinessMemberEffort, markBusinessMemberLeave, cancelBusinessMemberLeaveRequest } from '@/api/business/project'
 import { saveBusinessProjectDailySpend, saveBusinessProjectFact } from '@/api/business/accounting'
 import useUserStore from '@/store/modules/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -381,6 +414,7 @@ const revenueSubmittedAmount=computed(()=>Number(dailyRevenue.value.confirmedAmo
 const revenueStatusTone=computed(()=>Number(dailyRevenue.value.draftCount||0)>0?'warning':Number(dailyRevenue.value.confirmedCount||0)>0?'success':'info')
 const revenueStatusLabel=computed(()=>Number(dailyRevenue.value.draftCount||0)>0?'等待老板确认':Number(dailyRevenue.value.confirmedCount||0)>0?'已计入经营结果':'今日暂无收入')
 const allocationAlerts=computed(()=>data.value.allocationAlerts||[])
+const pendingEffortRequests=computed(()=>data.value.pendingEffortRequests||[])
 const missingAllocationMemberCount=computed(()=>allocationAlerts.value.reduce((sum,item)=>sum+Number(item.missingAllocationCount||0),0))
 const bossBlockingMemberCount=computed(()=>allocationAlerts.value.reduce((sum,item)=>sum+Number(item.missingRegionCount||0)+Number(item.missingCostCount||0),0))
 const personnelSetupIssueCount=computed(()=>missingAllocationMemberCount.value+bossBlockingMemberCount.value)
@@ -400,6 +434,7 @@ const reportedSourceRoutineCount=computed(()=>sourceRoutines.value.filter(item=>
 const unreportedSourceRoutineCount=computed(()=>sourceRoutineCount.value-reportedSourceRoutineCount.value)
 const yesterdayReportedTotalXu=computed(()=>sourceRoutines.value.reduce((sum,item)=>sum+Number(item.sourceReportedAmount||0),0))
 const currentKpis=computed(()=>(operating.value.kpis||[]).filter(item=>item.status==='CURRENT'))
+const leaveRequests=computed(()=>data.value.leaveRequests||[])
 const canReport=computed(()=>['ACTIVE','ACCEPTANCE'].includes(project.value?.status)&&!!project.value?.companyDeptId)
 const canReportProgress=computed(()=>project.value?.status==='ACTIVE')
 const unreportedRoutineCount=computed(()=>todayRoutines.value.filter(item=>!item.todayReportId&&!routineLeave(item)).length)
@@ -441,23 +476,24 @@ const memberRoleLabel={OWNER:'主负责人',DEPUTY:'副负责人',MEMBER:'成员
 const memberRoleTone={OWNER:'primary',DEPUTY:'success',MEMBER:'info',OBSERVER:'warning'}
 const effortStatusLabel={UNSUBMITTED:'按计划执行',SUBMITTED:'待确认',CONFIRMED:'已确认',RETURNED:'已退回',LEAVE:'今日请假'}
 const effortStatusTone={UNSUBMITTED:'info',SUBMITTED:'warning',CONFIRMED:'success',RETURNED:'danger',LEAVE:'info'}
+const leaveTypeLabel={SICK:'病假',PERSONAL:'事假',ANNUAL:'年假',COMPENSATORY:'调休',OTHER:'其他'}
+const leaveStatusLabel={PENDING:'待老板审批',APPROVED:'已批准',RETURNED:'已退回',CANCEL_PENDING:'取消待审批',CANCELED:'已取消'}
+const leaveStatusTone={PENDING:'warning',APPROVED:'success',RETURNED:'danger',CANCEL_PENDING:'warning',CANCELED:'info'}
 const blankReport=()=>({projectId:null,bizDate:today(),amount:null,description:'',attachmentUrls:''})
 const reportForm=ref(blankReport())
 const blankRevenue=()=>({projectId:null,bizDate:today(),categoryId:null,amount:null,currency:'CNY',description:'',counterparty:'',attachmentUrls:'',remark:''})
 const revenueForm=ref(blankRevenue())
 const projectProgressForm=ref({})
 const routineReportForm=ref({})
-const leaveForm=ref({userId:null,userName:'',leaveDate:today(),reason:''})
+const leaveForm=ref({userId:null,userName:'',leaveType:'SICK',dates:[today(),today()],reason:'',attachmentUrls:''})
 const effortReturnForm=ref({userId:null,userName:'',bizDate:today(),reviewComment:''})
-const evidencePreview=ref({title:'',assigneeName:'',bizDate:'',files:[]})
-const evidenceImageUrls=computed(()=>evidencePreview.value.files.filter(file=>file.kind==='image').map(file=>file.url))
+const evidencePreview=ref({title:'',assigneeName:'',bizDate:'',rawUrls:'',projectId:null,files:[]})
 function today(){return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Shanghai'})}
 function evidencePaths(value){return String(value||'').split(',').map(item=>item.trim()).filter(Boolean)}
 function evidenceCount(value){return evidencePaths(value).length}
-function evidenceUrl(path){return /^(https?:)?\/\//i.test(path)||path.startsWith('data:')?path:`${import.meta.env.VITE_APP_BASE_API}${path}`}
 function evidenceName(path){const clean=path.split('?')[0];try{return decodeURIComponent(clean.slice(clean.lastIndexOf('/')+1))||'成果凭证'}catch{return clean.slice(clean.lastIndexOf('/')+1)||'成果凭证'}}
 function evidenceKind(path){const ext=path.split('?')[0].split('.').pop()?.toLowerCase();if(['jpg','jpeg','png','gif','webp','bmp'].includes(ext))return 'image';if(['mp4','mov','webm','ogg'].includes(ext))return 'video';return 'file'}
-function openEvidenceFiles(title,assigneeName,bizDate,urls){let imageIndex=0;const files=evidencePaths(urls).map(path=>{const kind=evidenceKind(path);const file={path,url:evidenceUrl(path),name:evidenceName(path),kind,imageIndex:kind==='image'?imageIndex:-1};if(kind==='image')imageIndex++;return file});evidencePreview.value={title,assigneeName,bizDate,files};evidenceDialog.value=true}
+function openEvidenceFiles(title,assigneeName,bizDate,urls){const files=evidencePaths(urls).map(path=>({path,name:evidenceName(path),kind:evidenceKind(path)}));evidencePreview.value={title,assigneeName,bizDate,rawUrls:urls,projectId:project.value?.projectId,files};evidenceDialog.value=true}
 function openEvidence(routine){openEvidenceFiles(routine.routineName,routine.assigneeName,accounting.value.bizDate||today(),routine.todayEvidenceUrls)}
 function openProjectProgressEvidence(){openEvidenceFiles(project.value.projectName,project.value.progressReporterName||project.value.mainOwnerName,project.value.progressBizDate,project.value.progressEvidenceUrls)}
 function taskName(taskId){return (project.value?.tasks||[]).find(task=>Number(task.taskId)===Number(taskId))?.taskName||'一次性任务'}
@@ -472,10 +508,16 @@ function signed(value){const n=Number(value||0);return `${n>0?'+':''}${money(n)}
 function amountTone(value){return Number(value||0)<0?'amount-loss':'amount-profit'}
 function kpiRate(kpi){const target=Number(kpi.targetValue||0);return target?Math.round(Number(kpi.actualValue||0)*100/target):0}
 function routineRate(routine){const target=Number(routine.targetValue||0);return target?Math.min(100,Math.round(Number(routine.todayActual||0)*100/target)):0}
+function routineBelowTarget(routine){return routine.frequency==='DAILY'&&!!routine.todayReportId&&Number(routine.todayActual)<Number(routine.targetValue||0)}
 function canSubmitRoutine(routine){return !routine.sourceManaged&&!routineLeave(routine)&&Number(routine.assigneeUserId)===Number(userStore.id)}
 function effortDayHint(item){if(item.reportStatus==='SUBMITTED')return '员工已申报偏差，请逐条审核';if(item.reportStatus==='CONFIRMED')return '当天实际投入已确认并锁定';if(item.reportStatus==='RETURNED')return '已退回员工修改';if(item.reportStatus==='LEAVE')return `今日请假${item.leaveReason?`：${item.leaveReason}`:''}`;return '未申报偏差，按计划投入自动核算'}
 function participantEffort(member){return todayEfforts.value.find(item=>Number(item.userId)===Number(member.userId))}
 function participantLeave(member){const stored=(data.value.todayLeaves||[]).find(item=>Number(item.userId)===Number(member.userId));if(stored)return stored;const effort=participantEffort(member);return effort?.reportStatus==='LEAVE'?{userId:member.userId,reason:effort.leaveReason||''}:null}
+function pendingLeaveRequest(member){return leaveRequests.value.find(item=>Number(item.userId)===Number(member.userId)&&item.status==='PENDING')}
+function approvedLeaveRequest(member){return leaveRequests.value.find(item=>Number(item.userId)===Number(member.userId)&&item.status==='APPROVED'&&item.startDate<=today()&&item.endDate>=today())}
+function cancelPendingLeaveRequest(member){return leaveRequests.value.find(item=>Number(item.userId)===Number(member.userId)&&item.status==='CANCEL_PENDING'&&item.startDate<=today()&&item.endDate>=today())}
+function leaveDateText(request){return request.startDate===request.endDate?request.startDate:`${request.startDate} 至 ${request.endDate}`}
+function disablePastLeaveDate(date){return date.getTime()<new Date(`${today()}T00:00:00+08:00`).getTime()}
 function routineLeave(routine){return routine.sourceManaged?null:(data.value.todayLeaves||[]).find(item=>Number(item.userId)===Number(routine.assigneeUserId))}
 function participantName(member){return member.userNameSnapshot||member.userName||'项目成员'}
 async function load(projectId){loading.value=true;try{const{data:payload={}}=await getBusinessOwnerWorkbench(projectId||undefined);data.value=payload;selectedProjectId.value=payload.project?.projectId||null;if(selectedProjectId.value)router.replace({query:{...route.query,projectId:selectedProjectId.value}})}finally{loading.value=false}}
@@ -518,6 +560,24 @@ async function confirmEffort(item){
     ElMessage({type:'success',message:`${item.userName} 的今日投入已确认，人员成本已重新计算`,duration:3000,showClose:true})
   }finally{saving.value=false}
 }
+async function confirmPendingEffort(item){
+  await ElMessageBox.confirm(`确认 ${item.userName} 在 ${item.projectName} 的实际投入为 ${item.actualPercent}% 吗？`,'确认投入偏差',{type:'warning'})
+  saving.value=true
+  try{
+    await confirmBusinessMemberEffort(item.projectId,item.userId,{bizDate:item.bizDate})
+    ElMessage.success(`${item.userName} 的投入已确认`)
+    await load(selectedProjectId.value)
+  }finally{saving.value=false}
+}
+async function returnPendingEffort(item){
+  const{value}=await ElMessageBox.prompt(`退回 ${item.userName} 在 ${item.projectName} 的投入申报`, '退回投入偏差', {inputPlaceholder:'请填写退回原因',inputValidator:value=>!!value?.trim()||'必须填写退回原因',type:'warning'})
+  saving.value=true
+  try{
+    await returnBusinessMemberEffort(item.projectId,item.userId,{bizDate:item.bizDate,reviewComment:value.trim()})
+    ElMessage.success('已退回员工修改')
+    await load(selectedProjectId.value)
+  }finally{saving.value=false}
+}
 function openEffortReturn(item){effortReturnForm.value={userId:item.userId,userName:item.userName,bizDate:item.bizDate,reviewComment:''};effortReturnDialog.value=true}
 async function submitEffortReturn(){
   const form=effortReturnForm.value
@@ -533,17 +593,17 @@ async function submitEffortReturn(){
   }finally{saving.value=false}
 }
 function openRoutineReport(routine){routineReportForm.value={reportId:routine.todayReportId||null,routineId:routine.routineId,projectId:project.value.projectId,bizDate:accounting.value.bizDate||today(),routineName:routine.routineName,frequency:routine.frequency,targetValue:routine.targetValue,actualValue:routine.todayReportId?Number(routine.todayActual):null,unit:routine.unit,summary:routine.todaySummary||'',issueReason:routine.todayIssueReason||'',evidenceUrls:routine.todayEvidenceUrls||'',evidenceRequired:routine.evidenceRequired,version:null};routineReportDialog.value=true}
-async function submitRoutineReport(){const form=routineReportForm.value;if(form.actualValue===null||form.actualValue===undefined||Number(form.actualValue)<0)return ElMessage.warning('请填写实际完成量');if(routineReportNeedsReason.value&&!form.issueReason?.trim())return ElMessage.warning('未达到每日目标时请填写原因');if(form.evidenceRequired==='1'&&!form.evidenceUrls)return ElMessage.warning('该工作要求上传成果凭证');saving.value=true;try{await submitBusinessRoutineReport(form);routineReportDialog.value=false;ElMessage.success('今日完成量已保存');await load(selectedProjectId.value)}finally{saving.value=false}}
-function openLeave(member){leaveForm.value={userId:member.userId,userName:participantName(member),leaveDate:today(),reason:''};leaveDialog.value=true}
-async function submitLeave(){if(!leaveForm.value.reason?.trim())return ElMessage.warning('请填写请假原因');saving.value=true;try{const response=await markBusinessMemberLeave(project.value.projectId,leaveForm.value.userId,{leaveDate:leaveForm.value.leaveDate,reason:leaveForm.value.reason.trim()});const stored=response?.data||{userId:leaveForm.value.userId,reason:leaveForm.value.reason.trim()};data.value.todayLeaves=[...(data.value.todayLeaves||[]).filter(item=>Number(item.userId)!==Number(leaveForm.value.userId)),stored];const effort=todayEfforts.value.find(item=>Number(item.userId)===Number(leaveForm.value.userId));if(effort){effort.reportStatus='LEAVE';effort.actualPercent=0;effort.leaveReason=leaveForm.value.reason.trim()}leaveDialog.value=false;await nextTick();ElMessage({type:'success',message:'已登记今日请假，该员工今日所有项目的人员成本均为 0',duration:3000,showClose:true})}finally{saving.value=false}}
-async function cancelLeave(member){await ElMessageBox.confirm(`确认取消 ${participantName(member)} 的今日请假吗？取消后系统会重新计算其参与项目的人员成本。`,'取消今日请假',{type:'warning'});saving.value=true;try{await cancelBusinessMemberLeave(project.value.projectId,member.userId,today());data.value.todayLeaves=(data.value.todayLeaves||[]).filter(item=>Number(item.userId)!==Number(member.userId));ElMessage({type:'success',message:'今日请假已取消，人员成本已重新计算',duration:3000,showClose:true});await load(selectedProjectId.value)}finally{saving.value=false}}
+async function submitRoutineReport(){const form=routineReportForm.value;if(form.actualValue===null||form.actualValue===undefined||Number(form.actualValue)<0)return ElMessage.warning('请填写实际完成量');if(routineReportNeedsReason.value&&!form.issueReason?.trim())return ElMessage.warning('未达到每日目标时请填写原因');if(form.evidenceRequired==='1'&&!form.evidenceUrls)return ElMessage.warning('该工作要求上传成果凭证');form.issueReason=routineReportNeedsReason.value?form.issueReason.trim():null;saving.value=true;try{await submitBusinessRoutineReport(form);routineReportDialog.value=false;ElMessage.success('今日完成量已保存');await load(selectedProjectId.value)}finally{saving.value=false}}
+function openLeave(member){leaveForm.value={userId:member.userId,userName:participantName(member),leaveType:'SICK',dates:[today(),today()],reason:'',attachmentUrls:''};leaveDialog.value=true}
+async function submitLeave(){const form=leaveForm.value;if(!form.dates?.[0]||!form.dates?.[1])return ElMessage.warning('请选择请假日期');if(!form.reason?.trim())return ElMessage.warning('请填写请假原因');saving.value=true;try{await markBusinessMemberLeave(project.value.projectId,form.userId,{startDate:form.dates[0],endDate:form.dates[1],leaveType:form.leaveType,reason:form.reason.trim(),attachmentUrls:form.attachmentUrls});leaveDialog.value=false;ElMessage({type:'success',message:'请假申请已提交，等待老板审批；批准前不会影响人员成本',duration:3500,showClose:true});await load(selectedProjectId.value)}finally{saving.value=false}}
+async function withdrawLeave(request){const approved=request.status==='APPROVED';const{value}=await ElMessageBox.prompt(approved?`申请取消 ${request.userName} 已批准的请假吗？取消仍需老板审批。`:`确认撤回 ${request.userName} 的请假申请吗？`,approved?'申请取消请假':'撤回请假申请',{inputPlaceholder:'请填写原因',inputValidator:value=>!!value?.trim()||'必须填写原因',type:'warning'});saving.value=true;try{await cancelBusinessMemberLeaveRequest(request.requestId,{reason:value.trim()});ElMessage.success(approved?'取消请假申请已提交，等待老板审批':'请假申请已撤回');await load(selectedProjectId.value)}finally{saving.value=false}}
 function openDailySpend(){reportForm.value={...blankReport(),...(accounting.value.dailySpend||{}),projectId:project.value.projectId,bizDate:accounting.value.bizDate};reportDialog.value=true}
-async function submitDailySpend(){if(reportForm.value.amount===null||reportForm.value.amount===undefined)return ElMessage.warning('请填写今日项目总花费');saving.value=true;try{await saveBusinessProjectDailySpend(reportForm.value);reportDialog.value=false;ElMessage({type:'success',message:'花费草稿已提交，等待老板确认后计入经营结果',duration:3500,showClose:true});await load(selectedProjectId.value)}finally{saving.value=false}}
+async function submitDailySpend(){if(reportForm.value.amount===null||reportForm.value.amount===undefined)return ElMessage.warning('请填写今日项目总花费');const wasReturned=reportForm.value.status==='RETURNED';saving.value=true;try{await saveBusinessProjectDailySpend(reportForm.value);reportDialog.value=false;ElMessage({type:'success',message:wasReturned?'已修改并重新提交，等待老板确认':'花费草稿已提交，等待老板确认后计入经营结果',duration:3500,showClose:true});await load(selectedProjectId.value)}finally{saving.value=false}}
 load(route.query.projectId?Number(route.query.projectId):undefined)
 </script>
 
 <style scoped>
-.owner-page{min-height:calc(100vh - 84px);padding:24px;background:#f3f6f8;color:#172335}.owner-hero{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:25px 28px;border-radius:16px;background:linear-gradient(120deg,#173b59,#1d6d70);color:#fff}.owner-hero span{font-size:11px;letter-spacing:.17em;color:#6de0da}.owner-hero h1{margin:5px 0;font-size:28px}.owner-hero p{margin:0;color:#c1d4de}.hero-actions{display:flex;align-items:center;gap:10px}.hero-actions .el-select{width:360px}.metric-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin:16px 0}.metric-grid article{min-width:0;padding:17px 19px;border:1px solid #dfe6eb;border-radius:12px;background:#fff}.metric-grid article.metric-warning{border-color:#efc36d;background:#fffaf0}.metric-grid article.metric-warning b{color:#b87513}.metric-grid span,.metric-grid small{display:block}.metric-grid span{color:#6f7d8c}.metric-grid b{display:block;margin:6px 0;font-size:26px;white-space:nowrap}.metric-grid b em{color:#697786;font-size:14px;font-style:normal;font-weight:500}.metric-grid small{color:#98a2ad}.amount-profit{color:#198069}.amount-loss,.danger{color:#cf4650}.allocation-alert-panel{margin-bottom:14px;border-color:#efcf93;background:#fffdf8}.allocation-alert-row{display:grid;grid-template-columns:minmax(220px,.8fr) minmax(220px,1.2fr) auto;align-items:center;gap:16px;padding:13px 4px;border-top:1px solid #f1e5ce}.allocation-alert-row>span{display:flex;min-width:0;flex-direction:column;gap:4px}.allocation-alert-row small{color:#8b7755}.allocation-alert-row p{margin:0;color:#7a633d;overflow-wrap:anywhere}.workspace-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,.65fr);gap:14px}.main-column,.side-column{display:flex;min-width:0;flex-direction:column;gap:14px}.panel{padding:18px;border:1px solid #dfe6eb;border-radius:13px;background:#fff}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.panel h2{margin:0;font-size:17px}.panel p{margin:4px 0;color:#84919f;font-size:12px}.routine-card{display:flex;align-items:center;gap:18px;padding:15px 4px;border-top:1px solid #edf0f2}.routine-main{display:flex;min-width:0;flex:1;flex-direction:column;gap:7px}.routine-title{display:flex;align-items:center;gap:8px}.routine-main>small{color:#8b97a4}.routine-main>p{margin:0}.routine-result{display:flex;min-width:128px;align-items:flex-end;flex-direction:column;gap:6px}.routine-result span{color:#7e8b99;font-size:12px}.routine-result b{font-size:18px}.routine-result .routine-xu{color:#198069}.assignee-report-hint{color:#8b97a4}.task-card{display:flex;align-items:center;gap:12px;padding:13px 4px;border-top:1px solid #edf0f2}.task-card>i{width:8px;height:8px;border-radius:50%;background:#8794a3}.task-card>i.priority-high{background:#d44951}.task-card>i.priority-medium{background:#d68b2a}.task-card>i.priority-low{background:#3f9178}.task-content{display:flex;min-width:0;flex:1;flex-direction:column;gap:5px}.task-content small,.kpi-row small,.risk-row small,.fact-row small,.effort-member-row small{color:#8b97a4}.leave-note{color:#7b6a91!important}.task-actions,.effort-actions{display:flex}.effort-member-row{display:grid;grid-template-columns:minmax(150px,1fr) auto auto auto auto;align-items:center;gap:16px;padding:13px 4px;border-top:1px solid #edf0f2}.effort-member-row>span:first-child{display:flex;min-width:0;flex-direction:column}.fact-row{display:flex;align-items:center;gap:10px;padding:13px 4px;border-top:1px solid #edf0f2}.fact-row>span:nth-child(2){display:flex;min-width:0;flex:1;flex-direction:column}.fact-row strong{white-space:nowrap}.project-title{display:flex;align-items:flex-start;justify-content:space-between}.project-title small{color:#81909e}.project-summary>p{margin:14px 0;line-height:1.7}.project-summary dl{margin:0}.project-summary dl>div{display:flex;justify-content:space-between;padding:9px 0;border-top:1px solid #edf0f2}.project-summary dt{color:#7b8997}.project-summary dd{margin:0;text-align:right}.kpi-row,.risk-row{display:flex;align-items:center;gap:9px;padding:11px 2px;border-top:1px solid #edf0f2}.kpi-row>span,.risk-row>span{display:flex;min-width:0;flex:1;flex-direction:column}.empty-block{padding:28px 0;text-align:center;color:#9aa5b0}.empty-block.compact{padding:15px 0}.no-project{margin-top:16px;padding:50px;border:1px solid #dfe6eb;border-radius:14px;background:#fff}.no-project p{color:#8c98a5}.report-form{margin-top:18px}@media(max-width:1300px){.metric-grid{grid-template-columns:repeat(3,1fr)}}@media(max-width:1050px){.metric-grid{grid-template-columns:repeat(2,1fr)}.workspace-grid{grid-template-columns:1fr}}@media(max-width:640px){.owner-page{padding:12px}.owner-hero{align-items:flex-start;flex-direction:column;padding:20px}.hero-actions{width:100%;align-items:stretch;flex-direction:column}.hero-actions .el-select,.hero-actions .el-button{width:100%}.metric-grid{gap:8px}.metric-grid article{padding:14px}.panel-head{align-items:flex-start}.effort-actions{align-items:stretch;flex-direction:column}.effort-member-row{grid-template-columns:1fr 1fr}.effort-member-row>span:first-child,.effort-member-row>.el-tag{grid-column:1/-1}.effort-member-row>.el-button{justify-self:start}.allocation-alert-row{grid-template-columns:1fr}.allocation-alert-row .el-button{width:100%}.routine-card,.task-card,.fact-row{align-items:flex-start;flex-wrap:wrap}.routine-result{width:100%;align-items:stretch}.routine-result b{font-size:17px}.task-actions{width:100%;justify-content:flex-end}.fact-row strong{margin-left:auto}}
+.owner-page{min-height:calc(100vh - 84px);padding:24px;background:#f3f6f8;color:#172335}.owner-hero{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:25px 28px;border-radius:16px;background:linear-gradient(120deg,#173b59,#1d6d70);color:#fff}.owner-hero span{font-size:11px;letter-spacing:.17em;color:#6de0da}.owner-hero h1{margin:5px 0;font-size:28px}.owner-hero p{margin:0;color:#c1d4de}.hero-actions{display:flex;align-items:center;gap:10px}.hero-actions .el-select{width:360px}.metric-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin:16px 0}.metric-grid article{min-width:0;padding:17px 19px;border:1px solid #dfe6eb;border-radius:12px;background:#fff}.metric-grid article.metric-warning{border-color:#efc36d;background:#fffaf0}.metric-grid article.metric-warning b{color:#b87513}.metric-grid span,.metric-grid small{display:block}.metric-grid span{color:#6f7d8c}.metric-grid b{display:block;margin:6px 0;font-size:26px;white-space:nowrap}.metric-grid b em{color:#697786;font-size:14px;font-style:normal;font-weight:500}.metric-grid small{color:#98a2ad}.amount-profit{color:#198069}.amount-loss,.danger{color:#cf4650}.allocation-alert-panel{margin-bottom:14px;border-color:#efcf93;background:#fffdf8}.allocation-alert-row{display:grid;grid-template-columns:minmax(220px,.8fr) minmax(220px,1.2fr) auto;align-items:center;gap:16px;padding:13px 4px;border-top:1px solid #f1e5ce}.allocation-alert-row>span{display:flex;min-width:0;flex-direction:column;gap:4px}.allocation-alert-row small{color:#8b7755}.allocation-alert-row p{margin:0;color:#7a633d;overflow-wrap:anywhere}.workspace-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,.65fr);gap:14px}.main-column,.side-column{display:flex;min-width:0;flex-direction:column;gap:14px}.panel{padding:18px;border:1px solid #dfe6eb;border-radius:13px;background:#fff}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.panel h2{margin:0;font-size:17px}.panel p{margin:4px 0;color:#84919f;font-size:12px}.routine-card{display:flex;align-items:center;gap:18px;padding:15px 4px;border-top:1px solid #edf0f2}.routine-main{display:flex;min-width:0;flex:1;flex-direction:column;gap:7px}.routine-title{display:flex;align-items:center;gap:8px}.routine-main>small{color:#8b97a4}.routine-main>p{margin:0}.routine-result{display:flex;min-width:128px;align-items:flex-end;flex-direction:column;gap:6px}.routine-result span{color:#7e8b99;font-size:12px}.routine-result b{font-size:18px}.routine-result .routine-xu{color:#198069}.assignee-report-hint{color:#8b97a4}.task-card{display:flex;align-items:center;gap:12px;padding:13px 4px;border-top:1px solid #edf0f2}.task-card>i{width:8px;height:8px;border-radius:50%;background:#8794a3}.task-card>i.priority-high{background:#d44951}.task-card>i.priority-medium{background:#d68b2a}.task-card>i.priority-low{background:#3f9178}.task-content{display:flex;min-width:0;flex:1;flex-direction:column;gap:5px}.task-content small,.kpi-row small,.risk-row small,.fact-row small,.effort-member-row small{color:#8b97a4}.leave-note{color:#7b6a91!important}.task-actions,.effort-actions{display:flex}.effort-member-row{display:grid;grid-template-columns:minmax(150px,1fr) auto auto auto auto;align-items:center;gap:16px;padding:13px 4px;border-top:1px solid #edf0f2}.effort-member-row>span:first-child{display:flex;min-width:0;flex-direction:column}.fact-row{display:flex;align-items:center;gap:10px;padding:13px 4px;border-top:1px solid #edf0f2}.fact-row>span:nth-child(2){display:flex;min-width:0;flex:1;flex-direction:column}.fact-row strong{white-space:nowrap}.project-title{display:flex;align-items:flex-start;justify-content:space-between}.project-title small{color:#81909e}.project-summary>p{margin:14px 0;line-height:1.7}.project-summary dl{margin:0}.project-summary dl>div{display:flex;justify-content:space-between;padding:9px 0;border-top:1px solid #edf0f2}.project-summary dt{color:#7b8997}.project-summary dd{margin:0;text-align:right}.kpi-row,.risk-row{display:flex;align-items:center;gap:9px;padding:11px 2px;border-top:1px solid #edf0f2}.kpi-row>span,.risk-row>span{display:flex;min-width:0;flex:1;flex-direction:column}.empty-block{padding:28px 0;text-align:center;color:#9aa5b0}.empty-block.compact{padding:15px 0}.no-project{margin-top:16px;padding:50px;border:1px solid #dfe6eb;border-radius:14px;background:#fff}.no-project p{color:#8c98a5}.report-form{margin-top:18px}.returned-spend-alert{margin-top:12px}@media(max-width:1300px){.metric-grid{grid-template-columns:repeat(3,1fr)}}@media(max-width:1050px){.metric-grid{grid-template-columns:repeat(2,1fr)}.workspace-grid{grid-template-columns:1fr}}@media(max-width:640px){.owner-page{padding:12px}.owner-hero{align-items:flex-start;flex-direction:column;padding:20px}.hero-actions{width:100%;align-items:stretch;flex-direction:column}.hero-actions .el-select,.hero-actions .el-button{width:100%}.metric-grid{gap:8px}.metric-grid article{padding:14px}.panel-head{align-items:flex-start}.effort-actions{align-items:stretch;flex-direction:column}.effort-member-row{grid-template-columns:1fr 1fr}.effort-member-row>span:first-child,.effort-member-row>.el-tag{grid-column:1/-1}.effort-member-row>.el-button{justify-self:start}.allocation-alert-row{grid-template-columns:1fr}.allocation-alert-row .el-button{width:100%}.routine-card,.task-card,.fact-row{align-items:flex-start;flex-wrap:wrap}.routine-result{width:100%;align-items:stretch}.routine-result b{font-size:17px}.task-actions{width:100%;justify-content:flex-end}.fact-row strong{margin-left:auto}}
 .hero-actions{justify-content:flex-end;flex-wrap:wrap}.hero-actions .el-button{margin:0}.hero-actions .el-select{width:320px}@media(max-width:1300px){.owner-hero{align-items:flex-start;flex-direction:column}.hero-actions{width:100%;justify-content:flex-start}.hero-actions .el-select{flex:1;min-width:280px}}@media(max-width:640px){.hero-actions .el-select{min-width:0}}
 .daily-spend-row{display:grid;grid-template-columns:180px minmax(0,1fr) auto;align-items:center;gap:18px;padding:18px;border-radius:10px;background:#f6faf9}.daily-spend-row>span{display:flex;min-width:0;flex-direction:column;gap:5px}.daily-spend-row small{color:#8793a1}.daily-spend-row b{overflow-wrap:anywhere}@media(max-width:640px){.daily-spend-row{grid-template-columns:1fr}.daily-spend-row .el-tag{justify-self:start}}
 .revenue-summary-panel{border-color:#cfe2df;background:linear-gradient(145deg,#fff,#f7fcfb)}.daily-revenue-row{display:grid;grid-template-columns:repeat(3,minmax(150px,1fr)) auto;align-items:center;gap:18px;padding:18px;border-radius:10px;background:#f3faf8}.daily-revenue-row>span{display:flex;min-width:0;flex-direction:column;gap:5px}.daily-revenue-row small{color:#8793a1}.daily-revenue-row b{overflow-wrap:anywhere;font-size:16px}.daily-revenue-row .pending-revenue{color:#b7791f}.daily-revenue-row .el-tag{justify-self:end}@media(max-width:760px){.daily-revenue-row{grid-template-columns:1fr 1fr}.daily-revenue-row .el-tag{justify-self:start}}@media(max-width:520px){.daily-revenue-row{grid-template-columns:1fr}}
@@ -554,5 +614,7 @@ load(route.query.projectId?Number(route.query.projectId):undefined)
 .allocation-issue-list{display:flex;min-width:0;flex-direction:column;gap:7px}.allocation-issue-list p{display:flex;align-items:center;gap:8px;margin:0;color:#6f6250;line-height:1.45}.allocation-issue-list p span{min-width:0;overflow-wrap:anywhere}.allocation-issue-list .el-tag{flex:none}@media(max-width:640px){.allocation-issue-list p{align-items:flex-start;flex-direction:column;gap:4px}}
 .project-progress-panel{border-color:#cfe2df;background:linear-gradient(145deg,#fff,#f5fbfa)}.project-progress-card{padding:16px;border:1px solid #d9e8e5;border-radius:11px;background:#fff}.project-progress-title,.project-progress-meta{display:flex;align-items:center;justify-content:space-between;gap:12px}.project-progress-title>span{display:flex;min-width:0;flex-direction:column;gap:4px}.project-progress-title small,.project-progress-meta{color:#7d8b96;font-size:12px}.project-progress-title strong{color:#167268;font-size:26px}.project-progress-card :deep(.el-progress){margin:16px 0}.project-progress-meta{margin-bottom:10px}.project-progress-summary{margin:0 0 12px!important;color:#4c5e69!important;font-size:14px!important;line-height:1.7}.project-progress-form :deep(.el-slider){padding:0 12px}.project-progress-form :deep(.el-slider__runway.show-input){margin-right:88px}.progress-tip{display:block;width:100%;margin-top:6px;color:#909399;font-size:12px}@media(max-width:640px){.project-progress-panel>.panel-head{align-items:stretch;flex-direction:column}.project-progress-title{align-items:flex-start}.project-progress-meta{align-items:flex-start;flex-direction:column}}
 .task-latest-report{display:-webkit-box;margin:2px 0 0!important;overflow:hidden;color:#4c5e69!important;font-size:13px!important;line-height:1.55;-webkit-box-orient:vertical;-webkit-line-clamp:2}.task-latest-report span{color:#738392}.task-actions{align-items:center;gap:8px}.task-report-list{display:flex;max-height:65vh;flex-direction:column;gap:12px;overflow-y:auto;padding-right:4px}.task-report-row{padding:16px;border:1px solid #dfe6eb;border-radius:11px;background:#fbfcfd}.task-report-head,.task-report-footer{display:flex;align-items:center;justify-content:space-between;gap:14px}.task-report-head>span{display:flex;min-width:0;flex-direction:column;gap:4px}.task-report-head small,.task-report-footer small,.no-evidence{color:#8b97a4}.task-report-row>p{margin:13px 0!important;color:#415361!important;font-size:14px!important;line-height:1.7;white-space:pre-wrap}.no-evidence{font-size:12px}@media(max-width:640px){.task-report-head,.task-report-footer{align-items:flex-start;flex-direction:column}.task-report-footer .el-button{padding-left:0}.task-report-list{max-height:70vh}}
+.leave-request-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:12px 2px;border-top:1px solid #edf0f2}.leave-request-row>span{display:flex;min-width:0;flex-direction:column;gap:4px}.leave-request-row>span small{overflow-wrap:anywhere;color:#8b97a4}.leave-request-files,.leave-review-comment{grid-column:1/-1}.leave-review-comment{color:#a06b22!important}@media(max-width:640px){.leave-request-row{grid-template-columns:1fr auto}.leave-request-row>.el-button{grid-column:2}.leave-request-files,.leave-review-comment{grid-column:1/-1}}
 .task-group+.task-group{margin-top:18px}.task-group-head{display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid #edf0f2}.task-group-head h3{margin:0;font-size:14px}.completed-task-group{padding-top:2px}.completed-task-card{background:#fbfdfc}.completed-task-actions{flex-wrap:wrap;justify-content:flex-end}@media(max-width:640px){.completed-task-actions{justify-content:flex-start}}
+.pending-effort-panel{margin-bottom:14px;border-color:#efcf93;background:#fffdf8}.pending-effort-row{display:grid;grid-template-columns:minmax(190px,.8fr) auto minmax(180px,1fr) auto;align-items:center;gap:16px;padding:13px 4px;border-top:1px solid #f1e5ce}.pending-effort-row>span{display:flex;min-width:0;flex-direction:column;gap:4px}.pending-effort-row small{color:#8b7755}.pending-effort-row>p{margin:0;color:#7a633d;overflow-wrap:anywhere}.pending-effort-change{display:flex;align-items:center;gap:8px;color:#72592f;white-space:nowrap}.pending-effort-change b{color:#d28b1f}.pending-effort-actions{display:flex;gap:6px}.pending-effort-actions .el-button{margin:0}@media(max-width:900px){.pending-effort-row{grid-template-columns:1fr auto}.pending-effort-row>p{grid-column:1/-1}.pending-effort-actions{grid-column:1/-1;justify-content:flex-end}}@media(max-width:520px){.pending-effort-row{grid-template-columns:1fr}.pending-effort-row>p,.pending-effort-actions{grid-column:auto}.pending-effort-actions{display:grid;grid-template-columns:repeat(3,1fr)}.pending-effort-actions .el-button{width:100%}}
 </style>

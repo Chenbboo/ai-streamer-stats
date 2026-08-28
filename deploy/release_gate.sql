@@ -71,6 +71,123 @@ from (
     and column_name in ('voided_user_id','voided_user_name','voided_time','void_reason')
 
   union all
+  select if(count(*)=4,0,1)
+  from information_schema.tables
+  where table_schema=database() and table_name in (
+    'jewelry_influencer','jewelry_influencer_product_price',
+    'jewelry_influencer_price_history','jewelry_influencer_bundle_item'
+  )
+
+  union all
+  select if(count(*)=8,0,1)
+  from information_schema.columns
+  where table_schema=database()
+    and ((table_name='jewelry_influencer'
+        and column_name in ('influencer_code','external_influencer_id','influencer_name'))
+      or (table_name='jewelry_document'
+        and column_name in ('influencer_id','influencer_price_snapshot','influencer_price_version'))
+      or (table_name='jewelry_document_item'
+        and column_name in ('influencer_price_snapshot','influencer_price_version')))
+
+  union all
+  select if(count(*)=1,0,1)
+  from information_schema.tables
+  where table_schema=database() and table_name='biz_staff_leave_request'
+
+  union all
+  select if(count(*)=5,0,1)
+  from information_schema.columns
+  where table_schema=database()
+    and ((table_name='biz_staff_leave' and column_name='source_request_id')
+      or (table_name='biz_staff_leave_request' and column_name in (
+        'cancel_reviewed_user_id','cancel_reviewed_user_name',
+        'cancel_reviewed_time','cancel_review_comment'
+      )))
+
+  union all
+  select if(count(*)=4,0,1)
+  from information_schema.columns
+  where table_schema=database() and table_name='biz_operating_fact'
+    and column_name in ('returned_user_id','returned_user_name','returned_time','return_reason')
+
+  union all
+  select if(count(*)=2 and sum(is_nullable='YES')=2,0,1)
+  from information_schema.columns
+  where table_schema=database() and table_name='biz_project_routine'
+    and column_name in ('assignee_user_id','assignee_name')
+
+  union all
+  select if(count(*)=1,0,1)
+  from sys_role
+  where role_key='project_deputy' and del_flag='0' and status='0'
+
+  union all
+  select if(count(*)=6,0,1)
+  from sys_role_menu role_menu
+  join sys_role role on role.role_id=role_menu.role_id
+  where role.role_key='project_deputy' and role.del_flag='0'
+    and role_menu.menu_id in (4000,4002,4012,4013,4014,4017)
+
+  union all
+  select count(*)
+  from information_schema.columns
+  where table_schema=database()
+    and table_name in ('biz_staff_leave','biz_staff_leave_request')
+    and collation_name is not null and collation_name<>'utf8mb4_0900_ai_ci'
+
+  union all
+  select count(*)
+  from biz_project
+  where del_flag='0' and base_currency not regexp '^[A-Z]{3}$'
+
+  union all
+  select count(*)
+  from biz_project_task task
+  left join biz_project_member member on member.project_id=task.project_id
+    and member.user_id=task.assignee_user_id and member.status='0'
+  where task.assignee_user_id is not null and task.status<>'DONE' and member.member_id is null
+
+  union all
+  select count(*)
+  from biz_project_routine routine
+  left join biz_project_member member on member.project_id=routine.project_id
+    and member.user_id=routine.assignee_user_id and member.status='0'
+  where routine.status='ACTIVE' and routine.assignee_user_id is not null and member.member_id is null
+
+  union all
+  select count(*)
+  from biz_project_staff_allocation allocation
+  left join biz_project_member member on member.project_id=allocation.project_id
+    and member.user_id=allocation.user_id and member.status='0'
+  where allocation.status='ACTIVE'
+    and (allocation.effective_to is null or allocation.effective_to>=curdate())
+    and member.member_id is null
+
+  union all
+  select count(*)
+  from biz_project
+  where del_flag='0' and status in ('CLOSED','CANCELED') and actual_end_date is null
+
+  union all
+  select count(*)
+  from biz_project_routine routine
+  join biz_project project on project.project_id=routine.project_id and project.del_flag='0'
+  where project.status in ('CLOSED','CANCELED') and routine.status='ACTIVE'
+
+  union all
+  select count(*)
+  from biz_project_task task
+  join biz_project project on project.project_id=task.project_id and project.del_flag='0'
+  where project.status in ('CLOSED','CANCELED') and task.status not in ('DONE','CANCELED')
+
+  union all
+  select count(*)
+  from biz_project_daily_result result_row
+  join biz_project project on project.project_id=result_row.project_id and project.del_flag='0'
+  where project.status in ('CLOSED','CANCELED') and result_row.is_current='1'
+    and result_row.close_status<>'CLOSED'
+
+  union all
   select count(*)
   from biz_project p
   where p.del_flag='0' and not exists (

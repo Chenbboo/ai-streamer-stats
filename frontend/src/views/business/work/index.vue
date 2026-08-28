@@ -64,7 +64,7 @@
           <div class="result-line"><span>{{ isToday ? (routine.todayLeaveId ? '今日状态' : '今日完成') : '周期累计' }}</span><b>{{ isToday && routine.todayLeaveId ? '今日请假' : `${isToday ? (routine.todayReportId ? routine.todayActual : '—') : (routine.periodActual || 0)} ${routine.unit}` }}</b></div>
           <p v-if="isToday && routine.todayLeaveId" class="note">请假说明：{{ routine.todayLeaveReason || '今日无需填报' }}</p>
           <p v-if="routine.todaySummary" class="note">今日说明：{{ routine.todaySummary }}</p>
-          <p v-if="routine.todayIssueReason" class="issue">未达原因：{{ routine.todayIssueReason }}</p>
+          <p v-if="routineBelowTarget(routine) && routine.todayIssueReason" class="issue">未达原因：{{ routine.todayIssueReason }}</p>
           <el-button v-if="isToday && !routine.todayLeaveId" type="primary" :plain="!!routine.todayReportId" @click="openRoutineReport(routine)">{{ routine.todayReportId ? '修改今日填报' : '填报今日完成量' }}</el-button>
         </div>
       </article>
@@ -77,9 +77,11 @@
           <h3>{{ task.taskName }}</h3>
           <p class="target">截止日期：{{ task.dueDate || '未设置' }}</p>
           <el-progress :percentage="task.progress || 0" :stroke-width="7" />
+          <p v-if="isToday && task.todayLeaveId" class="note">请假说明：{{ task.todayLeaveReason || '今日无需填报' }}</p>
           <p v-if="task.todayTaskReportId" class="note">今日已填报：{{ task.todayProgress }}%<template v-if="task.todayCompletionSummary">，{{ task.todayCompletionSummary }}</template></p>
           <div class="task-actions">
-            <el-button v-if="isToday && task.projectStatus==='ACTIVE'" type="primary" :plain="!!task.todayTaskReportId" @click="openTaskReport(task)">{{ task.todayTaskReportId ? '修改今日填报' : '填报今日完成量' }}</el-button>
+            <el-button v-if="isToday && task.projectStatus==='ACTIVE' && !task.todayLeaveId" type="primary" :plain="!!task.todayTaskReportId" @click="openTaskReport(task)">{{ task.todayTaskReportId ? '修改今日填报' : '填报今日完成量' }}</el-button>
+            <span v-else-if="isToday && task.todayLeaveId" class="task-report-tip">今日请假，无需填报</span>
             <span v-else-if="isToday" class="task-report-tip">项目执行中才能填报</span>
           </div>
         </div>
@@ -93,7 +95,7 @@
         <el-form-item label="实际完成" required><el-input-number v-model="reportForm.actualValue" :min="0" :precision="4" style="width:100%" /></el-form-item>
         <el-form-item label="今日说明"><el-input v-model="reportForm.summary" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
         <el-form-item v-if="needsReason" label="未达原因" required><el-input v-model="reportForm.issueReason" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
-        <el-form-item label="成果凭证" :required="reportForm.evidenceRequired==='1'"><file-upload v-model="reportForm.evidenceUrls" :limit="10" :file-size="20" :file-type="['pdf','doc','docx','xls','xlsx','jpg','jpeg','png','mp4','mov']" /></el-form-item>
+        <el-form-item label="成果凭证" :required="reportForm.evidenceRequired==='1'"><business-file-upload v-model="reportForm.evidenceUrls" :project-id="reportForm.projectId" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="reportDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="submitRoutine">保存今日完成量</el-button></template>
     </el-dialog>
@@ -104,7 +106,7 @@
         <el-form-item label="任务内容"><el-input :model-value="taskReportForm.taskName" disabled /></el-form-item>
         <el-form-item label="实际完成情况" required><el-input v-model="taskReportForm.completionSummary" type="textarea" :rows="4" maxlength="1000" show-word-limit placeholder="请用文字说明今日实际完成的内容" /></el-form-item>
         <el-form-item label="任务进度" required><el-slider v-model="taskReportForm.progress" show-input :min="0" :max="100" :disabled="Number(taskReportForm.minimumProgress || 0) >= 100" @input="keepTaskProgress" /><small class="progress-tip">当前进度 {{ taskReportForm.minimumProgress || 0 }}%，只能向上调整。</small></el-form-item>
-        <el-form-item label="成果凭证" required><file-upload v-model="taskReportForm.evidenceUrls" :limit="10" :file-size="20" :file-type="['pdf','doc','docx','xls','xlsx','jpg','jpeg','png','mp4','mov']" /></el-form-item>
+        <el-form-item label="成果凭证" required><business-file-upload v-model="taskReportForm.evidenceUrls" :project-id="taskReportForm.projectId" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="taskReportDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="submitTask">保存今日完成量</el-button></template>
     </el-dialog>
@@ -125,6 +127,7 @@ const taskStatusLabel={TODO:'待开始',DOING:'进行中',BLOCKED:'受阻',DONE:
 const taskTone={TODO:'info',DOING:'primary',BLOCKED:'danger',DONE:'success'}
 const effortStatusLabel={UNSUBMITTED:'按计划执行',SUBMITTED:'待负责人确认',CONFIRMED:'已确认',RETURNED:'已退回',LEAVE:'今日请假'}
 const effortTone={UNSUBMITTED:'info',SUBMITTED:'warning',CONFIRMED:'success',RETURNED:'danger',LEAVE:'info'}
+function routineBelowTarget(routine){return routine.frequency==='DAILY'&&!!routine.todayReportId&&Number(routine.todayActual)<Number(routine.targetValue||0)}
 function today(){return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Shanghai'})}
 async function load(){loading.value=true;try{const payload=(await getBusinessWorkDashboard({period:period.value,anchorDate:anchorDate.value})).data||{};payload.efforts=(payload.efforts||[]).map(item=>({...item,actualPercent:Number(item.actualPercent||0),editing:false,_savedActualPercent:Number(item.actualPercent||0),_savedDeviationReason:item.deviationReason||''}));data.value=payload}finally{loading.value=false}}
 function changePeriod(){load()}
@@ -135,6 +138,7 @@ async function submitRoutine(){
   if(form.actualValue===null||form.actualValue===undefined||Number(form.actualValue)<0)return ElMessage.warning('请填写实际完成量')
   if(needsReason.value&&!form.issueReason?.trim())return ElMessage.warning('未达到每日目标时请填写原因')
   if(form.evidenceRequired==='1'&&!form.evidenceUrls)return ElMessage.warning('该工作要求上传成果凭证')
+  form.issueReason=needsReason.value?form.issueReason.trim():null
   saving.value=true
   try{
     const response=await submitBusinessRoutineReport(form)

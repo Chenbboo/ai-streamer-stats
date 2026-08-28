@@ -8,9 +8,11 @@ import java.util.Calendar;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,11 +37,13 @@ import com.ruoyi.business.mapper.BusinessProjectKpiMapper;
 import com.ruoyi.business.mapper.BusinessAccountingMapper;
 import com.ruoyi.business.service.IBusinessProjectService;
 import com.ruoyi.business.service.IBusinessAccountingService;
+import com.ruoyi.business.service.BusinessFileService;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.uuid.IdUtils;
+import com.ruoyi.system.service.OnlineUserPermissionService;
 
 @Service
 public class BusinessProjectServiceImpl implements IBusinessProjectService
@@ -50,10 +54,11 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     private static final List<String> ROUTINE_FREQUENCIES = Arrays.asList("DAILY", "WEEKLY", "MONTHLY");
     private static final List<String> PRIORITIES = Arrays.asList("LOW", "MEDIUM", "HIGH");
     private static final List<String> MEMBER_ROLES = Arrays.asList("DEPUTY", "MEMBER", "OBSERVER");
-    private static final List<String> TASK_STATUSES = Arrays.asList("TODO", "DOING", "BLOCKED", "DONE");
+    private static final List<String> TASK_STATUSES = Arrays.asList("TODO", "DOING", "BLOCKED", "DONE", "CANCELED");
     private static final List<String> RISK_SEVERITIES = Arrays.asList("LOW", "MEDIUM", "HIGH", "CRITICAL");
     private static final List<String> KPI_METRIC_TYPES = Arrays.asList("COUNT", "AMOUNT", "PERCENT", "DURATION", "SCORE", "MILESTONE");
     private static final List<String> KPI_PERIOD_TYPES = Arrays.asList("MONTH", "QUARTER", "PROJECT");
+    private static final List<String> LEAVE_TYPES = Arrays.asList("SICK", "PERSONAL", "ANNUAL", "COMPENSATORY", "OTHER");
     private static final BigDecimal CHINA_STANDARD_WORK_DAYS = new BigDecimal("21.75");
     private static final BigDecimal VIETNAM_STANDARD_WORK_DAYS = new BigDecimal("26");
 
@@ -68,6 +73,12 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
 
     @Autowired
     private IBusinessAccountingService accountingService;
+
+    @Autowired
+    private BusinessFileService businessFileService;
+
+    @Autowired
+    private OnlineUserPermissionService onlineUserPermissionService;
 
     @Override
     public List<BusinessProject> listProjects(Map<String, Object> query, Long userId, boolean viewAll, boolean boss)
@@ -375,7 +386,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (StringUtils.isBlank(reason)) throw new ServiceException("请填写预算调整原因");
         if (StringUtils.isBlank(currency)) currency = project.getBaseCurrency();
         currency = currency.trim().toUpperCase();
-        if (currency.length() != 3) throw new ServiceException("币种代码必须为3位");
+        validateCurrency(currency);
+        if (!currency.equals(project.getBaseCurrency()))
+            throw new ServiceException("项目产生后不能通过预算调整修改基础币种");
         List<Map<String, Object>> historyRows = mapper.selectBudgetHistory(projectId);
         int budgetVersion = historyRows == null ? 1 : historyRows.size() + 1;
         if (mapper.updateProjectBudget(projectId, budgetLimit, currency, userName, project.getVersion()) != 1)
@@ -604,7 +617,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         }
         else requireAllocationOwner(project, userId, boss);
         ensureMutable(project);
-        if (allocation.getUserId() == null || mapper.selectMemberRole(project.getProjectId(), allocation.getUserId()) == null)
+        String allocationRole = allocation.getUserId() == null ? null
+            : mapper.selectMemberRole(project.getProjectId(), allocation.getUserId());
+        if (allocationRole == null || "OBSERVER".equals(allocationRole))
             throw new ServiceException("成本分摊人员必须是当前项目成员");
         if (!"PERCENTAGE".equals(allocation.getAllocationMode()))
             throw new ServiceException("人员成本只支持按项目投入比例分摊");
@@ -686,6 +701,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         ensureMutable(project);
         if (project.getMainOwnerUserId().equals(newOwnerUserId)) throw new ServiceException("新负责人不能与当前负责人相同");
         Map<String, Object> newOwner = requireActiveUser(newOwnerUserId);
+        String newOwnerPreviousRole = mapper.selectMemberRole(projectId, newOwnerUserId);
         String newOwnerName = displayName(newOwner);
         if (mapper.updateProjectOwner(projectId, newOwnerUserId, newOwnerName, userName, project.getVersion()) != 1)
             throw changed();
@@ -708,6 +724,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         ownerMember.setCreateBy(userName);
         mapper.upsertMember(ownerMember);
         grantProjectUser(newOwnerUserId, true);
+        if ("DEPUTY".equals(newOwnerPreviousRole)) syncProjectDeputyRole(newOwnerUserId);
 
         Map<String, Object> history = new HashMap<String, Object>();
         history.put("projectId", projectId);
@@ -743,6 +760,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (acceptance.getDeliverables().length() > 4000) throw new ServiceException("交付成果说明不能超过4000个字符");
         if (StringUtils.isNotEmpty(acceptance.getAttachmentUrls()) && acceptance.getAttachmentUrls().length() > 4000)
             throw new ServiceException("验收附件数量或地址长度超出限制");
+        businessFileService.validateReferences(acceptance.getAttachmentUrls(), projectId, userId, boss, SecurityUtils.isAdmin(userId));
         Map<String, Object> submitter = requireActiveUser(userId);
         acceptance.setProjectId(projectId);
         acceptance.setSubmissionVersion(mapper.selectNextAcceptanceVersion(projectId));
@@ -779,6 +797,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             if ("KEY_CONTROL".equals(normalizeManagementMode(project.getManagementMode()))) ensureKeyMilestonesReady(projectId);
             ensureReadyForAcceptance(projectId);
             ensureKpiReadyForClose(projectId);
+            prepareTerminalState(project, "CLOSED", userName);
         }
         String reviewerName = displayName(requireActiveUser(userId));
         if (mapper.reviewAcceptance(pending.getAcceptanceId(), decision, userId, reviewerName, comment, userName) != 1)
@@ -808,6 +827,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             throw new ServiceException("该里程碑已有待评审的验收资料");
         ensureMilestoneTasksReady(projectId, milestone.getMilestoneId());
         validateStageAcceptance(acceptance);
+        businessFileService.validateReferences(acceptance.getAttachmentUrls(), projectId, userId, boss, SecurityUtils.isAdmin(userId));
         acceptance.setProjectId(projectId);
         acceptance.setMilestoneName(milestone.getMilestoneName());
         acceptance.setSubmissionVersion(mapper.selectNextStageAcceptanceVersion(projectId, milestone.getMilestoneId()));
@@ -944,6 +964,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             if (!"LIGHT".equals(normalizeManagementMode(project.getManagementMode()))) ensureHighRisksClosed(projectId);
             if (StringUtils.isBlank(comment)) throw new ServiceException("请填写项目完成结论");
             ensureKpiReadyForClose(projectId);
+            ensureReadyForAcceptance(projectId);
             to = "CLOSED";
         }
         else if ("CANCEL".equals(action))
@@ -954,6 +975,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         }
         else throw new ServiceException("不支持的项目操作");
 
+        if ("CLOSED".equals(to) || "CANCELED".equals(to)) prepareTerminalState(project, to, userName);
         if (mapper.updateProjectStatus(projectId, from, to, baseline, increment, userName, project.getVersion()) != 1)
             throw changed();
         addEvent(projectId, action, from, to, userId, userName, comment);
@@ -975,8 +997,12 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         member.setStatus("0");
         member.setCreateBy(userName);
         member.setJoinedDate(member.getJoinedDate() == null ? new Date() : member.getJoinedDate());
+        String currentRole = mapper.selectMemberRole(project.getProjectId(), member.getUserId());
+        requireDeputyAssignmentAuthority(project, userId, boss, currentRole, member.getMemberRole());
         mapper.upsertMember(member);
         grantProjectUser(member.getUserId(), false);
+        if ("DEPUTY".equals(currentRole) || "DEPUTY".equals(member.getMemberRole()))
+            syncProjectDeputyRole(member.getUserId());
         addEvent(project.getProjectId(), "MEMBER_SAVE", project.getStatus(), project.getStatus(), userId, userName,
             member.getUserNameSnapshot() + " / " + member.getMemberRole());
         return member;
@@ -986,13 +1012,34 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     @Transactional
     public void removeMember(Long projectId, Long memberUserId, Long userId, String userName, boolean boss)
     {
+        removeMember(projectId, memberUserId, false, userId, userName, boss);
+    }
+
+    @Override
+    @Transactional
+    public void removeMember(Long projectId, Long memberUserId, boolean retainTodayCost,
+        Long userId, String userName, boolean boss)
+    {
         BusinessProject project = requireProject(projectId);
         requireManage(project, userId, boss);
         ensureMutable(project);
         if (project.getMainOwnerUserId().equals(memberUserId)) throw new ServiceException("不能移除项目主负责人");
+        String currentRole = mapper.selectMemberRole(projectId, memberUserId);
+        requireDeputyAssignmentAuthority(project, userId, boss, currentRole, null);
         if (mapper.leaveMember(projectId, memberUserId, userName) != 1) throw new ServiceException("项目成员不存在或已经退出");
+        if ("DEPUTY".equals(currentRole)) syncProjectDeputyRole(memberUserId);
+        int taskCount = mapper.unassignOpenMemberTasks(projectId, memberUserId, userName);
+        int routineCount = mapper.unassignActiveMemberRoutines(projectId, memberUserId, userName);
+        int allocationCount = mapper.closeMemberAllocations(projectId, memberUserId, retainTodayCost, userName);
+        if (allocationCount > 0)
+        {
+            Date today = normalizeLeaveDate(DateUtils.getNowDate(), "日期不正确");
+            accountingService.recalculatePersonnelCost(projectId, today, userName);
+        }
         addEvent(projectId, "MEMBER_REMOVE", project.getStatus(), project.getStatus(), userId, userName,
-            "移除账号ID " + memberUserId);
+            "移除账号ID " + memberUserId + "；解除未完成任务 " + taskCount + " 项，解除持续工作负责人 "
+                + routineCount + " 项，结束当前投入 " + allocationCount + " 项；"
+                + (retainTodayCost ? "保留移除当日人员成本" : "移除当日不再计人员成本"));
     }
 
     @Override
@@ -1056,6 +1103,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     {
         BusinessProject project = requireProject(task.getProjectId());
         String callerRole = mapper.selectMemberRole(project.getProjectId(), userId);
+        if ("OBSERVER".equals(callerRole)) throw new ServiceException("观察者仅可查看项目，不能新建或修改任务");
         boolean manager = SecurityUtils.isAdmin(userId) || "OWNER".equals(callerRole) || "DEPUTY".equals(callerRole);
         if (boss)
         {
@@ -1086,8 +1134,14 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (task.getAssigneeUserId() != null)
         {
             String role = mapper.selectMemberRole(task.getProjectId(), task.getAssigneeUserId());
-            if (role == null) throw new ServiceException("任务负责人必须是有效项目成员");
+            if (role == null || "OBSERVER".equals(role)) throw new ServiceException("任务负责人必须是可执行工作的有效项目成员");
             task.setAssigneeName(displayName(requireActiveUser(task.getAssigneeUserId())));
+        }
+        if (task.getMilestoneId() != null)
+        {
+            BusinessProjectMilestone milestone = mapper.selectMilestoneById(task.getMilestoneId());
+            if (milestone == null || !project.getProjectId().equals(milestone.getProjectId()))
+                throw new ServiceException("任务里程碑必须属于当前项目");
         }
         if (task.getTaskId() != null)
         {
@@ -1113,6 +1167,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (!PRIORITIES.contains(task.getPriority())) throw new ServiceException("任务优先级不正确");
         if (task.getParentTaskId() != null && task.getParentTaskId().equals(task.getTaskId()))
             throw new ServiceException("任务不能成为自己的父任务");
+        validateTaskParent(project.getProjectId(), task.getTaskId(), task.getParentTaskId());
         if (task.getTaskId() == null)
         {
             task.setCreateBy(userName); mapper.insertTask(task);
@@ -1138,12 +1193,14 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (task == null) throw new ServiceException("任务不存在");
         if (!userId.equals(task.getAssigneeUserId())) throw new ServiceException("只能由任务负责人本人填报");
         BusinessProject project = requireProject(task.getProjectId());
+        requireActiveExecutor(project.getProjectId(), userId);
         if (!"ACTIVE".equals(project.getStatus())) throw new ServiceException("项目执行中才能填报任务完成情况");
         Date today = DateUtils.getNowDate();
         if (report.getBizDate() == null) report.setBizDate(today);
         if (!new SimpleDateFormat("yyyy-MM-dd").format(today)
             .equals(new SimpleDateFormat("yyyy-MM-dd").format(report.getBizDate())))
             throw new ServiceException("只能填报今日任务完成情况");
+        requireNotOnLeave(userId, report.getBizDate());
         if (report.getProgress() == null || report.getProgress() < 0 || report.getProgress() > 100)
             throw new ServiceException("任务进度必须在0到100之间");
         if (report.getProgress() < (task.getProgress() == null ? 0 : task.getProgress()))
@@ -1152,6 +1209,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (StringUtils.isBlank(report.getEvidenceUrls())) throw new ServiceException("请上传成果凭证");
         if (report.getCompletionSummary().length() > 2000) throw new ServiceException("实际完成情况不能超过2000字");
         if (report.getEvidenceUrls().length() > 4000) throw new ServiceException("成果凭证文件过多");
+        businessFileService.validateReferences(report.getEvidenceUrls(), project.getProjectId(), userId, false, SecurityUtils.isAdmin(userId));
         report.setCompletionSummary(report.getCompletionSummary().trim());
 
         task.setProgress(report.getProgress());
@@ -1195,6 +1253,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (StringUtils.isBlank(report.getEvidenceUrls())) throw new ServiceException("请上传成果凭证");
         if (report.getCompletionSummary().length() > 2000) throw new ServiceException("实际完成情况不能超过2000字");
         if (report.getEvidenceUrls().length() > 4000) throw new ServiceException("成果凭证文件过多");
+        businessFileService.validateReferences(report.getEvidenceUrls(), project.getProjectId(), userId, false, SecurityUtils.isAdmin(userId));
 
         report.setCompletionSummary(report.getCompletionSummary().trim());
         report.setSubmittedUserId(userId);
@@ -1231,8 +1290,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (routine.getTargetValue() == null || routine.getTargetValue().compareTo(BigDecimal.ZERO) <= 0)
             throw new ServiceException("周期目标必须大于0");
         if (StringUtils.isBlank(routine.getUnit())) throw new ServiceException("请填写成果单位");
-        if (routine.getAssigneeUserId() == null
-            || mapper.selectMemberRole(project.getProjectId(), routine.getAssigneeUserId()) == null)
+        String routineRole = routine.getAssigneeUserId() == null ? null
+            : mapper.selectMemberRole(project.getProjectId(), routine.getAssigneeUserId());
+        if (routineRole == null || "OBSERVER".equals(routineRole))
             throw new ServiceException("持续工作负责人必须是有效项目成员");
         routine.setAssigneeName(displayName(requireActiveUser(routine.getAssigneeUserId())));
         if (routine.getStartDate() == null) routine.setStartDate(project.getPlanStartDate());
@@ -1280,6 +1340,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         BusinessProject project = requireProject(routine.getProjectId());
         if (!userId.equals(routine.getAssigneeUserId()))
             throw new ServiceException("只能由实际执行人本人填报完成量");
+        requireActiveExecutor(project.getProjectId(), userId);
         if (!"ACTIVE".equals(project.getStatus()) && !"ACCEPTANCE".equals(project.getStatus()))
             throw new ServiceException("项目进入执行中后才能填写完成情况");
         Date today = DateUtils.getNowDate();
@@ -1287,17 +1348,22 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (!new SimpleDateFormat("yyyy-MM-dd").format(today)
             .equals(new SimpleDateFormat("yyyy-MM-dd").format(report.getBizDate())))
             throw new ServiceException("负责人工作台只能填报今日完成情况");
-        Map<String, Object> leave = mapper.selectStaffLeave(userId, report.getBizDate());
-        if (leave != null && "ACTIVE".equals(String.valueOf(leave.get("status"))))
-            throw new ServiceException("今日已登记请假，无需填报完成量");
+        requireNotOnLeave(userId, report.getBizDate());
         if (report.getActualValue() == null || report.getActualValue().compareTo(BigDecimal.ZERO) < 0)
             throw new ServiceException("实际完成数量不能为空或为负数");
-        if ("DAILY".equals(routine.getFrequency())
-            && report.getActualValue().compareTo(routine.getTargetValue()) < 0
-            && StringUtils.isBlank(report.getIssueReason()))
+        boolean belowDailyTarget = "DAILY".equals(routine.getFrequency())
+            && report.getActualValue().compareTo(routine.getTargetValue()) < 0;
+        if (belowDailyTarget && StringUtils.isBlank(report.getIssueReason()))
             throw new ServiceException("未达到周期目标时请填写原因");
+        if (belowDailyTarget)
+        {
+            report.setIssueReason(report.getIssueReason().trim());
+            if (report.getIssueReason().length() > 500) throw new ServiceException("未达原因不能超过500个字符");
+        }
+        else report.setIssueReason(null);
         if ("1".equals(routine.getEvidenceRequired()) && StringUtils.isBlank(report.getEvidenceUrls()))
             throw new ServiceException("该工作要求上传成果凭证");
+        businessFileService.validateReferences(report.getEvidenceUrls(), project.getProjectId(), userId, false, SecurityUtils.isAdmin(userId));
         report.setProjectId(project.getProjectId()); report.setTargetSnapshot(routine.getTargetValue());
         report.setUnit(routine.getUnit()); report.setSubmittedUserId(userId);
         report.setSubmittedUserName(displayName(requireActiveUser(userId))); report.setStatus("SUBMITTED");
@@ -1422,7 +1488,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         int pageSize = positiveInt(query, "pageSize", 5, 50);
         String category = query == null || query.get("category") == null
             ? "ALL" : String.valueOf(query.get("category")).trim().toUpperCase();
-        if (!Arrays.asList("ALL", "PROPOSAL", "ACCOUNTING", "STAGE_ACCEPTANCE", "KPI_MISSING", "KPI_REVIEW", "PERSONNEL_COST", "PROJECT")
+        if (!Arrays.asList("ALL", "PROPOSAL", "ACCOUNTING", "LEAVE_REQUEST", "STAGE_ACCEPTANCE", "KPI_MISSING", "KPI_REVIEW", "PERSONNEL_COST", "PROJECT")
             .contains(category)) category = "ALL";
         Date bizDate = new Date();
         Map<String, Object> counts = mapper.selectBossPendingCounts(userId, viewAll, bizDate);
@@ -1445,6 +1511,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         Map<String, String> keys = new HashMap<String, String>();
         keys.put("PROPOSAL", "proposalCount");
         keys.put("ACCOUNTING", "accountingCount");
+        keys.put("LEAVE_REQUEST", "leaveRequestCount");
         keys.put("STAGE_ACCEPTANCE", "stageAcceptanceCount");
         keys.put("KPI_MISSING", "kpiMissingCount");
         keys.put("KPI_REVIEW", "kpiReviewCount");
@@ -1491,6 +1558,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             DateUtils.getNowDate(), viewAll);
         result.put("allocationAlerts", allocationAlerts == null
             ? Collections.<Map<String, Object>>emptyList() : allocationAlerts);
+        List<Map<String, Object>> pendingEffortRequests = mapper.selectOwnerPendingEffortRequests(userId, viewAll);
+        result.put("pendingEffortRequests", pendingEffortRequests == null
+            ? Collections.<Map<String, Object>>emptyList() : pendingEffortRequests);
         if (projects.isEmpty()) return result;
 
         Long selectedId = projectId == null ? projects.get(0).getProjectId() : projectId;
@@ -1539,6 +1609,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         result.put("effortWeekFrom", week[0]);
         result.put("effortWeekTo", week[1]);
         result.put("todayLeaves", mapper.selectProjectMemberLeaves(selectedId, java.sql.Date.valueOf(today)));
+        result.put("leaveRequests", mapper.selectProjectLeaveRequests(selectedId));
         return result;
     }
 
@@ -1722,28 +1793,180 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     public Map<String, Object> markMemberLeave(Long projectId, Long memberUserId, Date leaveDate, String reason,
         Long userId, String userName, boolean boss)
     {
+        return requestMemberLeave(projectId, memberUserId, leaveDate, leaveDate, "OTHER", reason, null,
+            userId, userName, boss);
+    }
+
+    @Override
+    @Transactional
+    public Map<String, Object> requestMemberLeave(Long projectId, Long memberUserId, Date startDate, Date endDate,
+        String leaveType, String reason, String attachmentUrls, Long userId, String userName, boolean boss)
+    {
         BusinessProject project = requireProject(projectId);
         requireManage(project, userId, boss);
         ensureMutable(project);
-        Date day = normalizeToday(leaveDate);
         if (memberUserId == null || mapper.selectMemberRole(projectId, memberUserId) == null)
-            throw new ServiceException("只能为本项目参项人员登记请假");
+            throw new ServiceException("只能为本项目参项人员提交请假申请");
+        Date from = normalizeLeaveDate(startDate, "请选择请假开始日期");
+        Date to = normalizeLeaveDate(endDate == null ? startDate : endDate, "请选择请假结束日期");
+        if (to.before(from)) throw new ServiceException("请假结束日期不能早于开始日期");
+        Date today = normalizeLeaveDate(DateUtils.getNowDate(), "请假日期不正确");
+        if (from.before(today)) throw new ServiceException("负责人只能提交今天或未来日期的请假申请");
+        List<Date> days = leaveDays(from, to);
+        if (days.size() > 31) throw new ServiceException("一次请假申请最多支持31天");
+        String type = StringUtils.isBlank(leaveType) ? "OTHER" : leaveType.trim().toUpperCase();
+        if (!LEAVE_TYPES.contains(type)) throw new ServiceException("请假类型不正确");
         if (StringUtils.isBlank(reason)) throw new ServiceException("请填写请假原因");
+        if (reason.trim().length() > 500) throw new ServiceException("请假原因不能超过500个字符");
+        if (attachmentUrls != null && attachmentUrls.length() > 4000) throw new ServiceException("请假附件过多");
+        businessFileService.validateReferences(attachmentUrls, projectId, userId, boss, SecurityUtils.isAdmin(userId));
+        mapper.lockUserForLeave(memberUserId);
+        if (mapper.countOverlappingLeaveRequests(memberUserId, from, to) > 0
+            || mapper.countActiveStaffLeaveRange(memberUserId, from, to) > 0)
+            throw new ServiceException("该员工所选日期已有待审批或已生效的请假记录");
         Map<String, Object> employee = requireActiveUser(memberUserId);
-        Map<String, Object> leave = new HashMap<String, Object>();
-        leave.put("userId", memberUserId);
-        leave.put("userName", displayName(employee));
-        leave.put("leaveDate", day);
-        leave.put("reason", reason.trim());
-        leave.put("recordedProjectId", projectId);
-        leave.put("recordedUserId", userId);
-        leave.put("recordedUserName", displayName(requireActiveUser(userId)));
-        leave.put("createBy", userName);
-        mapper.upsertStaffLeave(leave);
-        recalculateAllocatedProjects(memberUserId, day, userName);
-        addEvent(projectId, "STAFF_LEAVE", project.getStatus(), project.getStatus(), userId, userName,
-            displayName(employee) + " 今日请假：" + reason.trim());
-        return mapper.selectStaffLeave(memberUserId, day);
+        String requesterName = displayName(requireActiveUser(userId));
+        Map<String, Object> request = new HashMap<String, Object>();
+        request.put("requestNo", "QJ" + new SimpleDateFormat("yyyyMMddHHmmss").format(new Date())
+            + IdUtils.fastSimpleUUID().substring(0, 4).toUpperCase());
+        request.put("userId", memberUserId); request.put("userName", displayName(employee));
+        request.put("startDate", from); request.put("endDate", to); request.put("leaveType", type);
+        request.put("reason", reason.trim()); request.put("attachmentUrls", attachmentUrls);
+        request.put("submittedProjectId", projectId); request.put("submittedProjectName", project.getProjectName());
+        request.put("submittedUserId", userId); request.put("submittedUserName", requesterName);
+        request.put("createBy", userName);
+        mapper.insertLeaveRequest(request);
+        addEvent(projectId, "STAFF_LEAVE_REQUESTED", project.getStatus(), project.getStatus(), userId, userName,
+            displayName(employee) + " 请假申请 " + dateRange(from, to) + "：" + reason.trim());
+        return mapper.selectLeaveRequestById(longValue(request.get("requestId")));
+    }
+
+    @Override
+    @Transactional
+    public Map<String, Object> reviewMemberLeaveRequest(Long requestId, String decision, String comment,
+        Long userId, String userName, boolean boss)
+    {
+        Map<String, Object> request = mapper.selectLeaveRequestById(requestId);
+        if (request == null) throw new ServiceException("请假申请不存在");
+        BusinessProject project = requireProject(longValue(request.get("submittedProjectId")));
+        requireBoss(project, userId, boss);
+        String currentStatus = String.valueOf(request.get("status"));
+        if (!Arrays.asList("PENDING", "CANCEL_PENDING").contains(currentStatus))
+            throw new ServiceException("请假申请当前不需要审批");
+        String result = StringUtils.isBlank(decision) ? "" : decision.trim().toUpperCase();
+        if (!Arrays.asList("APPROVED", "RETURNED").contains(result)) throw new ServiceException("请假审批决定不正确");
+        if ("RETURNED".equals(result) && StringUtils.isBlank(comment)) throw new ServiceException("请填写退回原因");
+        if (comment != null && comment.length() > 1000) throw new ServiceException("审批意见不能超过1000个字符");
+        Date from = leaveDateValue(request.get("startDate"));
+        Date to = leaveDateValue(request.get("endDate"));
+        Long memberUserId = longValue(request.get("userId"));
+        boolean approvingLeave = "PENDING".equals(currentStatus) && "APPROVED".equals(result);
+        boolean approvingCancellation = "CANCEL_PENDING".equals(currentStatus) && "APPROVED".equals(result);
+        String targetStatus = "CANCEL_PENDING".equals(currentStatus)
+            ? ("APPROVED".equals(result) ? "CANCELED" : "APPROVED") : result;
+        if (approvingLeave)
+        {
+            mapper.lockUserForLeave(memberUserId);
+            if (mapper.countActiveStaffLeaveRange(memberUserId, from, to) > 0)
+                throw new ServiceException("该员工所选日期已有生效的请假记录");
+            Map<String, Object> conflicts = mapper.selectLeaveWorkConflictSummary(memberUserId, from, to);
+            int taskReports = (int)longValue(conflicts == null ? null : conflicts.get("taskReportCount"));
+            int routineReports = (int)longValue(conflicts == null ? null : conflicts.get("routineReportCount"));
+            int effortReports = (int)longValue(conflicts == null ? null : conflicts.get("effortReportCount"));
+            int progressReports = (int)longValue(conflicts == null ? null : conflicts.get("progressReportCount"));
+            if (taskReports + routineReports + effortReports + progressReports > 0)
+                throw new ServiceException("请假日期内已有工作填报：一次性任务" + taskReports + "项、持续工作"
+                    + routineReports + "项、实际投入" + effortReports + "项、项目进度" + progressReports
+                    + "项。为避免请假与工作记录同时生效，请退回申请并调整请假日期");
+        }
+        String reviewerName = displayName(requireActiveUser(userId));
+        int reviewed = "CANCEL_PENDING".equals(currentStatus)
+            ? mapper.reviewLeaveCancellation(requestId, targetStatus, userId, reviewerName,
+                StringUtils.isBlank(comment) ? null : comment.trim(), userName, (Integer)request.get("version"))
+            : mapper.reviewLeaveRequest(requestId, currentStatus, targetStatus, userId, reviewerName,
+                StringUtils.isBlank(comment) ? null : comment.trim(), userName, (Integer)request.get("version"));
+        if (reviewed != 1)
+            throw new ServiceException("请假申请已被其他人处理，请刷新后重试");
+
+        if (approvingLeave)
+        {
+            Set<Long> affectedProjectIds = new HashSet<Long>();
+            affectedProjectIds.add(project.getProjectId());
+            Date today = normalizeLeaveDate(DateUtils.getNowDate(), "日期不正确");
+            for (Date day : leaveDays(from, to))
+            {
+                Map<String, Object> leave = new HashMap<String, Object>();
+                leave.put("userId", memberUserId); leave.put("userName", request.get("userName"));
+                leave.put("leaveDate", day); leave.put("leaveType", request.get("leaveType"));
+                leave.put("reason", request.get("reason")); leave.put("recordedProjectId", project.getProjectId());
+                leave.put("sourceRequestId", requestId);
+                leave.put("recordedUserId", request.get("submittedUserId"));
+                leave.put("recordedUserName", request.get("submittedUserName")); leave.put("createBy", userName);
+                mapper.upsertStaffLeave(leave);
+                List<Long> allocated = mapper.selectAllocatedProjectIdsForUserDate(memberUserId, day);
+                if (allocated != null) affectedProjectIds.addAll(allocated);
+                if (!day.after(today)) recalculateAllocatedProjects(memberUserId, day, userName);
+            }
+            String detail = String.valueOf(request.get("userName")) + " 请假已批准 " + dateRange(from, to)
+                + (StringUtils.isBlank(comment) ? "" : "：" + comment.trim());
+            for (Long affectedProjectId : affectedProjectIds)
+            {
+                BusinessProject affected = mapper.selectProjectById(affectedProjectId);
+                if (affected != null) addEvent(affectedProjectId, "STAFF_LEAVE_APPROVED", affected.getStatus(),
+                    affected.getStatus(), userId, userName, detail);
+            }
+        }
+        else if (approvingCancellation)
+        {
+            mapper.cancelActiveStaffLeaveRange(requestId, memberUserId, from, to, userName);
+            Date today = normalizeLeaveDate(DateUtils.getNowDate(), "日期不正确");
+            for (Date day : leaveDays(from, to)) if (!day.after(today)) recalculateAllocatedProjects(memberUserId, day, userName);
+            addEvent(project.getProjectId(), "STAFF_LEAVE_CANCELED", project.getStatus(), project.getStatus(),
+                userId, userName, String.valueOf(request.get("userName")) + " 取消请假已批准：" + comment);
+        }
+        else addEvent(project.getProjectId(), "STAFF_LEAVE_RETURNED", project.getStatus(), project.getStatus(),
+            userId, userName, String.valueOf(request.get("userName"))
+                + ("CANCEL_PENDING".equals(currentStatus) ? " 取消请假申请被退回：" : " 请假申请被退回：") + comment.trim());
+        return mapper.selectLeaveRequestById(requestId);
+    }
+
+    @Override
+    @Transactional
+    public void cancelMemberLeaveRequest(Long requestId, String reason, Long userId, String userName, boolean boss)
+    {
+        Map<String, Object> request = mapper.selectLeaveRequestById(requestId);
+        if (request == null) throw new ServiceException("请假申请不存在");
+        BusinessProject project = requireProject(longValue(request.get("submittedProjectId")));
+        String status = String.valueOf(request.get("status"));
+        if ("PENDING".equals(status)) requireManage(project, userId, boss);
+        else if ("APPROVED".equals(status))
+        {
+            if (boss) requireBoss(project, userId, true); else requireManage(project, userId, false);
+        }
+        else throw new ServiceException("当前请假申请不能取消");
+        if (StringUtils.isBlank(reason)) throw new ServiceException("请填写取消原因");
+        String operatorName = displayName(requireActiveUser(userId));
+        if ("APPROVED".equals(status) && !boss)
+        {
+            if (mapper.requestLeaveCancellation(requestId, userId, operatorName, reason.trim(), userName,
+                (Integer)request.get("version")) != 1) throw new ServiceException("请假申请已发生变化，请刷新后重试");
+            addEvent(project.getProjectId(), "STAFF_LEAVE_CANCEL_REQUESTED", project.getStatus(), project.getStatus(),
+                userId, userName, String.valueOf(request.get("userName")) + " 申请取消请假：" + reason.trim());
+            return;
+        }
+        if (mapper.cancelLeaveRequest(requestId, status, userId, operatorName, reason.trim(), userName,
+            (Integer)request.get("version")) != 1) throw new ServiceException("请假申请已发生变化，请刷新后重试");
+        if ("APPROVED".equals(status))
+        {
+            Date from = leaveDateValue(request.get("startDate"));
+            Date to = leaveDateValue(request.get("endDate"));
+            Long memberUserId = longValue(request.get("userId"));
+            mapper.cancelActiveStaffLeaveRange(requestId, memberUserId, from, to, userName);
+            Date today = normalizeLeaveDate(DateUtils.getNowDate(), "日期不正确");
+            for (Date day : leaveDays(from, to)) if (!day.after(today)) recalculateAllocatedProjects(memberUserId, day, userName);
+        }
+        addEvent(project.getProjectId(), "STAFF_LEAVE_CANCELED", project.getStatus(), project.getStatus(),
+            userId, userName, String.valueOf(request.get("userName")) + " 请假取消：" + reason.trim());
     }
 
     @Override
@@ -1751,20 +1974,10 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     public void cancelMemberLeave(Long projectId, Long memberUserId, Date leaveDate,
         Long userId, String userName, boolean boss)
     {
-        BusinessProject project = requireProject(projectId);
-        requireManage(project, userId, boss);
-        ensureMutable(project);
-        Date day = normalizeToday(leaveDate);
-        if (memberUserId == null || mapper.selectMemberRole(projectId, memberUserId) == null)
-            throw new ServiceException("只能取消本项目参项人员的请假");
-        Map<String, Object> current = mapper.selectStaffLeave(memberUserId, day);
-        if (current == null || !"ACTIVE".equals(String.valueOf(current.get("status"))))
-            throw new ServiceException("当天没有有效的请假记录");
-        if (mapper.cancelStaffLeave(memberUserId, day, userName) != 1)
-            throw new ServiceException("请假记录已发生变化，请刷新后重试");
-        recalculateAllocatedProjects(memberUserId, day, userName);
-        addEvent(projectId, "STAFF_LEAVE_CANCELED", project.getStatus(), project.getStatus(), userId, userName,
-            String.valueOf(current.get("userName")) + " 取消今日请假");
+        Date day = normalizeLeaveDate(leaveDate, "请选择请假日期");
+        Map<String, Object> pending = mapper.selectPendingLeaveRequestForDate(projectId, memberUserId, day);
+        if (pending == null) throw new ServiceException("没有可撤回的待审批请假申请；已批准请假只能由老板取消");
+        cancelMemberLeaveRequest(longValue(pending.get("requestId")), "撤回请假申请", userId, userName, boss);
     }
 
     @Override
@@ -1881,6 +2094,14 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (!"OWNER".equals(role) && !"DEPUTY".equals(role)) throw new ServiceException("无权管理该项目");
     }
 
+    private void requireDeputyAssignmentAuthority(BusinessProject project, Long userId, boolean boss,
+        String currentRole, String requestedRole)
+    {
+        if (SecurityUtils.isAdmin(userId) || boss || project.getMainOwnerUserId().equals(userId)) return;
+        if ("DEPUTY".equals(currentRole) || "DEPUTY".equals(requestedRole))
+            throw new ServiceException("只有项目主负责人或老板可以任命、调整或移除副负责人");
+    }
+
     private void requireAllocationOwner(BusinessProject project, Long userId, boolean boss)
     {
         if (SecurityUtils.isAdmin(userId)) return;
@@ -1910,10 +2131,56 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (!expected.equals(project.getStatus())) throw new ServiceException("当前项目状态不允许执行此操作");
     }
 
+    private void requireActiveExecutor(Long projectId, Long userId)
+    {
+        BusinessProject project = mapper.selectProjectById(projectId);
+        if (project != null && userId.equals(project.getMainOwnerUserId())) return;
+        String role = mapper.selectMemberRole(projectId, userId);
+        if (role == null || "OBSERVER".equals(role)) throw new ServiceException("已不再是该项目的有效执行成员");
+    }
+
+    private void validateTaskParent(Long projectId, Long taskId, Long parentTaskId)
+    {
+        if (parentTaskId == null) return;
+        Set<Long> visited = new HashSet<Long>();
+        if (taskId != null) visited.add(taskId);
+        Long currentId = parentTaskId;
+        while (currentId != null)
+        {
+            if (!visited.add(currentId)) throw new ServiceException("任务上下级关系不能形成循环");
+            BusinessProjectTask parent = mapper.selectTaskById(currentId);
+            if (parent == null || !projectId.equals(parent.getProjectId()))
+                throw new ServiceException("父任务必须属于当前项目");
+            currentId = parent.getParentTaskId();
+        }
+    }
+
+    private void validateCurrency(String currency)
+    {
+        if (StringUtils.isBlank(currency) || !currency.matches("^[A-Z]{3}$"))
+            throw new ServiceException("币种必须使用三位英文字母代码，例如CNY、VND或USD");
+    }
+
     private void ensureMutable(BusinessProject project)
     {
         if ("CLOSED".equals(project.getStatus()) || "CANCELED".equals(project.getStatus()))
             throw new ServiceException("已结项或已取消项目不能修改");
+    }
+
+    private void prepareTerminalState(BusinessProject project, String terminalStatus, String userName)
+    {
+        Long projectId = project.getProjectId();
+        if (mapper.countPendingProjectEfforts(projectId) > 0)
+            throw new ServiceException("项目仍有待负责人确认的成员投入，请先确认或退回后再结项");
+        if (mapper.countPendingProjectLeaveRequests(projectId) > 0)
+            throw new ServiceException("项目仍有待老板审批的请假或销假申请，请先处理后再结项");
+        accountingService.ensureProjectCanClose(projectId);
+
+        Date closeDate = normalizeLeaveDate(DateUtils.getNowDate(), "结项日期不能为空");
+        accountingService.closeProjectAccounting(projectId, closeDate, userName);
+        mapper.closeProjectRoutines(projectId, userName);
+        mapper.closeProjectAllocations(projectId, closeDate, userName);
+        if ("CANCELED".equals(terminalStatus)) mapper.cancelOpenProjectTasks(projectId, userName);
     }
 
     private void ensureReadyForAcceptance(Long projectId)
@@ -1950,6 +2217,48 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         }
         if (!openHighRisks.isEmpty()) blockers.add("存在高风险或严重风险未处理：" + String.join("、", openHighRisks));
         if (!blockers.isEmpty()) throw new ServiceException(String.join("；", blockers) + "，暂不能申请或通过验收");
+    }
+
+    private Date normalizeLeaveDate(Date requested, String emptyMessage)
+    {
+        if (requested == null) throw new ServiceException(emptyMessage);
+        SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd");
+        format.setLenient(false);
+        try { return format.parse(format.format(requested)); }
+        catch (Exception ex) { throw new ServiceException("请假日期格式不正确"); }
+    }
+
+    private void requireNotOnLeave(Long userId, Date bizDate)
+    {
+        mapper.lockUserForLeave(userId);
+        Map<String, Object> leave = mapper.selectStaffLeave(userId, bizDate);
+        if (leave != null && "ACTIVE".equals(String.valueOf(leave.get("status"))))
+            throw new ServiceException("今日已登记请假，无需填报完成量");
+    }
+
+    private Date leaveDateValue(Object value)
+    {
+        Date parsed = value instanceof Date ? (Date)value : DateUtils.parseDate(value);
+        return normalizeLeaveDate(parsed, "请假日期不正确");
+    }
+
+    private List<Date> leaveDays(Date from, Date to)
+    {
+        List<Date> days = new ArrayList<Date>();
+        Calendar cursor = Calendar.getInstance(); cursor.setTime(from);
+        while (!cursor.getTime().after(to))
+        {
+            days.add(cursor.getTime());
+            if (days.size() > 31) break;
+            cursor.add(Calendar.DAY_OF_MONTH, 1);
+        }
+        return days;
+    }
+
+    private String dateRange(Date from, Date to)
+    {
+        SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd");
+        return format.format(from) + (from.equals(to) ? "" : " 至 " + format.format(to));
     }
 
     private boolean isTaskComplete(BusinessProjectTask task)
@@ -2112,7 +2421,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (StringUtils.isBlank(project.getPriority())) project.setPriority("MEDIUM");
         if (!PRIORITIES.contains(project.getPriority())) throw new ServiceException("项目优先级不正确");
         if (StringUtils.isBlank(project.getBaseCurrency())) project.setBaseCurrency("CNY");
-        if (project.getBaseCurrency().length() != 3) throw new ServiceException("币种代码必须是3位");
+        project.setBaseCurrency(project.getBaseCurrency().trim().toUpperCase());
+        validateCurrency(project.getBaseCurrency());
         if (project.getBudgetLimit() != null && project.getBudgetLimit().compareTo(BigDecimal.ZERO) < 0)
             throw new ServiceException("预算上限不能为负数");
         if (project.getPlanStartDate() != null && project.getPlanEndDate() != null
@@ -2227,6 +2537,17 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             if (ownerRoleId == null) throw new ServiceException("项目负责人角色尚未初始化");
             mapper.insertUserRole(userId, ownerRoleId);
         }
+        onlineUserPermissionService.refreshAfterCommit(userId);
+    }
+
+    private void syncProjectDeputyRole(Long userId)
+    {
+        Long roleId = mapper.selectRoleIdByKey("project_deputy");
+        if (roleId == null) throw new ServiceException("项目副负责人角色尚未初始化");
+        boolean eligible = mapper.countUserRoleByKey(userId, "company_owner") < 1
+            && mapper.countActiveProjectMembershipByRole(userId, "DEPUTY") > 0;
+        int changed = eligible ? mapper.insertUserRole(userId, roleId) : mapper.deleteUserRole(userId, roleId);
+        if (changed > 0) onlineUserPermissionService.refreshAfterCommit(userId);
     }
 
     private void addEvent(Long projectId, String eventType, String fromStatus, String toStatus,

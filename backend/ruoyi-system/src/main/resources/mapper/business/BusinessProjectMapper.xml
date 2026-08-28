@@ -485,7 +485,7 @@
           <if test="baselineStatus != null">baseline_status=#{baselineStatus},</if>
           <if test="baselineIncrement">baseline_version=baseline_version+1,</if>
           <if test="status == 'ACTIVE'">actual_start_date=coalesce(actual_start_date,current_date()),</if>
-          <if test="status == 'CLOSED'">actual_end_date=coalesce(actual_end_date,current_date()),</if>
+          <if test="status == 'CLOSED' or status == 'CANCELED'">actual_end_date=coalesce(actual_end_date,current_date()),</if>
           update_by=#{userName},update_time=sysdate(),version=version+1
         where project_id=#{projectId} and del_flag='0' and status=#{expectedStatus} and version=#{version}
     </update>
@@ -508,8 +508,8 @@
           m.create_time createTime,m.update_by updateBy,m.update_time updateTime,m.remark
         from biz_project_member m
         left join sys_user u on u.user_id=m.user_id
-        where m.project_id=#{projectId}
-        order by m.status,field(m.member_role,'OWNER','DEPUTY','MEMBER','OBSERVER'),m.member_id
+        where m.project_id=#{projectId} and m.status='0'
+        order by field(m.member_role,'OWNER','DEPUTY','MEMBER','OBSERVER'),m.member_id
     </select>
 
     <insert id="upsertMember" parameterType="com.ruoyi.business.domain.BusinessProjectMember"
@@ -526,6 +526,60 @@
     <update id="leaveMember">
         update biz_project_member set status='1',left_date=current_date(),update_by=#{userName},update_time=sysdate()
         where project_id=#{projectId} and user_id=#{userId} and status='0' and member_role&lt;&gt;'OWNER'
+    </update>
+    <update id="unassignOpenMemberTasks">
+        update biz_project_task set assignee_user_id=null,assignee_name=null,update_by=#{userName},
+          update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and assignee_user_id=#{userId} and status&lt;&gt;'DONE'
+    </update>
+    <update id="unassignActiveMemberRoutines">
+        update biz_project_routine set assignee_user_id=null,assignee_name=null,update_by=#{userName},
+          update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and assignee_user_id=#{userId} and status='ACTIVE'
+    </update>
+    <update id="closeMemberAllocations">
+        update biz_project_staff_allocation
+        set status=case when effective_from&lt;current_date()
+            or (#{retainTodayCost} and effective_from&lt;=current_date()) then status else 'VOID' end,
+          effective_to=case
+            when effective_from&lt;current_date() then case when #{retainTodayCost} then current_date() else date_sub(current_date(),interval 1 day) end
+            when #{retainTodayCost} and effective_from&lt;=current_date() then current_date()
+            else effective_to end,
+          update_by=#{userName},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and user_id=#{userId} and status='ACTIVE'
+          and (effective_to is null or effective_to&gt;=current_date())
+    </update>
+
+    <select id="countPendingProjectEfforts" resultType="int">
+        select count(*) from biz_project_effort_report
+        where project_id=#{projectId} and report_status='SUBMITTED'
+    </select>
+
+    <select id="countPendingProjectLeaveRequests" resultType="int">
+        select count(*) from biz_staff_leave_request
+        where submitted_project_id=#{projectId} and request_status in ('PENDING','CANCEL_PENDING')
+    </select>
+
+    <update id="closeProjectRoutines">
+        update biz_project_routine set status='VOID',update_by=#{userName},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and status='ACTIVE'
+    </update>
+
+    <update id="closeProjectAllocations">
+        update biz_project_staff_allocation
+        set status=case when effective_from&gt;#{closeDate} then 'VOID' else status end,
+          effective_to=case
+            when effective_from&gt;#{closeDate} then effective_to
+            when effective_to is null or effective_to&gt;#{closeDate} then #{closeDate}
+            else effective_to end,
+          update_by=#{userName},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and status='ACTIVE'
+          and (effective_to is null or effective_to&gt;=#{closeDate})
+    </update>
+
+    <update id="cancelOpenProjectTasks">
+        update biz_project_task set status='CANCELED',update_by=#{userName},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and status not in ('DONE','CANCELED')
     </update>
 
     <insert id="insertOwnerHistory" parameterType="map">
@@ -838,9 +892,19 @@
         values(#{projectId},#{eventType},#{fromStatus},#{toStatus},#{operatorUserId},#{operatorName},#{comment},sysdate())
     </insert>
     <select id="selectEvents" resultType="map">
-        select event_id eventId,project_id projectId,event_type eventType,from_status fromStatus,to_status toStatus,
-          operator_user_id operatorUserId,operator_name operatorName,event_comment comment,create_time createTime
-        from biz_project_event where project_id=#{projectId} order by event_id desc limit 100
+        select event.event_id eventId,event.project_id projectId,event.event_type eventType,
+          event.from_status fromStatus,event.to_status toStatus,event.operator_user_id operatorUserId,
+          coalesce(nullif(trim(operator_user.nick_name),''),nullif(trim(operator_user.user_name),''),event.operator_name) operatorName,
+          coalesce(nullif(trim(operator_user.user_name),''),event.operator_name) operatorAccount,
+          coalesce(nullif(trim(subject_user.nick_name),''),nullif(trim(subject_user.user_name),'')) subjectName,
+          nullif(trim(subject_user.user_name),'') subjectAccount,
+          event.event_comment comment,event.create_time createTime
+        from biz_project_event event
+        left join sys_user operator_user on operator_user.user_id=event.operator_user_id and operator_user.del_flag='0'
+        left join sys_user subject_user on event.event_type='MEMBER_REMOVE'
+          and subject_user.user_id=cast(regexp_substr(event.event_comment,'[0-9]+') as unsigned)
+          and subject_user.del_flag='0'
+        where event.project_id=#{projectId} order by event.event_id desc limit 100
     </select>
 
     <select id="selectDashboardSummary" resultType="map">
@@ -939,6 +1003,25 @@
       where fact.status='DRAFT'
       <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
     </sql>
+    <sql id="bossPendingLeaveRequest">
+      select 'LEAVE_REQUEST' category,3 categoryOrder,concat('leave-request-',request.request_id) itemKey,
+        null proposalId,request.submitted_project_id projectId,request.user_id userId,
+        request.submitted_project_name projectName,request.user_name userName,
+        request.reason objective,request.submitted_user_name applicantName,company.dept_name companyName,
+        request.leave_start_date planStartDate,request.leave_end_date planEndDate,p.main_owner_name mainOwnerName,
+        request.status,null baselineStatus,null targetCount,null planId,null planVersion,null cycleEnd,
+        null totalScore,null bonusAmount,null costStatus,null countryRegion,null projectCount,null projectNameText,
+        request.submitted_time sortTime,
+        null factId,null bizDate,request.leave_type categoryName,null factKind,null amount,null quantity,null currency,null unit,
+        request.reason description,request.submitted_user_name submitterName,
+        null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
+        request.attachment_urls attachmentUrls,request.submitted_time submittedTime
+      from biz_staff_leave_request request
+      join biz_project p on p.project_id=request.submitted_project_id and p.del_flag='0'
+      left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+      where request.status in ('PENDING','CANCEL_PENDING')
+      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+    </sql>
     <sql id="bossPendingKpiMissing">
       select 'KPI_MISSING' category,3 categoryOrder,concat('kpi-missing-',p.project_id) itemKey,
         null proposalId,p.project_id projectId,null userId,p.project_name projectName,null userName,
@@ -985,7 +1068,8 @@
     <sql id="bossPendingPersonnelCost">
       select 'PERSONNEL_COST' category,5 categoryOrder,concat('personnel-',u.user_id) itemKey,
         null proposalId,null projectId,u.user_id userId,null projectName,
-        coalesce(nullif(u.nick_name,''),u.user_name) userName,null objective,null applicantName,
+        coalesce(nullif(u.nick_name,''),u.user_name) collate utf8mb4_0900_ai_ci userName,
+        null objective,null applicantName,
         company.dept_name companyName,null planStartDate,null planEndDate,null mainOwnerName,
         null status,null baselineStatus,null targetCount,null planId,null planVersion,null cycleEnd,
         null totalScore,null bonusAmount,
@@ -1067,6 +1151,10 @@
           join biz_project p on p.project_id=fact.project_id and p.del_flag='0'
           where fact.status='DRAFT'
           <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>) accountingCount,
+        (select count(*) from biz_staff_leave_request request
+          join biz_project p on p.project_id=request.submitted_project_id and p.del_flag='0'
+          where request.status in ('PENDING','CANCEL_PENDING')
+          <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>) leaveRequestCount,
         (select count(*) from biz_project_stage_acceptance acceptance
           join biz_project p on p.project_id=acceptance.project_id and p.del_flag='0'
           where acceptance.review_status='PENDING'
@@ -1113,6 +1201,7 @@
         <choose>
           <when test="category == 'PROPOSAL'"><include refid="bossPendingProposal"/></when>
           <when test="category == 'ACCOUNTING'"><include refid="bossPendingAccounting"/></when>
+          <when test="category == 'LEAVE_REQUEST'"><include refid="bossPendingLeaveRequest"/></when>
           <when test="category == 'STAGE_ACCEPTANCE'"><include refid="bossPendingStageAcceptance"/></when>
           <when test="category == 'KPI_MISSING'"><include refid="bossPendingKpiMissing"/></when>
           <when test="category == 'KPI_REVIEW'"><include refid="bossPendingKpiReview"/></when>
@@ -1121,6 +1210,7 @@
           <otherwise>
             <include refid="bossPendingProposal"/> union all
             <include refid="bossPendingAccounting"/> union all
+            <include refid="bossPendingLeaveRequest"/> union all
             <include refid="bossPendingStageAcceptance"/> union all
             <include refid="bossPendingKpiMissing"/> union all
             <include refid="bossPendingKpiReview"/> union all
@@ -1146,10 +1236,16 @@
           t.task_name taskName,t.status,t.progress,t.priority,t.plan_start_date planStartDate,
           t.due_date dueDate,t.version,t.remark,today_report.report_id todayTaskReportId,
           today_report.progress todayProgress,today_report.completion_summary todayCompletionSummary,
-          today_report.evidence_urls todayEvidenceUrls
+          today_report.evidence_urls todayEvidenceUrls,
+          leave_record.leave_id todayLeaveId,leave_record.reason todayLeaveReason
         from biz_project_task t join biz_project p on p.project_id=t.project_id and p.del_flag='0'
+        join biz_project_member active_member on active_member.project_id=t.project_id
+          and active_member.user_id=t.assignee_user_id and active_member.status='0'
+          and active_member.member_role&lt;&gt;'OBSERVER'
         left join biz_project_task_report today_report on today_report.task_id=t.task_id
           and today_report.biz_date=current_date()
+        left join biz_staff_leave leave_record on leave_record.user_id=t.assignee_user_id
+          and leave_record.leave_date=current_date() and leave_record.status='ACTIVE'
         where t.assignee_user_id=#{userId}
           and (t.status&lt;&gt;'DONE' or exists(select 1 from biz_project_task_report period_report
             where period_report.task_id=t.task_id and period_report.biz_date between #{dateFrom} and #{dateTo}))
@@ -1177,6 +1273,9 @@
            max(case when rr.biz_date=#{today} then rr.evidence_urls end) todayEvidenceUrls,
            max(leave_record.leave_id) todayLeaveId,max(leave_record.reason) todayLeaveReason
          from biz_project_routine r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+         join biz_project_member active_member on active_member.project_id=r.project_id
+           and active_member.user_id=r.assignee_user_id and active_member.status='0'
+           and active_member.member_role&lt;&gt;'OBSERVER'
          left join biz_project_routine_report rr on rr.routine_id=r.routine_id and rr.status='SUBMITTED'
            and rr.biz_date between #{dateFrom} and #{dateTo}
          left join biz_staff_leave leave_record on leave_record.user_id=r.assignee_user_id
@@ -1206,6 +1305,17 @@
           and p.status in ('PLANNING','ACTIVE','PAUSED')
         order by p.project_id,a.allocation_id
     </select>
+    <select id="selectOwnerPendingEffortRequests" resultType="map">
+        select e.effort_id effortId,e.project_id projectId,p.project_no projectNo,p.project_name projectName,
+          e.user_id userId,e.user_name userName,e.biz_date bizDate,e.planned_percent plannedPercent,
+          e.actual_percent actualPercent,e.deviation_reason deviationReason,e.create_time submittedTime
+        from biz_project_effort_report e
+        join biz_project p on p.project_id=e.project_id and p.del_flag='0'
+        where e.report_status='SUBMITTED' and p.status not in ('CLOSED','CANCELED')
+        <if test="viewAll == false">and p.main_owner_user_id=#{userId}</if>
+        order by e.biz_date desc,e.create_time desc,e.effort_id desc
+        limit 100
+    </select>
     <select id="selectEffortReport" resultMap="EffortResult">
         select * from biz_project_effort_report
         where project_id=#{projectId} and user_id=#{userId} and biz_date=#{bizDate} limit 1
@@ -1214,6 +1324,9 @@
         select coalesce(sum(coalesce(e.actual_percent,a.allocation_value)),0)
         from biz_project_staff_allocation a
         join biz_project p on p.project_id=a.project_id and p.del_flag='0'
+        join biz_project_member active_member on active_member.project_id=a.project_id
+          and active_member.user_id=a.user_id and active_member.status='0'
+          and active_member.member_role&lt;&gt;'OBSERVER'
         left join biz_project_effort_report e on e.project_id=a.project_id and e.user_id=a.user_id
           and e.biz_date=#{bizDate}
         left join biz_staff_leave leave_record on leave_record.user_id=a.user_id
@@ -1291,9 +1404,104 @@
     </select>
     <select id="selectStaffLeave" resultType="map">
         select leave_id leaveId,user_id userId,user_name userName,leave_date leaveDate,leave_type leaveType,
-          reason,status,recorded_project_id recordedProjectId,recorded_user_id recordedUserId,
+          reason,status,recorded_project_id recordedProjectId,source_request_id sourceRequestId,recorded_user_id recordedUserId,
           recorded_user_name recordedUserName,version,create_time createTime,update_time updateTime
         from biz_staff_leave where user_id=#{userId} and leave_date=#{leaveDate} limit 1
+    </select>
+    <select id="lockUserForLeave" resultType="long">
+        select user_id from sys_user where user_id=#{userId} and del_flag='0' for update
+    </select>
+    <select id="selectLeaveWorkConflictSummary" resultType="map">
+        select
+          (select count(*) from biz_project_task_report
+            where submitted_user_id=#{userId} and biz_date between #{dateFrom} and #{dateTo}) taskReportCount,
+          (select count(*) from biz_project_routine_report
+            where submitted_user_id=#{userId} and status='SUBMITTED' and biz_date between #{dateFrom} and #{dateTo}) routineReportCount,
+          (select count(*) from biz_project_effort_report
+            where user_id=#{userId} and report_status in ('SUBMITTED','CONFIRMED')
+              and biz_date between #{dateFrom} and #{dateTo}) effortReportCount,
+          (select count(*) from biz_project_progress_report
+            where submitted_user_id=#{userId} and biz_date between #{dateFrom} and #{dateTo}) progressReportCount
+    </select>
+    <select id="countOverlappingLeaveRequests" resultType="int">
+        select count(*) from biz_staff_leave_request
+        where user_id=#{userId} and status in ('PENDING','APPROVED','CANCEL_PENDING')
+          and leave_start_date&lt;=#{endDate} and leave_end_date&gt;=#{startDate}
+    </select>
+    <insert id="insertLeaveRequest" parameterType="map" useGeneratedKeys="true" keyProperty="requestId">
+        insert into biz_staff_leave_request(request_no,user_id,user_name,leave_start_date,leave_end_date,
+          leave_type,reason,attachment_urls,status,submitted_project_id,submitted_project_name,
+          submitted_user_id,submitted_user_name,submitted_time,version,create_by,create_time)
+        values(#{requestNo},#{userId},#{userName},#{startDate},#{endDate},#{leaveType},#{reason},
+          #{attachmentUrls},'PENDING',#{submittedProjectId},#{submittedProjectName},#{submittedUserId},
+          #{submittedUserName},sysdate(),0,#{createBy},sysdate())
+    </insert>
+    <select id="selectLeaveRequestById" resultType="map">
+        select request_id requestId,request_no requestNo,user_id userId,user_name userName,
+          leave_start_date startDate,leave_end_date endDate,leave_type leaveType,reason,attachment_urls attachmentUrls,
+          status,submitted_project_id submittedProjectId,submitted_project_name submittedProjectName,
+          submitted_user_id submittedUserId,submitted_user_name submittedUserName,submitted_time submittedTime,
+          reviewed_user_id reviewedUserId,reviewed_user_name reviewedUserName,reviewed_time reviewedTime,
+          review_comment reviewComment,canceled_user_id canceledUserId,canceled_user_name canceledUserName,
+          canceled_time canceledTime,cancel_reason cancelReason,cancel_reviewed_user_id cancelReviewedUserId,
+          cancel_reviewed_user_name cancelReviewedUserName,cancel_reviewed_time cancelReviewedTime,
+          cancel_review_comment cancelReviewComment,version,create_time createTime,update_time updateTime
+        from biz_staff_leave_request where request_id=#{requestId} limit 1
+    </select>
+    <select id="selectPendingLeaveRequestForDate" resultType="map">
+        select request_id requestId,request_no requestNo,user_id userId,user_name userName,
+          leave_start_date startDate,leave_end_date endDate,leave_type leaveType,reason,attachment_urls attachmentUrls,
+          status,submitted_project_id submittedProjectId,submitted_project_name submittedProjectName,
+          submitted_user_id submittedUserId,submitted_user_name submittedUserName,submitted_time submittedTime,version
+        from biz_staff_leave_request
+        where submitted_project_id=#{projectId} and user_id=#{userId} and status='PENDING'
+          and leave_start_date&lt;=#{leaveDate} and leave_end_date&gt;=#{leaveDate}
+        order by request_id desc limit 1
+    </select>
+    <select id="selectProjectLeaveRequests" resultType="map">
+        select request_id requestId,request_no requestNo,user_id userId,user_name userName,
+          leave_start_date startDate,leave_end_date endDate,leave_type leaveType,reason,attachment_urls attachmentUrls,
+          status,submitted_project_id submittedProjectId,submitted_project_name submittedProjectName,
+          submitted_user_id submittedUserId,submitted_user_name submittedUserName,submitted_time submittedTime,
+          reviewed_user_name reviewedUserName,reviewed_time reviewedTime,review_comment reviewComment,
+          canceled_user_name canceledUserName,canceled_time canceledTime,cancel_reason cancelReason,
+          cancel_reviewed_user_name cancelReviewedUserName,cancel_reviewed_time cancelReviewedTime,
+          cancel_review_comment cancelReviewComment,version
+        from biz_staff_leave_request where submitted_project_id=#{projectId}
+        order by submitted_time desc,request_id desc limit 30
+    </select>
+    <update id="reviewLeaveRequest">
+        update biz_staff_leave_request set status=#{status},reviewed_user_id=#{reviewedUserId},
+          reviewed_user_name=#{reviewedUserName},reviewed_time=sysdate(),review_comment=#{reviewComment},
+          version=version+1,update_by=#{userName},update_time=sysdate()
+        where request_id=#{requestId} and status=#{expectedStatus} and version=#{version}
+    </update>
+    <update id="reviewLeaveCancellation">
+        update biz_staff_leave_request set status=#{status},cancel_reviewed_user_id=#{reviewedUserId},
+          cancel_reviewed_user_name=#{reviewedUserName},cancel_reviewed_time=sysdate(),
+          cancel_review_comment=#{reviewComment},version=version+1,update_by=#{userName},update_time=sysdate()
+        where request_id=#{requestId} and status='CANCEL_PENDING' and version=#{version}
+    </update>
+    <update id="cancelActiveStaffLeaveRange">
+        update biz_staff_leave set status='CANCELED',version=version+1,update_by=#{userName},update_time=sysdate()
+        where user_id=#{userId} and leave_date between #{startDate} and #{endDate} and status='ACTIVE'
+          and (source_request_id=#{requestId} or (source_request_id is null and #{requestId} is null))
+    </update>
+    <update id="cancelLeaveRequest">
+        update biz_staff_leave_request set status='CANCELED',canceled_user_id=#{canceledUserId},
+          canceled_user_name=#{canceledUserName},canceled_time=sysdate(),cancel_reason=#{cancelReason},
+          version=version+1,update_by=#{userName},update_time=sysdate()
+        where request_id=#{requestId} and status=#{expectedStatus} and version=#{version}
+    </update>
+    <update id="requestLeaveCancellation">
+        update biz_staff_leave_request set status='CANCEL_PENDING',canceled_user_id=#{canceledUserId},
+          canceled_user_name=#{canceledUserName},canceled_time=sysdate(),cancel_reason=#{cancelReason},
+          version=version+1,update_by=#{userName},update_time=sysdate()
+        where request_id=#{requestId} and status='APPROVED' and version=#{version}
+    </update>
+    <select id="countActiveStaffLeaveRange" resultType="int">
+        select count(*) from biz_staff_leave where user_id=#{userId} and status='ACTIVE'
+          and leave_date between #{startDate} and #{endDate}
     </select>
     <select id="selectProjectMemberLeaves" resultType="map">
         select distinct leave_record.leave_id leaveId,leave_record.user_id userId,
@@ -1308,12 +1516,13 @@
     </select>
     <insert id="upsertStaffLeave" parameterType="map" useGeneratedKeys="true" keyProperty="leaveId">
         insert into biz_staff_leave(user_id,user_name,leave_date,leave_type,reason,status,recorded_project_id,
-          recorded_user_id,recorded_user_name,version,create_by,create_time)
-        values(#{userId},#{userName},#{leaveDate},'LEAVE',#{reason},'ACTIVE',#{recordedProjectId},
-          #{recordedUserId},#{recordedUserName},0,#{createBy},sysdate())
-        on duplicate key update user_name=values(user_name),reason=values(reason),status='ACTIVE',
+          recorded_user_id,recorded_user_name,source_request_id,version,create_by,create_time)
+        values(#{userId},#{userName},#{leaveDate},#{leaveType},#{reason},'ACTIVE',#{recordedProjectId},
+          #{recordedUserId},#{recordedUserName},#{sourceRequestId},0,#{createBy},sysdate())
+        on duplicate key update user_name=values(user_name),leave_type=values(leave_type),reason=values(reason),status='ACTIVE',
           recorded_project_id=values(recorded_project_id),recorded_user_id=values(recorded_user_id),
-          recorded_user_name=values(recorded_user_name),version=version+1,update_by=values(create_by),update_time=sysdate()
+          recorded_user_name=values(recorded_user_name),source_request_id=values(source_request_id),
+          version=version+1,update_by=values(create_by),update_time=sysdate()
     </insert>
     <update id="cancelStaffLeave">
         update biz_staff_leave set status='CANCELED',version=version+1,update_by=#{userName},update_time=sysdate()
@@ -1413,6 +1622,12 @@
         select count(*) from sys_user_role ur join sys_role r on r.role_id=ur.role_id
         where ur.user_id=#{userId} and r.role_key=#{roleKey} and r.del_flag='0' and r.status='0'
     </select>
+    <select id="countActiveProjectMembershipByRole" resultType="int">
+        select count(*)
+        from biz_project_member member
+        join biz_project project on project.project_id=member.project_id and project.del_flag='0'
+        where member.user_id=#{userId} and member.member_role=#{memberRole} and member.status='0'
+    </select>
     <select id="selectUserRoleNames" resultType="string">
         select group_concat(distinct r.role_name order by r.role_sort separator '、')
         from sys_user_role ur join sys_role r on r.role_id=ur.role_id
@@ -1421,4 +1636,22 @@
     <insert id="insertUserRole">
         insert ignore into sys_user_role(user_id,role_id) values(#{userId},#{roleId})
     </insert>
+    <delete id="deleteUserRole">
+        delete from sys_user_role where user_id=#{userId} and role_id=#{roleId}
+    </delete>
+    <select id="selectAttachmentProjectIds" resultType="long">
+        select distinct attachment_project.project_id from (
+          select project_id from biz_operating_fact where find_in_set(#{attachmentUrl},replace(replace(coalesce(attachment_urls,''),' ',''),char(92),'/'))&gt;0
+          union all select project_id from biz_project_acceptance where find_in_set(#{attachmentUrl},replace(replace(coalesce(attachment_urls,''),' ',''),char(92),'/'))&gt;0
+          union all select project_id from biz_project_stage_acceptance where find_in_set(#{attachmentUrl},replace(replace(coalesce(attachment_urls,''),' ',''),char(92),'/'))&gt;0
+          union all select project_id from biz_project_task_report where find_in_set(#{attachmentUrl},replace(replace(coalesce(evidence_urls,''),' ',''),char(92),'/'))&gt;0
+          union all select project_id from biz_project_progress_report where find_in_set(#{attachmentUrl},replace(replace(coalesce(evidence_urls,''),' ',''),char(92),'/'))&gt;0
+          union all select project_id from biz_project_routine_report where find_in_set(#{attachmentUrl},replace(replace(coalesce(evidence_urls,''),' ',''),char(92),'/'))&gt;0
+          union all select settlement.project_id from biz_project_kpi_result result
+            join biz_project_kpi_settlement settlement on settlement.settlement_id=result.settlement_id
+            where find_in_set(#{attachmentUrl},replace(replace(coalesce(result.attachment_urls,''),' ',''),char(92),'/'))&gt;0
+          union all select submitted_project_id from biz_staff_leave_request
+            where find_in_set(#{attachmentUrl},replace(replace(coalesce(attachment_urls,''),' ',''),char(92),'/'))&gt;0
+        ) attachment_project
+    </select>
 </mapper>

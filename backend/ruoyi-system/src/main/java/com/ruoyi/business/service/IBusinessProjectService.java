@@ -55,6 +55,8 @@ public interface IBusinessProjectService
         Long userId, String userName, boolean boss);
     BusinessProjectMember saveMember(BusinessProjectMember member, Long userId, String userName, boolean boss);
     void removeMember(Long projectId, Long memberUserId, Long userId, String userName, boolean boss);
+    void removeMember(Long projectId, Long memberUserId, boolean retainTodayCost,
+        Long userId, String userName, boolean boss);
     BusinessProjectMilestone saveMilestone(BusinessProjectMilestone milestone,
         Long userId, String userName, boolean boss);
     void deleteMilestone(Long projectId, Long milestoneId, Long userId, boolean boss);
@@ -84,6 +86,12 @@ public interface IBusinessProjectService
         String reviewComment, Long userId, String userName, boolean boss);
     Map<String, Object> markMemberLeave(Long projectId, Long memberUserId, java.util.Date leaveDate, String reason,
         Long userId, String userName, boolean boss);
+    Map<String, Object> requestMemberLeave(Long projectId, Long memberUserId, java.util.Date startDate,
+        java.util.Date endDate, String leaveType, String reason, String attachmentUrls,
+        Long userId, String userName, boolean boss);
+    Map<String, Object> reviewMemberLeaveRequest(Long requestId, String decision, String comment,
+        Long userId, String userName, boolean boss);
+    void cancelMemberLeaveRequest(Long requestId, String reason, Long userId, String userName, boolean boss);
     void cancelMemberLeave(Long projectId, Long memberUserId, java.util.Date leaveDate,
         Long userId, String userName, boolean boss);
     List<Map<String, Object>> projectDirectory(Long userId, boolean viewAll, boolean boss);

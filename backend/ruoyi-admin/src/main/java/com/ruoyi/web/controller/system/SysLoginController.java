@@ -23,6 +23,7 @@ import com.ruoyi.framework.web.service.SysPermissionService;
 import com.ruoyi.framework.web.service.TokenService;
 import com.ruoyi.system.service.ISysConfigService;
 import com.ruoyi.system.service.ISysMenuService;
+import com.ruoyi.system.service.ISysUserService;
 
 /**
  * 登录验证
@@ -37,6 +38,9 @@ public class SysLoginController
 
     @Autowired
     private ISysMenuService menuService;
+
+    @Autowired
+    private ISysUserService userService;
 
     @Autowired
     private SysPermissionService permissionService;
@@ -73,16 +77,16 @@ public class SysLoginController
     public AjaxResult getInfo()
     {
         LoginUser loginUser = SecurityUtils.getLoginUser();
-        SysUser user = loginUser.getUser();
+        SysUser user = userService.selectUserById(loginUser.getUserId());
+        if (user == null) user = loginUser.getUser();
+        loginUser.setUser(user);
+        loginUser.setDeptId(user.getDeptId());
         // 角色集合
         Set<String> roles = permissionService.getRolePermission(user);
         // 权限集合
         Set<String> permissions = permissionService.getMenuPermission(user);
-        if (!loginUser.getPermissions().equals(permissions))
-        {
-            loginUser.setPermissions(permissions);
-            tokenService.refreshToken(loginUser);
-        }
+        loginUser.setPermissions(permissions);
+        tokenService.refreshToken(loginUser);
         AjaxResult ajax = AjaxResult.success();
         ajax.put("user", user);
         ajax.put("roles", roles);

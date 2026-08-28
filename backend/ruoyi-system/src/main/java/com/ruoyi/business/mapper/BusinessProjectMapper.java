@@ -89,6 +89,18 @@ public interface BusinessProjectMapper
     int upsertMember(BusinessProjectMember member);
     int leaveMember(@Param("projectId") Long projectId, @Param("userId") Long userId,
         @Param("userName") String userName);
+    int unassignOpenMemberTasks(@Param("projectId") Long projectId, @Param("userId") Long userId,
+        @Param("userName") String userName);
+    int unassignActiveMemberRoutines(@Param("projectId") Long projectId, @Param("userId") Long userId,
+        @Param("userName") String userName);
+    int closeMemberAllocations(@Param("projectId") Long projectId, @Param("userId") Long userId,
+        @Param("retainTodayCost") boolean retainTodayCost, @Param("userName") String userName);
+    int countPendingProjectEfforts(@Param("projectId") Long projectId);
+    int countPendingProjectLeaveRequests(@Param("projectId") Long projectId);
+    int closeProjectRoutines(@Param("projectId") Long projectId, @Param("userName") String userName);
+    int closeProjectAllocations(@Param("projectId") Long projectId, @Param("closeDate") java.util.Date closeDate,
+        @Param("userName") String userName);
+    int cancelOpenProjectTasks(@Param("projectId") Long projectId, @Param("userName") String userName);
     int insertOwnerHistory(Map<String, Object> history);
     List<Map<String, Object>> selectOwnerHistory(Long projectId);
 
@@ -174,6 +186,8 @@ public interface BusinessProjectMapper
         @Param("dateFrom") String dateFrom, @Param("dateTo") String dateTo,
         @Param("today") String today);
     List<Map<String, Object>> selectMyEfforts(@Param("userId") Long userId, @Param("bizDate") String bizDate);
+    List<Map<String, Object>> selectOwnerPendingEffortRequests(@Param("userId") Long userId,
+        @Param("viewAll") boolean viewAll);
     BusinessProjectEffort selectEffortReport(@Param("projectId") Long projectId,
         @Param("userId") Long userId, @Param("bizDate") java.util.Date bizDate);
     java.math.BigDecimal sumUserEffectiveEffortExcludingProject(@Param("userId") Long userId,
@@ -193,11 +207,44 @@ public interface BusinessProjectMapper
         @Param("bizDate") java.util.Date bizDate);
     Map<String, Object> selectStaffLeave(@Param("userId") Long userId,
         @Param("leaveDate") java.util.Date leaveDate);
+    Long lockUserForLeave(@Param("userId") Long userId);
+    Map<String, Object> selectLeaveWorkConflictSummary(@Param("userId") Long userId,
+        @Param("dateFrom") java.util.Date dateFrom, @Param("dateTo") java.util.Date dateTo);
     List<Map<String, Object>> selectProjectMemberLeaves(@Param("projectId") Long projectId,
         @Param("leaveDate") java.util.Date leaveDate);
     int upsertStaffLeave(Map<String, Object> leave);
     int cancelStaffLeave(@Param("userId") Long userId, @Param("leaveDate") java.util.Date leaveDate,
         @Param("userName") String userName);
+    int countOverlappingLeaveRequests(@Param("userId") Long userId,
+        @Param("startDate") java.util.Date startDate, @Param("endDate") java.util.Date endDate);
+    int insertLeaveRequest(Map<String, Object> request);
+    Map<String, Object> selectLeaveRequestById(Long requestId);
+    Map<String, Object> selectPendingLeaveRequestForDate(@Param("projectId") Long projectId,
+        @Param("userId") Long userId, @Param("leaveDate") java.util.Date leaveDate);
+    List<Map<String, Object>> selectProjectLeaveRequests(@Param("projectId") Long projectId);
+    int reviewLeaveRequest(@Param("requestId") Long requestId, @Param("expectedStatus") String expectedStatus,
+        @Param("status") String status,
+        @Param("reviewedUserId") Long reviewedUserId, @Param("reviewedUserName") String reviewedUserName,
+        @Param("reviewComment") String reviewComment, @Param("userName") String userName,
+        @Param("version") Integer version);
+    int reviewLeaveCancellation(@Param("requestId") Long requestId, @Param("status") String status,
+        @Param("reviewedUserId") Long reviewedUserId, @Param("reviewedUserName") String reviewedUserName,
+        @Param("reviewComment") String reviewComment, @Param("userName") String userName,
+        @Param("version") Integer version);
+    int requestLeaveCancellation(@Param("requestId") Long requestId,
+        @Param("canceledUserId") Long canceledUserId, @Param("canceledUserName") String canceledUserName,
+        @Param("cancelReason") String cancelReason, @Param("userName") String userName,
+        @Param("version") Integer version);
+    int cancelLeaveRequest(@Param("requestId") Long requestId, @Param("expectedStatus") String expectedStatus,
+        @Param("canceledUserId") Long canceledUserId,
+        @Param("canceledUserName") String canceledUserName, @Param("cancelReason") String cancelReason,
+        @Param("userName") String userName, @Param("version") Integer version);
+    int cancelActiveStaffLeaveRange(@Param("requestId") Long requestId, @Param("userId") Long userId,
+        @Param("startDate") java.util.Date startDate, @Param("endDate") java.util.Date endDate,
+        @Param("userName") String userName);
+    List<Long> selectAttachmentProjectIds(@Param("attachmentUrl") String attachmentUrl);
+    int countActiveStaffLeaveRange(@Param("userId") Long userId,
+        @Param("startDate") java.util.Date startDate, @Param("endDate") java.util.Date endDate);
     List<Long> selectAllocatedProjectIdsForUserDate(@Param("userId") Long userId,
         @Param("bizDate") java.util.Date bizDate);
     List<Map<String, Object>> selectProjectDirectory();
@@ -211,6 +258,8 @@ public interface BusinessProjectMapper
     Map<String, Object> selectCompanyById(Long deptId);
     Long selectRoleIdByKey(String roleKey);
     int countUserRoleByKey(@Param("userId") Long userId, @Param("roleKey") String roleKey);
+    int countActiveProjectMembershipByRole(@Param("userId") Long userId, @Param("memberRole") String memberRole);
     String selectUserRoleNames(Long userId);
     int insertUserRole(@Param("userId") Long userId, @Param("roleId") Long roleId);
+    int deleteUserRole(@Param("userId") Long userId, @Param("roleId") Long roleId);
 }

@@ -98,14 +98,14 @@
             <el-table :data="detail.routines || []" size="small" empty-text="尚未设置持续工作">
               <el-table-column label="工作内容" min-width="220"><template #default="{row}"><b>{{ row.routineName }}</b><small v-if="row.sourceManaged" class="subline">直播同步 · 数据日期 {{ row.sourceBizDate }}</small></template></el-table-column>
               <el-table-column label="周期目标" min-width="130"><template #default="{row}">{{ frequencyLabel[row.frequency] }} {{ row.targetValue }} {{ row.unit }}</template></el-table-column>
-              <el-table-column prop="assigneeName" label="负责人" width="110" />
+              <el-table-column label="负责人" width="110"><template #default="{row}"><span :class="{ danger: !row.assigneeUserId }">{{ row.assigneeName || '未分配' }}</span></template></el-table-column>
               <el-table-column label="当前状态" min-width="115"><template #default="{row}"><el-tag v-if="row.sourceManaged" :type="row.todayReportId?'success':'warning'">{{ row.todayReportId ? '已提交' : '未提交' }}</el-tag><span v-else>{{ row.cumulativeActual || 0 }} {{ row.unit }}</span></template></el-table-column>
               <el-table-column label="监督 / 执行区间" min-width="210"><template #default="{row}"><span v-if="row.sourceManaged">{{ row.supervisorName }}监督 · {{ row.startDate }} 至 {{ row.endDate || '长期' }}</span><span v-else>{{ row.startDate }} 至 {{ row.endDate || '长期' }}</span></template></el-table-column>
               <el-table-column v-if="canManage" label="操作" width="110"><template #default="{row}"><el-tag v-if="row.sourceManaged" type="info" effect="plain">自动同步</el-tag><template v-else><el-button link @click="openRoutine(row)">编辑</el-button><el-button link type="danger" @click="removeRoutine(row)">停用</el-button></template></template></el-table-column>
             </el-table>
           </el-tab-pane>
           <el-tab-pane label="一次性任务" name="tasks"><div class="tab-tools"><div><b>一次性任务</b><span class="muted routine-tip">用于有明确完成时点的事项；需验收里程碑时，请把任务关联到对应里程碑。</span></div><el-button v-if="canManage" size="small" type="primary" @click="openItem('task')">新增任务</el-button></div><el-table :data="detail.tasks" size="small"><el-table-column prop="taskName" label="任务" min-width="180" /><el-table-column v-if="showMilestones" label="所属里程碑" min-width="130"><template #default="{row}">{{ milestoneName(row.milestoneId) }}</template></el-table-column><el-table-column prop="assigneeName" label="负责人" width="110" /><el-table-column label="状态" width="100"><template #default="{row}">{{ taskStatusLabel[row.status] }}</template></el-table-column><el-table-column label="进度" width="130"><template #default="{row}"><el-progress :percentage="row.progress || 0" :stroke-width="7" /></template></el-table-column><el-table-column prop="dueDate" label="截止日期" width="115" /><el-table-column v-if="canManage" label="操作" width="110"><template #default="{row}"><el-button link @click="openItem('task',row)">编辑</el-button><el-button link type="danger" @click="removeItem('task',row)">删除</el-button></template></el-table-column></el-table></el-tab-pane>
-          <el-tab-pane label="成员" name="members"><div class="tab-tools"><b>项目成员</b><el-button v-if="canManage" size="small" type="primary" @click="openItem('member')">添加成员</el-button></div><el-table :data="detail.members" size="small"><el-table-column prop="userNameSnapshot" label="姓名" /><el-table-column label="项目角色"><template #default="{row}">{{ memberRoleLabel[row.memberRole] }}</template></el-table-column><el-table-column prop="joinedDate" label="加入日期" /><el-table-column v-if="canManage" label="操作" width="80"><template #default="{row}"><el-button v-if="row.memberRole !== 'OWNER'" link type="danger" @click="removeItem('member',row)">移除</el-button></template></el-table-column></el-table></el-tab-pane>
+          <el-tab-pane label="成员" name="members"><div class="tab-tools"><b>项目成员</b><el-button v-if="canManage" size="small" type="primary" @click="openItem('member')">添加成员</el-button></div><el-table :data="detail.members" size="small"><el-table-column prop="userNameSnapshot" label="姓名" /><el-table-column label="项目角色"><template #default="{row}">{{ memberRoleLabel[row.memberRole] }}</template></el-table-column><el-table-column prop="joinedDate" label="加入日期" /><el-table-column v-if="canManage" label="操作" width="80"><template #default="{row}"><el-button v-if="row.memberRole !== 'OWNER' && (row.memberRole !== 'DEPUTY' || canManageDeputies)" link type="danger" @click="removeItem('member',row)">移除</el-button></template></el-table-column></el-table></el-tab-pane>
       <el-tab-pane v-if="showMilestones" label="里程碑" name="milestones"><div class="tab-tools"><b>关键里程碑</b><el-button v-if="canManage" size="small" type="primary" @click="openItem('milestone')">新增里程碑</el-button></div><el-table :data="detail.milestones" size="small"><el-table-column prop="milestoneName" label="里程碑" /><el-table-column prop="planDate" label="计划日期" width="115" /><el-table-column label="状态" width="100"><template #default="{row}">{{ milestoneStatusLabel[row.status] || row.status }}</template></el-table-column><el-table-column v-if="canManage" label="操作" width="110"><template #default="{row}"><template v-if="!['REVIEWING','DONE'].includes(row.status)"><el-button link @click="openItem('milestone',row)">编辑</el-button><el-button link type="danger" @click="removeItem('milestone',row)">删除</el-button></template><el-tag v-else type="info" effect="plain">验收锁定</el-tag></template></el-table-column></el-table></el-tab-pane>
           <el-tab-pane v-if="showRisks" label="风险" name="risks"><div class="tab-tools"><b>风险台账</b><el-button v-if="canManage" size="small" type="primary" @click="openItem('risk')">登记风险</el-button></div><el-table :data="detail.risks" size="small"><el-table-column prop="riskTitle" label="风险" min-width="180" /><el-table-column label="等级" width="90"><template #default="{row}"><el-tag :type="['HIGH','CRITICAL'].includes(row.severity)?'danger':'warning'">{{ severityLabel[row.severity] }}</el-tag></template></el-table-column><el-table-column prop="ownerName" label="负责人" width="110" /><el-table-column prop="dueDate" label="处理期限" width="115" /><el-table-column label="状态" width="90"><template #default="{row}">{{ riskStatusLabel[row.status] }}</template></el-table-column><el-table-column v-if="canManage" label="操作" width="110"><template #default="{row}"><el-button link @click="openItem('risk',row)">编辑</el-button><el-button link type="danger" @click="removeItem('risk',row)">删除</el-button></template></el-table-column></el-table></el-tab-pane>
           <el-tab-pane v-if="detail.closeMethod==='RESULT_ACCEPTANCE'" label="成果验收" name="acceptance"><div class="tab-tools"><b>验收资料与老板意见</b><el-button v-if="canSubmitAcceptance" size="small" type="success" @click="openAcceptanceSubmit">提交验收</el-button></div>
@@ -124,7 +124,7 @@
             <article v-for="record in detail.acceptances" :key="record.acceptanceId" class="acceptance-record">
               <div class="acceptance-head"><div><b>第 {{ record.submissionVersion }} 次提交</b><span>{{ record.submittedUserName }} · {{ record.submittedTime }}</span></div><el-tag :type="acceptanceTone[record.reviewStatus]">{{ acceptanceLabel[record.reviewStatus] }}</el-tag></div>
               <h4>结果摘要</h4><p>{{ record.resultSummary }}</p><h4>交付成果</h4><p>{{ record.deliverables }}</p>
-              <file-upload v-if="record.attachmentUrls" v-model="record.attachmentUrls" disabled :is-show-tip="false" />
+              <business-file-upload v-if="record.attachmentUrls" v-model="record.attachmentUrls" :project-id="detail.projectId" disabled :is-show-tip="false" />
               <div v-if="record.reviewStatus!=='PENDING'" class="review-result"><b>{{ record.reviewedUserName }}的验收意见</b><p>{{ record.reviewComment || (record.reviewStatus==='APPROVED'?'验收通过':'已退回') }}</p><small>{{ record.reviewedTime }}</small></div>
               <div v-if="record.reviewStatus==='PENDING' && isBoss" class="review-actions"><el-button type="success" :disabled="kpiClosureState.ready===false" :title="kpiClosureState.ready===false?'请先完成并确认全部KPI结算':''" @click="openAcceptanceReview('APPROVED',record)">验收通过并关闭</el-button><el-button type="warning" plain @click="openAcceptanceReview('RETURNED',record)">退回执行</el-button></div>
             </article>
@@ -134,13 +134,30 @@
             <div class="stage-grid">
               <article v-for="milestone in detail.milestones || []" :key="milestone.milestoneId" class="acceptance-record">
                 <div class="acceptance-head"><div><b>{{ milestone.milestoneName }}</b><span>计划日期 {{ milestone.planDate || '未设置' }}</span></div><el-tag :type="milestone.status==='DONE'?'success':milestone.status==='REVIEWING'?'warning':'info'">{{ milestoneStatusLabel[milestone.status] || milestone.status }}</el-tag></div>
-                <template v-for="record in stageRecords(milestone.milestoneId)" :key="record.stageAcceptanceId"><h4>第 {{ record.submissionVersion }} 次提交 · {{ record.submittedUserName }}</h4><p>{{ record.resultSummary }}</p><p class="muted">交付成果：{{ record.deliverables }}</p><file-upload v-if="record.attachmentUrls" v-model="record.attachmentUrls" disabled :is-show-tip="false" /><div v-if="record.reviewStatus==='PENDING'&&isBoss" class="review-actions"><el-button type="success" @click="openStageReview('APPROVED',record)">阶段通过</el-button><el-button type="warning" plain @click="openStageReview('RETURNED',record)">退回补充</el-button></div><div v-else-if="record.reviewStatus!=='PENDING'" class="review-result"><b>{{ acceptanceLabel[record.reviewStatus] }}</b><p>{{ record.reviewComment || '—' }}</p></div></template>
+                <template v-for="record in stageRecords(milestone.milestoneId)" :key="record.stageAcceptanceId"><h4>第 {{ record.submissionVersion }} 次提交 · {{ record.submittedUserName }}</h4><p>{{ record.resultSummary }}</p><p class="muted">交付成果：{{ record.deliverables }}</p><business-file-upload v-if="record.attachmentUrls" v-model="record.attachmentUrls" :project-id="detail.projectId" disabled :is-show-tip="false" /><div v-if="record.reviewStatus==='PENDING'&&isBoss" class="review-actions"><el-button type="success" @click="openStageReview('APPROVED',record)">阶段通过</el-button><el-button type="warning" plain @click="openStageReview('RETURNED',record)">退回补充</el-button></div><div v-else-if="record.reviewStatus!=='PENDING'" class="review-result"><b>{{ acceptanceLabel[record.reviewStatus] }}</b><p>{{ record.reviewComment || '—' }}</p></div></template>
                 <el-button v-if="canSubmitStage(milestone)" class="stage-submit" type="primary" plain @click="openStageSubmit(milestone)">提交该阶段验收</el-button>
               </article>
             </div>
           </el-tab-pane>
           <el-tab-pane label="负责人交接" name="ownerHistory"><el-table :data="detail.ownerHistory" size="small" empty-text="暂无交接记录"><el-table-column label="变更"><template #default="{row}">{{ row.fromUserName || '初始任命' }} → {{ row.toUserName }}</template></el-table-column><el-table-column prop="reason" label="原因" min-width="180" /><el-table-column prop="operatorName" label="操作人" width="100" /><el-table-column prop="effectiveTime" label="生效时间" width="165" /></el-table></el-tab-pane>
-          <el-tab-pane label="动态" name="events"><el-timeline class="event-line"><el-timeline-item v-for="event in detail.events" :key="event.eventId" :timestamp="event.createTime"><b>{{ event.operatorName || '系统' }}</b> · {{ eventLabel[event.eventType] || event.eventType }}<p v-if="event.comment">{{ event.comment }}</p></el-timeline-item></el-timeline></el-tab-pane>
+          <el-tab-pane label="动态" name="events">
+            <el-empty v-if="!detail.events?.length" description="暂无项目动态" />
+            <el-timeline v-else class="event-line">
+              <el-timeline-item v-for="event in detail.events" :key="event.eventId" :timestamp="formatEventTime(event.createTime)" :type="eventTone(event)">
+                <article class="event-card">
+                  <div class="event-head">
+                    <div class="event-actor">
+                      <b>{{ eventSummary(event) }}</b>
+                      <small v-if="event.operatorAccount && event.operatorName !== '系统'">操作账号：{{ event.operatorAccount }}</small>
+                    </div>
+                    <el-tag size="small" effect="plain" :type="eventTone(event)">{{ eventLabel[event.eventType] || '其他操作' }}</el-tag>
+                  </div>
+                  <p v-if="formatEventComment(event)"><span class="event-detail-label">{{ eventDetailLabel(event) }}</span>{{ formatEventComment(event) }}</p>
+                  <small v-if="eventStatusChange(event)" class="event-status">项目状态：{{ eventStatusChange(event) }}</small>
+                </article>
+              </el-timeline-item>
+            </el-timeline>
+          </el-tab-pane>
         </el-tabs>
       </template>
     </el-drawer>
@@ -192,7 +209,7 @@
     </el-dialog>
 
     <el-dialog v-model="acceptanceDialog" title="提交项目验收资料" width="min(660px, 94vw)" append-to-body>
-      <el-form :model="acceptanceForm" label-width="100px" class="decision-form"><el-form-item label="结果摘要" required><el-input v-model="acceptanceForm.resultSummary" type="textarea" :rows="4" maxlength="2000" show-word-limit placeholder="说明项目目标完成情况和最终结果" /></el-form-item><el-form-item label="交付成果" required><el-input v-model="acceptanceForm.deliverables" type="textarea" :rows="5" maxlength="4000" show-word-limit placeholder="逐项列出可验收的成果、文件或业务结果" /></el-form-item><el-form-item label="成果附件"><file-upload v-model="acceptanceForm.attachmentUrls" :limit="10" :file-size="20" :file-type="['pdf','doc','docx','xls','xlsx','ppt','pptx','txt','jpg','jpeg','png','zip']" /></el-form-item></el-form>
+      <el-form :model="acceptanceForm" label-width="100px" class="decision-form"><el-form-item label="结果摘要" required><el-input v-model="acceptanceForm.resultSummary" type="textarea" :rows="4" maxlength="2000" show-word-limit placeholder="说明项目目标完成情况和最终结果" /></el-form-item><el-form-item label="交付成果" required><el-input v-model="acceptanceForm.deliverables" type="textarea" :rows="5" maxlength="4000" show-word-limit placeholder="逐项列出可验收的成果、文件或业务结果" /></el-form-item><el-form-item label="成果附件"><business-file-upload v-model="acceptanceForm.attachmentUrls" :project-id="detail.projectId" /></el-form-item></el-form>
       <template #footer><el-button @click="acceptanceDialog=false">取消</el-button><el-button type="success" :loading="saving" @click="saveAcceptance">提交老板验收</el-button></template>
     </el-dialog>
 
@@ -202,12 +219,12 @@
       <template #footer><el-button @click="reviewDialog=false">取消</el-button><el-button :type="reviewForm.decision==='APPROVED'?'success':'warning'" :loading="saving" @click="saveAcceptanceReview">确认</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="stageDialog" :title="`提交阶段验收 · ${stageForm.milestoneName || ''}`" width="min(660px,94vw)" append-to-body><el-form :model="stageForm" label-width="100px"><el-form-item label="阶段结果" required><el-input v-model="stageForm.resultSummary" type="textarea" :rows="4" maxlength="2000" show-word-limit /></el-form-item><el-form-item label="交付成果" required><el-input v-model="stageForm.deliverables" type="textarea" :rows="4" maxlength="4000" show-word-limit /></el-form-item><el-form-item label="成果附件"><file-upload v-model="stageForm.attachmentUrls" :limit="10" /></el-form-item></el-form><template #footer><el-button @click="stageDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveStageAcceptance">提交老板验收</el-button></template></el-dialog>
+    <el-dialog v-model="stageDialog" :title="`提交阶段验收 · ${stageForm.milestoneName || ''}`" width="min(660px,94vw)" append-to-body><el-form :model="stageForm" label-width="100px"><el-form-item label="阶段结果" required><el-input v-model="stageForm.resultSummary" type="textarea" :rows="4" maxlength="2000" show-word-limit /></el-form-item><el-form-item label="交付成果" required><el-input v-model="stageForm.deliverables" type="textarea" :rows="4" maxlength="4000" show-word-limit /></el-form-item><el-form-item label="成果附件"><business-file-upload v-model="stageForm.attachmentUrls" :project-id="detail.projectId" /></el-form-item></el-form><template #footer><el-button @click="stageDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveStageAcceptance">提交老板验收</el-button></template></el-dialog>
     <el-dialog v-model="stageReviewDialog" :title="stageReviewForm.decision==='APPROVED'?'阶段验收通过':'退回阶段成果'" width="min(540px,94vw)" append-to-body><el-form :model="stageReviewForm" label-width="90px"><el-form-item label="验收意见" :required="stageReviewForm.decision==='RETURNED'"><el-input v-model="stageReviewForm.comment" type="textarea" :rows="4" maxlength="2000" show-word-limit /></el-form-item></el-form><template #footer><el-button @click="stageReviewDialog=false">取消</el-button><el-button :type="stageReviewForm.decision==='APPROVED'?'success':'warning'" :loading="saving" @click="saveStageReview">确认</el-button></template></el-dialog>
 
     <el-dialog v-model="itemDialog" :title="itemTitle" width="min(560px, 94vw)" destroy-on-close>
       <el-form :model="itemForm" label-width="92px">
-        <template v-if="itemKind === 'member'"><el-form-item label="人员"><el-select v-model="itemForm.userId" filterable style="width:100%"><el-option v-for="u in users" :key="u.userId" :label="userOptionLabel(u)" :value="u.userId" /></el-select></el-form-item><el-form-item label="项目角色"><el-select v-model="itemForm.memberRole"><el-option label="副负责人" value="DEPUTY"/><el-option label="成员" value="MEMBER"/><el-option label="观察者" value="OBSERVER"/></el-select></el-form-item></template>
+        <template v-if="itemKind === 'member'"><el-form-item label="人员"><el-select v-model="itemForm.userId" filterable style="width:100%"><el-option v-for="u in users" :key="u.userId" :label="userOptionLabel(u)" :value="u.userId" /></el-select></el-form-item><el-form-item label="项目角色"><el-select v-model="itemForm.memberRole"><el-option v-if="canManageDeputies" label="副负责人" value="DEPUTY"/><el-option label="成员" value="MEMBER"/><el-option label="观察者" value="OBSERVER"/></el-select><small v-if="!canManageDeputies" class="form-tip">副负责人只能由主负责人或老板任命。</small></el-form-item></template>
         <template v-else-if="itemKind === 'task'"><el-form-item label="任务名称"><el-input v-model="itemForm.taskName" /></el-form-item><el-form-item label="负责人"><el-select v-model="itemForm.assigneeUserId" clearable style="width:100%"><el-option v-for="m in detail.members" :key="m.userId" :label="memberOptionLabel(m)" :value="m.userId" /></el-select></el-form-item><el-form-item v-if="showMilestones" label="所属里程碑"><el-select v-model="itemForm.milestoneId" clearable style="width:100%"><el-option v-for="m in detail.milestones || []" :key="m.milestoneId" :label="m.milestoneName" :value="m.milestoneId" /></el-select></el-form-item><el-form-item label="状态"><el-input :model-value="taskStatusLabel[itemForm.status] || '待开始'" disabled /></el-form-item><el-form-item label="进度"><el-slider v-model="itemForm.progress" show-input disabled /><small class="form-tip">进度由任务负责人在“我的安排”中填报，项目负责人不可修改。</small></el-form-item><el-form-item label="截止日期"><el-date-picker v-model="itemForm.dueDate" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></template>
         <template v-else-if="itemKind === 'milestone'"><el-form-item label="名称"><el-input v-model="itemForm.milestoneName" /></el-form-item><el-form-item label="计划日期"><el-date-picker v-model="itemForm.planDate" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item><el-form-item label="状态"><el-select v-if="!['REVIEWING','DONE'].includes(itemForm.status)" v-model="itemForm.status"><el-option label="未开始" value="PENDING" /><el-option label="进行中" value="DOING" /></el-select><el-input v-else :model-value="milestoneStatusLabel[itemForm.status] || itemForm.status" disabled /><small class="form-tip">负责人只能维护执行状态；提交里程碑验收后，由老板确认完成。</small></el-form-item></template>
         <template v-else-if="itemKind === 'risk'"><el-form-item label="风险标题"><el-input v-model="itemForm.riskTitle" /></el-form-item><el-form-item label="风险等级"><el-select v-model="itemForm.severity"><el-option v-for="(label,key) in severityLabel" :key="key" :label="label" :value="key" /></el-select></el-form-item><el-form-item label="负责人"><el-select v-model="itemForm.ownerUserId" clearable style="width:100%"><el-option v-for="m in detail.members" :key="m.userId" :label="memberOptionLabel(m)" :value="m.userId" /></el-select></el-form-item><el-form-item label="处理期限"><el-date-picker v-model="itemForm.dueDate" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item><el-form-item label="状态"><el-select v-model="itemForm.status"><el-option v-for="(label,key) in riskStatusLabel" :key="key" :label="label" :value="key" /></el-select></el-form-item><el-form-item label="应对方案"><el-input v-model="itemForm.responsePlan" type="textarea" :rows="3" /></el-form-item></template>
@@ -218,6 +235,7 @@
 </template>
 
 <script setup name="BusinessProject">
+import { h } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import useUserStore from '@/store/modules/user'
 import { getBusinessAccountingDashboard } from '@/api/business/accounting'
@@ -254,7 +272,23 @@ const severityLabel = { LOW:'低', MEDIUM:'中', HIGH:'高', CRITICAL:'严重' }
 const riskStatusLabel = { OPEN:'待处理', MITIGATED:'已缓解', CLOSED:'已关闭' }
 const acceptanceLabel={PENDING:'待老板验收',APPROVED:'已验收通过',RETURNED:'已退回'}
 const acceptanceTone={PENDING:'warning',APPROVED:'success',RETURNED:'danger'}
-const eventLabel = { CREATE:'创建项目', EDIT:'更新资料', GOVERNANCE_CHANGE:'调整治理方式', SOURCE_LINK:'关联执行系统', SOURCE_UNLINK:'解除执行系统', OWNER_CHANGE:'更换负责人', STATUS_CHANGE:'状态变更', START_PLANNING:'进入规划', SUBMIT_BASELINE:'提交计划', RETURN_PLAN:'退回计划', CONFIRM_BASELINE:'确认计划并启动', PAUSE:'暂停项目', RESUME:'恢复执行', REQUEST_ACCEPTANCE:'申请验收', REQUEST_CLOSE:'发起项目结项', REQUEST_STAGE_ACCEPTANCE:'提交阶段验收', APPROVE_STAGE:'阶段验收通过', RETURN_STAGE:'退回阶段成果', RETURN_ACTIVE:'退回执行', CLOSE:'项目结项', CANCEL:'取消项目', MEMBER_SAVE:'维护成员', MEMBER_REMOVE:'移除成员', TASK_SAVE:'维护任务', RISK_SAVE:'维护风险', MILESTONE_SAVE:'维护里程碑' }
+const eventLabel = {
+  CREATE:'创建项目',CREATE_FROM_PROPOSAL:'立项批准并创建项目',EDIT:'更新项目资料',GOVERNANCE_CHANGE:'调整治理方式',
+  SOURCE_LINK:'关联执行系统',SOURCE_UNLINK:'解除执行系统',OWNER_CHANGE:'更换主负责人',STATUS_CHANGE:'变更项目状态',
+  START_PLANNING:'进入规划',SUBMIT_BASELINE:'提交项目计划',RETURN_PLAN:'退回项目计划',CONFIRM_BASELINE:'确认计划并启动',
+  PAUSE:'暂停项目',RESUME:'恢复项目',REQUEST_ACCEPTANCE:'提交成果验收',REQUEST_CLOSE:'发起项目结项',
+  REQUEST_STAGE_ACCEPTANCE:'提交阶段验收',APPROVE_STAGE:'阶段验收通过',RETURN_STAGE:'退回阶段成果',RETURN_ACTIVE:'退回执行',
+  CLOSE:'项目结项',CANCEL:'取消项目',MEMBER_SAVE:'维护项目成员',MEMBER_REMOVE:'移除项目成员',
+  TASK_SAVE:'维护一次性任务',TASK_PROGRESS:'更新任务进度',PROJECT_PROGRESS:'填报项目进度',
+  ROUTINE_SAVE:'维护持续工作',ROUTINE_VOID:'停用持续工作',ROUTINE_REPORT:'填报持续工作成果',
+  MILESTONE_SAVE:'维护项目里程碑',RISK_SAVE:'维护风险台账',BUDGET_CHANGE:'调整项目预算',
+  KPI_CHANGE:'调整KPI',KPI_RETIRE:'停用KPI',KPI_PLAN_PUBLISHED:'发布KPI与奖金方案',KPI_PLAN_VOIDED:'作废KPI与奖金方案',
+  KPI_SETTLEMENT_SUBMITTED:'提交KPI结算',KPI_SETTLEMENT_RETURNED:'退回KPI结算',KPI_SETTLEMENT_CONFIRMED:'确认KPI结算',
+  COST_ALLOCATION:'调整成员计划投入',COST_ALLOCATION_VOID:'停用成员计划投入',
+  EFFORT_WEEK_CONFIRMED:'确认周投入',EFFORT_DAY_CONFIRMED:'确认当日投入',EFFORT_DAY_RETURNED:'退回当日投入',
+  STAFF_LEAVE_REQUESTED:'提交成员请假',STAFF_LEAVE_APPROVED:'成员请假已批准',STAFF_LEAVE_RETURNED:'成员请假已退回',
+  STAFF_LEAVE_CANCEL_REQUESTED:'申请撤销成员请假',STAFF_LEAVE_CANCELED:'成员请假已撤销'
+}
 const metricTypeLabel={COUNT:'数量',AMOUNT:'金额',PERCENT:'百分比',DURATION:'时长',SCORE:'评分',MILESTONE:'里程碑'}
 const periodLabel={DAY:'每日',WEEK:'每周',MONTH:'每月',QUARTER:'每季度',PROJECT:'整个项目'}
 const costModeLabel={DAILY:'日成本',HOURLY:'时成本',MONTHLY:'月成本',FIXED_PROJECT:'项目固定',FIXED_TASK:'任务固定',VARIABLE:'浮动成本'}
@@ -263,6 +297,7 @@ const isBoss = computed(() => userStore.roles.includes('admin') || userStore.per
 const isAdmin = computed(() => userStore.roles.includes('admin') || userStore.permissions.includes('*:*:*'))
 const myRole = computed(() => detail.value?.members?.find(m => Number(m.userId) === Number(userStore.id))?.memberRole)
 const canManage = computed(() => isBoss.value || ['OWNER','DEPUTY'].includes(myRole.value))
+const canManageDeputies = computed(() => isBoss.value || myRole.value === 'OWNER')
 const canManageAllocation = computed(() => isAdmin.value || (!isBoss.value && myRole.value === 'OWNER'))
 const canSubmitAcceptance=computed(()=>detail.value?.closeMethod==='RESULT_ACCEPTANCE'&&detail.value?.status==='ACTIVE'&&(isBoss.value||myRole.value==='OWNER'))
 const showRisks=computed(()=>detail.value?.governanceProfile?.riskRequired??['STANDARD','KEY_CONTROL','DELIVERY'].includes(detail.value?.managementMode))
@@ -318,6 +353,37 @@ const projectProgress = row => {
 const isKpiBlockedCloseAction=action=>action.key==='CLOSE'&&kpiClosureState.value.ready===false
 const userOptionLabel = user => `${user.nickName || user.userName} · ${user.userName} · ${user.companyName || '集团'}${user.deptName && user.deptName !== user.companyName ? ` / ${user.deptName}` : ''}`
 const memberOptionLabel = member => `${member.userNameSnapshot}${member.accountName ? ` · ${member.accountName}` : ` · ID ${member.userId}`}`
+const formatEventTime=value=>value?String(value).replace('T',' ').replace(/\.\d+$/,''):''
+const eventTone=event=>{
+  if(['CLOSE','APPROVE_STAGE','CONFIRM_BASELINE','KPI_SETTLEMENT_CONFIRMED','STAFF_LEAVE_APPROVED'].includes(event?.eventType))return 'success'
+  if(['CANCEL','RETURN_PLAN','RETURN_STAGE','KPI_SETTLEMENT_RETURNED','STAFF_LEAVE_RETURNED'].includes(event?.eventType))return 'danger'
+  if(['PAUSE','REQUEST_ACCEPTANCE','REQUEST_CLOSE','REQUEST_STAGE_ACCEPTANCE','KPI_SETTLEMENT_SUBMITTED'].includes(event?.eventType))return 'warning'
+  return 'primary'
+}
+const formatEventComment=event=>{
+  const value=event?.comment||''
+  if(event?.eventType==='MEMBER_SAVE'&&/^.+?\s*\/\s*(OWNER|DEPUTY|MEMBER|OBSERVER)\s*$/.test(value))return ''
+  if(event?.eventType==='MEMBER_REMOVE')return value.replace(/^移除账号ID\s*\d+\s*[；;]?\s*/, '')
+  return value
+}
+const memberSaveParts=event=>{
+  const match=(event?.comment||'').match(/^(.+?)\s*\/\s*(OWNER|DEPUTY|MEMBER|OBSERVER)\s*$/)
+  return match?{name:match[1].trim(),role:memberRoleLabel[match[2]]||match[2]}:null
+}
+const eventSummary=event=>{
+  const actor=event?.operatorName||event?.operatorAccount||'系统'
+  if(event?.eventType==='MEMBER_SAVE'){
+    const member=memberSaveParts(event)
+    return member?`${actor}将${member.name}设为${member.role}`:`${actor}维护了项目成员`
+  }
+  if(event?.eventType==='MEMBER_REMOVE'){
+    const subject=event?.subjectName||event?.subjectAccount
+    return subject?`${actor}移除了项目成员：${subject}`:`${actor}移除了一名项目成员`
+  }
+  return `${actor}${eventLabel[event?.eventType]||'执行了项目操作'}`
+}
+const eventDetailLabel=event=>event?.eventType==='MEMBER_REMOVE'?'影响：':'说明：'
+const eventStatusChange=event=>event?.fromStatus&&event?.toStatus&&event.fromStatus!==event.toStatus&&statusLabel[event.fromStatus]&&statusLabel[event.toStatus]?`${statusLabel[event.fromStatus]} → ${statusLabel[event.toStatus]}`:''
 const projectRules = { projectName:[{ required:true,message:'请输入项目名称',trigger:'blur' }],companyDeptId:[{required:true,message:'请选择归属公司',trigger:'change'}] }
 const itemTitle = computed(() => ({ member:'添加项目成员', task:'维护任务', milestone:'维护里程碑', risk:'维护风险' }[itemKind.value]))
 const availableActions = computed(() => {
@@ -365,7 +431,65 @@ function openStageReview(decision,record){Object.assign(stageReviewForm,{milesto
 async function saveStageReview(){if(stageReviewForm.decision==='RETURNED'&&!stageReviewForm.comment?.trim())return ElMessage.warning('请填写退回原因');saving.value=true;try{detail.value=(await reviewBusinessProjectStageAcceptance(detail.value.projectId,stageReviewForm.milestoneId,stageReviewForm)).data;stageReviewDialog.value=false;activeTab.value='stageAcceptance';ElMessage.success(stageReviewForm.decision==='APPROVED'?'阶段验收已通过':'阶段成果已退回')}finally{saving.value=false}}
 async function openItem(kind,row={}){ await ensureUsers(); itemKind.value=kind; const defaults={ member:{memberRole:'MEMBER'}, task:{status:'TODO',progress:0,priority:'MEDIUM'}, milestone:{status:'PENDING'}, risk:{riskType:'GENERAL',severity:'MEDIUM',probability:'MEDIUM',status:'OPEN'} }; itemForm.value={...defaults[kind],...row,projectId:detail.value.projectId}; itemDialog.value=true }
 async function saveItem(){ if(saving.value)return; const api={member:saveBusinessProjectMember,task:saveBusinessTask,milestone:saveBusinessMilestone,risk:saveBusinessRisk}[itemKind.value]; const payload={...itemForm.value}; if(itemKind.value==='milestone')delete payload.weight; saving.value=true; try{ await api(payload); itemDialog.value=false; ElMessage.success('保存成功'); await refreshDetail() }finally{ saving.value=false } }
-async function removeItem(kind,row){ await ElMessageBox.confirm('确定删除/移除这条记录吗？','确认',{type:'warning'}); const calls={member:()=>removeBusinessProjectMember(detail.value.projectId,row.userId),task:()=>removeBusinessTask(detail.value.projectId,row.taskId),milestone:()=>removeBusinessMilestone(detail.value.projectId,row.milestoneId),risk:()=>removeBusinessRisk(detail.value.projectId,row.riskId)}; await calls[kind](); ElMessage.success('操作成功'); await refreshDetail() }
+const removalItemNames=items=>{
+  const names=items.map(item=>item.taskName||item.routineName).filter(Boolean)
+  if(!names.length)return ''
+  return names.length>3?`${names.slice(0,3).join('、')} 等 ${names.length} 项`:names.join('、')
+}
+function memberRemovalImpact(row){
+  const userId=Number(row.userId)
+  const tasks=(detail.value?.tasks||[]).filter(item=>Number(item.assigneeUserId)===userId&&item.status!=='DONE')
+  const routines=(detail.value?.routines||[]).filter(item=>Number(item.assigneeUserId)===userId&&item.status==='ACTIVE'&&!item.sourceManaged)
+  return {tasks,routines}
+}
+async function confirmMemberRemoval(row){
+  const name=row.userNameSnapshot||row.userName||`账号ID ${row.userId}`
+  const impact=memberRemovalImpact(row)
+  if(!impact.tasks.length&&!impact.routines.length){
+    await ElMessageBox.confirm(`确定将“${name}”移出项目吗？该成员当前没有未完成的一次性任务或持续工作。`,'移除项目成员',{type:'warning',confirmButtonText:'确认移除',cancelButtonText:'取消'})
+    return impact
+  }
+  const content=[
+    h('p',{style:'margin:0 0 12px;line-height:1.7'},`“${name}”仍负责以下未完成工作。确认移除后，系统将同步解除相关安排：`)
+  ]
+  if(impact.tasks.length)content.push(h('div',{style:'margin:8px 0;padding:10px 12px;border-radius:6px;background:#fff7e8;line-height:1.65'},[
+    h('b',null,`一次性任务 ${impact.tasks.length} 项`),
+    h('span',null,`：${removalItemNames(impact.tasks)}`),
+    h('small',{style:'display:block;color:#8a6d3b'},'将解除负责人，任务本身保留，等待重新分配。')
+  ]))
+  if(impact.routines.length)content.push(h('div',{style:'margin:8px 0;padding:10px 12px;border-radius:6px;background:#fff7e8;line-height:1.65'},[
+    h('b',null,`持续工作 ${impact.routines.length} 项`),
+    h('span',null,`：${removalItemNames(impact.routines)}`),
+    h('small',{style:'display:block;color:#8a6d3b'},'将解除负责人，持续工作及历史填报保留，等待重新分配。')
+  ]))
+  content.push(h('p',{style:'margin:12px 0 0;color:#d7474f;font-weight:600'},'请确认这些工作已准备重新安排负责人。'))
+  await ElMessageBox.confirm(h('div',null,content),'移除成员并解除工作分配',{type:'warning',confirmButtonText:'确认移除并解除',cancelButtonText:'取消'})
+  return impact
+}
+async function chooseMemberRemovalCost(){
+  try{
+    await ElMessageBox.confirm('请选择移除当天的人员成本处理方式。若员工今天没有参与项目，选择“今天不计成本”；若员工今天已经工作，选择“保留今天成本”。','移除当日成本',{type:'warning',confirmButtonText:'今天不计成本',cancelButtonText:'保留今天成本',distinguishCancelAndClose:true,closeOnClickModal:false})
+    return false
+  }catch(action){
+    if(action==='cancel')return true
+    throw action
+  }
+}
+async function removeItem(kind,row){
+  let memberImpact=null
+  if(kind==='member'){
+    memberImpact=await confirmMemberRemoval(row)
+    memberImpact.retainTodayCost=await chooseMemberRemovalCost()
+  }
+  else await ElMessageBox.confirm('确定删除这条记录吗？','确认删除',{type:'warning'})
+  const calls={member:()=>removeBusinessProjectMember(detail.value.projectId,row.userId,memberImpact?.retainTodayCost),task:()=>removeBusinessTask(detail.value.projectId,row.taskId),milestone:()=>removeBusinessMilestone(detail.value.projectId,row.milestoneId),risk:()=>removeBusinessRisk(detail.value.projectId,row.riskId)}
+  await calls[kind]()
+  if(kind==='member'){
+    const affected=(memberImpact?.tasks.length||0)+(memberImpact?.routines.length||0)
+    ElMessage.success(affected?`成员已移除，已同步处理 ${affected} 项未完成工作`:'成员已移除')
+  }else ElMessage.success('删除成功')
+  await refreshDetail()
+}
 const money=value=>value===null||value===undefined?'—':Number(value).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:4})
 const number=value=>Number(value||0).toLocaleString('zh-CN')
 function openBudgetDialog(){Object.assign(budgetForm,{budgetLimit:Number(operating.value.budgetLimit||0),currency:operating.value.currency||detail.value.baseCurrency||'CNY',reason:''});budgetDialog.value=true}
@@ -391,7 +515,7 @@ onMounted(load)
 
 <style scoped>
 .kpi-close-guard{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:14px;margin:-4px 0 16px;padding:14px 16px;border:1px solid #e6cf91;border-left:4px solid #d59a23;border-radius:10px;background:#fffaf0}.kpi-close-guard.in-tab{margin:0 0 12px}.kpi-close-guard.is-success{border-color:#bcded2;border-left-color:#2a8b6e;background:#f3faf7}.kpi-close-guard.is-danger{border-color:#efc5c8;border-left-color:#d74b55;background:#fff6f6}.kpi-close-guard.is-info{border-color:#cbdceb;border-left-color:#4d83b5;background:#f5f9fd}.kpi-close-mark{display:flex;width:42px;height:42px;align-items:center;justify-content:center;border-radius:12px;background:#fff;color:#a56c08;font-size:12px;font-weight:800;letter-spacing:.05em;box-shadow:0 2px 8px rgba(80,61,22,.08)}.is-success .kpi-close-mark{color:#23745f}.is-danger .kpi-close-mark{color:#c43d47}.is-info .kpi-close-mark{color:#3d709e}.kpi-close-copy{min-width:0}.kpi-close-title{display:flex;align-items:center;gap:8px;margin-bottom:5px}.kpi-close-title>span{color:#7b8795;font-size:12px}.kpi-close-copy>b{display:block;color:#24354a;font-size:15px}.kpi-close-copy>p{margin:4px 0 0;color:#687789;font-size:12px;line-height:1.55}.kpi-close-progress{display:grid;grid-template-columns:auto minmax(90px,180px);align-items:center;gap:10px;margin-top:9px;color:#7f8b98;font-size:12px}
-.project-page{min-height:calc(100vh - 84px);padding:24px;background:#f4f6f8}.page-head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:16px}.eyebrow{font-size:11px;letter-spacing:.16em;color:#3977c5}.page-head h1{margin:4px 0;font-size:27px;color:#172033}.page-head p{margin:0;color:#778394}.filter-card,.table-card{border-color:#dfe4ea}.filter-card{margin-bottom:12px}.filter-card :deep(.el-card__body){padding:14px 16px 0}.click-table :deep(.el-table__row){cursor:pointer}.subline{display:block;margin-top:4px;color:#8a95a3}.danger{color:#d7474f;font-weight:700}.drawer-title{display:flex;align-items:center;justify-content:space-between;width:100%;padding-right:18px}.drawer-title span{color:#8994a3;font-size:12px}.drawer-title h2{margin:3px 0 0;color:#1b2b40}.project-summary{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid #e2e7ed;border-radius:10px;background:#fafbfd}.project-summary div{padding:14px;border-right:1px solid #e2e7ed}.project-summary div:last-child{border:0}.project-summary span,.objective span{display:block;color:#8792a1;font-size:12px}.project-summary b{display:block;margin-top:6px;color:#26374d;font-size:14px}.objective{margin:14px 0;padding:14px 16px;border-left:3px solid #3b7cc4;background:#f5f8fb}.objective p{margin:7px 0 0;line-height:1.65}.action-bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}.action-bar .el-button+.el-button{margin-left:0}.tab-tools{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.routine-tip{display:block;margin-top:4px}.operating-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.operating-card{padding:14px;border:1px solid #dfe5ec;border-radius:10px;background:#fafbfd}.operating-card p{margin:10px 0 0;color:#7a8796;font-size:12px;line-height:1.55}.operating-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.operating-head small,.operating-head strong{display:block}.operating-head small{color:#8390a0}.operating-head strong{margin-top:7px;color:#1c3048;font-size:19px}.budget-card{border-top:3px solid #397ac5}.section-gap{margin-top:22px}.muted,.form-tip{color:#8a95a3;font-size:12px}.form-tip{display:block;margin-top:5px}.history-collapse{margin-top:10px}.acceptance-record{margin-top:12px;padding:16px;border:1px solid #e2e7ed;border-radius:10px;background:#fff}.acceptance-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.acceptance-head b,.acceptance-head span{display:block}.acceptance-head span{margin-top:4px;color:#8793a1;font-size:12px}.acceptance-record h4{margin:16px 0 6px;color:#526174;font-size:13px}.acceptance-record>p{margin:0;line-height:1.7;white-space:pre-wrap}.review-result{margin-top:14px;padding:12px;border-left:3px solid #4b8c80;background:#f3f8f7}.review-result p{margin:6px 0}.review-result small{color:#8793a1}.review-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.decision-form{margin-top:18px}.project-period-line{display:grid;grid-template-columns:minmax(130px,1fr) auto minmax(130px,1fr) auto;align-items:center;gap:10px;width:100%}.project-period-line>span{color:#7f8a99}.allocation-period-field{display:flex;width:100%;flex-direction:column;gap:8px}.allocation-period-field .el-checkbox{align-self:flex-start}.event-line{padding-top:12px}.event-line p{margin:5px 0;color:#748093}@media(max-width:760px){.project-page{padding:14px}.page-head{align-items:flex-start;flex-direction:column;gap:14px}.page-head>.el-button{width:100%}.project-summary{grid-template-columns:repeat(2,1fr)}.project-summary div:nth-child(2){border-right:0}.project-summary div:nth-child(-n+2){border-bottom:1px solid #e2e7ed}.operating-grid{grid-template-columns:1fr}.filter-card :deep(.el-form-item){display:flex;margin-right:0}.filter-card :deep(.el-input),.filter-card :deep(.el-select){width:100%!important}.tab-tools{align-items:stretch;flex-direction:column;gap:8px}.tab-tools>.el-button{width:100%;margin:0}.review-actions{display:grid;grid-template-columns:1fr 1fr}.review-actions .el-button{width:100%;margin:0}.project-period-line{grid-template-columns:1fr}.project-period-line>span{display:none}}
+.project-page{min-height:calc(100vh - 84px);padding:24px;background:#f4f6f8}.page-head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:16px}.eyebrow{font-size:11px;letter-spacing:.16em;color:#3977c5}.page-head h1{margin:4px 0;font-size:27px;color:#172033}.page-head p{margin:0;color:#778394}.filter-card,.table-card{border-color:#dfe4ea}.filter-card{margin-bottom:12px}.filter-card :deep(.el-card__body){padding:14px 16px 0}.click-table :deep(.el-table__row){cursor:pointer}.subline{display:block;margin-top:4px;color:#8a95a3}.danger{color:#d7474f;font-weight:700}.drawer-title{display:flex;align-items:center;justify-content:space-between;width:100%;padding-right:18px}.drawer-title span{color:#8994a3;font-size:12px}.drawer-title h2{margin:3px 0 0;color:#1b2b40}.project-summary{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid #e2e7ed;border-radius:10px;background:#fafbfd}.project-summary div{padding:14px;border-right:1px solid #e2e7ed}.project-summary div:last-child{border:0}.project-summary span,.objective span{display:block;color:#8792a1;font-size:12px}.project-summary b{display:block;margin-top:6px;color:#26374d;font-size:14px}.objective{margin:14px 0;padding:14px 16px;border-left:3px solid #3b7cc4;background:#f5f8fb}.objective p{margin:7px 0 0;line-height:1.65}.action-bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}.action-bar .el-button+.el-button{margin-left:0}.tab-tools{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.routine-tip{display:block;margin-top:4px}.operating-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.operating-card{padding:14px;border:1px solid #dfe5ec;border-radius:10px;background:#fafbfd}.operating-card p{margin:10px 0 0;color:#7a8796;font-size:12px;line-height:1.55}.operating-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.operating-head small,.operating-head strong{display:block}.operating-head small{color:#8390a0}.operating-head strong{margin-top:7px;color:#1c3048;font-size:19px}.budget-card{border-top:3px solid #397ac5}.section-gap{margin-top:22px}.muted,.form-tip{color:#8a95a3;font-size:12px}.form-tip{display:block;margin-top:5px}.history-collapse{margin-top:10px}.acceptance-record{margin-top:12px;padding:16px;border:1px solid #e2e7ed;border-radius:10px;background:#fff}.acceptance-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.acceptance-head b,.acceptance-head span{display:block}.acceptance-head span{margin-top:4px;color:#8793a1;font-size:12px}.acceptance-record h4{margin:16px 0 6px;color:#526174;font-size:13px}.acceptance-record>p{margin:0;line-height:1.7;white-space:pre-wrap}.review-result{margin-top:14px;padding:12px;border-left:3px solid #4b8c80;background:#f3f8f7}.review-result p{margin:6px 0}.review-result small{color:#8793a1}.review-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.decision-form{margin-top:18px}.project-period-line{display:grid;grid-template-columns:minmax(130px,1fr) auto minmax(130px,1fr) auto;align-items:center;gap:10px;width:100%}.project-period-line>span{color:#7f8a99}.allocation-period-field{display:flex;width:100%;flex-direction:column;gap:8px}.allocation-period-field .el-checkbox{align-self:flex-start}.event-line{padding-top:12px}.event-card{padding:12px 14px;border:1px solid #e5e9ef;border-radius:9px;background:#fafbfd}.event-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.event-actor b,.event-actor small{display:block}.event-actor b{color:#26374c;font-size:14px}.event-actor small{margin-top:4px;color:#8a95a3;font-size:12px}.event-card p{margin:9px 0 0;color:#66768a;line-height:1.6;white-space:pre-wrap}.event-status{display:block;margin-top:8px;color:#76869a}.event-line :deep(.el-timeline-item__timestamp){color:#929cab;font-size:12px}@media(max-width:760px){.project-page{padding:14px}.page-head{align-items:flex-start;flex-direction:column;gap:14px}.page-head>.el-button{width:100%}.project-summary{grid-template-columns:repeat(2,1fr)}.project-summary div:nth-child(2){border-right:0}.project-summary div:nth-child(-n+2){border-bottom:1px solid #e2e7ed}.operating-grid{grid-template-columns:1fr}.filter-card :deep(.el-form-item){display:flex;margin-right:0}.filter-card :deep(.el-input),.filter-card :deep(.el-select){width:100%!important}.tab-tools{align-items:stretch;flex-direction:column;gap:8px}.tab-tools>.el-button{width:100%;margin:0}.review-actions{display:grid;grid-template-columns:1fr 1fr}.review-actions .el-button{width:100%;margin:0}.project-period-line{grid-template-columns:1fr}.project-period-line>span{display:none}.event-card{padding:11px}.event-head{gap:8px}}
 .routine-period-line{display:grid;grid-template-columns:minmax(130px,1fr) auto minmax(130px,1fr) auto;align-items:center;gap:10px;width:100%}.routine-period-line>span{color:#7f8a99}@media(max-width:760px){.routine-period-line{grid-template-columns:1fr}.routine-period-line>span{display:none}}
 .governance-banner{margin:0 0 16px}.stage-grid{display:grid;gap:12px;margin-top:12px}.stage-submit{margin-top:14px}
 .stage-close-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}.stage-close-actions :deep(.el-button){margin:0}
@@ -399,6 +523,7 @@ onMounted(load)
 .execution-title{display:flex;align-items:flex-start;justify-content:space-between}.execution-title span{color:#8491a1;font-size:12px}.execution-title h3{margin:4px 0 0;color:#1e3856;font-size:17px}
 .execution-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}.execution-metrics div{padding:12px;border-radius:8px;background:#fff}.execution-metrics span,.execution-metrics strong{display:block}.execution-metrics span{color:#8491a1;font-size:12px}.execution-metrics strong{margin-top:7px;color:#203751;font-size:19px}
 .execution-summary>p{margin:12px 0 0;color:#748397;font-size:12px;line-height:1.6}
+.event-detail-label{margin-right:4px;color:#4d5f75;font-weight:600}
 @media(max-width:760px){.execution-metrics{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:760px){.kpi-close-guard{grid-template-columns:auto minmax(0,1fr)}.kpi-close-guard>.el-button,.stage-close-actions{grid-column:1/-1;width:100%}.stage-close-actions{display:grid;grid-template-columns:1fr 1fr}.stage-close-actions :deep(.el-button){width:100%}.kpi-close-progress{grid-template-columns:1fr}}
 </style>

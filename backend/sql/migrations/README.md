@@ -68,6 +68,16 @@ V043__business_task_progress_report.sql
 V044__business_project_progress_report.sql
 V045__open_ended_project_plan.sql
 V046__staff_cost_policy_retirement.sql
+V047__jewelry_influencer_fixed_pricing.sql
+V048__jewelry_influencer_bundle_items.sql
+V049__business_staff_leave_approval.sql
+V050__staff_leave_request_collation.sql
+V051__business_operations_integrity_hardening.sql
+V052__business_project_deputy_permissions.sql
+V053__preserve_unassigned_project_routines.sql
+V054__normalize_business_attachment_urls.sql
+V055__business_accounting_return_review.sql
+V056__business_project_terminal_and_cost_integrity.sql
 ../live_ai_config.sql
 ../jewelry_erp_menu.sql
 ../jewelry_manual_assembly.sql
@@ -126,6 +136,16 @@ V043__business_task_progress_report.sql
 V044__business_project_progress_report.sql
 V045__open_ended_project_plan.sql
 V046__staff_cost_policy_retirement.sql
+V047__jewelry_influencer_fixed_pricing.sql
+V048__jewelry_influencer_bundle_items.sql
+V049__business_staff_leave_approval.sql
+V050__staff_leave_request_collation.sql
+V051__business_operations_integrity_hardening.sql
+V052__business_project_deputy_permissions.sql
+V053__preserve_unassigned_project_routines.sql
+V054__normalize_business_attachment_urls.sql
+V055__business_accounting_return_review.sql
+V056__business_project_terminal_and_cost_integrity.sql
 ../live_ai_config.sql
 ../jewelry_erp_menu.sql
 ../jewelry_manual_assembly.sql
@@ -159,3 +179,13 @@ V046__staff_cost_policy_retirement.sql
 * `V044__business_project_progress_report.sql`：保存项目主负责人每日填报的项目整体进度、完成说明和成果凭证；项目总进度不再从一次性任务推算。
 * `V045__open_ended_project_plan.sql`：项目计划结束日期改为可选，支持持续经营且没有固定结束时间的项目。
 * `V046__staff_cost_policy_retirement.sql`：人员成本版本增加作废人、时间和原因审计字段；未生效且未被引用的误录版本可受控删除。
+* `V047__jewelry_influencer_fixed_pricing.sql`：新增达人固定售价、价格历史和销售单达人快照。
+* `V048__jewelry_influencer_bundle_items.sql`：新增达人组合商品明细及相关销售校验结构。
+* `V049__business_staff_leave_approval.sql`：负责人提交员工请假申请，归属老板审批通过后才生成按人员和日期全项目生效的正式请假记录。
+* `V050__staff_leave_request_collation.sql`：统一请假申请表与项目经营表的字符排序规则，避免老板待办合并查询出现 `Illegal mix of collations`。
+* `V051__business_operations_integrity_hardening.sql`：保留请假与撤销的独立审批轨迹，绑定请假来源，清理已退出成员的未完成执行数据，并标准化项目币种。
+* `V052__business_project_deputy_permissions.sql`：新增项目副负责人角色，开放本人协管项目的项目中心和执行管理权限，保留主负责人专属提交边界。
+* `V053__preserve_unassigned_project_routines.sql`：移除项目成员时仅解除持续工作负责人，保留工作和历史填报。
+* `V054__normalize_business_attachment_urls.sql`：统一公司经营附件的 Web 路径分隔符。
+* `V055__business_accounting_return_review.sql`：收支草稿支持老板填写原因后退回，并保留退回人和时间的审核轨迹。
+* `V056__business_project_terminal_and_cost_integrity.sql`：修正累计成本快照，并统一修复历史结项/取消项目的结束日期、持续工作、人员投入、未完成任务和财务关账状态；历史请假与工作填报冲突仅输出诊断清单，由老板决定保留哪一侧记录。

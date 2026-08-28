@@ -14,7 +14,9 @@ import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.business.domain.BusinessOperatingFact;
 import com.ruoyi.business.mapper.BusinessAccountingMapper;
 import com.ruoyi.business.service.IBusinessAccountingService;
+import com.ruoyi.business.service.BusinessFileService;
 import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.uuid.IdUtils;
 
@@ -22,6 +24,7 @@ import com.ruoyi.common.utils.uuid.IdUtils;
 public class BusinessAccountingServiceImpl implements IBusinessAccountingService
 {
     @Autowired private BusinessAccountingMapper mapper;
+    @Autowired private BusinessFileService businessFileService;
 
     @Override
     public Map<String,Object> dashboard(Map<String,Object> query,Long userId,boolean viewAll)
@@ -174,6 +177,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         if(!today.equals(bizDate))throw new ServiceException("负责人工作台只能填写今日项目总花费");
         if(fact.getAmount()==null||fact.getAmount().compareTo(BigDecimal.ZERO)<0)
             throw new ServiceException("今日项目总花费不能为空或为负数");
+        businessFileService.validateReferences(fact.getAttachmentUrls(), fact.getProjectId(), userId, false, viewAll);
         Map<String,Object> category=mapper.selectCategoryByCode("DIRECT_EXPENSE");
         if(category==null)throw new ServiceException("项目直接费用类别尚未初始化");
 
@@ -186,7 +190,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         if(StringUtils.isBlank(fact.getDescription()))fact.setDescription("今日项目总花费");
         fact.setSourceDomain("PROJECT_DAILY");fact.setSourceType("DAILY_TOTAL");fact.setSourceId(bizDate);
         fact.setStatus("DRAFT");
-        if(previous!=null&&"DRAFT".equals(previous.getStatus()))
+        if(previous!=null&&Arrays.asList("DRAFT","RETURNED").contains(previous.getStatus()))
         {
             fact.setFactId(previous.getFactId());fact.setVersion(previous.getVersion());fact.setUpdateBy(userName);
             if(mapper.updateDraftFact(fact)!=1)throw changed();
@@ -206,11 +210,13 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         Map<String,Object> project=projectContributor
             ?requireContributorProject(fact.getProjectId(),userId,viewAll)
             :requireProject(fact.getProjectId(),userId,viewAll);
+        ensureAccountingOpen(project);
         if(project.get("companyDeptId")==null)throw new ServiceException("该项目尚未设置归属公司，请先编辑项目选择上海或越南公司");
         Map<String,Object> category=mapper.selectCategoryById(fact.getCategoryId());
         if(category==null)throw new ServiceException("请选择有效的收支类别");
         if(fact.getBizDate()==null)throw new ServiceException("请选择业务日期");
         if(StringUtils.isBlank(fact.getDescription()))throw new ServiceException("请填写收支说明");
+        businessFileService.validateReferences(fact.getAttachmentUrls(), fact.getProjectId(), userId, false, viewAll);
         String kind=String.valueOf(category.get("factKind"));
         if(projectContributor)
         {
@@ -219,7 +225,8 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             String bizDate=new SimpleDateFormat("yyyy-MM-dd").format(fact.getBizDate());
             String today=new SimpleDateFormat("yyyy-MM-dd").format(new Date());
             if(!today.equals(bizDate))throw new ServiceException("负责人工作台只能提交今日数据");
-            if("ADJUSTMENT".equals(kind))throw new ServiceException("核算调整只能由老板或财务人员录入");
+            if(!Arrays.asList("REVENUE","VALUE").contains(kind))
+                throw new ServiceException("负责人工作台只能提交项目收入或成果，成本和核算调整由老板或财务录入");
         }
         if("VALUE".equals(kind))
         {
@@ -233,7 +240,9 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
                 throw new ServiceException("收入和成本金额不能为负数，红冲请使用冲销功能");
             if(StringUtils.isBlank(fact.getCurrency()))fact.setCurrency(String.valueOf(project.get("currency")));
             fact.setCurrency(fact.getCurrency().trim().toUpperCase());
-            if(fact.getCurrency().length()!=3)throw new ServiceException("币种代码必须为3位");
+            if(!fact.getCurrency().matches("^[A-Z]{3}$"))throw new ServiceException("币种必须是 ISO 4217 的3位大写英文代码");
+            if(!fact.getCurrency().equals(String.valueOf(project.get("currency")).toUpperCase()))
+                throw new ServiceException("收支币种必须与项目本位币一致，当前为 "+project.get("currency"));
         }
         fact.setCompanyDeptId(longValue(project.get("companyDeptId")));
         fact.setCategoryCode(String.valueOf(category.get("categoryCode")));
@@ -250,7 +259,8 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             BusinessOperatingFact current=projectContributor
                 ?requireContributorFact(fact.getFactId(),userId,viewAll)
                 :requireFact(fact.getFactId(),userId,viewAll);
-            if(!"DRAFT".equals(current.getStatus()))throw new ServiceException("只有草稿可以修改");
+            if(!Arrays.asList("DRAFT","RETURNED").contains(current.getStatus()))
+                throw new ServiceException("只有草稿或已退回的收支可以修改");
             if(!current.getProjectId().equals(fact.getProjectId()))throw new ServiceException("草稿不能更换归属项目");
             fact.setVersion(current.getVersion());fact.setUpdateBy(userName);
             if(mapper.updateDraftFact(fact)!=1)throw changed();
@@ -263,6 +273,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     public BusinessOperatingFact confirmFact(Long factId,Long userId,String userName,boolean viewAll)
     {
         BusinessOperatingFact fact=requireFact(factId,userId,viewAll);
+        ensureAccountingOpen(mapper.selectProjectForAccounting(fact.getProjectId()));
         if(!"DRAFT".equals(fact.getStatus()))throw new ServiceException("只有草稿可以确认入账");
         if("DAILY_TOTAL".equals(fact.getSourceType()))
         {
@@ -277,10 +288,25 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
 
     @Override
     @Transactional
+    public BusinessOperatingFact returnFact(Long factId,String reason,Long userId,String userName,boolean viewAll)
+    {
+        if(StringUtils.isBlank(reason))throw new ServiceException("请填写退回原因");
+        BusinessOperatingFact fact=requireFact(factId,userId,viewAll);
+        ensureAccountingOpen(mapper.selectProjectForAccounting(fact.getProjectId()));
+        if(!"DRAFT".equals(fact.getStatus()))throw new ServiceException("只有待确认草稿可以退回");
+        String normalizedReason=reason.trim();
+        if(normalizedReason.length()>500)throw new ServiceException("退回原因不能超过500个字");
+        if(mapper.returnFact(factId,normalizedReason,userId,userName,fact.getVersion())!=1)throw changed();
+        return mapper.selectFactById(factId);
+    }
+
+    @Override
+    @Transactional
     public BusinessOperatingFact reverseFact(Long factId,String reason,Long userId,String userName,boolean viewAll)
     {
         if(StringUtils.isBlank(reason))throw new ServiceException("请填写冲销原因");
         BusinessOperatingFact original=requireFact(factId,userId,viewAll);
+        ensureAccountingOpen(mapper.selectProjectForAccounting(original.getProjectId()));
         if(!"CONFIRMED".equals(original.getStatus()))throw new ServiceException("只有已确认流水可以冲销");
         BusinessOperatingFact reversal=createReversal(original,reason,userId,userName);
         recalculateInternal(original.getProjectId(),original.getBizDate(),userName);
@@ -308,12 +334,28 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     @Override
     @Transactional
     public Map<String,Object> recalculate(Long projectId,Date bizDate,Long userId,String userName,boolean viewAll)
-    { requireProject(projectId,userId,viewAll);if(bizDate==null)throw new ServiceException("请选择重算日期");return recalculateInternal(projectId,bizDate,userName); }
+    { Map<String,Object> project=requireProject(projectId,userId,viewAll);ensureAccountingOpen(project);if(bizDate==null)throw new ServiceException("请选择重算日期");return recalculateInternal(projectId,bizDate,userName); }
 
     @Override
     @Transactional
     public Map<String,Object> recalculatePersonnelCost(Long projectId,Date bizDate,String userName)
-    { if(bizDate==null)throw new ServiceException("人员成本核算日期不能为空");return recalculateInternal(projectId,bizDate,userName); }
+    { if(bizDate==null)throw new ServiceException("人员成本核算日期不能为空");ensureAccountingOpen(mapper.selectProjectForAccounting(projectId));return recalculateInternal(projectId,bizDate,userName); }
+
+    @Override
+    public void ensureProjectCanClose(Long projectId)
+    {
+        if(mapper.countProjectUnsettledFacts(projectId)>0)
+            throw new ServiceException("项目仍有待确认的收支草稿，请先确认或退回后再结项");
+    }
+
+    @Override
+    @Transactional
+    public void closeProjectAccounting(Long projectId,Date closeDate,String userName)
+    {
+        ensureProjectCanClose(projectId);
+        recalculateInternal(projectId,closeDate,userName);
+        mapper.closeProjectDailyResults(projectId,userName);
+    }
 
     @Override
     @Transactional
@@ -328,6 +370,9 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         if(existing!=null)return existing;
         Map<String,Object> project=mapper.selectProjectForAccounting(projectId);
         if(project==null||project.get("companyDeptId")==null)throw new ServiceException("项目不存在或未设置归属公司");
+        ensureAccountingOpen(project);
+        if(!"CNY".equalsIgnoreCase(String.valueOf(project.get("currency"))))
+            throw new ServiceException("人民币奖金只能计入本位币为 CNY 的项目");
         Map<String,Object> category=mapper.selectCategoryByCode("PROJECT_BONUS_COST");
         if(category==null)throw new ServiceException("项目绩效奖金成本类别尚未初始化");
         BusinessOperatingFact fact=new BusinessOperatingFact();
@@ -356,15 +401,12 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             if("PERSONNEL_COST_PERSON".equals(String.valueOf(item.get("componentCode"))))personnelItems.add(item);
             else items.add(item);
         }
-        // Active allocations are rebuilt with structured formula fields; retired historical rows keep their stored snapshot.
-        List<Map<String,Object>> calculatedPersonnelItems=mapper.selectProjectPersonnelCostDetails(
-            longValue(found.get("projectId")),dateValue(found.get("bizDate")));
-        if(calculatedPersonnelItems!=null&&!calculatedPersonnelItems.isEmpty())personnelItems=calculatedPersonnelItems;
         found.put("items",items);found.put("personnelItems",personnelItems);return found;
     }
 
     private Map<String,Object> recalculateInternal(Long projectId,Date bizDate,String userName)
     {
+        mapper.lockProjectAccounting(projectId);
         Map<String,Object> project=mapper.selectProjectForAccounting(projectId);
         if(project==null||project.get("companyDeptId")==null)throw new ServiceException("项目不存在或未设置归属公司");
         Map<String,Object> sums=mapper.sumProjectFacts(projectId,bizDate);
@@ -377,10 +419,16 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         result.put("companyDeptId",project.get("companyDeptId"));result.put("bizDate",bizDate);
         result.put("accountingMode",project.get("accountingMode"));result.put("revenueAmount",revenue);
         result.put("costAmount",cost);result.put("personnelCost",personnel);result.put("bonusCost",bonus);result.put("adjustmentAmount",adjustment);
-        result.put("profitAmount",profit);result.put("budgetSpent",decimal(mapper.sumProjectCostToDate(projectId,bizDate)));
+        // The current result must become effective before cumulative cost is read. Reading first would either
+        // omit today's personnel cost or reuse the retired snapshot from a previous recalculation.
+        result.put("profitAmount",profit);result.put("budgetSpent",BigDecimal.ZERO);
         result.put("valueScore",value);result.put("resultVersion",mapper.selectNextResultVersion(projectId,bizDate));
         result.put("calculationDetail","收入 - 业务成本 - 内部人员成本 - 项目绩效奖金 + 核算调整；价值型项目将利润解释为净投入结果");
         result.put("createBy",userName);mapper.retireCurrentResult(projectId,bizDate);mapper.insertDailyResult(result);
+        BigDecimal budgetSpent=decimal(mapper.sumProjectCostToDate(projectId,bizDate));
+        result.put("budgetSpent",budgetSpent);
+        mapper.updateDailyResultBudgetSpent(longValue(result.get("resultId")),budgetSpent);
+        refreshLaterBudgetSnapshots(projectId,bizDate);
         addItem(result,"REVENUE","确认收入",revenue,"已确认收入经营事实合计");
         addItem(result,"BUSINESS_COST","业务成本",cost,"已确认成本经营事实合计");
         addItem(result,"PERSONNEL_COST","内部人员成本",personnel,"按当日生效的成本政策和项目投入计算；已确认实际投入优先，否则使用计划投入");
@@ -392,6 +440,18 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         addItem(result,"ADJUSTMENT","核算调整",adjustment,"已确认调整事实合计");
         return result;
     }
+    private void refreshLaterBudgetSnapshots(Long projectId,Date changedDate)
+    {
+        List<Map<String,Object>> later=mapper.selectCurrentResultsAfter(projectId,changedDate);
+        if(later==null)return;
+        for(Map<String,Object> row:later)
+        {
+            Long resultId=longValue(row.get("resultId"));
+            Date bizDate=row.get("bizDate") instanceof Date?(Date)row.get("bizDate"):DateUtils.parseDate(row.get("bizDate"));
+            if(resultId!=null&&bizDate!=null)
+                mapper.updateDailyResultBudgetSpent(resultId,decimal(mapper.sumProjectCostToDate(projectId,bizDate)));
+        }
+    }
     private void addItem(Map<String,Object> result,String code,String name,BigDecimal amount,String detail)
     {Map<String,Object> item=new HashMap<String,Object>();item.put("resultId",result.get("resultId"));item.put("componentCode",code);item.put("componentName",name);item.put("amount",amount);item.put("calculationDetail",detail);mapper.insertDailyResultItem(item);}
     private Map<String,Object> requireProject(Long id,Long userId,boolean viewAll){Map<String,Object> p=mapper.selectProjectForAccounting(id);if(p==null)throw new ServiceException("项目不存在");if(!viewAll&&!String.valueOf(userId).equals(String.valueOf(p.get("initiatorUserId"))))throw new ServiceException("无权核算其他老板立项的项目");return p;}
@@ -400,12 +460,16 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     {
         Map<String,Object> p=mapper.selectProjectForAccounting(id);
         if(p==null)throw new ServiceException("项目不存在");
-        if(viewAll)return p;
-        String role=mapper.selectAccountingMemberRole(id,userId);
         boolean owner=String.valueOf(userId).equals(String.valueOf(p.get("mainOwnerUserId")));
-        if(!owner&&!Arrays.asList("OWNER","DEPUTY","MEMBER").contains(role))
-            throw new ServiceException("只能填报自己负责或参与的项目");
+        if(!viewAll&&!owner)throw new ServiceException("只有项目主负责人可以提交项目今日收入和成果");
         return p;
+    }
+    private void ensureAccountingOpen(Map<String,Object> project)
+    {
+        if(project==null)throw new ServiceException("项目不存在");
+        String status=String.valueOf(project.get("status"));
+        if("CLOSED".equals(status)||"CANCELED".equals(status))
+            throw new ServiceException("项目已经结项或取消，财务已关账；如需调整请先走结项调整流程");
     }
     private BusinessOperatingFact requireContributorFact(Long id,Long userId,boolean viewAll)
     {

@@ -248,8 +248,9 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         if (StringUtils.isBlank(proposal.getPriority())) proposal.setPriority("MEDIUM");
         if (!PRIORITIES.contains(proposal.getPriority())) throw new ServiceException("项目优先级不正确");
         if (StringUtils.isBlank(proposal.getBaseCurrency())) proposal.setBaseCurrency("CNY");
-        proposal.setBaseCurrency(proposal.getBaseCurrency().toUpperCase());
-        if (proposal.getBaseCurrency().length() != 3) throw new ServiceException("币种代码必须是3位");
+        proposal.setBaseCurrency(proposal.getBaseCurrency().trim().toUpperCase());
+        if (!proposal.getBaseCurrency().matches("^[A-Z]{3}$"))
+            throw new ServiceException("币种必须是 ISO 4217 的3位大写英文代码");
         proposal.setNoBudget("1".equals(proposal.getNoBudget()) ? "1" : "0");
         if ("1".equals(proposal.getNoBudget())) proposal.setBudgetLimit(null);
         if (!"1".equals(proposal.getNoBudget()) && proposal.getBudgetLimit() == null)

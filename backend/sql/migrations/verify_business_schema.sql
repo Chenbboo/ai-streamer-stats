@@ -64,6 +64,14 @@ select
 from information_schema.columns
 where table_schema=database() and table_name='biz_staff_cost_policy';
 
+select
+  count(case when column_name='returned_user_id' then 1 end)=0 as missing_operating_fact_returned_user_id,
+  count(case when column_name='returned_user_name' then 1 end)=0 as missing_operating_fact_returned_user_name,
+  count(case when column_name='returned_time' then 1 end)=0 as missing_operating_fact_returned_time,
+  count(case when column_name='return_reason' then 1 end)=0 as missing_operating_fact_return_reason
+from information_schema.columns
+where table_schema=database() and table_name='biz_operating_fact';
+
 select count(*)=0 as missing_project_daily_bonus_cost
 from information_schema.columns
 where table_schema=database() and table_name='biz_project_daily_result' and column_name='bonus_cost';
@@ -576,8 +584,10 @@ select 'proposal_project_owner_mismatch',count(*)
 from biz_project_proposal proposal
 join biz_project project on project.project_id=proposal.created_project_id and project.del_flag='0'
 where proposal.del_flag='0' and proposal.status='APPROVED'
-  and (project.main_owner_user_id<>proposal.applicant_user_id
-    or project.sponsor_owner_user_id<>proposal.sponsor_owner_user_id);
+  and ((project.main_owner_user_id<>proposal.applicant_user_id and not exists (
+      select 1 from biz_project_owner_history history
+      where history.project_id=project.project_id and history.to_user_id=project.main_owner_user_id
+    )) or project.sponsor_owner_user_id<>proposal.sponsor_owner_user_id);
 
 select 'orphan_project_kpi_plan' check_name,count(*) problem_rows
 from biz_project_kpi_plan plan
@@ -678,3 +688,88 @@ union all
 select 'missing_jewelry_influencer_bundle_table',count(*)=0
 from information_schema.tables
 where table_schema=database() and table_name='jewelry_influencer_bundle_item';
+
+select 'missing_staff_leave_request_table' check_name,count(*)=0 problem_rows
+from information_schema.tables
+where table_schema=database() and table_name='biz_staff_leave_request'
+union all
+select 'missing_staff_leave_request_columns',12-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='biz_staff_leave_request'
+  and column_name in('request_id','request_no','user_id','leave_start_date','leave_end_date','leave_type',
+    'reason','attachment_urls','status','submitted_project_id','submitted_user_id','reviewed_user_id')
+union all
+select 'staff_leave_request_collation_mismatch',count(*)
+from information_schema.columns
+where table_schema=database() and table_name='biz_staff_leave_request'
+  and collation_name is not null and collation_name<>'utf8mb4_0900_ai_ci';
+
+select 'missing_staff_leave_source_request',count(*)=0 problem_rows
+from information_schema.columns
+where table_schema=database() and table_name='biz_staff_leave' and column_name='source_request_id'
+union all
+select 'missing_leave_cancel_review_columns',4-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='biz_staff_leave_request'
+  and column_name in('cancel_reviewed_user_id','cancel_reviewed_user_name','cancel_reviewed_time','cancel_review_comment')
+union all
+select 'staff_leave_collation_mismatch',count(*)
+from information_schema.columns
+where table_schema=database() and table_name='biz_staff_leave'
+  and collation_name is not null and collation_name<>'utf8mb4_0900_ai_ci';
+
+select 'invalid_project_base_currency' check_name,count(*) problem_rows
+from biz_project where del_flag='0' and base_currency not regexp '^[A-Z]{3}$'
+union all
+select 'open_task_assigned_to_inactive_member',count(*)
+from biz_project_task task left join biz_project_member member on member.project_id=task.project_id
+  and member.user_id=task.assignee_user_id and member.status='0'
+where task.assignee_user_id is not null and task.status<>'DONE' and member.member_id is null
+union all
+select 'active_routine_assigned_to_inactive_member',count(*)
+from biz_project_routine routine left join biz_project_member member on member.project_id=routine.project_id
+  and member.user_id=routine.assignee_user_id and member.status='0'
+where routine.status='ACTIVE' and routine.assignee_user_id is not null and member.member_id is null
+union all
+select 'current_allocation_for_inactive_member',count(*)
+from biz_project_staff_allocation allocation left join biz_project_member member on member.project_id=allocation.project_id
+  and member.user_id=allocation.user_id and member.status='0'
+where allocation.status='ACTIVE' and (allocation.effective_to is null or allocation.effective_to>=curdate())
+  and member.member_id is null;
+
+select 'missing_project_deputy_role' check_name,count(*)=0 problem_rows
+from sys_role where role_key='project_deputy' and del_flag='0'
+union all
+select 'project_deputy_missing_permissions',count(*)
+from sys_role role
+where role.role_key='project_deputy' and role.del_flag='0'
+  and exists(
+    select 1 from (
+      select 4000 menu_id union all select 4002 union all select 4012
+      union all select 4013 union all select 4014 union all select 4017
+    ) required_menu
+    where not exists(
+      select 1 from sys_role_menu role_menu
+      where role_menu.role_id=role.role_id and role_menu.menu_id=required_menu.menu_id
+    )
+  )
+union all
+select 'active_deputy_missing_system_role',count(distinct member.user_id)
+from biz_project_member member
+join biz_project project on project.project_id=member.project_id and project.del_flag='0'
+where member.member_role='DEPUTY' and member.status='0'
+  and not exists(
+    select 1 from sys_user_role user_role
+    join sys_role role on role.role_id=user_role.role_id
+    where user_role.user_id=member.user_id
+      and role.role_key in('project_deputy','admin','company_owner') and role.del_flag='0'
+  )
+union all
+select 'orphan_project_deputy_system_role',count(*)
+from sys_user_role user_role
+join sys_role role on role.role_id=user_role.role_id and role.role_key='project_deputy' and role.del_flag='0'
+where not exists(
+  select 1 from biz_project_member member
+  join biz_project project on project.project_id=member.project_id and project.del_flag='0'
+  where member.user_id=user_role.user_id and member.member_role='DEPUTY' and member.status='0'
+);

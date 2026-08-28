@@ -198,8 +198,19 @@ const rules={
   phonenumber:[{pattern:/^\d{6,15}$/,message:'请输入6至15位数字',trigger:'blur'}],email:[{type:'email',message:'邮箱格式不正确',trigger:'blur'}]
 }
 
-function defaultForm(){return {nickName:'',userName:'',password:'',employeeNo:'',deptId:null,phoneCountryCode:'+86',phonenumber:'',email:'',countryRegion:'CN',sex:'2',positionName:'',managerUserId:null,employmentType:'FULL_TIME',employmentStatus:'ACTIVE',hireDate:null,workLocation:'',remark:'',protectedAccount:false}}
-function resetForm(row){Object.keys(form).forEach(key=>delete form[key]);Object.assign(form,row?{...defaultForm(),...row,hireDate:row.hireDate?String(row.hireDate).slice(0,10):null}:defaultForm())}
+const staffPayloadFields=['userId','nickName','userName','password','employeeNo','deptId','phoneCountryCode','phonenumber','email','countryRegion','sex','positionName','managerUserId','employmentType','employmentStatus','hireDate','workLocation','remark']
+function defaultForm(){return {userId:null,nickName:'',userName:'',password:'',employeeNo:'',deptId:null,phoneCountryCode:'+86',phonenumber:'',email:'',countryRegion:'CN',sex:'2',positionName:'',managerUserId:null,employmentType:'FULL_TIME',employmentStatus:'ACTIVE',hireDate:null,workLocation:'',remark:'',protectedAccount:false}}
+function resetForm(row){
+  const next=defaultForm()
+  if(row){
+    staffPayloadFields.forEach(key=>{if(Object.prototype.hasOwnProperty.call(row,key))next[key]=row[key]})
+    next.protectedAccount=!!row.protectedAccount
+    next.hireDate=row.hireDate?String(row.hireDate).slice(0,10):null
+  }
+  Object.keys(form).forEach(key=>delete form[key])
+  Object.assign(form,next)
+}
+function staffPayload(){return staffPayloadFields.reduce((payload,key)=>{payload[key]=form[key];return payload},{})}
 async function load(){loading.value=true;try{const data=await listBusinessStaff(query);rows.value=data.rows||[];total.value=data.total||0;if(selectedPerson.value){selectedPerson.value=rows.value.find(x=>x.userId===selectedPerson.value.userId)||selectedPerson.value}if(!deepLinkHandled.value&&['cost','edit'].includes(route.query.action)&&rows.value.length){deepLinkHandled.value=true;selectedPerson.value=rows.value[0];const action=route.query.action;query.userId=null;await router.replace({path:route.path});await nextTick();if(action==='edit')openEdit(selectedPerson.value);else openCostPolicy()}}finally{loading.value=false}}
 async function loadReference(){const [deptResult,optionResult]=await Promise.all([listBusinessDepartments(),listBusinessStaffOptions()]);departments.value=deptResult.data||[];staffOptions.value=optionResult.data||[]}
 async function loadAll(){await Promise.all([load(),loadReference()])}
@@ -211,7 +222,7 @@ async function openDetail(row){selectedPerson.value=row;detailOpen.value=true;pr
 function projectRoleLabel(project){if(project.responsibilityRole==='OWNER')return '主负责人';if(project.responsibilityRole==='DEPUTY')return '副负责人';if(project.responsibilityRole==='OBSERVER')return '观察者';return project.everOwner?'成员（曾任负责人）':'成员'}
 function openPersonProject(project){detailOpen.value=false;router.push({path:'/business/projects',query:{id:project.projectId}})}
 function changeRegion(value){if(value==='CN')form.phoneCountryCode='+86';if(value==='VN')form.phoneCountryCode='+84'}
-async function save(){await formRef.value.validate();saving.value=true;try{form.userId?await updateBusinessStaff(form):await addBusinessStaff(form);ElMessage.success('人员档案已保存');dialogOpen.value=false;await loadAll()}finally{saving.value=false}}
+async function save(){await formRef.value.validate();saving.value=true;try{const payload=staffPayload();form.userId?await updateBusinessStaff(payload):await addBusinessStaff(payload);ElMessage.success('人员档案已保存');dialogOpen.value=false;await loadAll()}finally{saving.value=false}}
 async function changeStatus(row){const previous=row.status==='0'?'1':'0';try{await ElMessageBox.confirm(`确定${row.status==='0'?'启用':'停用'}“${row.nickName}”的账号吗？`,'账号状态',{type:'warning'});await changeBusinessStaffStatus({userId:row.userId,status:row.status});ElMessage.success('状态已更新')}catch(error){row.status=previous;if(error!=='cancel')throw error}}
 async function resetPassword(row){const {value}=await ElMessageBox.prompt(`请输入“${row.nickName}”的新密码`,'重置密码',{inputType:'password',inputValidator:pwdPromptValidator,confirmButtonText:'确定',cancelButtonText:'取消'});await resetBusinessStaffPassword({userId:row.userId,password:value});ElMessage.success('密码已重置')}
 const money=value=>value===null||value===undefined?'—':Number(value).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:4})

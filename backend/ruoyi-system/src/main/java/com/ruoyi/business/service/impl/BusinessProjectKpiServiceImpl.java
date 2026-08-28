@@ -29,6 +29,7 @@ import com.ruoyi.business.mapper.BusinessProjectKpiMapper;
 import com.ruoyi.business.mapper.BusinessProjectMapper;
 import com.ruoyi.business.service.IBusinessAccountingService;
 import com.ruoyi.business.service.IBusinessProjectKpiService;
+import com.ruoyi.business.service.BusinessFileService;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.StringUtils;
 
@@ -42,6 +43,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
     @Autowired private BusinessProjectKpiMapper mapper;
     @Autowired private BusinessProjectMapper projectMapper;
     @Autowired private IBusinessAccountingService accountingService;
+    @Autowired private BusinessFileService businessFileService;
 
     @Override
     public List<Map<String, Object>> overview(Long userId, boolean viewAll, boolean boss)
@@ -88,6 +90,8 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         if (plan == null || plan.getProjectId() == null) throw new ServiceException("请选择项目");
         BusinessProject project = requireProject(plan.getProjectId());
         requireBoss(project, userId, viewAll, boss);
+        if (!"CNY".equalsIgnoreCase(project.getBaseCurrency()))
+            throw new ServiceException("人民币奖金阶梯只能发布到本位币为 CNY 的项目");
         ensureProjectAllowsPlan(project);
         validatePlanPeriod(plan);
         if (mapper.countOverlappingPlans(plan.getProjectId(), plan.getCycleStart(), plan.getCycleEnd()) > 0)
@@ -182,6 +186,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
                 throw new ServiceException("KPI结果不属于当前方案");
             if (!submittedItems.add(result.getPlanItemId())) throw new ServiceException("同一KPI不能重复填报");
             validateResult(result);
+            businessFileService.validateReferences(result.getAttachmentUrls(), settlement.getProjectId(), userId, false, false);
             BusinessProjectKpiPlanItem item = itemMap.get(result.getPlanItemId());
             result.setSettlementId(settlementId);
             result.setCompletionRate(completionRate(item, result.getActualValue()));
@@ -350,6 +355,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         if (result.getResultNote().length() > 1000) throw new ServiceException("KPI结果说明不能超过1000字");
         if (result.getAttachmentUrls() != null && result.getAttachmentUrls().length() > 4000)
             throw new ServiceException("KPI结果凭证过多");
+        businessFileService.validateReferences(result.getAttachmentUrls());
     }
 
     private BigDecimal completionRate(BusinessProjectKpiPlanItem item, BigDecimal actual)

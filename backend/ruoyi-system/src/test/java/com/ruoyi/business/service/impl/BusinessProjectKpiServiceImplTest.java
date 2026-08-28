@@ -30,6 +30,7 @@ import com.ruoyi.business.domain.BusinessProjectKpiSettlement;
 import com.ruoyi.business.mapper.BusinessProjectKpiMapper;
 import com.ruoyi.business.mapper.BusinessProjectMapper;
 import com.ruoyi.business.service.IBusinessAccountingService;
+import com.ruoyi.business.service.BusinessFileService;
 import com.ruoyi.common.exception.ServiceException;
 
 @ExtendWith(MockitoExtension.class)
@@ -38,6 +39,7 @@ class BusinessProjectKpiServiceImplTest
     @Mock BusinessProjectKpiMapper mapper;
     @Mock BusinessProjectMapper projectMapper;
     @Mock IBusinessAccountingService accountingService;
+    @Mock BusinessFileService businessFileService;
     @InjectMocks BusinessProjectKpiServiceImpl service;
 
     @Test void bossOverviewUsesOwnerScopedProjectQuery()

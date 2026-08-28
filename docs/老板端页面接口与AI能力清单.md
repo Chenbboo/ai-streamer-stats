@@ -91,7 +91,7 @@
 | 查看负责人工作台和投入状态 | `GET /business/owner/dashboard` | `business:project:owner:view` | 🟡 | 页面接口已区分“等待老板补国家/月度成本”和“负责人待设投入”，且不向负责人返回月薪金额；可直达对应项目设置投入 | 项目负责人 AI 阶段完善 |
 | 确认成员实际投入 | `POST /business/owner/{projectId}/member/{memberUserId}/effort/confirm` | `business:project:allocation` | ⬜ | 负责人业务，不建议老板 AI 默认代办 | 留给负责人 AI |
 | 退回成员实际投入 | `POST /business/owner/{projectId}/member/{memberUserId}/effort/return` | 同上 | ⬜ | 同上 | 留给负责人 AI |
-| 登记/取消员工今日请假 | `POST/DELETE /business/owner/{projectId}/member/{memberUserId}/leave` | `business:project:allocation` | ⬜ | 请假会让该人员当日所有项目人员成本归零 | P1；老板可操作，负责人 AI 也需接入 |
+| 提交、审批和取消员工请假 | `POST /business/owner/{projectId}/member/{memberUserId}/leave`、`PUT /business/boss/leave-request/{id}/review`、`POST /business/leave-request/{id}/cancel` | `business:project:allocation` / `business:boss:view` | ✅ | 负责人提交今天或未来日期申请；归属老板批准后才让该人员对应日期全部项目人员成本归零 | 已完成；负责人 AI 提交后同样等待老板审批 |
 | 负责人填写今日项目业务总花费 | `POST /business/accounting/project-daily-spend` | `business:project:report` | ⬜ | 不应由老板 AI 伪造负责人填报 | 留给负责人 AI |
 
 ### 4.4 项目 KPI 与奖金
