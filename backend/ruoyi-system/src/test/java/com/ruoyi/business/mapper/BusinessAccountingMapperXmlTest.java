@@ -32,4 +32,23 @@ class BusinessAccountingMapperXmlTest
         assertTrue(query.contains("closed_result.is_current='1'"));
         assertFalse(query.contains("p.status not in('CLOSED','CANCELED')"));
     }
+
+    @Test
+    void returnedAccountingFactCanBeCorrectedAndResubmitted()
+    {
+        InputStream input=getClass().getResourceAsStream("/mapper/business/BusinessAccountingMapper.xml");
+        assertNotNull(input);
+        String xml=new BufferedReader(new InputStreamReader(input,StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+        int start=xml.indexOf("<update id=\"updateDraftFact\"");
+        int end=xml.indexOf("</update>",start);
+        assertTrue(start>=0&&end>start);
+        String update=xml.substring(start,end);
+
+        assertTrue(update.contains("status='DRAFT'"));
+        assertTrue(update.contains("status in('DRAFT','RETURNED')"));
+        assertTrue(update.contains("return_reason=null"));
+        assertTrue(xml.contains("<update id=\"returnFact\""));
+        assertTrue(xml.contains("status='RETURNED'"));
+    }
 }

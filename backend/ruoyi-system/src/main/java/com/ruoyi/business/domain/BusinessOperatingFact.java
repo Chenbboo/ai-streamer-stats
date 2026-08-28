@@ -34,6 +34,10 @@ public class BusinessOperatingFact extends BaseEntity
     private Long confirmedUserId;
     private String confirmedUserName;
     private Date confirmedTime;
+    private Long returnedUserId;
+    private String returnedUserName;
+    private Date returnedTime;
+    private String returnReason;
     private Long createUserId;
 
     public Long getFactId(){return factId;} public void setFactId(Long v){factId=v;}
@@ -62,5 +66,9 @@ public class BusinessOperatingFact extends BaseEntity
     public Long getConfirmedUserId(){return confirmedUserId;} public void setConfirmedUserId(Long v){confirmedUserId=v;}
     public String getConfirmedUserName(){return confirmedUserName;} public void setConfirmedUserName(String v){confirmedUserName=v;}
     public Date getConfirmedTime(){return confirmedTime;} public void setConfirmedTime(Date v){confirmedTime=v;}
+    public Long getReturnedUserId(){return returnedUserId;} public void setReturnedUserId(Long v){returnedUserId=v;}
+    public String getReturnedUserName(){return returnedUserName;} public void setReturnedUserName(String v){returnedUserName=v;}
+    public Date getReturnedTime(){return returnedTime;} public void setReturnedTime(Date v){returnedTime=v;}
+    public String getReturnReason(){return returnReason;} public void setReturnReason(String v){returnReason=v;}
     public Long getCreateUserId(){return createUserId;} public void setCreateUserId(Long v){createUserId=v;}
 }

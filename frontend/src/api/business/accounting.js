@@ -7,6 +7,7 @@ export const saveBusinessOperatingFact = data => request({url:'/business/account
 export const saveBusinessProjectFact = data => request({url:'/business/accounting/project-fact',method:'post',data})
 export const saveBusinessProjectDailySpend = data => request({url:'/business/accounting/project-daily-spend',method:'post',data})
 export const confirmBusinessOperatingFact = id => request({url:`/business/accounting/fact/${id}/confirm`,method:'put'})
+export const returnBusinessOperatingFact = (id,data) => request({url:`/business/accounting/fact/${id}/return`,method:'put',data})
 export const reverseBusinessOperatingFact = (id,data) => request({url:`/business/accounting/fact/${id}/reverse`,method:'post',data})
 export const recalculateBusinessProjectDay = data => request({url:'/business/accounting/recalculate',method:'post',data})
 export const getBusinessDailyResult = id => request({url:`/business/accounting/result/${id}`,method:'get'})

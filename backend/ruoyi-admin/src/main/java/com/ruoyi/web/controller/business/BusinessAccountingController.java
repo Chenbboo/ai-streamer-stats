@@ -59,6 +59,12 @@ public class BusinessAccountingController extends BaseController
     {return success(service.confirmFact(factId,SecurityUtils.getUserId(),getUsername(),SecurityUtils.isAdmin()));}
 
     @PreAuthorize("@ss.hasPermi('business:accounting:confirm')")
+    @Log(title="退回收支草稿",businessType=BusinessType.UPDATE)
+    @PutMapping("/fact/{factId}/return")
+    public AjaxResult returnFact(@PathVariable Long factId,@RequestBody Map<String,Object> body)
+    {return success(service.returnFact(factId,text(body.get("reason")),SecurityUtils.getUserId(),getUsername(),SecurityUtils.isAdmin()));}
+
+    @PreAuthorize("@ss.hasPermi('business:accounting:confirm')")
     @Log(title="冲销经营事实",businessType=BusinessType.UPDATE)
     @PostMapping("/fact/{factId}/reverse")
     public AjaxResult reverse(@PathVariable Long factId,@RequestBody Map<String,Object> body)

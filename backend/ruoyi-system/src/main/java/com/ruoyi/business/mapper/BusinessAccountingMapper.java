@@ -20,15 +20,21 @@ public interface BusinessAccountingMapper
     BusinessOperatingFact selectConfirmedProjectDailySpend(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     Map<String,Object> selectProjectRevenueSummary(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     Map<String,Object> selectProjectForAccounting(Long projectId);
+    Long lockProjectAccounting(Long projectId);
     String selectAccountingMemberRole(@Param("projectId") Long projectId,@Param("userId") Long userId);
     int insertFact(BusinessOperatingFact fact);
     int updateDraftFact(BusinessOperatingFact fact);
     int confirmFact(@Param("factId") Long factId,@Param("userId") Long userId,@Param("userName") String userName,@Param("version") Integer version);
+    int returnFact(@Param("factId") Long factId,@Param("reason") String reason,@Param("userId") Long userId,
+        @Param("userName") String userName,@Param("version") Integer version);
     int markFactReversed(@Param("factId") Long factId,@Param("userName") String userName,@Param("version") Integer version);
     Map<String,Object> sumProjectFacts(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     java.math.BigDecimal sumProjectPersonnelCost(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     List<Map<String,Object>> selectProjectPersonnelCostDetails(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     java.math.BigDecimal sumProjectCostToDate(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
+    List<Map<String,Object>> selectCurrentResultsAfter(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
+    int updateDailyResultBudgetSpent(@Param("resultId") Long resultId,
+        @Param("budgetSpent") java.math.BigDecimal budgetSpent);
     Integer selectNextResultVersion(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     int retireCurrentResult(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     int insertDailyResult(Map<String,Object> result);
@@ -45,4 +51,6 @@ public interface BusinessAccountingMapper
         @Param("viewAll") boolean viewAll, @Param("bizDate") Date bizDate);
     int countProjectsMissingDailyResult(@Param("userId") Long userId,@Param("viewAll") boolean viewAll,
         @Param("bizDate") Date bizDate);
+    int countProjectUnsettledFacts(@Param("projectId") Long projectId);
+    int closeProjectDailyResults(@Param("projectId") Long projectId,@Param("userName") String userName);
 }

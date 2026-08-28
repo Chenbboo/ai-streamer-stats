@@ -72,12 +72,18 @@
             <el-button size="small" type="primary" @click="openKpi(row)">审核结算</el-button>
             <el-button size="small" @click="openProject(row)">项目详情</el-button>
           </template>
+          <template v-else-if="row.category === 'LEAVE_REQUEST'">
+            <el-button v-if="row.attachmentUrls" size="small" type="primary" plain @click="openLeaveEvidence(row)">证明附件（{{ evidenceCount(row.attachmentUrls) }}）</el-button>
+            <el-button size="small" type="success" @click="decideLeave(row, 'APPROVED')">{{ row.status==='CANCEL_PENDING'?'批准取消':'批准请假' }}</el-button>
+            <el-button size="small" type="warning" plain @click="decideLeave(row, 'RETURNED')">{{ row.status==='CANCEL_PENDING'?'保留请假':'退回申请' }}</el-button>
+          </template>
           <template v-else-if="row.category === 'STAGE_ACCEPTANCE'">
             <el-button v-if="row.attachmentUrls" size="small" type="primary" plain @click="openStageEvidence(row)">验收文件（{{ evidenceCount(row.attachmentUrls) }}）</el-button>
             <el-button size="small" type="success" @click="openProject(row, 'stageAcceptance')">立即验收</el-button>
           </template>
           <template v-else-if="row.category === 'ACCOUNTING'">
             <el-button size="small" type="success" @click="confirmPendingAccounting(row)">确认入账</el-button>
+            <el-button size="small" type="warning" plain @click="returnPendingAccounting(row)">退回修改</el-button>
             <el-button size="small" @click="openPendingAccounting(row)">查看明细</el-button>
           </template>
           <template v-else>
@@ -211,14 +217,13 @@
 
     <el-dialog v-model="evidenceDialog" :title="`${evidencePreview.title || ''} · ${evidencePreview.label || '项目成果凭证'}`" width="min(840px, 96vw)" append-to-body destroy-on-close>
       <div class="evidence-dialog-summary"><span>{{ evidencePreview.submitter || '项目负责人' }}提交</span><span>{{ evidencePreview.date }}</span><span>共 {{ evidencePreview.files.length }} 个文件</span></div>
-      <div class="evidence-preview-grid">
-        <div v-for="file in evidencePreview.files" :key="file.path" class="evidence-preview-item">
-          <el-image v-if="file.kind==='image'" :src="file.url" :preview-src-list="evidenceImageUrls" :initial-index="file.imageIndex" fit="contain" preview-teleported />
-          <video v-else-if="file.kind==='video'" :src="file.url" controls preload="metadata" />
-          <div v-else class="evidence-file-card"><el-icon><Document /></el-icon><span>{{ file.name }}</span><el-link :href="file.url" target="_blank" type="primary">打开附件</el-link></div>
-          <small v-if="file.kind!=='file'">{{ file.name }}</small>
-        </div>
-      </div>
+      <business-file-upload
+        :model-value="evidencePreview.rawUrls"
+        :project-id="evidencePreview.projectId"
+        disabled
+        :drag="false"
+        :is-show-tip="false"
+      />
       <template #footer><el-button type="primary" @click="evidenceDialog=false">关闭</el-button></template>
     </el-dialog>
   </div>
@@ -226,8 +231,8 @@
 
 <script setup name="BusinessBoss">
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getBossBusinessDashboard, getBossBusinessPending, transitionBusinessProject } from '@/api/business/project'
-import { confirmBusinessOperatingFact, getBusinessBossAccountingOverview } from '@/api/business/accounting'
+import { getBossBusinessDashboard, getBossBusinessPending, transitionBusinessProject, reviewBusinessMemberLeave } from '@/api/business/project'
+import { confirmBusinessOperatingFact, getBusinessBossAccountingOverview, returnBusinessOperatingFact } from '@/api/business/accounting'
 import { getProjectKpiOverview } from '@/api/business/kpi'
 import { reviewProjectProposal } from '@/api/business/proposal'
 import { saveBusinessStaffCostPolicies, saveBusinessStaffCostPolicy } from '@/api/business/staff'
@@ -249,8 +254,7 @@ const costDialogMode = ref('single')
 const selectedPersonnel = ref(null)
 const costSaving = ref(false)
 const evidenceDialog = ref(false)
-const evidencePreview = ref({ title: '', label: '', submitter: '', date: '', files: [] })
-const evidenceImageUrls = computed(() => evidencePreview.value.files.filter(file => file.kind === 'image').map(file => file.url))
+const evidencePreview = ref({ title: '', label: '', submitter: '', date: '', rawUrls: '', projectId: null, files: [] })
 const costForm = reactive({ unitCost: null, effectiveFrom: '', effectiveTo: null, remark: '' })
 
 const statusLabel = { DRAFT: '草稿', PLANNING: '规划中', ACTIVE: '执行中', PAUSED: '已暂停', ACCEPTANCE: '待验收', CLOSED: '已关闭', CANCELED: '已取消' }
@@ -322,12 +326,12 @@ const progressHint = row => row.progressReportId
   : row.status === 'CLOSED' ? '项目已正式结项' : row.status === 'CANCELED' ? '项目已取消' : '等待项目负责人填报整体完成进度'
 const evidencePaths = value => String(value || '').split(',').map(item => item.trim()).filter(Boolean)
 const evidenceCount = value => evidencePaths(value).length
-const evidenceUrl = path => /^(https?:)?\/\//i.test(path) || path.startsWith('data:') ? path : `${import.meta.env.VITE_APP_BASE_API}${path}`
 const evidenceName = path => { const clean = path.split('?')[0]; try { return decodeURIComponent(clean.slice(clean.lastIndexOf('/') + 1)) || '成果凭证' } catch { return clean.slice(clean.lastIndexOf('/') + 1) || '成果凭证' } }
 const evidenceKind = path => { const ext = path.split('?')[0].split('.').pop()?.toLowerCase(); if (['jpg','jpeg','png','gif','webp','bmp'].includes(ext)) return 'image'; if (['mp4','mov','webm','ogg'].includes(ext)) return 'video'; return 'file' }
-function buildEvidenceFiles(value) { let imageIndex = 0; return evidencePaths(value).map(path => { const kind = evidenceKind(path); const file = { path, url: evidenceUrl(path), name: evidenceName(path), kind, imageIndex: kind === 'image' ? imageIndex : -1 }; if (kind === 'image') imageIndex++; return file }) }
-function openProgressEvidence(row) { evidencePreview.value = { title: row.projectName, label: '项目成果凭证', submitter: row.progressReporterName || row.mainOwnerName, date: row.progressBizDate, files: buildEvidenceFiles(row.progressEvidenceUrls) }; evidenceDialog.value = true }
-function openStageEvidence(row) { evidencePreview.value = { title: `${row.projectName} · ${row.milestoneName}`, label: '阶段验收文件', submitter: row.submitterName || row.mainOwnerName, date: row.submittedTime, files: buildEvidenceFiles(row.attachmentUrls) }; evidenceDialog.value = true }
+function buildEvidenceFiles(value) { return evidencePaths(value).map(path => ({ path, name: evidenceName(path), kind: evidenceKind(path) })) }
+function openProgressEvidence(row) { evidencePreview.value = { title: row.projectName, label: '项目成果凭证', submitter: row.progressReporterName || row.mainOwnerName, date: row.progressBizDate, rawUrls: row.progressEvidenceUrls, projectId: row.projectId, files: buildEvidenceFiles(row.progressEvidenceUrls) }; evidenceDialog.value = true }
+function openStageEvidence(row) { evidencePreview.value = { title: `${row.projectName} · ${row.milestoneName}`, label: '阶段验收文件', submitter: row.submitterName || row.mainOwnerName, date: row.submittedTime, rawUrls: row.attachmentUrls, projectId: row.projectId, files: buildEvidenceFiles(row.attachmentUrls) }; evidenceDialog.value = true }
+function openLeaveEvidence(row) { evidencePreview.value = { title: `${row.userName} · 请假申请`, label: '请假证明附件', submitter: row.submitterName || row.mainOwnerName, date: row.submittedTime, rawUrls: row.attachmentUrls, projectId: row.projectId || row.submittedProjectId, files: buildEvidenceFiles(row.attachmentUrls) }; evidenceDialog.value = true }
 function projectIdFromRow(row) {
   if (idKey(row?.projectId)) return row.projectId
   const keyMatch = idKey(row?.itemKey).match(/^kpi-(?:missing|review)-(\d+)$/)
@@ -367,13 +371,15 @@ const isStagedClosePending = row => row.status === 'ACCEPTANCE' && row.descripti
 const decisionActions = row => row.status === 'DRAFT' ? [{ key: 'START_PLANNING', ...actionMeta.START_PLANNING }] : row.status === 'PLANNING' && row.baselineStatus === 'SUBMITTED' ? [{ key: 'CONFIRM_BASELINE', ...actionMeta.CONFIRM_BASELINE }, { key: 'RETURN_PLAN', ...actionMeta.RETURN_PLAN }] : row.status === 'PAUSED' ? [{ key: 'RESUME', ...actionMeta.RESUME }] : isStagedClosePending(row) ? [{ key: 'CLOSE', ...actionMeta.CLOSE }, { key: 'RETURN_ACTIVE', ...actionMeta.RETURN_ACTIVE }] : row.status === 'ACCEPTANCE' ? [{ key: 'REVIEW_ACCEPTANCE', ...actionMeta.REVIEW_ACCEPTANCE }] : []
 const decisionHint = row => row.status === 'DRAFT' ? '历史草稿等待确认进入规划' : row.status === 'PLANNING' ? '历史计划已提交，等待确认或退回' : row.status === 'PAUSED' ? '项目处于暂停状态，决定是否恢复执行' : isStagedClosePending(row) ? '所有里程碑和结项前置条件已完成，负责人申请确认结项' : row.status === 'ACCEPTANCE' ? '验收资料已提交，等待关闭或退回执行' : '需要老板处理'
 const accountingValue = row => row.factKind === 'VALUE' ? `${row.quantity ?? '—'} ${row.unit || ''}`.trim() : `${money(row.amount)} ${row.currency || ''}`.trim()
-const pendingLabel = row => row.category === 'PROPOSAL' ? '立项待审批' : row.category === 'ACCOUNTING' ? '收支待确认' : row.category === 'STAGE_ACCEPTANCE' ? '待阶段验收' : row.category === 'KPI_MISSING' ? (Number(row.targetCount) ? 'KPI 待发布' : 'KPI 待设置') : row.category === 'KPI_REVIEW' ? 'KPI 结算待确认' : isStagedClosePending(row) ? '项目待结项' : '项目状态待处理'
-const pendingDotClass = row => row.category === 'KPI_MISSING' ? 'dot-danger' : ['PERSONNEL_COST_GROUP', 'PROPOSAL', 'ACCOUNTING', 'STAGE_ACCEPTANCE', 'KPI_REVIEW'].includes(row.category) ? 'dot-warning' : 'dot-info'
-const pendingBadgeClass = row => row.category === 'KPI_MISSING' ? 'badge-danger' : ['PROPOSAL', 'ACCOUNTING', 'STAGE_ACCEPTANCE', 'KPI_REVIEW'].includes(row.category) ? 'badge-warning' : 'badge-info'
-const pendingDescription = row => row.category === 'PROPOSAL' ? (row.objective || '新的立项申请等待审批') : row.category === 'ACCOUNTING' ? `${row.categoryName || '项目收支'}：${row.description || '负责人提交的今日收支'}（${accountingValue(row)}）` : row.category === 'STAGE_ACCEPTANCE' ? `${row.resultSummary || '负责人已提交阶段成果'} · 交付成果：${row.deliverables || '—'}` : row.category === 'KPI_MISSING' ? (Number(row.targetCount) ? `已有 ${row.targetCount} 项 KPI 目标，但尚未发布考核与奖金方案` : '项目已进入执行流程，KPI 目标待设置') : row.category === 'KPI_REVIEW' ? '负责人已提交 KPI 结果，确认后项目奖金会立即计入成本' : decisionHint(row)
+const leaveTypeLabel={SICK:'病假',PERSONAL:'事假',ANNUAL:'年假',COMPENSATORY:'调休',OTHER:'其他'}
+const pendingLabel = row => row.category === 'PROPOSAL' ? '立项待审批' : row.category === 'ACCOUNTING' ? '收支待确认' : row.category === 'LEAVE_REQUEST' ? (row.status==='CANCEL_PENDING'?'取消请假待审批':'请假待审批') : row.category === 'STAGE_ACCEPTANCE' ? '待阶段验收' : row.category === 'KPI_MISSING' ? (Number(row.targetCount) ? 'KPI 待发布' : 'KPI 待设置') : row.category === 'KPI_REVIEW' ? 'KPI 结算待确认' : isStagedClosePending(row) ? '项目待结项' : '项目状态待处理'
+const pendingDotClass = row => row.category === 'KPI_MISSING' ? 'dot-danger' : ['PERSONNEL_COST_GROUP', 'PROPOSAL', 'ACCOUNTING', 'LEAVE_REQUEST', 'STAGE_ACCEPTANCE', 'KPI_REVIEW'].includes(row.category) ? 'dot-warning' : 'dot-info'
+const pendingBadgeClass = row => row.category === 'KPI_MISSING' ? 'badge-danger' : ['PROPOSAL', 'ACCOUNTING', 'LEAVE_REQUEST', 'STAGE_ACCEPTANCE', 'KPI_REVIEW'].includes(row.category) ? 'badge-warning' : 'badge-info'
+const pendingDescription = row => row.category === 'PROPOSAL' ? (row.objective || '新的立项申请等待审批') : row.category === 'ACCOUNTING' ? `${row.categoryName || '项目收支'}：${row.description || '负责人提交的今日收支'}（${accountingValue(row)}）` : row.category === 'LEAVE_REQUEST' ? `${leaveTypeLabel[row.categoryName]||row.categoryName}：${row.description||'未填写原因'}` : row.category === 'STAGE_ACCEPTANCE' ? `${row.resultSummary || '负责人已提交阶段成果'} · 交付成果：${row.deliverables || '—'}` : row.category === 'KPI_MISSING' ? (Number(row.targetCount) ? `已有 ${row.targetCount} 项 KPI 目标，但尚未发布考核与奖金方案` : '项目已进入执行流程，KPI 目标待设置') : row.category === 'KPI_REVIEW' ? '负责人已提交 KPI 结果，确认后项目奖金会立即计入成本' : decisionHint(row)
 const pendingMeta = row => {
   if (row.category === 'PROPOSAL') return `${row.applicantName} 负责 · ${row.companyName || '未设置公司'} `
   if (row.category === 'ACCOUNTING') return `${row.submitterName || '项目负责人'}提交 · ${row.bizDate || '—'} · ${row.companyName || '未设置公司'} `
+  if (row.category === 'LEAVE_REQUEST') return `${row.submitterName || row.mainOwnerName || '项目负责人'}提交 · ${row.planStartDate}${row.planEndDate===row.planStartDate?'':` 至 ${row.planEndDate}`} · ${row.projectName} `
   if (row.category === 'STAGE_ACCEPTANCE') return `${row.submitterName || row.mainOwnerName || '项目负责人'}提交 · 里程碑“${row.milestoneName || '未命名'}” · ${row.submittedTime || '—'} `
   if (row.category === 'KPI_REVIEW') return `方案 v${row.planVersion} · 截止 ${row.cycleEnd || '—'} · 综合得分 ${row.totalScore ?? '—'} `
   return `${row.mainOwnerName || '未指定负责人'} 负责 `
@@ -505,10 +511,35 @@ async function decideProposal(row, decision) {
   ElMessage.success(decision === 'APPROVED' ? '已批准立项并启动项目' : '申请已退回修改')
   await load()
 }
+async function decideLeave(row, decision) {
+  let comment = ''
+  const canceling = row.status === 'CANCEL_PENDING'
+  if (decision === 'RETURNED') {
+    const result = await ElMessageBox.prompt(`请填写${canceling?'不批准取消请假':'退回请假申请'}的原因`, canceling?'保留原请假':'退回请假申请', { inputValidator: value => !!value?.trim() || '必须填写原因', type: 'warning' })
+    comment = result.value.trim()
+  } else {
+    await ElMessageBox.confirm(canceling?`批准取消 ${row.userName} 的请假吗？批准后将恢复计划投入并重新核算人员成本。`:`批准 ${row.userName} 在 ${row.planStartDate}${row.planEndDate===row.planStartDate?'':` 至 ${row.planEndDate}`} 的请假吗？批准后其全部相关项目投入按 0 计算。`, canceling?'批准取消请假':'批准请假', { type: 'warning' })
+    comment = canceling?'批准取消请假':'批准请假'
+  }
+  const requestId = String(row.itemKey || '').replace('leave-request-', '')
+  await reviewBusinessMemberLeave(requestId, { decision, comment })
+  ElMessage.success(canceling?(decision==='APPROVED'?'请假已取消并重新核算相关项目':'已保留原请假'):(decision === 'APPROVED' ? '请假已批准并同步到相关项目' : '请假申请已退回'))
+  await load()
+}
 async function confirmPendingAccounting(row) {
   await ElMessageBox.confirm(`确认“${row.projectName}”的${row.categoryName || '今日收支'} ${accountingValue(row)} 入账吗？确认后将计入正式日报。`, '确认收支入账', { type: 'warning' })
   await confirmBusinessOperatingFact(row.factId)
   ElMessage.success('收支已确认入账并生成项目日结果')
+  await load()
+}
+async function returnPendingAccounting(row) {
+  const { value } = await ElMessageBox.prompt(
+    `请说明“${row.projectName}”的${row.categoryName || '今日收支'}需要修改的内容，提交人将看到该原因。`,
+    '退回收支修改',
+    { inputValidator: text => !!text?.trim() || '必须填写退回原因', inputAttributes: { maxlength: 500 }, type: 'warning' }
+  )
+  await returnBusinessOperatingFact(row.factId, { reason: value.trim() })
+  ElMessage.success('收支已退回提交人修改')
   await load()
 }
 async function doTransition(row, action) {

@@ -242,9 +242,11 @@ public class BusinessProjectController extends BaseController
     @PreAuthorize("@ss.hasPermi('business:project:member')")
     @Log(title = "项目成员", businessType = BusinessType.DELETE)
     @DeleteMapping("/project/{projectId}/member/{memberUserId}")
-    public AjaxResult removeMember(@PathVariable Long projectId, @PathVariable Long memberUserId)
+    public AjaxResult removeMember(@PathVariable Long projectId, @PathVariable Long memberUserId,
+        @RequestParam(defaultValue = "false") boolean retainTodayCost)
     {
-        projectService.removeMember(projectId, memberUserId, currentUserId(), currentUserName(), isBoss());
+        projectService.removeMember(projectId, memberUserId, retainTodayCost,
+            currentUserId(), currentUserName(), isBoss());
         return success();
     }
 
@@ -426,15 +428,36 @@ public class BusinessProjectController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('business:project:allocation')")
-    @Log(title = "成员请假登记", businessType = BusinessType.INSERT)
+    @Log(title = "成员请假申请", businessType = BusinessType.INSERT)
     @PostMapping("/owner/{projectId}/member/{memberUserId}/leave")
     public AjaxResult markMemberLeave(@PathVariable Long projectId, @PathVariable Long memberUserId,
         @RequestBody Map<String, Object> body)
     {
-        return success(projectService.markMemberLeave(projectId, memberUserId,
-            DateUtils.parseDate(body == null ? null : body.get("leaveDate")),
-            body == null || body.get("reason") == null ? null : String.valueOf(body.get("reason")),
+        Object start = body == null ? null : (body.get("startDate") == null ? body.get("leaveDate") : body.get("startDate"));
+        Object end = body == null ? null : (body.get("endDate") == null ? start : body.get("endDate"));
+        return success(projectService.requestMemberLeave(projectId, memberUserId,
+            DateUtils.parseDate(start), DateUtils.parseDate(end), text(body, "leaveType"), text(body, "reason"),
+            text(body, "attachmentUrls"),
             currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:boss:view')")
+    @Log(title = "审批成员请假", businessType = BusinessType.UPDATE)
+    @PutMapping("/boss/leave-request/{requestId}/review")
+    public AjaxResult reviewMemberLeave(@PathVariable Long requestId, @RequestBody Map<String, Object> body)
+    {
+        return success(projectService.reviewMemberLeaveRequest(requestId, text(body, "decision"),
+            text(body, "comment"), currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:project:allocation,business:boss:view')")
+    @Log(title = "取消成员请假申请", businessType = BusinessType.UPDATE)
+    @PostMapping("/leave-request/{requestId}/cancel")
+    public AjaxResult cancelMemberLeaveRequest(@PathVariable Long requestId, @RequestBody Map<String, Object> body)
+    {
+        projectService.cancelMemberLeaveRequest(requestId, text(body, "reason"),
+            currentUserId(), currentUserName(), isBoss());
+        return success();
     }
 
     @PreAuthorize("@ss.hasPermi('business:project:allocation')")

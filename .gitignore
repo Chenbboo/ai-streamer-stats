@@ -53,6 +53,7 @@ uploads/
 # ==================== Misc ====================
 logs/
 outputs/
+work/db-backups/
 *.xml.versionsBackup
 *.bak
 *.tmp

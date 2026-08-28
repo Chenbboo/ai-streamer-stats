@@ -37,8 +37,7 @@
     </div>
 
     <el-dialog v-model="previewVisible" title="成果凭证" width="min(860px,92vw)" append-to-body>
-      <img v-if="isImage(previewUrl)" class="preview-image" :src="fileUrl(previewUrl)" alt="成果凭证">
-      <div v-else class="file-preview"><p>该凭证不是图片，可在新窗口中查看。</p><el-button type="primary" @click="openFile(previewUrl)">打开文件</el-button></div>
+      <business-file-upload :model-value="previewUrl" :project-id="review.project?.projectId" disabled :drag="false" :is-show-tip="false" />
     </el-dialog>
   </article>
 </template>
@@ -50,15 +49,7 @@ const returnReason=ref('')
 const previewVisible=ref(false)
 const previewUrl=ref('')
 const attachments=computed(()=>Array.isArray(props.review.attachmentList)?props.review.attachmentList:[])
-const fileUrl=value=>{
-  if(!value)return ''
-  if(/^https?:\/\//i.test(value)||value.startsWith('data:')||value.startsWith('blob:'))return value
-  const base=import.meta.env.VITE_APP_BASE_API||''
-  return `${base}${value.startsWith('/')?'':'/'}${value}`
-}
-const isImage=value=>/\.(png|jpe?g|gif|webp|bmp|svg)(\?.*)?$/i.test(value||'')||String(value||'').startsWith('data:image/')
-function showAttachment(value){if(isImage(value)){previewUrl.value=value;previewVisible.value=true}else openFile(value)}
-function openFile(value){window.open(fileUrl(value),'_blank','noopener,noreferrer')}
+function showAttachment(value){previewUrl.value=value;previewVisible.value=true}
 function approveAcceptance(){emit('action',`验收通过并结项“${props.review.project?.projectName}”`)}
 function returnAcceptance(){emit('action',`退回验收“${props.review.project?.projectName}”，原因：${returnReason.value.trim()}`)}
 </script>

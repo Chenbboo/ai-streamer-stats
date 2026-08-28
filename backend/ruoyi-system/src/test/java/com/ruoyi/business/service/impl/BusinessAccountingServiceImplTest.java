@@ -17,12 +17,14 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import com.ruoyi.business.domain.BusinessOperatingFact;
 import com.ruoyi.business.mapper.BusinessAccountingMapper;
+import com.ruoyi.business.service.BusinessFileService;
 import com.ruoyi.common.exception.ServiceException;
 
 @ExtendWith(MockitoExtension.class)
 class BusinessAccountingServiceImplTest
 {
     @Mock BusinessAccountingMapper mapper;
+    @Mock BusinessFileService businessFileService;
     @InjectMocks BusinessAccountingServiceImpl service;
 
     @Test void otherBossCannotCreateFactForForeignProject()
@@ -51,7 +53,46 @@ class BusinessAccountingServiceImplTest
 
         assertEquals(new BigDecimal("550"),result.get("profitAmount"));
         assertEquals(2,result.get("resultVersion"));
+        assertEquals(new BigDecimal("500"),result.get("budgetSpent"));
+        org.mockito.InOrder order=inOrder(mapper);
+        order.verify(mapper).insertDailyResult(any());
+        order.verify(mapper).sumProjectCostToDate(21L,day);
+        order.verify(mapper).updateDailyResultBudgetSpent(99L,new BigDecimal("500"));
         verify(mapper,times(5)).insertDailyResultItem(any());
+    }
+
+    @Test void backdatedRecalculationRefreshesEveryLaterCumulativeSnapshot()
+    {
+        Date changed=java.sql.Date.valueOf("2026-08-20");
+        Date laterDate=java.sql.Date.valueOf("2026-08-21");
+        when(mapper.selectProjectForAccounting(24L)).thenReturn(project(24L,8L));
+        when(mapper.sumProjectFacts(24L,changed)).thenReturn(Collections.emptyMap());
+        when(mapper.sumProjectPersonnelCost(24L,changed)).thenReturn(new BigDecimal("100"));
+        when(mapper.sumProjectCostToDate(24L,changed)).thenReturn(new BigDecimal("500"));
+        when(mapper.sumProjectCostToDate(24L,laterDate)).thenReturn(new BigDecimal("650"));
+        when(mapper.selectNextResultVersion(24L,changed)).thenReturn(2);
+        Map<String,Object> later=new HashMap<String,Object>();later.put("resultId",202L);later.put("bizDate",laterDate);
+        when(mapper.selectCurrentResultsAfter(24L,changed)).thenReturn(Collections.singletonList(later));
+        doAnswer(invocation->{invocation.<Map<String,Object>>getArgument(0).put("resultId",201L);return 1;})
+            .when(mapper).insertDailyResult(any());
+
+        service.recalculate(24L,changed,8L,"boss8",false);
+
+        verify(mapper).updateDailyResultBudgetSpent(201L,new BigDecimal("500"));
+        verify(mapper).updateDailyResultBudgetSpent(202L,new BigDecimal("650"));
+    }
+
+    @Test void terminalProjectRejectsNewFinancialFacts()
+    {
+        Map<String,Object> closed=project(25L,8L);closed.put("status","CLOSED");
+        when(mapper.selectProjectForAccounting(25L)).thenReturn(closed);
+        BusinessOperatingFact fact=new BusinessOperatingFact();fact.setProjectId(25L);
+
+        ServiceException error=assertThrows(ServiceException.class,
+            ()->service.saveFact(fact,8L,"boss8",false));
+
+        assertTrue(error.getMessage().contains("财务已关账"));
+        verify(mapper,never()).insertFact(any());
     }
 
     @Test void recalculationStoresOnePersonnelSnapshotItemPerPerson()
@@ -103,21 +144,18 @@ class BusinessAccountingServiceImplTest
         verify(mapper).insertDailyResult(any());
     }
 
-    @Test void oldResultGetsPersonnelBreakdownWithoutChangingTheSnapshot()
+    @Test void oldResultKeepsStoredPersonnelSnapshotWithoutRehydratingCurrentPolicies()
     {
         Map<String,Object> result=new HashMap<String,Object>();result.put("resultId",9L);result.put("projectId",22L);
         result.put("bizDate",java.sql.Date.valueOf("2026-08-11"));
         when(mapper.selectDailyResults(any())).thenReturn(Collections.singletonList(result));
         Map<String,Object> total=new HashMap<String,Object>();total.put("componentCode","PERSONNEL_COST");
         when(mapper.selectDailyResultItems(9L)).thenReturn(Collections.singletonList(total));
-        Map<String,Object> person=new HashMap<String,Object>();person.put("componentName","石头");person.put("amount",new BigDecimal("137.931"));
-        when(mapper.selectProjectPersonnelCostDetails(eq(22L),any())).thenReturn(Collections.singletonList(person));
-
         Map<String,Object> detail=service.resultDetail(9L,8L,false);
 
         List<?> personnel=(List<?>)detail.get("personnelItems");
-        assertEquals(1,personnel.size());
-        assertEquals("石头",((Map<?,?>)personnel.get(0)).get("componentName"));
+        assertEquals(0,personnel.size());
+        verify(mapper,never()).selectProjectPersonnelCostDetails(any(),any());
         verify(mapper,never()).insertDailyResult(any());
     }
 
@@ -203,7 +241,6 @@ class BusinessAccountingServiceImplTest
         Map<String,Object> category=new HashMap<String,Object>();category.put("categoryCode","SALES_REVENUE");
         category.put("categoryName","销售收入");category.put("factKind","REVENUE");
         when(mapper.selectProjectForAccounting(30L)).thenReturn(project);
-        when(mapper.selectAccountingMemberRole(30L,9L)).thenReturn("OWNER");
         when(mapper.selectCategoryById(1L)).thenReturn(category);
         doAnswer(invocation->{((BusinessOperatingFact)invocation.getArgument(0)).setFactId(300L);return 1;})
             .when(mapper).insertFact(any());
@@ -275,6 +312,34 @@ class BusinessAccountingServiceImplTest
         verify(mapper).insertDailyResult(any());
     }
 
+    @Test void bossCanReturnDraftWithReasonWithoutRecalculating()
+    {
+        BusinessOperatingFact draft=new BusinessOperatingFact();draft.setFactId(330L);draft.setProjectId(32L);
+        draft.setStatus("DRAFT");draft.setVersion(4);
+        BusinessOperatingFact returned=new BusinessOperatingFact();returned.setFactId(330L);returned.setProjectId(32L);
+        returned.setStatus("RETURNED");returned.setReturnReason("凭证金额与填报不一致");
+        when(mapper.selectFactById(330L)).thenReturn(draft,returned);
+        when(mapper.selectProjectForAccounting(32L)).thenReturn(project(32L,8L));
+        when(mapper.returnFact(330L,"凭证金额与填报不一致",8L,"boss8",4)).thenReturn(1);
+
+        BusinessOperatingFact result=service.returnFact(330L,"  凭证金额与填报不一致  ",8L,"boss8",false);
+
+        assertEquals("RETURNED",result.getStatus());
+        assertEquals("凭证金额与填报不一致",result.getReturnReason());
+        verify(mapper).returnFact(330L,"凭证金额与填报不一致",8L,"boss8",4);
+        verify(mapper,never()).insertDailyResult(any());
+    }
+
+    @Test void returningDraftRequiresReason()
+    {
+        ServiceException error=assertThrows(ServiceException.class,
+            ()->service.returnFact(330L,"  ",8L,"boss8",false));
+
+        assertTrue(error.getMessage().contains("退回原因"));
+        verify(mapper,never()).selectFactById(any());
+        verify(mapper,never()).returnFact(any(),any(),any(),any(),any());
+    }
+
     @Test void ordinaryMemberCannotSubmitProjectDailyTotalSpend()
     {
         Map<String,Object> project=project(33L,8L);
@@ -295,13 +360,12 @@ class BusinessAccountingServiceImplTest
         Map<String,Object> project=project(31L,8L);
         project.put("mainOwnerUserId",9L);project.put("status","ACTIVE");
         when(mapper.selectProjectForAccounting(31L)).thenReturn(project);
-        when(mapper.selectAccountingMemberRole(31L,77L)).thenReturn(null);
         BusinessOperatingFact fact=new BusinessOperatingFact();fact.setProjectId(31L);
 
         ServiceException error=assertThrows(ServiceException.class,
             ()->service.saveProjectFact(fact,77L,"outsider",false));
 
-        assertTrue(error.getMessage().contains("自己负责或参与"));
+        assertTrue(error.getMessage().contains("主负责人"));
         verify(mapper,never()).insertFact(any());
     }
 

@@ -2,9 +2,11 @@ package com.ruoyi.business.domain;
 
 import java.util.Date;
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.ruoyi.common.core.domain.entity.SysUser;
 
 /** 公司人员扩展档案；账号及联系方式继续复用 sys_user。 */
+@JsonIgnoreProperties(value = {"loginDate"}, allowGetters = true)
 public class BusinessStaffProfile extends SysUser
 {
     private static final long serialVersionUID = 1L;

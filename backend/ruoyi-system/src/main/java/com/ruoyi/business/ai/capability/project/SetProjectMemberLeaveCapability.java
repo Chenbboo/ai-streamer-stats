@@ -19,12 +19,12 @@ public class SetProjectMemberLeaveCapability implements AiConfirmableCapability
     @Autowired public SetProjectMemberLeaveCapability(IBusinessProjectService service) { this.service = service; }
     @Override public String code() { return "project.member.leave.set"; }
     @Override public String description()
-    { return "登记或取消项目成员某天请假。先读取项目详情和人员目录取得稳定ID；登记必须有原因，确认后执行。"; }
+    { return "提交或撤回项目成员某天的请假申请。申请必须有原因，提交后等待归属老板审批，批准后才影响项目投入和人员成本。"; }
     @Override public String requiredPermission() { return "business:project:allocation"; }
     @Override public Map<String, Object> inputSchema()
     {
         Map<String, Object> s = AiSchemas.object(); Map<String, Object> operation = AiSchemas.property(s,
-            "operation", "string", "MARK登记请假，CANCEL取消请假");
+            "operation", "string", "MARK提交请假申请，CANCEL撤回待审批申请");
         operation.put("enum", Arrays.asList("MARK", "CANCEL"));
         AiSchemas.property(s, "projectId", "number", "项目ID");
         AiSchemas.property(s, "memberUserId", "number", "项目成员用户ID");
@@ -51,7 +51,7 @@ public class SetProjectMemberLeaveCapability implements AiConfirmableCapability
             invocation.getActor().getUserId(), invocation.getActor().getUserName(), true);
         Map<String, Object> result = new LinkedHashMap<String, Object>(); result.put("projectId", projectId);
         result.put("memberUserId", memberId); result.put("leaveDate", input.get("leaveDate"));
-        result.put("status", "MARK".equals(operation) ? "ACTIVE" : "CANCELED"); return result;
+        result.put("status", "MARK".equals(operation) ? "PENDING" : "CANCELED"); return result;
     }
     private void validate(Map<String, Object> input)
     {
