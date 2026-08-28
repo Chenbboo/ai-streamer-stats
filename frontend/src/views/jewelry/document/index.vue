@@ -51,8 +51,8 @@
             <el-input-number v-model="form.actualRefundAmount" :min="0" :precision="2" :disabled="readonly" @change="actualRefundTotalChanged" />
           </el-form-item>
           <el-form-item v-if="needsSalesChannel" label="销售渠道" required><el-input v-model="form.salesChannel" :disabled="readonly || !!form.sourceDocumentId"/></el-form-item>
-          <el-form-item v-if="form.docType==='SALES_OUT' || (form.docType==='CUSTOMER_RETURN' && !form.sourceDocumentId)" label="达人/主播" required>
-            <el-select v-model="form.influencerId" filterable :disabled="readonly" @change="influencerChanged">
+          <el-form-item v-if="form.docType==='SALES_OUT' || (form.docType==='CUSTOMER_RETURN' && !form.sourceDocumentId)" label="达人/主播" :required="form.docType==='SALES_OUT'">
+            <el-select v-model="form.influencerId" filterable :clearable="form.docType==='CUSTOMER_RETURN'" :placeholder="form.docType==='CUSTOMER_RETURN'?'可选':'请选择'" :disabled="readonly" @change="influencerChanged">
               <el-option v-for="item in influencers" :key="item.influencerId"
                 :label="`${item.influencerName}${item.externalInfluencerId?`（ID：${item.externalInfluencerId}）`:''} · ${item.platform || '未填平台'} · 已定价${Number(item.pricedProductCount||0)}种${Number(item.pendingProductCount||0)>0?` / 待生效${Number(item.pendingProductCount)}种`:''}`"
                 :value="item.influencerId"/>
@@ -66,7 +66,7 @@
           <el-form-item v-if="form.docType==='SALES_OUT'" label="税率（%）"><el-input-number v-model="taxPercent" :min="0" :max="100" :step="1" :precision="2" :disabled="readonly"/></el-form-item>
         </div></el-form>
         <el-alert v-if="form.docType==='CUSTOMER_RETURN' && !form.sourceDocumentId && !readonly"
-          title="原销售单为可选项。未关联时可选择商品档案中的任意商品：达人已定价商品自动带价，已绑定包装搭售件锁定为0，其他商品请手填实际退款单价并进入复核；整套退货仍建议优先选择原销售单。"
+          title="原销售单和达人/主播均可不选。选择达人时，已定价商品自动带价、已绑定包装搭售件锁定为0；不选达人时可选择任意商品并手填实际退款单价。未关联原销售单的退货均进入复核；整套退货仍建议优先选择原销售单。"
           type="warning" :closable="false" show-icon />
         <el-alert v-if="form.docType==='CUSTOMER_RETURN' && form.sourceDocumentId && form.items.some(item=>normalizedSaleRole(item)==='ADDON') && !readonly"
           title="已按原销售组合带出主商品和搭售散件。修改主商品退货数量会按原组合比例同步散件数量；未实际退回的散件可单独修改数量或删除。"
@@ -177,7 +177,7 @@
             <div class="unit-price-cell">
               <el-input-number v-model="row.unitPrice" :min="0" :precision="unitPricePrecision" :step="unitPriceStep" :disabled="readonly || (form.docType==='CUSTOMER_RETURN' && (!!form.sourceDocumentId || isIncludedInfluencerAddon(row))) || (form.docType==='SALES_OUT' && (normalizedPricingMode(row)==='INCLUDED' || Number(row.influencerPriceVersion||0)>0))" style="width:100%"/>
               <small v-if="form.docType==='CUSTOMER_RETURN' && isIncludedInfluencerAddon(row)" class="fixed-price-note">已包含在主商品退款价中</small>
-              <small v-else-if="isUnlinkedInfluencerReturn() && row.productId && row.influencerPriceSnapshot==null" class="pending-price-note">无达人固定价，请手填；提交后需复核</small>
+              <small v-else-if="isUnlinkedInfluencerReturn() && row.productId && row.influencerPriceSnapshot==null" class="pending-price-note">无可用达人固定价，请手填；提交后需复核</small>
               <small v-if="form.docType==='SALES_OUT' && normalizedPricingMode(row)!=='INCLUDED' && row.productId" :class="row.influencerPriceStatus==='PENDING'?'pending-price-note':'fixed-price-note'">
                 {{Number(row.influencerPriceVersion||0)>0?'达人商品固定价':row.influencerPriceStatus==='PENDING'?'本草稿待生效价格':'保存草稿后关联达人库'}}
               </small>
@@ -555,7 +555,15 @@ function applyInfluencerPriceToRows(){
 }
 async function influencerChanged(id){
   const influencer=influencerOf(id)
-  if(!influencer){form.influencerName='';influencerProductPrices.value=[];influencerBundleItems.value=[];form.items.forEach(clearRowInfluencerPrice);return}
+  if(!influencer){
+    form.influencerName='';influencerProductPrices.value=[];influencerBundleItems.value=[]
+    for(const row of form.items){
+      clearRowInfluencerPrice(row)
+      if(isUnlinkedInfluencerReturn()){row.unitPrice=0;row.saleRole='NORMAL';row.pricingMode='SEPARATE'}
+    }
+    if(isUnlinkedInfluencerReturn()&&!actualRefundManuallyEdited.value)form.actualRefundAmount=0
+    return
+  }
   form.influencerName=influencer.influencerName||''
   if(!form.salesChannel&&influencer.salesChannel)form.salesChannel=influencer.salesChannel
   await loadInfluencerReferences(id)
@@ -851,7 +859,6 @@ function validateDocument(requireSubmit=false){
   if(form.docType==='SUPPLIER_RETURN'&&!form.sourceDocumentId){proxy.$modal.msgError('供应商退货必须选择原采购单');return false}
   if(form.docType==='CUSTOMER_RETURN'&&(form.actualRefundAmount===null||Number(form.actualRefundAmount)<0)){proxy.$modal.msgError('请填写实际退款总额');return false}
   if(form.docType==='SALES_OUT'&&!form.influencerId){proxy.$modal.msgError('销售出库必须选择达人/主播');return false}
-  if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&!form.influencerId){proxy.$modal.msgError('未关联原销售单时必须选择达人/主播');return false}
   if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&form.items.some(x=>Number(x.unitPrice||0)<=0&&!isIncludedInfluencerAddon(x))){proxy.$modal.msgError('未关联原销售单时，请填写每件计价商品的实际退款单价');return false}
   if(form.docType==='SALES_OUT'&&form.items.some(x=>normalizedPricingMode(x)!=='INCLUDED'&&Number(x.unitPrice||0)<=0)){proxy.$modal.msgError('请填写每件计价商品的成交单价；未定价商品保存草稿后会关联到达人库');return false}
   if(form.docType==='RETURN_INSPECT'&&!form.sourceDocumentId){proxy.$modal.msgError('退货质检必须选择原客户退货单');return false}

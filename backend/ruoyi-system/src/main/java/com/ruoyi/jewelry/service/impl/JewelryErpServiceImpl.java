@@ -905,7 +905,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 .add(money(document.getTaxRate())));
         Set<String> itemKeys = new HashSet<String>();
         Set<Long> includedInfluencerAddonIds = new HashSet<Long>();
-        if ("CUSTOMER_RETURN".equals(document.getDocType()) && document.getSourceDocumentId() == null)
+        if ("CUSTOMER_RETURN".equals(document.getDocType()) && document.getSourceDocumentId() == null
+            && document.getInfluencerId() != null)
         {
             List<Map<String, Object>> bundleItems = mapper.selectInfluencerBundleItems(document.getInfluencerId());
             if (bundleItems != null)
@@ -1421,7 +1422,13 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             && document.getSourceDocumentId() == null;
         if (!sales && !unlinkedReturn) return;
         if (document.getInfluencerId() == null)
-            throw new ServiceException(sales ? "销售出库必须选择达人/主播" : "未关联原销售单时必须选择达人/主播");
+        {
+            if (sales) throw new ServiceException("销售出库必须选择达人/主播");
+            document.setInfluencerName("");
+            document.setInfluencerPriceSnapshot(null);
+            document.setInfluencerPriceVersion(null);
+            return;
+        }
         Map<String, Object> influencer = mapper.selectInfluencerById(document.getInfluencerId());
         if (influencer == null || !"0".equals(textValue(influencer.get("status"))))
             throw new ServiceException("达人/主播不存在或已停用");
@@ -1435,6 +1442,21 @@ public class JewelryErpServiceImpl implements IJewelryErpService
 
     private void applyInfluencerProductPrices(JewelryDocument document, boolean sales, boolean unlinkedReturn)
     {
+        if (unlinkedReturn && document.getInfluencerId() == null)
+        {
+            for (JewelryDocumentItem item : document.getItems())
+            {
+                BigDecimal entered = fourDecimal(item.getUnitPrice());
+                if (entered.signum() <= 0)
+                    throw new ServiceException(text(item.getProductNameSnapshot()) + " 请填写实际退款单价");
+                item.setUnitPrice(entered);
+                item.setInfluencerPriceSnapshot(null);
+                item.setInfluencerPriceVersion(null);
+                item.setSaleRole("NORMAL");
+                item.setPricingMode("SEPARATE");
+            }
+            return;
+        }
         Map<Long, Map<String, Object>> prices = new HashMap<Long, Map<String, Object>>();
         for (Map<String, Object> price : mapper.selectInfluencerProductPrices(document.getInfluencerId()))
             prices.put(longValue(price.get("productId")), price);

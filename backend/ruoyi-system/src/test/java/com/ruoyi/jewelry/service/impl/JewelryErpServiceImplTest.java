@@ -520,6 +520,7 @@ class JewelryErpServiceImplTest
     void unlinkedCustomerReturnAllowsArbitraryUnpricedProductAndIsFlaggedForReview()
     {
         JewelryDocument customerReturn = document(null, "CUSTOMER_RETURN", null);
+        customerReturn.setInfluencerId(null);
         customerReturn.setSalesChannel("shop");
         customerReturn.setReturnReason("customer return");
         customerReturn.setActualRefundAmount(decimal("900.00"));
@@ -542,6 +543,8 @@ class JewelryErpServiceImplTest
         assertEquals(null, customerReturn.getItems().get(0).getInfluencerPriceVersion());
         assertMoney("100.00", customerReturn.getItems().get(0).getUnitCost());
         assertMoney("-900.00", customerReturn.getTotalAmount());
+        verify(mapper, never()).selectInfluencerById(anyLong());
+        verify(mapper, never()).selectInfluencerProductPrices(anyLong());
         verify(mapper).insertDocument(customerReturn);
     }
 
