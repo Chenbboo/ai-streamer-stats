@@ -95,6 +95,23 @@ class BusinessAccountingServiceImplTest
         verify(mapper,never()).insertFact(any());
     }
 
+    @Test void returnedOrDraftAccountingFactsBlockProjectClosure()
+    {
+        when(mapper.countProjectUnsettledFacts(25L)).thenReturn(1);
+
+        ServiceException error=assertThrows(ServiceException.class,
+            ()->service.ensureProjectCanClose(25L));
+
+        assertTrue(error.getMessage().contains("已退回未修改"));
+    }
+
+    @Test void settledAccountingFactsAllowProjectClosure()
+    {
+        when(mapper.countProjectUnsettledFacts(25L)).thenReturn(0);
+
+        assertDoesNotThrow(()->service.ensureProjectCanClose(25L));
+    }
+
     @Test void recalculationStoresOnePersonnelSnapshotItemPerPerson()
     {
         Date day=new Date();Map<String,Object> project=project(22L,8L);

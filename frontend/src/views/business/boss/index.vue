@@ -105,7 +105,7 @@
       <div class="section-title section-title--between">
         <h2>今日经营</h2>
         <div class="panel-actions">
-          <el-tag v-if="accounting.missingDailyResultCount" type="warning">{{ accounting.missingDailyResultCount }} 个项目待核算</el-tag>
+          <el-tag v-if="accounting.missingDailyResultCount" type="warning">{{ accounting.missingDailyResultCount }} 个项目尚未生成今日经营结果</el-tag>
           <el-tag v-if="accounting.draftFactCount" type="warning">{{ accounting.draftFactCount }} 条草稿</el-tag>
           <el-button link type="primary" @click="openAccounting()">进入每日收支</el-button>
         </div>
