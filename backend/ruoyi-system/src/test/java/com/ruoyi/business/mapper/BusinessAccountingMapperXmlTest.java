@@ -51,4 +51,37 @@ class BusinessAccountingMapperXmlTest
         assertTrue(xml.contains("<update id=\"returnFact\""));
         assertTrue(xml.contains("status='RETURNED'"));
     }
+
+    @Test
+    void returnedAccountingFactBlocksProjectClosure()
+    {
+        String xml=mapperXml();
+        int start=xml.indexOf("<select id=\"countProjectUnsettledFacts\"");
+        int end=xml.indexOf("</select>",start);
+        assertTrue(start>=0&&end>start);
+        assertTrue(xml.substring(start,end).contains("status in('DRAFT','RETURNED')"));
+    }
+
+    @Test
+    void missingDailyResultIncludesProjectsWithFactsOrPersonnelAllocation()
+    {
+        String xml=mapperXml();
+        int start=xml.indexOf("<select id=\"countProjectsMissingDailyResult\"");
+        int end=xml.indexOf("</select>",start);
+        assertTrue(start>=0&&end>start);
+        String query=xml.substring(start,end);
+        assertTrue(query.contains("p.status in('ACTIVE','ACCEPTANCE')"));
+        assertTrue(query.contains("exists(select 1 from biz_operating_fact"));
+        assertTrue(query.contains("or exists(select 1 from biz_project_staff_allocation"));
+        assertTrue(query.contains("not exists(select 1 from biz_project_daily_result"));
+        assertFalse(query.contains("join biz_project_staff_allocation a on"));
+    }
+
+    private String mapperXml()
+    {
+        InputStream input=getClass().getResourceAsStream("/mapper/business/BusinessAccountingMapper.xml");
+        assertNotNull(input);
+        return new BufferedReader(new InputStreamReader(input,StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+    }
 }

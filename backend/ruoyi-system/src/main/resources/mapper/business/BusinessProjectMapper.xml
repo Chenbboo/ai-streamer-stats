@@ -557,7 +557,7 @@
 
     <select id="countPendingProjectLeaveRequests" resultType="int">
         select count(*) from biz_staff_leave_request
-        where submitted_project_id=#{projectId} and request_status in ('PENDING','CANCEL_PENDING')
+        where submitted_project_id=#{projectId} and status in ('PENDING','CANCEL_PENDING')
     </select>
 
     <update id="closeProjectRoutines">

@@ -345,7 +345,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     public void ensureProjectCanClose(Long projectId)
     {
         if(mapper.countProjectUnsettledFacts(projectId)>0)
-            throw new ServiceException("项目仍有待确认的收支草稿，请先确认或退回后再结项");
+            throw new ServiceException("项目仍有待确认或已退回未修改的收支，请处理完成后再结项");
     }
 
     @Override

@@ -20,10 +20,15 @@
   <select id="countProjectsMissingDailyResult" resultType="int">
     select count(distinct p.project_id)
     from biz_project p
-    join biz_project_staff_allocation a on a.project_id=p.project_id and a.status='ACTIVE'
-      and a.effective_from&lt;=#{bizDate} and (a.effective_to is null or a.effective_to&gt;=#{bizDate})
-    where p.del_flag='0' and p.status not in('CLOSED','CANCELED')
+    where p.del_flag='0' and p.status in('ACTIVE','ACCEPTANCE')
       <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      and (
+        exists(select 1 from biz_operating_fact f where f.project_id=p.project_id
+          and f.biz_date=#{bizDate} and f.status in('DRAFT','RETURNED','CONFIRMED','REVERSED'))
+        or exists(select 1 from biz_project_staff_allocation a where a.project_id=p.project_id
+          and a.status='ACTIVE' and a.effective_from&lt;=#{bizDate}
+          and (a.effective_to is null or a.effective_to&gt;=#{bizDate}))
+      )
       and not exists(select 1 from biz_project_daily_result r where r.project_id=p.project_id
         and r.biz_date=#{bizDate} and r.is_current='1')
   </select>
@@ -304,7 +309,7 @@
     where f.status='DRAFT'<if test="viewAll == false"> and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
   </select>
   <select id="countProjectUnsettledFacts" resultType="int">
-    select count(*) from biz_operating_fact where project_id=#{projectId} and status='DRAFT'
+    select count(*) from biz_operating_fact where project_id=#{projectId} and status in('DRAFT','RETURNED')
   </select>
   <update id="closeProjectDailyResults">
     update biz_project_daily_result set close_status='CLOSED'

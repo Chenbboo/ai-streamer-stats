@@ -130,4 +130,20 @@ class BusinessProjectMapperXmlTest
         assertTrue(!query.contains("biz_project_staff_effort"));
     }
 
+    @Test
+    void terminalGuardReadsTheRealLeaveRequestStatusColumn()
+    {
+        InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
+        assertNotNull(input);
+        String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+        int start = xml.indexOf("<select id=\"countPendingProjectLeaveRequests\"");
+        int end = xml.indexOf("</select>", start);
+        assertTrue(start >= 0 && end > start);
+        String query = xml.substring(start, end);
+
+        assertTrue(query.contains("status in ('PENDING','CANCEL_PENDING')"));
+        assertTrue(!query.contains("request_status"));
+    }
+
 }
