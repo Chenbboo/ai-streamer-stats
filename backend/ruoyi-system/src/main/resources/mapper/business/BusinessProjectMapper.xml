@@ -512,6 +512,22 @@
         order by field(m.member_role,'OWNER','DEPUTY','MEMBER','OBSERVER'),m.member_id
     </select>
 
+    <select id="selectManagedProjectMemberUserIds" resultType="long">
+        select distinct m.user_id
+        from biz_project p
+        join biz_project_member m on m.project_id=p.project_id and m.status='0'
+        where p.main_owner_user_id=#{ownerUserId} and p.del_flag='0'
+          and p.status not in ('CLOSED','CANCELED')
+    </select>
+
+    <select id="countManagedProjectMember" resultType="int">
+        select count(distinct m.user_id)
+        from biz_project p
+        join biz_project_member m on m.project_id=p.project_id and m.status='0'
+        where p.main_owner_user_id=#{ownerUserId} and m.user_id=#{staffUserId}
+          and p.del_flag='0' and p.status not in ('CLOSED','CANCELED')
+    </select>
+
     <insert id="upsertMember" parameterType="com.ruoyi.business.domain.BusinessProjectMember"
             useGeneratedKeys="true" keyProperty="memberId">
         insert into biz_project_member(project_id,user_id,user_name_snapshot,member_role,status,joined_date,

@@ -543,7 +543,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         boolean companyOwner = requireStaffCostManager(userId, staffCostManager);
         if (administrator) requireCostEligibleUser(staffUserId);
         else requireActiveUser(staffUserId);
-        if (!administrator && companyOwner) requireStaffCostCompanyOwner(staffUserId, userId, false);
+        if (!administrator) requireStaffCostScope(staffUserId, userId, companyOwner, false);
         return mapper.selectStaffCostPolicies(staffUserId);
     }
 
@@ -557,7 +557,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (policy == null || policy.getUserId() == null) throw new ServiceException("请选择人员");
         if (administrator) requireCostEligibleUser(policy.getUserId());
         else requireActiveUser(policy.getUserId());
-        if (!administrator && companyOwner) requireStaffCostCompanyOwner(policy.getUserId(), userId, true);
+        if (!administrator) requireStaffCostScope(policy.getUserId(), userId, companyOwner, true);
         if (policy.getUnitCost() == null || policy.getUnitCost().compareTo(BigDecimal.ZERO) < 0)
             throw new ServiceException("月度用人成本不能为空或为负数");
         String countryRegion = mapper.selectStaffCountryRegion(policy.getUserId());
@@ -640,7 +640,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         else
         {
             requireActiveUser(policy.getUserId());
-            if (companyOwner) requireStaffCostCompanyOwner(policy.getUserId(), userId, false);
+            requireStaffCostScope(policy.getUserId(), userId, companyOwner, false);
         }
         return policy;
     }
@@ -649,7 +649,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     {
         if (SecurityUtils.isAdmin(userId)) return false;
         boolean companyOwner = mapper.countUserRoleByKey(userId, "company_owner") > 0;
-        boolean projectOwner = mapper.countUserRoleByKey(userId, "project_owner") > 0;
+        boolean projectOwner = !mapper.selectManagedProjectMemberUserIds(userId).isEmpty();
         if (!staffCostManager || (!companyOwner && !projectOwner))
             throw new ServiceException("只有系统管理员、公司负责人或项目负责人可以维护人员内部核算成本");
         // 公司负责人继续受本人公司范围限制；纯项目负责人只获得成本维护能力。
@@ -874,6 +874,18 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         addEvent(projectId, "APPROVED".equals(decision) ? "CLOSE" : "RETURN_ACTIVE",
             "ACCEPTANCE", to, userId, userName, StringUtils.isBlank(comment) ? "验收通过" : comment);
         return getProject(projectId, userId, SecurityUtils.isAdmin(userId), boss);
+    }
+
+    private void requireStaffCostScope(Long staffUserId, Long operatorUserId, boolean companyOwner,
+        boolean lockForUpdate)
+    {
+        if (companyOwner)
+        {
+            requireStaffCostCompanyOwner(staffUserId, operatorUserId, lockForUpdate);
+            return;
+        }
+        if (mapper.countManagedProjectMember(operatorUserId, staffUserId) == 0)
+            throw new ServiceException("只能查看和设置本人负责项目中成员的内部核算成本");
     }
 
     @Override

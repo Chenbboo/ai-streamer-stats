@@ -116,6 +116,7 @@ class BusinessStaffServiceImplTest
         profile.setUserId(147L); profile.setEmploymentStatus("ACTIVE");
         when(userService.selectUserList(any())).thenReturn(Arrays.asList(staff));
         when(profileMapper.selectByUserIds(any())).thenReturn(Arrays.asList(profile));
+        when(projectMapper.selectManagedProjectMemberUserIds(134L)).thenReturn(Arrays.asList(147L));
 
         List<?> rows = service.listStaff(new SysUser(), 134L, false, false, true).getRows();
 

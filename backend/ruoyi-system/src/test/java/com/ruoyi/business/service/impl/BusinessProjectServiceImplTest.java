@@ -1618,7 +1618,8 @@ class BusinessProjectServiceImplTest
         Map<String, Object> staff = new HashMap<String, Object>();
         staff.put("nickName", "项目成员");
         when(mapper.countUserRoleByKey(134L, "company_owner")).thenReturn(0);
-        when(mapper.countUserRoleByKey(134L, "project_owner")).thenReturn(1);
+        when(mapper.selectManagedProjectMemberUserIds(134L)).thenReturn(Arrays.asList(147L));
+        when(mapper.countManagedProjectMember(134L, 147L)).thenReturn(1);
         when(mapper.selectActiveUserById(147L)).thenReturn(staff);
         when(mapper.selectStaffCountryRegion(147L)).thenReturn("CN");
         when(mapper.selectNextStaffCostVersion(147L)).thenReturn(2);
