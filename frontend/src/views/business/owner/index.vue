@@ -4,7 +4,7 @@
       <div>
         <span>PROJECT OWNER WORKBENCH</span>
         <h1>项目负责人工作台</h1>
-        <p>录入今日收入草稿和项目总花费；收入由老板确认后入账，花费保存后进入经营核算。</p>
+        <p>负责人管理项目执行、收入、花费、人员投入和目标；提交后直接进入项目经营核算。</p>
       </div>
       <div class="hero-actions">
         <el-button v-hasPermi="['business:project:report']" type="primary" :disabled="!canReport" @click="openRevenue">录入收入</el-button>
@@ -201,7 +201,7 @@
 
           <article class="panel">
             <div class="panel-head">
-              <div><h2>今日项目总花费</h2><p>{{ accounting.bizDate }} · 负责人提交草稿，老板确认后才计入经营结果；不包含人员成本</p></div>
+              <div><h2>今日项目总花费</h2><p>{{ accounting.bizDate }} · 负责人确认后直接计入经营结果；不包含人员成本</p></div>
               <el-button v-hasPermi="['business:project:report']" type="primary" :icon="accounting.dailySpend?'Edit':'Plus'" :disabled="!canReport" @click="openDailySpend">{{ accounting.dailySpend ? '修改花费' : '填写花费' }}</el-button>
             </div>
             <el-alert v-if="!canReport" :title="reportBlockReason" type="info" :closable="false" show-icon />
@@ -209,20 +209,20 @@
             <div v-else class="daily-spend-row">
               <span><small>今日填报花费</small><b>{{ money(accounting.dailySpend.amount) }} {{ accounting.dailySpend.currency || project.baseCurrency }}</b></span>
               <span><small>说明</small><b>{{ accounting.dailySpend.description || '无' }}</b></span>
-              <el-tag :type="accounting.dailySpend.status==='RETURNED'?'danger':accounting.dailySpend.status==='DRAFT'?'warning':'success'">{{ accounting.dailySpend.status==='RETURNED'?'已退回':accounting.dailySpend.status==='DRAFT'?'等待老板确认':'已计入经营结果' }}</el-tag>
+              <el-tag :type="accounting.dailySpend.status==='RETURNED'?'danger':accounting.dailySpend.status==='DRAFT'?'warning':'success'">{{ accounting.dailySpend.status==='RETURNED'?'历史退回':accounting.dailySpend.status==='DRAFT'?'历史待确认':'已计入经营结果' }}</el-tag>
             </div>
             <el-alert v-if="accounting.dailySpend?.status==='RETURNED'" :title="`老板已退回：${accounting.dailySpend.returnReason||'请修改后重新提交'}`" type="warning" :closable="false" show-icon />
           </article>
 
           <article class="panel revenue-summary-panel">
             <div class="panel-head">
-              <div><h2>今日项目总收入</h2><p>{{ accounting.bizDate }} · 收入由负责人提交草稿，老板确认后正式计入经营结果</p></div>
+              <div><h2>今日项目总收入</h2><p>{{ accounting.bizDate }} · 收入由负责人确认后直接计入经营结果</p></div>
               <el-button v-hasPermi="['business:project:report']" type="primary" plain :disabled="!canReport" @click="openRevenue">录入收入</el-button>
             </div>
             <div class="daily-revenue-row">
               <span><small>今日填报总额</small><b>{{ money(revenueSubmittedAmount) }} {{ project.baseCurrency || 'CNY' }}</b></span>
               <span><small>已确认入账</small><b class="green">{{ money(dailyRevenue.confirmedAmount) }} {{ project.baseCurrency || 'CNY' }}</b></span>
-              <span><small>待老板确认</small><b class="pending-revenue">{{ money(dailyRevenue.draftAmount) }} {{ project.baseCurrency || 'CNY' }} · {{ Number(dailyRevenue.draftCount || 0) }} 笔</b></span>
+              <span><small>历史待确认</small><b class="pending-revenue">{{ money(dailyRevenue.draftAmount) }} {{ project.baseCurrency || 'CNY' }} · {{ Number(dailyRevenue.draftCount || 0) }} 笔</b></span>
               <el-tag :type="revenueStatusTone">{{ revenueStatusLabel }}</el-tag>
             </div>
           </article>
@@ -236,7 +236,7 @@
           </article>
 
           <article class="panel">
-            <div class="panel-head"><div><h2>项目 KPI</h2><p>目标由老板发布；实际结果和结算统一在KPI页面填报。</p></div><el-button size="small" @click="openKpiBonus">填报KPI结果</el-button></div>
+            <div class="panel-head"><div><h2>项目 KPI</h2><p>负责人设置目标、发布奖金方案并完成结果结算。</p></div><el-button size="small" @click="openKpiBonus">管理KPI与结算</el-button></div>
             <div v-if="!currentKpis.length" class="empty-block compact">尚未设置 KPI</div>
             <div v-for="kpi in currentKpis" :key="kpi.kpiId" class="kpi-row"><span><b>{{ kpi.kpiName }}</b><small>项目目标 {{ kpi.targetValue }} {{ kpi.unit || '' }}</small></span><strong>{{ kpi.weight }}%</strong></div>
           </article>
@@ -285,7 +285,7 @@
     </template>
 
     <el-dialog v-model="revenueDialog" title="录入今日收入" width="min(680px, 94vw)" append-to-body>
-      <el-alert title="负责人提交后先进入草稿，需由老板在“每日收支”中确认后才正式计入收入。" type="info" :closable="false" show-icon />
+      <el-alert title="负责人确认后收入将直接计入项目经营结果；如需更正，请通过新增记录或财务冲正保留审计轨迹。" type="success" :closable="false" show-icon />
       <el-form :model="revenueForm" label-width="92px" class="report-form">
         <el-form-item label="归属项目"><el-input :model-value="project?.projectName" disabled /></el-form-item>
         <el-form-item label="业务日期"><el-input :model-value="accounting.bizDate" disabled /></el-form-item>
@@ -383,7 +383,7 @@
     </el-dialog>
 
     <el-dialog v-model="reportDialog" :title="accounting.dailySpend ? '修改今日项目总花费' : '填写今日项目总花费'" width="min(620px, 94vw)" append-to-body>
-      <el-alert title="这里仅填写项目当天发生的业务花费，不含人员成本；提交后由老板确认，确认前不计入经营结果。" type="info" :closable="false" show-icon />
+      <el-alert title="这里仅填写项目当天发生的业务花费，不含人员成本；负责人确认后直接计入经营结果，修改会保留原记录及冲正轨迹。" type="info" :closable="false" show-icon />
       <el-alert v-if="reportForm.status==='RETURNED'" class="returned-spend-alert" :title="`退回原因：${reportForm.returnReason||'未填写'}`" type="warning" :closable="false" show-icon />
       <el-form :model="reportForm" label-width="104px" class="report-form">
         <el-form-item label="归属项目"><el-input :model-value="project?.projectName" disabled /></el-form-item>
@@ -392,7 +392,7 @@
         <el-form-item label="费用说明"><el-input v-model="reportForm.description" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="选填，例如：投流、采购、物流等合计" /></el-form-item>
         <el-form-item label="凭证附件"><business-file-upload v-model="reportForm.attachmentUrls" :project-id="reportForm.projectId" /></el-form-item>
       </el-form>
-      <template #footer><el-button @click="reportDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="submitDailySpend">提交老板确认</el-button></template>
+      <template #footer><el-button @click="reportDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="submitDailySpend">确认并计入项目成本</el-button></template>
     </el-dialog>
   </div>
 </template>
@@ -412,7 +412,7 @@ const revenueCategories=computed(()=>accounting.value.revenueCategories||[])
 const dailyRevenue=computed(()=>accounting.value.dailyRevenue||{})
 const revenueSubmittedAmount=computed(()=>Number(dailyRevenue.value.confirmedAmount||0)+Number(dailyRevenue.value.draftAmount||0))
 const revenueStatusTone=computed(()=>Number(dailyRevenue.value.draftCount||0)>0?'warning':Number(dailyRevenue.value.confirmedCount||0)>0?'success':'info')
-const revenueStatusLabel=computed(()=>Number(dailyRevenue.value.draftCount||0)>0?'等待老板确认':Number(dailyRevenue.value.confirmedCount||0)>0?'已计入经营结果':'今日暂无收入')
+const revenueStatusLabel=computed(()=>Number(dailyRevenue.value.draftCount||0)>0?'存在历史待确认':Number(dailyRevenue.value.confirmedCount||0)>0?'已计入经营结果':'今日暂无收入')
 const allocationAlerts=computed(()=>data.value.allocationAlerts||[])
 const pendingEffortRequests=computed(()=>data.value.pendingEffortRequests||[])
 const missingAllocationMemberCount=computed(()=>allocationAlerts.value.reduce((sum,item)=>sum+Number(item.missingAllocationCount||0),0))
@@ -470,7 +470,7 @@ const statusTone={DRAFT:'info',PLANNING:'warning',ACTIVE:'primary',PAUSED:'info'
 const projectStatusLabel=item=>item?.status==='ACCEPTANCE'&&item?.closeMethod==='STAGED_ACCEPTANCE'?'待结项':statusLabel[item?.status]||item?.status
 const managementLabel={LIGHT:'轻量管理',STANDARD:'标准管理',KEY_CONTROL:'重点监管',SIMPLE:'轻量管理',DELIVERY:'标准管理'}
 const closeMethodLabel={DIRECT:'直接结项',RESULT_ACCEPTANCE:'成果验收',STAGED_ACCEPTANCE:'阶段验收'}
-const governanceDescription=computed(()=>{const p=project.value;if(!p)return '';const cycle=p.governanceProfile?.reportCycle==='EXCEPTION'?'异常时更新':p.governanceProfile?.reportCycle==='WEEKLY_AND_EVENT'?'每周更新并在重大事件时专项汇报':'每周更新';const close={DIRECT:'完成KPI前置条件后由老板直接结项。',RESULT_ACCEPTANCE:'完成全部任务后提交整体验收资料。',STAGED_ACCEPTANCE:'按里程碑逐项提交阶段验收。'}[p.closeMethod]||'';return `过程要求：${cycle}；${close}`})
+const governanceDescription=computed(()=>{const p=project.value;if(!p)return '';const cycle=p.governanceProfile?.reportCycle==='EXCEPTION'?'异常时更新':p.governanceProfile?.reportCycle==='WEEKLY_AND_EVENT'?'每周更新并在重大事件时专项汇报':'每周更新';const close={DIRECT:'负责人提交结项申请，由老板检验通过后结项。',RESULT_ACCEPTANCE:'负责人提交整体验收资料，由老板验收通过后结项。',STAGED_ACCEPTANCE:'负责人按里程碑提交成果，由老板逐项验收并最终确认结项。'}[p.closeMethod]||'';return `过程要求：${cycle}；${close}`})
 const frequencyLabel={DAILY:'每日',WEEKLY:'每周',MONTHLY:'每月'}
 const memberRoleLabel={OWNER:'主负责人',DEPUTY:'副负责人',MEMBER:'成员',OBSERVER:'观察者'}
 const memberRoleTone={OWNER:'primary',DEPUTY:'success',MEMBER:'info',OBSERVER:'warning'}
@@ -540,7 +540,7 @@ async function submitRevenue(){
   try{
     await saveBusinessProjectFact({...form,description:form.description.trim(),counterparty:form.counterparty?.trim(),currency:(form.currency||project.value.baseCurrency||'CNY').trim().toUpperCase()})
     revenueDialog.value=false
-    ElMessage({type:'success',message:'收入草稿已提交，等待老板确认入账',duration:3500,showClose:true})
+    ElMessage({type:'success',message:'收入已由负责人确认并计入经营结果',duration:3500,showClose:true})
     await load(selectedProjectId.value)
   }finally{saving.value=false}
 }
@@ -598,7 +598,7 @@ function openLeave(member){leaveForm.value={userId:member.userId,userName:partic
 async function submitLeave(){const form=leaveForm.value;if(!form.dates?.[0]||!form.dates?.[1])return ElMessage.warning('请选择请假日期');if(!form.reason?.trim())return ElMessage.warning('请填写请假原因');saving.value=true;try{await markBusinessMemberLeave(project.value.projectId,form.userId,{startDate:form.dates[0],endDate:form.dates[1],leaveType:form.leaveType,reason:form.reason.trim(),attachmentUrls:form.attachmentUrls});leaveDialog.value=false;ElMessage({type:'success',message:'请假申请已提交，等待老板审批；批准前不会影响人员成本',duration:3500,showClose:true});await load(selectedProjectId.value)}finally{saving.value=false}}
 async function withdrawLeave(request){const approved=request.status==='APPROVED';const{value}=await ElMessageBox.prompt(approved?`申请取消 ${request.userName} 已批准的请假吗？取消仍需老板审批。`:`确认撤回 ${request.userName} 的请假申请吗？`,approved?'申请取消请假':'撤回请假申请',{inputPlaceholder:'请填写原因',inputValidator:value=>!!value?.trim()||'必须填写原因',type:'warning'});saving.value=true;try{await cancelBusinessMemberLeaveRequest(request.requestId,{reason:value.trim()});ElMessage.success(approved?'取消请假申请已提交，等待老板审批':'请假申请已撤回');await load(selectedProjectId.value)}finally{saving.value=false}}
 function openDailySpend(){reportForm.value={...blankReport(),...(accounting.value.dailySpend||{}),projectId:project.value.projectId,bizDate:accounting.value.bizDate};reportDialog.value=true}
-async function submitDailySpend(){if(reportForm.value.amount===null||reportForm.value.amount===undefined)return ElMessage.warning('请填写今日项目总花费');const wasReturned=reportForm.value.status==='RETURNED';saving.value=true;try{await saveBusinessProjectDailySpend(reportForm.value);reportDialog.value=false;ElMessage({type:'success',message:wasReturned?'已修改并重新提交，等待老板确认':'花费草稿已提交，等待老板确认后计入经营结果',duration:3500,showClose:true});await load(selectedProjectId.value)}finally{saving.value=false}}
+async function submitDailySpend(){if(reportForm.value.amount===null||reportForm.value.amount===undefined)return ElMessage.warning('请填写今日项目总花费');saving.value=true;try{await saveBusinessProjectDailySpend(reportForm.value);reportDialog.value=false;ElMessage({type:'success',message:'今日花费已由负责人确认并计入经营结果',duration:3500,showClose:true});await load(selectedProjectId.value)}finally{saving.value=false}}
 load(route.query.projectId?Number(route.query.projectId):undefined)
 </script>
 

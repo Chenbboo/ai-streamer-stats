@@ -188,6 +188,70 @@ from (
     and result_row.close_status<>'CLOSED'
 
   union all
+  select if(count(*)=17,0,1)
+  from information_schema.columns
+  where table_schema=database() and table_name='biz_project_proposal'
+    and column_name in (
+      'revenue_model','estimated_revenue','estimated_external_cost','estimated_personnel_cost',
+      'estimated_bonus_cost','estimated_tax_cost','contingency_cost','estimated_total_cost',
+      'expected_profit','expected_margin','break_even_revenue','peak_cash_need',
+      'planned_headcount','funding_plan','key_assumptions','risk_summary','stop_loss_rule'
+    )
+
+  union all
+  select if(count(*)=4,0,1)
+  from information_schema.tables
+  where table_schema=database() and table_name in (
+    'biz_project_proposal_revenue','biz_project_proposal_expense',
+    'biz_project_proposal_staffing','biz_project_proposal_target'
+  )
+
+  union all
+  select if(count(*)=8,0,1)
+  from information_schema.columns
+  where table_schema=database() and table_name='biz_project_proposal_staffing'
+    and column_name in (
+      'user_id','user_name','cost_policy_id','cost_policy_version','monthly_cost_snapshot',
+      'standard_work_days_snapshot','daily_cost_snapshot','cost_currency'
+    )
+
+  union all
+  select if(count(*)=1,0,1)
+  from sys_menu
+  where menu_id=4022 and parent_id=4004 and perms='business:staff:cost' and status='0'
+
+  union all
+  select count(*)
+  from sys_role role
+  where role.role_key='project_owner' and role.del_flag='0'
+    and (
+      not exists(select 1 from sys_role_menu rm where rm.role_id=role.role_id and rm.menu_id=4004)
+      or not exists(select 1 from sys_role_menu rm where rm.role_id=role.role_id and rm.menu_id=4022)
+      or not exists(select 1 from sys_role_menu rm where rm.role_id=role.role_id and rm.menu_id=4072)
+      or exists(select 1 from sys_role_menu rm where rm.role_id=role.role_id and rm.menu_id=4021)
+    )
+
+  union all
+  select if(count(*)=1,0,1)
+  from information_schema.tables
+  where table_schema=database() and table_name='biz_staff_menu_permission'
+
+  union all
+  select count(*)
+  from biz_staff_menu_permission permission
+  left join sys_user user on user.user_id=permission.user_id and user.del_flag='0'
+  left join sys_menu menu on menu.menu_id=permission.menu_id
+  where permission.access_level not in ('HIDDEN','READ','MAINTAIN')
+    or user.user_id is null or menu.menu_id is null
+
+  union all
+  select if(count(*)=2,0,1)
+  from information_schema.columns
+  where table_schema=database()
+    and ((table_name='biz_project_kpi' and column_name='source_ref_id')
+      or (table_name='biz_project_kpi_plan_item' and column_name='source_ref_id'))
+
+  union all
   select count(*)
   from biz_project p
   where p.del_flag='0' and not exists (

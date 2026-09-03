@@ -29,6 +29,23 @@
         <result property="baseCurrency" column="base_currency"/>
         <result property="budgetLimit" column="budget_limit"/>
         <result property="noBudget" column="no_budget"/>
+        <result property="revenueModel" column="revenue_model"/>
+        <result property="estimatedRevenue" column="estimated_revenue"/>
+        <result property="estimatedExternalCost" column="estimated_external_cost"/>
+        <result property="estimatedPersonnelCost" column="estimated_personnel_cost"/>
+        <result property="estimatedBonusCost" column="estimated_bonus_cost"/>
+        <result property="estimatedTaxCost" column="estimated_tax_cost"/>
+        <result property="contingencyCost" column="contingency_cost"/>
+        <result property="estimatedTotalCost" column="estimated_total_cost"/>
+        <result property="expectedProfit" column="expected_profit"/>
+        <result property="expectedMargin" column="expected_margin"/>
+        <result property="breakEvenRevenue" column="break_even_revenue"/>
+        <result property="peakCashNeed" column="peak_cash_need"/>
+        <result property="plannedHeadcount" column="planned_headcount"/>
+        <result property="fundingPlan" column="funding_plan"/>
+        <result property="keyAssumptions" column="key_assumptions"/>
+        <result property="riskSummary" column="risk_summary"/>
+        <result property="stopLossRule" column="stop_loss_rule"/>
         <result property="executionSource" column="execution_source"/>
         <result property="status" column="status"/>
         <result property="submittedTime" column="submitted_time"/>
@@ -53,6 +70,10 @@
         p.project_type,p.accounting_mode,p.management_mode,p.close_method,p.management_reason,p.acceptance_criteria,
         p.objective,p.application_reason,
         p.plan_start_date,p.plan_end_date,p.priority,p.base_currency,p.budget_limit,p.no_budget,
+        p.revenue_model,p.estimated_revenue,p.estimated_external_cost,p.estimated_personnel_cost,
+        p.estimated_bonus_cost,p.estimated_tax_cost,p.contingency_cost,p.estimated_total_cost,
+        p.expected_profit,p.expected_margin,p.break_even_revenue,p.peak_cash_need,p.planned_headcount,
+        p.funding_plan,p.key_assumptions,p.risk_summary,p.stop_loss_rule,
         p.execution_source,p.status,p.submitted_time,p.reviewed_user_id,p.reviewed_user_name,p.reviewed_time,
         p.review_comment,p.created_project_id,p.version,p.del_flag,p.create_by,p.create_time,p.update_by,p.update_time,p.remark
     </sql>
@@ -109,11 +130,17 @@
           sponsor_owner_user_id,sponsor_owner_name,company_dept_id,parent_project_id,project_type,accounting_mode,
           management_mode,close_method,management_reason,acceptance_criteria,objective,application_reason,
           plan_start_date,plan_end_date,priority,base_currency,
-          budget_limit,no_budget,execution_source,status,version,del_flag,create_by,create_time,update_by,update_time,remark)
+          budget_limit,no_budget,revenue_model,estimated_revenue,estimated_external_cost,estimated_personnel_cost,
+          estimated_bonus_cost,estimated_tax_cost,contingency_cost,estimated_total_cost,expected_profit,
+          expected_margin,break_even_revenue,peak_cash_need,planned_headcount,funding_plan,key_assumptions,
+          risk_summary,stop_loss_rule,execution_source,status,version,del_flag,create_by,create_time,update_by,update_time,remark)
         values(#{proposalNo},0,#{projectName},#{applicantUserId},#{applicantName},#{sponsorOwnerUserId},#{sponsorOwnerName},
           #{companyDeptId},#{parentProjectId},#{projectType},#{accountingMode},#{managementMode},#{closeMethod},
           #{managementReason},#{acceptanceCriteria},#{objective},#{applicationReason},#{planStartDate},#{planEndDate},
-          #{priority},#{baseCurrency},#{budgetLimit},#{noBudget},
+          #{priority},#{baseCurrency},#{budgetLimit},#{noBudget},#{revenueModel},#{estimatedRevenue},
+          #{estimatedExternalCost},#{estimatedPersonnelCost},#{estimatedBonusCost},#{estimatedTaxCost},
+          #{contingencyCost},#{estimatedTotalCost},#{expectedProfit},#{expectedMargin},#{breakEvenRevenue},
+          #{peakCashNeed},#{plannedHeadcount},#{fundingPlan},#{keyAssumptions},#{riskSummary},#{stopLossRule},
           #{executionSource},'DRAFT',0,'0',#{createBy},sysdate(),#{createBy},sysdate(),#{remark})
     </insert>
 
@@ -124,7 +151,14 @@
           close_method=#{closeMethod},management_reason=#{managementReason},acceptance_criteria=#{acceptanceCriteria},
           objective=#{objective},application_reason=#{applicationReason},plan_start_date=#{planStartDate},
           plan_end_date=#{planEndDate},priority=#{priority},base_currency=#{baseCurrency},budget_limit=#{budgetLimit},
-          no_budget=#{noBudget},execution_source=#{executionSource},review_comment=null,reviewed_user_id=null,
+          no_budget=#{noBudget},revenue_model=#{revenueModel},estimated_revenue=#{estimatedRevenue},
+          estimated_external_cost=#{estimatedExternalCost},estimated_personnel_cost=#{estimatedPersonnelCost},
+          estimated_bonus_cost=#{estimatedBonusCost},estimated_tax_cost=#{estimatedTaxCost},
+          contingency_cost=#{contingencyCost},estimated_total_cost=#{estimatedTotalCost},
+          expected_profit=#{expectedProfit},expected_margin=#{expectedMargin},break_even_revenue=#{breakEvenRevenue},
+          peak_cash_need=#{peakCashNeed},planned_headcount=#{plannedHeadcount},funding_plan=#{fundingPlan},
+          key_assumptions=#{keyAssumptions},risk_summary=#{riskSummary},stop_loss_rule=#{stopLossRule},
+          execution_source=#{executionSource},review_comment=null,reviewed_user_id=null,
           reviewed_user_name=null,reviewed_time=null,update_by=#{updateBy},update_time=sysdate(),version=version+1,remark=#{remark}
         where proposal_id=#{proposalId} and applicant_user_id=#{applicantUserId} and del_flag='0'
           and status in ('DRAFT','RETURNED','WITHDRAWN') and version=#{version}
@@ -143,6 +177,84 @@
         where proposal_id=#{proposalId} and applicant_user_id=#{applicantUserId}
           and status in ('DRAFT','RETURNED','WITHDRAWN') and del_flag='0' and version=#{version}
     </update>
+
+    <update id="updateComputedPlan" parameterType="com.ruoyi.business.domain.BusinessProjectProposal">
+        update biz_project_proposal set estimated_revenue=#{estimatedRevenue},
+          estimated_external_cost=#{estimatedExternalCost},estimated_personnel_cost=#{estimatedPersonnelCost},
+          estimated_bonus_cost=#{estimatedBonusCost},estimated_tax_cost=#{estimatedTaxCost},
+          contingency_cost=#{contingencyCost},estimated_total_cost=#{estimatedTotalCost},
+          expected_profit=#{expectedProfit},expected_margin=#{expectedMargin},break_even_revenue=#{breakEvenRevenue},
+          peak_cash_need=#{peakCashNeed},planned_headcount=#{plannedHeadcount},update_time=sysdate()
+        where proposal_id=#{proposalId} and applicant_user_id=#{applicantUserId} and del_flag='0'
+          and status in ('DRAFT','RETURNED','WITHDRAWN') and version=#{version}
+    </update>
+
+    <update id="activate">
+        update biz_project_proposal set status='APPROVED',submission_version=submission_version+1,
+          submitted_time=sysdate(),reviewed_user_id=#{applicantUserId},reviewed_user_name=#{operatorName},
+          reviewed_time=sysdate(),review_comment='负责人自主确认并启动',created_project_id=#{createdProjectId},
+          update_by=#{userName},update_time=sysdate(),version=version+1
+        where proposal_id=#{proposalId} and applicant_user_id=#{applicantUserId}
+          and status in ('DRAFT','RETURNED','WITHDRAWN') and del_flag='0' and version=#{version}
+    </update>
+
+    <delete id="deleteRevenueLines">delete from biz_project_proposal_revenue where proposal_id=#{proposalId}</delete>
+    <delete id="deleteExpenseLines">delete from biz_project_proposal_expense where proposal_id=#{proposalId}</delete>
+    <delete id="deleteStaffingLines">delete from biz_project_proposal_staffing where proposal_id=#{proposalId}</delete>
+    <delete id="deleteTargetLines">delete from biz_project_proposal_target where proposal_id=#{proposalId}</delete>
+
+    <insert id="insertRevenueLine" parameterType="map">
+        insert into biz_project_proposal_revenue(proposal_id,scenario,revenue_type,item_name,unit_price,quantity,
+          conversion_rate,expected_amount,expected_date,assumption_text,sort_order,create_time)
+        values(#{proposalId},#{scenario},#{revenueType},#{itemName},#{unitPrice},#{quantity},#{conversionRate},
+          #{expectedAmount},#{expectedDate},#{assumptionText},#{sortOrder},sysdate())
+    </insert>
+    <insert id="insertExpenseLine" parameterType="map">
+        insert into biz_project_proposal_expense(proposal_id,expense_category,item_name,purpose,counterparty,
+          amount,occur_date,expense_type,has_quotation,sort_order,create_time)
+        values(#{proposalId},#{expenseCategory},#{itemName},#{purpose},#{counterparty},#{amount},#{occurDate},
+          #{expenseType},#{hasQuotation},#{sortOrder},sysdate())
+    </insert>
+    <insert id="insertStaffingLine" parameterType="map">
+        insert into biz_project_proposal_staffing(proposal_id,user_id,user_name,role_name,headcount,allocation_percent,
+          plan_start_date,plan_end_date,person_months,cost_policy_id,cost_policy_version,monthly_cost_snapshot,
+          standard_work_days_snapshot,daily_cost_snapshot,cost_currency,estimated_cost,note,sort_order,create_time)
+        values(#{proposalId},#{userId},#{userName},#{roleName},#{headcount},#{allocationPercent},
+          #{planStartDate},#{planEndDate},#{personMonths},#{costPolicyId},#{costPolicyVersion},
+          #{monthlyCostSnapshot},#{standardWorkDaysSnapshot},#{dailyCostSnapshot},#{costCurrency},
+          #{estimatedCost},#{note},#{sortOrder},sysdate())
+    </insert>
+    <insert id="insertTargetLine" parameterType="map">
+        insert into biz_project_proposal_target(proposal_id,target_type,target_name,target_value,unit,due_date,
+          acceptance_evidence,weight,sort_order,create_time)
+        values(#{proposalId},#{targetType},#{targetName},#{targetValue},#{unit},#{dueDate},
+          #{acceptanceEvidence},#{weight},#{sortOrder},sysdate())
+    </insert>
+
+    <select id="selectRevenueLines" resultType="map">
+        select revenue_line_id revenueLineId,scenario,revenue_type revenueType,item_name itemName,
+          unit_price unitPrice,quantity,conversion_rate conversionRate,expected_amount expectedAmount,
+          expected_date expectedDate,assumption_text assumptionText
+        from biz_project_proposal_revenue where proposal_id=#{proposalId} order by sort_order,revenue_line_id
+    </select>
+    <select id="selectExpenseLines" resultType="map">
+        select expense_line_id expenseLineId,expense_category expenseCategory,item_name itemName,purpose,
+          counterparty,amount,occur_date occurDate,expense_type expenseType,has_quotation hasQuotation
+        from biz_project_proposal_expense where proposal_id=#{proposalId} order by sort_order,expense_line_id
+    </select>
+    <select id="selectStaffingLines" resultType="map">
+        select staffing_line_id staffingLineId,user_id userId,user_name userName,role_name roleName,headcount,
+          allocation_percent allocationPercent,plan_start_date planStartDate,plan_end_date planEndDate,
+          person_months personMonths,cost_policy_id costPolicyId,cost_policy_version costPolicyVersion,
+          monthly_cost_snapshot monthlyCostSnapshot,standard_work_days_snapshot standardWorkDaysSnapshot,
+          daily_cost_snapshot dailyCostSnapshot,cost_currency costCurrency,estimated_cost estimatedCost,note
+        from biz_project_proposal_staffing where proposal_id=#{proposalId} order by sort_order,staffing_line_id
+    </select>
+    <select id="selectTargetLines" resultType="map">
+        select target_line_id targetLineId,target_type targetType,target_name targetName,target_value targetValue,
+          unit,due_date dueDate,acceptance_evidence acceptanceEvidence,weight
+        from biz_project_proposal_target where proposal_id=#{proposalId} order by sort_order,target_line_id
+    </select>
 
     <update id="withdraw">
         update biz_project_proposal set status='WITHDRAWN',review_comment=#{comment},update_by=#{userName},
@@ -199,6 +311,53 @@
           coalesce(sponsor_owner_user_id,initiator_user_id) sponsorOwnerUserId
         from biz_project where project_id=#{projectId} and del_flag='0'
           and status not in ('CLOSED','CANCELED') limit 1
+    </select>
+
+    <select id="selectProposalStaff" resultType="map">
+        select u.user_id userId,u.user_name accountName,u.nick_name nickName,
+          coalesce(nullif(profile.position_name,''),'项目成员') positionName,
+          company.dept_id companyDeptId,company.dept_name companyName,
+          cost.policy_id costPolicyId,cost.policy_version costPolicyVersion,
+          cost.cost_mode costMode,cost.unit_cost monthlyCost,cost.standard_work_days standardWorkDays,
+          round(cost.unit_cost/nullif(cost.standard_work_days,0),4) dailyCost,cost.currency costCurrency
+        from sys_user u
+        join sys_dept staff_dept on staff_dept.dept_id=u.dept_id and staff_dept.del_flag='0'
+        left join sys_dept company on company.parent_id=100 and company.del_flag='0'
+          and (company.dept_id=staff_dept.dept_id or find_in_set(company.dept_id,staff_dept.ancestors))
+        left join biz_staff_profile profile on profile.user_id=u.user_id
+        left join biz_staff_cost_policy cost on cost.policy_id=(
+          select policy.policy_id from biz_staff_cost_policy policy
+          where policy.user_id=u.user_id and policy.status='ACTIVE'
+            and policy.effective_from&lt;=#{effectiveDate}
+            and (policy.effective_to is null or policy.effective_to&gt;=#{effectiveDate})
+          order by policy.policy_version desc limit 1)
+        where u.user_id=#{userId} and u.del_flag='0' and u.status='0'
+          and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT'
+        limit 1
+    </select>
+
+    <select id="selectStaffOptions" resultType="map">
+        select u.user_id userId,u.user_name accountName,u.nick_name nickName,
+          coalesce(nullif(profile.position_name,''),'项目成员') positionName,
+          company.dept_id companyDeptId,company.dept_name companyName,
+          cost.policy_id costPolicyId,cost.policy_version costPolicyVersion,
+          cost.cost_mode costMode,cost.unit_cost monthlyCost,cost.standard_work_days standardWorkDays,
+          round(cost.unit_cost/nullif(cost.standard_work_days,0),4) dailyCost,cost.currency costCurrency
+        from sys_user u
+        join sys_dept staff_dept on staff_dept.dept_id=u.dept_id and staff_dept.del_flag='0'
+        join sys_dept company on company.parent_id=100 and company.del_flag='0'
+          and (company.dept_id=staff_dept.dept_id or find_in_set(company.dept_id,staff_dept.ancestors))
+        left join biz_staff_profile profile on profile.user_id=u.user_id
+        left join biz_staff_cost_policy cost on cost.policy_id=(
+          select policy.policy_id from biz_staff_cost_policy policy
+          where policy.user_id=u.user_id and policy.status='ACTIVE'
+            and policy.effective_from&lt;=#{effectiveDate}
+            and (policy.effective_to is null or policy.effective_to&gt;=#{effectiveDate})
+          order by policy.policy_version desc limit 1)
+        where u.del_flag='0' and u.status='0'
+          <if test="companyDeptId != null">and company.dept_id=#{companyDeptId}</if>
+          and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT'
+        order by profile.position_name,u.nick_name,u.user_id
     </select>
 
     <select id="selectBossOptions" resultType="map">

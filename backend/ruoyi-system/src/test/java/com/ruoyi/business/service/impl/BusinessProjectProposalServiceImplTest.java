@@ -149,12 +149,12 @@ class BusinessProjectProposalServiceImplTest
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.create(proposal,9L,"applicant9"));
 
-        assertEquals("请选择审批老板",error.getMessage());
+        assertEquals("请选择项目观察老板",error.getMessage());
         verify(mapper,never()).insertProposal(any());
     }
 
     @Test
-    void applicantCannotSelectSelfAsBoss()
+    void ownerAccountCanSelectSelfAsProjectObserver()
     {
         proposal.setProposalId(null);
         proposal.setSponsorOwnerUserId(9L);
@@ -162,11 +162,18 @@ class BusinessProjectProposalServiceImplTest
         when(mapper.selectCompany(111L)).thenReturn(Collections.<String,Object>singletonMap("deptId",111L));
         when(mapper.selectActiveBoss(9L)).thenReturn(user(9L,"applicant9","申请人九"));
 
-        ServiceException error = assertThrows(ServiceException.class,
-            () -> service.create(proposal,9L,"applicant9"));
+        doAnswer(invocation -> {
+            BusinessProjectProposal input = invocation.getArgument(0);
+            input.setProposalId(77L); input.setStatus("DRAFT"); input.setVersion(0); input.setSubmissionVersion(0);
+            return 1;
+        }).when(mapper).insertProposal(any(BusinessProjectProposal.class));
+        when(mapper.selectById(77L)).thenAnswer(invocation -> proposal);
+        when(mapper.selectEvents(77L)).thenReturn(Collections.<Map<String,Object>>emptyList());
 
-        assertEquals("申请人不能选择本人作为审批老板",error.getMessage());
-        verify(mapper,never()).insertProposal(any());
+        BusinessProjectProposal created = service.create(proposal,9L,"applicant9");
+
+        assertEquals(9L,created.getSponsorOwnerUserId());
+        assertEquals("申请人九",created.getSponsorOwnerName());
     }
 
     @Test
@@ -200,17 +207,75 @@ class BusinessProjectProposalServiceImplTest
     }
 
     @Test
-    void optionsExcludeCurrentApplicantFromBossCandidates()
+    void ownerLaunchesProjectAfterCompleteBusinessPlanWithoutBossApproval()
+    {
+        proposal.setStatus("DRAFT");
+        proposal.setKeyAssumptions("基准转化率可持续");
+        proposal.setRiskSummary("流量波动可能影响收入");
+        proposal.setStopLossRule("连续两周低于目标50%即停止新投入");
+
+        Map<String,Object> revenue = new HashMap<String,Object>();
+        revenue.put("scenario","BASE"); revenue.put("revenueType","SERVICE");
+        revenue.put("itemName","直播服务收入"); revenue.put("expectedAmount",new BigDecimal("2000"));
+        Map<String,Object> expense = new HashMap<String,Object>();
+        expense.put("expenseCategory","TRAFFIC"); expense.put("itemName","投流");
+        expense.put("purpose","获取新用户"); expense.put("amount",new BigDecimal("300"));
+        Map<String,Object> staffing = new HashMap<String,Object>();
+        staffing.put("userId",12L); staffing.put("estimatedCost",new BigDecimal("999999"));
+        Map<String,Object> target = new HashMap<String,Object>();
+        target.put("targetType","FINANCIAL"); target.put("targetName","月收入");
+        target.put("targetValue",new BigDecimal("2000")); target.put("unit","元");
+        target.put("acceptanceEvidence","已确认收入流水");
+
+        when(mapper.selectById(77L)).thenReturn(proposal);
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
+        when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","审批老板"));
+        when(mapper.selectCompany(111L)).thenReturn(Collections.<String,Object>singletonMap("deptId",111L));
+        when(mapper.selectRevenueLines(77L)).thenReturn(Collections.singletonList(revenue));
+        when(mapper.selectExpenseLines(77L)).thenReturn(Collections.singletonList(expense));
+        when(mapper.selectStaffingLines(77L)).thenReturn(Collections.singletonList(staffing));
+        Map<String,Object> selectedStaff = user(12L,"anchor12","主播十二");
+        selectedStaff.put("accountName","anchor12"); selectedStaff.put("positionName","主播");
+        selectedStaff.put("companyDeptId",111L); selectedStaff.put("costMode","MONTHLY");
+        selectedStaff.put("costPolicyId",501L); selectedStaff.put("costPolicyVersion",3);
+        selectedStaff.put("monthlyCost",new BigDecimal("15000")); selectedStaff.put("standardWorkDays",new BigDecimal("30"));
+        selectedStaff.put("dailyCost",new BigDecimal("500")); selectedStaff.put("costCurrency","CNY");
+        when(mapper.selectProposalStaff(eq(12L),any(Date.class))).thenReturn(selectedStaff);
+        when(mapper.updateComputedPlan(proposal)).thenReturn(1);
+        when(mapper.selectTargetLines(77L)).thenReturn(Collections.singletonList(target));
+        BusinessProject project = new BusinessProject(); project.setProjectId(88L);
+        when(projectService.createApprovedProject(proposal,9L,"applicant9")).thenReturn(project);
+        doAnswer(invocation -> {
+            proposal.setStatus("APPROVED"); proposal.setCreatedProjectId(88L); proposal.setVersion(3);
+            return 1;
+        }).when(mapper).activate(77L,9L,2,88L,"申请人九","applicant9");
+        when(mapper.selectEvents(77L)).thenReturn(Collections.<Map<String,Object>>emptyList());
+
+        BusinessProjectProposal launched = service.submit(77L,9L,"applicant9");
+
+        assertEquals("APPROVED",launched.getStatus());
+        assertEquals(88L,launched.getCreatedProjectId());
+        assertEquals(new BigDecimal("2000"),launched.getEstimatedRevenue());
+        assertEquals(new BigDecimal("800.00"),launched.getEstimatedTotalCost());
+        assertEquals(new BigDecimal("1200.00"),launched.getExpectedProfit());
+        assertEquals(1,launched.getPlannedHeadcount());
+        verify(projectService).createApprovedProject(proposal,9L,"applicant9");
+        verify(mapper,never()).submit(any(),any(),any(),any());
+        verify(mapper,never()).review(any(),any(),any(),any(),any(),any(),any(),any(),any());
+    }
+
+    @Test
+    void optionsIncludeOwnerAccountAsObserverCandidate()
     {
         when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
-        when(mapper.selectBossOptions(9L)).thenReturn(Collections.singletonList(user(23L,"boss23","审批老板")));
+        when(mapper.selectBossOptions(null)).thenReturn(Collections.singletonList(user(9L,"applicant9","申请人九")));
         when(mapper.selectCompanyOptions()).thenReturn(Collections.<Map<String,Object>>emptyList());
 
         Map<String,Object> result = service.options(9L);
 
         assertEquals(9L,result.get("applicantUserId"));
         assertEquals(1,((java.util.List<?>)result.get("bosses")).size());
-        verify(mapper).selectBossOptions(9L);
+        verify(mapper).selectBossOptions(null);
     }
 
     @Test

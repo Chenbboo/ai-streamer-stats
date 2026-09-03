@@ -103,6 +103,61 @@ class BusinessProjectKpiServiceImplTest
         assertEquals(1,saved.getResults().size());
     }
 
+    @Test void workspaceCalculatesRoutineKpiFromSubmittedReports()
+    {
+        BusinessProjectKpiPlan currentPlan=plan();currentPlan.setPlanId(10L);currentPlan.setPlanVersion(1);
+        BusinessProjectKpiPlanItem automatic=item();automatic.setSourceType("ROUTINE");automatic.setSourceRefId(301L);
+        BusinessProjectKpiSettlement draft=settlement("DRAFT",0);
+        draft.setPeriodStart(java.sql.Date.valueOf("2026-01-01"));draft.setPeriodEnd(java.sql.Date.valueOf("2026-12-31"));
+        when(projectMapper.selectProjectById(1L)).thenReturn(project());
+        when(projectMapper.selectProjectKpis(1L)).thenReturn(Collections.emptyList());
+        when(mapper.selectLatestPlanId(1L)).thenReturn(10L);
+        when(mapper.selectPlanById(10L)).thenReturn(currentPlan);
+        when(mapper.selectPlanItems(10L)).thenReturn(Collections.singletonList(automatic));
+        when(mapper.selectBonusTiers(10L)).thenReturn(tiers());
+        when(mapper.selectSettlementByPlanId(10L)).thenReturn(draft);
+        when(mapper.selectSettlementResults(20L)).thenReturn(Collections.emptyList());
+        when(mapper.sumRoutineActual(eq(1L),eq(301L),any(),any())).thenReturn(new BigDecimal("42"));
+
+        Map<String,Object> workspace=service.workspace(1L,null,9L,false,false);
+
+        BusinessProjectKpiPlan selected=(BusinessProjectKpiPlan)workspace.get("selectedPlan");
+        assertEquals(new BigDecimal("42"),selected.getSettlement().getResults().get(0).getActualValue());
+        assertEquals(Boolean.TRUE,selected.getSettlement().getResults().get(0).getAutomatic());
+    }
+
+    @Test void automaticResultCannotBeOverwrittenManually()
+    {
+        BusinessProjectKpiSettlement draft=settlement("DRAFT",0);
+        BusinessProjectKpiPlanItem automatic=item();automatic.setSourceType("REVENUE");
+        BusinessProjectKpiResult result=new BusinessProjectKpiResult();result.setPlanItemId(101L);
+        result.setActualValue(BigDecimal.TEN);result.setResultNote("尝试覆盖");
+        BusinessProjectKpiSettlement input=new BusinessProjectKpiSettlement();input.setResults(Collections.singletonList(result));
+        when(mapper.selectSettlementById(20L)).thenReturn(draft);
+        when(projectMapper.selectProjectById(1L)).thenReturn(project());
+        when(mapper.selectPlanItems(10L)).thenReturn(Collections.singletonList(automatic));
+
+        ServiceException error=assertThrows(ServiceException.class,
+            ()->service.saveResults(20L,input,9L,"owner9",false));
+
+        assertTrue(error.getMessage().contains("自动取数KPI不能手工覆盖"));
+        verify(mapper,never()).upsertSettlementResult(any());
+    }
+
+    @Test void settlementCannotBeConfirmedOnItsEndDate()
+    {
+        BusinessProjectKpiSettlement draft=settlement("DRAFT",0);
+        draft.setPeriodEnd(java.sql.Date.valueOf(new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date())));
+        when(mapper.selectSettlementById(20L)).thenReturn(draft);
+        when(projectMapper.selectProjectById(1L)).thenReturn(project());
+
+        ServiceException error=assertThrows(ServiceException.class,
+            ()->service.submit(20L,9L,"owner9",false));
+
+        assertTrue(error.getMessage().contains("截止日期次日"));
+        verify(mapper,never()).submitSettlement(any(),any(),any(),any(),any(),any());
+    }
+
     @Test void ordinaryMemberCannotSubmitProjectSettlement()
     {
         when(mapper.selectSettlementById(20L)).thenReturn(settlement("DRAFT",0));

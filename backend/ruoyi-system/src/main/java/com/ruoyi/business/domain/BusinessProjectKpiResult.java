@@ -23,6 +23,8 @@ public class BusinessProjectKpiResult implements Serializable
     private BigDecimal targetValue;
     private BigDecimal weight;
     private String direction;
+    private String sourceType;
+    private Boolean automatic;
 
     public Long getResultId() { return resultId; }
     public void setResultId(Long resultId) { this.resultId = resultId; }
@@ -58,4 +60,8 @@ public class BusinessProjectKpiResult implements Serializable
     public void setWeight(BigDecimal weight) { this.weight = weight; }
     public String getDirection() { return direction; }
     public void setDirection(String direction) { this.direction = direction; }
+    public String getSourceType() { return sourceType; }
+    public void setSourceType(String sourceType) { this.sourceType = sourceType; }
+    public Boolean getAutomatic() { return automatic; }
+    public void setAutomatic(Boolean automatic) { this.automatic = automatic; }
 }

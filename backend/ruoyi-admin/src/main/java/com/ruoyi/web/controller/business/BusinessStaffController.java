@@ -1,9 +1,11 @@
 package com.ruoyi.web.controller.business;
 
 import java.util.Map;
+import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -11,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.business.service.IBusinessStaffService;
+import com.ruoyi.business.service.IBusinessStaffMenuPermissionService;
 import com.ruoyi.business.domain.BusinessStaffProfile;
 import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
@@ -27,12 +30,19 @@ public class BusinessStaffController extends BaseController
     @Autowired
     private IBusinessStaffService staffService;
 
+    @Autowired
+    private IBusinessStaffMenuPermissionService staffMenuPermissionService;
+
     @PreAuthorize("@ss.hasPermi('business:staff:list')")
     @GetMapping("/list")
     public TableDataInfo list(SysUser query)
     {
         startPage();
-        return staffService.listStaff(query, SecurityUtils.getUserId(), SecurityUtils.isAdmin());
+        boolean administrator = SecurityUtils.isAdmin();
+        boolean boss = administrator || SecurityUtils.hasPermi("business:boss:view");
+        boolean staffCostManager = administrator || SecurityUtils.hasPermi("business:staff:manage")
+            || SecurityUtils.hasPermi("business:staff:cost");
+        return staffService.listStaff(query, SecurityUtils.getUserId(), administrator, boss, staffCostManager);
     }
 
     @PreAuthorize("@ss.hasPermi('business:staff:list')")
@@ -56,6 +66,38 @@ public class BusinessStaffController extends BaseController
         boolean administrator = SecurityUtils.isAdmin();
         boolean boss = administrator || SecurityUtils.hasPermi("business:boss:view");
         return success(staffService.projectResponsibilities(userId, SecurityUtils.getUserId(), administrator, boss));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:staff:manage')")
+    @GetMapping("/{userId}/menu-permissions")
+    public AjaxResult menuPermissions(@PathVariable Long userId)
+    {
+        return success(staffMenuPermissionService.getMenuPermissions(userId,
+            SecurityUtils.getUserId(), SecurityUtils.isAdmin()));
+    }
+
+    @SuppressWarnings("unchecked")
+    @PreAuthorize("@ss.hasPermi('business:staff:manage')")
+    @Log(title = "员工目录权限", businessType = BusinessType.UPDATE)
+    @PutMapping("/{userId}/menu-permissions")
+    public AjaxResult saveMenuPermissions(@PathVariable Long userId, @RequestBody Map<String, Object> body)
+    {
+        Object value = body == null ? null : body.get("permissions");
+        List<Map<String, Object>> permissions = value instanceof List
+            ? (List<Map<String, Object>>) value : null;
+        staffMenuPermissionService.saveMenuPermissions(userId, permissions,
+            SecurityUtils.getUserId(), SecurityUtils.isAdmin(), getUsername());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:staff:manage')")
+    @Log(title = "员工目录权限", businessType = BusinessType.DELETE)
+    @DeleteMapping("/{userId}/menu-permissions")
+    public AjaxResult resetMenuPermissions(@PathVariable Long userId)
+    {
+        staffMenuPermissionService.resetMenuPermissions(userId,
+            SecurityUtils.getUserId(), SecurityUtils.isAdmin());
+        return success();
     }
 
     @PreAuthorize("@ss.hasPermi('business:staff:manage')")

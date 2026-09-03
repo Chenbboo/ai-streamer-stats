@@ -18,7 +18,7 @@ public class SaveProjectKpiCapability implements AiConfirmableCapability
     @Autowired public SaveProjectKpiCapability(IBusinessProjectService service) { this.service = service; }
     @Override public String code() { return "project.kpi.save"; }
     @Override public String description() { return "新增项目KPI或根据 kpiId 生成新的KPI目标版本。更新前先读取项目经营配置取得当前 kpiId；确认后才执行。"; }
-    @Override public String requiredPermission() { return "business:project:manage"; }
+    @Override public String requiredPermission() { return "business:kpi:manage"; }
     @Override public Map<String, Object> inputSchema()
     {
         Map<String, Object> s = AiSchemas.object();

@@ -21,7 +21,7 @@ public class StaffCostPolicyCapability implements AiCapability
     public StaffCostPolicyCapability(IBusinessProjectService service) { this.service = service; }
 
     @Override public String code() { return "staff.cost-policy.get"; }
-    @Override public String description() { return "读取指定人员当前及历史内部成本政策。应先查询人员目录取得稳定人员ID。金额仅对具备人员管理权限的老板开放。"; }
+    @Override public String description() { return "读取指定人员当前及历史内部成本政策。应先查询人员目录取得稳定人员ID。金额仅对具备人员成本权限的负责人开放。"; }
     @Override public String requiredPermission() { return "business:staff:list"; }
     @Override public AiCapabilityRisk risk() { return AiCapabilityRisk.READ_ONLY; }
     @Override public Map<String, Object> inputSchema()

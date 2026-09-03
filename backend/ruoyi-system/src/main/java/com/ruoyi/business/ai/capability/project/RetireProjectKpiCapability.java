@@ -1,3 +1,62 @@
 package com.ruoyi.business.ai.capability.project;
-import java.util.*;import org.springframework.beans.factory.annotation.Autowired;import org.springframework.stereotype.Component;import com.ruoyi.business.ai.capability.*;import com.ruoyi.business.service.IBusinessProjectService;import com.ruoyi.common.exception.ServiceException;import static com.ruoyi.business.ai.capability.AiCapabilityInputs.*;
-@Component public class RetireProjectKpiCapability implements AiConfirmableCapability{private final IBusinessProjectService service;@Autowired public RetireProjectKpiCapability(IBusinessProjectService s){service=s;}public String code(){return "project.kpi.retire";}public String description(){return "停用项目的当前KPI版本，历史数据保留。必须先读取项目详情取得真实projectId和kpiId。";}public String requiredPermission(){return "business:project:manage";}public Map<String,Object> inputSchema(){Map<String,Object>s=AiSchemas.object();AiSchemas.property(s,"projectId","number","项目ID");AiSchemas.property(s,"kpiId","number","当前KPI ID");AiSchemas.property(s,"kpiName","string","用于确认展示的KPI名称");return AiSchemas.required(s,"projectId","kpiId");}public String confirmationSummary(AiCapabilityInvocation i,Map<String,Object>in){if(number(in.get("projectId"))==null||number(in.get("kpiId"))==null)throw new ServiceException("请先确定项目和KPI");return "停用KPI“"+(text(in.get("kpiName")).isEmpty()?"ID "+number(in.get("kpiId")):text(in.get("kpiName")))+"”，历史版本继续保留";}public Map<String,Object> executeConfirmed(AiCapabilityInvocation i,Map<String,Object>in){service.retireKpi(number(in.get("projectId")),number(in.get("kpiId")),i.getActor().getUserId(),i.getActor().getUserName(),true);Map<String,Object>r=new LinkedHashMap<String,Object>();r.put("projectId",number(in.get("projectId")));r.put("kpiId",number(in.get("kpiId")));r.put("status","RETIRED");return r;}}
+
+import static com.ruoyi.business.ai.capability.AiCapabilityInputs.number;
+import static com.ruoyi.business.ai.capability.AiCapabilityInputs.text;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import com.ruoyi.business.ai.capability.AiCapabilityInvocation;
+import com.ruoyi.business.ai.capability.AiConfirmableCapability;
+import com.ruoyi.business.ai.capability.AiSchemas;
+import com.ruoyi.business.service.IBusinessProjectService;
+import com.ruoyi.common.exception.ServiceException;
+
+@Component
+public class RetireProjectKpiCapability implements AiConfirmableCapability
+{
+    private final IBusinessProjectService service;
+
+    @Autowired
+    public RetireProjectKpiCapability(IBusinessProjectService service)
+    {
+        this.service = service;
+    }
+
+    @Override public String code() { return "project.kpi.retire"; }
+    @Override public String description()
+    { return "停用项目的当前KPI版本，历史数据保留。必须先读取项目详情取得真实projectId和kpiId。"; }
+    @Override public String requiredPermission() { return "business:kpi:manage"; }
+
+    @Override
+    public Map<String, Object> inputSchema()
+    {
+        Map<String, Object> schema = AiSchemas.object();
+        AiSchemas.property(schema, "projectId", "number", "项目ID");
+        AiSchemas.property(schema, "kpiId", "number", "当前KPI ID");
+        AiSchemas.property(schema, "kpiName", "string", "用于确认展示的KPI名称");
+        return AiSchemas.required(schema, "projectId", "kpiId");
+    }
+
+    @Override
+    public String confirmationSummary(AiCapabilityInvocation invocation, Map<String, Object> input)
+    {
+        if (number(input.get("projectId")) == null || number(input.get("kpiId")) == null)
+            throw new ServiceException("请先确定项目和KPI");
+        return "停用KPI“" + (text(input.get("kpiName")).isEmpty()
+            ? "ID " + number(input.get("kpiId")) : text(input.get("kpiName"))) + "”，历史版本继续保留";
+    }
+
+    @Override
+    public Map<String, Object> executeConfirmed(AiCapabilityInvocation invocation, Map<String, Object> input)
+    {
+        service.retireKpi(number(input.get("projectId")), number(input.get("kpiId")),
+            invocation.getActor().getUserId(), invocation.getActor().getUserName(), true);
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put("projectId", number(input.get("projectId")));
+        result.put("kpiId", number(input.get("kpiId")));
+        result.put("status", "RETIRED");
+        return result;
+    }
+}

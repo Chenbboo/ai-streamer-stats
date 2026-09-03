@@ -98,7 +98,7 @@ public class BusinessProjectController extends BaseController
             text(body, "reason"), currentUserId(), currentUserName(), isBoss()));
     }
 
-    @PreAuthorize("@ss.hasPermi('business:project:manage')")
+    @PreAuthorize("@ss.hasAnyPermi('business:project:manage,business:kpi:manage')")
     @Log(title = "项目KPI", businessType = BusinessType.INSERT)
     @PostMapping("/project/kpi")
     public AjaxResult saveKpi(@RequestBody BusinessProjectKpi kpi)
@@ -106,7 +106,7 @@ public class BusinessProjectController extends BaseController
         return success(projectService.saveKpi(kpi, currentUserId(), currentUserName(), isBoss()));
     }
 
-    @PreAuthorize("@ss.hasPermi('business:project:manage')")
+    @PreAuthorize("@ss.hasAnyPermi('business:project:manage,business:kpi:manage')")
     @Log(title = "项目KPI", businessType = BusinessType.DELETE)
     @DeleteMapping("/project/{projectId}/kpi/{kpiId}")
     public AjaxResult retireKpi(@PathVariable Long projectId, @PathVariable Long kpiId)
@@ -119,41 +119,41 @@ public class BusinessProjectController extends BaseController
     @GetMapping("/staff/{staffUserId}/cost-policies")
     public AjaxResult staffCostPolicies(@PathVariable Long staffUserId)
     {
-        return success(projectService.staffCostPolicies(staffUserId, currentUserId(), isBoss()));
+        return success(projectService.staffCostPolicies(staffUserId, currentUserId(), canManageStaffCost()));
     }
 
-    @PreAuthorize("@ss.hasPermi('business:staff:manage')")
+    @PreAuthorize("@ss.hasAnyPermi('business:staff:manage,business:staff:cost')")
     @Log(title = "人员内部核算成本", businessType = BusinessType.INSERT)
     @PostMapping("/staff/cost-policy")
     public AjaxResult saveStaffCostPolicy(@RequestBody BusinessStaffCostPolicy policy)
     {
-        return success(projectService.saveStaffCostPolicy(policy, currentUserId(), currentUserName(), isBoss()));
+        return success(projectService.saveStaffCostPolicy(policy, currentUserId(), currentUserName(), canManageStaffCost()));
     }
 
-    @PreAuthorize("@ss.hasPermi('business:staff:manage')")
+    @PreAuthorize("@ss.hasAnyPermi('business:staff:manage,business:staff:cost')")
     @Log(title = "批量人员内部核算成本", businessType = BusinessType.INSERT)
     @PostMapping("/staff/cost-policies")
     public AjaxResult saveStaffCostPolicies(@RequestBody List<BusinessStaffCostPolicy> policies)
     {
-        return success(projectService.saveStaffCostPolicies(policies, currentUserId(), currentUserName(), isBoss()));
+        return success(projectService.saveStaffCostPolicies(policies, currentUserId(), currentUserName(), canManageStaffCost()));
     }
 
-    @PreAuthorize("@ss.hasPermi('business:staff:manage')")
+    @PreAuthorize("@ss.hasAnyPermi('business:staff:manage,business:staff:cost')")
     @Log(title = "人员内部核算成本", businessType = BusinessType.DELETE)
     @DeleteMapping("/staff/cost-policy/{policyId}")
     public AjaxResult deleteStaffCostPolicy(@PathVariable Long policyId)
     {
-        projectService.deleteStaffCostPolicy(policyId, currentUserId(), currentUserName(), isBoss());
+        projectService.deleteStaffCostPolicy(policyId, currentUserId(), currentUserName(), canManageStaffCost());
         return success();
     }
 
-    @PreAuthorize("@ss.hasPermi('business:staff:manage')")
+    @PreAuthorize("@ss.hasAnyPermi('business:staff:manage,business:staff:cost')")
     @Log(title = "人员内部核算成本", businessType = BusinessType.UPDATE)
     @PutMapping("/staff/cost-policy/{policyId}/void")
     public AjaxResult voidStaffCostPolicy(@PathVariable Long policyId, @RequestBody Map<String, Object> body)
     {
         projectService.voidStaffCostPolicy(policyId, text(body, "reason"),
-            currentUserId(), currentUserName(), isBoss());
+            currentUserId(), currentUserName(), canManageStaffCost());
         return success();
     }
 
@@ -489,6 +489,12 @@ public class BusinessProjectController extends BaseController
     private boolean isAdministrator()
     {
         return SecurityUtils.isAdmin();
+    }
+
+    private boolean canManageStaffCost()
+    {
+        return SecurityUtils.isAdmin() || SecurityUtils.hasPermi("business:staff:manage")
+            || SecurityUtils.hasPermi("business:staff:cost");
     }
 
     private Long requiredLong(Map<String, Object> body, String key)

@@ -18,7 +18,7 @@ public class SaveStaffCostPolicyCapability implements AiConfirmableCapability
     @Autowired public SaveStaffCostPolicyCapability(IBusinessProjectService service) { this.service = service; }
     @Override public String code() { return "staff.cost-policy.save"; }
     @Override public String description() { return "为人员新增一版人民币月度用人成本。系统按人员国家自动使用中国21.75天或越南26天折算日成本；旧版按生效日期衔接，确认后才写入。"; }
-    @Override public String requiredPermission() { return "business:staff:manage"; }
+    @Override public String requiredPermission() { return "business:staff:cost"; }
     @Override public Map<String, Object> inputSchema()
     {
         Map<String, Object> schema = AiSchemas.object();

@@ -197,9 +197,14 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         }
         else
         {
+            if(previous!=null&&"CONFIRMED".equals(previous.getStatus()))
+                createReversal(previous,"负责人更新今日项目总花费",userId,userName);
             fact.setFactId(null);fact.setIdempotencyKey("PROJECT-DAILY-SPEND-"+fact.getProjectId()+"-"+bizDate+"-"+IdUtils.fastSimpleUUID());
             fact.setCreateUserId(userId);fact.setCreateBy(userName);mapper.insertFact(fact);
         }
+        BusinessOperatingFact draft=mapper.selectFactById(fact.getFactId());
+        if(mapper.confirmFact(draft.getFactId(),userId,userName,draft.getVersion())!=1)throw changed();
+        recalculateInternal(fact.getProjectId(),fact.getBizDate(),userName);
         return mapper.selectFactById(fact.getFactId());
     }
 
@@ -226,7 +231,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             String today=new SimpleDateFormat("yyyy-MM-dd").format(new Date());
             if(!today.equals(bizDate))throw new ServiceException("负责人工作台只能提交今日数据");
             if(!Arrays.asList("REVENUE","VALUE").contains(kind))
-                throw new ServiceException("负责人工作台只能提交项目收入或成果，成本和核算调整由老板或财务录入");
+                throw new ServiceException("负责人可在项目工作台填报收入、成果和今日总花费；核算调整仍由财务处理");
         }
         if("VALUE".equals(kind))
         {
@@ -265,7 +270,14 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             fact.setVersion(current.getVersion());fact.setUpdateBy(userName);
             if(mapper.updateDraftFact(fact)!=1)throw changed();
         }
-        return mapper.selectFactById(fact.getFactId());
+        BusinessOperatingFact stored=mapper.selectFactById(fact.getFactId());
+        if(projectContributor)
+        {
+            if(mapper.confirmFact(stored.getFactId(),userId,userName,stored.getVersion())!=1)throw changed();
+            recalculateInternal(stored.getProjectId(),stored.getBizDate(),userName);
+            stored=mapper.selectFactById(stored.getFactId());
+        }
+        return stored;
     }
 
     @Override
@@ -279,7 +291,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         {
             BusinessOperatingFact previous=mapper.selectConfirmedProjectDailySpend(fact.getProjectId(),fact.getBizDate());
             if(previous!=null&&!previous.getFactId().equals(fact.getFactId()))
-                createReversal(previous,"老板确认负责人修改后的今日项目总花费",userId,userName);
+                createReversal(previous,"确认修改后的今日项目总花费",userId,userName);
         }
         if(mapper.confirmFact(factId,userId,userName,fact.getVersion())!=1)throw changed();
         recalculateInternal(fact.getProjectId(),fact.getBizDate(),userName);
@@ -436,9 +448,24 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         if(personnelItems!=null)for(Map<String,Object> personnelItem:personnelItems)
             addItem(result,"PERSONNEL_COST_PERSON",String.valueOf(personnelItem.get("componentName")),
                 decimal(personnelItem.get("amount")),String.valueOf(personnelItem.get("calculationDetail")));
-        addItem(result,"PROJECT_BONUS_COST","项目绩效奖金",bonus,"老板确认项目KPI结算后立即计入；不代表已向个人发放");
+        addItem(result,"PROJECT_BONUS_COST","项目绩效奖金",bonus,"负责人确认项目KPI结算后立即计入；不代表已向个人发放");
         addItem(result,"ADJUSTMENT","核算调整",adjustment,"已确认调整事实合计");
         return result;
+    }
+
+    @Override
+    public Map<String,Object> projectDashboard(Long projectId,Map<String,Object> query,Long userId,boolean viewAll)
+    {
+        Map<String,Object> project=mapper.selectProjectForAccounting(projectId);
+        if(project==null)throw new ServiceException("项目不存在");
+        boolean sponsor=String.valueOf(userId).equals(String.valueOf(project.get("initiatorUserId")));
+        boolean owner=String.valueOf(userId).equals(String.valueOf(project.get("mainOwnerUserId")));
+        if(!viewAll&&!sponsor&&!owner)throw new ServiceException("无权查看该项目经营数据");
+        Map<String,Object> scoped=query==null?new HashMap<String,Object>():new HashMap<String,Object>(query);
+        scoped.put("projectId",projectId);
+        // The project boundary was explicitly checked above. The generic dashboard's non-admin
+        // scope is owner-company based, so it must not be applied to a project owner's cockpit.
+        return dashboard(scoped,userId,true);
     }
     private void refreshLaterBudgetSnapshots(Long projectId,Date changedDate)
     {

@@ -75,14 +75,12 @@ public class SysPermissionService
                     {
                         Set<String> rolePerms = menuService.selectMenuPermsByRoleId(role.getRoleId());
                         role.setPermissions(rolePerms);
-                        perms.addAll(rolePerms);
                     }
                 }
             }
-            else
-            {
-                perms.addAll(menuService.selectMenuPermsByUserId(user.getUserId()));
-            }
+            // The user's final permission set may contain a personal menu snapshot.
+            // Role permissions above remain attached to each role for data-scope matching.
+            perms.addAll(menuService.selectMenuPermsByUserId(user.getUserId()));
         }
         return perms;
     }

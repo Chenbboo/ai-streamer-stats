@@ -22,7 +22,7 @@ import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.common.utils.SecurityUtils;
 
-/** 全员立项申请与老板一次审批。 */
+/** 负责人维护项目测算并自主启动；历史待审批数据仍可处理。 */
 @RestController
 @RequestMapping("/business/project-proposal")
 public class BusinessProjectProposalController extends BaseController
@@ -56,17 +56,25 @@ public class BusinessProjectProposalController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('business:project:proposal:list')")
-    @GetMapping("/{proposalId}")
-    public AjaxResult detail(@PathVariable("proposalId") Long proposalId)
-    {
-        return success(proposalService.get(proposalId, userId(), isBoss(), isAdmin()));
-    }
-
-    @PreAuthorize("@ss.hasPermi('business:project:proposal:list')")
     @GetMapping("/options")
     public AjaxResult options()
     {
         return success(proposalService.options(userId()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:proposal:list')")
+    @GetMapping("/staff-options")
+    public AjaxResult staffOptions(@RequestParam(required = false) Long companyDeptId,
+        @RequestParam(required = false) String effectiveDate)
+    {
+        return success(proposalService.staffOptions(companyDeptId, effectiveDate, userId()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:proposal:list')")
+    @GetMapping("/{proposalId}")
+    public AjaxResult detail(@PathVariable("proposalId") Long proposalId)
+    {
+        return success(proposalService.get(proposalId, userId(), isBoss(), isAdmin()));
     }
 
     @PreAuthorize("@ss.hasPermi('business:project:proposal:add')")
@@ -95,7 +103,7 @@ public class BusinessProjectProposalController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('business:project:proposal:submit')")
-    @Log(title = "提交立项申请", businessType = BusinessType.UPDATE)
+    @Log(title = "负责人启动项目", businessType = BusinessType.UPDATE)
     @PostMapping("/{proposalId}/submit")
     public AjaxResult submit(@PathVariable("proposalId") Long proposalId)
     {
@@ -112,7 +120,7 @@ public class BusinessProjectProposalController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('business:project:proposal:review')")
-    @Log(title = "审批立项申请", businessType = BusinessType.UPDATE)
+    @Log(title = "处理历史立项申请", businessType = BusinessType.UPDATE)
     @PutMapping("/{proposalId}/review")
     public AjaxResult review(@PathVariable("proposalId") Long proposalId, @RequestBody Map<String, Object> body)
     {

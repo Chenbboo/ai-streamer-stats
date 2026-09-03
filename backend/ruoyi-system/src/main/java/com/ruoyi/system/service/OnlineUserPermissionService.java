@@ -50,6 +50,40 @@ public class OnlineUserPermissionService
         }
     }
 
+    /** Menu routes are held in the browser, so a menu snapshot change requires a fresh login. */
+    public void forceReloginAfterCommit(final Long userId)
+    {
+        if (userId == null) return;
+        if (TransactionSynchronizationManager.isSynchronizationActive())
+        {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization()
+            {
+                @Override
+                public void afterCommit()
+                {
+                    forceRelogin(userId);
+                }
+            });
+        }
+        else
+        {
+            forceRelogin(userId);
+        }
+    }
+
+    public void forceRelogin(Long userId)
+    {
+        Collection<String> keys = redisCache.keys(CacheConstants.LOGIN_TOKEN_KEY + "*");
+        if (keys == null || keys.isEmpty()) return;
+        for (String key : keys)
+        {
+            LoginUser loginUser = redisCache.getCacheObject(key);
+            if (loginUser == null || !userId.equals(loginUser.getUserId())) continue;
+            redisCache.deleteObject(key);
+            log.info("已使目录权限发生变化的在线用户[{}]重新登录", loginUser.getUsername());
+        }
+    }
+
     public void refreshOnlineSessions(Long userId)
     {
         SysUser freshUser = userService.selectUserById(userId);
@@ -88,20 +122,15 @@ public class OnlineUserPermissionService
             return permissions;
         }
         List<SysRole> roles = user.getRoles();
-        if (roles == null || roles.isEmpty())
-        {
-            permissions.addAll(menuService.selectMenuPermsByUserId(user.getUserId()));
-            return permissions;
-        }
-        for (SysRole role : roles)
+        if (roles != null) for (SysRole role : roles)
         {
             if (StringUtils.equals(role.getStatus(), UserConstants.ROLE_NORMAL) && !role.isAdmin())
             {
                 Set<String> rolePermissions = menuService.selectMenuPermsByRoleId(role.getRoleId());
                 role.setPermissions(rolePermissions);
-                permissions.addAll(rolePermissions);
             }
         }
+        permissions.addAll(menuService.selectMenuPermsByUserId(user.getUserId()));
         return permissions;
     }
 }

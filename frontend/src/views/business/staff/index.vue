@@ -1,8 +1,8 @@
 <template>
   <div class="app-container staff-page">
     <header class="hero">
-      <div><span class="eyebrow">COMPANY PEOPLE</span><h1>人员管理</h1><p>统一维护上海与越南公司人员档案、组织关系和系统账号。</p></div>
-      <el-button type="primary" icon="Plus" @click="openCreate">新增人员</el-button>
+      <div><span class="eyebrow">COMPANY PEOPLE</span><h1>人员管理</h1><p>{{ canManagePeople ? '统一维护公司人员档案、组织关系和系统账号。' : '人员资料只读；项目负责人仅可调整用人成本。' }}</p></div>
+      <el-button v-if="canManagePeople" type="primary" icon="Plus" @click="openCreate">新增人员</el-button>
     </header>
 
     <section class="panel search-panel">
@@ -24,16 +24,17 @@
         <el-table-column label="直属负责人" min-width="110"><template #default="{row}">{{ row.managerName || '—' }}</template></el-table-column>
         <el-table-column label="联系方式" min-width="150"><template #default="{row}"><span>{{ formatPhone(row) }}</span><small>{{ row.email || '未设置邮箱' }}</small></template></el-table-column>
         <el-table-column label="任职" width="105"><template #default="{row}"><el-tag :type="employmentTag(row.employmentStatus)">{{ employmentStatusLabel(row.employmentStatus) }}</el-tag><small>{{ employmentTypeLabel(row.employmentType) }}</small></template></el-table-column>
-        <el-table-column label="账号" width="90"><template #default="{row}"><el-switch v-model="row.status" active-value="0" inactive-value="1" :disabled="row.protectedAccount" @change="changeStatus(row)" /></template></el-table-column>
+        <el-table-column label="账号" width="90"><template #default="{row}"><el-switch v-model="row.status" active-value="0" inactive-value="1" :disabled="!canManagePeople || row.protectedAccount" @change="changeStatus(row)" /></template></el-table-column>
         <el-table-column label="操作" width="132" fixed="right" align="center"><template #default="{row}">
           <div class="row-actions">
             <el-button link type="primary" @click="openDetail(row)">查看</el-button>
-            <el-dropdown trigger="click" @command="handlePersonCommand($event,row)">
+            <el-dropdown v-if="canManagePeople || canManageRowCost(row)" trigger="click" @command="handlePersonCommand($event,row)">
               <el-button link type="primary">管理<span class="dropdown-caret">⌄</span></el-button>
               <template #dropdown><el-dropdown-menu>
                 <el-dropdown-item v-if="canManageRowCost(row)" command="cost">设置用人成本</el-dropdown-item>
-                <el-dropdown-item command="edit">编辑人员资料</el-dropdown-item>
-                <el-dropdown-item v-if="!row.protectedAccount" command="password" divided>重置密码</el-dropdown-item>
+                <el-dropdown-item v-if="canManageDirectory(row)" command="menu">设置目录权限</el-dropdown-item>
+                <el-dropdown-item v-if="canManagePeople" command="edit">编辑人员资料</el-dropdown-item>
+                <el-dropdown-item v-if="canManagePeople && !row.protectedAccount" command="password" divided>重置密码</el-dropdown-item>
               </el-dropdown-menu></template>
             </el-dropdown>
           </div>
@@ -45,7 +46,7 @@
           <div class="card-head"><div><b>{{ row.nickName }}</b><span>{{ row.employeeNo || row.userName }}</span></div><el-tag :type="employmentTag(row.employmentStatus)">{{ employmentStatusLabel(row.employmentStatus) }}</el-tag></div>
           <p>{{ row.companyName || '集团层级' }} · {{ row.deptName || '未设置部门' }}</p>
           <p>直属负责人：{{ row.managerName || '未设置' }}</p>
-          <div class="card-foot"><span>{{ formatPhone(row) }}</span><div class="row-actions" @click.stop><el-button link type="primary" @click="openDetail(row)">查看</el-button><el-dropdown trigger="click" @command="handlePersonCommand($event,row)"><el-button link type="primary">管理<span class="dropdown-caret">⌄</span></el-button><template #dropdown><el-dropdown-menu><el-dropdown-item v-if="canManageRowCost(row)" command="cost">设置用人成本</el-dropdown-item><el-dropdown-item command="edit">编辑人员资料</el-dropdown-item><el-dropdown-item v-if="!row.protectedAccount" command="password" divided>重置密码</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></div>
+          <div class="card-foot"><span>{{ formatPhone(row) }}</span><div class="row-actions" @click.stop><el-button link type="primary" @click="openDetail(row)">查看</el-button><el-dropdown v-if="canManagePeople || canManageRowCost(row)" trigger="click" @command="handlePersonCommand($event,row)"><el-button link type="primary">管理<span class="dropdown-caret">⌄</span></el-button><template #dropdown><el-dropdown-menu><el-dropdown-item v-if="canManageRowCost(row)" command="cost">设置用人成本</el-dropdown-item><el-dropdown-item v-if="canManageDirectory(row)" command="menu">设置目录权限</el-dropdown-item><el-dropdown-item v-if="canManagePeople" command="edit">编辑人员资料</el-dropdown-item><el-dropdown-item v-if="canManagePeople && !row.protectedAccount" command="password" divided>重置密码</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></div>
         </article>
         <el-empty v-if="!loading && !rows.length" description="暂无人员" />
       </div>
@@ -95,7 +96,7 @@
           <div><span>用工类型</span><b>{{ employmentTypeLabel(selectedPerson.employmentType) }}</b></div><div><span>任职状态</span><b>{{ employmentStatusLabel(selectedPerson.employmentStatus) }}</b></div>
           <div><span>入职日期</span><b>{{ selectedPerson.hireDate || '未设置' }}</b></div><div><span>系统角色</span><b>{{ selectedPerson.roleNames || selectedPerson.accountType }}</b></div>
         </div></section>
-        <section v-if="canViewSelectedCost" class="detail-section cost-policy-section"><div class="detail-section-head"><div><h3>内部核算成本</h3><p>系统管理员可维护全部人员，普通老板仅可维护本人负责公司的人员。</p></div><el-button v-if="canManageSelectedCost" size="small" type="primary" @click="openCostPolicy">设置新版本</el-button></div>
+        <section v-if="canViewSelectedCost" class="detail-section cost-policy-section"><div class="detail-section-head"><div><h3>内部核算成本</h3><p>项目负责人可维护人员成本；公司负责人仍仅维护本人负责公司的人员。</p></div><el-button v-if="canManageSelectedCost" size="small" type="primary" @click="openCostPolicy">设置新版本</el-button></div>
           <el-table :data="costPolicies" :row-class-name="costPolicyRowClass" size="small" empty-text="尚未设置内部核算成本">
             <el-table-column label="版本" width="70"><template #default="{row}">v{{ row.policyVersion }}</template></el-table-column>
             <el-table-column label="月度用人成本" min-width="130"><template #default="{row}"><b>{{ money(row.unitCost) }} {{ row.currency }}</b><small v-if="row.costMode!=='MONTHLY'">历史{{ costModeLabel[row.costMode] }}</small></template></el-table-column>
@@ -124,7 +125,7 @@
         <section class="detail-section"><h3>系统账号</h3><div class="detail-grid">
           <div><span>账号状态</span><b>{{ selectedPerson.status==='0' ? '正常' : '停用' }}</b></div><div><span>最后登录</span><b>{{ formatDate(selectedPerson.loginDate) }}</b></div>
         </div></section>
-        <el-button type="primary" plain @click="openEdit(selectedPerson);detailOpen=false">编辑人员资料</el-button>
+        <div class="detail-actions"><el-button v-if="canManageDirectory(selectedPerson)" type="primary" plain @click="openMenuPermissions(selectedPerson);detailOpen=false">设置目录权限</el-button><el-button v-if="canManagePeople" type="primary" plain @click="openEdit(selectedPerson);detailOpen=false">编辑人员资料</el-button></div>
       </template>
     </el-drawer>
 
@@ -151,12 +152,35 @@
       </el-form>
       <template #footer><el-button @click="costDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveCostPolicy">保存成本版本</el-button></template>
     </el-dialog>
+
+    <el-dialog v-model="menuDialog" class="staff-menu-dialog" :title="`${menuPolicy.nickName || ''} · 目录权限`" width="min(920px, 96vw)" append-to-body :close-on-click-modal="false">
+      <el-alert title="默认继承员工现有角色权限。老板可以设置员工的全部目录权限，包括系统管理和系统监控。保存后会同时约束菜单显示和后端操作权限。" type="success" :closable="false" show-icon />
+      <div class="menu-toolbar">
+        <span><b>{{ menuPolicy.inherited ? '当前：继承角色' : '当前：个人设置' }}</b><small>左侧导航中的全部目录均可授权</small></span>
+        <div><el-button size="small" @click="setAllMenuLevels('HIDDEN')">全部不显示</el-button><el-button size="small" @click="setAllMenuLevels('READ')">全部仅查看</el-button><el-button size="small" @click="setAllMenuLevels('MAINTAIN')">全部可维护</el-button></div>
+      </div>
+      <div class="menu-tree-wrap" v-loading="menuLoading">
+        <el-tree :data="menuTree" node-key="menuId" default-expand-all :expand-on-click-node="false" :props="{label:'menuName',children:'children'}">
+          <template #default="{data}">
+            <div class="menu-node">
+              <div class="menu-node-name"><b>{{ data.menuName }}</b><small>角色默认：{{ menuLevelLabel(data.inheritedLevel) }}</small></div>
+              <el-radio-group :model-value="data.accessLevel" size="small" @change="setMenuLevel(data,$event)">
+                <el-radio-button label="HIDDEN">不显示</el-radio-button>
+                <el-radio-button label="READ" :disabled="levelDisabled(data,'READ')">仅查看</el-radio-button>
+                <el-radio-button label="MAINTAIN" :disabled="levelDisabled(data,'MAINTAIN')">可维护</el-radio-button>
+              </el-radio-group>
+            </div>
+          </template>
+        </el-tree>
+      </div>
+      <template #footer><div class="menu-dialog-footer"><el-button :disabled="menuPolicy.inherited" @click="restoreRoleMenus">恢复角色默认</el-button><span class="footer-spacer"></span><el-button @click="menuDialog=false">取消</el-button><el-button type="primary" :loading="menuSaving" @click="saveMenuPermissions">保存权限</el-button></div></template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup name="BusinessStaff">
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { addBusinessStaff, changeBusinessStaffStatus, deleteBusinessStaffCostPolicy, getBusinessStaffCostPolicies, getBusinessStaffProjects, listBusinessDepartments, listBusinessStaff, listBusinessStaffOptions, resetBusinessStaffPassword, saveBusinessStaffCostPolicy, updateBusinessStaff, voidBusinessStaffCostPolicy } from '@/api/business/staff'
+import { addBusinessStaff, changeBusinessStaffStatus, deleteBusinessStaffCostPolicy, getBusinessStaffCostPolicies, getBusinessStaffMenuPermissions, getBusinessStaffProjects, listBusinessDepartments, listBusinessStaff, listBusinessStaffOptions, resetBusinessStaffMenuPermissions, resetBusinessStaffPassword, saveBusinessStaffCostPolicy, saveBusinessStaffMenuPermissions, updateBusinessStaff, voidBusinessStaffCostPolicy } from '@/api/business/staff'
 import useUserStore from '@/store/modules/user'
 import { usePasswordRule } from '@/utils/passwordRule'
 
@@ -169,6 +193,7 @@ const router=useRouter()
 const userStore=useUserStore()
 const loading=ref(false),saving=ref(false),dialogOpen=ref(false),detailOpen=ref(false),projectLoading=ref(false),deepLinkHandled=ref(false),retiringPolicyId=ref(null)
 const costDialog=ref(false),costPolicies=ref([]),costForm=reactive({})
+const menuDialog=ref(false),menuLoading=ref(false),menuSaving=ref(false),menuTree=ref([]),menuPolicy=reactive({})
 const formRef=ref(),rows=ref([]),total=ref(0),departments=ref([]),staffOptions=ref([]),selectedPerson=ref()
 const emptyProjectSummary=()=>({projects:[],ownerCount:0,memberCount:0,openCount:0,assignedTaskCount:0,completedTaskCount:0})
 const projectSummary=ref(emptyProjectSummary())
@@ -183,10 +208,12 @@ const costDateColors=[
 ]
 const activeCostPolicies=computed(()=>costPolicies.value.filter(policy=>policy.status==='ACTIVE'))
 const isAdmin=computed(()=>userStore.roles.includes('admin')||userStore.permissions.includes('*:*:*'))
-const isBoss=computed(()=>isAdmin.value||userStore.permissions.includes('business:boss:view'))
+const canManagePeople=computed(()=>isAdmin.value||userStore.permissions.includes('business:staff:manage'))
+const canManageStaffCost=computed(()=>canManagePeople.value||userStore.permissions.includes('business:staff:cost'))
 const costEligibleStaff=row=>row?.employmentStatus!=='LEFT'
-const canViewRowCost=row=>costEligibleStaff(row)&&(isAdmin.value||(row?.status==='0'&&isBoss.value&&!!row?.canViewCost))
-const canManageRowCost=row=>costEligibleStaff(row)&&(isAdmin.value||(row?.status==='0'&&isBoss.value&&!!row?.canManageCost))
+const canViewRowCost=row=>costEligibleStaff(row)&&(isAdmin.value||(canManageStaffCost.value&&!!row?.canViewCost))
+const canManageRowCost=row=>costEligibleStaff(row)&&(isAdmin.value||(canManageStaffCost.value&&!!row?.canManageCost))
+const canManageDirectory=row=>canManagePeople.value&&!row?.protectedAccount
 const canViewSelectedCost=computed(()=>canViewRowCost(selectedPerson.value))
 const canManageSelectedCost=computed(()=>canManageRowCost(selectedPerson.value))
 const query=reactive({pageNum:1,pageSize:10,userId:route.query.userId?Number(route.query.userId):null,nickName:'',deptId:null,status:''})
@@ -257,7 +284,35 @@ async function retireCostPolicy(policy){
 }
 async function openCostPolicy(){if(!canManageSelectedCost.value)return ElMessage.warning('没有该人员的用人成本设置权限');if(!selectedStandardDays.value)return ElMessage.warning('请先把人员的国家/地区设置为中国或越南');costPolicies.value=(await getBusinessStaffCostPolicies(selectedPerson.value.userId)).data||[];Object.keys(costForm).forEach(key=>delete costForm[key]);Object.assign(costForm,{userId:selectedPerson.value.userId,costMode:'MONTHLY',unitCost:null,currency:'CNY',effectiveFrom:new Date().toISOString().slice(0,10),effectiveTo:null,remark:''});costDialog.value=true}
 async function openCostPolicyFor(row){selectedPerson.value=row;await openCostPolicy()}
-function handlePersonCommand(command,row){if(command==='cost')return openCostPolicyFor(row);if(command==='edit')return openEdit(row);if(command==='password')return resetPassword(row)}
+function handlePersonCommand(command,row){if(command==='cost')return openCostPolicyFor(row);if(command==='menu')return openMenuPermissions(row);if(command==='edit')return openEdit(row);if(command==='password')return resetPassword(row)}
+const menuLevelRank={HIDDEN:0,READ:1,MAINTAIN:2,MIXED:-1}
+const menuLevelText={HIDDEN:'不显示',READ:'仅查看',MAINTAIN:'可维护',MIXED:'混合'}
+const menuLevelLabel=level=>menuLevelText[level]||'不显示'
+const levelDisabled=()=>false
+function walkMenuNodes(nodes,callback){nodes.forEach(node=>{callback(node);walkMenuNodes(node.children||[],callback)})}
+function deriveMenuDirectoryLevel(node){
+  if(node.menuType!=='M')return node.accessLevel
+  const levels=(node.children||[]).map(deriveMenuDirectoryLevel)
+  if(!levels.length)return node.accessLevel
+  node.accessLevel=levels.every(level=>level===levels[0])?levels[0]:'MIXED'
+  return node.accessLevel
+}
+function refreshMenuDirectoryLevels(){menuTree.value.forEach(deriveMenuDirectoryLevel)}
+function setMenuLevel(node,level){
+  const apply=current=>{current.accessLevel=level;(current.children||[]).forEach(apply)}
+  apply(node);refreshMenuDirectoryLevels()
+}
+function setAllMenuLevels(level){menuTree.value.forEach(node=>setMenuLevel(node,level))}
+async function openMenuPermissions(row){
+  if(!canManageDirectory(row))return ElMessage.warning('该账号不能设置个人目录权限')
+  menuDialog.value=true;menuLoading.value=true;menuTree.value=[]
+  try{const result=await getBusinessStaffMenuPermissions(row.userId);Object.keys(menuPolicy).forEach(key=>delete menuPolicy[key]);Object.assign(menuPolicy,result.data||{});menuTree.value=menuPolicy.menus||[];refreshMenuDirectoryLevels()}finally{menuLoading.value=false}
+}
+function menuPermissionPayload(){const permissions=[];walkMenuNodes(menuTree.value,node=>{if(node.menuType==='C')permissions.push({menuId:node.menuId,accessLevel:node.accessLevel})});return {permissions}}
+async function saveMenuPermissions(){menuSaving.value=true;try{await saveBusinessStaffMenuPermissions(menuPolicy.userId,menuPermissionPayload());ElMessage.success('目录权限已保存，员工需要重新登录');menuDialog.value=false}finally{menuSaving.value=false}}
+async function restoreRoleMenus(){
+  try{await ElMessageBox.confirm('恢复后，该员工将重新完全继承现有角色权限。确定继续吗？','恢复角色默认',{type:'warning'});menuSaving.value=true;await resetBusinessStaffMenuPermissions(menuPolicy.userId);ElMessage.success('已恢复角色默认权限');menuDialog.value=false}catch(error){if(!['cancel','close'].includes(error))throw error}finally{menuSaving.value=false}
+}
 async function saveCostPolicy(){if(costForm.unitCost===null||costForm.unitCost===undefined)return ElMessage.warning('请填写月度用人成本');if(!costForm.effectiveFrom)return ElMessage.warning('请选择生效日期');saving.value=true;try{await saveBusinessStaffCostPolicy(costForm);costPolicies.value=(await getBusinessStaffCostPolicies(selectedPerson.value.userId)).data||[];costDialog.value=false;ElMessage.success('月度用人成本新版本已保存')}finally{saving.value=false}}
 function policyDailyCost(row){if(row.costMode!=='MONTHLY'||!row.standardWorkDays)return '按历史方式';return `${money(Number(row.unitCost)/Number(row.standardWorkDays))} 元/天`}
 function policyRule(row){if(row.costMode!=='MONTHLY')return costModeLabel[row.costMode]||row.costMode;return `${row.countryRegion==='VN'?'越南':row.countryRegion==='CN'?'中国':'其他'} / ${row.standardWorkDays} 天`}
@@ -273,6 +328,7 @@ loadAll()
 
 <style scoped>
 .staff-page{min-height:calc(100vh - 84px);padding:24px;background:#f3f5f8;color:#172033}.hero{display:flex;align-items:flex-end;justify-content:space-between;padding:25px 30px;border-radius:16px;background:linear-gradient(120deg,#12314a,#1a5a62);color:#fff}.eyebrow{font-size:11px;letter-spacing:.18em;color:#8fe0d5}.hero h1{margin:5px 0 4px;font-size:28px}.hero p{margin:0;color:#c9dce0}.panel{margin-top:16px;padding:18px 20px;border:1px solid #e0e5eb;border-radius:14px;background:#fff}.search-panel{padding-bottom:0}.panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.panel-head h2{margin:0;font-size:18px}.panel-head p{margin:4px 0 0;color:#8490a0;font-size:13px}.desktop-table small{display:block;margin-top:4px;color:#8994a2}.person-link{padding:0;border:0;background:none;color:inherit;text-align:left;cursor:pointer}.person-link b,.person-link small{display:block}.phone-input{display:flex;width:100%;gap:8px}.form-section{margin:20px 0 14px;padding-bottom:8px;border-bottom:1px solid #edf0f3;color:#26455e;font-size:15px}.dialog-actions{display:flex;justify-content:flex-end;gap:10px}.detail-identity{display:flex;align-items:center;justify-content:space-between;padding:18px;border-radius:12px;background:#eef5f7}.detail-identity b,.detail-identity span{display:block}.detail-identity b{font-size:22px}.detail-identity span{margin-top:4px;color:#788694}.detail-section{margin-top:20px}.detail-section h3{font-size:16px}.detail-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.detail-grid div{padding:13px;border:1px solid #e5e9ee;border-radius:9px}.detail-grid span,.detail-grid b{display:block}.detail-grid span{margin-bottom:5px;color:#85909d;font-size:12px}.detail-grid b{font-size:14px}.mobile-staff-list{display:none}.staff-card{padding:15px;border:1px solid #e2e7ec;border-radius:12px;background:#fff}.card-head,.card-foot{display:flex;align-items:center;justify-content:space-between}.card-head b,.card-head span{display:block}.card-head span{margin-top:3px;color:#8994a2;font-size:12px}.staff-card p{margin:10px 0;color:#5f6e7d;font-size:13px}.card-foot{padding-top:10px;border-top:1px solid #eef1f4;color:#465666;font-size:13px}.row-actions{display:inline-flex;align-items:center;justify-content:center;gap:4px;white-space:nowrap}.row-actions .el-button{margin:0}.dropdown-caret{margin-left:3px;color:#7c8da0;font-size:12px}
+.detail-actions{display:flex;gap:10px;margin-top:18px}.menu-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:14px 0;padding:12px 14px;border:1px solid #dce6ee;border-radius:9px;background:#f8fafc}.menu-toolbar span,.menu-toolbar small{display:block}.menu-toolbar small{margin-top:4px;color:#84909f;font-size:12px}.menu-tree-wrap{height:min(58vh,620px);overflow:auto;border:1px solid #e1e6ec;border-radius:9px}.menu-node{display:flex;flex:1;align-items:center;justify-content:space-between;gap:16px;padding:7px 14px 7px 0;border-bottom:1px solid #f0f2f5}.menu-node-name b,.menu-node-name small{display:block}.menu-node-name small{margin-top:3px;color:#8b96a4;font-size:11px}.menu-dialog-footer{display:flex;align-items:center;width:100%}.footer-spacer{flex:1}:global(.staff-menu-dialog .el-tree-node__content){height:auto;min-height:54px}:global(.staff-menu-dialog .el-tree-node__children){background:#fbfcfd}
 .responsibility-summary{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid #e3e8ed;border-radius:10px;background:#f8fafb}.responsibility-summary div{padding:12px;border-right:1px solid #e3e8ed}.responsibility-summary div:last-child{border:0}.responsibility-summary span,.responsibility-summary b{display:block}.responsibility-summary span{color:#85909d;font-size:12px}.responsibility-summary b{margin-top:5px;font-size:18px}.responsibility-list{display:grid;gap:10px;margin-top:10px}.responsibility-card{padding:13px 14px;border:1px solid #e3e8ed;border-radius:10px}.responsibility-card-head,.responsibility-foot{display:flex;align-items:center;justify-content:space-between;gap:10px}.responsibility-card-head b,.responsibility-card-head span{display:block}.responsibility-card-head span{margin-top:3px;color:#8a95a3;font-size:12px}.responsibility-meta{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:10px;color:#536273;font-size:13px}.responsibility-foot{min-height:24px;margin-top:8px;color:#9a6c25;font-size:12px}
 .detail-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.detail-section-head h3{margin:0}.detail-section-head p{margin:5px 0 12px;color:#8793a1;font-size:12px}.cost-policy-section{padding:14px;border:1px solid #d9e4ef;border-radius:10px;background:#f8fbfe}.cost-policy-section small{display:block;margin-top:3px;color:#8a95a3}.cost-form{margin-top:18px}.form-help{margin-top:5px;color:#8490a0;font-size:12px}.cost-preview{display:grid;gap:5px;margin:-4px 0 18px 126px;padding:13px 15px;border:1px solid #cfe3df;border-radius:9px;background:#f0f8f6}.cost-preview span,.cost-preview small{color:#71828c;font-size:12px}.cost-preview b{color:#174f4f;font-size:15px}
 :deep(.void-cost-policy-row){color:#929ba6}:deep(.void-cost-policy-row td.el-table__cell){background:#f7f8fa}

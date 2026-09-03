@@ -13,3 +13,6 @@ export const addBusinessStaff = data => request({ url: '/business/staff', method
 export const updateBusinessStaff = data => request({ url: '/business/staff', method: 'put', data })
 export const changeBusinessStaffStatus = data => request({ url: '/business/staff/status', method: 'put', data })
 export const resetBusinessStaffPassword = data => request({ url: '/business/staff/password', method: 'put', data })
+export const getBusinessStaffMenuPermissions = id => request({ url: `/business/staff/${id}/menu-permissions`, method: 'get' })
+export const saveBusinessStaffMenuPermissions = (id, data) => request({ url: `/business/staff/${id}/menu-permissions`, method: 'put', data })
+export const resetBusinessStaffMenuPermissions = id => request({ url: `/business/staff/${id}/menu-permissions`, method: 'delete' })

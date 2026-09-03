@@ -497,7 +497,7 @@ AI 辅助立项等多轮写操作不依赖模型聊天记忆，而是使用数�
 5. KPI：查看老板发布的项目目标与奖金阶梯，填报实际结果并提交结算。
 6. 项目资源：成员投入比例、本项目分摊金额和资源冲突。
 
-负责人工作台不展示今日业务成本汇总、人员成本、利润、今日经营结果和未关闭风险总览；这些属于老板经营判断界面。负责人本人填报的“今日项目总花费”仍可在填报卡片中查看和修改。风险和完整经营核算如后续需要协同，应通过项目详情中的单项授权页进入，不放在负责人首页。
+负责人工作台仍以今日行动和填报为主，不堆叠完整经营核算。项目详情默认提供“项目总览”页签，负责人可查看本人项目的预算使用、累计收入、汇总人员成本、累计经营结果、进度、KPI差距、任务和风险；不得展示成员个人月薪原值或其他项目数据。负责人本人填报的“今日项目总花费”仍可在填报卡片中查看和修改，经营分项和编辑入口继续由项目详情的专门页签承载。
 
 项目详情建议包含以下页签：概览、计划、任务、成员、KPI、经营核算、数据、审批、风险、资料、AI 分析、操作记录。
 
@@ -584,7 +584,7 @@ AI 辅助立项等多轮写操作不依赖模型聊天记忆，而是使用数�
 | `biz_metric_def` | `metric_id`、`metric_code`、`name`、`metric_type`、`unit`、`aggregation_type`、`source_type`、`status` | 稳定指标库 |
 | `biz_formula_version` | `formula_version_id`、`formula_code`、`version_no`、`expression`、`effective_from`、`effective_to`、`approval_status` | 安全公式版本 |
 | `biz_project_kpi_plan` | `plan_id`、`project_id`、`plan_version`、`cycle_type`、`cycle_start`、`cycle_end`、`bonus_mode`、`currency`、`status` | 已发布项目 KPI 方案头 |
-| `biz_project_kpi_plan_item` | `item_id`、`plan_id`、`kpi_id`、指标及目标快照、`weight`、`direction` | KPI 目标快照，不含个人考核对象 |
+| `biz_project_kpi_plan_item` | `item_id`、`plan_id`、`kpi_id`、指标及目标快照、`weight`、`direction`、`source_type`、`source_ref_id` | KPI 目标与取数口径快照，不含个人考核对象 |
 | `biz_project_bonus_tier` | `tier_id`、`plan_id`、`min_score`、`max_score`、`bonus_amount` | 项目综合阶梯奖金 |
 | `biz_project_kpi_settlement` | `settlement_id`、`plan_id`、`project_id`、`status`、`total_score`、`bonus_amount`、`accounting_fact_id` | 项目 KPI 结算及奖金结果 |
 | `biz_project_kpi_result` | `result_id`、`settlement_id`、`plan_item_id`、`actual_value`、`completion_rate`、`weighted_score`、说明及凭证 | 单项 KPI 结算结果 |
@@ -805,6 +805,8 @@ AI 的请求和响应字段使用 `LONGTEXT` 保存，并由应用层做结构�
 - 人员跨项目分摊可以解释到人、日期、政策和分摊规则。
 - 项目负责人无法读取真实工资或其他项目成本。
 - KPI 只对项目结算，项目奖金使用 CNY 综合阶梯且不向个人分配。
+- KPI 支持手工填报和自动取数：金额类读取已核算的收入、业务成本、人员成本和经营结果；数量类可绑定持续工作并汇总周期上报值，也可按任务或里程碑完成数统计。
+- 考核截止日当天仍属于统计周期，只显示实时预计结果；截止日次日才允许最终确认，确认时重新取数并冻结结果、得分和奖金快照。
 - 老板确认结算后项目奖金立即计入成本，重复确认不会重复入账。
 - 进行中项目尚未发布 KPI 方案时进入老板待办，方案发布后才形成可结算周期快照。
 - 验收通过和直接结项使用同一服务端 KPI 门槛：至少存在一个 `PUBLISHED`/`CLOSED` 方案，且所有已发布方案的结算均为 `CONFIRMED`；未来未到期方案先等待周期结束再结算，提交验收本身不提前阻断，以便负责人在 `ACCEPTANCE` 状态继续完成结算。

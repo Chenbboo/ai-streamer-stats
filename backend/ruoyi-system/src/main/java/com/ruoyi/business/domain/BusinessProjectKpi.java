@@ -25,6 +25,7 @@ public class BusinessProjectKpi extends BaseEntity
     private String direction;
     private String aggregateType;
     private String sourceType;
+    private Long sourceRefId;
     private Long ownerUserId;
     private String ownerName;
     @JsonFormat(pattern = "yyyy-MM-dd") private Date effectiveFrom;
@@ -66,6 +67,8 @@ public class BusinessProjectKpi extends BaseEntity
     public void setAggregateType(String aggregateType) { this.aggregateType = aggregateType; }
     public String getSourceType() { return sourceType; }
     public void setSourceType(String sourceType) { this.sourceType = sourceType; }
+    public Long getSourceRefId() { return sourceRefId; }
+    public void setSourceRefId(Long sourceRefId) { this.sourceRefId = sourceRefId; }
     public Long getOwnerUserId() { return ownerUserId; }
     public void setOwnerUserId(Long ownerUserId) { this.ownerUserId = ownerUserId; }
     public String getOwnerName() { return ownerName; }

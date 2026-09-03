@@ -27,6 +27,25 @@ class BusinessAccountingServiceImplTest
     @Mock BusinessFileService businessFileService;
     @InjectMocks BusinessAccountingServiceImpl service;
 
+    @Test void projectOwnerCanReadProjectCockpitWithoutBeingSponsor()
+    {
+        Map<String,Object> project=project(11L,8L);project.put("mainOwnerUserId",9L);
+        when(mapper.selectProjectForAccounting(11L)).thenReturn(project);
+        service.projectDashboard(11L,Collections.singletonMap("dateFrom","2026-09-01"),9L,false);
+        ArgumentCaptor<Map<String,Object>> query=ArgumentCaptor.forClass(Map.class);
+        verify(mapper).selectDailySummary(query.capture());
+        assertEquals(11L,query.getValue().get("projectId"));
+        assertEquals(true,query.getValue().get("viewAll"));
+    }
+
+    @Test void unrelatedUserCannotReadProjectCockpit()
+    {
+        Map<String,Object> project=project(11L,8L);project.put("mainOwnerUserId",9L);
+        when(mapper.selectProjectForAccounting(11L)).thenReturn(project);
+        assertThrows(ServiceException.class,()->service.projectDashboard(11L,Collections.emptyMap(),10L,false));
+        verify(mapper,never()).selectDailySummary(any());
+    }
+
     @Test void otherBossCannotCreateFactForForeignProject()
     {
         Map<String,Object> project=project(20L,8L);
@@ -251,7 +270,7 @@ class BusinessAccountingServiceImplTest
         assertEquals(2,issues.get(0).get("projectCount"));
     }
 
-    @Test void projectOwnerCanSubmitTodayDraftButCannotConfirmIt()
+    @Test void projectOwnerRevenueIsConfirmedAndCalculatedImmediately()
     {
         Map<String,Object> project=project(30L,8L);
         project.put("mainOwnerUserId",9L);project.put("status","ACTIVE");
@@ -261,21 +280,25 @@ class BusinessAccountingServiceImplTest
         when(mapper.selectCategoryById(1L)).thenReturn(category);
         doAnswer(invocation->{((BusinessOperatingFact)invocation.getArgument(0)).setFactId(300L);return 1;})
             .when(mapper).insertFact(any());
-        when(mapper.selectFactById(300L)).thenAnswer(invocation->{
-            BusinessOperatingFact saved=new BusinessOperatingFact();saved.setFactId(300L);saved.setStatus("DRAFT");
-            saved.setProjectId(30L);saved.setCreateUserId(9L);return saved;
-        });
+        BusinessOperatingFact draft=new BusinessOperatingFact();draft.setFactId(300L);draft.setStatus("DRAFT");
+        draft.setProjectId(30L);draft.setCreateUserId(9L);draft.setVersion(0);draft.setBizDate(new Date());
+        BusinessOperatingFact confirmed=new BusinessOperatingFact();confirmed.setFactId(300L);confirmed.setStatus("CONFIRMED");
+        confirmed.setProjectId(30L);confirmed.setCreateUserId(9L);confirmed.setVersion(1);confirmed.setBizDate(draft.getBizDate());
+        when(mapper.selectFactById(300L)).thenReturn(draft,confirmed);
+        when(mapper.confirmFact(300L,9L,"owner9",0)).thenReturn(1);
+        when(mapper.sumProjectFacts(eq(30L),any())).thenReturn(Collections.emptyMap());
+        when(mapper.selectNextResultVersion(eq(30L),any())).thenReturn(1);
         BusinessOperatingFact fact=new BusinessOperatingFact();fact.setProjectId(30L);fact.setCategoryId(1L);
         fact.setBizDate(new Date());fact.setAmount(new BigDecimal("1200"));fact.setDescription("今日销售");
 
         BusinessOperatingFact saved=service.saveProjectFact(fact,9L,"owner9",false);
 
-        assertEquals("DRAFT",saved.getStatus());
+        assertEquals("CONFIRMED",saved.getStatus());
         verify(mapper).insertFact(any());
-        verify(mapper,never()).confirmFact(any(),any(),any(),any());
+        verify(mapper).confirmFact(300L,9L,"owner9",0);
     }
 
-    @Test void projectOwnerDailyTotalSpendWaitsForBossConfirmation()
+    @Test void projectOwnerDailyTotalSpendIsConfirmedImmediately()
     {
         Map<String,Object> project=project(32L,8L);
         project.put("mainOwnerUserId",9L);project.put("status","ACTIVE");
@@ -285,20 +308,26 @@ class BusinessAccountingServiceImplTest
         when(mapper.selectCategoryByCode("DIRECT_EXPENSE")).thenReturn(category);
         doAnswer(invocation->{((BusinessOperatingFact)invocation.getArgument(0)).setFactId(320L);return 1;})
             .when(mapper).insertFact(any());
-        when(mapper.selectFactById(320L)).thenAnswer(invocation->{
-            BusinessOperatingFact saved=new BusinessOperatingFact();saved.setFactId(320L);saved.setStatus("DRAFT");
-            saved.setSourceType("DAILY_TOTAL");saved.setCategoryCode("DIRECT_EXPENSE");return saved;
-        });
+        BusinessOperatingFact draft=new BusinessOperatingFact();draft.setFactId(320L);draft.setStatus("DRAFT");
+        draft.setProjectId(32L);draft.setBizDate(new Date());draft.setVersion(0);
+        draft.setSourceType("DAILY_TOTAL");draft.setCategoryCode("DIRECT_EXPENSE");
+        BusinessOperatingFact confirmed=new BusinessOperatingFact();confirmed.setFactId(320L);confirmed.setStatus("CONFIRMED");
+        confirmed.setProjectId(32L);confirmed.setBizDate(draft.getBizDate());confirmed.setVersion(1);
+        confirmed.setSourceType("DAILY_TOTAL");confirmed.setCategoryCode("DIRECT_EXPENSE");
+        when(mapper.selectFactById(320L)).thenReturn(draft,confirmed);
+        when(mapper.confirmFact(320L,9L,"owner9",0)).thenReturn(1);
+        when(mapper.sumProjectFacts(eq(32L),any())).thenReturn(Collections.emptyMap());
+        when(mapper.selectNextResultVersion(eq(32L),any())).thenReturn(1);
         BusinessOperatingFact spend=new BusinessOperatingFact();spend.setProjectId(32L);
         spend.setBizDate(new Date());spend.setAmount(new BigDecimal("500"));spend.setDescription("投流与物流合计");
 
         BusinessOperatingFact saved=service.saveProjectDailySpend(spend,9L,"owner9",false);
 
-        assertEquals("DRAFT",saved.getStatus());
+        assertEquals("CONFIRMED",saved.getStatus());
         assertEquals("DAILY_TOTAL",saved.getSourceType());
         assertEquals("DIRECT_EXPENSE",saved.getCategoryCode());
-        verify(mapper,never()).insertDailyResult(any());
-        verify(mapper,never()).confirmFact(any(),any(),any(),any());
+        verify(mapper).insertDailyResult(any());
+        verify(mapper).confirmFact(320L,9L,"owner9",0);
     }
 
     @Test void bossConfirmationReplacesPreviousDailySpendAndThenRecalculates()

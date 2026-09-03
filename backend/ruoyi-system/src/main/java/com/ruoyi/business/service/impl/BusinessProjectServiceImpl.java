@@ -58,6 +58,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     private static final List<String> RISK_SEVERITIES = Arrays.asList("LOW", "MEDIUM", "HIGH", "CRITICAL");
     private static final List<String> KPI_METRIC_TYPES = Arrays.asList("COUNT", "AMOUNT", "PERCENT", "DURATION", "SCORE", "MILESTONE");
     private static final List<String> KPI_PERIOD_TYPES = Arrays.asList("MONTH", "QUARTER", "PROJECT");
+    private static final List<String> KPI_SOURCE_TYPES = Arrays.asList("MANUAL", "REVENUE", "BUSINESS_COST",
+        "PERSONNEL_COST", "PROFIT", "ROUTINE", "TASK", "MILESTONE");
     private static final List<String> LEAVE_TYPES = Arrays.asList("SICK", "PERSONAL", "ANNUAL", "COMPENSATORY", "OTHER");
     private static final BigDecimal CHINA_STANDARD_WORK_DAYS = new BigDecimal("21.75");
     private static final BigDecimal VIETNAM_STANDARD_WORK_DAYS = new BigDecimal("26");
@@ -126,7 +128,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     @Transactional
     public BusinessProject createProject(BusinessProject project, Long userId, String userName)
     {
-        throw new ServiceException("正式项目不能直接创建，请先提交立项申请并由老板审批");
+        throw new ServiceException("正式项目不能从此入口创建，请先完成项目测算并由负责人启动");
     }
 
     @Override
@@ -135,8 +137,10 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     {
         if (proposal == null || proposal.getProposalId() == null) throw new ServiceException("立项申请不能为空");
         Map<String, Object> owner = requireActiveUser(proposal.getApplicantUserId());
-        Map<String, Object> sponsor = requireActiveUser(reviewerUserId);
-        if (!reviewerUserId.equals(proposal.getSponsorOwnerUserId())) throw new ServiceException("审批老板与项目归属不一致");
+        Map<String, Object> sponsor = requireActiveUser(proposal.getSponsorOwnerUserId());
+        if (!reviewerUserId.equals(proposal.getApplicantUserId())
+            && !reviewerUserId.equals(proposal.getSponsorOwnerUserId()))
+            throw new ServiceException("只有项目负责人或归属老板可以启动项目");
 
         BusinessProject project = new BusinessProject();
         project.setSourceProposalId(proposal.getProposalId());
@@ -159,17 +163,17 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         project.setRemark(proposal.getApplicationReason());
         project.setMainOwnerUserId(proposal.getApplicantUserId());
         validateProject(project);
-        validateParent(project.getParentId(), null, reviewerUserId);
+        validateParent(project.getParentId(), null, proposal.getSponsorOwnerUserId());
 
         project.setProjectNo("XM" + DateUtils.dateTimeNow("yyyyMMddHHmmss")
             + IdUtils.fastSimpleUUID().substring(0, 4).toUpperCase());
         project.setMainOwnerName(displayName(owner));
         project.setApplicantUserId(proposal.getApplicantUserId());
         project.setApplicantName(displayName(owner));
-        project.setSponsorOwnerUserId(reviewerUserId);
+        project.setSponsorOwnerUserId(proposal.getSponsorOwnerUserId());
         project.setSponsorOwnerName(displayName(sponsor));
         // 兼容旧字段；新权限和页面语义以 sponsorOwner 为准。
-        project.setInitiatorUserId(reviewerUserId);
+        project.setInitiatorUserId(proposal.getSponsorOwnerUserId());
         project.setInitiatorName(displayName(sponsor));
         project.setStatus("ACTIVE");
         project.setBaselineStatus("APPROVED");
@@ -188,11 +192,35 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         mapper.upsertMember(ownerMember);
         grantProjectUser(project.getMainOwnerUserId(), true);
 
+        Set<Long> selectedMemberIds = new HashSet<Long>();
+        selectedMemberIds.add(project.getMainOwnerUserId());
+        for (Map<String, Object> line : proposal.getStaffingLines() == null
+            ? Collections.<Map<String, Object>>emptyList() : proposal.getStaffingLines())
+        {
+            Object selectedValue = line.get("userId");
+            if (selectedValue == null) continue;
+            Long selectedUserId = selectedValue instanceof Number
+                ? ((Number)selectedValue).longValue() : Long.valueOf(String.valueOf(selectedValue));
+            if (!selectedMemberIds.add(selectedUserId)) continue;
+            Map<String, Object> selectedUser = requireActiveUser(selectedUserId);
+            BusinessProjectMember selectedMember = new BusinessProjectMember();
+            selectedMember.setProjectId(project.getProjectId());
+            selectedMember.setUserId(selectedUserId);
+            selectedMember.setUserNameSnapshot(displayName(selectedUser));
+            selectedMember.setMemberRole("MEMBER");
+            selectedMember.setStatus("0");
+            selectedMember.setJoinedDate(new Date());
+            selectedMember.setCreateBy(reviewerUserName);
+            selectedMember.setRemark("立项申请选择");
+            mapper.upsertMember(selectedMember);
+            grantProjectUser(selectedUserId, false);
+        }
+
         Map<String, Object> history = new HashMap<String, Object>();
         history.put("projectId", project.getProjectId());
         history.put("toUserId", project.getMainOwnerUserId());
         history.put("toUserName", project.getMainOwnerName());
-        history.put("reason", "立项申请批准时任命申请人为负责人");
+        history.put("reason", "负责人确认项目测算并自主启动项目");
         history.put("operatorUserId", reviewerUserId);
         history.put("operatorName", reviewerUserName);
         mapper.insertOwnerHistory(history);
@@ -203,15 +231,16 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             budgetHistory.put("toAmount", project.getBudgetLimit());
             budgetHistory.put("currency", project.getBaseCurrency());
             budgetHistory.put("budgetVersion", 1);
-            budgetHistory.put("reason", "立项申请批准预算");
+            budgetHistory.put("reason", "项目预算基线");
             budgetHistory.put("operatorUserId", reviewerUserId);
             budgetHistory.put("operatorName", reviewerUserName);
             mapper.insertBudgetHistory(budgetHistory);
         }
         addEvent(project.getProjectId(), "CREATE_FROM_PROPOSAL", null, "ACTIVE", reviewerUserId,
-            reviewerUserName, "批准立项申请并直接进入执行");
+            reviewerUserName, "负责人确认项目测算并直接进入执行");
         syncExecutionSource(project, reviewerUserId, reviewerUserName);
-        return getProject(project.getProjectId(), reviewerUserId, SecurityUtils.isAdmin(reviewerUserId), true);
+        boolean operatorIsSponsor = reviewerUserId.equals(proposal.getSponsorOwnerUserId());
+        return getProject(project.getProjectId(), reviewerUserId, SecurityUtils.isAdmin(reviewerUserId), operatorIsSponsor);
     }
 
     /** 仅保留供历史代码编译参考；新项目创建必须走 createApprovedProject。 */
@@ -287,16 +316,14 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             if (StringUtils.isBlank(input.getGovernanceChangeReason())) throw new ServiceException("执行中的项目调整管理模式或结项方式时必须填写变更原因");
             if (input.getGovernanceChangeReason().length() > 500) throw new ServiceException("治理方式变更原因不能超过500个字符");
             if ("ACCEPTANCE".equals(current.getStatus())) throw new ServiceException("验收中的项目不能调整管理模式或结项方式");
-            if (!boss) throw new ServiceException("执行中的项目只有老板可以调整管理模式或结项方式");
             if (closeMethodRank(input.getCloseMethod()) < closeMethodRank(effectiveCloseMethod(current))
                 && hasAcceptanceRecords(current.getProjectId()))
                 throw new ServiceException("项目已有验收记录，不能降低结项管控要求");
         }
         if (!boss)
         {
-            if (!Arrays.asList("DRAFT", "PLANNING").contains(current.getStatus())
-                || "SUBMITTED".equals(current.getBaselineStatus()))
-                throw new ServiceException("当前状态不能修改项目规划");
+            if (Arrays.asList("ACCEPTANCE", "CLOSED", "CANCELED").contains(current.getStatus()))
+                throw new ServiceException("验收中或已结束的项目不能由负责人修改资料");
             input.setParentId(current.getParentId());
             input.setProjectType(current.getProjectType());
             input.setAccountingMode(current.getAccountingMode());
@@ -379,7 +406,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         Long userId, String userName, boolean boss)
     {
         BusinessProject project = requireProject(projectId);
-        requireBoss(project, userId, boss);
+        requireMainOwnerOrBoss(project, userId, boss);
         ensureMutable(project);
         if (budgetLimit == null || budgetLimit.compareTo(BigDecimal.ZERO) < 0)
             throw new ServiceException("预算金额不能为空或为负数");
@@ -410,7 +437,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     {
         if (kpi == null || kpi.getProjectId() == null) throw new ServiceException("项目ID不能为空");
         BusinessProject project = requireProject(kpi.getProjectId());
-        requireBoss(project, userId, boss); ensureMutable(project);
+        requireMainOwnerOrBoss(project, userId, boss); ensureMutable(project);
         BusinessProjectKpi previous = null;
         if (kpi.getKpiId() != null)
         {
@@ -439,7 +466,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         // 第一阶段KPI只考核项目，不设置个人考核对象或个人奖金领取人。
         kpi.setOwnerUserId(null);
         kpi.setOwnerName(null);
-        // 实际结果必须通过负责人填报、老板确认的结算快照产生，不能在目标定义中直接写入。
+        // 实际结果通过负责人填报并形成结算快照，不能在目标定义中直接写入。
         kpi.setActualValue(null);
         if (kpi.getEffectiveFrom() == null) kpi.setEffectiveFrom(new Date());
         if (kpi.getEffectiveTo() != null && kpi.getEffectiveTo().before(kpi.getEffectiveFrom()))
@@ -447,6 +474,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (StringUtils.isBlank(kpi.getDirection())) kpi.setDirection("HIGHER_BETTER");
         if (StringUtils.isBlank(kpi.getAggregateType())) kpi.setAggregateType("SUM");
         if (StringUtils.isBlank(kpi.getSourceType())) kpi.setSourceType("MANUAL");
+        kpi.setSourceType(kpi.getSourceType().trim().toUpperCase());
+        if (!KPI_SOURCE_TYPES.contains(kpi.getSourceType())) throw new ServiceException("KPI数据来源不正确");
+        validateKpiSource(project.getProjectId(), kpi);
         if (kpi.getPrecisionScale() == null) kpi.setPrecisionScale(2);
         if (previous != null && mapper.retireProjectKpi(previous.getKpiId(), userName) != 1) throw changed();
         kpi.setKpiId(null);
@@ -456,6 +486,32 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         addEvent(project.getProjectId(), "KPI_CHANGE", project.getStatus(), project.getStatus(), userId, userName,
             kpi.getKpiName() + " v" + kpi.getTargetVersion());
         return kpi;
+    }
+
+    private void validateKpiSource(Long projectId, BusinessProjectKpi kpi)
+    {
+        if ("MANUAL".equals(kpi.getSourceType()) || Arrays.asList("REVENUE", "BUSINESS_COST",
+            "PERSONNEL_COST", "PROFIT").contains(kpi.getSourceType()))
+        {
+            kpi.setSourceRefId(null);
+            return;
+        }
+        if ("ROUTINE".equals(kpi.getSourceType()))
+        {
+            if (kpi.getSourceRefId() == null) throw new ServiceException("请选择要自动汇总的持续工作");
+            BusinessProjectRoutine routine = mapper.selectRoutineById(kpi.getSourceRefId());
+            if (routine == null || !projectId.equals(routine.getProjectId())) throw new ServiceException("持续工作不属于当前项目");
+            return;
+        }
+        if (kpi.getSourceRefId() == null) return;
+        if ("TASK".equals(kpi.getSourceType()))
+        {
+            BusinessProjectTask task = mapper.selectTaskById(kpi.getSourceRefId());
+            if (task == null || !projectId.equals(task.getProjectId())) throw new ServiceException("任务不属于当前项目");
+            return;
+        }
+        BusinessProjectMilestone milestone = mapper.selectMilestoneById(kpi.getSourceRefId());
+        if (milestone == null || !projectId.equals(milestone.getProjectId())) throw new ServiceException("里程碑不属于当前项目");
     }
 
     private String generateKpiCode(Long projectId)
@@ -473,7 +529,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     @Transactional
     public void retireKpi(Long projectId, Long kpiId, Long userId, String userName, boolean boss)
     {
-        BusinessProject project = requireProject(projectId); requireBoss(project, userId, boss); ensureMutable(project);
+        BusinessProject project = requireProject(projectId); requireMainOwnerOrBoss(project, userId, boss); ensureMutable(project);
         BusinessProjectKpi kpi = mapper.selectProjectKpiById(kpiId);
         if (kpi == null || !projectId.equals(kpi.getProjectId()) || mapper.retireProjectKpi(kpiId, userName) != 1)
             throw new ServiceException("KPI当前版本不存在");
@@ -481,29 +537,27 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     }
 
     @Override
-    public List<BusinessStaffCostPolicy> staffCostPolicies(Long staffUserId, Long userId, boolean boss)
+    public List<BusinessStaffCostPolicy> staffCostPolicies(Long staffUserId, Long userId, boolean staffCostManager)
     {
         boolean administrator = SecurityUtils.isAdmin(userId);
-        if (!administrator && (!boss || mapper.countUserRoleByKey(userId, "company_owner") < 1))
-            throw new ServiceException("只有公司负责人可以查看人员内部核算成本");
+        boolean companyOwner = requireStaffCostManager(userId, staffCostManager);
         if (administrator) requireCostEligibleUser(staffUserId);
         else requireActiveUser(staffUserId);
-        if (!administrator) requireStaffCostCompanyOwner(staffUserId, userId, false);
+        if (!administrator && companyOwner) requireStaffCostCompanyOwner(staffUserId, userId, false);
         return mapper.selectStaffCostPolicies(staffUserId);
     }
 
     @Override
     @Transactional
     public BusinessStaffCostPolicy saveStaffCostPolicy(BusinessStaffCostPolicy policy,
-        Long userId, String userName, boolean boss)
+        Long userId, String userName, boolean staffCostManager)
     {
         boolean administrator = SecurityUtils.isAdmin(userId);
-        if (!administrator && (!boss || mapper.countUserRoleByKey(userId, "company_owner") < 1))
-            throw new ServiceException("只有系统管理员或公司负责人可以设置人员内部核算成本");
+        boolean companyOwner = requireStaffCostManager(userId, staffCostManager);
         if (policy == null || policy.getUserId() == null) throw new ServiceException("请选择人员");
         if (administrator) requireCostEligibleUser(policy.getUserId());
         else requireActiveUser(policy.getUserId());
-        if (!administrator) requireStaffCostCompanyOwner(policy.getUserId(), userId, true);
+        if (!administrator && companyOwner) requireStaffCostCompanyOwner(policy.getUserId(), userId, true);
         if (policy.getUnitCost() == null || policy.getUnitCost().compareTo(BigDecimal.ZERO) < 0)
             throw new ServiceException("月度用人成本不能为空或为负数");
         String countryRegion = mapper.selectStaffCountryRegion(policy.getUserId());
@@ -528,7 +582,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     @Override
     @Transactional
     public List<BusinessStaffCostPolicy> saveStaffCostPolicies(List<BusinessStaffCostPolicy> policies,
-        Long userId, String userName, boolean boss)
+        Long userId, String userName, boolean staffCostManager)
     {
         if (policies == null || policies.isEmpty()) throw new ServiceException("请选择要设置成本的人员");
         if (policies.size() > 200) throw new ServiceException("单次最多设置200名人员的成本");
@@ -541,15 +595,15 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         }
         List<BusinessStaffCostPolicy> saved = new ArrayList<BusinessStaffCostPolicy>();
         for (BusinessStaffCostPolicy policy : policies)
-            saved.add(saveStaffCostPolicy(policy, userId, userName, boss));
+            saved.add(saveStaffCostPolicy(policy, userId, userName, staffCostManager));
         return saved;
     }
 
     @Override
     @Transactional
-    public void deleteStaffCostPolicy(Long policyId, Long userId, String userName, boolean boss)
+    public void deleteStaffCostPolicy(Long policyId, Long userId, String userName, boolean staffCostManager)
     {
-        BusinessStaffCostPolicy policy = requireManageableStaffCostPolicy(policyId, userId, boss);
+        BusinessStaffCostPolicy policy = requireManageableStaffCostPolicy(policyId, userId, staffCostManager);
         if (!"ACTIVE".equals(policy.getStatus())) throw new ServiceException("成本版本已作废，不能删除");
         if (policy.getEffectiveFrom() == null || !policy.getEffectiveFrom().after(DateUtils.getNowDate()))
             throw new ServiceException("已生效的成本版本不能删除，请改为作废");
@@ -563,32 +617,43 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     @Override
     @Transactional
     public void voidStaffCostPolicy(Long policyId, String reason,
-        Long userId, String userName, boolean boss)
+        Long userId, String userName, boolean staffCostManager)
     {
         if (StringUtils.isBlank(reason)) throw new ServiceException("请填写作废原因");
         reason = reason.trim();
         if (reason.length() > 500) throw new ServiceException("作废原因不能超过500个字符");
-        BusinessStaffCostPolicy policy = requireManageableStaffCostPolicy(policyId, userId, boss);
+        BusinessStaffCostPolicy policy = requireManageableStaffCostPolicy(policyId, userId, staffCostManager);
         if (!"ACTIVE".equals(policy.getStatus())) throw new ServiceException("成本版本已作废，请勿重复操作");
         if (mapper.voidStaffCostPolicy(policyId, reason, userId, userName) != 1)
             throw new ServiceException("成本版本状态已变化，请刷新后重试");
     }
 
-    private BusinessStaffCostPolicy requireManageableStaffCostPolicy(Long policyId, Long userId, boolean boss)
+    private BusinessStaffCostPolicy requireManageableStaffCostPolicy(Long policyId, Long userId,
+        boolean staffCostManager)
     {
         if (policyId == null) throw new ServiceException("成本版本ID不能为空");
         boolean administrator = SecurityUtils.isAdmin(userId);
-        if (!administrator && (!boss || mapper.countUserRoleByKey(userId, "company_owner") < 1))
-            throw new ServiceException("只有系统管理员或公司负责人可以维护人员内部核算成本");
+        boolean companyOwner = requireStaffCostManager(userId, staffCostManager);
         BusinessStaffCostPolicy policy = mapper.selectStaffCostPolicyById(policyId);
         if (policy == null) throw new ServiceException("成本版本不存在");
         if (administrator) requireCostEligibleUser(policy.getUserId());
         else
         {
             requireActiveUser(policy.getUserId());
-            requireStaffCostCompanyOwner(policy.getUserId(), userId, false);
+            if (companyOwner) requireStaffCostCompanyOwner(policy.getUserId(), userId, false);
         }
         return policy;
+    }
+
+    private boolean requireStaffCostManager(Long userId, boolean staffCostManager)
+    {
+        if (SecurityUtils.isAdmin(userId)) return false;
+        boolean companyOwner = mapper.countUserRoleByKey(userId, "company_owner") > 0;
+        boolean projectOwner = mapper.countUserRoleByKey(userId, "project_owner") > 0;
+        if (!staffCostManager || (!companyOwner && !projectOwner))
+            throw new ServiceException("只有系统管理员、公司负责人或项目负责人可以维护人员内部核算成本");
+        // 公司负责人继续受本人公司范围限制；纯项目负责人只获得成本维护能力。
+        return companyOwner;
     }
 
     private void requireStaffCostCompanyOwner(Long staffUserId, Long operatorUserId, boolean lockForUpdate)
@@ -753,6 +818,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             throw new ServiceException("只有选择成果验收的项目需要提交整体验收资料");
         if ("KEY_CONTROL".equals(normalizeManagementMode(project.getManagementMode()))) ensureKeyMilestonesReady(projectId);
         ensureReadyForAcceptance(projectId);
+        ensureKpiReadyForClose(projectId);
         if (acceptance == null || StringUtils.isBlank(acceptance.getResultSummary()))
             throw new ServiceException("请填写项目结果摘要");
         if (StringUtils.isBlank(acceptance.getDeliverables())) throw new ServiceException("请填写交付成果说明");
@@ -772,7 +838,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (mapper.updateProjectStatus(projectId, "ACTIVE", "ACCEPTANCE", null, false, userName, project.getVersion()) != 1)
             throw changed();
         addEvent(projectId, "REQUEST_ACCEPTANCE", "ACTIVE", "ACCEPTANCE", userId, userName,
-            acceptance.getResultSummary());
+            "负责人提交成果验收，等待老板检验：" + acceptance.getResultSummary());
         return getProject(projectId, userId, SecurityUtils.isAdmin(userId), boss);
     }
 
@@ -838,7 +904,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (mapper.insertStageAcceptance(acceptance) != 1) throw new ServiceException("提交阶段验收失败");
         mapper.updateMilestoneStatus(projectId, milestone.getMilestoneId(), "REVIEWING", userName);
         addEvent(projectId, "REQUEST_STAGE_ACCEPTANCE", "ACTIVE", "ACTIVE", userId, userName,
-            "提交里程碑“" + milestone.getMilestoneName() + "”阶段验收");
+            "负责人提交里程碑“" + milestone.getMilestoneName() + "”验收，等待老板检验");
         return getProject(projectId, userId, SecurityUtils.isAdmin(userId), boss);
     }
 
@@ -897,7 +963,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
                 && (manualRoutines == null || manualRoutines.isEmpty())
                 && (sourceRoutines == null || sourceRoutines.isEmpty()))
                 throw new ServiceException("提交前至少添加一项任务或持续工作计划");
-            baseline = "SUBMITTED";
+            to = "ACTIVE"; baseline = "APPROVED"; increment = true;
+            if (StringUtils.isBlank(comment)) comment = "负责人确认项目计划并启动执行";
         }
         else if ("RETURN_PLAN".equals(action))
         {
@@ -914,13 +981,13 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         }
         else if ("PAUSE".equals(action))
         {
-            requireBoss(project, userId, boss); requireStatus(project, "ACTIVE");
+            requireOwnerOrBoss(memberRole, project, userId, boss); requireStatus(project, "ACTIVE");
             if (StringUtils.isBlank(comment)) throw new ServiceException("暂停原因不能为空");
             to = "PAUSED";
         }
         else if ("RESUME".equals(action))
         {
-            requireBoss(project, userId, boss); requireStatus(project, "PAUSED"); to = "ACTIVE";
+            requireOwnerOrBoss(memberRole, project, userId, boss); requireStatus(project, "PAUSED"); to = "ACTIVE";
         }
         else if ("REQUEST_ACCEPTANCE".equals(action))
         {
@@ -930,17 +997,21 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         {
             if (!"OWNER".equals(memberRole)) throw new ServiceException("只有项目主负责人可以发起结项");
             requireStatus(project, "ACTIVE");
-            if (!"STAGED_ACCEPTANCE".equals(effectiveCloseMethod(project)))
-                throw new ServiceException("只有阶段验收项目需要发起结项确认");
-            ensureStagesReadyForClose(projectId);
+            String closeMethod = effectiveCloseMethod(project);
+            if ("RESULT_ACCEPTANCE".equals(closeMethod))
+                throw new ServiceException("成果验收项目请填写并提交成果验收资料");
+            if ("STAGED_ACCEPTANCE".equals(closeMethod)) ensureStagesReadyForClose(projectId);
+            else if ("KEY_CONTROL".equals(normalizeManagementMode(project.getManagementMode()))) ensureKeyMilestonesReady(projectId);
+            if (!"LIGHT".equals(normalizeManagementMode(project.getManagementMode()))) ensureHighRisksClosed(projectId);
             ensureKpiReadyForClose(projectId);
+            ensureReadyForAcceptance(projectId);
+            if (StringUtils.isBlank(comment)) throw new ServiceException("请填写结项申请说明");
             to = "ACCEPTANCE";
-            if (StringUtils.isBlank(comment)) comment = "全部里程碑已验收，发起项目结项确认";
         }
         else if ("RETURN_ACTIVE".equals(action))
         {
             requireBoss(project, userId, boss); requireStatus(project, "ACCEPTANCE");
-            if (!"STAGED_ACCEPTANCE".equals(effectiveCloseMethod(project)))
+            if ("RESULT_ACCEPTANCE".equals(effectiveCloseMethod(project)))
                 throw new ServiceException("请在验收资料中填写意见并退回执行");
             if (StringUtils.isBlank(comment)) throw new ServiceException("退回原因不能为空");
             to = "ACTIVE";
@@ -958,7 +1029,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             }
             else
             {
-                requireStatus(project, "ACTIVE");
+                if (!"ACTIVE".equals(project.getStatus()) && !"ACCEPTANCE".equals(project.getStatus()))
+                    throw new ServiceException("当前项目状态不允许执行此操作");
                 if ("KEY_CONTROL".equals(normalizeManagementMode(project.getManagementMode()))) ensureKeyMilestonesReady(projectId);
             }
             if (!"LIGHT".equals(normalizeManagementMode(project.getManagementMode()))) ensureHighRisksClosed(projectId);
@@ -969,7 +1041,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         }
         else if ("CANCEL".equals(action))
         {
-            requireBoss(project, userId, boss); ensureMutable(project);
+            requireOwnerOrBoss(memberRole, project, userId, boss); ensureMutable(project);
             if (StringUtils.isBlank(comment)) throw new ServiceException("取消原因不能为空");
             to = "CANCELED";
         }
@@ -2105,8 +2177,25 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     private void requireAllocationOwner(BusinessProject project, Long userId, boolean boss)
     {
         if (SecurityUtils.isAdmin(userId)) return;
-        if (boss || !userId.equals(project.getMainOwnerUserId()))
-            throw new ServiceException("只有项目主负责人可以设置或停用成员计划投入");
+        if (boss)
+        {
+            requireBoss(project, userId, true);
+            return;
+        }
+        if (!userId.equals(project.getMainOwnerUserId()))
+            throw new ServiceException("只有项目主负责人或归属老板可以设置、停用成员计划投入");
+    }
+
+    private void requireMainOwnerOrBoss(BusinessProject project, Long userId, boolean boss)
+    {
+        if (SecurityUtils.isAdmin(userId)) return;
+        if (boss)
+        {
+            requireBoss(project, userId, true);
+            return;
+        }
+        if (!userId.equals(project.getMainOwnerUserId()))
+            throw new ServiceException("只有项目主负责人或归属老板可以执行此操作");
     }
 
     private void requireOwnerOrBoss(String role, BusinessProject project, Long userId, boolean boss)

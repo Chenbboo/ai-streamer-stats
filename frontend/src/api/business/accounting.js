@@ -1,6 +1,7 @@
 import request from '@/utils/request'
 
 export const getBusinessAccountingDashboard = params => request({url:'/business/accounting/dashboard',method:'get',params})
+export const getBusinessProjectDashboard = (projectId, params) => request({url:`/business/accounting/project-dashboard/${projectId}`,method:'get',params})
 export const getBusinessBossAccountingOverview = () => request({url:'/business/accounting/boss-overview',method:'get'})
 export const getBusinessPersonnelCostOverview = params => request({url:'/business/accounting/personnel-cost-overview',method:'get',params})
 export const saveBusinessOperatingFact = data => request({url:'/business/accounting/fact',method:'post',data})

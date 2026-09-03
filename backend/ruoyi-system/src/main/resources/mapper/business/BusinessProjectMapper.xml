@@ -264,7 +264,7 @@
         select kpi_id kpiId,project_id projectId,kpi_code kpiCode,kpi_name kpiName,metric_type metricType,unit,
           precision_scale precisionScale,period_type periodType,target_value targetValue,minimum_value minimumValue,
           warning_value warningValue,challenge_value challengeValue,actual_value actualValue,weight,direction,
-          aggregate_type aggregateType,source_type sourceType,owner_user_id ownerUserId,owner_name ownerName,
+          aggregate_type aggregateType,source_type sourceType,source_ref_id sourceRefId,owner_user_id ownerUserId,owner_name ownerName,
           effective_from effectiveFrom,effective_to effectiveTo,target_version targetVersion,status,
           create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
         from biz_project_kpi where project_id=#{projectId}
@@ -274,7 +274,7 @@
         select kpi_id kpiId,project_id projectId,kpi_code kpiCode,kpi_name kpiName,metric_type metricType,unit,
           precision_scale precisionScale,period_type periodType,target_value targetValue,minimum_value minimumValue,
           warning_value warningValue,challenge_value challengeValue,actual_value actualValue,weight,direction,
-          aggregate_type aggregateType,source_type sourceType,owner_user_id ownerUserId,owner_name ownerName,
+          aggregate_type aggregateType,source_type sourceType,source_ref_id sourceRefId,owner_user_id ownerUserId,owner_name ownerName,
           effective_from effectiveFrom,effective_to effectiveTo,target_version targetVersion,status,
           create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
         from biz_project_kpi where kpi_id=#{kpiId} limit 1
@@ -295,11 +295,11 @@
             useGeneratedKeys="true" keyProperty="kpiId">
         insert into biz_project_kpi(project_id,kpi_code,kpi_name,metric_type,unit,precision_scale,period_type,
           target_value,minimum_value,warning_value,challenge_value,actual_value,weight,direction,aggregate_type,
-          source_type,owner_user_id,owner_name,effective_from,effective_to,target_version,status,
+          source_type,source_ref_id,owner_user_id,owner_name,effective_from,effective_to,target_version,status,
           create_by,create_time,remark)
         values(#{projectId},#{kpiCode},#{kpiName},#{metricType},#{unit},#{precisionScale},#{periodType},
           #{targetValue},#{minimumValue},#{warningValue},#{challengeValue},#{actualValue},#{weight},#{direction},
-          #{aggregateType},#{sourceType},#{ownerUserId},#{ownerName},#{effectiveFrom},#{effectiveTo},
+          #{aggregateType},#{sourceType},#{sourceRefId},#{ownerUserId},#{ownerName},#{effectiveFrom},#{effectiveTo},
           #{targetVersion},#{status},#{createBy},sysdate(),#{remark})
     </insert>
 

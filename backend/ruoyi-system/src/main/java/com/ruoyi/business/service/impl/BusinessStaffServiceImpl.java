@@ -38,7 +38,8 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
     @Autowired private BusinessStaffProfileMapper profileMapper;
 
     @Override
-    public TableDataInfo listStaff(SysUser query, Long viewerUserId, boolean administrator)
+    public TableDataInfo listStaff(SysUser query, Long viewerUserId, boolean administrator,
+        boolean boss, boolean staffCostManager)
     {
         SysUser safeQuery = query == null ? new SysUser() : query;
         List<SysUser> users = userService.selectUserList(safeQuery);
@@ -51,9 +52,12 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
             Map<String, Object> row = toView(user, profile);
             boolean costEligibleStaff = profile != null && !"LEFT".equals(profile.getEmploymentStatus());
             boolean activeStaff = "0".equals(user.getStatus()) && costEligibleStaff;
-            boolean companyOwner = activeStaff && sameLong(profile.getCompanyLeaderUserId(), viewerUserId);
-            row.put("canViewCost", (administrator && costEligibleStaff) || companyOwner);
-            row.put("canManageCost", (administrator && costEligibleStaff) || companyOwner);
+            boolean companyOwner = activeStaff && boss
+                && sameLong(profile.getCompanyLeaderUserId(), viewerUserId);
+            boolean projectOwnerCostManager = activeStaff && staffCostManager && !boss;
+            boolean canManageCost = (administrator && costEligibleStaff) || companyOwner || projectOwnerCostManager;
+            row.put("canViewCost", canManageCost);
+            row.put("canManageCost", canManageCost);
             rows.add(row);
         }
         TableDataInfo result = new TableDataInfo();

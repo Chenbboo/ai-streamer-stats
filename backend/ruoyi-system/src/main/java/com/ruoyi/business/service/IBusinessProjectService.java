@@ -31,13 +31,13 @@ public interface IBusinessProjectService
         Long userId, String userName, boolean boss);
     BusinessProjectKpi saveKpi(BusinessProjectKpi kpi, Long userId, String userName, boolean boss);
     void retireKpi(Long projectId, Long kpiId, Long userId, String userName, boolean boss);
-    List<BusinessStaffCostPolicy> staffCostPolicies(Long staffUserId, Long userId, boolean boss);
+    List<BusinessStaffCostPolicy> staffCostPolicies(Long staffUserId, Long userId, boolean staffCostManager);
     BusinessStaffCostPolicy saveStaffCostPolicy(BusinessStaffCostPolicy policy,
-        Long userId, String userName, boolean boss);
+        Long userId, String userName, boolean staffCostManager);
     List<BusinessStaffCostPolicy> saveStaffCostPolicies(List<BusinessStaffCostPolicy> policies,
-        Long userId, String userName, boolean boss);
-    void deleteStaffCostPolicy(Long policyId, Long userId, String userName, boolean boss);
-    void voidStaffCostPolicy(Long policyId, String reason, Long userId, String userName, boolean boss);
+        Long userId, String userName, boolean staffCostManager);
+    void deleteStaffCostPolicy(Long policyId, Long userId, String userName, boolean staffCostManager);
+    void voidStaffCostPolicy(Long policyId, String reason, Long userId, String userName, boolean staffCostManager);
     BusinessProjectStaffAllocation saveStaffAllocation(BusinessProjectStaffAllocation allocation,
         Long userId, String userName, boolean boss);
     void removeStaffAllocation(Long projectId, Long allocationId, Long userId, String userName, boolean boss);

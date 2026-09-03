@@ -8,6 +8,7 @@ import com.ruoyi.business.domain.BusinessOperatingFact;
 public interface IBusinessAccountingService
 {
     Map<String,Object> dashboard(Map<String,Object> query,Long userId,boolean viewAll);
+    Map<String,Object> projectDashboard(Long projectId,Map<String,Object> query,Long userId,boolean viewAll);
     Map<String,Object> bossOverview(Long userId,boolean viewAll);
     Map<String,Object> personnelCostOverview(Map<String,Object> query,Long userId,boolean viewAll);
     List<Map<String,Object>> facts(Map<String,Object> query,Long userId,boolean viewAll);

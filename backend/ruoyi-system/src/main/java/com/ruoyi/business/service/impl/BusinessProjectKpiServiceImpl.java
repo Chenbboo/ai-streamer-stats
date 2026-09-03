@@ -39,6 +39,8 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
     private static final List<String> CYCLE_TYPES = Arrays.asList("MONTH", "QUARTER", "PROJECT");
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
     private static final BigDecimal MAX_ITEM_SCORE = new BigDecimal("120");
+    private static final List<String> AUTOMATIC_SOURCE_TYPES = Arrays.asList("REVENUE", "BUSINESS_COST",
+        "PERSONNEL_COST", "PROFIT", "ROUTINE", "TASK", "MILESTONE");
 
     @Autowired private BusinessProjectKpiMapper mapper;
     @Autowired private BusinessProjectMapper projectMapper;
@@ -75,8 +77,13 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         result.put("plans", mapper.selectPlanSummaries(projectId));
         Long selectedPlanId = planId == null ? mapper.selectLatestPlanId(projectId) : planId;
         BusinessProjectKpiPlan selectedPlan = selectedPlanId == null ? null : requirePlan(selectedPlanId, projectId);
-        if (selectedPlan != null) hydrate(selectedPlan);
+        if (selectedPlan != null) hydrate(selectedPlan, userId);
         result.put("selectedPlan", selectedPlan);
+        Map<String, Object> sourceOptions = new LinkedHashMap<String, Object>();
+        sourceOptions.put("routines", safe(projectMapper.selectRoutines(projectId, today())));
+        sourceOptions.put("tasks", safe(projectMapper.selectTasks(projectId)));
+        sourceOptions.put("milestones", safe(projectMapper.selectMilestones(projectId)));
+        result.put("sourceOptions", sourceOptions);
         result.put("canManage", canManage(project, userId, viewAll, boss));
         result.put("canSettle", userId != null && userId.equals(project.getMainOwnerUserId()));
         return result;
@@ -89,7 +96,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
     {
         if (plan == null || plan.getProjectId() == null) throw new ServiceException("请选择项目");
         BusinessProject project = requireProject(plan.getProjectId());
-        requireBoss(project, userId, viewAll, boss);
+        requireManage(project, userId, viewAll, boss);
         if (!"CNY".equalsIgnoreCase(project.getBaseCurrency()))
             throw new ServiceException("人民币奖金阶梯只能发布到本位币为 CNY 的项目");
         ensureProjectAllowsPlan(project);
@@ -149,7 +156,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         BusinessProjectKpiPlan plan = mapper.selectPlanById(planId);
         if (plan == null) throw new ServiceException("KPI方案不存在");
         BusinessProject project = requireProject(plan.getProjectId());
-        requireBoss(project, userId, viewAll, boss);
+        requireManage(project, userId, viewAll, boss);
         BusinessProjectKpiSettlement settlement = mapper.selectSettlementByPlanId(planId);
         if (settlement == null) throw new ServiceException("KPI方案结算不存在，不能作废");
         if (!Arrays.asList("DRAFT", "RETURNED").contains(settlement.getStatus())
@@ -185,9 +192,10 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
             if (result == null || result.getPlanItemId() == null || !itemMap.containsKey(result.getPlanItemId()))
                 throw new ServiceException("KPI结果不属于当前方案");
             if (!submittedItems.add(result.getPlanItemId())) throw new ServiceException("同一KPI不能重复填报");
+            BusinessProjectKpiPlanItem item = itemMap.get(result.getPlanItemId());
+            if (isAutomatic(item)) throw new ServiceException("自动取数KPI不能手工覆盖");
             validateResult(result);
             businessFileService.validateReferences(result.getAttachmentUrls(), settlement.getProjectId(), userId, false, false);
-            BusinessProjectKpiPlanItem item = itemMap.get(result.getPlanItemId());
             result.setSettlementId(settlementId);
             result.setCompletionRate(completionRate(item, result.getActualValue()));
             result.setWeightedScore(weightedScore(result.getCompletionRate(), item.getWeight()));
@@ -197,8 +205,9 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         }
 
         List<BusinessProjectKpiResult> stored = mapper.selectSettlementResults(settlementId);
-        BigDecimal total = totalScore(items, stored);
-        BigDecimal bonus = stored.size() == items.size() ? matchBonus(mapper.selectBonusTiers(settlement.getPlanId()), total) : null;
+        List<BusinessProjectKpiResult> live = mergeAutomaticResults(settlement, items, stored, userId, userName);
+        BigDecimal total = totalScore(items, live);
+        BigDecimal bonus = live.size() == items.size() ? matchBonus(mapper.selectBonusTiers(settlement.getPlanId()), total) : null;
         if (mapper.updateSettlementPreview(settlementId, total, bonus, userName, settlement.getVersion()) != 1)
             throw changed();
         return detail(settlementId);
@@ -214,17 +223,25 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         ensureProjectAllowsSettlement(project);
         if (!Arrays.asList("DRAFT", "RETURNED").contains(settlement.getStatus()))
             throw new ServiceException("当前结算状态不能提交");
-        if (settlement.getPeriodEnd().after(today())) throw new ServiceException("考核周期尚未结束，不能提交结算");
+        if (!settlement.getPeriodEnd().before(today())) throw new ServiceException("考核周期尚未结束，截止日期次日才能提交结算");
         List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
+        persistAutomaticResults(settlement, items, userId, userName);
         List<BusinessProjectKpiResult> results = mapper.selectSettlementResults(settlementId);
         requireComplete(items, results);
         BigDecimal total = totalScore(items, results);
         BigDecimal bonus = matchBonus(mapper.selectBonusTiers(settlement.getPlanId()), total);
         if (mapper.submitSettlement(settlementId, total, bonus, userId, userName, settlement.getVersion()) != 1)
             throw changed();
-        addEvent(project, "KPI_SETTLEMENT_SUBMITTED", userId, userName,
-            "提交KPI结算，综合得分 " + total.toPlainString() + "，预计项目奖金 ¥" + bonus.toPlainString());
-        return detail(settlementId);
+        BusinessProjectKpiSettlement submitted = requireSettlement(settlementId);
+        BusinessOperatingFact fact = accountingService.recordProjectBonus(project.getProjectId(), submitted.getPeriodEnd(),
+            bonus, settlementId, userId, userName);
+        Long factId = fact == null ? null : fact.getFactId();
+        if (mapper.confirmSettlement(settlementId, total, bonus, factId, "负责人确认KPI及奖金",
+            userId, userName, submitted.getVersion()) != 1) throw changed();
+        if (mapper.closePlan(settlement.getPlanId()) != 1) throw changed();
+        addEvent(project, "KPI_SETTLEMENT_CONFIRMED", userId, userName,
+            "负责人完成KPI结算，综合得分 " + total.toPlainString() + "，项目奖金 ¥" + bonus.toPlainString());
+        return detailWithAutomatic(settlementId, userId, userName);
     }
 
     @Override
@@ -264,12 +281,26 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         return detail(settlementId);
     }
 
-    private void hydrate(BusinessProjectKpiPlan plan)
+    private void hydrate(BusinessProjectKpiPlan plan, Long userId)
     {
-        plan.setItems(mapper.selectPlanItems(plan.getPlanId()));
-        plan.setTiers(mapper.selectBonusTiers(plan.getPlanId()));
+        List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(plan.getPlanId());
+        List<BusinessProjectBonusTier> tiers = mapper.selectBonusTiers(plan.getPlanId());
+        plan.setItems(items);
+        plan.setTiers(tiers);
         BusinessProjectKpiSettlement settlement = mapper.selectSettlementByPlanId(plan.getPlanId());
-        if (settlement != null) settlement.setResults(mapper.selectSettlementResults(settlement.getSettlementId()));
+        if (settlement != null)
+        {
+            List<BusinessProjectKpiResult> stored = mapper.selectSettlementResults(settlement.getSettlementId());
+            if (Arrays.asList("DRAFT", "RETURNED").contains(settlement.getStatus()))
+            {
+                List<BusinessProjectKpiResult> live = mergeAutomaticResults(settlement, items, stored, userId, "系统自动统计");
+                settlement.setResults(live);
+                BigDecimal score = totalScore(items, live);
+                settlement.setTotalScore(score);
+                settlement.setBonusAmount(live.size() == items.size() ? matchBonus(tiers, score) : null);
+            }
+            else settlement.setResults(stored);
+        }
         plan.setSettlement(settlement);
     }
 
@@ -277,6 +308,15 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
     {
         BusinessProjectKpiSettlement settlement = requireSettlement(settlementId);
         settlement.setResults(mapper.selectSettlementResults(settlementId));
+        return settlement;
+    }
+
+    private BusinessProjectKpiSettlement detailWithAutomatic(Long settlementId, Long userId, String userName)
+    {
+        BusinessProjectKpiSettlement settlement = requireSettlement(settlementId);
+        List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
+        List<BusinessProjectKpiResult> stored = mapper.selectSettlementResults(settlementId);
+        settlement.setResults(mergeAutomaticResults(settlement, items, stored, userId, userName));
         return settlement;
     }
 
@@ -290,6 +330,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         item.setWeight(target.getWeight()); item.setDirection(StringUtils.isBlank(target.getDirection()) ? "HIGHER_BETTER" : target.getDirection());
         item.setAggregateType(StringUtils.isBlank(target.getAggregateType()) ? "SUM" : target.getAggregateType());
         item.setSourceType(StringUtils.isBlank(target.getSourceType()) ? "MANUAL" : target.getSourceType());
+        item.setSourceRefId(target.getSourceRefId());
         item.setSortOrder(sortOrder);
         return item;
     }
@@ -358,6 +399,104 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         businessFileService.validateReferences(result.getAttachmentUrls());
     }
 
+    private boolean isAutomatic(BusinessProjectKpiPlanItem item)
+    { return item != null && AUTOMATIC_SOURCE_TYPES.contains(item.getSourceType()); }
+
+    private List<BusinessProjectKpiResult> mergeAutomaticResults(BusinessProjectKpiSettlement settlement,
+        List<BusinessProjectKpiPlanItem> items, List<BusinessProjectKpiResult> stored, Long userId, String userName)
+    {
+        Map<Long, BusinessProjectKpiResult> storedByItem = new HashMap<Long, BusinessProjectKpiResult>();
+        for (BusinessProjectKpiResult result : safe(stored)) storedByItem.put(result.getPlanItemId(), result);
+        Map<String, Object> financialSummary = automaticFinancialSummary(settlement, items, userId);
+        List<BusinessProjectKpiResult> merged = new ArrayList<BusinessProjectKpiResult>();
+        for (BusinessProjectKpiPlanItem item : items)
+        {
+            BusinessProjectKpiResult result = storedByItem.get(item.getItemId());
+            if (isAutomatic(item)) result = automaticResult(settlement, item, financialSummary, userId, userName);
+            if (result != null)
+            {
+                result.setSourceType(item.getSourceType());
+                result.setAutomatic(isAutomatic(item));
+                merged.add(result);
+            }
+        }
+        return merged;
+    }
+
+    private void persistAutomaticResults(BusinessProjectKpiSettlement settlement,
+        List<BusinessProjectKpiPlanItem> items, Long userId, String userName)
+    {
+        Map<String, Object> financialSummary = automaticFinancialSummary(settlement, items, userId);
+        for (BusinessProjectKpiPlanItem item : items)
+            if (isAutomatic(item)) mapper.upsertSettlementResult(
+                automaticResult(settlement, item, financialSummary, userId, userName));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> automaticFinancialSummary(BusinessProjectKpiSettlement settlement,
+        List<BusinessProjectKpiPlanItem> items, Long userId)
+    {
+        boolean needed = false;
+        for (BusinessProjectKpiPlanItem item : items)
+            if (Arrays.asList("REVENUE", "BUSINESS_COST", "PERSONNEL_COST", "PROFIT").contains(item.getSourceType()))
+                needed = true;
+        if (!needed) return Collections.emptyMap();
+        Map<String, Object> query = new HashMap<String, Object>();
+        query.put("dateFrom", date(settlement.getPeriodStart()));
+        query.put("dateTo", date(statisticsEnd(settlement)));
+        Map<String, Object> dashboard = accountingService.projectDashboard(settlement.getProjectId(), query, userId, true);
+        Object summary = dashboard == null ? null : dashboard.get("summary");
+        return summary instanceof Map ? (Map<String, Object>) summary : Collections.<String, Object>emptyMap();
+    }
+
+    private BusinessProjectKpiResult automaticResult(BusinessProjectKpiSettlement settlement,
+        BusinessProjectKpiPlanItem item, Map<String, Object> financialSummary, Long userId, String userName)
+    {
+        Date end = statisticsEnd(settlement);
+        BigDecimal actual = BigDecimal.ZERO;
+        if (!end.before(settlement.getPeriodStart()))
+        {
+            if ("REVENUE".equals(item.getSourceType())) actual = number(financialSummary.get("revenueAmount"));
+            else if ("BUSINESS_COST".equals(item.getSourceType())) actual = number(financialSummary.get("businessCost"));
+            else if ("PERSONNEL_COST".equals(item.getSourceType())) actual = number(financialSummary.get("personnelCost"));
+            else if ("PROFIT".equals(item.getSourceType())) actual = number(financialSummary.get("profitAmount"));
+            else if ("ROUTINE".equals(item.getSourceType())) actual = number(mapper.sumRoutineActual(
+                settlement.getProjectId(), item.getSourceRefId(), settlement.getPeriodStart(), end));
+            else if ("TASK".equals(item.getSourceType())) actual = number(mapper.countCompletedTasks(
+                settlement.getProjectId(), item.getSourceRefId(), settlement.getPeriodStart(), end));
+            else if ("MILESTONE".equals(item.getSourceType())) actual = number(mapper.countCompletedMilestones(
+                settlement.getProjectId(), item.getSourceRefId(), settlement.getPeriodStart(), end));
+        }
+        BusinessProjectKpiResult result = new BusinessProjectKpiResult();
+        result.setSettlementId(settlement.getSettlementId());
+        result.setPlanItemId(item.getItemId());
+        result.setActualValue(actual);
+        result.setCompletionRate(completionRate(item, actual));
+        result.setWeightedScore(weightedScore(result.getCompletionRate(), item.getWeight()));
+        result.setResultNote("系统按“" + sourceName(item.getSourceType()) + "”自动统计，统计截止 " + date(end));
+        result.setInputUserId(userId);
+        result.setInputUserName(StringUtils.isBlank(userName) ? "系统自动统计" : userName);
+        result.setSourceType(item.getSourceType());
+        result.setAutomatic(true);
+        return result;
+    }
+
+    private Date statisticsEnd(BusinessProjectKpiSettlement settlement)
+    { return settlement.getPeriodEnd().before(today()) ? settlement.getPeriodEnd() : today(); }
+
+    private String sourceName(String sourceType)
+    {
+        Map<String, String> names = new HashMap<String, String>();
+        names.put("REVENUE", "确认收入"); names.put("BUSINESS_COST", "业务成本");
+        names.put("PERSONNEL_COST", "人员成本"); names.put("PROFIT", "经营结果");
+        names.put("ROUTINE", "持续工作上报"); names.put("TASK", "已完成任务");
+        names.put("MILESTONE", "已完成里程碑");
+        return names.containsKey(sourceType) ? names.get(sourceType) : sourceType;
+    }
+
+    private BigDecimal number(Object value)
+    { return value == null ? BigDecimal.ZERO : new BigDecimal(String.valueOf(value)); }
+
     private BigDecimal completionRate(BusinessProjectKpiPlanItem item, BigDecimal actual)
     {
         BigDecimal rate;
@@ -366,6 +505,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
                 : item.getTargetValue().multiply(ONE_HUNDRED).divide(actual, 8, RoundingMode.HALF_UP);
         else
             rate = actual.multiply(ONE_HUNDRED).divide(item.getTargetValue(), 8, RoundingMode.HALF_UP);
+        if (rate.compareTo(BigDecimal.ZERO) < 0) rate = BigDecimal.ZERO;
         if (rate.compareTo(MAX_ITEM_SCORE) > 0) rate = MAX_ITEM_SCORE;
         return rate.setScale(2, RoundingMode.HALF_UP);
     }
@@ -449,7 +589,14 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
     }
 
     private boolean canManage(BusinessProject project, Long userId, boolean viewAll, boolean boss)
-    { return viewAll || (boss && userId.equals(sponsor(project))); }
+    { return viewAll || userId != null && userId.equals(project.getMainOwnerUserId())
+        || (boss && userId.equals(sponsor(project))); }
+
+    private void requireManage(BusinessProject project, Long userId, boolean viewAll, boolean boss)
+    {
+        if (!canManage(project, userId, viewAll, boss))
+            throw new ServiceException("只有项目负责人或归属老板可以执行此操作");
+    }
 
     private void requireBoss(BusinessProject project, Long userId, boolean viewAll, boolean boss)
     {

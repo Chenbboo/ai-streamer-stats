@@ -43,8 +43,12 @@ public class BusinessDepartmentController extends BaseController
     @GetMapping("/staff")
     public AjaxResult staff()
     {
+        boolean administrator = SecurityUtils.isAdmin();
+        boolean boss = administrator || SecurityUtils.hasPermi("business:boss:view");
+        boolean staffCostManager = administrator || SecurityUtils.hasPermi("business:staff:manage")
+            || SecurityUtils.hasPermi("business:staff:cost");
         return success(staffService.listStaff(new com.ruoyi.common.core.domain.entity.SysUser(),
-            SecurityUtils.getUserId(), SecurityUtils.isAdmin()).getRows());
+            SecurityUtils.getUserId(), administrator, boss, staffCostManager).getRows());
     }
 
     @PreAuthorize("@ss.hasPermi('business:department:manage')")
