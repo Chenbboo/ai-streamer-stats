@@ -1544,7 +1544,7 @@
     </select>
     <select id="selectUserOptions" resultType="map">
         select u.user_id userId,u.user_name userName,u.nick_name nickName,u.dept_id deptId,
-          d.dept_name deptName,company.dept_name companyName
+          d.dept_name deptName,company.dept_id companyDeptId,company.dept_name companyName
         from sys_user u
         left join sys_dept d on d.dept_id=u.dept_id and d.del_flag='0'
         left join sys_dept company on company.parent_id=100 and company.del_flag='0'
@@ -1554,7 +1554,7 @@
         <if test="keyword != null and keyword != ''">
           and (u.user_name like concat('%',#{keyword},'%') or u.nick_name like concat('%',#{keyword},'%'))
         </if>
-        order by company.order_num,d.order_num,u.user_id limit 100
+        order by company.order_num,d.order_num,u.user_id limit 1000
     </select>
 
     <select id="selectStaffResponsibilities" resultType="map">

@@ -367,7 +367,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             line.put("targetType", code(line.get("targetType"), "RESULT"));
             line.put("targetValue", nonNegative(line.get("targetValue"), "目标值"));
         }
-        BigDecimal bonus = nonNegative(proposal.getEstimatedBonusCost(), "预计项目奖金");
+        BigDecimal bonus = BigDecimal.ZERO;
         BigDecimal tax = BigDecimal.ZERO;
         BigDecimal contingency = BigDecimal.ZERO;
         BigDecimal total = external.add(personnel).add(bonus).add(tax).add(contingency);
