@@ -6,6 +6,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 import com.github.pagehelper.PageInfo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -43,7 +45,22 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
     {
         SysUser safeQuery = query == null ? new SysUser() : query;
         List<SysUser> users = userService.selectUserList(safeQuery);
-        long total = new PageInfo<SysUser>(users).getTotal();
+        Set<Long> managedProjectMemberIds = staffCostManager && !administrator && !boss
+            ? new HashSet<Long>(projectMapper.selectManagedProjectMemberUserIds(viewerUserId))
+            : Collections.emptySet();
+        boolean projectOwner = !managedProjectMemberIds.isEmpty();
+        if (projectOwner)
+        {
+            Set<Long> listedIds = new HashSet<Long>();
+            for (SysUser user : users) listedIds.add(user.getUserId());
+            for (Long memberUserId : managedProjectMemberIds)
+            {
+                if (listedIds.contains(memberUserId)) continue;
+                SysUser member = userService.selectUserById(memberUserId);
+                if (member != null && matchesStaffQuery(member, safeQuery)) users.add(member);
+            }
+        }
+        long total = projectOwner ? users.size() : new PageInfo<SysUser>(users).getTotal();
         Map<Long, BusinessStaffProfile> profiles = profilesFor(users);
         List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
         for (SysUser user : users)
@@ -54,7 +71,8 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
             boolean activeStaff = "0".equals(user.getStatus()) && costEligibleStaff;
             boolean companyOwner = activeStaff && boss
                 && sameLong(profile.getCompanyLeaderUserId(), viewerUserId);
-            boolean projectOwnerCostManager = activeStaff && staffCostManager && !boss;
+            boolean projectOwnerCostManager = activeStaff && projectOwner
+                && managedProjectMemberIds.contains(user.getUserId());
             boolean canManageCost = (administrator && costEligibleStaff) || companyOwner || projectOwnerCostManager;
             row.put("canViewCost", canManageCost);
             row.put("canManageCost", canManageCost);
@@ -66,6 +84,19 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
         result.setRows(rows);
         result.setTotal(total);
         return result;
+    }
+
+    private boolean matchesStaffQuery(SysUser user, SysUser query)
+    {
+        if (StringUtils.isNotBlank(query.getNickName()))
+        {
+            String keyword = query.getNickName().toLowerCase();
+            String nickName = StringUtils.defaultString(user.getNickName()).toLowerCase();
+            String userName = StringUtils.defaultString(user.getUserName()).toLowerCase();
+            if (!nickName.contains(keyword) && !userName.contains(keyword)) return false;
+        }
+        if (query.getDeptId() != null && !sameLong(query.getDeptId(), user.getDeptId())) return false;
+        return StringUtils.isBlank(query.getStatus()) || query.getStatus().equals(user.getStatus());
     }
 
     @Override

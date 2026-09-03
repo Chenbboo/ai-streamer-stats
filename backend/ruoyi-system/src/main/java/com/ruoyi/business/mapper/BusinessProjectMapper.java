@@ -86,6 +86,8 @@ public interface BusinessProjectMapper
         @Param("version") Integer version);
     String selectMemberRole(@Param("projectId") Long projectId, @Param("userId") Long userId);
     List<BusinessProjectMember> selectMembers(Long projectId);
+    List<Long> selectManagedProjectMemberUserIds(@Param("ownerUserId") Long ownerUserId);
+    int countManagedProjectMember(@Param("ownerUserId") Long ownerUserId, @Param("staffUserId") Long staffUserId);
     int upsertMember(BusinessProjectMember member);
     int leaveMember(@Param("projectId") Long projectId, @Param("userId") Long userId,
         @Param("userName") String userName);
