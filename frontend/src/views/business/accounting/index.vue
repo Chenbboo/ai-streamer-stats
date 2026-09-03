@@ -17,6 +17,7 @@
 import {ElMessage,ElMessageBox} from 'element-plus'
 import {confirmBusinessOperatingFact,getBusinessAccountingDashboard,getBusinessDailyResult,getBusinessPersonnelCostOverview,recalculateBusinessProjectDay,returnBusinessOperatingFact,reverseBusinessOperatingFact,saveBusinessOperatingFact} from '@/api/business/accounting'
 import useUserStore from '@/store/modules/user'
+import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 const today=()=>{const now=new Date();const local=new Date(now.getTime()-now.getTimezoneOffset()*60000);return local.toISOString().slice(0,10)}
 const route=useRoute()
 const router=useRouter()
@@ -49,6 +50,7 @@ function openStaffCost(row){router.push({path:'/business/staff',query:{userId:ro
 function openStaffProfile(row){router.push({path:'/business/staff',query:{userId:row.userId,action:'edit'}})}
 function openAllocation(row){router.push({path:'/business/projects',query:{id:row.projectId,tab:'operating'}})}
 load()
+useBusinessRefreshOnReactivated(load)
 </script>
 
 <style scoped>

@@ -140,6 +140,7 @@
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listBusinessProjects, retireBusinessProjectKpi, saveBusinessProjectKpi } from '@/api/business/project'
 import { getProjectKpiWorkspace, publishProjectKpiPlan, reviewProjectKpiSettlement, saveProjectKpiResults, submitProjectKpiSettlement, voidProjectKpiPlan } from '@/api/business/kpi'
+import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 
 const route=useRoute(),router=useRouter()
 const loading=ref(false),saving=ref(false),projects=ref([]),projectsLoaded=ref(false),selectedProjectId=ref(null),workspace=reactive({}),targetDialog=ref(false),targetForm=reactive({}),planDialog=ref(false),planForm=reactive({}),planDates=ref([]),resultDraft=reactive({})
@@ -190,6 +191,7 @@ async function returnSettlement(){const{value}=await ElMessageBox.prompt('请填
 async function confirmSettlement(){await ElMessageBox.confirm(`确认综合得分 ${settlement.value.totalScore}、项目奖金 ¥${money(settlement.value.bonusAmount)} 吗？确认后将立即计入 ${settlement.value.periodEnd} 项目成本。`,'确认项目KPI奖金',{type:'warning',confirmButtonText:'确认并计入成本'});saving.value=true;try{const res=await reviewProjectKpiSettlement(settlement.value.settlementId,{decision:'CONFIRMED',comment:'确认项目KPI及奖金'});selectedPlan.value.settlement=res.data;await loadWorkspace(selectedProjectId.value,selectedPlan.value.planId);ElMessage.success('项目奖金已确认并计入项目成本')}finally{saving.value=false}}
 watch(()=>route.fullPath,syncWorkspaceFromRoute)
 onActivated(syncWorkspaceFromRoute)
+useBusinessRefreshOnReactivated(async()=>{await loadProjects();if(selectedProjectId.value)await loadWorkspace(selectedProjectId.value,route.query.planId)})
 onMounted(async()=>{loading.value=true;try{await loadProjects();if(selectedProjectId.value)await loadWorkspace(selectedProjectId.value,route.query.planId)}finally{loading.value=false}})
 </script>
 

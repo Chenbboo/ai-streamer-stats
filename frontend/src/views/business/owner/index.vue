@@ -402,6 +402,7 @@ import { getBusinessOwnerWorkbench, submitBusinessProjectProgressReport, submitB
 import { saveBusinessProjectDailySpend, saveBusinessProjectFact } from '@/api/business/accounting'
 import useUserStore from '@/store/modules/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 
 const route=useRoute(),router=useRouter()
 const userStore=useUserStore()
@@ -556,7 +557,7 @@ async function confirmEffort(item){
     item.confirmedUserName=saved.confirmedUserName||userStore.nickName||userStore.name
     item.confirmedTime=saved.confirmedTime||new Date().toISOString()
     item.reviewComment=''
-    await nextTick()
+    await load(selectedProjectId.value)
     ElMessage({type:'success',message:`${item.userName} 的今日投入已确认，人员成本已重新计算`,duration:3000,showClose:true})
   }finally{saving.value=false}
 }
@@ -585,10 +586,8 @@ async function submitEffortReturn(){
   saving.value=true
   try{
     await returnBusinessMemberEffort(project.value.projectId,form.userId,{bizDate:form.bizDate,reviewComment:form.reviewComment.trim()})
-    const item=todayEfforts.value.find(row=>Number(row.userId)===Number(form.userId)&&row.bizDate===form.bizDate)
-    if(item){item.reportStatus='RETURNED';item.reviewComment=form.reviewComment.trim()}
     effortReturnDialog.value=false
-    await nextTick()
+    await load(selectedProjectId.value)
     ElMessage({type:'success',message:'已退回员工修改',duration:3000,showClose:true})
   }finally{saving.value=false}
 }
@@ -600,6 +599,7 @@ async function withdrawLeave(request){const approved=request.status==='APPROVED'
 function openDailySpend(){reportForm.value={...blankReport(),...(accounting.value.dailySpend||{}),projectId:project.value.projectId,bizDate:accounting.value.bizDate};reportDialog.value=true}
 async function submitDailySpend(){if(reportForm.value.amount===null||reportForm.value.amount===undefined)return ElMessage.warning('请填写今日项目总花费');saving.value=true;try{await saveBusinessProjectDailySpend(reportForm.value);reportDialog.value=false;ElMessage({type:'success',message:'今日花费已由负责人确认并计入经营结果',duration:3500,showClose:true});await load(selectedProjectId.value)}finally{saving.value=false}}
 load(route.query.projectId?Number(route.query.projectId):undefined)
+useBusinessRefreshOnReactivated(() => load(selectedProjectId.value || (route.query.projectId ? Number(route.query.projectId) : undefined)))
 </script>
 
 <style scoped>

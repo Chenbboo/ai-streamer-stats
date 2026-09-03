@@ -116,6 +116,7 @@
 <script setup name="BusinessWorkSchedule">
 import { getBusinessWorkDashboard, submitBusinessTaskReport, submitBusinessRoutineReport, saveBusinessWorkEffort } from '@/api/business/project'
 import { ElMessage } from 'element-plus'
+import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 
 const loading=ref(false),saving=ref(false),savingEffortId=ref(null),data=ref({}),period=ref('DAY'),anchorDate=ref(today()),reportDialog=ref(false),reportForm=ref({}),taskReportDialog=ref(false),taskReportForm=ref({})
 const summary=computed(()=>data.value.summary||{}),tasks=computed(()=>data.value.tasks||[]),routines=computed(()=>data.value.routines||[]),efforts=computed(()=>data.value.efforts||[])
@@ -168,6 +169,7 @@ function beginEffortAdjustment(item){item._savedActualPercent=Number(item.actual
 function cancelEffortAdjustment(item){item.actualPercent=item._savedActualPercent;item.deviationReason=item._savedDeviationReason;item.editing=false}
 async function saveEffort(item){if(item.reportStatus==='LEAVE')return ElMessage.info('今日已登记请假，无需填报投入');if(item.reportStatus==='UNSUBMITTED'&&Number(item.actualPercent)===Number(item.plannedPercent)){item.editing=false;return ElMessage.info('实际投入与计划一致，无需申报')}if(Number(item.actualPercent)!==Number(item.plannedPercent)&&!item.deviationReason?.trim())return ElMessage.warning('实际投入与计划不一致时请填写偏差原因');savingEffortId.value=item.projectId;try{await saveBusinessWorkEffort({projectId:item.projectId,bizDate:anchorDate.value,actualPercent:item.actualPercent,deviationReason:Number(item.actualPercent)===Number(item.plannedPercent)?'':item.deviationReason||''});ElMessage.success('投入偏差已提交负责人确认');await load()}finally{savingEffortId.value=null}}
 load()
+useBusinessRefreshOnReactivated(load)
 </script>
 
 <style scoped>

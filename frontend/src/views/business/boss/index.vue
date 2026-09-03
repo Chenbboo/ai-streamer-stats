@@ -236,6 +236,7 @@ import { confirmBusinessOperatingFact, getBusinessBossAccountingOverview, return
 import { getProjectKpiOverview } from '@/api/business/kpi'
 import { reviewProjectProposal } from '@/api/business/proposal'
 import { saveBusinessStaffCostPolicies, saveBusinessStaffCostPolicy } from '@/api/business/staff'
+import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 
 const router = useRouter()
 const loading = ref(false)
@@ -562,6 +563,7 @@ onMounted(() => {
   load()
   progressRefreshTimer = window.setInterval(() => refreshProjectProgress().catch(() => {}), 15000)
 })
+useBusinessRefreshOnReactivated(load)
 onBeforeUnmount(() => window.clearInterval(progressRefreshTimer))
 </script>
 

@@ -183,6 +183,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { addBusinessStaff, changeBusinessStaffStatus, deleteBusinessStaffCostPolicy, getBusinessStaffCostPolicies, getBusinessStaffMenuPermissions, getBusinessStaffProjects, listBusinessDepartments, listBusinessStaff, listBusinessStaffOptions, resetBusinessStaffMenuPermissions, resetBusinessStaffPassword, saveBusinessStaffCostPolicy, saveBusinessStaffMenuPermissions, updateBusinessStaff, voidBusinessStaffCostPolicy } from '@/api/business/staff'
 import useUserStore from '@/store/modules/user'
 import { usePasswordRule } from '@/utils/passwordRule'
+import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 
 const { pwdValidator, pwdPromptValidator } = usePasswordRule()
 const employmentTypes=[{label:'全职',value:'FULL_TIME'},{label:'兼职',value:'PART_TIME'},{label:'合同/外包',value:'CONTRACTOR'},{label:'实习',value:'INTERN'}]
@@ -313,7 +314,7 @@ async function saveMenuPermissions(){menuSaving.value=true;try{await saveBusines
 async function restoreRoleMenus(){
   try{await ElMessageBox.confirm('恢复后，该员工将重新完全继承现有角色权限。确定继续吗？','恢复角色默认',{type:'warning'});menuSaving.value=true;await resetBusinessStaffMenuPermissions(menuPolicy.userId);ElMessage.success('已恢复角色默认权限');menuDialog.value=false}catch(error){if(!['cancel','close'].includes(error))throw error}finally{menuSaving.value=false}
 }
-async function saveCostPolicy(){if(costForm.unitCost===null||costForm.unitCost===undefined)return ElMessage.warning('请填写月度用人成本');if(!costForm.effectiveFrom)return ElMessage.warning('请选择生效日期');saving.value=true;try{await saveBusinessStaffCostPolicy(costForm);costPolicies.value=(await getBusinessStaffCostPolicies(selectedPerson.value.userId)).data||[];costDialog.value=false;ElMessage.success('月度用人成本新版本已保存')}finally{saving.value=false}}
+async function saveCostPolicy(){if(costForm.unitCost===null||costForm.unitCost===undefined)return ElMessage.warning('请填写月度用人成本');if(!costForm.effectiveFrom)return ElMessage.warning('请选择生效日期');saving.value=true;try{await saveBusinessStaffCostPolicy(costForm);costPolicies.value=(await getBusinessStaffCostPolicies(selectedPerson.value.userId)).data||[];await load();costDialog.value=false;ElMessage.success('月度用人成本新版本已保存')}finally{saving.value=false}}
 function policyDailyCost(row){if(row.costMode!=='MONTHLY'||!row.standardWorkDays)return '按历史方式';return `${money(Number(row.unitCost)/Number(row.standardWorkDays))} 元/天`}
 function policyRule(row){if(row.costMode!=='MONTHLY')return costModeLabel[row.costMode]||row.costMode;return `${row.countryRegion==='VN'?'越南':row.countryRegion==='CN'?'中国':'其他'} / ${row.standardWorkDays} 天`}
 function formatDate(value){return value?String(value).replace('T',' ').slice(0,19):'尚未登录'}
@@ -324,6 +325,7 @@ function employmentTag(value){return value==='ACTIVE'?'success':value==='PROBATI
 function regionLabel(value){return value==='CN'?'中国':value==='VN'?'越南':value||'未设置'}
 function sexLabel(value){return value==='0'?'男':value==='1'?'女':'未知'}
 loadAll()
+useBusinessRefreshOnReactivated(loadAll)
 </script>
 
 <style scoped>

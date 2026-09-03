@@ -102,6 +102,7 @@
 import { ElMessage, ElMessageBox } from 'element-plus'
 import useUserStore from '@/store/modules/user'
 import { listProjectProposals, listProposalReviews, listProposalDirectory, getProjectProposal, getProjectProposalOptions, getProjectProposalStaffOptions, addProjectProposal, updateProjectProposal, submitProjectProposal, withdrawProjectProposal, reviewProjectProposal } from '@/api/business/proposal'
+import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 
 const route=useRoute(),router=useRouter(), userStore=useUserStore(), loading=ref(false), saving=ref(false), activeTab=ref('mine')
 const mineRows=ref([]),reviewRows=ref([]),directoryRows=ref([]),options=reactive({bosses:[],companies:[],staff:[]})
@@ -157,6 +158,7 @@ const planPeriod=item=>item?.planStartDate?`${item.planStartDate} 至 ${item.pla
 function handleOpenEndedChange(value){if(value)form.value.planEndDate=null;recomputeAllStaffCosts()}
 function disablePlanEndDate(date){return !!form.value.planStartDate&&date.getTime()<new Date(`${form.value.planStartDate}T00:00:00`).getTime()}
 onMounted(async()=>{activeTab.value=route.query.tab==='directory'&&canReview.value?'directory':'mine';await ensureOptions();await refreshAll();if(route.query.id)await openDetail({proposalId:Number(route.query.id)})})
+useBusinessRefreshOnReactivated(refreshAll)
 </script>
 
 <style scoped>

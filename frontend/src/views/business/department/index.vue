@@ -71,6 +71,7 @@
 <script setup name="BusinessDepartment">
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { addBusinessDepartment, listBusinessDepartments, listBusinessDepartmentStaff, removeBusinessDepartment, saveBusinessDepartmentSort, updateBusinessDepartment } from '@/api/business/department'
+import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -153,6 +154,7 @@ async function saveSort() {
 }
 watch(expanded,()=>{refreshTable.value=false;nextTick(()=>refreshTable.value=true)})
 load()
+useBusinessRefreshOnReactivated(load)
 </script>
 
 <style scoped>
