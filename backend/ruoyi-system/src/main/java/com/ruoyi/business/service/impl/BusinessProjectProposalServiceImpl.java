@@ -1,13 +1,18 @@
 package com.ruoyi.business.service.impl;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -80,6 +85,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         {
             throw new ServiceException("无权查看该立项申请");
         }
+        hydratePlanLines(proposal);
         proposal.setEvents(mapper.selectEvents(proposalId));
         decorate(proposal, userId, boss, viewAll);
         return proposal;
@@ -97,6 +103,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             + IdUtils.fastSimpleUUID().substring(0, 4).toUpperCase());
         proposal.setCreateBy(userName);
         if (mapper.insertProposal(proposal) != 1) throw new ServiceException("创建立项申请失败");
+        savePlanLines(proposal);
         BusinessProjectProposal stored = require(proposal.getProposalId());
         addEvent(stored, "CREATE", null, "DRAFT", userId, userName, "创建立项申请草稿");
         return get(stored.getProposalId(), userId, false, false);
@@ -115,6 +122,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         normalizeAndValidate(input);
         input.setUpdateBy(userName);
         if (mapper.updateDraft(input) != 1) throw changed();
+        savePlanLines(input);
         BusinessProjectProposal stored = require(input.getProposalId());
         addEvent(stored, "EDIT", current.getStatus(), stored.getStatus(), userId, userName, "修改立项申请草稿");
         return get(stored.getProposalId(), userId, false, false);
@@ -138,11 +146,17 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         BusinessProjectProposal current = require(proposalId);
         requireApplicant(current, userId);
         requireEditable(current);
+        hydratePlanLines(current);
         normalizeAndValidate(current);
-        if (mapper.submit(proposalId, userId, current.getVersion(), userName) != 1) throw changed();
+        validateBusinessPlanForLaunch(current);
+        if (mapper.updateComputedPlan(current) != 1) throw changed();
+        savePlanLines(current);
+        BusinessProject project = projectService.createApprovedProject(current, userId, userName);
+        if (mapper.activate(proposalId, userId, current.getVersion(), project.getProjectId(),
+            current.getApplicantName(), userName) != 1) throw changed();
         BusinessProjectProposal stored = require(proposalId);
-        addEvent(stored, current.getSubmissionVersion() == null || current.getSubmissionVersion() == 0
-            ? "SUBMIT" : "RESUBMIT", current.getStatus(), "PENDING", userId, userName, "提交老板审批");
+        addEvent(stored, "OWNER_LAUNCH", current.getStatus(), "APPROVED", userId, userName,
+            "负责人确认项目测算并自主启动项目");
         return get(proposalId, userId, false, false);
     }
 
@@ -195,7 +209,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     {
         requireActiveUser(userId);
         Map<String, Object> result = new LinkedHashMap<String, Object>();
-        result.put("bosses", mapper.selectBossOptions(userId));
+        result.put("bosses", mapper.selectBossOptions(null));
         result.put("companies", mapper.selectCompanyOptions());
         result.put("applicantUserId", userId);
         return result;
@@ -210,11 +224,9 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         requireActiveUser(proposal.getApplicantUserId());
         if (proposal.getCompanyDeptId() == null || mapper.selectCompany(proposal.getCompanyDeptId()) == null)
             throw new ServiceException("请选择有效归属公司");
-        if (proposal.getSponsorOwnerUserId() == null) throw new ServiceException("请选择审批老板");
+        if (proposal.getSponsorOwnerUserId() == null) throw new ServiceException("请选择项目观察老板");
         Map<String, Object> selectedBoss = requireActiveBoss(proposal.getSponsorOwnerUserId());
         proposal.setSponsorOwnerName(displayName(selectedBoss));
-        if (proposal.getApplicantUserId().equals(proposal.getSponsorOwnerUserId()))
-            throw new ServiceException("申请人不能选择本人作为审批老板");
         if (StringUtils.isBlank(proposal.getObjective())) throw new ServiceException("请填写项目目标");
         if (proposal.getObjective().length() > 1000) throw new ServiceException("项目目标不能超过1000个字符");
         if (StringUtils.isBlank(proposal.getApplicationReason())) throw new ServiceException("请填写立项理由");
@@ -266,7 +278,253 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             if (!String.valueOf(proposal.getSponsorOwnerUserId()).equals(String.valueOf(parent.get("sponsorOwnerUserId"))))
                 throw new ServiceException("上级项目必须属于同一位归属老板");
         }
+        normalizeBusinessPlan(proposal);
     }
+
+    private void normalizeBusinessPlan(BusinessProjectProposal proposal)
+    {
+        List<Map<String, Object>> revenues = cleanLines(proposal.getRevenueLines(), "itemName");
+        List<Map<String, Object>> expenses = cleanLines(proposal.getExpenseLines(), "itemName");
+        List<Map<String, Object>> staffing = cleanStaffingLines(proposal.getStaffingLines());
+        List<Map<String, Object>> targets = cleanLines(proposal.getTargetLines(), "targetName");
+        proposal.setRevenueLines(revenues); proposal.setExpenseLines(expenses);
+        proposal.setStaffingLines(staffing); proposal.setTargetLines(targets);
+
+        BigDecimal revenue = BigDecimal.ZERO;
+        for (Map<String, Object> line : revenues)
+        {
+            String scenario = code(line.get("scenario"), "BASE");
+            if (!Arrays.asList("CONSERVATIVE", "BASE", "OPTIMISTIC").contains(scenario))
+                throw new ServiceException("收入预测场景不正确");
+            line.put("scenario", scenario);
+            BigDecimal amount = nonNegative(line.get("expectedAmount"), "预计收入");
+            line.put("expectedAmount", amount);
+            if ("BASE".equals(scenario)) revenue = revenue.add(amount);
+        }
+        BigDecimal external = BigDecimal.ZERO;
+        for (Map<String, Object> line : expenses)
+        {
+            BigDecimal amount = nonNegative(line.get("amount"), "计划支出");
+            line.put("amount", amount); external = external.add(amount);
+            line.put("expenseType", code(line.get("expenseType"), "ONE_TIME"));
+            line.put("hasQuotation", "1".equals(String.valueOf(line.get("hasQuotation"))) ? "1" : "0");
+        }
+        BigDecimal personnel = BigDecimal.ZERO;
+        int headcount = 0;
+        Set<Long> selectedUsers = new HashSet<Long>();
+        BigDecimal plannedDays = plannedDays(proposal.getPlanStartDate(), proposal.getPlanEndDate());
+        for (Map<String, Object> line : staffing)
+        {
+            Long selectedUserId = longValue(line.get("userId"));
+            if (selectedUserId == null)
+            {
+                // 历史记录仍按原岗位汇总方式读取；新立项启动前必须改为选择具体人员。
+                int count = integer(line.get("headcount"), 1);
+                if (count < 1) throw new ServiceException("岗位人数必须大于0");
+                BigDecimal cost = nonNegative(line.get("estimatedCost"), "人员成本");
+                line.put("headcount", count); line.put("estimatedCost", cost);
+                headcount += count; personnel = personnel.add(cost);
+                continue;
+            }
+            if (!selectedUsers.add(selectedUserId)) throw new ServiceException("同一人员不能重复选择");
+            Map<String, Object> staff = mapper.selectProposalStaff(selectedUserId, proposal.getPlanStartDate());
+            if (staff == null || staff.get("userId") == null)
+                throw new ServiceException("所选人员不存在、已停用或已经离职");
+            Long staffCompanyId = longValue(staff.get("companyDeptId"));
+            if (!proposal.getCompanyDeptId().equals(staffCompanyId))
+                throw new ServiceException(displayStaffName(staff) + "不属于当前归属公司");
+            String costMode = text(staff.get("costMode"));
+            BigDecimal monthlyCost = "MONTHLY".equals(costMode) && staff.get("monthlyCost") != null
+                ? nonNegative(staff.get("monthlyCost"), "人员月度成本") : null;
+            BigDecimal standardWorkDays = monthlyCost != null && staff.get("standardWorkDays") != null
+                ? nonNegative(staff.get("standardWorkDays"), "月度标准工作天数") : null;
+            BigDecimal dailyCost = monthlyCost != null && staff.get("dailyCost") != null
+                ? nonNegative(staff.get("dailyCost"), "日用人成本") : null;
+            line.put("userId", selectedUserId);
+            line.put("userName", displayStaffName(staff));
+            line.put("roleName", StringUtils.isBlank(text(staff.get("positionName")))
+                ? "项目成员" : text(staff.get("positionName")));
+            line.put("headcount", 1);
+            line.put("allocationPercent", 100);
+            line.put("personMonths", null);
+            line.put("planStartDate", proposal.getPlanStartDate());
+            line.put("planEndDate", proposal.getPlanEndDate());
+            line.put("costPolicyId", monthlyCost == null ? null : staff.get("costPolicyId"));
+            line.put("costPolicyVersion", monthlyCost == null ? null : staff.get("costPolicyVersion"));
+            line.put("monthlyCostSnapshot", monthlyCost);
+            line.put("standardWorkDaysSnapshot", standardWorkDays);
+            line.put("dailyCostSnapshot", dailyCost);
+            line.put("costCurrency", monthlyCost == null ? null : text(staff.get("costCurrency")));
+            BigDecimal cost = proposal.getPlanEndDate() == null
+                ? (monthlyCost == null ? BigDecimal.ZERO : monthlyCost.setScale(2, RoundingMode.HALF_UP))
+                : (dailyCost == null ? BigDecimal.ZERO
+                    : dailyCost.multiply(plannedDays).setScale(2, RoundingMode.HALF_UP));
+            line.put("estimatedCost", cost);
+            headcount++; personnel = personnel.add(cost);
+        }
+        for (Map<String, Object> line : targets)
+        {
+            line.put("targetType", code(line.get("targetType"), "RESULT"));
+            line.put("targetValue", nonNegative(line.get("targetValue"), "目标值"));
+        }
+        BigDecimal bonus = nonNegative(proposal.getEstimatedBonusCost(), "预计项目奖金");
+        BigDecimal tax = BigDecimal.ZERO;
+        BigDecimal contingency = BigDecimal.ZERO;
+        BigDecimal total = external.add(personnel).add(bonus).add(tax).add(contingency);
+        BigDecimal profit = revenue.subtract(total);
+        proposal.setEstimatedRevenue(revenue); proposal.setEstimatedExternalCost(external);
+        proposal.setEstimatedPersonnelCost(personnel); proposal.setEstimatedBonusCost(bonus);
+        proposal.setEstimatedTaxCost(tax); proposal.setContingencyCost(contingency);
+        proposal.setEstimatedTotalCost(total); proposal.setExpectedProfit(profit);
+        proposal.setExpectedMargin(revenue.compareTo(BigDecimal.ZERO) == 0 ? null
+            : profit.multiply(new BigDecimal("100")).divide(revenue, 4, RoundingMode.HALF_UP));
+        proposal.setBreakEvenRevenue(total);
+        if (proposal.getPeakCashNeed() == null) proposal.setPeakCashNeed(total);
+        else proposal.setPeakCashNeed(nonNegative(proposal.getPeakCashNeed(), "最大资金占用"));
+        proposal.setFundingPlan(null);
+        proposal.setKeyAssumptions(null);
+        proposal.setStopLossRule(null);
+        proposal.setPlannedHeadcount(headcount);
+    }
+
+    private void validateBusinessPlanForLaunch(BusinessProjectProposal proposal)
+    {
+        if (proposal.getStaffingLines() == null || proposal.getStaffingLines().isEmpty())
+            throw new ServiceException("请至少填写一项人员投入计划");
+        if (proposal.getTargetLines() == null || proposal.getTargetLines().isEmpty())
+            throw new ServiceException("请至少填写一项可量化项目目标");
+        if (Arrays.asList("PROFIT", "HYBRID").contains(proposal.getAccountingMode())
+            && proposal.getEstimatedRevenue().compareTo(BigDecimal.ZERO) <= 0)
+            throw new ServiceException("盈利型或混合型项目必须填写基准收入预测");
+        for (Map<String, Object> line : proposal.getRevenueLines())
+            if (StringUtils.isBlank(text(line.get("revenueType"))) || StringUtils.isBlank(text(line.get("itemName"))))
+                throw new ServiceException("请完整填写每项收入的收入方式和项目名称");
+        for (Map<String, Object> line : proposal.getExpenseLines())
+            if (StringUtils.isBlank(text(line.get("expenseCategory"))) || StringUtils.isBlank(text(line.get("purpose"))))
+                throw new ServiceException("请完整填写每笔支出的类别和具体用途");
+        for (Map<String, Object> line : proposal.getTargetLines())
+            if (StringUtils.isBlank(text(line.get("unit"))) || StringUtils.isBlank(text(line.get("acceptanceEvidence"))))
+                throw new ServiceException("请为每项目标填写单位和验收依据");
+        for (Map<String, Object> line : proposal.getStaffingLines())
+        {
+            if (longValue(line.get("userId")) == null)
+                throw new ServiceException("人员投入必须直接选择具体人员");
+            String personName = StringUtils.isBlank(text(line.get("userName"))) ? "所选人员" : text(line.get("userName"));
+            if (line.get("costPolicyId") == null || line.get("monthlyCostSnapshot") == null)
+                throw new ServiceException(personName + "尚未在人员管理设置计划开始日有效的月度成本");
+            if (proposal.getPlanEndDate() != null && line.get("dailyCostSnapshot") == null)
+                throw new ServiceException(personName + "缺少标准工作天数，无法折算日用人成本");
+            if (!proposal.getBaseCurrency().equalsIgnoreCase(text(line.get("costCurrency"))))
+                throw new ServiceException(personName + "的人员成本币种与项目币种不一致");
+        }
+        if ("1".equals(proposal.getNoBudget())) throw new ServiceException("启动项目前必须设置预算上限");
+        if (proposal.getBudgetLimit() == null || proposal.getBudgetLimit().compareTo(proposal.getEstimatedTotalCost()) < 0)
+            throw new ServiceException("预算上限不能低于预计总成本");
+        if (StringUtils.isBlank(proposal.getRiskSummary())) throw new ServiceException("请填写项目主要风险");
+    }
+
+    private void hydratePlanLines(BusinessProjectProposal proposal)
+    {
+        proposal.setRevenueLines(mapper.selectRevenueLines(proposal.getProposalId()));
+        proposal.setExpenseLines(mapper.selectExpenseLines(proposal.getProposalId()));
+        proposal.setStaffingLines(mapper.selectStaffingLines(proposal.getProposalId()));
+        proposal.setTargetLines(mapper.selectTargetLines(proposal.getProposalId()));
+    }
+
+    private void savePlanLines(BusinessProjectProposal proposal)
+    {
+        Long proposalId = proposal.getProposalId();
+        mapper.deleteRevenueLines(proposalId); mapper.deleteExpenseLines(proposalId);
+        mapper.deleteStaffingLines(proposalId); mapper.deleteTargetLines(proposalId);
+        insertLines(proposalId, proposal.getRevenueLines(), "REVENUE");
+        insertLines(proposalId, proposal.getExpenseLines(), "EXPENSE");
+        insertLines(proposalId, proposal.getStaffingLines(), "STAFFING");
+        insertLines(proposalId, proposal.getTargetLines(), "TARGET");
+    }
+
+    private void insertLines(Long proposalId, List<Map<String, Object>> lines, String type)
+    {
+        int sort = 1;
+        for (Map<String, Object> source : lines == null ? Collections.<Map<String, Object>>emptyList() : lines)
+        {
+            Map<String, Object> line = new HashMap<String, Object>(source);
+            line.put("proposalId", proposalId); line.put("sortOrder", sort++);
+            if ("REVENUE".equals(type)) mapper.insertRevenueLine(line);
+            else if ("EXPENSE".equals(type)) mapper.insertExpenseLine(line);
+            else if ("STAFFING".equals(type)) mapper.insertStaffingLine(line);
+            else mapper.insertTargetLine(line);
+        }
+    }
+
+    private List<Map<String, Object>> cleanLines(List<Map<String, Object>> source, String nameKey)
+    {
+        List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+        if (source == null) return result;
+        for (Map<String, Object> line : source)
+            if (line != null && StringUtils.isNotBlank(text(line.get(nameKey)))) result.add(new HashMap<String, Object>(line));
+        return result;
+    }
+
+    private List<Map<String, Object>> cleanStaffingLines(List<Map<String, Object>> source)
+    {
+        List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+        if (source == null) return result;
+        for (Map<String, Object> line : source)
+            if (line != null && (longValue(line.get("userId")) != null
+                || StringUtils.isNotBlank(text(line.get("roleName")))))
+                result.add(new HashMap<String, Object>(line));
+        return result;
+    }
+
+    private BigDecimal plannedDays(Date start, Date end)
+    {
+        if (start == null || end == null) return BigDecimal.ZERO;
+        long duration = Math.max(0L, end.getTime() - start.getTime());
+        return BigDecimal.valueOf(duration / 86400000L + 1L);
+    }
+
+    private Long longValue(Object value)
+    {
+        if (value == null || StringUtils.isBlank(String.valueOf(value))) return null;
+        return Long.valueOf(String.valueOf(value));
+    }
+
+    private String displayStaffName(Map<String, Object> staff)
+    {
+        Object nickName = staff.get("nickName");
+        return nickName != null && StringUtils.isNotBlank(String.valueOf(nickName))
+            ? String.valueOf(nickName) : String.valueOf(staff.get("accountName"));
+    }
+
+    @Override
+    public List<Map<String, Object>> staffOptions(Long companyDeptId, String effectiveDate, Long userId)
+    {
+        requireActiveUser(userId);
+        if (companyDeptId != null && mapper.selectCompany(companyDeptId) == null)
+            throw new ServiceException("请选择有效归属公司");
+        Date date = StringUtils.isBlank(effectiveDate) ? new Date() : DateUtils.parseDate(effectiveDate);
+        if (date == null) throw new ServiceException("计划开始日期格式不正确");
+        return mapper.selectStaffOptions(companyDeptId, date);
+    }
+
+    private BigDecimal nonNegative(Object value, String label)
+    {
+        BigDecimal result = value == null || StringUtils.isBlank(String.valueOf(value))
+            ? BigDecimal.ZERO : new BigDecimal(String.valueOf(value));
+        if (result.compareTo(BigDecimal.ZERO) < 0) throw new ServiceException(label + "不能为负数");
+        return result;
+    }
+
+    private int integer(Object value, int defaultValue)
+    {
+        if (value == null || StringUtils.isBlank(String.valueOf(value))) return defaultValue;
+        return Integer.parseInt(String.valueOf(value));
+    }
+
+    private String code(Object value, String defaultValue)
+    { String result = text(value); return StringUtils.isBlank(result) ? defaultValue : result.trim().toUpperCase(Locale.ROOT); }
+
+    private String text(Object value) { return value == null ? null : String.valueOf(value).trim(); }
 
     private BusinessProjectProposal require(Long proposalId)
     {

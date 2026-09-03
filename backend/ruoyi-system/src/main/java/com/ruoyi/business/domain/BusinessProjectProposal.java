@@ -38,6 +38,27 @@ public class BusinessProjectProposal extends BaseEntity
     private String baseCurrency;
     private BigDecimal budgetLimit;
     private String noBudget;
+    private String revenueModel;
+    private BigDecimal estimatedRevenue;
+    private BigDecimal estimatedExternalCost;
+    private BigDecimal estimatedPersonnelCost;
+    private BigDecimal estimatedBonusCost;
+    private BigDecimal estimatedTaxCost;
+    private BigDecimal contingencyCost;
+    private BigDecimal estimatedTotalCost;
+    private BigDecimal expectedProfit;
+    private BigDecimal expectedMargin;
+    private BigDecimal breakEvenRevenue;
+    private BigDecimal peakCashNeed;
+    private Integer plannedHeadcount;
+    private String fundingPlan;
+    private String keyAssumptions;
+    private String riskSummary;
+    private String stopLossRule;
+    private List<Map<String, Object>> revenueLines;
+    private List<Map<String, Object>> expenseLines;
+    private List<Map<String, Object>> staffingLines;
+    private List<Map<String, Object>> targetLines;
     private String executionSource;
     private String status;
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss") private Date submittedTime;
@@ -105,6 +126,48 @@ public class BusinessProjectProposal extends BaseEntity
     public void setBudgetLimit(BigDecimal budgetLimit) { this.budgetLimit = budgetLimit; }
     public String getNoBudget() { return noBudget; }
     public void setNoBudget(String noBudget) { this.noBudget = noBudget; }
+    public String getRevenueModel() { return revenueModel; }
+    public void setRevenueModel(String revenueModel) { this.revenueModel = revenueModel; }
+    public BigDecimal getEstimatedRevenue() { return estimatedRevenue; }
+    public void setEstimatedRevenue(BigDecimal estimatedRevenue) { this.estimatedRevenue = estimatedRevenue; }
+    public BigDecimal getEstimatedExternalCost() { return estimatedExternalCost; }
+    public void setEstimatedExternalCost(BigDecimal estimatedExternalCost) { this.estimatedExternalCost = estimatedExternalCost; }
+    public BigDecimal getEstimatedPersonnelCost() { return estimatedPersonnelCost; }
+    public void setEstimatedPersonnelCost(BigDecimal estimatedPersonnelCost) { this.estimatedPersonnelCost = estimatedPersonnelCost; }
+    public BigDecimal getEstimatedBonusCost() { return estimatedBonusCost; }
+    public void setEstimatedBonusCost(BigDecimal estimatedBonusCost) { this.estimatedBonusCost = estimatedBonusCost; }
+    public BigDecimal getEstimatedTaxCost() { return estimatedTaxCost; }
+    public void setEstimatedTaxCost(BigDecimal estimatedTaxCost) { this.estimatedTaxCost = estimatedTaxCost; }
+    public BigDecimal getContingencyCost() { return contingencyCost; }
+    public void setContingencyCost(BigDecimal contingencyCost) { this.contingencyCost = contingencyCost; }
+    public BigDecimal getEstimatedTotalCost() { return estimatedTotalCost; }
+    public void setEstimatedTotalCost(BigDecimal estimatedTotalCost) { this.estimatedTotalCost = estimatedTotalCost; }
+    public BigDecimal getExpectedProfit() { return expectedProfit; }
+    public void setExpectedProfit(BigDecimal expectedProfit) { this.expectedProfit = expectedProfit; }
+    public BigDecimal getExpectedMargin() { return expectedMargin; }
+    public void setExpectedMargin(BigDecimal expectedMargin) { this.expectedMargin = expectedMargin; }
+    public BigDecimal getBreakEvenRevenue() { return breakEvenRevenue; }
+    public void setBreakEvenRevenue(BigDecimal breakEvenRevenue) { this.breakEvenRevenue = breakEvenRevenue; }
+    public BigDecimal getPeakCashNeed() { return peakCashNeed; }
+    public void setPeakCashNeed(BigDecimal peakCashNeed) { this.peakCashNeed = peakCashNeed; }
+    public Integer getPlannedHeadcount() { return plannedHeadcount; }
+    public void setPlannedHeadcount(Integer plannedHeadcount) { this.plannedHeadcount = plannedHeadcount; }
+    public String getFundingPlan() { return fundingPlan; }
+    public void setFundingPlan(String fundingPlan) { this.fundingPlan = fundingPlan; }
+    public String getKeyAssumptions() { return keyAssumptions; }
+    public void setKeyAssumptions(String keyAssumptions) { this.keyAssumptions = keyAssumptions; }
+    public String getRiskSummary() { return riskSummary; }
+    public void setRiskSummary(String riskSummary) { this.riskSummary = riskSummary; }
+    public String getStopLossRule() { return stopLossRule; }
+    public void setStopLossRule(String stopLossRule) { this.stopLossRule = stopLossRule; }
+    public List<Map<String, Object>> getRevenueLines() { return revenueLines; }
+    public void setRevenueLines(List<Map<String, Object>> revenueLines) { this.revenueLines = revenueLines; }
+    public List<Map<String, Object>> getExpenseLines() { return expenseLines; }
+    public void setExpenseLines(List<Map<String, Object>> expenseLines) { this.expenseLines = expenseLines; }
+    public List<Map<String, Object>> getStaffingLines() { return staffingLines; }
+    public void setStaffingLines(List<Map<String, Object>> staffingLines) { this.staffingLines = staffingLines; }
+    public List<Map<String, Object>> getTargetLines() { return targetLines; }
+    public void setTargetLines(List<Map<String, Object>> targetLines) { this.targetLines = targetLines; }
     public String getExecutionSource() { return executionSource; }
     public void setExecutionSource(String executionSource) { this.executionSource = executionSource; }
     public String getStatus() { return status; }

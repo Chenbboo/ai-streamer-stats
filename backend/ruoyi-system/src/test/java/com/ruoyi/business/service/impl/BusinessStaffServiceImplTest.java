@@ -54,7 +54,7 @@ class BusinessStaffServiceImplTest
         when(userService.selectUserList(any())).thenReturn(Arrays.asList(shanghaiStaff, vietnamStaff));
         when(profileMapper.selectByUserIds(any())).thenReturn(Arrays.asList(shanghaiProfile, vietnamProfile));
 
-        List<?> rows = service.listStaff(new SysUser(), 120L, false).getRows();
+        List<?> rows = service.listStaff(new SysUser(), 120L, false, true, true).getRows();
 
         @SuppressWarnings("unchecked") Map<String, Object> shanghai = (Map<String, Object>) rows.get(0);
         @SuppressWarnings("unchecked") Map<String, Object> vietnam = (Map<String, Object>) rows.get(1);
@@ -80,7 +80,7 @@ class BusinessStaffServiceImplTest
         when(userService.selectUserList(any())).thenReturn(Arrays.asList(shanghaiStaff, vietnamStaff));
         when(profileMapper.selectByUserIds(any())).thenReturn(Arrays.asList(shanghaiProfile, vietnamProfile));
 
-        List<?> rows = service.listStaff(new SysUser(), 1L, true).getRows();
+        List<?> rows = service.listStaff(new SysUser(), 1L, true, true, true).getRows();
 
         @SuppressWarnings("unchecked") Map<String, Object> shanghai = (Map<String, Object>) rows.get(0);
         @SuppressWarnings("unchecked") Map<String, Object> vietnam = (Map<String, Object>) rows.get(1);
@@ -100,7 +100,24 @@ class BusinessStaffServiceImplTest
         when(userService.selectUserList(any())).thenReturn(Arrays.asList(disabledStaff));
         when(profileMapper.selectByUserIds(any())).thenReturn(Arrays.asList(profile));
 
-        List<?> rows = service.listStaff(new SysUser(), 1L, true).getRows();
+        List<?> rows = service.listStaff(new SysUser(), 1L, true, true, true).getRows();
+
+        @SuppressWarnings("unchecked") Map<String, Object> row = (Map<String, Object>) rows.get(0);
+        assertEquals(true, row.get("canViewCost"));
+        assertEquals(true, row.get("canManageCost"));
+    }
+
+    @Test
+    void projectOwnerCanManageActiveStaffCostWithoutFullPeopleManagement()
+    {
+        SysUser staff = new SysUser(147L);
+        staff.setUserName("staff147"); staff.setStatus("0");
+        BusinessStaffProfile profile = new BusinessStaffProfile();
+        profile.setUserId(147L); profile.setEmploymentStatus("ACTIVE");
+        when(userService.selectUserList(any())).thenReturn(Arrays.asList(staff));
+        when(profileMapper.selectByUserIds(any())).thenReturn(Arrays.asList(profile));
+
+        List<?> rows = service.listStaff(new SysUser(), 134L, false, false, true).getRows();
 
         @SuppressWarnings("unchecked") Map<String, Object> row = (Map<String, Object>) rows.get(0);
         assertEquals(true, row.get("canViewCost"));

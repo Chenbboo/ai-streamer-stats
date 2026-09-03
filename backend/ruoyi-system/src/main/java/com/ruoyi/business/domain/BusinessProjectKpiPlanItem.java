@@ -21,6 +21,7 @@ public class BusinessProjectKpiPlanItem implements Serializable
     private String direction;
     private String aggregateType;
     private String sourceType;
+    private Long sourceRefId;
     private Integer sortOrder;
 
     public Long getItemId() { return itemId; }
@@ -53,6 +54,8 @@ public class BusinessProjectKpiPlanItem implements Serializable
     public void setAggregateType(String aggregateType) { this.aggregateType = aggregateType; }
     public String getSourceType() { return sourceType; }
     public void setSourceType(String sourceType) { this.sourceType = sourceType; }
+    public Long getSourceRefId() { return sourceRefId; }
+    public void setSourceRefId(Long sourceRefId) { this.sourceRefId = sourceRefId; }
     public Integer getSortOrder() { return sortOrder; }
     public void setSortOrder(Integer sortOrder) { this.sortOrder = sortOrder; }
 }

@@ -34,6 +34,12 @@ public interface SysMenuMapper
      */
     public List<SysMenu> selectMenuListByUserId(SysMenu menu);
 
+    /** All enabled menu, page and action records. */
+    public List<SysMenu> selectActiveMenuList();
+
+    /** Enabled menu, page and action records granted by the user's enabled roles. */
+    public List<SysMenu> selectActiveMenuListByUserId(Long userId);
+
     /**
      * 根据角色ID查询权限
      * 

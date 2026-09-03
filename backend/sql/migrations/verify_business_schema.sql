@@ -745,4 +745,78 @@ where not exists(
   select 1 from biz_project_member member
   join biz_project project on project.project_id=member.project_id and project.del_flag='0'
   where member.user_id=user_role.user_id and member.member_role='DEPUTY' and member.status='0'
-);
+  );
+
+select 'missing_proposal_business_plan_columns' check_name,17-count(*) problem_rows
+from information_schema.columns
+where table_schema=database() and table_name='biz_project_proposal'
+  and column_name in('revenue_model','estimated_revenue','estimated_external_cost','estimated_personnel_cost',
+    'estimated_bonus_cost','estimated_tax_cost','contingency_cost','estimated_total_cost','expected_profit',
+    'expected_margin','break_even_revenue','peak_cash_need','planned_headcount','funding_plan','key_assumptions',
+    'risk_summary','stop_loss_rule')
+union all
+select 'missing_proposal_revenue_table',count(*)=0
+from information_schema.tables where table_schema=database() and table_name='biz_project_proposal_revenue'
+union all
+select 'missing_proposal_expense_table',count(*)=0
+from information_schema.tables where table_schema=database() and table_name='biz_project_proposal_expense'
+union all
+select 'missing_proposal_staffing_table',count(*)=0
+from information_schema.tables where table_schema=database() and table_name='biz_project_proposal_staffing'
+union all
+select 'missing_proposal_target_table',count(*)=0
+from information_schema.tables where table_schema=database() and table_name='biz_project_proposal_target'
+union all
+select 'project_owner_missing_kpi_manage_permission',count(*)
+from sys_role role
+where role.role_key='project_owner' and role.del_flag='0'
+  and not exists(select 1 from sys_role_menu rm where rm.role_id=role.role_id and rm.menu_id=4072);
+
+select 'missing_proposal_named_staff_columns' check_name,8-count(*) problem_rows
+from information_schema.columns
+where table_schema=database() and table_name='biz_project_proposal_staffing'
+  and column_name in('user_id','user_name','cost_policy_id','cost_policy_version','monthly_cost_snapshot',
+    'standard_work_days_snapshot','daily_cost_snapshot','cost_currency');
+
+select 'missing_staff_cost_permission_menu' check_name,count(*)=0 problem_rows
+from sys_menu where menu_id=4022 and parent_id=4004 and perms='business:staff:cost' and status='0'
+union all
+select 'project_owner_missing_staff_directory',count(*)
+from sys_role role
+where role.role_key='project_owner' and role.del_flag='0'
+  and not exists(select 1 from sys_role_menu role_menu
+    where role_menu.role_id=role.role_id and role_menu.menu_id=4004)
+union all
+select 'project_owner_missing_staff_cost_permission',count(*)
+from sys_role role
+where role.role_key='project_owner' and role.del_flag='0'
+  and not exists(select 1 from sys_role_menu role_menu
+    where role_menu.role_id=role.role_id and role_menu.menu_id=4022)
+union all
+select 'project_owner_has_full_staff_manage_permission',count(*)
+from sys_role role join sys_role_menu role_menu on role_menu.role_id=role.role_id
+where role.role_key='project_owner' and role.del_flag='0' and role_menu.menu_id=4021;
+
+select 'missing_staff_menu_permission_table' check_name,count(*)=0 problem_rows
+from information_schema.tables
+where table_schema=database() and table_name='biz_staff_menu_permission'
+union all
+select 'invalid_staff_menu_permission_level',count(*)
+from biz_staff_menu_permission
+where access_level not in('HIDDEN','READ','MAINTAIN')
+union all
+select 'orphan_staff_menu_permission_user',count(*)
+from biz_staff_menu_permission permission
+left join sys_user user on user.user_id=permission.user_id and user.del_flag='0'
+where user.user_id is null
+union all
+select 'orphan_staff_menu_permission_menu',count(*)
+from biz_staff_menu_permission permission
+left join sys_menu menu on menu.menu_id=permission.menu_id
+where menu.menu_id is null;
+
+select 'missing_project_kpi_source_ref_columns' check_name,2-count(*) problem_rows
+from information_schema.columns
+where table_schema=database()
+  and ((table_name='biz_project_kpi' and column_name='source_ref_id')
+    or (table_name='biz_project_kpi_plan_item' and column_name='source_ref_id'));

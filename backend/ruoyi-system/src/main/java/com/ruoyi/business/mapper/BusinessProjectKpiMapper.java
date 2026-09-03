@@ -31,6 +31,12 @@ public interface BusinessProjectKpiMapper
     BusinessProjectKpiSettlement selectSettlementById(Long settlementId);
     BusinessProjectKpiSettlement selectSettlementByPlanId(Long planId);
     List<BusinessProjectKpiResult> selectSettlementResults(Long settlementId);
+    java.math.BigDecimal sumRoutineActual(@Param("projectId") Long projectId,
+        @Param("sourceRefId") Long sourceRefId, @Param("dateFrom") Date dateFrom, @Param("dateTo") Date dateTo);
+    java.math.BigDecimal countCompletedTasks(@Param("projectId") Long projectId,
+        @Param("sourceRefId") Long sourceRefId, @Param("dateFrom") Date dateFrom, @Param("dateTo") Date dateTo);
+    java.math.BigDecimal countCompletedMilestones(@Param("projectId") Long projectId,
+        @Param("sourceRefId") Long sourceRefId, @Param("dateFrom") Date dateFrom, @Param("dateTo") Date dateTo);
     int voidDraftSettlement(@Param("planId") Long planId, @Param("userId") Long userId,
         @Param("userName") String userName);
     int voidPublishedPlan(@Param("planId") Long planId, @Param("userId") Long userId,

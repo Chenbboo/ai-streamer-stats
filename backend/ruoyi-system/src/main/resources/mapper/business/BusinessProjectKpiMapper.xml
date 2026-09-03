@@ -53,9 +53,9 @@
   <insert id="insertPlanItem" parameterType="com.ruoyi.business.domain.BusinessProjectKpiPlanItem"
           useGeneratedKeys="true" keyProperty="itemId">
     insert into biz_project_kpi_plan_item(plan_id,kpi_id,kpi_code,kpi_name,metric_type,unit,target_value,
-      minimum_value,warning_value,challenge_value,weight,direction,aggregate_type,source_type,sort_order)
+      minimum_value,warning_value,challenge_value,weight,direction,aggregate_type,source_type,source_ref_id,sort_order)
     values(#{planId},#{kpiId},#{kpiCode},#{kpiName},#{metricType},#{unit},#{targetValue},
-      #{minimumValue},#{warningValue},#{challengeValue},#{weight},#{direction},#{aggregateType},#{sourceType},#{sortOrder})
+      #{minimumValue},#{warningValue},#{challengeValue},#{weight},#{direction},#{aggregateType},#{sourceType},#{sourceRefId},#{sortOrder})
   </insert>
   <insert id="insertBonusTier" parameterType="com.ruoyi.business.domain.BusinessProjectBonusTier"
           useGeneratedKeys="true" keyProperty="tierId">
@@ -97,14 +97,14 @@
     select item_id itemId,plan_id planId,kpi_id kpiId,kpi_code kpiCode,kpi_name kpiName,
       metric_type metricType,unit,target_value targetValue,minimum_value minimumValue,
       warning_value warningValue,challenge_value challengeValue,weight,direction,
-      aggregate_type aggregateType,source_type sourceType,sort_order sortOrder
+      aggregate_type aggregateType,source_type sourceType,source_ref_id sourceRefId,sort_order sortOrder
     from biz_project_kpi_plan_item where plan_id=#{planId} order by sort_order,item_id
   </select>
   <select id="selectPlanItemById" resultType="com.ruoyi.business.domain.BusinessProjectKpiPlanItem">
     select item_id itemId,plan_id planId,kpi_id kpiId,kpi_code kpiCode,kpi_name kpiName,
       metric_type metricType,unit,target_value targetValue,minimum_value minimumValue,
       warning_value warningValue,challenge_value challengeValue,weight,direction,
-      aggregate_type aggregateType,source_type sourceType,sort_order sortOrder
+      aggregate_type aggregateType,source_type sourceType,source_ref_id sourceRefId,sort_order sortOrder
     from biz_project_kpi_plan_item where item_id=#{itemId} limit 1
   </select>
   <select id="selectBonusTiers" resultType="com.ruoyi.business.domain.BusinessProjectBonusTier">
@@ -137,10 +137,27 @@
       result.actual_value actualValue,result.completion_rate completionRate,result.weighted_score weightedScore,
       result.result_note resultNote,result.attachment_urls attachmentUrls,result.input_user_id inputUserId,
       result.input_user_name inputUserName,result.input_time inputTime,item.kpi_code kpiCode,item.kpi_name kpiName,
-      item.unit,item.target_value targetValue,item.weight,item.direction
+      item.unit,item.target_value targetValue,item.weight,item.direction,item.source_type sourceType
     from biz_project_kpi_result result
     join biz_project_kpi_plan_item item on item.item_id=result.plan_item_id
     where result.settlement_id=#{settlementId} order by item.sort_order,item.item_id
+  </select>
+  <select id="sumRoutineActual" resultType="java.math.BigDecimal">
+    select coalesce(sum(actual_value),0) from biz_project_routine_report
+    where project_id=#{projectId} and routine_id=#{sourceRefId} and status='SUBMITTED'
+      and biz_date&gt;=#{dateFrom} and biz_date&lt;=#{dateTo}
+  </select>
+  <select id="countCompletedTasks" resultType="java.math.BigDecimal">
+    select count(*) from biz_project_task
+    where project_id=#{projectId} and status='DONE'
+      <if test="sourceRefId != null">and task_id=#{sourceRefId}</if>
+      and date(actual_finish_time)&gt;=#{dateFrom} and date(actual_finish_time)&lt;=#{dateTo}
+  </select>
+  <select id="countCompletedMilestones" resultType="java.math.BigDecimal">
+    select count(*) from biz_project_milestone
+    where project_id=#{projectId} and status='DONE'
+      <if test="sourceRefId != null">and milestone_id=#{sourceRefId}</if>
+      and actual_date&gt;=#{dateFrom} and actual_date&lt;=#{dateTo}
   </select>
   <update id="voidDraftSettlement">
     update biz_project_kpi_settlement set status='VOIDED',voided_user_id=#{userId},

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -49,6 +50,9 @@ class OnlineUserPermissionServiceTest
             new HashSet<String>(Arrays.asList("business:project:list", "business:project:owner:view")));
         when(menuService.selectMenuPermsByRoleId(33L)).thenReturn(
             Collections.singleton("business:project:work:view"));
+        when(menuService.selectMenuPermsByUserId(129L)).thenReturn(
+            new HashSet<String>(Arrays.asList("business:project:proposal:list", "business:project:list",
+                "business:project:owner:view", "business:project:work:view")));
         when(redisCache.keys("login_tokens:*")).thenReturn(Collections.singleton("login_tokens:abc"));
         when(redisCache.getCacheObject("login_tokens:abc")).thenReturn(cached);
         when(redisCache.getExpire("login_tokens:abc")).thenReturn(900L);
@@ -60,6 +64,28 @@ class OnlineUserPermissionServiceTest
         assertTrue(cached.getPermissions().contains("business:project:list"));
         assertTrue(cached.getPermissions().contains("business:project:owner:view"));
         verify(redisCache).setCacheObject(eq("login_tokens:abc"), eq(cached), eq(900), eq(TimeUnit.SECONDS));
+    }
+
+    @Test
+    void menuPermissionChangeForcesOnlyTargetUserToRelogin()
+    {
+        SysUser targetUser = new SysUser();
+        targetUser.setUserId(135L);
+        targetUser.setUserName("lisi");
+        SysUser otherUser = new SysUser();
+        otherUser.setUserId(134L);
+        otherUser.setUserName("zhangsan");
+        LoginUser target = new LoginUser(135L, 100L, targetUser, Collections.emptySet());
+        LoginUser other = new LoginUser(134L, 100L, otherUser, Collections.emptySet());
+        when(redisCache.keys("login_tokens:*")).thenReturn(
+            new HashSet<String>(Arrays.asList("login_tokens:target", "login_tokens:other")));
+        when(redisCache.getCacheObject("login_tokens:target")).thenReturn(target);
+        when(redisCache.getCacheObject("login_tokens:other")).thenReturn(other);
+
+        service.forceRelogin(135L);
+
+        verify(redisCache).deleteObject("login_tokens:target");
+        verify(redisCache, never()).deleteObject("login_tokens:other");
     }
 
     private SysRole role(Long roleId, String roleKey)

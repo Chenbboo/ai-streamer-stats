@@ -1,7 +1,7 @@
 <template>
   <div class="app-container kpi-page" v-loading="loading">
     <header class="kpi-hero">
-      <div><span>PROJECT KPI & BONUS</span><h1>项目KPI与奖金</h1><p>老板发布项目目标与人民币奖金阶梯，负责人填报结果，老板确认后立即计入项目成本。</p></div>
+      <div><span>PROJECT KPI & BONUS</span><h1>项目KPI与奖金</h1><p>项目负责人设置目标、发布奖金阶梯、填报结果并完成结算；老板保留查看和修改能力。</p></div>
       <div class="hero-tools">
         <el-select v-model="selectedProjectId" filterable placeholder="选择项目" @change="switchProject">
           <el-option v-for="project in projects" :key="project.projectId" :label="`${project.projectName} · ${project.mainOwnerName}`" :value="project.projectId" />
@@ -16,7 +16,7 @@
       <section class="summary-grid">
         <article><span>项目</span><b>{{ workspace.project.projectName }}</b><small>{{ workspace.project.mainOwnerName }}负责</small></article>
         <article><span>当前KPI</span><b>{{ currentTargets.length }} 项</b><small>权重合计 {{ weightTotal }}%</small></article>
-        <article><span>考核方案</span><b>{{ selectedPlan ? `v${selectedPlan.planVersion}` : '未发布' }}</b><small>{{ selectedPlan ? `${cycleLabel[selectedPlan.cycleType]} · ${selectedPlan.cycleStart} 至 ${selectedPlan.cycleEnd}` : '老板发布后开始结算' }}</small></article>
+        <article><span>考核方案</span><b>{{ selectedPlan ? `v${selectedPlan.planVersion}` : '未发布' }}</b><small>{{ selectedPlan ? `${cycleLabel[selectedPlan.cycleType]} · ${selectedPlan.cycleStart} 至 ${selectedPlan.cycleEnd}` : '项目负责人发布后开始结算' }}</small></article>
         <article><span>结算状态</span><b>{{ settlementLabel[settlement?.status] || '未开始' }}</b><small>{{ settlement?.reviewComment || '项目级结算，不涉及个人奖金' }}</small></article>
         <article><span>{{ settlement?.status === 'CONFIRMED' ? '确认奖金' : '预计奖金' }}</span><b>¥{{ money(settlement?.bonusAmount) }}</b><small>综合得分 {{ settlement?.totalScore ?? '—' }}</small></article>
       </section>
@@ -29,10 +29,11 @@
               <el-button v-if="workspace.canManage" type="primary" @click="openTarget()">新增KPI</el-button>
             </div>
             <el-alert v-if="currentTargets.length && Number(weightTotal)!==100" :title="`当前权重合计 ${weightTotal}%，必须调整为100%后才能发布方案。`" type="warning" :closable="false" show-icon />
-            <el-table :data="currentTargets" empty-text="老板尚未设置项目KPI">
+            <el-table :data="currentTargets" empty-text="项目负责人尚未设置项目KPI">
               <el-table-column label="指标" min-width="180"><template #default="{row}"><b>{{ row.kpiName }}</b><small>{{ row.kpiCode }} · v{{ row.targetVersion }}</small></template></el-table-column>
               <el-table-column label="目标" min-width="125"><template #default="{row}">{{ row.targetValue }} {{ row.unit || '' }}</template></el-table-column>
               <el-table-column label="方向" width="95"><template #default="{row}">{{ directionLabel[row.direction] }}</template></el-table-column>
+              <el-table-column label="数据来源" min-width="150"><template #default="{row}"><el-tag :type="row.sourceType==='MANUAL'?'info':'success'">{{ sourceTypeLabel[row.sourceType] || row.sourceType }}</el-tag><small v-if="row.sourceRefId">{{ sourceReferenceLabel(row) }}</small></template></el-table-column>
               <el-table-column label="权重" width="85"><template #default="{row}">{{ row.weight }}%</template></el-table-column>
               <el-table-column label="周期" width="95"><template #default="{row}">{{ cycleLabel[row.periodType] }}</template></el-table-column>
               <el-table-column v-if="workspace.canManage" label="操作" width="120"><template #default="{row}"><el-button link @click="openTarget(row)">调整</el-button><el-button link type="danger" @click="retireTarget(row)">停用</el-button></template></el-table-column>
@@ -41,19 +42,19 @@
 
           <el-card shadow="never" class="section-card">
             <div class="section-head">
-              <div><h2>项目结果填报</h2><p>项目负责人逐项填写实际值和说明；老板确认后结果锁定并形成项目奖金成本。</p></div>
+              <div><h2>项目结果与结算</h2><p>自动指标持续读取系统数据，手工指标由负责人填报；截止日期后才能确认，确认后结果锁定并形成项目奖金成本。</p></div>
               <div class="section-actions" v-if="settlement && workspace.canSettle && ['DRAFT','RETURNED'].includes(settlement.status)">
-                <el-button :loading="saving" @click="saveResults">保存草稿</el-button>
-                <el-button type="primary" :loading="saving" :disabled="!periodEnded" @click="submitResults">提交结算</el-button>
+                <el-button v-if="manualItems.length" :loading="saving" @click="saveResults">保存手工草稿</el-button>
+                <el-button type="primary" :loading="saving" :disabled="!periodEnded" @click="submitResults">确认最终结算</el-button>
               </div>
             </div>
             <el-alert v-if="settlement?.status==='RETURNED'" :title="`老板退回：${settlement.reviewComment}`" type="warning" :closable="false" show-icon />
-            <el-alert v-if="settlement && !periodEnded && ['DRAFT','RETURNED'].includes(settlement.status)" :title="`考核将在 ${settlement.periodEnd} 结束；现在可以保存草稿，周期结束后才能提交。`" type="info" :closable="false" show-icon />
+            <el-alert v-if="settlement && !periodEnded && ['DRAFT','RETURNED'].includes(settlement.status)" :title="`考核统计截至 ${settlement.periodEnd} 当天；现在可以保存手工草稿，次日才能确认最终结算。`" type="info" :closable="false" show-icon />
             <el-empty v-if="!selectedPlan" description="尚未发布KPI方案" />
             <div v-else class="result-list">
               <article v-for="item in selectedPlan.items || []" :key="item.itemId" class="result-row">
-                <div class="result-target"><b>{{ item.kpiName }}</b><span>目标 {{ item.targetValue }} {{ item.unit || '' }} · 权重 {{ item.weight }}% · {{ directionLabel[item.direction] }}</span></div>
-                <template v-if="workspace.canSettle && ['DRAFT','RETURNED'].includes(settlement?.status)">
+                <div class="result-target"><b>{{ item.kpiName }}</b><span>目标 {{ item.targetValue }} {{ item.unit || '' }} · 权重 {{ item.weight }}% · {{ directionLabel[item.direction] }}</span><el-tag size="small" :type="isAutomatic(item)?'success':'info'">{{ sourceTypeLabel[item.sourceType] || item.sourceType }}</el-tag></div>
+                <template v-if="workspace.canSettle && ['DRAFT','RETURNED'].includes(settlement?.status) && !isAutomatic(item)">
                   <el-input-number v-model="resultDraft[item.itemId].actualValue" :min="0" :precision="4" controls-position="right" placeholder="实际值" />
                   <el-input v-model="resultDraft[item.itemId].resultNote" maxlength="1000" show-word-limit placeholder="填写数据来源、结果说明或异常原因" />
                   <business-file-upload v-model="resultDraft[item.itemId].attachmentUrls" :project-id="selectedProjectId" />
@@ -69,7 +70,7 @@
               </article>
             </div>
             <div v-if="settlement?.status==='SUBMITTED' && workspace.canManage" class="review-bar">
-              <div><b>负责人已提交，等待老板确认</b><span>确认后 ¥{{ money(settlement.bonusAmount) }} 将立即计入项目成本。</span></div>
+              <div><b>升级前结算等待处理</b><span>这是旧流程遗留记录，确认后 ¥{{ money(settlement.bonusAmount) }} 将计入项目成本。</span></div>
               <el-button type="warning" plain :loading="saving" @click="returnSettlement">退回修改</el-button>
               <el-button type="success" :loading="saving" @click="confirmSettlement">确认并计入成本</el-button>
             </div>
@@ -103,6 +104,8 @@
         <el-row :gutter="12"><el-col :sm="12" :xs="24"><el-form-item label="指标类型"><el-select v-model="targetForm.metricType" style="width:100%"><el-option v-for="(label,key) in metricTypeLabel" :key="key" :label="label" :value="key" /></el-select></el-form-item></el-col><el-col :sm="12" :xs="24"><el-form-item label="考核周期"><el-select v-model="targetForm.periodType" style="width:100%"><el-option v-for="key in ['MONTH','QUARTER','PROJECT']" :key="key" :label="cycleLabel[key]" :value="key" /></el-select></el-form-item></el-col></el-row>
         <el-row :gutter="12"><el-col :sm="12" :xs="24"><el-form-item label="目标值" required><el-input-number v-model="targetForm.targetValue" :min="0.0001" :precision="4" style="width:100%" /></el-form-item></el-col><el-col :sm="12" :xs="24"><el-form-item label="单位"><el-input v-model="targetForm.unit" placeholder="元、个、%等" /></el-form-item></el-col></el-row>
         <el-row :gutter="12"><el-col :sm="12" :xs="24"><el-form-item label="权重%" required><el-input-number v-model="targetForm.weight" :min="0" :max="100" :precision="2" style="width:100%" /></el-form-item></el-col><el-col :sm="12" :xs="24"><el-form-item label="考核方向"><el-select v-model="targetForm.direction" style="width:100%"><el-option label="越高越好" value="HIGHER_BETTER"/><el-option label="越低越好" value="LOWER_BETTER"/></el-select></el-form-item></el-col></el-row>
+        <el-row :gutter="12"><el-col :sm="12" :xs="24"><el-form-item label="数据来源" required><el-select v-model="targetForm.sourceType" style="width:100%" @change="changeSourceType"><el-option v-for="(label,key) in sourceTypeLabel" :key="key" :label="label" :value="key" /></el-select></el-form-item></el-col><el-col v-if="sourceNeedsReference" :sm="12" :xs="24"><el-form-item label="绑定数据" :required="targetForm.sourceType==='ROUTINE'"><el-select v-model="targetForm.sourceRefId" clearable filterable style="width:100%" :placeholder="targetForm.sourceType==='ROUTINE'?'请选择持续工作':'不选则统计全部'"><el-option v-for="option in sourceReferenceOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item></el-col></el-row>
+        <el-alert v-if="targetForm.sourceType!=='MANUAL'" :title="sourceHelpText" type="success" :closable="false" show-icon />
         <el-row :gutter="12"><el-col :sm="12" :xs="24"><el-form-item label="最低值"><el-input-number v-model="targetForm.minimumValue" :precision="4" style="width:100%" /></el-form-item></el-col><el-col :sm="12" :xs="24"><el-form-item label="挑战值"><el-input-number v-model="targetForm.challengeValue" :precision="4" style="width:100%" /></el-form-item></el-col></el-row>
         <el-form-item label="生效日期" required><el-date-picker v-model="targetForm.effectiveFrom" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
         <el-form-item label="调整说明"><el-input v-model="targetForm.remark" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
@@ -143,24 +146,33 @@ const loading=ref(false),saving=ref(false),projects=ref([]),projectsLoaded=ref(f
 let workspaceRequestId=0
 const selectedPlan=computed(()=>workspace.selectedPlan||null),settlement=computed(()=>selectedPlan.value?.settlement||null),currentTargets=computed(()=>workspace.currentTargets||[])
 const weightTotal=computed(()=>currentTargets.value.reduce((sum,item)=>sum+Number(item.weight||0),0).toFixed(2).replace(/\.00$/,''))
-const periodEnded=computed(()=>!settlement.value?.periodEnd||settlement.value.periodEnd<=today())
+const periodEnded=computed(()=>!settlement.value?.periodEnd||settlement.value.periodEnd<today())
+const automaticSourceTypes=['REVENUE','BUSINESS_COST','PERSONNEL_COST','PROFIT','ROUTINE','TASK','MILESTONE']
+const manualItems=computed(()=>(selectedPlan.value?.items||[]).filter(item=>!isAutomatic(item)))
 const cycleLabel={MONTH:'月度',QUARTER:'季度',PROJECT:'项目周期'}
 const directionLabel={HIGHER_BETTER:'越高越好',LOWER_BETTER:'越低越好'}
 const metricTypeLabel={COUNT:'数量',AMOUNT:'金额',PERCENT:'百分比',DURATION:'时长',SCORE:'评分',MILESTONE:'里程碑'}
-const settlementLabel={DRAFT:'填报中',SUBMITTED:'待老板确认',RETURNED:'已退回',CONFIRMED:'已确认'}
+const sourceTypeLabel={MANUAL:'负责人手工填报',REVENUE:'确认收入（自动）',BUSINESS_COST:'业务成本（自动）',PERSONNEL_COST:'人员成本（自动）',PROFIT:'经营结果（自动）',ROUTINE:'持续工作上报（自动）',TASK:'完成任务数（自动）',MILESTONE:'完成里程碑数（自动）'}
+const settlementLabel={DRAFT:'填报中',SUBMITTED:'历史待确认',RETURNED:'已退回',CONFIRMED:'负责人已确认'}
 const settlementTone={DRAFT:'info',SUBMITTED:'warning',RETURNED:'danger',CONFIRMED:'success'}
-const today=()=>new Date().toISOString().slice(0,10)
+const today=()=>localDate(new Date())
 const money=value=>Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})
 function resultFor(itemId){return settlement.value?.results?.find(result=>Number(result.planItemId)===Number(itemId))}
+function isAutomatic(item){return automaticSourceTypes.includes(item?.sourceType)}
+const sourceNeedsReference=computed(()=>['ROUTINE','TASK','MILESTONE'].includes(targetForm.sourceType))
+const sourceReferenceOptions=computed(()=>{const options=workspace.sourceOptions||{};if(targetForm.sourceType==='ROUTINE')return (options.routines||[]).map(item=>({value:item.routineId,label:`${item.routineName} · ${item.unit||''}`}));if(targetForm.sourceType==='TASK')return (options.tasks||[]).map(item=>({value:item.taskId,label:item.taskName}));if(targetForm.sourceType==='MILESTONE')return (options.milestones||[]).map(item=>({value:item.milestoneId,label:item.milestoneName}));return []})
+const sourceHelpText=computed(()=>targetForm.sourceType==='ROUTINE'?'考核周期内该持续工作的每日上报实际值将自动求和，例如每天上报视频数量。':targetForm.sourceType==='TASK'?'按考核周期内完成的任务数量统计；不绑定具体任务时统计项目全部任务。':targetForm.sourceType==='MILESTONE'?'按考核周期内完成的里程碑数量统计；不绑定时统计项目全部里程碑。':'从项目已核算的经营结果自动汇总；未确认或尚未核算的数据不会计入。')
+function sourceReferenceLabel(item){const lists=[...(workspace.sourceOptions?.routines||[]),...(workspace.sourceOptions?.tasks||[]),...(workspace.sourceOptions?.milestones||[])],match=lists.find(option=>Number(option.routineId||option.taskId||option.milestoneId)===Number(item.sourceRefId));return match?.routineName||match?.taskName||match?.milestoneName||`记录 #${item.sourceRefId}`}
+function changeSourceType(sourceType){targetForm.sourceRefId=null;if(['REVENUE','BUSINESS_COST','PERSONNEL_COST','PROFIT'].includes(sourceType)){targetForm.metricType='AMOUNT';targetForm.unit='元'}else if(['TASK','MILESTONE'].includes(sourceType)){targetForm.metricType='COUNT';targetForm.unit='项'}}
 function scoreRange(tier){return tier.maxScore===null||tier.maxScore===undefined?`${tier.minScore}分及以上`:`${tier.minScore} ≤ 得分 < ${tier.maxScore}`}
-function hydrateDraft(){Object.keys(resultDraft).forEach(key=>delete resultDraft[key]);for(const item of selectedPlan.value?.items||[]){const stored=resultFor(item.itemId)||{};resultDraft[item.itemId]={planItemId:item.itemId,actualValue:stored.actualValue??null,resultNote:stored.resultNote||'',attachmentUrls:stored.attachmentUrls||''}}}
+function hydrateDraft(){Object.keys(resultDraft).forEach(key=>delete resultDraft[key]);for(const item of manualItems.value){const stored=resultFor(item.itemId)||{};resultDraft[item.itemId]={planItemId:item.itemId,actualValue:stored.actualValue??null,resultNote:stored.resultNote||'',attachmentUrls:stored.attachmentUrls||''}}}
 function idKey(value){const scalar=Array.isArray(value)?value[0]:value;return scalar===null||scalar===undefined?'':String(scalar)}
 async function loadProjects(){const res=await listBusinessProjects({pageNum:1,pageSize:200,status:''});projects.value=res.rows||[];const requested=idKey(route.query.projectId),matched=projects.value.find(item=>idKey(item.projectId)===requested);selectedProjectId.value=matched?.projectId??projects.value[0]?.projectId??null;projectsLoaded.value=true}
 async function loadWorkspace(projectId,planId){if(!idKey(projectId))return;const requestId=++workspaceRequestId;loading.value=true;try{const res=await getProjectKpiWorkspace(projectId,planId);if(requestId!==workspaceRequestId)return;Object.keys(workspace).forEach(key=>delete workspace[key]);Object.assign(workspace,res.data||{});selectedProjectId.value=projectId;hydrateDraft();if(route.path==='/business/kpi-bonus')await router.replace({query:{projectId,planId:workspace.selectedPlan?.planId||undefined}})}finally{if(requestId===workspaceRequestId)loading.value=false}}
 async function syncWorkspaceFromRoute(){if(route.path!=='/business/kpi-bonus'||!projectsLoaded.value)return;const requested=idKey(route.query.projectId),matched=projects.value.find(item=>idKey(item.projectId)===requested);if(!matched)return;const requestedPlan=idKey(route.query.planId),currentPlan=idKey(selectedPlan.value?.planId),currentProject=idKey(workspace.project?.projectId);if(currentProject===requested&&(!requestedPlan||requestedPlan===currentPlan))return;await loadWorkspace(matched.projectId,route.query.planId)}
 function switchProject(projectId){loadWorkspace(projectId)}
-function openTarget(row={}){Object.assign(targetForm,{kpiId:null,projectId:selectedProjectId.value,kpiCode:'',kpiName:'',metricType:'COUNT',periodType:'MONTH',targetValue:null,minimumValue:null,warningValue:null,challengeValue:null,unit:'',weight:0,direction:'HIGHER_BETTER',aggregateType:'SUM',sourceType:'MANUAL',effectiveFrom:today(),remark:'',...row,actualValue:null,ownerUserId:null,ownerName:null});targetDialog.value=true}
-async function saveTarget(){if(!targetForm.kpiName?.trim())return ElMessage.warning('请填写指标名称');if(!(Number(targetForm.targetValue)>0))return ElMessage.warning('KPI目标值必须大于0');saving.value=true;try{await saveBusinessProjectKpi(targetForm);targetDialog.value=false;await loadWorkspace(selectedProjectId.value,selectedPlan.value?.planId);ElMessage.success(targetForm.kpiId?'KPI新版本已保存':'KPI已创建，编码已自动生成')}finally{saving.value=false}}
+function openTarget(row={}){Object.assign(targetForm,{kpiId:null,projectId:selectedProjectId.value,kpiCode:'',kpiName:'',metricType:'COUNT',periodType:'MONTH',targetValue:null,minimumValue:null,warningValue:null,challengeValue:null,unit:'',weight:0,direction:'HIGHER_BETTER',aggregateType:'SUM',sourceType:'MANUAL',sourceRefId:null,effectiveFrom:today(),remark:'',...row,actualValue:null,ownerUserId:null,ownerName:null});targetDialog.value=true}
+async function saveTarget(){if(!targetForm.kpiName?.trim())return ElMessage.warning('请填写指标名称');if(!(Number(targetForm.targetValue)>0))return ElMessage.warning('KPI目标值必须大于0');if(targetForm.sourceType==='ROUTINE'&&!targetForm.sourceRefId)return ElMessage.warning('请选择要自动汇总的持续工作');saving.value=true;try{await saveBusinessProjectKpi(targetForm);targetDialog.value=false;await loadWorkspace(selectedProjectId.value,selectedPlan.value?.planId);ElMessage.success(targetForm.kpiId?'KPI新版本已保存':'KPI已创建，编码已自动生成')}finally{saving.value=false}}
 async function retireTarget(row){await ElMessageBox.confirm(`确认停用“${row.kpiName}”吗？已发布方案不会受影响。`,'停用KPI',{type:'warning'});await retireBusinessProjectKpi(selectedProjectId.value,row.kpiId);await loadWorkspace(selectedProjectId.value,selectedPlan.value?.planId);ElMessage.success('KPI已停用')}
 function monthRange(){const date=new Date(),start=new Date(date.getFullYear(),date.getMonth(),1),end=new Date(date.getFullYear(),date.getMonth()+1,0);return [localDate(start),localDate(end)]}
 function quarterRange(){const date=new Date(),month=Math.floor(date.getMonth()/3)*3,start=new Date(date.getFullYear(),month,1),end=new Date(date.getFullYear(),month+3,0);return [localDate(start),localDate(end)]}
@@ -171,9 +183,9 @@ function addTier(){const last=planForm.tiers.at(-1),start=Number(last.minScore||
 function removeTier(index){planForm.tiers.splice(index,1);planForm.tiers.at(-1).maxScore=null}
 async function publishPlan(){if(!planDates.value?.[0]||!planDates.value?.[1])return ElMessage.warning('请选择考核起止日期');for(let i=0;i<planForm.tiers.length;i++){const tier=planForm.tiers[i],row=i+1,last=i===planForm.tiers.length-1;if(!tier.tierName?.trim()||tier.minScore===null||tier.minScore===undefined||tier.bonusAmount===null||tier.bonusAmount===undefined)return ElMessage.warning(`请完整填写第${row}档的名称、最低分和奖金金额`);if(i===0&&Number(tier.minScore)!==0)return ElMessage.warning('第一档最低分必须从0分开始');if(!last&&(tier.maxScore===null||tier.maxScore===undefined))return ElMessage.warning(`请填写第${row}档的最高分`);if(!last&&Number(tier.maxScore)<=Number(tier.minScore))return ElMessage.warning(`第${row}档最高分必须大于最低分`);if(i>0&&Number(tier.minScore)!==Number(planForm.tiers[i-1].maxScore))return ElMessage.warning(`第${row}档最低分必须等于上一档最高分，确保区间连续`);if(last)tier.maxScore=null}await ElMessageBox.confirm('发布后目标、权重和奖金阶梯将形成快照，不能直接覆盖。确定发布吗？','发布KPI方案',{type:'warning'});saving.value=true;try{const res=await publishProjectKpiPlan({...planForm,cycleStart:planDates.value[0],cycleEnd:planDates.value[1]});Object.keys(workspace).forEach(key=>delete workspace[key]);Object.assign(workspace,res.data||{});hydrateDraft();planDialog.value=false;ElMessage.success('项目KPI与奖金方案已发布')}finally{saving.value=false}}
 async function voidPlan(row){await ElMessageBox.confirm(`确定作废 v${row.planVersion} · ${cycleLabel[row.cycleType]} 吗？作废后不再参与项目考核和结项校验，但方案快照、填报草稿、结果和奖金阶梯会保留用于审计。`,'作废KPI方案',{type:'warning',confirmButtonText:'确认作废'});saving.value=true;try{await voidProjectKpiPlan(row.planId);await loadWorkspace(selectedProjectId.value);ElMessage.success('KPI方案已作废，审计数据已保留')}finally{saving.value=false}}
-function resultPayload(requireAll=false){const rows=Object.values(resultDraft).filter(row=>row.actualValue!==null&&row.actualValue!==undefined);if(!rows.length){ElMessage.warning('请至少填写一项KPI结果');return null}for(const row of rows)if(!row.resultNote?.trim()){ElMessage.warning('每项手工结果都必须填写说明');return null}if(requireAll&&rows.length!==(selectedPlan.value?.items?.length||0)){ElMessage.warning('请完整填写所有KPI结果');return null}return {results:rows}}
+function resultPayload(requireAll=false){const rows=Object.values(resultDraft).filter(row=>row.actualValue!==null&&row.actualValue!==undefined);if(!rows.length){ElMessage.warning('请至少填写一项手工KPI结果');return null}for(const row of rows)if(!row.resultNote?.trim()){ElMessage.warning('每项手工结果都必须填写说明');return null}if(requireAll&&rows.length!==manualItems.value.length){ElMessage.warning('请完整填写所有手工KPI结果');return null}return {results:rows}}
 async function saveResults(showMessage=true,requireAll=false){const payload=resultPayload(requireAll);if(!payload)return false;saving.value=true;try{const res=await saveProjectKpiResults(settlement.value.settlementId,payload);selectedPlan.value.settlement=res.data;hydrateDraft();if(showMessage)ElMessage.success('KPI结果草稿已保存');return true}finally{saving.value=false}}
-async function submitResults(){if(!periodEnded.value)return ElMessage.warning('考核周期尚未结束');if(!await saveResults(false,true))return;await ElMessageBox.confirm('提交后将等待老板确认，确认后项目奖金会立即计入项目成本。确定提交吗？','提交KPI结算',{type:'warning'});saving.value=true;try{const res=await submitProjectKpiSettlement(settlement.value.settlementId);selectedPlan.value.settlement=res.data;ElMessage.success('KPI结算已提交')}finally{saving.value=false}}
+async function submitResults(){if(!periodEnded.value)return ElMessage.warning('截止日期次日才能确认结算');if(manualItems.value.length&&!await saveResults(false,true))return;await ElMessageBox.confirm('系统将按截止日期重新读取自动指标，并与手工结果一起形成不可修改的结算快照；奖金会计入项目成本。确定继续吗？','确认最终KPI结算',{type:'warning'});saving.value=true;try{const res=await submitProjectKpiSettlement(settlement.value.settlementId);selectedPlan.value.settlement=res.data;ElMessage.success('KPI最终结算已确认，奖金已计入项目成本')}finally{saving.value=false}}
 async function returnSettlement(){const{value}=await ElMessageBox.prompt('请填写需要负责人修正的内容','退回KPI结算',{inputValidator:value=>!!value?.trim()||'必须填写退回原因',type:'warning'});saving.value=true;try{const res=await reviewProjectKpiSettlement(settlement.value.settlementId,{decision:'RETURNED',comment:value});selectedPlan.value.settlement=res.data;hydrateDraft();ElMessage.success('已退回项目负责人修改')}finally{saving.value=false}}
 async function confirmSettlement(){await ElMessageBox.confirm(`确认综合得分 ${settlement.value.totalScore}、项目奖金 ¥${money(settlement.value.bonusAmount)} 吗？确认后将立即计入 ${settlement.value.periodEnd} 项目成本。`,'确认项目KPI奖金',{type:'warning',confirmButtonText:'确认并计入成本'});saving.value=true;try{const res=await reviewProjectKpiSettlement(settlement.value.settlementId,{decision:'CONFIRMED',comment:'确认项目KPI及奖金'});selectedPlan.value.settlement=res.data;await loadWorkspace(selectedProjectId.value,selectedPlan.value.planId);ElMessage.success('项目奖金已确认并计入项目成本')}finally{saving.value=false}}
 watch(()=>route.fullPath,syncWorkspaceFromRoute)

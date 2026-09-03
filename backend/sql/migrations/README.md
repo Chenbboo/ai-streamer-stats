@@ -72,6 +72,16 @@ V047__business_staff_leave_approval.sql
 V048__staff_leave_request_collation.sql
 V049__business_operations_integrity_hardening.sql
 V050__business_project_deputy_permissions.sql
+V051__preserve_unassigned_project_routines.sql
+V052__normalize_business_attachment_urls.sql
+V053__business_accounting_return_review.sql
+V054__business_project_terminal_and_cost_integrity.sql
+V055__owner_driven_project_business_plan.sql
+V056__proposal_named_staff_cost_snapshot.sql
+V057__proposal_daily_staff_cost_snapshot.sql
+V058__project_owner_kpi_and_staff_cost_permissions.sql
+V059__staff_personal_menu_permissions.sql
+V060__project_kpi_automatic_sources.sql
 ../live_ai_config.sql
 ../jewelry_erp_menu.sql
 ../jewelry_manual_assembly.sql
@@ -138,6 +148,12 @@ V051__preserve_unassigned_project_routines.sql
 V052__normalize_business_attachment_urls.sql
 V053__business_accounting_return_review.sql
 V054__business_project_terminal_and_cost_integrity.sql
+V055__owner_driven_project_business_plan.sql
+V056__proposal_named_staff_cost_snapshot.sql
+V057__proposal_daily_staff_cost_snapshot.sql
+V058__project_owner_kpi_and_staff_cost_permissions.sql
+V059__staff_personal_menu_permissions.sql
+V060__project_kpi_automatic_sources.sql
 ../live_ai_config.sql
 ../jewelry_erp_menu.sql
 ../jewelry_manual_assembly.sql
@@ -161,7 +177,7 @@ V054__business_project_terminal_and_cost_integrity.sql
 * `V034__business_ai_workflow_engine.sql`：AI 持久化工作流实例与事件记录，支持多轮操作在刷新、重启和模型误判后继续。
 * `V035__jewelry_maker_basic_product_edit.sql`：制单员可直接维护商品名称与图片，完整商品属性仍仅由管理员修改。
 * `V036__business_project_proposal.sql`：全员提交本人负责的立项申请，指定老板一次审批后创建正式项目并直接进入执行。
-* `V037__business_project_kpi_bonus.sql`：老板发布项目 KPI 和人民币综合阶梯奖金，负责人填报结算，老板确认后立即形成项目奖金成本。
+* `V037__business_project_kpi_bonus.sql`：建立项目 KPI、人民币综合阶梯奖金和可审计结算快照。
 * `V038__business_staff_monthly_cost.sql`：人员内部成本统一按人民币月度金额维护，并保存中国 21.75 天、越南 26 天的折算快照。
 * `V039__bind_company_owners.sql`：将上海美丸文化公司绑定江澜、越南 meimaru 公司绑定王赋章，用于组织管理和人员成本范围；不会覆盖立项申请手动指定的审批/归属老板。
 * `V040__jewelry_purchase_amount_precision.sql`：扩展珠宝采购金额精度；属于珠宝 ERP 独立迁移，不改变项目经营、立项、KPI 或人员成本规则。
@@ -179,3 +195,9 @@ V054__business_project_terminal_and_cost_integrity.sql
 * `V052__normalize_business_attachment_urls.sql`：统一公司经营附件的 Web 路径分隔符。
 * `V053__business_accounting_return_review.sql`：收支草稿支持老板填写原因后退回，并保留退回人和时间的审核轨迹。
 * `V054__business_project_terminal_and_cost_integrity.sql`：修正累计成本快照，并统一修复历史结项/取消项目的结束日期、持续工作、人员投入、未完成任务和财务关账状态；历史请假与工作填报冲突仅输出诊断清单，由老板决定保留哪一侧记录。
+* `V055__owner_driven_project_business_plan.sql`：新增结构化收入、支出、人员投入和量化目标测算；新项目由负责人确认后直接启动，负责人完成预算、KPI、经营事实、验收和结项闭环，历史审批与财务记录保持不变。
+* `V056__proposal_named_staff_cost_snapshot.sql`：立项阶段直接选择具体人员，从人员管理同步当期月度内部成本并保存可追溯快照；原有人月和投入比例字段仅作历史兼容。
+* `V057__proposal_daily_staff_cost_snapshot.sql`：立项人员投入保存标准工作天数和日成本快照；固定周期按日成本核算，不限期按月度成本核算。
+* `V058__project_owner_kpi_and_staff_cost_permissions.sql`：项目负责人设置本人项目 KPI 与奖金；人员管理对负责人开放只读资料和独立成本维护权限，不开放档案及账号管理。
+* `V059__staff_personal_menu_permissions.sql`：增加普通员工个人目录权限覆盖层；空表默认继承原角色权限，老板可按“不显示/仅查看/可维护”设置全部左侧目录，并保留操作级鉴权快照。
+* `V060__project_kpi_automatic_sources.sql`：为KPI目标和方案快照增加自动取数来源引用，支持收入、业务成本、人员成本、经营结果、持续工作、任务和里程碑按考核周期自动统计。

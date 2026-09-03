@@ -28,6 +28,7 @@ import com.ruoyi.system.mapper.SysMenuMapper;
 import com.ruoyi.system.mapper.SysRoleMapper;
 import com.ruoyi.system.mapper.SysRoleMenuMapper;
 import com.ruoyi.system.service.ISysMenuService;
+import com.ruoyi.system.service.PersonalMenuPermissionService;
 
 /**
  * 菜单 业务层处理
@@ -51,6 +52,9 @@ public class SysMenuServiceImpl implements ISysMenuService
 
     @Autowired
     private SysRoleMenuMapper roleMenuMapper;
+
+    @Autowired
+    private PersonalMenuPermissionService personalMenuPermissionService;
 
     /**
      * 根据用户查询系统菜单列表
@@ -97,15 +101,7 @@ public class SysMenuServiceImpl implements ISysMenuService
     public Set<String> selectMenuPermsByUserId(Long userId)
     {
         List<String> perms = menuMapper.selectMenuPermsByUserId(userId);
-        Set<String> permsSet = new HashSet<>();
-        for (String perm : perms)
-        {
-            if (StringUtils.isNotEmpty(perm))
-            {
-                permsSet.addAll(Arrays.asList(perm.trim().split(",")));
-            }
-        }
-        return permsSet;
+        return personalMenuPermissionService.applyPermissions(userId, perms);
     }
 
     /**
@@ -146,6 +142,7 @@ public class SysMenuServiceImpl implements ISysMenuService
         else
         {
             menus = menuMapper.selectMenuTreeByUserId(userId);
+            menus = personalMenuPermissionService.applyRoutes(userId, menus);
         }
         return getChildPerms(menus, MENU_ROOT_ID);
     }

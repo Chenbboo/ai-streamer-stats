@@ -4,21 +4,21 @@
       <div>
         <span class="eyebrow">OWNER COMMAND CENTER</span>
         <h1>老板工作台</h1>
-        <p>只保留需要判断的事项、今日经营结果和项目整体状态。</p>
+        <p>负责人处理日常经营；这里只呈现经营异常、跨项目风险和需要老板干预的事项。</p>
       </div>
       <div class="hero-actions">
         <el-button icon="Refresh" :loading="loading" @click="load">刷新</el-button>
-        <el-button type="primary" icon="DocumentChecked" @click="openProposals">立项审批</el-button>
+        <el-button type="primary" icon="DocumentChecked" @click="openProposals">立项申请</el-button>
       </div>
     </header>
 
     <section class="panel pending-panel">
       <div class="section-title">
-        <h2>待处理</h2>
-        <span>· {{ totalPendingCount ? `${totalPendingCount} 项待处理` : '已全部处理' }}</span>
+        <h2>需关注与历史待处理</h2>
+        <span>· {{ totalPendingCount ? `${totalPendingCount} 项` : '当前没有阻塞事项' }}</span>
       </div>
       <div v-if="!groupedPendingRows.length && !loading" class="empty-state success-empty">
-        <span>✓</span>当前没有需要老板处理的事项
+        <span>✓</span>负责人流程运行正常，当前无需老板介入
       </div>
 
       <article

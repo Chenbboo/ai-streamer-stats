@@ -24,6 +24,21 @@ public class BusinessAccountingController extends BaseController
     public AjaxResult dashboard(@RequestParam Map<String,Object> query)
     {return success(service.dashboard(query,SecurityUtils.getUserId(),SecurityUtils.isAdmin()));}
 
+    /**
+     * Project-scoped operating figures for the project cockpit.  Project members can
+     * read the aggregate without being granted access to the company accounting page;
+     * the accounting service still applies its project visibility boundary.
+     */
+    @PreAuthorize("@ss.hasPermi('business:project:list')")
+    @GetMapping("/project-dashboard/{projectId}")
+    public AjaxResult projectDashboard(@PathVariable Long projectId,
+        @RequestParam(required=false) String dateFrom,@RequestParam(required=false) String dateTo)
+    {
+        Map<String,Object> query=new java.util.HashMap<String,Object>();
+        query.put("projectId",projectId);query.put("dateFrom",dateFrom);query.put("dateTo",dateTo);
+        return success(service.projectDashboard(projectId,query,SecurityUtils.getUserId(),SecurityUtils.isAdmin()));
+    }
+
     @PreAuthorize("@ss.hasPermi('business:boss:view')")
     @GetMapping("/boss-overview")
     public AjaxResult bossOverview()
