@@ -64,7 +64,9 @@ public class ProjectPlanCapabilitySupport
         if (detail.getRoutines() != null) for (BusinessProjectRoutine routine : detail.getRoutines())
             if (routine.getAssigneeUserId() == null) warnings.add("持续工作“" + routine.getRoutineName() + "”尚未指定执行人");
         if (kpis.isEmpty()) warnings.add("尚未设置项目 KPI，可根据项目需要后续补充");
-        if (allocations.isEmpty()) warnings.add("尚未设置成员计划投入，人员成本暂时无法按计划分摊");
+        if ("ACTUAL_WORK_V1".equals(detail.getCostPolicyVersion()))
+            checks.add("资源计划不生成实际成本，人员成本仅按已确认工作记录计价；可查询 project.work.get");
+        else if (allocations.isEmpty()) warnings.add("历史比例成本项目尚未设置成员计划投入，计划成本暂时无法计算");
         if (detail.getRisks() != null) for (BusinessProjectRisk risk : detail.getRisks())
             if ("OPEN".equals(risk.getStatus()) && ("HIGH".equals(risk.getSeverity()) || "CRITICAL".equals(risk.getSeverity())))
                 warnings.add("存在未关闭的高风险：“" + risk.getRiskTitle() + "”");
@@ -117,6 +119,8 @@ public class ProjectPlanCapabilitySupport
         row.put("baseCurrency", value.getBaseCurrency());
         row.put("accountingMode", value.getAccountingMode());
         row.put("managementMode", value.getManagementMode());
+        row.put("costPolicyVersion", value.getCostPolicyVersion());
+        row.put("templateVersion", value.getTemplateVersion());
         return row;
     }
 

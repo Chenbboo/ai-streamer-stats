@@ -19,7 +19,7 @@ public class ReverseAccountingFactCapability implements AiConfirmableCapability
     private final IBusinessAccountingService service;
     @Autowired public ReverseAccountingFactCapability(IBusinessAccountingService service) { this.service = service; }
     @Override public String code() { return "accounting.fact.reverse"; }
-    @Override public String description() { return "冲销一条已确认收支事实。必须先按 factId 查询原事实并提供明确原因；属于高影响经营操作，确认后才执行。"; }
+    @Override public String description() { return "冲销一条已确认收支事实。必须先按 factId 查询原事实并提供明确原因；属于高影响经营操作，确认后才执行。分离策略项目交付关闭后可在核算开放时按权限办理；已关账项目不能直接冲销，最终执行会重新校验。"; }
     @Override public String requiredPermission() { return "business:accounting:confirm"; }
     @Override public Map<String, Object> inputSchema()
     {

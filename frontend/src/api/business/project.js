@@ -2,6 +2,8 @@ import request from '@/utils/request'
 
 export const listBusinessProjects = params => request({ url: '/business/project/list', method: 'get', params })
 export const getBusinessProject = id => request({ url: `/business/project/${id}`, method: 'get' })
+export const getBusinessProjectSettlementStatus = id => request({ url: `/business/project/${id}/settlement-status`, method: 'get' })
+export const closeBusinessProjectAccounting = (id, data) => request({ url: `/business/project/${id}/accounting-close`, method: 'post', data })
 export const listBusinessUsers = keyword => request({ url: '/business/project/user-options', method: 'get', params: { keyword } })
 export const addBusinessProject = data => request({ url: '/business/project', method: 'post', data })
 export const updateBusinessProject = data => request({ url: '/business/project', method: 'put', data })

@@ -46,7 +46,7 @@ public class AiCapabilityRegistry
     {
         List<AiCapability> allowed = new ArrayList<AiCapability>();
         for (AiCapability capability : capabilities.values())
-            if (context != null && context.hasPermission(capability.requiredPermission())) allowed.add(capability);
+            if (capability.isAllowed(context)) allowed.add(capability);
         return Collections.unmodifiableList(allowed);
     }
 }

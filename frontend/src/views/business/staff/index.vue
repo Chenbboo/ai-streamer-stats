@@ -1,7 +1,7 @@
 <template>
   <div class="app-container staff-page">
     <header class="hero">
-      <div><span class="eyebrow">COMPANY PEOPLE</span><h1>人员管理</h1><p>{{ canManagePeople ? '统一维护公司人员档案、组织关系和系统账号。' : '人员资料只读；项目负责人仅可调整用人成本。' }}</p></div>
+      <div><span class="eyebrow">COMPANY PEOPLE</span><h1>人员管理</h1><p>{{ canManagePeople ? '统一维护公司人员档案、组织关系和系统账号。' : '按授权范围查看人员资料与项目责任。' }}</p></div>
       <el-button v-if="canManagePeople" type="primary" icon="Plus" @click="openCreate">新增人员</el-button>
     </header>
 
@@ -31,7 +31,7 @@
             <el-dropdown v-if="canManagePeople || canManageRowCost(row)" trigger="click" @command="handlePersonCommand($event,row)">
               <el-button link type="primary">管理<span class="dropdown-caret">⌄</span></el-button>
               <template #dropdown><el-dropdown-menu>
-                <el-dropdown-item v-if="canManageRowCost(row)" command="cost">设置用人成本</el-dropdown-item>
+                <el-dropdown-item v-if="canManageRowCost(row)" command="cost">财务内部费率</el-dropdown-item>
                 <el-dropdown-item v-if="canManageDirectory(row)" command="menu">设置目录权限</el-dropdown-item>
                 <el-dropdown-item v-if="canManagePeople" command="edit">编辑人员资料</el-dropdown-item>
                 <el-dropdown-item v-if="canManagePeople && !row.protectedAccount" command="password" divided>重置密码</el-dropdown-item>
@@ -46,7 +46,7 @@
           <div class="card-head"><div><b>{{ row.nickName }}</b><span>{{ row.employeeNo || row.userName }}</span></div><el-tag :type="employmentTag(row.employmentStatus)">{{ employmentStatusLabel(row.employmentStatus) }}</el-tag></div>
           <p>{{ row.companyName || '集团层级' }} · {{ row.deptName || '未设置部门' }}</p>
           <p>直属负责人：{{ row.managerName || '未设置' }}</p>
-          <div class="card-foot"><span>{{ formatPhone(row) }}</span><div class="row-actions" @click.stop><el-button link type="primary" @click="openDetail(row)">查看</el-button><el-dropdown v-if="canManagePeople || canManageRowCost(row)" trigger="click" @command="handlePersonCommand($event,row)"><el-button link type="primary">管理<span class="dropdown-caret">⌄</span></el-button><template #dropdown><el-dropdown-menu><el-dropdown-item v-if="canManageRowCost(row)" command="cost">设置用人成本</el-dropdown-item><el-dropdown-item v-if="canManageDirectory(row)" command="menu">设置目录权限</el-dropdown-item><el-dropdown-item v-if="canManagePeople" command="edit">编辑人员资料</el-dropdown-item><el-dropdown-item v-if="canManagePeople && !row.protectedAccount" command="password" divided>重置密码</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></div>
+          <div class="card-foot"><span>{{ formatPhone(row) }}</span><div class="row-actions" @click.stop><el-button link type="primary" @click="openDetail(row)">查看</el-button><el-dropdown v-if="canManagePeople || canManageRowCost(row)" trigger="click" @command="handlePersonCommand($event,row)"><el-button link type="primary">管理<span class="dropdown-caret">⌄</span></el-button><template #dropdown><el-dropdown-menu><el-dropdown-item v-if="canManageRowCost(row)" command="cost">财务内部费率</el-dropdown-item><el-dropdown-item v-if="canManageDirectory(row)" command="menu">设置目录权限</el-dropdown-item><el-dropdown-item v-if="canManagePeople" command="edit">编辑人员资料</el-dropdown-item><el-dropdown-item v-if="canManagePeople && !row.protectedAccount" command="password" divided>重置密码</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></div>
         </article>
         <el-empty v-if="!loading && !rows.length" description="暂无人员" />
       </div>
@@ -96,18 +96,7 @@
           <div><span>用工类型</span><b>{{ employmentTypeLabel(selectedPerson.employmentType) }}</b></div><div><span>任职状态</span><b>{{ employmentStatusLabel(selectedPerson.employmentStatus) }}</b></div>
           <div><span>入职日期</span><b>{{ selectedPerson.hireDate || '未设置' }}</b></div><div><span>系统角色</span><b>{{ selectedPerson.roleNames || selectedPerson.accountType }}</b></div>
         </div></section>
-        <section v-if="canViewSelectedCost" class="detail-section cost-policy-section"><div class="detail-section-head"><div><h3>内部核算成本</h3><p>项目负责人可维护人员成本；公司负责人仍仅维护本人负责公司的人员。</p></div><el-button v-if="canManageSelectedCost" size="small" type="primary" @click="openCostPolicy">设置新版本</el-button></div>
-          <el-table :data="costPolicies" :row-class-name="costPolicyRowClass" size="small" empty-text="尚未设置内部核算成本">
-            <el-table-column label="版本" width="70"><template #default="{row}">v{{ row.policyVersion }}</template></el-table-column>
-            <el-table-column label="月度用人成本" min-width="130"><template #default="{row}"><b>{{ money(row.unitCost) }} {{ row.currency }}</b><small v-if="row.costMode!=='MONTHLY'">历史{{ costModeLabel[row.costMode] }}</small></template></el-table-column>
-            <el-table-column label="日成本" min-width="105"><template #default="{row}">{{ policyDailyCost(row) }}</template></el-table-column>
-            <el-table-column label="折算规则" min-width="120"><template #default="{row}">{{ policyRule(row) }}</template></el-table-column>
-            <el-table-column label="生效区间" min-width="170"><template #default="{row}">{{ row.effectiveFrom }} 至 {{ row.effectiveTo || '长期' }}</template></el-table-column>
-            <el-table-column label="状态" width="105"><template #default="{row}"><el-tag size="small" :type="row.status==='ACTIVE'?'success':'info'">{{ row.status==='ACTIVE'?'有效':'已作废' }}</el-tag><small v-if="Number(row.referenceCount)">已引用 {{ row.referenceCount }} 次</small></template></el-table-column>
-            <el-table-column label="说明" min-width="150"><template #default="{row}"><span>{{ row.remark || '—' }}</span><small v-if="row.status==='VOID'">作废：{{ row.voidReason }}<template v-if="row.voidedUserName"> · {{ row.voidedUserName }}</template><template v-if="row.voidedTime"> · {{ row.voidedTime }}</template></small></template></el-table-column>
-            <el-table-column v-if="canManageSelectedCost" label="操作" width="82" fixed="right"><template #default="{row}"><el-button v-if="row.status==='ACTIVE'" link :type="policyCanDelete(row)?'danger':'warning'" :loading="retiringPolicyId===row.policyId" @click="retireCostPolicy(row)">{{ policyCanDelete(row)?'删除':'作废' }}</el-button><span v-else>—</span></template></el-table-column>
-          </el-table>
-        </section>
+        <section v-if="canViewSelectedCost" class="detail-section"><div class="detail-section-head"><div><h3>内部费率</h3><p>费率及其历史统一在财务与管理核算维护。</p></div><el-button type="primary" plain @click="openCostPolicy">打开财务费率</el-button></div></section>
         <section class="detail-section project-responsibility"><h3>项目责任</h3>
           <div class="responsibility-summary" v-loading="projectLoading">
             <div><span>主负责</span><b>{{ projectSummary.ownerCount }}</b></div><div><span>参与项目</span><b>{{ projectSummary.memberCount }}</b></div>
@@ -129,29 +118,7 @@
       </template>
     </el-drawer>
 
-    <el-dialog v-model="costDialog" title="设置月度用人成本" width="min(580px, 94vw)" append-to-body>
-      <el-alert title="仅用于公司内部项目核算，不代表员工工资单。每次保存都会产生新版本，历史成本不会被覆盖。" type="warning" :closable="false" show-icon/>
-      <el-form :model="costForm" label-width="126px" class="cost-form">
-        <el-form-item label="人员"><el-input :model-value="selectedPerson ? `${selectedPerson.nickName}（${selectedPerson.userName}）` : ''" disabled /></el-form-item>
-        <el-form-item label="国家/地区"><el-input :model-value="regionLabel(selectedPerson?.countryRegion)" disabled /></el-form-item>
-        <el-form-item label="月度用人成本" required><el-input-number v-model="costForm.unitCost" :min="0" :precision="2" :step="100" controls-position="right" style="width:100%" /><div class="form-help">统一使用人民币（CNY）填写。</div></el-form-item>
-        <div class="cost-preview"><span>系统折算</span><b>{{ money(costForm.unitCost) }} ÷ {{ selectedStandardDays || '—' }} 天 = {{ calculatedDailyCost }} 元/天</b><small>{{ selectedPerson?.countryRegion==='VN' ? '越南员工按 26 天' : selectedPerson?.countryRegion==='CN' ? '中国员工按 21.75 天' : '该国家/地区尚未配置折算规则' }}</small></div>
-        <el-form-item label="生效日期" required>
-          <el-date-picker v-model="costForm.effectiveFrom" type="date" value-format="YYYY-MM-DD" popper-class="staff-cost-date-popper" style="width:100%">
-            <template #default="cell"><div class="cost-date-cell" :class="costDateClass(costCellDate(cell))" :style="costDateStyle(costCellDate(cell))" :title="costDateTitle(costCellDate(cell))"><span>{{ cell.text }}</span></div></template>
-          </el-date-picker>
-        </el-form-item>
-        <el-form-item label="失效日期">
-          <el-date-picker v-model="costForm.effectiveTo" type="date" value-format="YYYY-MM-DD" clearable popper-class="staff-cost-date-popper" style="width:100%">
-            <template #default="cell"><div class="cost-date-cell" :class="costDateClass(costCellDate(cell))" :style="costDateStyle(costCellDate(cell))" :title="costDateTitle(costCellDate(cell))"><span>{{ cell.text }}</span></div></template>
-          </el-date-picker>
-        </el-form-item>
-        <div v-if="activeCostPolicies.length" class="cost-calendar-legend"><span class="legend-title">日历颜色表示当前有效的成本区间</span><div class="legend-items"><span v-for="(policy,index) in activeCostPolicies" :key="policy.policyId || policy.policyVersion" class="legend-item"><i :style="costPolicySwatchStyle(index)"></i><b>v{{ policy.policyVersion }}</b><span>{{ money(policy.unitCost) }} 元/月</span><small>{{ policy.effectiveFrom }} 至 {{ policy.effectiveTo || '长期' }}</small></span></div></div>
-        <div v-else class="cost-calendar-empty">该人员当前没有有效成本区间，日历中暂时没有彩色标记。</div>
-        <el-form-item label="调整说明"><el-input v-model="costForm.remark" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="例如：转正后调整月度用人成本" /></el-form-item>
-      </el-form>
-      <template #footer><el-button @click="costDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveCostPolicy">保存成本版本</el-button></template>
-    </el-dialog>
+
 
     <el-dialog v-model="menuDialog" class="staff-menu-dialog" :title="`${menuPolicy.nickName || ''} · 目录权限`" width="min(920px, 96vw)" append-to-body :close-on-click-modal="false">
       <el-alert title="默认继承员工现有角色权限。老板可以设置员工的全部目录权限，包括系统管理和系统监控。保存后会同时约束菜单显示和后端操作权限。" type="success" :closable="false" show-icon />
@@ -210,7 +177,7 @@ const costDateColors=[
 const activeCostPolicies=computed(()=>costPolicies.value.filter(policy=>policy.status==='ACTIVE'))
 const isAdmin=computed(()=>userStore.roles.includes('admin')||userStore.permissions.includes('*:*:*'))
 const canManagePeople=computed(()=>isAdmin.value||userStore.permissions.includes('business:staff:manage'))
-const canManageStaffCost=computed(()=>canManagePeople.value||userStore.permissions.includes('business:staff:cost'))
+const canManageStaffCost=computed(()=>isAdmin.value||userStore.permissions.includes('business:staff:cost'))
 const costEligibleStaff=row=>row?.employmentStatus!=='LEFT'
 const canViewRowCost=row=>costEligibleStaff(row)&&(isAdmin.value||(canManageStaffCost.value&&!!row?.canViewCost))
 const canManageRowCost=row=>costEligibleStaff(row)&&(isAdmin.value||(canManageStaffCost.value&&!!row?.canManageCost))
@@ -246,7 +213,7 @@ function search(){query.pageNum=1;load()}
 function resetSearch(){Object.assign(query,{pageNum:1,userId:null,nickName:'',deptId:null,status:''});load()}
 function openCreate(){resetForm();dialogOpen.value=true;nextTick(()=>formRef.value?.clearValidate())}
 function openEdit(row){resetForm(row);dialogOpen.value=true;nextTick(()=>formRef.value?.clearValidate())}
-async function openDetail(row){selectedPerson.value=row;detailOpen.value=true;projectSummary.value=emptyProjectSummary();costPolicies.value=[];projectLoading.value=true;try{const requests=[getBusinessStaffProjects(row.userId)];if(canViewRowCost(row))requests.push(getBusinessStaffCostPolicies(row.userId));const results=await Promise.all(requests);projectSummary.value=results[0].data||emptyProjectSummary();if(results[1])costPolicies.value=results[1].data||[]}finally{projectLoading.value=false}}
+async function openDetail(row){selectedPerson.value=row;detailOpen.value=true;projectSummary.value=emptyProjectSummary();costPolicies.value=[];projectLoading.value=true;try{const result=await getBusinessStaffProjects(row.userId);projectSummary.value=result.data||emptyProjectSummary()}finally{projectLoading.value=false}}
 function projectRoleLabel(project){if(project.responsibilityRole==='OWNER')return '主负责人';if(project.responsibilityRole==='DEPUTY')return '副负责人';if(project.responsibilityRole==='OBSERVER')return '观察者';return project.everOwner?'成员（曾任负责人）':'成员'}
 function openPersonProject(project){detailOpen.value=false;router.push({path:'/business/projects',query:{id:project.projectId}})}
 function changeRegion(value){if(value==='CN')form.phoneCountryCode='+86';if(value==='VN')form.phoneCountryCode='+84'}
@@ -283,7 +250,7 @@ async function retireCostPolicy(policy){
     await load()
   }catch(error){if(!['cancel','close'].includes(error))throw error}finally{retiringPolicyId.value=null}
 }
-async function openCostPolicy(){if(!canManageSelectedCost.value)return ElMessage.warning('没有该人员的用人成本设置权限');if(!selectedStandardDays.value)return ElMessage.warning('请先把人员的国家/地区设置为中国或越南');costPolicies.value=(await getBusinessStaffCostPolicies(selectedPerson.value.userId)).data||[];Object.keys(costForm).forEach(key=>delete costForm[key]);Object.assign(costForm,{userId:selectedPerson.value.userId,costMode:'MONTHLY',unitCost:null,currency:'CNY',effectiveFrom:new Date().toISOString().slice(0,10),effectiveTo:null,remark:''});costDialog.value=true}
+function openCostPolicy(){if(!canManageSelectedCost.value)return ElMessage.warning('没有该人员的内部费率权限');detailOpen.value=false;router.push({path:'/finance/cost-policies',query:{userId:selectedPerson.value.userId}})}
 async function openCostPolicyFor(row){selectedPerson.value=row;await openCostPolicy()}
 function handlePersonCommand(command,row){if(command==='cost')return openCostPolicyFor(row);if(command==='menu')return openMenuPermissions(row);if(command==='edit')return openEdit(row);if(command==='password')return resetPassword(row)}
 const menuLevelRank={HIDDEN:0,READ:1,MAINTAIN:2,MIXED:-1}

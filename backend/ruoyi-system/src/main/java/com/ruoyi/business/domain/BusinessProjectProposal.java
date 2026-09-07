@@ -16,6 +16,8 @@ public class BusinessProjectProposal extends BaseEntity
     private String proposalNo;
     private Integer submissionVersion;
     private String projectName;
+    private String templateVersion;
+    private String templateSnapshotJson;
     private Long applicantUserId;
     private String applicantName;
     private Long sponsorOwnerUserId;
@@ -80,6 +82,10 @@ public class BusinessProjectProposal extends BaseEntity
     public void setProposalNo(String proposalNo) { this.proposalNo = proposalNo; }
     public Integer getSubmissionVersion() { return submissionVersion; }
     public void setSubmissionVersion(Integer submissionVersion) { this.submissionVersion = submissionVersion; }
+    public String getTemplateVersion() { return templateVersion; }
+    public void setTemplateVersion(String value) { templateVersion = value; }
+    public String getTemplateSnapshotJson() { return templateSnapshotJson; }
+    public void setTemplateSnapshotJson(String value) { templateSnapshotJson = value; }
     public String getProjectName() { return projectName; }
     public void setProjectName(String projectName) { this.projectName = projectName; }
     public Long getApplicantUserId() { return applicantUserId; }

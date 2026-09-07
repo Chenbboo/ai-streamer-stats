@@ -95,6 +95,43 @@ class ProjectMutationCapabilitiesTest
     }
 
     @Test
+    void separatedCloseConfirmationShowsAndPreservesIndependentAccountingState()
+    {
+        TransitionProjectCapability capability = new TransitionProjectCapability(projectService);
+        BusinessProject current = project("项目A", "ACTIVE");
+        current.setDeliveryPolicyVersion("SEPARATED_V1"); current.setAccountingState("OPEN");
+        when(projectService.getProject(16L, 23L, false, true)).thenReturn(current);
+        Map<String, Object> input = map("projectId", 16L, "action", "CLOSE", "comment", "交付完成");
+
+        assertEquals(true, capability.confirmationSummary(invocation, input).contains("仅关闭项目交付"));
+        Map<String, Object> persisted = capability.persistedInput(invocation, input);
+        BusinessProject saved = project("项目A", "CLOSED");
+        saved.setDeliveryPolicyVersion("SEPARATED_V1"); saved.setAccountingState("OPEN");
+        when(projectService.transition(16L, "CLOSE", "交付完成", 23L, "jianglan", true)).thenReturn(saved);
+
+        Map<String, Object> result = capability.executeConfirmed(invocation, persisted);
+        assertEquals("CLOSED", result.get("status"));
+        assertEquals("OPEN", result.get("accountingState"));
+        verify(projectService).transition(16L, "CLOSE", "交付完成", 23L, "jianglan", true);
+    }
+
+    @Test
+    void separatedTransitionRejectsOldCardsAndCardsPreparedBeforeStateChanges()
+    {
+        TransitionProjectCapability capability = new TransitionProjectCapability(projectService);
+        BusinessProject current = project("项目A", "ACTIVE");
+        current.setDeliveryPolicyVersion("SEPARATED_V1"); current.setAccountingState("OPEN");
+        when(projectService.getProject(16L, 23L, false, true)).thenReturn(current);
+        Map<String, Object> input = map("projectId", 16L, "action", "CLOSE", "comment", "交付完成");
+        assertThrows(ServiceException.class, () -> capability.executeConfirmed(invocation, input));
+        Map<String, Object> persisted = capability.persistedInput(invocation, input);
+        current.setStatus("PAUSED");
+
+        assertThrows(ServiceException.class, () -> capability.executeConfirmed(invocation, persisted));
+        verify(projectService, never()).transition(any(), any(), any(), any(), any(), any(Boolean.class));
+    }
+
+    @Test
     void ownerChangeUsesStableDirectoryIdAndCannotExecuteDuringSummary()
     {
         ChangeProjectOwnerCapability capability = new ChangeProjectOwnerCapability(projectService);
@@ -178,6 +215,7 @@ class ProjectMutationCapabilitiesTest
     @Test
     void allocationSaveAndRetireUseTheConfirmedPersonProjectAndEffectiveDate()
     {
+        when(projectService.getProject(16L, 23L, false, true)).thenReturn(project("历史项目", "ACTIVE"));
         SaveProjectAllocationCapability save = new SaveProjectAllocationCapability(projectService);
         RetireProjectAllocationCapability retire = new RetireProjectAllocationCapability(projectService);
         Map<String, Object> input = map("projectId", 16L, "allocationId", 90L, "staffUserId", 66L,

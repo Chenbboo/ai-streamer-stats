@@ -49,7 +49,7 @@ public class BusinessProjectKpiController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('business:kpi:manage')")
-    @Log(title = "项目KPI奖金方案", businessType = BusinessType.INSERT)
+    @Log(title = "项目KPI方案", businessType = BusinessType.INSERT)
     @PostMapping("/plan/publish")
     public AjaxResult publish(@RequestBody BusinessProjectKpiPlan plan)
     {
@@ -57,7 +57,7 @@ public class BusinessProjectKpiController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('business:kpi:manage')")
-    @Log(title = "作废项目KPI奖金方案", businessType = BusinessType.UPDATE)
+    @Log(title = "作废项目KPI方案", businessType = BusinessType.UPDATE)
     @DeleteMapping("/plan/{planId}")
     public AjaxResult voidPlan(@PathVariable Long planId)
     {
@@ -82,7 +82,7 @@ public class BusinessProjectKpiController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('business:kpi:manage')")
-    @Log(title = "确认项目KPI奖金", businessType = BusinessType.UPDATE)
+    @Log(title = "确认历史项目KPI奖金", businessType = BusinessType.UPDATE)
     @PostMapping("/settlement/{settlementId}/review")
     public AjaxResult review(@PathVariable Long settlementId, @RequestBody Map<String, Object> body)
     {

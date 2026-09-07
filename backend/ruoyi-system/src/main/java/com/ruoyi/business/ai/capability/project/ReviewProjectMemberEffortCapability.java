@@ -20,7 +20,7 @@ public class ReviewProjectMemberEffortCapability implements AiConfirmableCapabil
     @Autowired public ReviewProjectMemberEffortCapability(IBusinessProjectService service) { this.service = service; }
     @Override public String code() { return "project.effort.member.review"; }
     @Override public String description()
-    { return "确认或退回项目成员某天的实际投入。先读取项目及成员数据取得稳定ID；退回必须填写意见，确认后执行。"; }
+    { return "仅确认或退回历史比例成本项目的成员投入。ACTUAL_WORK_V1 项目须使用资源与实际工作流程审核工作记录，可先查询 project.work.get。"; }
     @Override public String requiredPermission() { return "business:project:allocation"; }
     @Override public Map<String, Object> inputSchema()
     {
@@ -34,12 +34,14 @@ public class ReviewProjectMemberEffortCapability implements AiConfirmableCapabil
     }
     @Override public String confirmationSummary(AiCapabilityInvocation invocation, Map<String, Object> input)
     {
+        ProjectLegacyPlanningGuard.requireLegacy(service, invocation, input, false);
         validate(input); return ("RETURN".equals(AiCapabilityInputs.upper(input.get("decision"))) ? "退回" : "确认")
             + "“" + AiCapabilityInputs.text(input.get("memberName")) + "”在 "
             + AiCapabilityInputs.text(input.get("bizDate")) + " 的项目投入";
     }
     @Override public Map<String, Object> executeConfirmed(AiCapabilityInvocation invocation, Map<String, Object> input)
     {
+        ProjectLegacyPlanningGuard.requireLegacy(service, invocation, input, false);
         validate(input); String decision = AiCapabilityInputs.upper(input.get("decision"));
         BusinessProjectEffort saved = "RETURN".equals(decision)
             ? service.returnMemberEffort(AiCapabilityInputs.number(input.get("projectId")),

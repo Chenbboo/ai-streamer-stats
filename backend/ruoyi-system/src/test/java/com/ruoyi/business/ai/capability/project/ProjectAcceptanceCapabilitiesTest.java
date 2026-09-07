@@ -116,6 +116,85 @@ class ProjectAcceptanceCapabilitiesTest
         verify(service, never()).reviewAcceptance(17L, "APPROVED", "验收通过", 23L, "jianglan", true);
     }
 
+    @Test
+    void separatedDeliveryCanBeApprovedWithoutAKpiPlan()
+    {
+        BusinessProject detail = separatedProject();
+        when(service.getProject(17L, 23L, true, true)).thenReturn(detail);
+        when(kpiService.workspace(17L, null, 23L, true, true)).thenReturn(Collections.emptyMap());
+
+        Map<String, Object> review = support.review(invocation, 17L);
+
+        assertTrue(Boolean.TRUE.equals(review.get("canApprove")));
+        assertEquals(false, review.get("kpiRequiredForDelivery"));
+        assertEquals(0, review.get("pendingKpiSettlementCount"));
+        assertEquals("OPEN", map(review.get("project")).get("accountingState"));
+        assertTrue(String.valueOf(review.get("closureEffect")).contains("仅关闭项目交付"));
+    }
+
+    @Test
+    void separatedDeliveryKeepsUnsettledKpiAsAFollowUp()
+    {
+        BusinessProject detail = separatedProject();
+        BusinessProject closed = separatedProject(); closed.setStatus("CLOSED");
+        when(service.getProject(17L, 23L, true, true)).thenReturn(detail);
+        when(kpiService.workspace(17L, null, 23L, true, true)).thenReturn(kpiWorkspace("SUBMITTED"));
+        when(service.reviewAcceptance(17L, "APPROVED", "验收通过", 23L, "jianglan", true)).thenReturn(closed);
+        DecideProjectAcceptanceCapability capability = new DecideProjectAcceptanceCapability(support);
+        Map<String, Object> input = input("APPROVED", "验收通过");
+
+        Map<String, Object> review = support.review(invocation, 17L);
+        assertEquals(true, review.get("canApprove"));
+        assertEquals(1, review.get("pendingKpiSettlementCount"));
+        assertTrue(String.valueOf(review.get("warnings")).contains("不阻断交付验收"));
+        assertTrue(capability.confirmationSummary(invocation, input).contains("核算需单独关闭"));
+
+        Map<String, Object> result = capability.executeConfirmed(invocation, capability.persistedInput(invocation, input));
+        assertEquals("CLOSED", result.get("status"));
+        assertEquals("OPEN", result.get("accountingState"));
+        verify(service).reviewAcceptance(17L, "APPROVED", "验收通过", 23L, "jianglan", true);
+    }
+
+    @Test
+    void separatedDeliveryRejectsAnOldConfirmationWithoutPolicySnapshot()
+    {
+        when(service.getProject(17L, 23L, true, true)).thenReturn(separatedProject());
+        DecideProjectAcceptanceCapability capability = new DecideProjectAcceptanceCapability(support);
+
+        assertThrows(ServiceException.class, () -> capability.executeConfirmed(invocation, input("APPROVED", "验收通过")));
+        verify(service, never()).reviewAcceptance(17L, "APPROVED", "验收通过", 23L, "jianglan", true);
+    }
+
+    @Test
+    void preparedApprovalCannotApproveANewerSubmission()
+    {
+        BusinessProject detail = separatedProject();
+        when(service.getProject(17L, 23L, true, true)).thenReturn(detail);
+        DecideProjectAcceptanceCapability capability = new DecideProjectAcceptanceCapability(support);
+        Map<String, Object> persisted = capability.persistedInput(invocation, input("APPROVED", "验收通过"));
+        detail.getAcceptances().get(0).setAcceptanceId(34L);
+        detail.getAcceptances().get(0).setSubmissionVersion(3);
+
+        assertThrows(ServiceException.class, () -> capability.executeConfirmed(invocation, persisted));
+        verify(service, never()).reviewAcceptance(17L, "APPROVED", "验收通过", 23L, "jianglan", true);
+    }
+
+    @Test
+    void separatedDeliveryStillRejectsUnfinishedTasks()
+    {
+        BusinessProject detail = separatedProject(); detail.getTasks().get(0).setStatus("IN_PROGRESS");
+        when(service.getProject(17L, 23L, true, true)).thenReturn(detail);
+
+        assertEquals(false, support.review(invocation, 17L).get("canApprove"));
+    }
+
+    private BusinessProject separatedProject()
+    {
+        BusinessProject project = project(true, false);
+        project.setDeliveryPolicyVersion("SEPARATED_V1"); project.setAccountingState("OPEN");
+        return project;
+    }
+
     private Map<String, Object> input(String decision, String comment)
     {
         Map<String, Object> result = new LinkedHashMap<String, Object>();

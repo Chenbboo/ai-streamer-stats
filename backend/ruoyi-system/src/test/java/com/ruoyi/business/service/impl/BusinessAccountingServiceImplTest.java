@@ -10,6 +10,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -25,7 +26,14 @@ class BusinessAccountingServiceImplTest
 {
     @Mock BusinessAccountingMapper mapper;
     @Mock BusinessFileService businessFileService;
+    @Mock com.ruoyi.business.mapper.BusinessProjectWorkMapper workMapper;
     @InjectMocks BusinessAccountingServiceImpl service;
+
+    @BeforeEach void provideLockedProjectRead()
+    {
+        lenient().when(mapper.selectProjectForAccountingForUpdate(any()))
+            .thenAnswer(call -> mapper.selectProjectForAccounting(call.getArgument(0)));
+    }
 
     @Test void projectOwnerCanReadProjectCockpitWithoutBeingSponsor()
     {
@@ -110,7 +118,7 @@ class BusinessAccountingServiceImplTest
         ServiceException error=assertThrows(ServiceException.class,
             ()->service.saveFact(fact,8L,"boss8",false));
 
-        assertTrue(error.getMessage().contains("财务已关账"));
+        assertTrue(error.getMessage().contains("核算已关闭"));
         verify(mapper,never()).insertFact(any());
     }
 
@@ -232,6 +240,15 @@ class BusinessAccountingServiceImplTest
         assertEquals("2026-08-19",captor.getValue().get("bizDate"));
     }
 
+    @Test void actualCostOverviewPreservesUnknownAndHidesRawRatesWithoutIndependentPermission()
+    {
+        Map<String,Object> old=BusinessProjectWorkServiceTest.row("costStatus","READY","personnelCost",new BigDecimal("10"),"monthlyCost",6000,"dailyCost",200,"policyId",6L,"standardWorkDays",30);
+        Map<String,Object> unknown=BusinessProjectWorkServiceTest.row("costPolicyVersion","ACTUAL_WORK_V1","costStatus","MISSING_ACTUAL","workMinutes",null,"personnelCost",null);
+        when(mapper.selectPersonnelCostOverview(any())).thenReturn(Collections.singletonList(old));when(workMapper.selectPersonnelCostOverview(any())).thenReturn(Collections.singletonList(unknown));
+        Map<String,Object> result=service.personnelCostOverview(Collections.emptyMap(),20L,false);
+        assertEquals(false,result.get("rawCostVisible"));assertEquals(true,result.get("hasUnpricedOrMissingWork"));assertEquals(null,unknown.get("personnelCost"));assertTrue(!old.containsKey("monthlyCost"));assertTrue(!old.containsKey("policyId"));
+    }
+
     @Test void bossOverviewIsReadOnlyAndReportsMissingDailyResults()
     {
         when(mapper.countProjectsMissingDailyResult(eq(142L),eq(false),any())).thenReturn(27);
@@ -339,6 +356,7 @@ class BusinessAccountingServiceImplTest
         previous.setBizDate(day);previous.setStatus("CONFIRMED");previous.setVersion(2);previous.setAmount(new BigDecimal("400"));
         previous.setDescription("原今日项目总花费");previous.setFactKind("COST");
         when(mapper.selectFactById(321L)).thenReturn(draft);
+        when(mapper.selectFactByIdForUpdate(321L)).thenReturn(draft);
         when(mapper.selectProjectForAccounting(32L)).thenReturn(project(32L,8L));
         when(mapper.selectConfirmedProjectDailySpend(32L,day)).thenReturn(previous);
         when(mapper.markFactReversed(300L,"boss8",2)).thenReturn(1);
@@ -365,6 +383,7 @@ class BusinessAccountingServiceImplTest
         BusinessOperatingFact returned=new BusinessOperatingFact();returned.setFactId(330L);returned.setProjectId(32L);
         returned.setStatus("RETURNED");returned.setReturnReason("凭证金额与填报不一致");
         when(mapper.selectFactById(330L)).thenReturn(draft,returned);
+        when(mapper.selectFactByIdForUpdate(330L)).thenReturn(draft);
         when(mapper.selectProjectForAccounting(32L)).thenReturn(project(32L,8L));
         when(mapper.returnFact(330L,"凭证金额与填报不一致",8L,"boss8",4)).thenReturn(1);
 
@@ -413,6 +432,136 @@ class BusinessAccountingServiceImplTest
 
         assertTrue(error.getMessage().contains("主负责人"));
         verify(mapper,never()).insertFact(any());
+    }
+
+    @Test void deliveredProjectAcceptsHistoricalOwnerRevenueWhileAccountingIsOpen()
+    {
+        Map<String,Object> p=separatedProject("CLOSED","OPEN");
+        when(mapper.selectProjectForAccounting(41L)).thenReturn(p);
+        Map<String,Object> category=new HashMap<String,Object>();
+        category.put("categoryCode","SALES_REVENUE");category.put("categoryName","收入");category.put("factKind","REVENUE");
+        when(mapper.selectCategoryById(1L)).thenReturn(category);
+        BusinessOperatingFact fact=lateFact();fact.setCategoryId(1L);fact.setVersion(0);
+        doAnswer(call->{call.<BusinessOperatingFact>getArgument(0).setFactId(410L);return 1;}).when(mapper).insertFact(any());
+        when(mapper.selectFactById(410L)).thenReturn(fact);
+        when(mapper.confirmFact(410L,9L,"owner9",0)).thenReturn(1);
+        when(mapper.sumProjectFacts(41L,fact.getBizDate())).thenReturn(Collections.emptyMap());
+
+        service.saveProjectFact(fact,9L,"owner9",false);
+
+        assertEquals(java.sql.Date.valueOf("2026-07-19"),fact.getBizDate());
+        verify(mapper).confirmFact(410L,9L,"owner9",0);
+        verify(mapper).insertDailyResult(any());
+    }
+
+    @Test void canceledProjectAcceptsHistoricalDailySpendWhileAccountingIsOpen()
+    {
+        when(mapper.selectProjectForAccounting(41L)).thenReturn(separatedProject("CANCELED","OPEN"));
+        Map<String,Object> category=new HashMap<String,Object>();category.put("categoryId",5L);category.put("categoryCode","DIRECT_EXPENSE");
+        when(mapper.selectCategoryByCode("DIRECT_EXPENSE")).thenReturn(category);
+        BusinessOperatingFact fact=lateFact();fact.setVersion(0);
+        doAnswer(call->{call.<BusinessOperatingFact>getArgument(0).setFactId(410L);return 1;}).when(mapper).insertFact(any());
+        when(mapper.selectFactById(410L)).thenReturn(fact);
+        when(mapper.confirmFact(410L,9L,"owner9",0)).thenReturn(1);
+        when(mapper.sumProjectFacts(41L,fact.getBizDate())).thenReturn(Collections.emptyMap());
+
+        service.saveProjectDailySpend(fact,9L,"owner9",false);
+
+        assertEquals("2026-07-19",fact.getSourceId());
+        verify(mapper).insertDailyResult(any());
+    }
+
+    @Test void deliveredProjectRejectsExpenseAfterActualDeliveryDate()
+    {
+        when(mapper.selectProjectForAccounting(41L)).thenReturn(separatedProject("CLOSED","OPEN"));
+        BusinessOperatingFact fact=lateFact();fact.setBizDate(java.sql.Date.valueOf("2026-07-21"));
+
+        ServiceException error=assertThrows(ServiceException.class,
+            ()->service.saveProjectDailySpend(fact,9L,"owner9",false));
+
+        assertTrue(error.getMessage().contains("不能晚于项目实际结束日期"));
+        verify(mapper,never()).insertFact(any());
+    }
+
+    @Test void futureAccountingDateIsRejectedBeforeAnyResultWrite()
+    {
+        when(mapper.selectProjectForAccounting(41L)).thenReturn(separatedProject("ACTIVE","OPEN"));
+        java.util.Calendar tomorrow=java.util.Calendar.getInstance();tomorrow.add(java.util.Calendar.DATE,1);
+
+        ServiceException error=assertThrows(ServiceException.class,
+            ()->service.recalculate(41L,tomorrow.getTime(),8L,"boss8",false));
+
+        assertTrue(error.getMessage().contains("不能晚于今天"));
+        verify(mapper,never()).insertDailyResult(any());
+    }
+
+    @Test void currentLockedAccountingStateRejectsOwnerWriteAfterConcurrentClosure()
+    {
+        doReturn(separatedProject("CLOSED","CLOSED")).when(mapper).selectProjectForAccountingForUpdate(41L);
+
+        assertThrows(ServiceException.class,()->service.saveProjectDailySpend(lateFact(),9L,"owner9",false));
+
+        verify(mapper,never()).selectProjectForAccounting(any());
+        verify(mapper,never()).insertFact(any());
+        verify(mapper,never()).insertDailyResult(any());
+    }
+
+    @Test void factStatusIsRecheckedAfterProjectLock()
+    {
+        BusinessOperatingFact before=lateFact();before.setFactId(410L);before.setStatus("DRAFT");before.setVersion(0);
+        BusinessOperatingFact after=lateFact();after.setFactId(410L);after.setStatus("CONFIRMED");after.setVersion(1);
+        when(mapper.selectFactById(410L)).thenReturn(before);
+        when(mapper.selectFactByIdForUpdate(410L)).thenReturn(after);
+        when(mapper.selectProjectForAccounting(41L)).thenReturn(separatedProject("CLOSED","OPEN"));
+
+        assertThrows(ServiceException.class,()->service.confirmFact(410L,8L,"boss8",false));
+
+        verify(mapper,never()).confirmFact(any(),any(),any(),any());
+    }
+
+    @Test void bonusKeepsExistingCycleDateAfterDeliveryAndRetryDoesNotDoublePost()
+    {
+        Date periodEnd=java.sql.Date.valueOf("2026-07-31");
+        when(mapper.selectProjectForAccounting(41L)).thenReturn(separatedProject("CLOSED","OPEN"));
+        Map<String,Object> settlement=new HashMap<String,Object>();settlement.put("projectId",41L);
+        settlement.put("periodEnd",periodEnd);settlement.put("status","SUBMITTED");
+        when(mapper.selectProjectBonusSettlement(51L)).thenReturn(settlement);
+        Map<String,Object> category=new HashMap<String,Object>();category.put("categoryId",17L);category.put("categoryName","项目奖金");
+        when(mapper.selectCategoryByCode("PROJECT_BONUS_COST")).thenReturn(category);
+        when(mapper.sumProjectFacts(41L,periodEnd)).thenReturn(Collections.emptyMap());
+        BusinessOperatingFact existing=new BusinessOperatingFact();existing.setProjectId(41L);existing.setFactId(411L);
+        when(mapper.selectFactByIdempotencyKey("KPI-BONUS-SETTLEMENT-51")).thenReturn(null,existing);
+
+        service.recordProjectBonus(41L,periodEnd,BigDecimal.TEN,51L,8L,"boss8");
+        assertEquals(existing,service.recordProjectBonus(41L,periodEnd,BigDecimal.TEN,51L,8L,"boss8"));
+
+        verify(mapper,times(1)).insertFact(any());
+        verify(mapper,times(1)).insertDailyResult(any());
+    }
+
+    @Test void bonusCannotInventSettlementForAnotherProject()
+    {
+        when(mapper.selectProjectForAccounting(41L)).thenReturn(separatedProject("CLOSED","OPEN"));
+        Map<String,Object> settlement=new HashMap<String,Object>();settlement.put("projectId",99L);
+        when(mapper.selectProjectBonusSettlement(51L)).thenReturn(settlement);
+
+        assertThrows(ServiceException.class,()->service.recordProjectBonus(41L,java.sql.Date.valueOf("2026-07-31"),
+            BigDecimal.TEN,51L,8L,"boss8"));
+
+        verify(mapper,never()).insertFact(any());
+    }
+
+    private Map<String,Object> separatedProject(String status,String accountingState)
+    {
+        Map<String,Object> p=project(41L,8L);p.put("mainOwnerUserId",9L);p.put("status",status);
+        p.put("deliveryPolicyVersion","SEPARATED_V1");p.put("accountingState",accountingState);
+        p.put("actualEndDate",java.sql.Date.valueOf("2026-07-20"));return p;
+    }
+
+    private BusinessOperatingFact lateFact()
+    {
+        BusinessOperatingFact f=new BusinessOperatingFact();f.setProjectId(41L);f.setBizDate(java.sql.Date.valueOf("2026-07-19"));
+        f.setAmount(BigDecimal.TEN);f.setDescription("执行期间费用补报");return f;
     }
 
     private Map<String,Object> project(Long id,Long initiator)

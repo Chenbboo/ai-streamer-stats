@@ -65,6 +65,25 @@ public class BusinessProjectController extends BaseController
         return success(projectService.getProject(projectId, currentUserId(), isAdministrator(), isBoss()));
     }
 
+    @PreAuthorize("@ss.hasAnyPermi('business:project:list,business:accounting:list,business:kpi:list')")
+    @GetMapping("/project/{projectId}/settlement-status")
+    public AjaxResult settlementStatus(@PathVariable Long projectId)
+    {
+        return success(projectService.settlementStatus(projectId, currentUserId(), isAdministrator(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:accounting:close')")
+    @Log(title = "项目核算关闭", businessType = BusinessType.UPDATE)
+    @PostMapping("/project/{projectId}/accounting-close")
+    public AjaxResult closeAccounting(@PathVariable Long projectId, @RequestBody Map<String, Object> body)
+    {
+        Integer version;
+        try { version = body.get("version") == null ? null : Integer.valueOf(String.valueOf(body.get("version"))); }
+        catch (NumberFormatException ex) { return error("项目版本不正确，请刷新后重试"); }
+        return success(projectService.closeAccounting(projectId, version, text(body, "reason"),
+            currentUserId(), currentUserName(), isBoss()));
+    }
+
     @PreAuthorize("@ss.hasAnyPermi('business:project:add,business:project:member,business:project:task')")
     @GetMapping("/project/user-options")
     public AjaxResult userOptions(@RequestParam(required = false) String keyword)
@@ -115,14 +134,18 @@ public class BusinessProjectController extends BaseController
         return success();
     }
 
-    @PreAuthorize("@ss.hasPermi('business:staff:list')")
+    @PreAuthorize("@ss.hasPermi('business:staff:cost')")
+    @GetMapping("/staff/cost-options")
+    public AjaxResult staffCostOptions(){return success(projectService.staffCostOptions(currentUserId(),canManageStaffCost()));}
+
+    @PreAuthorize("@ss.hasPermi('business:staff:cost')")
     @GetMapping("/staff/{staffUserId}/cost-policies")
     public AjaxResult staffCostPolicies(@PathVariable Long staffUserId)
     {
         return success(projectService.staffCostPolicies(staffUserId, currentUserId(), canManageStaffCost()));
     }
 
-    @PreAuthorize("@ss.hasAnyPermi('business:staff:manage,business:staff:cost')")
+    @PreAuthorize("@ss.hasPermi('business:staff:cost')")
     @Log(title = "人员内部核算成本", businessType = BusinessType.INSERT)
     @PostMapping("/staff/cost-policy")
     public AjaxResult saveStaffCostPolicy(@RequestBody BusinessStaffCostPolicy policy)
@@ -130,7 +153,7 @@ public class BusinessProjectController extends BaseController
         return success(projectService.saveStaffCostPolicy(policy, currentUserId(), currentUserName(), canManageStaffCost()));
     }
 
-    @PreAuthorize("@ss.hasAnyPermi('business:staff:manage,business:staff:cost')")
+    @PreAuthorize("@ss.hasPermi('business:staff:cost')")
     @Log(title = "批量人员内部核算成本", businessType = BusinessType.INSERT)
     @PostMapping("/staff/cost-policies")
     public AjaxResult saveStaffCostPolicies(@RequestBody List<BusinessStaffCostPolicy> policies)
@@ -138,7 +161,7 @@ public class BusinessProjectController extends BaseController
         return success(projectService.saveStaffCostPolicies(policies, currentUserId(), currentUserName(), canManageStaffCost()));
     }
 
-    @PreAuthorize("@ss.hasAnyPermi('business:staff:manage,business:staff:cost')")
+    @PreAuthorize("@ss.hasPermi('business:staff:cost')")
     @Log(title = "人员内部核算成本", businessType = BusinessType.DELETE)
     @DeleteMapping("/staff/cost-policy/{policyId}")
     public AjaxResult deleteStaffCostPolicy(@PathVariable Long policyId)
@@ -147,7 +170,7 @@ public class BusinessProjectController extends BaseController
         return success();
     }
 
-    @PreAuthorize("@ss.hasAnyPermi('business:staff:manage,business:staff:cost')")
+    @PreAuthorize("@ss.hasPermi('business:staff:cost')")
     @Log(title = "人员内部核算成本", businessType = BusinessType.UPDATE)
     @PutMapping("/staff/cost-policy/{policyId}/void")
     public AjaxResult voidStaffCostPolicy(@PathVariable Long policyId, @RequestBody Map<String, Object> body)
@@ -493,8 +516,7 @@ public class BusinessProjectController extends BaseController
 
     private boolean canManageStaffCost()
     {
-        return SecurityUtils.isAdmin() || SecurityUtils.hasPermi("business:staff:manage")
-            || SecurityUtils.hasPermi("business:staff:cost");
+        return SecurityUtils.isAdmin() || SecurityUtils.hasPermi("business:staff:cost");
     }
 
     private Long requiredLong(Map<String, Object> body, String key)

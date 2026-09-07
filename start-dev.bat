@@ -1,5 +1,9 @@
 @echo off
 chcp 65001 >nul
+if /i "%~1"=="--headless" (
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start-dev-headless.ps1"
+  exit /b
+)
 set "RUOYI_PROFILE=%~dp0backend\uploads"
 if not exist "%RUOYI_PROFILE%" mkdir "%RUOYI_PROFILE%"
 set "BACKEND_PID="

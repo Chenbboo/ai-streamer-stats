@@ -21,7 +21,7 @@ public class CreateAccountingDraftCapability implements AiConfirmableCapability
     @Autowired public CreateAccountingDraftCapability(IBusinessAccountingService service) { this.service = service; }
     @Override public String code() { return "accounting.fact.draft.create"; }
     @Override public String description()
-    { return "为一个项目录入每日收支草稿。先查询经营收支目录取得项目ID和分类ID，再提供日期、金额、币种和说明；老板确认后才写入草稿。"; }
+    { return "为一个项目录入每日收支草稿。先查询经营收支目录取得项目ID和分类ID，再提供日期、金额、币种和说明；老板确认后才写入草稿。交付已关闭且核算开放的分离策略项目，可补录执行期间的合法历史收支；不得把新发生的执行事项倒填为历史费用。已关账项目不能直接录入。"; }
     @Override public String requiredPermission() { return "business:accounting:add"; }
     @Override public Map<String, Object> inputSchema()
     {
@@ -29,7 +29,7 @@ public class CreateAccountingDraftCapability implements AiConfirmableCapability
         AiSchemas.property(schema, "projectId", "number", "经营收支目录返回的项目ID");
         AiSchemas.property(schema, "categoryId", "number", "经营收支目录返回的收支分类ID，决定收入或支出口径");
         AiSchemas.property(schema, "categoryName", "string", "可选，经营收支目录返回的分类名称，仅用于确认单展示");
-        AiSchemas.property(schema, "bizDate", "string", "业务日期 YYYY-MM-DD");
+        AiSchemas.property(schema, "bizDate", "string", "事项实际发生的业务日期 YYYY-MM-DD；交付后补录仍须使用真实历史日期");
         AiSchemas.property(schema, "amount", "number", "金额，必须大于等于0");
         AiSchemas.property(schema, "currency", "string", "三位币种代码");
         AiSchemas.property(schema, "description", "string", "收支事项说明");

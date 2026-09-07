@@ -15,6 +15,8 @@ public class BusinessProjectKpiSettlement extends BaseEntity
     @JsonFormat(pattern = "yyyy-MM-dd") private Date periodStart;
     @JsonFormat(pattern = "yyyy-MM-dd") private Date periodEnd;
     private String status;
+    private String rewardPolicyVersion;
+    private String dataStatus;
     private BigDecimal totalScore;
     private BigDecimal bonusAmount;
     private String currency;
@@ -43,6 +45,10 @@ public class BusinessProjectKpiSettlement extends BaseEntity
     public Date getPeriodEnd() { return periodEnd; }
     public void setPeriodEnd(Date periodEnd) { this.periodEnd = periodEnd; }
     public String getStatus() { return status; }
+    public String getRewardPolicyVersion() { return rewardPolicyVersion; }
+    public void setRewardPolicyVersion(String value) { rewardPolicyVersion = value; }
+    public String getDataStatus() { return dataStatus; }
+    public void setDataStatus(String value) { dataStatus = value; }
     public void setStatus(String status) { this.status = status; }
     public BigDecimal getTotalScore() { return totalScore; }
     public void setTotalScore(BigDecimal totalScore) { this.totalScore = totalScore; }

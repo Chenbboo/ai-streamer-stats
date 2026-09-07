@@ -28,6 +28,8 @@ public class AiCapabilityActionService
     public Map<String, Object> prepare(AiConfirmableCapability capability, AiCapabilityInvocation invocation,
         Map<String, Object> input)
     {
+        if (invocation == null || !capability.isAllowed(invocation.getActor()))
+            throw new ServiceException("当前账号没有准备该操作的权限");
         Map<String, Object> safeInput = input == null ? Collections.<String, Object>emptyMap()
             : new LinkedHashMap<String, Object>(input);
         String summary = capability.confirmationSummary(invocation, safeInput);
@@ -60,7 +62,7 @@ public class AiCapabilityActionService
     {
         String actionCode = String.valueOf(action.get("actionCode"));
         AiConfirmableCapability capability = requireCapability(actionCode);
-        if (!context.hasPermission(capability.requiredPermission()))
+        if (!capability.isAllowed(context))
             throw new ServiceException("当前账号没有执行该操作的权限");
         Map<String, Object> payload = map(read(String.valueOf(action.get("actionPayloadJson"))));
         Map<String, Object> input = map(payload.get("input"));

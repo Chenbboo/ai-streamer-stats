@@ -21,6 +21,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.business.ai.BusinessAiEvidence;
@@ -48,6 +49,7 @@ import com.ruoyi.business.service.IBusinessAiModelClient;
 import com.ruoyi.business.service.IBusinessAiService;
 import com.ruoyi.business.service.IBusinessProjectService;
 import com.ruoyi.business.service.IBusinessStaffService;
+import com.ruoyi.business.support.BusinessProjectLifecycle;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.core.redis.RedisCache;
 import com.ruoyi.common.utils.SecurityUtils;
@@ -754,14 +756,14 @@ public class BusinessAiServiceImpl implements IBusinessAiService
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Map<String, Object> confirmAction(Long actionRequestId, Long userId, String userName)
     {
         return confirmAction(actionRequestId, AiExecutionContext.legacy(userId, userName, true));
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Map<String, Object> confirmAction(Long actionRequestId, AiExecutionContext context)
     {
         if (context == null) throw new ServiceException("AI执行上下文不存在");
@@ -822,6 +824,13 @@ public class BusinessAiServiceImpl implements IBusinessAiService
             BusinessProjectAcceptance latest = latestPendingAcceptance(current);
             if (latest == null || !acceptanceId.equals(latest.getAcceptanceId()))
                 throw new ServiceException("验收资料已经发生变化，请重新让 AI 审核后再确认");
+            boolean hasLifecycleSnapshot = payload.containsKey("deliveryPolicyVersion");
+            if ((!hasLifecycleSnapshot && BusinessProjectLifecycle.isSeparated(current))
+                || (hasLifecycleSnapshot && (!projectDeliveryPolicy(current).equals(payload.get("deliveryPolicyVersion"))
+                    || !projectAccountingState(current).equals(payload.get("accountingState"))))
+                || (payload.get("submissionVersion") != null
+                    && integer(payload.get("submissionVersion")) != integer(latest.getSubmissionVersion())))
+                throw new ServiceException("交付规则、核算状态或验收版本已变化，请重新生成验收确认单");
             BusinessProject project = projectService.reviewAcceptance(projectId, decision, comment,
                 userId, userName, true);
             Map<String, Object> result = new LinkedHashMap<String, Object>();
@@ -829,6 +838,8 @@ public class BusinessAiServiceImpl implements IBusinessAiService
             result.put("actionCode", actionCode); result.put("projectId", project.getProjectId());
             result.put("projectNo", project.getProjectNo()); result.put("projectName", project.getProjectName());
             result.put("projectStatus", project.getStatus()); result.put("acceptanceId", acceptanceId);
+            result.put("deliveryPolicyVersion", projectDeliveryPolicy(project));
+            result.put("accountingState", projectAccountingState(project));
             result.put("decision", decision); result.put("comment", comment);
             if (mapper.finishActionRequest(actionRequestId, toJson(result)) != 1)
                 throw new ServiceException("AI 操作状态更新失败");
@@ -2908,6 +2919,8 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         project.put("projectName", detail.getProjectName()); project.put("companyName", detail.getCompanyName());
         project.put("mainOwnerName", detail.getMainOwnerName()); project.put("objective", detail.getObjective());
         project.put("status", detail.getStatus()); project.put("managementMode", detail.getManagementMode());
+        project.put("deliveryPolicyVersion", projectDeliveryPolicy(detail));
+        project.put("accountingState", projectAccountingState(detail));
         result.put("project", project);
 
         Map<String, Object> submission = new LinkedHashMap<String, Object>();
@@ -2952,6 +2965,9 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         result.put("openHighRiskCount", openHighRiskCount); result.put("attachmentCount", attachmentCount);
         result.put("attachmentList", splitAttachments(acceptance.getAttachmentUrls()));
         result.put("canApprove", canApprove); result.put("checks", checks); result.put("warnings", warnings);
+        result.put("closureEffect", BusinessProjectLifecycle.isSeparated(detail)
+            ? "仅关闭项目交付，核算状态保持不变；既有周期KPI及合法历史费用按权限继续处理，核算需单独关闭"
+            : "沿用旧流程，项目结项同时关闭核算");
         result.put("recommendation", canApprove ? "系统前置条件已通过，请老板核对成果内容与凭证后决定是否验收"
             : "当前不满足验收通过条件，可以退回负责人补充或完成剩余事项");
         return result;
@@ -2983,7 +2999,7 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         if (!missing.isEmpty()) return prepared;
 
         Map<String, Object> project = mapFields(review.get("project"), "projectId", "projectNo", "projectName",
-            "mainOwnerName", "companyName");
+            "mainOwnerName", "companyName", "deliveryPolicyVersion", "accountingState");
         Map<String, Object> acceptance = mapFields(review.get("acceptance"), "acceptanceId", "submissionVersion");
         Map<String, Object> payload = new LinkedHashMap<String, Object>(project);
         payload.putAll(acceptance); payload.put("fromStatus", "ACCEPTANCE");
@@ -2991,7 +3007,8 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         payload.put("decision", decision); payload.put("comment", returnReason);
         payload.put("acceptanceReview", review);
         String summary = "APPROVED".equals(decision)
-            ? "通过项目“" + project.get("projectName") + "”第 " + acceptance.get("submissionVersion") + " 版验收并结项"
+            ? "通过项目“" + project.get("projectName") + "”第 " + acceptance.get("submissionVersion")
+                + " 版验收并结项；" + review.get("closureEffect")
             : "退回项目“" + project.get("projectName") + "”的验收资料：" + returnReason;
         Map<String, Object> row = new LinkedHashMap<String, Object>();
         row.put("runId", runId); row.put("conversationId", conversationId); row.put("userId", userId);
@@ -3004,6 +3021,12 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         prepared.put("project", payload);
         return prepared;
     }
+
+    private String projectDeliveryPolicy(BusinessProject project)
+    { return BusinessProjectLifecycle.isSeparated(project) ? "SEPARATED_V1" : "LEGACY_V1"; }
+
+    private String projectAccountingState(BusinessProject project)
+    { return BusinessProjectLifecycle.isAccountingClosed(project) ? "CLOSED" : "OPEN"; }
 
     private Map<String, Object> recordAcceptanceDecisionTool(Long runId, Long conversationId, Long userId,
         Map<String, Object> prepared)
@@ -3752,7 +3775,9 @@ public class BusinessAiServiceImpl implements IBusinessAiService
             {
                 @SuppressWarnings("unchecked") Map<String, Object> project = (Map<String, Object>) prepared.get("project");
                 return "APPROVED".equals(stringValue(project.get("decision")))
-                    ? "验收资料已经核对完毕。我已准备好“验收通过并结项”确认单；点击确认后项目才会正式结项。"
+                    ? ("SEPARATED_V1".equals(project.get("deliveryPolicyVersion"))
+                        ? "验收资料已经核对完毕。我已准备好交付验收确认单；确认后关闭项目交付，核算状态保持不变，核算需单独关闭。"
+                        : "验收资料已经核对完毕。我已准备好“验收通过并结项”确认单；点击确认后项目才会正式结项并按旧流程关账。")
                     : "退回要求已经整理好。我已准备好“退回验收”确认单；点击确认后才会正式退回负责人补充。";
             }
             if ("BUDGET_ADJUSTMENT".equals(stringValue(prepared.get("actionCode"))))

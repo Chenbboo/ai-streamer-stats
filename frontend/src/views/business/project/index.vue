@@ -23,7 +23,7 @@
         <el-table-column prop="mainOwnerName" label="负责人" min-width="110" />
         <el-table-column label="治理方式" min-width="160"><template #default="{row}"><b>{{ managementModeLabel[row.managementMode] || row.managementMode }}</b><small class="subline">{{ closeMethodLabel[row.closeMethod] || row.closeMethod }}</small></template></el-table-column>
         <el-table-column label="类型" width="100"><template #default="{ row }">{{ typeLabel[row.projectType] || row.projectType }}</template></el-table-column>
-        <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusTone[row.status] || 'info'">{{ projectStatusLabel(row) }}</el-tag></template></el-table-column>
+        <el-table-column label="交付 / 核算" min-width="170"><template #default="{ row }"><BusinessProjectState :project="row" /></template></el-table-column>
           <el-table-column label="计划周期" min-width="185"><template #default="{ row }">{{ row.planStartDate ? `${row.planStartDate} 至 ${row.planEndDate || '不限期'}` : '—' }}</template></el-table-column>
         <el-table-column label="任务进度" width="150"><template #default="{ row }"><el-progress :percentage="projectProgress(row)" :stroke-width="8" /></template></el-table-column>
         <el-table-column label="成员 / 风险" width="120" align="center"><template #default="{ row }">{{ row.memberCount || 0 }} / <span :class="{ danger: row.openRiskCount }">{{ row.openRiskCount || 0 }}</span></template></el-table-column>
@@ -33,11 +33,12 @@
     </el-card>
 
     <el-drawer v-model="detailVisible" size="min(920px, 96vw)" destroy-on-close @closed="detail = null">
-      <template #header><div v-if="detail" class="drawer-title"><div><span>{{ detail.projectNo }}</span><h2>{{ detail.projectName }}</h2></div><el-tag :type="statusTone[detail.status] || 'info'">{{ projectStatusLabel(detail) }}</el-tag></div></template>
+      <template #header><div v-if="detail" class="drawer-title"><div><span>{{ detail.projectNo }}</span><h2>{{ detail.projectName }}</h2></div><BusinessProjectState :project="detail" /></div></template>
       <template v-if="detail">
         <section class="project-summary">
         <div><span>归属公司</span><b>{{ detail.companyName || '待设置' }}</b></div><div><span>归属老板</span><b>{{ detail.sponsorOwnerName || detail.initiatorName }}</b></div><div><span>申请人</span><b>{{ detail.applicantName || detail.mainOwnerName }}</b></div><div><span>主负责人</span><b>{{ detail.mainOwnerName }}</b></div><div><span>管理模式</span><b>{{ managementModeLabel[detail.managementMode] || detail.managementMode }}</b></div><div><span>结项方式</span><b>{{ closeMethodLabel[detail.closeMethod] || detail.closeMethod }}</b></div><div><span>核算方式</span><b>{{ accountingLabel[detail.accountingMode] }}</b></div><div><span>计划周期</span><b>{{ detail.planStartDate ? `${detail.planStartDate} 至 ${detail.planEndDate || '不限期'}` : '—' }}</b></div>
         </section>
+        <BusinessSettlementPanel :project="detail" @closed="refreshDetail" />
         <div class="objective"><span>项目目标</span><p>{{ detail.objective || '尚未填写项目目标' }}</p></div>
         <el-alert class="governance-banner" :title="governanceTitle" :description="governanceDescription" type="info" :closable="false" show-icon />
         <section v-if="operating.executionSummary" class="execution-summary">
@@ -51,8 +52,8 @@
           <p>这里只返回数字，不显示主播名单和日报内容；主播仍只在直播数据管理中提交。</p>
         </section>
         <div class="action-bar">
-          <el-button v-if="canManage" icon="Edit" @click="openProjectForm(detail)">编辑资料</el-button>
-          <el-button v-if="isBoss" icon="User" @click="openOwnerDialog">更换主负责人</el-button>
+          <el-button v-if="canManage && !usesActualWork" icon="Edit" @click="openProjectForm(detail)">编辑资料</el-button>
+          <el-button v-if="isBoss && !isDeliveryEnded(detail)" icon="User" @click="openOwnerDialog">更换主负责人</el-button>
           <el-button v-for="action in availableActions" :key="action.key" :type="action.type" :disabled="isKpiBlockedCloseAction(action)" :title="isKpiBlockedCloseAction(action)?'请先完成并确认全部KPI结算':''" @click="runTransition(action)">{{ action.label }}</el-button>
         </div>
         <section v-if="showKpiClosureGuard && detail.closeMethod!=='RESULT_ACCEPTANCE'" :class="['kpi-close-guard', `is-${kpiClosureState.tone}`]">
@@ -95,12 +96,13 @@
               <div><span>剩余时间</span><strong>{{ remainingDaysText }}</strong><small>{{ scheduleStatusText }}</small></div>
             </section>
             <el-alert v-if="cockpitError" title="经营数据暂时无法读取，任务、进度和目标信息仍可正常查看。" type="warning" :closable="false" show-icon />
+            <el-alert v-else-if="cockpitCostIncomplete" :title="cockpitCostNotice" type="warning" :closable="false" show-icon />
             <section class="cockpit-metrics" v-loading="cockpitLoading">
-              <article><span>项目预算</span><b>{{ money(cockpitBudget) }}</b><small>{{ cockpitCurrency }}</small></article>
-              <article :class="budgetTone"><span>预算已使用</span><b>{{ money(cockpitBudgetSpent) }}</b><small>{{ budgetUsage }}% · 剩余 {{ money(cockpitBudgetRemaining) }}</small></article>
+              <article><span>项目预算</span><b>{{ cockpitBudget==null?'未设置':money(cockpitBudget) }}</b><small>{{ cockpitCurrency }}</small></article>
+              <article :class="budgetTone"><span>{{ cockpitCostIncomplete?'已核算预算使用':'预算已使用' }}</span><b>{{ money(cockpitBudgetSpent) }}</b><small v-if="cockpitCostIncomplete">剩余预算待成本完整后确认</small><small v-else>{{ budgetUsage==null?'—':`${budgetUsage}%` }} · 剩余 {{ money(cockpitBudgetRemaining) }}</small></article>
               <article><span>累计收入</span><b>{{ money(cockpitSummary.revenueAmount) }}</b><small>{{ cockpitCurrency }}</small></article>
-              <article><span>累计总成本</span><b>{{ money(cockpitTotalCost) }}</b><small>业务、人员及奖金成本</small></article>
-              <article :class="Number(cockpitSummary.profitAmount)<0?'is-danger':'is-success'"><span>累计经营结果</span><b>{{ signedMoney(cockpitSummary.profitAmount) }}</b><small>{{ cockpitCurrency }}</small></article>
+              <article><span>{{ cockpitCostIncomplete?'累计已核算成本':'累计总成本' }}</span><b>{{ money(cockpitTotalCost) }}</b><small>{{ cockpitCostIncomplete?'部分人员成本未知，待完善':'业务、人员及奖金成本' }}</small></article>
+              <article :class="cockpitCostIncomplete?'is-warning':cockpitSummary.profitAmount==null?'':Number(cockpitSummary.profitAmount)<0?'is-danger':'is-success'"><span>{{ cockpitCostIncomplete?'已核算经营结果':'累计经营结果' }}</span><b>{{ signedMoney(cockpitSummary.profitAmount) }}</b><small>{{ cockpitCostIncomplete?'成本尚不完整，不代表最终利润':cockpitCurrency }}</small></article>
               <article><span>经营结果天数</span><b>{{ cockpitSummary.resultCount || 0 }}</b><small>{{ cockpitDateRange }}</small></article>
             </section>
             <div class="cockpit-columns">
@@ -109,8 +111,8 @@
                 <div v-if="cockpitSettlement" class="kpi-settlement-summary">
                   <div><span>结算状态</span><b>{{ settlementStatusText }}</b></div>
                   <div><span>综合得分</span><b>{{ cockpitSettlement.totalScore ?? '待计算' }}</b></div>
-                  <div><span>命中档位</span><b>{{ matchedTier?.tierName || '未命中' }}</b></div>
-                  <div><span>{{ cockpitSettlement.status==='CONFIRMED'?'确认奖金':'预计奖金' }}</span><b>¥{{ money(cockpitSettlement.bonusAmount) }}</b></div>
+                  <div v-if="cockpitPlan?.rewardPolicyVersion!=='INDEPENDENT_V1'"><span>历史档位</span><b>{{ matchedTier?.tierName || '未命中' }}</b></div>
+                  <div v-if="cockpitPlan?.rewardPolicyVersion!=='INDEPENDENT_V1'"><span>历史奖金池</span><b>¥{{ money(cockpitSettlement.bonusAmount) }}</b></div>
                 </div>
                 <div v-if="!cockpitKpis.length" class="cockpit-empty">尚未设置项目KPI</div>
                 <div v-for="item in cockpitKpis" :key="item.itemId||item.kpiId" class="kpi-overview-row">
@@ -127,15 +129,17 @@
                   <div><span>逾期任务</span><b :class="{danger:overdueTaskCount}">{{ overdueTaskCount }}</b></div>
                   <div><span>开放风险</span><b :class="{danger:openRiskCount}">{{ openRiskCount }}</b></div>
                   <div><span>项目成员</span><b>{{ detail.members?.length || 0 }}</b></div>
-                  <div><span>计划投入配置</span><b>{{ operating.staffAllocations?.length || 0 }}</b></div>
+                  <div v-if="!usesActualWork"><span>计划投入配置</span><b>{{ operating.staffAllocations?.length || 0 }}</b></div>
                 </div>
               </section>
             </div>
           </el-tab-pane>
-          <el-tab-pane label="经营配置" name="operating">
+          <el-tab-pane v-if="usesActualWork" label="计划基线与变更" name="plan"><BusinessProjectPlanPanel :project="detail" @changed="refreshDetail"/></el-tab-pane>
+          <el-tab-pane v-if="usesActualWork" label="人员安排与实际工作" name="resources"><BusinessProjectWorkPanel :project-id="detail.projectId" @changed="loadCockpit"/></el-tab-pane>
+          <el-tab-pane v-if="!usesActualWork" label="历史经营配置" name="operating">
             <div class="operating-grid">
-              <section class="operating-card budget-card"><div class="operating-head"><div><small>项目预算上限</small><strong>{{ money(operating.budgetLimit) }} {{ operating.currency || detail.baseCurrency }}</strong></div><el-button v-if="isBoss||myRole==='OWNER'" size="small" type="primary" @click="openBudgetDialog">调整预算</el-button></div><p>负责人可按经营变化调整预算；每次金额、原因、操作人和版本都会保留，老板可随时查看和修正。</p></section>
-              <section class="operating-card"><div class="operating-head"><div><small>当前KPI</small><strong>{{ currentKpis.length }} 项</strong></div><el-button v-if="isBoss||myRole==='OWNER'" size="small" type="primary" @click="router.push({path:'/business/kpi-bonus',query:{projectId:detail.projectId}})">配置KPI与奖金</el-button></div><p>项目负责人设置目标、发布方案并完成结算；老板保留修改能力。</p></section>
+              <section class="operating-card budget-card"><div class="operating-head"><div><small>项目预算上限</small><strong>{{ money(operating.budgetLimit) }} {{ operating.currency || detail.baseCurrency }}</strong></div><el-button v-if="!isDeliveryEnded(detail) && (isBoss||myRole==='OWNER')" size="small" type="primary" @click="openBudgetDialog">调整预算</el-button></div><p>负责人可按经营变化调整预算；每次金额、原因、操作人和版本都会保留，老板可随时查看和修正。</p></section>
+              <section class="operating-card"><div class="operating-head"><div><small>当前KPI</small><strong>{{ currentKpis.length }} 项</strong></div><el-button v-if="isBoss||myRole==='OWNER'" size="small" type="primary" @click="router.push({path:'/business/kpi-bonus',query:{projectId:detail.projectId}})">{{ isDeliveryEnded(detail) ? '查看KPI结算' : '配置项目指标' }}</el-button></div><p>项目负责人设置目标、发布方案并完成结算；老板保留修改能力。</p></section>
               <section class="operating-card"><div class="operating-head"><div><small>成员计划投入</small><strong>{{ operating.staffAllocations?.length || 0 }} 项</strong></div><el-button v-if="canManageAllocation" size="small" type="primary" @click="openAllocationDialog()">新增计划</el-button></div><p>{{ canManageAllocation ? '由项目主负责人安排成员投入比例。' : '计划投入由项目主负责人维护，当前账号只读。' }}</p></section>
             </div>
             <div class="tab-tools section-gap"><b>项目KPI</b><span class="muted">共 {{ operating.kpis?.length || 0 }} 个版本</span></div>
@@ -179,7 +183,7 @@
               <h4>结果摘要</h4><p>{{ record.resultSummary }}</p><h4>交付成果</h4><p>{{ record.deliverables }}</p>
               <business-file-upload v-if="record.attachmentUrls" v-model="record.attachmentUrls" :project-id="detail.projectId" disabled :is-show-tip="false" />
               <div v-if="record.reviewStatus!=='PENDING'" class="review-result"><b>{{ record.reviewedUserName }}的验收意见</b><p>{{ record.reviewComment || (record.reviewStatus==='APPROVED'?'验收通过':'已退回') }}</p><small>{{ record.reviewedTime }}</small></div>
-              <div v-if="record.reviewStatus==='PENDING' && isBoss" class="review-actions"><el-button type="success" :disabled="kpiClosureState.ready===false" :title="kpiClosureState.ready===false?'请先完成并确认全部KPI结算':''" @click="openAcceptanceReview('APPROVED',record)">验收通过并关闭</el-button><el-button type="warning" plain @click="openAcceptanceReview('RETURNED',record)">退回执行</el-button></div>
+              <div v-if="record.reviewStatus==='PENDING' && isBoss && detail.status==='ACCEPTANCE'" class="review-actions"><el-button type="success" :disabled="kpiClosureState.ready===false" :title="kpiClosureState.ready===false?'请先完成并确认全部KPI结算':''" @click="openAcceptanceReview('APPROVED',record)">验收通过并关闭</el-button><el-button type="warning" plain @click="openAcceptanceReview('RETURNED',record)">退回执行</el-button></div>
             </article>
           </el-tab-pane>
           <el-tab-pane v-if="showMilestones" label="里程碑验收" name="stageAcceptance">
@@ -187,7 +191,7 @@
             <div class="stage-grid">
               <article v-for="milestone in detail.milestones || []" :key="milestone.milestoneId" class="acceptance-record">
                 <div class="acceptance-head"><div><b>{{ milestone.milestoneName }}</b><span>计划日期 {{ milestone.planDate || '未设置' }}</span></div><el-tag :type="milestone.status==='DONE'?'success':milestone.status==='REVIEWING'?'warning':'info'">{{ milestoneStatusLabel[milestone.status] || milestone.status }}</el-tag></div>
-                <template v-for="record in stageRecords(milestone.milestoneId)" :key="record.stageAcceptanceId"><h4>第 {{ record.submissionVersion }} 次提交 · {{ record.submittedUserName }}</h4><p>{{ record.resultSummary }}</p><p class="muted">交付成果：{{ record.deliverables }}</p><business-file-upload v-if="record.attachmentUrls" v-model="record.attachmentUrls" :project-id="detail.projectId" disabled :is-show-tip="false" /><div v-if="record.reviewStatus==='PENDING'&&isBoss" class="review-actions"><el-button type="success" @click="openStageReview('APPROVED',record)">阶段通过</el-button><el-button type="warning" plain @click="openStageReview('RETURNED',record)">退回补充</el-button></div><div v-else-if="record.reviewStatus!=='PENDING'" class="review-result"><b>{{ acceptanceLabel[record.reviewStatus] }}</b><p>{{ record.reviewComment || '—' }}</p></div></template>
+                <template v-for="record in stageRecords(milestone.milestoneId)" :key="record.stageAcceptanceId"><h4>第 {{ record.submissionVersion }} 次提交 · {{ record.submittedUserName }}</h4><p>{{ record.resultSummary }}</p><p class="muted">交付成果：{{ record.deliverables }}</p><business-file-upload v-if="record.attachmentUrls" v-model="record.attachmentUrls" :project-id="detail.projectId" disabled :is-show-tip="false" /><div v-if="record.reviewStatus==='PENDING'&&isBoss&&detail.status==='ACTIVE'" class="review-actions"><el-button type="success" @click="openStageReview('APPROVED',record)">阶段通过</el-button><el-button type="warning" plain @click="openStageReview('RETURNED',record)">退回补充</el-button></div><div v-else-if="record.reviewStatus!=='PENDING'" class="review-result"><b>{{ acceptanceLabel[record.reviewStatus] }}</b><p>{{ record.reviewComment || '—' }}</p></div></template>
                 <el-button v-if="canSubmitStage(milestone)" class="stage-submit" type="primary" plain @click="openStageSubmit(milestone)">提交该阶段验收</el-button>
               </article>
             </div>
@@ -291,6 +295,11 @@
 import { h } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
+import BusinessProjectState from '@/components/BusinessProjectState/index.vue'
+import BusinessProjectWorkPanel from '@/components/BusinessProjectWorkPanel/index.vue'
+import BusinessProjectPlanPanel from '@/components/BusinessProjectPlanPanel/index.vue'
+import BusinessSettlementPanel from '@/components/BusinessSettlementPanel/index.vue'
+import { isSeparatedDelivery, isDeliveryEnded } from '@/utils/businessProjectState'
 import useUserStore from '@/store/modules/user'
 import { getBusinessAccountingDashboard } from '@/api/business/accounting'
 import { getProjectKpiWorkspace } from '@/api/business/kpi'
@@ -307,9 +316,11 @@ const acceptanceDialog=ref(false),acceptanceForm=reactive({resultSummary:'',deli
 const reviewDialog=ref(false),reviewForm=reactive({decision:'',comment:'',acceptanceId:null})
 const stageDialog=ref(false),stageForm=reactive({milestoneId:null,milestoneName:'',resultSummary:'',deliverables:'',attachmentUrls:''})
 const stageReviewDialog=ref(false),stageReviewForm=reactive({milestoneId:null,decision:'',comment:''})
+const usesActualWork=computed(()=>detail.value?.costPolicyVersion==='ACTUAL_WORK_V1')
 const operating=ref({kpis:[],budgetHistory:[],staffAllocations:[]}),budgetDialog=ref(false),budgetForm=reactive({budgetLimit:null,currency:'CNY',reason:''})
 const kpiWorkspace=ref({plans:[]}),kpiWorkspaceLoading=ref(false),kpiWorkspaceError=ref(false)
 const cockpit=ref({summary:{},results:[]}),cockpitLoading=ref(false),cockpitError=ref(false)
+let cockpitRequest=0
 const kpiDialog=ref(false),kpiForm=reactive({}),allocationDialog=ref(false),allocationForm=reactive({}),allocationDates=ref([]),allocationFollowProject=ref(true)
 const routineDialog=ref(false),routineForm=reactive({}),routineLongTerm=ref(false)
 const query = reactive({ pageNum: 1, pageSize: 10, keyword: '', status: '', managementMode:'', closeMethod:'' })
@@ -334,7 +345,7 @@ const eventLabel = {
   START_PLANNING:'进入规划',SUBMIT_BASELINE:'提交项目计划',RETURN_PLAN:'退回项目计划',CONFIRM_BASELINE:'确认计划并启动',
   PAUSE:'暂停项目',RESUME:'恢复项目',REQUEST_ACCEPTANCE:'提交成果验收',REQUEST_CLOSE:'发起项目结项',
   REQUEST_STAGE_ACCEPTANCE:'提交阶段验收',APPROVE_STAGE:'阶段验收通过',RETURN_STAGE:'退回阶段成果',RETURN_ACTIVE:'退回执行',
-  CLOSE:'项目结项',CANCEL:'取消项目',MEMBER_SAVE:'维护项目成员',MEMBER_REMOVE:'移除项目成员',
+  CLOSE:'项目交付关闭',CANCEL:'取消项目',ACCOUNTING_CLOSE:'项目核算关闭',MEMBER_SAVE:'维护项目成员',MEMBER_REMOVE:'移除项目成员',
   TASK_SAVE:'维护一次性任务',TASK_PROGRESS:'更新任务进度',PROJECT_PROGRESS:'填报项目进度',
   ROUTINE_SAVE:'维护持续工作',ROUTINE_VOID:'停用持续工作',ROUTINE_REPORT:'填报持续工作成果',
   MILESTONE_SAVE:'维护项目里程碑',RISK_SAVE:'维护风险台账',BUDGET_CHANGE:'调整项目预算',
@@ -352,9 +363,9 @@ const allocationModeLabel={PERCENTAGE:'比例分摊',HOURS:'确认工时',ATTEND
 const isBoss = computed(() => userStore.roles.includes('admin') || userStore.permissions.includes('*:*:*') || userStore.permissions.includes('business:boss:view'))
 const isAdmin = computed(() => userStore.roles.includes('admin') || userStore.permissions.includes('*:*:*'))
 const myRole = computed(() => detail.value?.members?.find(m => Number(m.userId) === Number(userStore.id))?.memberRole)
-const canManage = computed(() => isBoss.value || ['OWNER','DEPUTY'].includes(myRole.value))
-const canManageDeputies = computed(() => isBoss.value || myRole.value === 'OWNER')
-const canManageAllocation = computed(() => isAdmin.value || isBoss.value || myRole.value === 'OWNER')
+const canManage = computed(() => !isDeliveryEnded(detail.value) && (isBoss.value || ['OWNER','DEPUTY'].includes(myRole.value)))
+const canManageDeputies = computed(() => !isDeliveryEnded(detail.value) && (isBoss.value || myRole.value === 'OWNER'))
+const canManageAllocation = computed(() => !isDeliveryEnded(detail.value) && (isAdmin.value || isBoss.value || myRole.value === 'OWNER'))
 const canSubmitAcceptance=computed(()=>detail.value?.closeMethod==='RESULT_ACCEPTANCE'&&detail.value?.status==='ACTIVE'&&(isBoss.value||myRole.value==='OWNER'))
 const showRisks=computed(()=>detail.value?.governanceProfile?.riskRequired??['STANDARD','KEY_CONTROL','DELIVERY'].includes(detail.value?.managementMode))
 const showMilestones=computed(()=>Boolean(detail.value?.milestones?.length)||(detail.value?.governanceProfile?.enabledModules?.includes('MILESTONE')??(detail.value?.managementMode!=='LIGHT')))
@@ -373,13 +384,17 @@ const yesterdaySubmitted=computed(()=>Number(operating.value.executionSummary?.s
 const yesterdayMissing=computed(()=>Math.max(yesterdayExpected.value-yesterdaySubmitted.value,0))
 const yesterdayRate=computed(()=>yesterdayExpected.value?Math.round(yesterdaySubmitted.value*100/yesterdayExpected.value):0)
 const cockpitSummary=computed(()=>cockpit.value.summary||{})
+const cockpitCostIncomplete=computed(()=>Number(cockpit.value.pendingCostCount)>0||cockpit.value.hasUnpricedOrMissingWork===true||cockpitSummary.value.hasUnpricedOrMissingWork===true)
+const cockpitCostNotice=computed(()=>Number(cockpit.value.pendingCostCount)>0
+  ? `本项目有 ${cockpit.value.pendingCostCount} 条已确认工作待计价。下列成本和经营结果仅包含已核算部分，部分人员成本仍未知。`
+  : '本项目有未记录实际工作或尚未计价的投入。缺失工作量不是零投入，下列成本和经营结果仅反映已核算部分。')
 const cockpitCurrency=computed(()=>operating.value.currency||detail.value?.baseCurrency||'CNY')
-const cockpitBudget=computed(()=>Number(operating.value.budgetLimit??detail.value?.budgetLimit??0))
-const cockpitBudgetSpent=computed(()=>Number(cockpitSummary.value.businessCost||0)+Number(cockpitSummary.value.personnelCost||0)+Number(cockpitSummary.value.bonusCost||0))
+const cockpitBudget=computed(()=>{const value=operating.value.budgetLimit??detail.value?.budgetLimit;return value==null?null:Number(value)})
+const cockpitBudgetSpent=computed(()=>{const values=[cockpitSummary.value.businessCost,cockpitSummary.value.personnelCost,cockpitSummary.value.bonusCost];return values.some(value=>value==null)?null:values.reduce((total,value)=>total+Number(value),0)})
 const cockpitTotalCost=computed(()=>cockpitBudgetSpent.value)
-const cockpitBudgetRemaining=computed(()=>cockpitBudget.value-cockpitBudgetSpent.value)
-const budgetUsage=computed(()=>cockpitBudget.value?Math.round(cockpitBudgetSpent.value*1000/cockpitBudget.value)/10:0)
-const budgetTone=computed(()=>budgetUsage.value>=100?'is-danger':budgetUsage.value>=80?'is-warning':'')
+const cockpitBudgetRemaining=computed(()=>cockpitCostIncomplete.value||cockpitBudget.value==null||cockpitBudgetSpent.value==null?null:cockpitBudget.value-cockpitBudgetSpent.value)
+const budgetUsage=computed(()=>cockpitCostIncomplete.value||!cockpitBudget.value||cockpitBudgetSpent.value==null?null:Math.round(cockpitBudgetSpent.value*1000/cockpitBudget.value)/10)
+const budgetTone=computed(()=>cockpitCostIncomplete.value?'is-warning':budgetUsage.value>=100?'is-danger':budgetUsage.value>=80?'is-warning':'')
 const cockpitDateRange=computed(()=>`${detail.value?.planStartDate||'项目开始'} 至 ${todayText()}`)
 const scheduleProgress=computed(()=>{if(!detail.value?.planStartDate||!detail.value?.planEndDate)return 0;const start=dateMs(detail.value.planStartDate),end=dateMs(detail.value.planEndDate),now=Math.min(Math.max(Date.now(),start),end);return end<=start?100:Math.round((now-start)*100/(end-start))})
 const remainingDaysText=computed(()=>{if(!detail.value?.planEndDate)return '不限期';const days=Math.ceil((dateMs(detail.value.planEndDate)-dayStart())/86400000);return days<0?`逾期 ${Math.abs(days)} 天`:days===0?'今天到期':`${days} 天`})
@@ -392,8 +407,9 @@ const cockpitSettlement=computed(()=>cockpitPlan.value?.settlement||null)
 const cockpitKpis=computed(()=>{const plan=cockpitPlan.value;if(!plan?.items?.length)return currentKpis.value;const results=plan.settlement?.results||[];return plan.items.map(item=>({...item,actualValue:results.find(result=>Number(result.planItemId)===Number(item.itemId))?.actualValue}))})
 const settlementStatusText=computed(()=>({DRAFT:'填报中',SUBMITTED:'待确认',RETURNED:'已退回',CONFIRMED:'已确认'}[cockpitSettlement.value?.status]||cockpitSettlement.value?.status||'未结算'))
 const matchedTier=computed(()=>{const score=Number(cockpitSettlement.value?.totalScore);if(!Number.isFinite(score))return null;return (cockpitPlan.value?.tiers||[]).find(tier=>score>=Number(tier.minScore||0)&&(tier.maxScore===null||tier.maxScore===undefined||score<Number(tier.maxScore)))||null})
-const showKpiClosureGuard=computed(()=>detail.value&&['ACTIVE','ACCEPTANCE'].includes(detail.value.status)&&(isBoss.value||myRole.value==='OWNER'))
+const showKpiClosureGuard=computed(()=>detail.value&&!isSeparatedDelivery(detail.value)&&['ACTIVE','ACCEPTANCE'].includes(detail.value.status)&&(isBoss.value||myRole.value==='OWNER'))
 const kpiClosureState=computed(()=>{
+  if(isSeparatedDelivery(detail.value))return {ready:true,tone:'info',label:'独立结算',title:'交付与核算分别办理',description:'KPI、奖金和费用按原流程继续结算，不阻止项目成果验收。',actionLabel:'查看KPI结算',actionType:'primary',planCount:0,confirmedCount:0,percentage:0,planId:null}
   if(kpiWorkspaceLoading.value)return {ready:null,tone:'info',label:'检查中',title:'正在检查KPI结算状态',description:'系统正在核对该项目所有已发布方案，请稍候。',actionLabel:'进入KPI工作区',actionType:'primary',planCount:0,confirmedCount:0,percentage:0,planId:null}
   if(kpiWorkspaceError.value)return {ready:null,tone:'warning',label:'请核对',title:'暂时未能读取KPI结算状态',description:'请进入KPI工作区确认全部方案均已结算；最终结项仍由系统后台校验。',actionLabel:'进入KPI工作区',actionType:'warning',planCount:0,confirmedCount:0,percentage:0,planId:null}
   const plans=kpiWorkspace.value?.plans||[],confirmed=plans.filter(plan=>plan.settlementStatus==='CONFIRMED'),pending=plans.filter(plan=>plan.settlementStatus!=='CONFIRMED')
@@ -488,7 +504,7 @@ function resetQuery(){ query.keyword=''; query.status=''; query.managementMode='
 async function openDetail(row){ const res=await getBusinessProject(row.projectId); detail.value=res.data;activeTab.value=route.query.tab||'overview'; detailVisible.value=true; router.replace({query:{...route.query,id:row.projectId}}); await Promise.all([loadOperatingConfig(),loadKpiClosureState(),loadCockpit()]) }
 async function refreshDetail(){ if(!detail.value)return; detail.value=(await getBusinessProject(detail.value.projectId)).data; await Promise.all([load(),loadOperatingConfig(),loadKpiClosureState(),loadCockpit()]) }
 async function loadOperatingConfig(){if(!detail.value)return;operating.value=(await getBusinessOperatingConfig(detail.value.projectId)).data||{kpis:[],budgetHistory:[],staffAllocations:[]}}
-async function loadCockpit(){if(!detail.value)return;cockpitLoading.value=true;cockpitError.value=false;try{cockpit.value=(await getBusinessProjectDashboard(detail.value.projectId,{dateFrom:detail.value.planStartDate||'2000-01-01',dateTo:todayText()})).data||{summary:{},results:[]}}catch{cockpit.value={summary:{},results:[]};cockpitError.value=true}finally{cockpitLoading.value=false}}
+async function loadCockpit(){if(!detail.value)return;const request=++cockpitRequest,projectId=detail.value.projectId;cockpitLoading.value=true;cockpitError.value=false;cockpit.value={summary:{},results:[]};try{const response=await getBusinessProjectDashboard(projectId,{dateFrom:detail.value.planStartDate||'2000-01-01',dateTo:todayText()});if(request===cockpitRequest&&projectId===detail.value?.projectId)cockpit.value=response.data||{summary:{},results:[]}}catch{if(request===cockpitRequest){cockpit.value={summary:{},results:[]};cockpitError.value=true}}finally{if(request===cockpitRequest)cockpitLoading.value=false}}
 async function loadKpiClosureState(){kpiWorkspace.value={plans:[]};kpiWorkspaceError.value=false;if(!showKpiClosureGuard.value)return;kpiWorkspaceLoading.value=true;try{kpiWorkspace.value=(await getProjectKpiWorkspace(detail.value.projectId)).data||{plans:[]}}catch{kpiWorkspaceError.value=true}finally{kpiWorkspaceLoading.value=false}}
 function openKpiWorkspace(){const planId=kpiClosureState.value.planId;router.push({path:'/business/kpi-bonus',query:{projectId:detail.value.projectId,...(planId?{planId}:{})}})}
 async function ensureUsers(){ if(!users.value.length) users.value=(await listBusinessUsers()).data||[] }
@@ -573,7 +589,7 @@ async function removeItem(kind,row){
   await refreshDetail()
 }
 const money=value=>value===null||value===undefined?'—':Number(value).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:4})
-const signedMoney=value=>{const amount=Number(value||0);return `${amount>0?'+':''}${money(amount)}`}
+const signedMoney=value=>value==null?'—':`${Number(value)>0?'+':''}${money(value)}`
 const todayText=()=>new Date().toISOString().slice(0,10)
 const dateMs=value=>new Date(`${value}T00:00:00`).getTime()
 const dayStart=()=>dateMs(todayText())

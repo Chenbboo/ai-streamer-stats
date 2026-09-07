@@ -19,7 +19,7 @@ public class UpdateProjectBudgetCapability implements AiConfirmableCapability
     @Autowired public UpdateProjectBudgetCapability(IBusinessProjectService service) { this.service = service; }
     @Override public String code() { return "project.budget.update"; }
     @Override public String description()
-    { return "把指定项目的预算上限调整为新金额。必须先用项目目录取得稳定项目ID；只准备确认单，老板确认后才执行。"; }
+    { return "仅调整历史比例成本项目的预算。ACTUAL_WORK_V1 项目必须通过项目计划基线变更办理，可先查询 project.plan.get，不能生成直接改写预算确认卡。"; }
     @Override public String requiredPermission() { return "business:project:manage"; }
     @Override public Map<String, Object> inputSchema()
     {
@@ -53,6 +53,7 @@ public class UpdateProjectBudgetCapability implements AiConfirmableCapability
     }
     @Override public Map<String, Object> executeConfirmed(AiCapabilityInvocation invocation, Map<String, Object> input)
     {
+        project(input, invocation);
         Long projectId = number(input.get("projectId")); BigDecimal amount = amount(input.get("budgetLimit"));
         BusinessProject project = service.updateBudget(projectId, amount, text(input.get("currency")).toUpperCase(),
             text(input.get("reason")), invocation.getActor().getUserId(), invocation.getActor().getUserName(), true);
@@ -64,10 +65,7 @@ public class UpdateProjectBudgetCapability implements AiConfirmableCapability
     }
     private BusinessProject project(Map<String, Object> input, AiCapabilityInvocation invocation)
     {
-        Long projectId = number(input.get("projectId"));
-        if (projectId == null) throw new ServiceException("请先确定要调整预算的项目");
-        return service.getProject(projectId, invocation.getActor().getUserId(),
-            invocation.getActor().isAdministrator(), true);
+        return ProjectLegacyPlanningGuard.requireLegacy(service, invocation, input, true);
     }
     private Long number(Object value)
     { try { return value instanceof Number ? ((Number)value).longValue() : Long.valueOf(String.valueOf(value)); }

@@ -28,7 +28,7 @@ public class AiCapabilityExecutor
         AiCapability capability;
         try { capability = registry.require(code); }
         catch (IllegalArgumentException ex) { throw new ServiceException("AI请求了未注册的系统能力"); }
-        if (!invocation.getActor().hasPermission(capability.requiredPermission()))
+        if (!capability.isAllowed(invocation.getActor()))
             throw new ServiceException("当前账号没有执行该操作的权限");
         Map<String, Object> safeInput = input == null ? Collections.<String, Object>emptyMap() : input;
         if (capability.risk().isConfirmationRequired())

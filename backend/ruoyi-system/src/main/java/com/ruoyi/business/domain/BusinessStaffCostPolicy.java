@@ -15,6 +15,7 @@ public class BusinessStaffCostPolicy extends BaseEntity
     private String currency;
     private String countryRegion;
     private BigDecimal standardWorkDays;
+    private Integer rateMinutesPerDay;
     @JsonFormat(pattern = "yyyy-MM-dd") private Date effectiveFrom;
     @JsonFormat(pattern = "yyyy-MM-dd") private Date effectiveTo;
     private Integer policyVersion;
@@ -37,6 +38,8 @@ public class BusinessStaffCostPolicy extends BaseEntity
     public void setCurrency(String currency) { this.currency = currency; }
     public String getCountryRegion() { return countryRegion; }
     public void setCountryRegion(String countryRegion) { this.countryRegion = countryRegion; }
+    public Integer getRateMinutesPerDay() { return rateMinutesPerDay; }
+    public void setRateMinutesPerDay(Integer value) { rateMinutesPerDay=value; }
     public BigDecimal getStandardWorkDays() { return standardWorkDays; }
     public void setStandardWorkDays(BigDecimal standardWorkDays) { this.standardWorkDays = standardWorkDays; }
     public Date getEffectiveFrom() { return effectiveFrom; }

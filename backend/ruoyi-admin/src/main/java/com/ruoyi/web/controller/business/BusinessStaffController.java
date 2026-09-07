@@ -40,8 +40,7 @@ public class BusinessStaffController extends BaseController
         startPage();
         boolean administrator = SecurityUtils.isAdmin();
         boolean boss = administrator || SecurityUtils.hasPermi("business:boss:view");
-        boolean staffCostManager = administrator || SecurityUtils.hasPermi("business:staff:manage")
-            || SecurityUtils.hasPermi("business:staff:cost");
+        boolean staffCostManager = administrator || SecurityUtils.hasPermi("business:staff:cost");
         return staffService.listStaff(query, SecurityUtils.getUserId(), administrator, boss, staffCostManager);
     }
 

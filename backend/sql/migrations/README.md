@@ -2,6 +2,8 @@
 
 本目录保存不会主动删除业务表或业务数据的增量迁移。所有脚本都以当前代码实际依赖为准，并支持在同一数据库上重复执行。
 
+当前三系统本地版本至 V067。代码与迁移的已执行证据见 [P1–P4 总记录](../../../docs/P1-P4-三系统实施与验收记录.md)。本地应用记录不代表正式库已升级；旧脚本下述业务描述只代表各自引入时的语义，最终行为按对象版本和最新服务实现判断。
+
 ## 执行前
 
 1. 备份目标数据库。
@@ -84,6 +86,11 @@ V059__proposal_daily_staff_cost_snapshot.sql
 V060__project_owner_kpi_and_staff_cost_permissions.sql
 V061__staff_personal_menu_permissions.sql
 V062__project_kpi_automatic_sources.sql
+V063__separate_project_delivery_accounting.sql
+V064__project_actual_work_and_templates.sql
+V065__independent_project_incentive.sql
+V066__feishu_readonly_attendance.sql
+V067__three_system_product_navigation.sql
 ../live_ai_config.sql
 ../jewelry_erp_menu.sql
 ../jewelry_manual_assembly.sql
@@ -158,6 +165,11 @@ V059__proposal_daily_staff_cost_snapshot.sql
 V060__project_owner_kpi_and_staff_cost_permissions.sql
 V061__staff_personal_menu_permissions.sql
 V062__project_kpi_automatic_sources.sql
+V063__separate_project_delivery_accounting.sql
+V064__project_actual_work_and_templates.sql
+V065__independent_project_incentive.sql
+V066__feishu_readonly_attendance.sql
+V067__three_system_product_navigation.sql
 ../live_ai_config.sql
 ../jewelry_erp_menu.sql
 ../jewelry_manual_assembly.sql
@@ -207,3 +219,27 @@ V062__project_kpi_automatic_sources.sql
 * `V060__project_owner_kpi_and_staff_cost_permissions.sql`：项目负责人设置本人项目 KPI 与奖金；人员管理对负责人开放只读资料和独立成本维护权限，不开放档案及账号管理。
 * `V061__staff_personal_menu_permissions.sql`：增加普通员工个人目录权限覆盖层；空表默认继承原角色权限，老板可按“不显示/仅查看/可维护”设置全部左侧目录，并保留操作级鉴权快照。
 * `V062__project_kpi_automatic_sources.sql`：为 KPI 目标和方案快照增加自动取数来源引用，支持收入、业务成本、人员成本、经营结果、持续工作、任务和里程碑按考核周期自动统计。
+
+* `V063__separate_project_delivery_accounting.sql`：新项目分离交付与核算，保存策略版本和独立核算状态。历史项目保持原交付流程；历史终态核算关闭。新增独立关账权限仅授予公司负责人角色，实际操作还须匹配项目归属。停写并备份后执行，可重复运行，不改历史金额和审批。
+
+P1 发布前在 V062 目标库执行 [专项预检](./preflight_p1_delivery_accounting.sql)，核对菜单父级及异常 KPI／结束日期，保存金额摘要；V063 后复查相同摘要。
+
+## P1–P4 配套升级与权限变化
+
+| 脚本 | 变更及兼容要求 |
+| --- | --- |
+| V063 | 项目交付/核算分离，固定旧策略默认值，不重开历史关闭账 |
+| V064 | 新增模板、日历、单位、基线、资源、工作及计价依据；新增 `rate_minutes_per_day`，月度天数允许日/小时费率填 null；已有金额和折算值保留 |
+| V065 | 新 KPI 奖励轴为独立版本，存量默认 `LEGACY_LINKED`；独立奖励申请/核准/事件与唯一待确认成本来源，不重复生成旧奖金 |
+| V066 | 飞书连接、有效身份映射、同步与来源修订、问题、授权、验收及审计；不启用连接、不修改本地假勤或人工成本 |
+| V067 | 单平台三业务系统导航与共享集成目录，中越菜单；独立费率、奖励、假勤和技术角色；移除项目负责人默认原价权限 |
+
+已有 V062 库应先备份并保存专项预检与业务数据摘要，再按 V063 → V067 顺序升级；复制库重复执行成功后再在明确的目标库应用。前后端须配套，不能只发布解除交付门槛或只移动菜单。不要在 V067 之后单独重跑 V060 后停止，否则旧脚本会恢复项目负责人原价授权；若重新执行完整迁移序列，最终必须执行 V067 重新收敛权限。
+
+新增 `finance_cost_manager`、`hcm_incentive_operator`、`hcm_incentive_approver`、`attendance_reader`、`feishu_integrator` 只创建角色和菜单关系，不自动分配给现有员工。操作仍受公司、项目、申请人和核准责任约束。权限迁移后应刷新用户会话并按实际岗位验收；技术集成身份不得代替假勤切换或奖金业务核准。
+
+2026-09-07 已在本机复制库重复验证 V064–V067 并应用 `localhost / ry-vue`，既有业务列哈希不变。最新证明为本地忽略文件 `logs/product_migration_verification_20260907_153949.json`，不提交仓库。测试库发现的首次基线冲突已通过应用创建逻辑修复，新标准项目及首快照同为 1；迁移不修改旧基线 0。真实飞书授权及六类样本尚待验收，本轮未推送或部署生产。
+
+`verify_business_schema.sql` 在旧检查之后增加 P2–P4 表/字段、模板/基线、计价来源、奖励来源、飞书修订及导航权限检查。异常值用于阻断交接和核查，不能由校验脚本直接修数据。回退只暂停新增写入并保留新策略兼容及历史，不能删除新表、把确认工时还原为比例或恢复假勤自动双写。
+
+最终本机完整校验共 70 组结果全部 0 异常，证明 `logs/product-schema-verification.json`。隔离 QA 库因刻意创建的合成账号/公司不具有完整员工档案或岗位配置，有 3 组既有资料完整性检查非零；新增 P1–P4 检查均无异常。该测试数据差异不应通过删除校验或批量修改真实员工来消除。

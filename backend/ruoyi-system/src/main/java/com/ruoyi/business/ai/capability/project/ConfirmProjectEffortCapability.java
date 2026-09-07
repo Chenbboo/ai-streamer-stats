@@ -17,7 +17,7 @@ public class ConfirmProjectEffortCapability implements AiConfirmableCapability
     @Autowired public ConfirmProjectEffortCapability(IBusinessProjectService service) { this.service = service; }
     @Override public String code() { return "project.effort.week.confirm"; }
     @Override public String description()
-    { return "确认项目指定周的人员实际投入。先查询并确定项目ID和周锚点日期，确认后执行。"; }
+    { return "仅确认历史比例成本项目指定周的人员投入。ACTUAL_WORK_V1 项目须按工作记录逐条提交和确认，可先查询 project.work.get，不能通过旧周投入确认。"; }
     @Override public String requiredPermission() { return "business:project:allocation"; }
     @Override public Map<String, Object> inputSchema()
     {
@@ -27,10 +27,12 @@ public class ConfirmProjectEffortCapability implements AiConfirmableCapability
         return AiSchemas.required(s, "projectId", "anchorDate");
     }
     @Override public String confirmationSummary(AiCapabilityInvocation invocation, Map<String, Object> input)
-    { return "确认项目“" + AiCapabilityInputs.text(input.get("projectName")) + "”在 "
+    { ProjectLegacyPlanningGuard.requireLegacy(service, invocation, input, false);
+      return "确认项目“" + AiCapabilityInputs.text(input.get("projectName")) + "”在 "
         + AiCapabilityInputs.text(input.get("anchorDate")) + " 所在周的人员投入"; }
     @Override public Map<String, Object> executeConfirmed(AiCapabilityInvocation invocation, Map<String, Object> input)
     {
+        ProjectLegacyPlanningGuard.requireLegacy(service, invocation, input, false);
         return service.confirmProjectEffortWeek(AiCapabilityInputs.number(input.get("projectId")),
             AiCapabilityInputs.text(input.get("anchorDate")), invocation.getActor().getUserId(),
             invocation.getActor().getUserName(), true);

@@ -29,6 +29,7 @@ public interface BusinessProjectKpiMapper
     BusinessProjectKpiPlanItem selectPlanItemById(Long itemId);
     List<BusinessProjectBonusTier> selectBonusTiers(Long planId);
     BusinessProjectKpiSettlement selectSettlementById(Long settlementId);
+    BusinessProjectKpiSettlement selectSettlementByIdForUpdate(Long settlementId);
     BusinessProjectKpiSettlement selectSettlementByPlanId(Long planId);
     List<BusinessProjectKpiResult> selectSettlementResults(Long settlementId);
     java.math.BigDecimal sumRoutineActual(@Param("projectId") Long projectId,

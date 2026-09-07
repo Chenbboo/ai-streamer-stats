@@ -11,9 +11,16 @@
   </select>
   <select id="selectProjectOptions" resultType="map">
     select p.project_id projectId,p.project_no projectNo,p.project_name projectName,p.company_dept_id companyDeptId,
-      d.dept_name companyName,p.accounting_mode accountingMode,p.base_currency currency,p.initiator_name initiatorName
+      d.dept_name companyName,p.accounting_mode accountingMode,p.base_currency currency,p.initiator_name initiatorName,
+      p.status,p.delivery_policy_version deliveryPolicyVersion,p.accounting_state accountingState,
+      p.actual_end_date actualEndDate,p.cost_policy_version costPolicyVersion,
+      coalesce(p.sponsor_owner_user_id,p.initiator_user_id) sponsorOwnerUserId,p.initiator_user_id initiatorUserId
     from biz_project p left join sys_dept d on d.dept_id=p.company_dept_id and d.del_flag='0'
-    where p.del_flag='0' and p.status not in('CLOSED','CANCELED')
+    where p.del_flag='0'
+    <if test="includeClosed != true">and (
+      (p.delivery_policy_version='SEPARATED_V1' and p.accounting_state='OPEN')
+      or (coalesce(p.delivery_policy_version,'LEGACY_V1')&lt;&gt;'SEPARATED_V1' and p.status not in('CLOSED','CANCELED')))
+    </if>
     <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
     order by d.order_num,p.project_name
   </select>
@@ -41,7 +48,8 @@
       f.confirmed_user_name confirmedUserName,f.confirmed_time confirmedTime,f.create_user_id createUserId,
       f.returned_user_name returnedUserName,f.returned_time returnedTime,f.return_reason returnReason,
       f.create_by createBy,f.create_time createTime,
-      p.initiator_name initiatorName
+      p.initiator_name initiatorName,p.status projectStatus,
+      p.delivery_policy_version deliveryPolicyVersion,p.accounting_state accountingState,p.actual_end_date actualEndDate
     from biz_operating_fact f join biz_project p on p.project_id=f.project_id and p.del_flag='0'
     left join sys_dept d on d.dept_id=f.company_dept_id
     <where>
@@ -55,7 +63,7 @@
     </where>
     order by f.biz_date desc,f.fact_id desc
   </select>
-  <select id="selectFactById" resultType="com.ruoyi.business.domain.BusinessOperatingFact">
+  <sql id="factByIdSql">
     select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,
       category_code categoryCode,category_name categoryName,fact_kind factKind,amount,quantity,currency,unit,
       description,counterparty,attachment_urls attachmentUrls,source_domain sourceDomain,source_type sourceType,
@@ -64,6 +72,12 @@
       returned_user_id returnedUserId,returned_user_name returnedUserName,returned_time returnedTime,return_reason returnReason,
       create_user_id createUserId,create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
     from biz_operating_fact where fact_id=#{factId} limit 1
+  </sql>
+  <select id="selectFactById" resultType="com.ruoyi.business.domain.BusinessOperatingFact">
+    <include refid="factByIdSql"/>
+  </select>
+  <select id="selectFactByIdForUpdate" resultType="com.ruoyi.business.domain.BusinessOperatingFact" flushCache="true" useCache="false">
+    <include refid="factByIdSql"/> for update
   </select>
   <select id="selectFactByIdempotencyKey" resultType="com.ruoyi.business.domain.BusinessOperatingFact">
     select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,
@@ -115,13 +129,30 @@
     from biz_operating_fact
     where project_id=#{projectId} and biz_date=#{bizDate} and fact_kind='REVENUE'
   </select>
-  <select id="selectProjectForAccounting" resultType="map">
+  <sql id="projectAccountingColumns">
     select project_id projectId,project_name projectName,company_dept_id companyDeptId,accounting_mode accountingMode,
       base_currency currency,budget_limit budgetLimit,
       coalesce(sponsor_owner_user_id,initiator_user_id) initiatorUserId,
       coalesce(sponsor_owner_name,initiator_name) initiatorName,
-      main_owner_user_id mainOwnerUserId,main_owner_name mainOwnerName,status
+      main_owner_user_id mainOwnerUserId,main_owner_name mainOwnerName,status,
+      delivery_policy_version deliveryPolicyVersion,accounting_state accountingState,
+      settlement_policy_version settlementPolicyVersion,cost_policy_version costPolicyVersion,
+      actual_start_date actualStartDate,actual_end_date actualEndDate
     from biz_project where project_id=#{projectId} and del_flag='0' limit 1
+  </sql>
+  <select id="selectProjectForAccounting" resultType="map">
+    <include refid="projectAccountingColumns"/>
+  </select>
+  <select id="selectProjectForAccountingForUpdate" resultType="map" flushCache="true" useCache="false">
+    <include refid="projectAccountingColumns"/> for update
+  </select>
+  <select id="selectProjectBonusSettlement" resultType="map">
+    select settlement_id settlementId,project_id projectId,period_end periodEnd,status
+    from biz_project_kpi_settlement where settlement_id=#{settlementId}
+  </select>
+  <select id="countProjectSettlementDate" resultType="int">
+    select count(*) from biz_project_kpi_settlement
+    where project_id=#{projectId} and period_end=#{bizDate} and status in('SUBMITTED','CONFIRMED')
   </select>
   <select id="lockProjectAccounting" resultType="long">
     select project_id from biz_project where project_id=#{projectId} and del_flag='0' for update
@@ -372,7 +403,7 @@
     group by r.company_dept_id,d.dept_name order by r.company_dept_id
   </select>
   <select id="selectPersonnelCostOverview" resultType="map">
-    select p.project_id projectId,p.project_name projectName,p.company_dept_id companyDeptId,
+    select p.project_id projectId,p.project_name projectName,'PERCENTAGE_V1' costPolicyVersion,p.company_dept_id companyDeptId,
       company.dept_name companyName,m.user_id userId,m.user_name_snapshot userName,m.member_role memberRole,
       profile.country_region profileCountryRegion,
       coalesce(c.country_region_snapshot,profile.country_region,
@@ -423,7 +454,7 @@
         <if test="viewAll == false">and coalesce(p2.sponsor_owner_user_id,p2.initiator_user_id)=#{userId}</if>
       group by a2.user_id
     ) total_plan on total_plan.user_id=m.user_id
-    where p.del_flag='0' and p.status&lt;&gt;'CANCELED'
+    where p.del_flag='0' and coalesce(p.cost_policy_version,'PERCENTAGE_V1')='PERCENTAGE_V1' and p.status&lt;&gt;'CANCELED'
       and (p.status&lt;&gt;'CLOSED' or exists (
         select 1 from biz_project_daily_result closed_result
         where closed_result.project_id=p.project_id and closed_result.biz_date=#{bizDate}

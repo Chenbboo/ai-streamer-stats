@@ -20,6 +20,8 @@ public class BusinessProject extends BaseEntity
     private Long companyDeptId;
     private String companyName;
     private String projectName;
+    private String templateVersion;
+    private String templateSnapshotJson;
     private String projectType;
     private String accountingMode;
     private String managementMode;
@@ -30,6 +32,10 @@ public class BusinessProject extends BaseEntity
     private String governanceChangeReason;
     private String objective;
     private String status;
+    private String deliveryPolicyVersion;
+    private String accountingState;
+    private String settlementPolicyVersion;
+    private String costPolicyVersion;
     private String baselineStatus;
     private Long applicantUserId;
     private String applicantName;
@@ -88,6 +94,10 @@ public class BusinessProject extends BaseEntity
     public void setCompanyDeptId(Long companyDeptId) { this.companyDeptId = companyDeptId; }
     public String getCompanyName() { return companyName; }
     public void setCompanyName(String companyName) { this.companyName = companyName; }
+    public String getTemplateVersion() { return templateVersion; }
+    public void setTemplateVersion(String value) { templateVersion = value; }
+    public String getTemplateSnapshotJson() { return templateSnapshotJson; }
+    public void setTemplateSnapshotJson(String value) { templateSnapshotJson = value; }
     public String getProjectName() { return projectName; }
     public void setProjectName(String projectName) { this.projectName = projectName; }
     public String getProjectType() { return projectType; }
@@ -108,6 +118,14 @@ public class BusinessProject extends BaseEntity
     public void setObjective(String objective) { this.objective = objective; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public String getDeliveryPolicyVersion() { return deliveryPolicyVersion; }
+    public void setDeliveryPolicyVersion(String deliveryPolicyVersion) { this.deliveryPolicyVersion = deliveryPolicyVersion; }
+    public String getAccountingState() { return accountingState; }
+    public void setAccountingState(String accountingState) { this.accountingState = accountingState; }
+    public String getSettlementPolicyVersion() { return settlementPolicyVersion; }
+    public void setSettlementPolicyVersion(String settlementPolicyVersion) { this.settlementPolicyVersion = settlementPolicyVersion; }
+    public String getCostPolicyVersion() { return costPolicyVersion; }
+    public void setCostPolicyVersion(String costPolicyVersion) { this.costPolicyVersion = costPolicyVersion; }
     public String getBaselineStatus() { return baselineStatus; }
     public void setBaselineStatus(String baselineStatus) { this.baselineStatus = baselineStatus; }
     public Long getApplicantUserId() { return applicantUserId; }

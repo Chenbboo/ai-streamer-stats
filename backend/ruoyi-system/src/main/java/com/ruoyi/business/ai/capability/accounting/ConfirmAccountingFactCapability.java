@@ -19,7 +19,7 @@ public class ConfirmAccountingFactCapability implements AiConfirmableCapability
     private final IBusinessAccountingService service;
     @Autowired public ConfirmAccountingFactCapability(IBusinessAccountingService service) { this.service = service; }
     @Override public String code() { return "accounting.fact.confirm"; }
-    @Override public String description() { return "确认一条收支草稿，使其进入经营核算。先按 factId 查询并核对事实，老板确认后才执行。"; }
+    @Override public String description() { return "确认一条收支草稿，使其进入经营核算。先按 factId 查询并核对事实，老板确认后才执行。分离策略项目交付关闭后仍可在核算开放时办理合法历史收支，最终执行会重新校验项目权限和核算状态。"; }
     @Override public String requiredPermission() { return "business:accounting:confirm"; }
     @Override public Map<String, Object> inputSchema()
     {

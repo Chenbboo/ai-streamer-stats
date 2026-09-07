@@ -16,7 +16,7 @@ public class RetireProjectAllocationCapability implements AiConfirmableCapabilit
     private final IBusinessProjectService service;
     @Autowired public RetireProjectAllocationCapability(IBusinessProjectService service) { this.service = service; }
     @Override public String code() { return "project.allocation.retire"; }
-    @Override public String description() { return "停用一条项目成员计划投入配置。应先读取项目经营配置取得 allocationId，确认后才执行。"; }
+    @Override public String description() { return "仅停用历史比例成本项目的投入配置。ACTUAL_WORK_V1 项目的资源安排须从资源与实际工作流程停用，可先查询 project.work.get。"; }
     @Override public String requiredPermission() { return "business:project:allocation"; }
     @Override public Map<String, Object> inputSchema()
     {
@@ -28,12 +28,14 @@ public class RetireProjectAllocationCapability implements AiConfirmableCapabilit
     }
     @Override public String confirmationSummary(AiCapabilityInvocation invocation, Map<String, Object> input)
     {
+        ProjectLegacyPlanningGuard.requireLegacy(service, invocation, input, false);
         String staffName = AiCapabilityInputs.text(input.get("staffName"));
         return "停用项目 " + AiCapabilityInputs.number(input.get("projectId")) + " 的投入配置 "
             + AiCapabilityInputs.number(input.get("allocationId")) + (staffName.isEmpty() ? "" : "（" + staffName + "）");
     }
     @Override public Map<String, Object> executeConfirmed(AiCapabilityInvocation invocation, Map<String, Object> input)
     {
+        ProjectLegacyPlanningGuard.requireLegacy(service, invocation, input, false);
         Long projectId = AiCapabilityInputs.number(input.get("projectId"));
         Long allocationId = AiCapabilityInputs.number(input.get("allocationId"));
         service.removeStaffAllocation(projectId, allocationId, invocation.getActor().getUserId(),

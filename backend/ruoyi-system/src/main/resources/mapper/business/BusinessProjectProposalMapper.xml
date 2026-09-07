@@ -7,6 +7,8 @@
         <result property="proposalNo" column="proposal_no"/>
         <result property="submissionVersion" column="submission_version"/>
         <result property="projectName" column="project_name"/>
+        <result property="templateVersion" column="template_version"/>
+        <result property="templateSnapshotJson" column="template_snapshot_json"/>
         <result property="applicantUserId" column="applicant_user_id"/>
         <result property="applicantName" column="applicant_name"/>
         <result property="sponsorOwnerUserId" column="sponsor_owner_user_id"/>
@@ -64,7 +66,7 @@
     </resultMap>
 
     <sql id="proposalColumns">
-        p.proposal_id,p.proposal_no,p.submission_version,p.project_name,
+        p.proposal_id,p.proposal_no,p.submission_version,p.project_name,p.template_version,p.template_snapshot_json,
         p.applicant_user_id,p.applicant_name,p.sponsor_owner_user_id,p.sponsor_owner_name,
         p.company_dept_id,company.dept_name company_name,p.parent_project_id,parent.project_name parent_project_name,
         p.project_type,p.accounting_mode,p.management_mode,p.close_method,p.management_reason,p.acceptance_criteria,
@@ -126,7 +128,7 @@
 
     <insert id="insertProposal" parameterType="com.ruoyi.business.domain.BusinessProjectProposal"
             useGeneratedKeys="true" keyProperty="proposalId">
-        insert into biz_project_proposal(proposal_no,submission_version,project_name,applicant_user_id,applicant_name,
+        insert into biz_project_proposal(proposal_no,submission_version,project_name,template_version,template_snapshot_json,applicant_user_id,applicant_name,
           sponsor_owner_user_id,sponsor_owner_name,company_dept_id,parent_project_id,project_type,accounting_mode,
           management_mode,close_method,management_reason,acceptance_criteria,objective,application_reason,
           plan_start_date,plan_end_date,priority,base_currency,
@@ -134,7 +136,7 @@
           estimated_bonus_cost,estimated_tax_cost,contingency_cost,estimated_total_cost,expected_profit,
           expected_margin,break_even_revenue,peak_cash_need,planned_headcount,funding_plan,key_assumptions,
           risk_summary,stop_loss_rule,execution_source,status,version,del_flag,create_by,create_time,update_by,update_time,remark)
-        values(#{proposalNo},0,#{projectName},#{applicantUserId},#{applicantName},#{sponsorOwnerUserId},#{sponsorOwnerName},
+        values(#{proposalNo},0,#{projectName},#{templateVersion},#{templateSnapshotJson},#{applicantUserId},#{applicantName},#{sponsorOwnerUserId},#{sponsorOwnerName},
           #{companyDeptId},#{parentProjectId},#{projectType},#{accountingMode},#{managementMode},#{closeMethod},
           #{managementReason},#{acceptanceCriteria},#{objective},#{applicationReason},#{planStartDate},#{planEndDate},
           #{priority},#{baseCurrency},#{budgetLimit},#{noBudget},#{revenueModel},#{estimatedRevenue},
@@ -145,7 +147,7 @@
     </insert>
 
     <update id="updateDraft" parameterType="com.ruoyi.business.domain.BusinessProjectProposal">
-        update biz_project_proposal set project_name=#{projectName},sponsor_owner_user_id=#{sponsorOwnerUserId},
+        update biz_project_proposal set template_version=#{templateVersion},template_snapshot_json=#{templateSnapshotJson},project_name=#{projectName},sponsor_owner_user_id=#{sponsorOwnerUserId},
           sponsor_owner_name=#{sponsorOwnerName},company_dept_id=#{companyDeptId},parent_project_id=#{parentProjectId},
           project_type=#{projectType},accounting_mode=#{accountingMode},management_mode=#{managementMode},
           close_method=#{closeMethod},management_reason=#{managementReason},acceptance_criteria=#{acceptanceCriteria},
@@ -191,8 +193,8 @@
 
     <update id="activate">
         update biz_project_proposal set status='APPROVED',submission_version=submission_version+1,
-          submitted_time=sysdate(),reviewed_user_id=#{applicantUserId},reviewed_user_name=#{operatorName},
-          reviewed_time=sysdate(),review_comment='负责人自主确认并启动',created_project_id=#{createdProjectId},
+          submitted_time=sysdate(),reviewed_user_id=case when template_version='LEGACY_V1' then #{applicantUserId} else null end,reviewed_user_name=case when template_version='LEGACY_V1' then #{operatorName} else null end,
+          reviewed_time=case when template_version='LEGACY_V1' then sysdate() else null end,review_comment='负责人自主确认并启动',created_project_id=#{createdProjectId},
           update_by=#{userName},update_time=sysdate(),version=version+1
         where proposal_id=#{proposalId} and applicant_user_id=#{applicantUserId}
           and status in ('DRAFT','RETURNED','WITHDRAWN') and del_flag='0' and version=#{version}
@@ -218,11 +220,11 @@
     <insert id="insertStaffingLine" parameterType="map">
         insert into biz_project_proposal_staffing(proposal_id,user_id,user_name,role_name,headcount,allocation_percent,
           plan_start_date,plan_end_date,person_months,cost_policy_id,cost_policy_version,monthly_cost_snapshot,
-          standard_work_days_snapshot,daily_cost_snapshot,cost_currency,estimated_cost,note,sort_order,create_time)
+          standard_work_days_snapshot,daily_cost_snapshot,cost_currency,estimated_cost,note,input_unit,input_quantity,calendar_id,unit_policy_id,sort_order,create_time)
         values(#{proposalId},#{userId},#{userName},#{roleName},#{headcount},#{allocationPercent},
           #{planStartDate},#{planEndDate},#{personMonths},#{costPolicyId},#{costPolicyVersion},
           #{monthlyCostSnapshot},#{standardWorkDaysSnapshot},#{dailyCostSnapshot},#{costCurrency},
-          #{estimatedCost},#{note},#{sortOrder},sysdate())
+          #{estimatedCost},#{note},#{inputUnit},#{inputQuantity},#{calendarId},#{unitPolicyId},#{sortOrder},sysdate())
     </insert>
     <insert id="insertTargetLine" parameterType="map">
         insert into biz_project_proposal_target(proposal_id,target_type,target_name,target_value,unit,due_date,
@@ -247,7 +249,8 @@
           allocation_percent allocationPercent,plan_start_date planStartDate,plan_end_date planEndDate,
           person_months personMonths,cost_policy_id costPolicyId,cost_policy_version costPolicyVersion,
           monthly_cost_snapshot monthlyCostSnapshot,standard_work_days_snapshot standardWorkDaysSnapshot,
-          daily_cost_snapshot dailyCostSnapshot,cost_currency costCurrency,estimated_cost estimatedCost,note
+          daily_cost_snapshot dailyCostSnapshot,cost_currency costCurrency,estimated_cost estimatedCost,note,
+          input_unit inputUnit,input_quantity inputQuantity,calendar_id calendarId,unit_policy_id unitPolicyId
         from biz_project_proposal_staffing where proposal_id=#{proposalId} order by sort_order,staffing_line_id
     </select>
     <select id="selectTargetLines" resultType="map">

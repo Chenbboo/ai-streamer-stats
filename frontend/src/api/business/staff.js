@@ -1,6 +1,7 @@
 import request from '@/utils/request'
 
 export const listBusinessStaff = params => request({ url: '/business/staff/list', method: 'get', params })
+export const getBusinessStaffCostOptions = () => request({ url: '/business/staff/cost-options', method: 'get' })
 export const listBusinessDepartments = () => request({ url: '/business/staff/departments', method: 'get' })
 export const listBusinessStaffOptions = () => request({ url: '/business/staff/options', method: 'get' })
 export const getBusinessStaffProjects = id => request({ url: `/business/staff/${id}/projects`, method: 'get' })

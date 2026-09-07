@@ -10,6 +10,9 @@ public interface AiCapability
     default String toolName() { return "capability_" + code().replace('.', '_'); }
     String description();
     String requiredPermission();
+    /** Most capabilities need one permission; read-only capabilities may match their HTTP any-permission gate. */
+    default boolean isAllowed(AiExecutionContext context)
+    { return context != null && context.hasPermission(requiredPermission()); }
     AiCapabilityRisk risk();
     Map<String, Object> inputSchema();
     /** Redacted representation written to the tool audit log. */

@@ -25,6 +25,8 @@ public class BusinessProjectKpiResult implements Serializable
     private String direction;
     private String sourceType;
     private Boolean automatic;
+    private String dataStatus;
+    private Integer pendingCostCount;
 
     public Long getResultId() { return resultId; }
     public void setResultId(Long resultId) { this.resultId = resultId; }
@@ -64,4 +66,8 @@ public class BusinessProjectKpiResult implements Serializable
     public void setSourceType(String sourceType) { this.sourceType = sourceType; }
     public Boolean getAutomatic() { return automatic; }
     public void setAutomatic(Boolean automatic) { this.automatic = automatic; }
+    public String getDataStatus() { return dataStatus; }
+    public void setDataStatus(String value) { dataStatus = value; }
+    public Integer getPendingCostCount() { return pendingCostCount; }
+    public void setPendingCostCount(Integer value) { pendingCostCount = value; }
 }

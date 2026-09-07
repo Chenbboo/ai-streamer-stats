@@ -148,7 +148,7 @@
         <article v-for="row in projects" :key="row.projectId" class="project-card">
           <div class="project-card-head">
             <button class="project-link" @click="openProject(row)">{{ row.projectName }}</button>
-            <span><el-tag size="small" effect="plain">{{ managementLabel[row.managementMode] || row.managementMode }}</el-tag><el-tag size="small" type="success" effect="plain">{{ closeMethodLabel[row.closeMethod] || row.closeMethod }}</el-tag><el-tag :type="statusTone[row.status] || 'info'" effect="light" round>{{ projectStatusLabel(row) }}</el-tag></span>
+            <span><el-tag size="small" effect="plain">{{ managementLabel[row.managementMode] || row.managementMode }}</el-tag><el-tag size="small" type="success" effect="plain">{{ closeMethodLabel[row.closeMethod] || row.closeMethod }}</el-tag><BusinessProjectState :project="row" /></span>
           </div>
           <div class="progress-row">
             <span>进度</span>
@@ -237,6 +237,8 @@ import { getProjectKpiOverview } from '@/api/business/kpi'
 import { reviewProjectProposal } from '@/api/business/proposal'
 import { saveBusinessStaffCostPolicies, saveBusinessStaffCostPolicy } from '@/api/business/staff'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
+import BusinessProjectState from '@/components/BusinessProjectState/index.vue'
+import { isDeliveryEnded } from '@/utils/businessProjectState'
 
 const router = useRouter()
 const loading = ref(false)
@@ -363,6 +365,7 @@ const amountTone = value => Number(value || 0) < 0 ? 'amount-loss' : 'amount-pro
 const alertClass = type => String(type || 'warning').toLowerCase().replaceAll('_', '-')
 const kpiMeta = row => {
   const overview = kpiOverviewMap.value.get(idKey(row.projectId))
+  if (isDeliveryEnded(row) && (!overview || !overview.planId)) return { label: '无结算方案', tone: 'info', action: '查看KPI' }
   if (!overview || !Number(overview.targetCount)) return { label: '未设置', tone: 'warning', action: '设置KPI' }
   if (!overview.planId) return { label: '待发布', tone: 'warning', action: '继续配置' }
   const meta = { DRAFT: { label: '填报中', tone: 'primary' }, SUBMITTED: { label: '待确认', tone: 'warning' }, RETURNED: { label: '已退回', tone: 'danger' }, CONFIRMED: { label: '已确认', tone: 'success' } }[overview.settlementStatus]

@@ -3,6 +3,7 @@ package com.ruoyi.business.ai.capability.accounting;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -24,6 +25,7 @@ import com.ruoyi.business.ai.capability.read.AccountingFactsCapability;
 import com.ruoyi.business.ai.capability.read.AccountingResultDetailCapability;
 import com.ruoyi.business.domain.BusinessOperatingFact;
 import com.ruoyi.business.service.IBusinessAccountingService;
+import com.ruoyi.common.exception.ServiceException;
 
 @ExtendWith(MockitoExtension.class)
 class AccountingCapabilitiesTest
@@ -119,6 +121,19 @@ class AccountingCapabilitiesTest
         Map<String,Object> detail = new AccountingResultDetailCapability(service).execute(invocation(),
             Collections.<String,Object>singletonMap("resultId", 300L));
         assertTrue(detail.containsKey("result"));
+    }
+
+    @Test void staleFactConfirmationCannotBypassAccountingServiceClosureGuard()
+    {
+        when(service.facts(any(), eq(1L), eq(true))).thenReturn(Collections.singletonList(factRow("DRAFT")));
+        ConfirmAccountingFactCapability capability = new ConfirmAccountingFactCapability(service);
+        Map<String, Object> input = Collections.<String, Object>singletonMap("factId", 90L);
+        assertTrue(capability.confirmationSummary(invocation(), input).contains("样品采购"));
+        when(service.confirmFact(90L, 1L, "boss", true))
+            .thenThrow(new ServiceException("项目核算已关闭，不能修改结算或成本记录"));
+
+        assertThrows(ServiceException.class, () -> capability.executeConfirmed(invocation(), input));
+        verify(service).confirmFact(90L, 1L, "boss", true);
     }
 
     private Map<String,Object> factRow(String status)

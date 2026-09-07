@@ -4,9 +4,10 @@
   <select id="selectProjectOverviews" resultType="map">
     select p.project_id projectId,p.project_no projectNo,p.project_name projectName,
       p.status status,p.main_owner_user_id mainOwnerUserId,p.main_owner_name mainOwnerName,
+      p.delivery_policy_version deliveryPolicyVersion,p.accounting_state accountingState,p.actual_end_date actualEndDate,
       (select count(*) from biz_project_kpi target
        where target.project_id=p.project_id and target.status='CURRENT') targetCount,
-      plan.plan_id planId,plan.plan_version planVersion,plan.cycle_end cycleEnd,
+      plan.plan_id planId,plan.plan_version planVersion,plan.cycle_end cycleEnd,plan.reward_policy_version rewardPolicyVersion,
       settlement.settlement_id settlementId,settlement.status settlementStatus,
       settlement.total_score totalScore,settlement.bonus_amount bonusAmount
     from biz_project p
@@ -19,13 +20,10 @@
     <choose>
       <when test="viewAll == true"/>
       <when test="boss == true">
-        and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}
+        and (coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId} or p.main_owner_user_id=#{userId})
       </when>
       <otherwise>
-        and (p.main_owner_user_id=#{userId} or exists(
-          select 1 from biz_project_member member_scope
-          where member_scope.project_id=p.project_id and member_scope.user_id=#{userId}
-            and member_scope.status='0'))
+        and p.main_owner_user_id=#{userId}
       </otherwise>
     </choose>
     <if test="projectIds != null and projectIds.size() > 0">
@@ -45,9 +43,9 @@
   </select>
   <insert id="insertPlan" parameterType="com.ruoyi.business.domain.BusinessProjectKpiPlan"
           useGeneratedKeys="true" keyProperty="planId">
-    insert into biz_project_kpi_plan(project_id,plan_version,cycle_type,cycle_start,cycle_end,bonus_mode,currency,
+    insert into biz_project_kpi_plan(project_id,plan_version,cycle_type,cycle_start,cycle_end,bonus_mode,reward_policy_version,currency,
       status,published_user_id,published_user_name,published_time,create_by,create_time,remark)
-    values(#{projectId},#{planVersion},#{cycleType},#{cycleStart},#{cycleEnd},#{bonusMode},#{currency},
+    values(#{projectId},#{planVersion},#{cycleType},#{cycleStart},#{cycleEnd},#{bonusMode},#{rewardPolicyVersion},#{currency},
       #{status},#{publishedUserId},#{publishedUserName},sysdate(),#{createBy},sysdate(),#{remark})
   </insert>
   <insert id="insertPlanItem" parameterType="com.ruoyi.business.domain.BusinessProjectKpiPlanItem"
@@ -71,7 +69,7 @@
   <select id="selectPlanSummaries" resultType="map">
     select plan.plan_id planId,plan.project_id projectId,plan.plan_version planVersion,
       plan.cycle_type cycleType,plan.cycle_start cycleStart,plan.cycle_end cycleEnd,
-      plan.bonus_mode bonusMode,plan.currency,plan.status,plan.published_user_name publishedUserName,
+      plan.bonus_mode bonusMode,plan.reward_policy_version rewardPolicyVersion,plan.currency,plan.status,plan.published_user_name publishedUserName,
       plan.published_time publishedTime,settlement.settlement_id settlementId,
       settlement.status settlementStatus,settlement.total_score totalScore,
       settlement.bonus_amount bonusAmount,settlement.submitted_time submittedTime,
@@ -87,7 +85,7 @@
   </select>
   <select id="selectPlanById" resultType="com.ruoyi.business.domain.BusinessProjectKpiPlan">
     select plan_id planId,project_id projectId,plan_version planVersion,cycle_type cycleType,
-      cycle_start cycleStart,cycle_end cycleEnd,bonus_mode bonusMode,currency,status,
+      cycle_start cycleStart,cycle_end cycleEnd,bonus_mode bonusMode,reward_policy_version rewardPolicyVersion,currency,status,
       published_user_id publishedUserId,published_user_name publishedUserName,published_time publishedTime,
       closed_time closedTime,voided_user_id voidedUserId,voided_user_name voidedUserName,
       voided_time voidedTime,create_by createBy,create_time createTime,remark
@@ -112,19 +110,29 @@
       bonus_amount bonusAmount,sort_order sortOrder
     from biz_project_bonus_tier where plan_id=#{planId} order by sort_order,tier_id
   </select>
-  <select id="selectSettlementById" resultType="com.ruoyi.business.domain.BusinessProjectKpiSettlement">
+  <sql id="settlementByIdSql">
     select settlement_id settlementId,plan_id planId,project_id projectId,period_start periodStart,
       period_end periodEnd,status,total_score totalScore,bonus_amount bonusAmount,currency,
+      (select policy.reward_policy_version from biz_project_kpi_plan policy
+       where policy.plan_id=biz_project_kpi_settlement.plan_id) rewardPolicyVersion,
       submitted_user_id submittedUserId,submitted_user_name submittedUserName,submitted_time submittedTime,
       reviewed_user_id reviewedUserId,reviewed_user_name reviewedUserName,reviewed_time reviewedTime,
        review_comment reviewComment,accounting_fact_id accountingFactId,voided_user_id voidedUserId,
        voided_user_name voidedUserName,voided_time voidedTime,version,
       create_by createBy,create_time createTime,update_by updateBy,update_time updateTime
     from biz_project_kpi_settlement where settlement_id=#{settlementId} and status&lt;&gt;'VOIDED' limit 1
+  </sql>
+  <select id="selectSettlementById" resultType="com.ruoyi.business.domain.BusinessProjectKpiSettlement">
+    <include refid="settlementByIdSql"/>
+  </select>
+  <select id="selectSettlementByIdForUpdate" resultType="com.ruoyi.business.domain.BusinessProjectKpiSettlement" flushCache="true" useCache="false">
+    <include refid="settlementByIdSql"/> for update
   </select>
   <select id="selectSettlementByPlanId" resultType="com.ruoyi.business.domain.BusinessProjectKpiSettlement">
     select settlement_id settlementId,plan_id planId,project_id projectId,period_start periodStart,
       period_end periodEnd,status,total_score totalScore,bonus_amount bonusAmount,currency,
+      (select policy.reward_policy_version from biz_project_kpi_plan policy
+       where policy.plan_id=biz_project_kpi_settlement.plan_id) rewardPolicyVersion,
       submitted_user_id submittedUserId,submitted_user_name submittedUserName,submitted_time submittedTime,
       reviewed_user_id reviewedUserId,reviewed_user_name reviewedUserName,reviewed_time reviewedTime,
        review_comment reviewComment,accounting_fact_id accountingFactId,voided_user_id voidedUserId,

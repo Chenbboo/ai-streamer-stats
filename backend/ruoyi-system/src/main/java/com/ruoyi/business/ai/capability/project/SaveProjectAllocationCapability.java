@@ -17,7 +17,7 @@ public class SaveProjectAllocationCapability implements AiConfirmableCapability
     private final IBusinessProjectService service;
     @Autowired public SaveProjectAllocationCapability(IBusinessProjectService service) { this.service = service; }
     @Override public String code() { return "project.allocation.save"; }
-    @Override public String description() { return "新增或调整项目成员的计划投入。根据 allocationId 更新时会生成新版本；修改前先读取项目经营配置。"; }
+    @Override public String description() { return "仅维护历史比例成本项目的百分比计划投入。ACTUAL_WORK_V1 项目应使用资源与实际工作流程，可先查询 project.work.get，不能用旧比例分摊。"; }
     @Override public String requiredPermission() { return "business:project:allocation"; }
     @Override public Map<String, Object> inputSchema()
     {
@@ -35,6 +35,7 @@ public class SaveProjectAllocationCapability implements AiConfirmableCapability
     }
     @Override public String confirmationSummary(AiCapabilityInvocation invocation, Map<String, Object> input)
     {
+        ProjectLegacyPlanningGuard.requireLegacy(service, invocation, input, false);
         return "将人员 " + AiCapabilityInputs.number(input.get("staffUserId")) + " 在项目 "
             + AiCapabilityInputs.number(input.get("projectId")) + " 的计划投入设为 "
             + AiCapabilityInputs.decimal(input.get("allocationValue")) + "% ，自 "
@@ -42,6 +43,7 @@ public class SaveProjectAllocationCapability implements AiConfirmableCapability
     }
     @Override public Map<String, Object> executeConfirmed(AiCapabilityInvocation invocation, Map<String, Object> input)
     {
+        ProjectLegacyPlanningGuard.requireLegacy(service, invocation, input, false);
         BusinessProjectStaffAllocation allocation = new BusinessProjectStaffAllocation();
         allocation.setAllocationId(AiCapabilityInputs.number(input.get("allocationId")));
         allocation.setProjectId(AiCapabilityInputs.number(input.get("projectId")));

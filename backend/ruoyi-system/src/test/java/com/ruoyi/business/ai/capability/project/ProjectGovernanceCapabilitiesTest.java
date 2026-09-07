@@ -22,12 +22,16 @@ import com.ruoyi.business.domain.BusinessProjectEffort;
 import com.ruoyi.business.domain.BusinessProjectMilestone;
 import com.ruoyi.business.domain.BusinessProjectRisk;
 import com.ruoyi.business.service.IBusinessProjectService;
+import com.ruoyi.business.attendance.BusinessFeishuService;
+import com.ruoyi.business.domain.BusinessProject;
+import com.ruoyi.business.domain.BusinessProjectMember;
 import com.ruoyi.common.exception.ServiceException;
 
 @ExtendWith(MockitoExtension.class)
 class ProjectGovernanceCapabilitiesTest
 {
     @Mock private IBusinessProjectService service;
+    @Mock private BusinessFeishuService attendance;
     private AiCapabilityInvocation invocation;
 
     @BeforeEach
@@ -69,13 +73,18 @@ class ProjectGovernanceCapabilitiesTest
     @Test
     void leaveAndEffortReviewValidateNaturalLanguageArgumentsBeforeExecution()
     {
-        SetProjectMemberLeaveCapability leave = new SetProjectMemberLeaveCapability(service);
+        SetProjectMemberLeaveCapability leave = new SetProjectMemberLeaveCapability(service,attendance);
         Map<String, Object> missingReason = map("operation", "MARK", "projectId", 17L,
             "memberUserId", 66L, "leaveDate", "2026-08-19");
         assertThrows(ServiceException.class, () -> leave.confirmationSummary(invocation, missingReason));
 
         Map<String, Object> cancel = map("operation", "CANCEL", "projectId", 17L,
             "memberUserId", 66L, "memberName", "施柳浩", "leaveDate", "2026-08-19");
+        BusinessProject project=new BusinessProject();project.setCompanyDeptId(110L);
+        BusinessProjectMember member=new BusinessProjectMember();member.setUserId(66L);member.setUserNameSnapshot("施柳浩");
+        project.setMembers(Collections.singletonList(member));
+        when(service.getProject(17L,23L,true,true)).thenReturn(project);
+        when(attendance.getPersonAuthority(eq(66L),eq(110L),any())).thenReturn(map("localLeaveAllowed",true));
         leave.executeConfirmed(invocation, cancel);
         verify(service).cancelMemberLeave(eq(17L), eq(66L), any(), eq(23L), eq("jianglan"), eq(true));
 

@@ -10,9 +10,13 @@ public interface BusinessAccountingMapper
 {
     List<Map<String,Object>> selectCompanies();
     List<Map<String,Object>> selectCategories();
-    List<Map<String,Object>> selectProjectOptions(@Param("userId") Long userId,@Param("viewAll") boolean viewAll);
+    default List<Map<String,Object>> selectProjectOptions(Long userId,boolean viewAll)
+    { return selectProjectOptions(userId,viewAll,false); }
+    List<Map<String,Object>> selectProjectOptions(@Param("userId") Long userId,@Param("viewAll") boolean viewAll,
+        @Param("includeClosed") boolean includeClosed);
     List<Map<String,Object>> selectFacts(Map<String,Object> query);
     BusinessOperatingFact selectFactById(Long factId);
+    BusinessOperatingFact selectFactByIdForUpdate(Long factId);
     BusinessOperatingFact selectFactByIdempotencyKey(String idempotencyKey);
     Map<String,Object> selectCategoryById(Long categoryId);
     Map<String,Object> selectCategoryByCode(String categoryCode);
@@ -20,6 +24,9 @@ public interface BusinessAccountingMapper
     BusinessOperatingFact selectConfirmedProjectDailySpend(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     Map<String,Object> selectProjectRevenueSummary(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     Map<String,Object> selectProjectForAccounting(Long projectId);
+    Map<String,Object> selectProjectForAccountingForUpdate(Long projectId);
+    Map<String,Object> selectProjectBonusSettlement(Long settlementId);
+    int countProjectSettlementDate(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     Long lockProjectAccounting(Long projectId);
     String selectAccountingMemberRole(@Param("projectId") Long projectId,@Param("userId") Long userId);
     int insertFact(BusinessOperatingFact fact);

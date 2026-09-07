@@ -36,6 +36,8 @@ class BusinessProjectControllerPermissionTest
     {
         Map<String, String> expected = new HashMap<String, String>();
         expected.put("list", "@ss.hasPermi('business:project:list')");
+        expected.put("settlementStatus", "@ss.hasAnyPermi('business:project:list,business:accounting:list,business:kpi:list')");
+        expected.put("closeAccounting", "@ss.hasPermi('business:accounting:close')");
         expected.put("edit", "@ss.hasPermi('business:project:edit')");
         expected.put("changeOwner", "@ss.hasPermi('business:project:manage')");
         expected.put("submitAcceptance", "@ss.hasAnyPermi('business:project:submit,business:project:manage')");
@@ -47,11 +49,12 @@ class BusinessProjectControllerPermissionTest
         expected.put("ownerDashboard", "@ss.hasPermi('business:project:owner:view')");
         expected.put("saveKpi", "@ss.hasAnyPermi('business:project:manage,business:kpi:manage')");
         expected.put("retireKpi", "@ss.hasAnyPermi('business:project:manage,business:kpi:manage')");
-        expected.put("staffCostPolicies", "@ss.hasPermi('business:staff:list')");
-        expected.put("saveStaffCostPolicy", "@ss.hasAnyPermi('business:staff:manage,business:staff:cost')");
-        expected.put("saveStaffCostPolicies", "@ss.hasAnyPermi('business:staff:manage,business:staff:cost')");
-        expected.put("deleteStaffCostPolicy", "@ss.hasAnyPermi('business:staff:manage,business:staff:cost')");
-        expected.put("voidStaffCostPolicy", "@ss.hasAnyPermi('business:staff:manage,business:staff:cost')");
+        expected.put("staffCostOptions", "@ss.hasPermi('business:staff:cost')");
+        expected.put("staffCostPolicies", "@ss.hasPermi('business:staff:cost')");
+        expected.put("saveStaffCostPolicy", "@ss.hasPermi('business:staff:cost')");
+        expected.put("saveStaffCostPolicies", "@ss.hasPermi('business:staff:cost')");
+        expected.put("deleteStaffCostPolicy", "@ss.hasPermi('business:staff:cost')");
+        expected.put("voidStaffCostPolicy", "@ss.hasPermi('business:staff:cost')");
         expected.put("saveStaffAllocation", "@ss.hasPermi('business:project:allocation')");
         expected.put("removeStaffAllocation", "@ss.hasPermi('business:project:allocation')");
         expected.put("confirmProjectEffortWeek", "@ss.hasPermi('business:project:allocation')");

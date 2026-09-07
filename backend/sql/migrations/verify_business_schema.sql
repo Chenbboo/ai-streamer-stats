@@ -814,11 +814,10 @@ where role.role_key='project_owner' and role.del_flag='0'
   and not exists(select 1 from sys_role_menu role_menu
     where role_menu.role_id=role.role_id and role_menu.menu_id=4004)
 union all
-select 'project_owner_missing_staff_cost_permission',count(*)
-from sys_role role
+select 'project_owner_has_implicit_staff_cost_permission',count(*)
+from sys_role role join sys_role_menu role_menu on role_menu.role_id=role.role_id
+join sys_menu cost_menu on cost_menu.menu_id=role_menu.menu_id and cost_menu.perms='business:staff:cost'
 where role.role_key='project_owner' and role.del_flag='0'
-  and not exists(select 1 from sys_role_menu role_menu
-    where role_menu.role_id=role.role_id and role_menu.menu_id=4022)
 union all
 select 'project_owner_has_full_staff_manage_permission',count(*)
 from sys_role role join sys_role_menu role_menu on role_menu.role_id=role.role_id
@@ -847,3 +846,110 @@ from information_schema.columns
 where table_schema=database()
   and ((table_name='biz_project_kpi' and column_name='source_ref_id')
     or (table_name='biz_project_kpi_plan_item' and column_name='source_ref_id'));
+
+-- P1 交付/核算版本与历史兼容。
+select 4-count(*) as missing_project_lifecycle_columns
+from information_schema.columns where table_schema=database() and table_name='biz_project'
+  and column_name in ('delivery_policy_version','accounting_state','settlement_policy_version','cost_policy_version');
+select count(*) as project_lifecycle_mismatch from biz_project
+where delivery_policy_version not in ('LEGACY_V1','SEPARATED_V1')
+   or accounting_state not in ('OPEN','CLOSED')
+   or (delivery_policy_version='LEGACY_V1' and status in ('CLOSED','CANCELED') and accounting_state<>'CLOSED');
+
+-- P2-P4：以 V067 最终权限及对象版本为准，不恢复 V060 的旧自动费率授权。
+select concat('missing_',required.table_name) check_name,(actual.table_name is null) problem_rows
+from (
+  select 'biz_project_template_version' table_name union all select 'biz_work_calendar'
+  union all select 'biz_work_unit_policy' union all select 'biz_project_plan_baseline'
+  union all select 'biz_project_plan_change' union all select 'biz_project_plan_forecast'
+  union all select 'biz_project_resource_assignment' union all select 'biz_project_resource_day'
+  union all select 'biz_project_person_day_lock' union all select 'biz_project_work_entry'
+  union all select 'biz_project_work_audit' union all select 'biz_project_work_event'
+  union all select 'biz_project_work_cost' union all select 'biz_incentive_rule'
+  union all select 'biz_incentive_award' union all select 'biz_incentive_event'
+  union all select 'biz_feishu_identity_scope' union all select 'biz_feishu_connection'
+  union all select 'biz_feishu_mapping' union all select 'biz_feishu_sync_run'
+  union all select 'biz_feishu_sync_chunk' union all select 'biz_feishu_observation'
+  union all select 'biz_feishu_issue' union all select 'biz_feishu_validation'
+  union all select 'biz_feishu_audit' union all select 'biz_feishu_reader_scope'
+) required left join information_schema.tables actual
+  on actual.table_schema=database() and actual.table_name=required.table_name;
+
+select 'missing_project_template_columns' check_name,2-count(*) problem_rows
+from information_schema.columns where table_schema=database() and table_name='biz_project'
+  and column_name in('template_version','template_snapshot_json')
+union all select 'missing_proposal_template_columns',2-count(*)
+from information_schema.columns where table_schema=database() and table_name='biz_project_proposal'
+  and column_name in('template_version','template_snapshot_json')
+union all select 'missing_proposal_resource_columns',4-count(*)
+from information_schema.columns where table_schema=database() and table_name='biz_project_proposal_staffing'
+  and column_name in('input_unit','input_quantity','calendar_id','unit_policy_id')
+union all select 'missing_rate_day_minutes',count(*)=0
+from information_schema.columns where table_schema=database() and table_name='biz_staff_cost_policy'
+  and column_name='rate_minutes_per_day'
+union all select 'staff_rate_monthly_denominator_nullable_mismatch',count(*)=0
+from information_schema.columns where table_schema=database() and table_name='biz_staff_cost_policy'
+  and column_name='standard_work_days' and is_nullable='YES'
+union all select 'missing_kpi_reward_policy_version',count(*)=0
+from information_schema.columns where table_schema=database() and table_name='biz_project_kpi_plan'
+  and column_name='reward_policy_version';
+
+select 'missing_standard_project_templates' check_name,3-count(*) problem_rows
+from biz_project_template_version where template_version in('LIGHT_V1','CONTROLLED_V1','SERVICE_V1') and status='ACTIVE'
+union all select 'actual_project_baseline_mismatch',count(*)
+from biz_project p left join (select project_id,max(baseline_version) latest_version
+  from biz_project_plan_baseline group by project_id) b on b.project_id=p.project_id
+where p.cost_policy_version='ACTUAL_WORK_V1'
+  and (p.baseline_version<1 or b.latest_version is null or b.latest_version<>p.baseline_version)
+union all select 'actual_project_has_legacy_active_allocation',count(*)
+from biz_project_staff_allocation a join biz_project p on p.project_id=a.project_id
+where p.cost_policy_version='ACTUAL_WORK_V1' and a.status='ACTIVE'
+union all select 'work_cost_null_semantics_mismatch',count(*)
+from biz_project_work_cost where (pricing_status='PRICED' and amount is null)
+  or (pricing_status='PENDING' and amount is not null)
+union all select 'closed_account_has_pending_confirmed_work_cost',count(*)
+from biz_project_work_entry e join biz_project p on p.project_id=e.project_id
+left join biz_project_work_cost c on c.entry_id=e.entry_id
+where p.accounting_state='CLOSED' and e.status='CONFIRMED' and e.is_current='1'
+  and (c.entry_id is null or c.pricing_status<>'PRICED'
+    or exists(select 1 from biz_project_work_event v where v.entry_id=e.entry_id and v.status<>'DONE'));
+
+select 'orphan_project_work_cost' check_name,count(*) problem_rows
+from biz_project_work_cost c left join biz_project_work_entry e on e.entry_id=c.entry_id
+where e.entry_id is null or e.project_id<>c.project_id or e.user_id<>c.user_id or e.biz_date<>c.biz_date
+union all select 'orphan_project_work_event',count(*)
+from biz_project_work_event v left join biz_project_work_entry e on e.entry_id=v.entry_id
+where e.entry_id is null or e.project_id<>v.project_id
+union all select 'orphan_incentive_rule_or_project',count(*)
+from biz_incentive_award a left join biz_incentive_rule r on r.rule_id=a.rule_id
+left join biz_project p on p.project_id=a.project_id
+where r.rule_id is null or p.project_id is null or r.project_id<>a.project_id
+union all select 'incentive_accounting_source_mismatch',count(*)
+from biz_incentive_award a left join biz_operating_fact f on f.fact_id=a.accounting_fact_id
+where a.accounting_fact_id is not null and (f.fact_id is null or f.project_id<>a.project_id
+  or coalesce(f.source_domain,'')<>'HR_INCENTIVE' or coalesce(f.source_type,'')<>'BONUS'
+  or coalesce(f.source_id,'')<>cast(a.award_id as char)
+  or coalesce(f.idempotency_key,'')<>concat('HR-INCENTIVE-AWARD-',a.award_id));
+
+select 'orphan_feishu_mapping' check_name,count(*) problem_rows
+from biz_feishu_mapping m left join biz_feishu_connection c on c.connection_id=m.connection_id
+left join sys_user u on u.user_id=m.user_id where c.connection_id is null or u.user_id is null
+union all select 'orphan_feishu_observation',count(*)
+from biz_feishu_observation o left join biz_feishu_mapping m on m.mapping_id=o.mapping_id
+left join biz_feishu_sync_run r on r.run_id=o.sync_run_id
+where m.mapping_id is null or r.run_id is null or m.user_id<>o.user_id
+  or m.connection_id<>o.connection_id or r.connection_id<>o.connection_id
+union all select 'feishu_multiple_current_revisions',count(*)
+from (select connection_id,source_key from biz_feishu_observation where is_current=1
+  group by connection_id,source_key having count(*)>1) duplicated;
+
+select 'missing_three_system_roots' check_name,3-count(*) problem_rows
+from sys_menu where parent_id=0 and path in('business','hcm','finance') and menu_type='M' and status='0'
+union all select 'missing_platform_root',count(*)=0
+from sys_menu where parent_id=0 and path='platform' and menu_type='M' and status='0'
+union all select 'missing_p2_p4_menu_pages',6-count(*)
+from sys_menu where menu_type='C' and status='0' and component in('business/resources/index',
+  'business/incentive/index','business/attendance/index','business/cost-policies/index','business/feishu/index')
+union all select 'missing_independent_product_roles',5-count(*)
+from sys_role where del_flag='0' and role_key in('finance_cost_manager','hcm_incentive_operator',
+  'hcm_incentive_approver','attendance_reader','feishu_integrator');

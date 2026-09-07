@@ -22,6 +22,8 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Date;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import static org.mockito.Mockito.lenient;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -61,6 +63,9 @@ class BusinessProjectServiceImplTest
 
     @Mock
     private BusinessAccountingMapper accountingMapper;
+    @Mock private com.ruoyi.business.mapper.BusinessProjectWorkMapper workMapper;
+    @Mock private com.ruoyi.business.mapper.BusinessIncentiveMapper incentiveMapper;
+    @Mock private com.ruoyi.business.attendance.BusinessFeishuService feishuService;
 
     @Mock
     private IBusinessAccountingService accountingService;
@@ -73,6 +78,14 @@ class BusinessProjectServiceImplTest
 
     @InjectMocks
     private BusinessProjectServiceImpl service;
+
+    @BeforeEach
+    void currentProjectLockUsesTestFixture()
+    {
+        lenient().when(feishuService.getAuthority(any(),any())).thenReturn(Collections.emptyMap());
+        lenient().when(mapper.selectProjectByIdForUpdate(anyLong()))
+            .thenAnswer(invocation -> mapper.selectProjectById(invocation.getArgument(0)));
+    }
 
     @Test
     void newKpiUsesSystemGeneratedCodeAndIgnoresClientCode()
@@ -375,6 +388,7 @@ class BusinessProjectServiceImplTest
         assertEquals(88L, created.getProjectId());
         assertEquals("ACTIVE", created.getStatus());
         assertEquals("APPROVED", created.getBaselineStatus());
+        assertEquals(Integer.valueOf(0),created.getBaselineVersion());
         assertEquals(66L, created.getSourceProposalId());
         assertEquals(9L, created.getApplicantUserId());
         assertEquals(23L, created.getSponsorOwnerUserId());
@@ -1496,8 +1510,8 @@ class BusinessProjectServiceImplTest
         when(mapper.selectNextStaffCostVersion(147L)).thenReturn(1);
 
         BusinessStaffCostPolicy input = new BusinessStaffCostPolicy();
-        input.setUserId(147L); input.setCostMode("DAILY"); input.setUnitCost(new BigDecimal("10000"));
-        input.setCurrency("USD"); input.setEffectiveFrom(java.sql.Date.valueOf("2026-08-19"));
+        input.setUserId(147L); input.setUnitCost(new BigDecimal("10000"));
+        input.setEffectiveFrom(java.sql.Date.valueOf("2026-08-19"));
 
         BusinessStaffCostPolicy saved = service.saveStaffCostPolicy(input, 8L, "boss8", true);
 
@@ -1506,6 +1520,37 @@ class BusinessProjectServiceImplTest
         assertEquals("CN", saved.getCountryRegion());
         assertEquals(new BigDecimal("21.75"), saved.getStandardWorkDays());
         verify(mapper).insertStaffCostPolicy(saved);
+    }
+
+    @Test
+    void standardProjectStartsAtTheSameBaselineVersionAsItsFirstSnapshot()
+    {
+        BusinessProjectProposal proposal=new BusinessProjectProposal();proposal.setProposalId(66L);proposal.setProjectName("基础交付项目");proposal.setTemplateVersion("LIGHT_V1");proposal.setApplicantUserId(9L);proposal.setSponsorOwnerUserId(23L);proposal.setManagementMode("LIGHT");proposal.setAcceptanceCriteria("交付文件");
+        when(mapper.selectActiveUserById(9L)).thenReturn(Collections.singletonMap("nickName","负责人"));when(mapper.selectActiveUserById(23L)).thenReturn(Collections.singletonMap("nickName","归属老板"));
+        final BusinessProject[] stored=new BusinessProject[1];doAnswer(call->{stored[0]=call.getArgument(0);stored[0].setProjectId(88L);return 1;}).when(mapper).insertProject(any());when(mapper.selectProjectById(88L)).thenAnswer(call->stored[0]);
+        BusinessProject created=service.createApprovedProject(proposal,9L,"owner");ArgumentCaptor<Map<String,Object>> baseline=mapCaptor();verify(workMapper).insertBaseline(baseline.capture());
+        assertEquals(Integer.valueOf(1),created.getBaselineVersion());assertEquals(created.getBaselineVersion(),baseline.getValue().get("baselineVersion"));assertEquals("ACTUAL_WORK_V1",created.getCostPolicyVersion());
+    }
+
+    @Test
+    void independentFinanceRoleCanMaintainExplicitDailyRateOnlyInsideOwnCompany()
+    {
+        when(mapper.countUserRoleByKey(80L,"company_owner")).thenReturn(0);
+        when(mapper.countUserRoleByKey(80L,"finance_cost_manager")).thenReturn(1);
+        when(mapper.selectStaffCompanyId(80L)).thenReturn(111L);when(mapper.selectStaffCompanyId(147L)).thenReturn(111L);
+        when(mapper.selectActiveUserById(147L)).thenReturn(Collections.singletonMap("nickName","成员"));
+        when(mapper.selectStaffCountryRegion(147L)).thenReturn("OTHER");
+        BusinessStaffCostPolicy input=new BusinessStaffCostPolicy();input.setUserId(147L);input.setCostMode("DAILY");input.setCurrency("USD");input.setUnitCost(new BigDecimal("100"));input.setRateMinutesPerDay(360);input.setEffectiveFrom(java.sql.Date.valueOf("2026-09-01"));
+        BusinessStaffCostPolicy saved=service.saveStaffCostPolicy(input,80L,"finance",true);
+        assertEquals("DAILY",saved.getCostMode());assertEquals("USD",saved.getCurrency());assertEquals(Integer.valueOf(360),saved.getRateMinutesPerDay());assertEquals(null,saved.getStandardWorkDays());
+        when(mapper.selectStaffCompanyId(147L)).thenReturn(222L);assertThrows(ServiceException.class,()->service.saveStaffCostPolicy(input,80L,"finance",true));
+    }
+
+    @Test
+    void projectResponsibilityWithoutIndependentRatePermissionCannotReadUnitRates()
+    {
+        when(mapper.selectManagedProjectMemberUserIds(10L)).thenReturn(Collections.singletonList(147L));
+        assertThrows(ServiceException.class,()->service.staffCostPolicies(147L,10L,false));verify(mapper,never()).selectStaffCostPolicies(anyLong());
     }
 
     @Test
@@ -1575,7 +1620,7 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
-    void unsupportedStaffRegionCannotCreateMonthlyCost()
+    void otherStaffRegionRequiresExplicitMonthlyDayBasis()
     {
         Map<String, Object> staff = new HashMap<String, Object>();
         staff.put("nickName", "其他地区员工");
@@ -1590,7 +1635,7 @@ class BusinessProjectServiceImplTest
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.saveStaffCostPolicy(input, 8L, "boss8", true));
 
-        assertTrue(error.getMessage().contains("中国或越南"));
+        assertTrue(error.getMessage().contains("标准工作天数"));
         verify(mapper, never()).insertStaffCostPolicy(any());
     }
 
@@ -1680,7 +1725,7 @@ class BusinessProjectServiceImplTest
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.saveStaffCostPolicy(input, 88L, "staff88", true));
 
-        assertTrue(error.getMessage().contains("项目负责人"));
+        assertTrue(error.getMessage().contains("范围授权"));
         verify(mapper, never()).selectActiveUserById(any());
         verify(mapper, never()).insertStaffCostPolicy(any());
     }
@@ -1921,6 +1966,7 @@ class BusinessProjectServiceImplTest
     @Test
     void employeeOnlyReportsDeviationAgainstOwnEffectivePlan()
     {
+        when(mapper.selectProjectById(90L)).thenReturn(project(90L, 9L, "ACTIVE", "APPROVED"));
         Map<String,Object> plan = new HashMap<String,Object>();
         plan.put("projectId", 90L); plan.put("plannedPercent", new BigDecimal("60"));
         when(mapper.selectMyEfforts(147L, new java.text.SimpleDateFormat("yyyy-MM-dd").format(new Date())))
@@ -1969,6 +2015,7 @@ class BusinessProjectServiceImplTest
     @Test
     void employeeOnLeaveCannotSubmitEffort()
     {
+        when(mapper.selectProjectById(90L)).thenReturn(project(90L,9L,"ACTIVE","APPROVED"));
         Map<String,Object> plan = new HashMap<String,Object>();
         plan.put("projectId",90L); plan.put("plannedPercent",new BigDecimal("20"));
         plan.put("reportStatus","LEAVE");
@@ -2145,6 +2192,102 @@ class BusinessProjectServiceImplTest
         policy.setStatus(status);
         policy.setReferenceCount(referenceCount);
         return policy;
+    }
+
+    @Test
+    void separatedDeliveryDoesNotWaitForKpiOrFreezeAccounting()
+    {
+        BusinessProject p = project(900L, 9L, "ACTIVE", "APPROVED");
+        p.setSponsorOwnerUserId(8L);
+        p.setDeliveryPolicyVersion("SEPARATED_V1"); p.setAccountingState("OPEN");
+        when(mapper.selectProjectById(900L)).thenReturn(p);
+        when(mapper.selectTasks(900L)).thenReturn(Collections.singletonList(completedTask("交付")));
+        when(mapper.updateProjectStatus(900L, "ACTIVE", "CLOSED", null, false, "boss8", 0)).thenReturn(1);
+        service.transition(900L, "CLOSE", "完成交付，结算续办", 8L, "boss8", true);
+        verify(kpiMapper, never()).selectPlanSummaries(900L);
+        verify(accountingService, never()).ensureProjectCanClose(900L);
+        verify(accountingService, never()).closeProjectAccounting(anyLong(), any(Date.class), any(String.class));
+        verify(mapper).closeProjectAllocations(eq(900L), any(Date.class), eq("boss8"));
+        verify(mapper).selectProjectByIdForUpdate(900L);
+    }
+
+    @Test
+    void separatedCancellationAlsoLeavesAccountingOpen()
+    {
+        BusinessProject p = project(900L, 9L, "ACTIVE", "APPROVED");
+        p.setSponsorOwnerUserId(8L); p.setDeliveryPolicyVersion("SEPARATED_V1"); p.setAccountingState("OPEN");
+        when(mapper.selectProjectById(900L)).thenReturn(p);
+        when(mapper.updateProjectStatus(900L, "ACTIVE", "CANCELED", null, false, "boss8", 0)).thenReturn(1);
+        service.transition(900L, "CANCEL", "停止交付", 8L, "boss8", true);
+        verify(accountingService, never()).closeProjectAccounting(anyLong(), any(Date.class), any(String.class));
+        verify(mapper).cancelOpenProjectTasks(900L, "boss8");
+    }
+
+    @Test
+    void sponsorCanCloseSeparatedAccountingAfterDeliveryWithNoRequiredKpi()
+    {
+        BusinessProject p = separatedClosedProject();
+        when(mapper.selectProjectById(901L)).thenReturn(p);
+        when(mapper.closeAccounting(901L, 0, "boss8")).thenReturn(1);
+        Map<String, Object> result = service.closeAccounting(901L, 0, "所有成本已核对", 8L, "boss8", true);
+        assertEquals("CLOSED", result.get("accountingState"));
+        assertEquals(1, result.get("version"));
+        verify(accountingService).closeProjectAccounting(901L, p.getActualEndDate(), "boss8");
+        verify(mapper).insertEvent(any(Map.class));
+    }
+
+    @Test
+    void pendingKpiOrFactBlocksIndependentAccountingClose()
+    {
+        BusinessProject p = separatedClosedProject();
+        when(mapper.selectProjectById(901L)).thenReturn(p);
+        when(mapper.countPendingProjectKpi(901L)).thenReturn(1);
+        when(accountingMapper.countProjectUnsettledFacts(901L)).thenReturn(2);
+        Map<String, Object> status = service.settlementStatus(901L, 8L, false, true);
+        assertEquals(false, status.get("canClose"));
+        assertEquals(1, status.get("pendingKpiCount")); assertEquals(2, status.get("pendingFactCount"));
+        assertThrows(ServiceException.class, () -> service.closeAccounting(901L, 0, "关闭", 8L, "boss8", true));
+        verify(accountingService, never()).closeProjectAccounting(anyLong(), any(Date.class), any(String.class));
+    }
+
+    @Test
+    void ownerOtherBossAndTechnicalAdminCannotSignOffAccounting()
+    {
+        when(mapper.selectProjectById(901L)).thenReturn(separatedClosedProject());
+        assertThrows(ServiceException.class, () -> service.closeAccounting(901L, 0, "关闭", 9L, "owner", false));
+        assertThrows(ServiceException.class, () -> service.closeAccounting(901L, 0, "关闭", 7L, "other", true));
+        assertThrows(ServiceException.class, () -> service.closeAccounting(901L, 0, "关闭", 1L, "admin", true));
+        verify(mapper, never()).closeAccounting(anyLong(), any(Integer.class), any(String.class));
+    }
+
+    @Test
+    void staleOrRepeatedCloseDoesNotWriteAgain()
+    {
+        BusinessProject p = separatedClosedProject();
+        when(mapper.selectProjectById(901L)).thenReturn(p);
+        assertThrows(ServiceException.class, () -> service.closeAccounting(901L, 2, "关闭", 8L, "boss8", true));
+        p.setAccountingState("CLOSED");
+        assertThrows(ServiceException.class, () -> service.closeAccounting(901L, 0, "再次关闭", 8L, "boss8", true));
+        verify(accountingService, never()).closeProjectAccounting(anyLong(), any(Date.class), any(String.class));
+    }
+
+    @Test
+    void legacyTerminalAccountingCannotBeReopenedOrClosedByNewEndpoint()
+    {
+        BusinessProject p = separatedClosedProject(); p.setDeliveryPolicyVersion("LEGACY_V1");
+        p.setAccountingState(null);
+        when(mapper.selectProjectById(901L)).thenReturn(p);
+        assertEquals("CLOSED", service.settlementStatus(901L, 8L, false, true).get("accountingState"));
+        assertThrows(ServiceException.class, () -> service.closeAccounting(901L, 0, "关闭", 8L, "boss8", true));
+        verify(mapper, never()).closeAccounting(anyLong(), any(Integer.class), any(String.class));
+    }
+
+    private BusinessProject separatedClosedProject()
+    {
+        BusinessProject p = project(901L, 9L, "CLOSED", "APPROVED");
+        p.setSponsorOwnerUserId(8L); p.setDeliveryPolicyVersion("SEPARATED_V1"); p.setAccountingState("OPEN");
+        p.setActualEndDate(java.sql.Date.valueOf("2026-09-01"));
+        return p;
     }
 
     private BusinessProject project(Long id, Long ownerId, String status, String baselineStatus)

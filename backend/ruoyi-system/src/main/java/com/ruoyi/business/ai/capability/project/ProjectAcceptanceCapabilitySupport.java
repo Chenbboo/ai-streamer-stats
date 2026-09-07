@@ -15,6 +15,7 @@ import com.ruoyi.business.domain.BusinessProjectRisk;
 import com.ruoyi.business.domain.BusinessProjectTask;
 import com.ruoyi.business.service.IBusinessProjectKpiService;
 import com.ruoyi.business.service.IBusinessProjectService;
+import com.ruoyi.business.support.BusinessProjectLifecycle;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.StringUtils;
 
@@ -68,10 +69,12 @@ public class ProjectAcceptanceCapabilitySupport
             if ("CONFIRMED".equals(text(plan.get("settlementStatus")))) confirmedKpiSettlementCount++;
         }
         boolean kpiReadyForClose = kpiPlanCount > 0 && confirmedKpiSettlementCount == kpiPlanCount;
+        boolean kpiRequiredForDelivery = !BusinessProjectLifecycle.isSeparated(detail);
 
         List<String> attachments = attachments(acceptance.getAttachmentUrls());
         boolean canApprove = taskCount > 0 && completedTaskCount == taskCount
-            && completedMilestoneCount == milestoneCount && openHighRiskCount == 0 && kpiReadyForClose;
+            && completedMilestoneCount == milestoneCount && openHighRiskCount == 0
+            && (!kpiRequiredForDelivery || kpiReadyForClose);
         List<String> checks = new ArrayList<String>();
         checks.add("已提交第 " + acceptance.getSubmissionVersion() + " 版验收资料");
         checks.add("一次性任务已完成 " + completedTaskCount + "/" + taskCount + " 项");
@@ -84,9 +87,13 @@ public class ProjectAcceptanceCapabilitySupport
         if (completedMilestoneCount < milestoneCount)
             warnings.add("仍有 " + (milestoneCount - completedMilestoneCount) + " 个里程碑未完成");
         if (openHighRiskCount > 0) warnings.add("仍有 " + openHighRiskCount + " 项未关闭的高风险或严重风险");
-        if (kpiPlanCount == 0) warnings.add("项目尚未发布KPI及奖金方案，暂不能验收结项");
-        else if (!kpiReadyForClose)
-            warnings.add("仍有 " + (kpiPlanCount - confirmedKpiSettlementCount) + " 个KPI周期尚未完成老板确认，暂不能验收结项");
+        if (kpiRequiredForDelivery && kpiPlanCount == 0)
+            warnings.add("项目尚未发布KPI及奖金方案，暂不能验收结项");
+        else if (kpiRequiredForDelivery && !kpiReadyForClose)
+            warnings.add("仍有 " + (kpiPlanCount - confirmedKpiSettlementCount) + " 个KPI周期尚未完成结算确认，暂不能验收结项");
+        else if (!kpiRequiredForDelivery && confirmedKpiSettlementCount < kpiPlanCount)
+            warnings.add("仍有 " + (kpiPlanCount - confirmedKpiSettlementCount)
+                + " 个KPI周期待结算，不阻断交付验收；核算开放时可由原有权限人员继续办理");
         if (attachments.isEmpty()) warnings.add("负责人没有上传交付凭证，请先核对成果说明和交付物");
 
         Map<String, Object> result = new LinkedHashMap<String, Object>();
@@ -101,6 +108,11 @@ public class ProjectAcceptanceCapabilitySupport
         result.put("kpiPlanCount", kpiPlanCount);
         result.put("confirmedKpiSettlementCount", confirmedKpiSettlementCount);
         result.put("kpiReadyForClose", kpiReadyForClose);
+        result.put("kpiRequiredForDelivery", kpiRequiredForDelivery);
+        result.put("pendingKpiSettlementCount", kpiPlanCount - confirmedKpiSettlementCount);
+        result.put("closureEffect", kpiRequiredForDelivery
+            ? "沿用旧流程，项目结项同时关闭核算"
+            : "仅关闭项目交付，核算状态保持不变；既有周期KPI及合法历史费用按权限继续处理，核算需单独关闭");
         result.put("attachmentCount", attachments.size());
         result.put("attachmentList", attachments);
         result.put("canApprove", canApprove);
@@ -129,6 +141,8 @@ public class ProjectAcceptanceCapabilitySupport
         result.put("projectName", value.getProjectName()); result.put("companyName", value.getCompanyName());
         result.put("mainOwnerName", value.getMainOwnerName()); result.put("objective", value.getObjective());
         result.put("status", value.getStatus()); result.put("managementMode", value.getManagementMode());
+        result.put("deliveryPolicyVersion", BusinessProjectLifecycle.isSeparated(value) ? "SEPARATED_V1" : "LEGACY_V1");
+        result.put("accountingState", BusinessProjectLifecycle.isAccountingClosed(value) ? "CLOSED" : "OPEN");
         return result;
     }
 

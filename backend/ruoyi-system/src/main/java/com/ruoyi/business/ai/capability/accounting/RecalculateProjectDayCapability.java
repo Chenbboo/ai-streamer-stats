@@ -16,7 +16,7 @@ public class RecalculateProjectDayCapability implements AiConfirmableCapability
     private final IBusinessAccountingService service;
     @Autowired public RecalculateProjectDayCapability(IBusinessAccountingService service) { this.service = service; }
     @Override public String code() { return "accounting.project-day.recalculate"; }
-    @Override public String description() { return "根据已确认收支、人员成本政策、项目投入和请假重新核算指定项目某日经营结果，并生成新版本。"; }
+    @Override public String description() { return "按项目成本政策版本、已确认收支和投入依据重新核算指定项目某日经营结果并生成新版本。旧版保留历史假勤规则；飞书只读同步不会直接修改投入或成本。分离策略项目交付后可在核算开放时重算执行期间日期，已关账项目不能直接重算。"; }
     @Override public String requiredPermission() { return "business:accounting:recalculate"; }
     @Override public Map<String, Object> inputSchema()
     {

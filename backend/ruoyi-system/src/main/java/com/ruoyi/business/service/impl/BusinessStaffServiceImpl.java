@@ -69,13 +69,14 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
             Map<String, Object> row = toView(user, profile);
             boolean costEligibleStaff = profile != null && !"LEFT".equals(profile.getEmploymentStatus());
             boolean activeStaff = "0".equals(user.getStatus()) && costEligibleStaff;
-            boolean companyOwner = activeStaff && boss
+            boolean companyOwner = activeStaff && boss && staffCostManager
                 && sameLong(profile.getCompanyLeaderUserId(), viewerUserId);
             boolean projectOwnerCostManager = activeStaff && projectOwner
                 && managedProjectMemberIds.contains(user.getUserId());
             boolean canManageCost = (administrator && costEligibleStaff) || companyOwner || projectOwnerCostManager;
             row.put("canViewCost", canManageCost);
             row.put("canManageCost", canManageCost);
+            row.put("rawCostVisible",canManageCost);
             rows.add(row);
         }
         TableDataInfo result = new TableDataInfo();

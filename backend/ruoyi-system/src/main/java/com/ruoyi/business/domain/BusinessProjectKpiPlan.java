@@ -15,6 +15,7 @@ public class BusinessProjectKpiPlan extends BaseEntity
     @JsonFormat(pattern = "yyyy-MM-dd") private Date cycleStart;
     @JsonFormat(pattern = "yyyy-MM-dd") private Date cycleEnd;
     private String bonusMode;
+    private String rewardPolicyVersion;
     private String currency;
     private String status;
     private Long publishedUserId;
@@ -41,6 +42,8 @@ public class BusinessProjectKpiPlan extends BaseEntity
     public Date getCycleEnd() { return cycleEnd; }
     public void setCycleEnd(Date cycleEnd) { this.cycleEnd = cycleEnd; }
     public String getBonusMode() { return bonusMode; }
+    public String getRewardPolicyVersion() { return rewardPolicyVersion; }
+    public void setRewardPolicyVersion(String value) { rewardPolicyVersion = value; }
     public void setBonusMode(String bonusMode) { this.bonusMode = bonusMode; }
     public String getCurrency() { return currency; }
     public void setCurrency(String currency) { this.currency = currency; }

@@ -21,8 +21,12 @@ import com.ruoyi.business.domain.BusinessStaffCostPolicy;
 
 public interface IBusinessProjectService
 {
+    List<Map<String,Object>> staffCostOptions(Long userId,boolean staffCostManager);
     List<BusinessProject> listProjects(Map<String, Object> query, Long userId, boolean viewAll, boolean boss);
     BusinessProject getProject(Long projectId, Long userId, boolean viewAll, boolean boss);
+    Map<String, Object> settlementStatus(Long projectId, Long userId, boolean viewAll, boolean boss);
+    Map<String, Object> closeAccounting(Long projectId, Integer version, String reason,
+        Long userId, String userName, boolean boss);
     BusinessProject createProject(BusinessProject project, Long userId, String userName);
     BusinessProject createApprovedProject(BusinessProjectProposal proposal, Long reviewerUserId, String reviewerUserName);
     BusinessProject updateProject(BusinessProject project, Long userId, String userName, boolean boss);

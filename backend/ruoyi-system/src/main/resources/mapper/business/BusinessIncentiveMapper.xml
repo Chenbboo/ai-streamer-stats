@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.business.mapper.BusinessIncentiveMapper">
+  <select id="selectProjects" resultType="map">
+    select project_id projectId,project_no projectNo,project_name projectName,status,
+      company_dept_id companyDeptId,base_currency currency,accounting_state accountingState
+    from biz_project where del_flag='0'
+    <if test="viewAll == false">and (main_owner_user_id=#{userId} or coalesce(sponsor_owner_user_id,initiator_user_id)=#{userId})</if>
+    order by update_time desc,project_id desc
+  </select>
+  <sql id="ruleColumns">
+    rule_id ruleId,project_id projectId,rule_version ruleVersion,rule_name ruleName,policy_version policyVersion,
+    amount,currency,min_score minScore,status,created_user_id createdUserId,created_user_name createdUserName,
+    reason,create_by createBy,create_time createTime,update_by updateBy,update_time updateTime
+  </sql>
+  <select id="selectRules" resultType="com.ruoyi.business.domain.BusinessIncentiveRule">
+    select <include refid="ruleColumns"/> from biz_incentive_rule where project_id=#{projectId} order by rule_version desc
+  </select>
+  <select id="selectRule" resultType="com.ruoyi.business.domain.BusinessIncentiveRule">
+    select <include refid="ruleColumns"/> from biz_incentive_rule where rule_id=#{ruleId}
+  </select>
+  <select id="nextRuleVersion" resultType="int">
+    select coalesce(max(rule_version),0)+1 from biz_incentive_rule where project_id=#{projectId}
+  </select>
+  <insert id="insertRule" parameterType="com.ruoyi.business.domain.BusinessIncentiveRule" useGeneratedKeys="true" keyProperty="ruleId">
+    insert into biz_incentive_rule(project_id,rule_version,rule_name,policy_version,amount,currency,min_score,status,
+      created_user_id,created_user_name,reason,create_by,create_time)
+    values(#{projectId},#{ruleVersion},#{ruleName},#{policyVersion},#{amount},#{currency},#{minScore},#{status},
+      #{createdUserId},#{createdUserName},#{reason},#{createBy},sysdate())
+  </insert>
+  <update id="retireRule">
+    update biz_incentive_rule set status='RETIRED',update_by=#{userName},update_time=sysdate()
+    where rule_id=#{ruleId} and status='ACTIVE'
+  </update>
+  <sql id="awardColumns">
+    a.award_id awardId,a.project_id projectId,a.company_dept_id companyDeptId,a.rule_id ruleId,a.rule_version ruleVersion,
+    a.rule_name ruleName,a.policy_version policyVersion,a.settlement_id settlementId,a.score_snapshot scoreSnapshot,
+    a.amount,a.currency,a.biz_date bizDate,a.reason,a.request_key requestKey,a.status,
+    a.applicant_user_id applicantUserId,a.applicant_user_name applicantUserName,
+    a.approved_user_id approvedUserId,a.approved_user_name approvedUserName,a.approved_time approvedTime,
+    a.accounting_fact_id accountingFactId,a.review_comment reviewComment,a.version,
+    a.create_by createBy,a.create_time createTime,a.update_by updateBy,a.update_time updateTime,
+    coalesce(f.status,'NOT_CREATED') costStatus
+  </sql>
+  <sql id="awardFrom">from biz_incentive_award a left join biz_operating_fact f on f.fact_id=a.accounting_fact_id</sql>
+  <select id="selectAwards" resultType="com.ruoyi.business.domain.BusinessIncentiveAward">
+    select <include refid="awardColumns"/> <include refid="awardFrom"/>
+    where a.project_id=#{projectId} order by a.award_id desc
+  </select>
+  <select id="selectAward" resultType="com.ruoyi.business.domain.BusinessIncentiveAward">
+    select <include refid="awardColumns"/> <include refid="awardFrom"/> where a.award_id=#{awardId}
+  </select>
+  <select id="selectAwardForUpdate" resultType="com.ruoyi.business.domain.BusinessIncentiveAward" flushCache="true" useCache="false">
+    select <include refid="awardColumns"/> <include refid="awardFrom"/> where a.award_id=#{awardId} for update
+  </select>
+  <select id="selectAwardByRequest" resultType="com.ruoyi.business.domain.BusinessIncentiveAward">
+    select <include refid="awardColumns"/> <include refid="awardFrom"/>
+    where a.project_id=#{projectId} and a.request_key=#{requestKey}
+  </select>
+  <insert id="insertAward" parameterType="com.ruoyi.business.domain.BusinessIncentiveAward" useGeneratedKeys="true" keyProperty="awardId">
+    insert into biz_incentive_award(project_id,company_dept_id,rule_id,rule_version,rule_name,policy_version,
+      settlement_id,score_snapshot,amount,currency,biz_date,reason,request_key,status,
+      applicant_user_id,applicant_user_name,version,create_by,create_time)
+    values(#{projectId},#{companyDeptId},#{ruleId},#{ruleVersion},#{ruleName},#{policyVersion},
+      #{settlementId},#{scoreSnapshot},#{amount},#{currency},#{bizDate},#{reason},#{requestKey},#{status},
+      #{applicantUserId},#{applicantUserName},0,#{createBy},sysdate())
+  </insert>
+  <update id="transitionAward">
+    update biz_incentive_award set status=#{toStatus},review_comment=#{reason},
+      <if test="toStatus == 'APPROVED' and fromStatus != 'APPROVED'">
+        approved_user_id=#{userId},approved_user_name=#{userName},approved_time=sysdate(),
+      </if>
+      <if test="factId != null">accounting_fact_id=#{factId},</if>
+      version=version+1,update_by=#{userName},update_time=sysdate()
+    where award_id=#{awardId} and status=#{fromStatus} and version=#{version}
+  </update>
+  <select id="countPendingAwards" resultType="int">
+    select count(*) from biz_incentive_award where project_id=#{projectId} and status in('DRAFT','SUBMITTED','RETURNED')
+  </select>
+  <select id="countExistingEvidenceAward" resultType="int">
+    select count(*) from biz_incentive_award where project_id=#{projectId} and rule_id=#{ruleId}
+      and settlement_id=#{settlementId} and status&lt;&gt;'CANCELED'
+  </select>
+  <select id="selectConfirmedKpis" resultType="map">
+    select s.settlement_id settlementId,s.plan_id planId,p.plan_version planVersion,s.period_start periodStart,
+      s.period_end periodEnd,s.total_score totalScore,p.reward_policy_version rewardPolicyVersion
+    from biz_project_kpi_settlement s join biz_project_kpi_plan p on p.plan_id=s.plan_id
+    where s.project_id=#{projectId} and s.status='CONFIRMED' and p.reward_policy_version='INDEPENDENT_V1'
+    order by s.period_end desc,s.settlement_id desc
+  </select>
+  <select id="selectLegacyBonuses" resultType="map">
+    select s.settlement_id settlementId,s.plan_id planId,p.plan_version planVersion,s.period_start periodStart,
+      s.period_end periodEnd,s.total_score totalScore,s.bonus_amount bonusAmount,s.currency,s.status,
+      s.accounting_fact_id accountingFactId,coalesce(f.status,'NOT_CREATED') costStatus,
+      'LEGACY_LINKED' rewardPolicyVersion,'NOT_RECORDED' paymentStatus,'NOT_RECORDED' allocationStatus
+    from biz_project_kpi_settlement s join biz_project_kpi_plan p on p.plan_id=s.plan_id
+    left join biz_operating_fact f on f.fact_id=s.accounting_fact_id
+    where s.project_id=#{projectId} and p.reward_policy_version='LEGACY_LINKED' and s.status&lt;&gt;'VOIDED'
+    order by s.period_end desc,s.settlement_id desc
+  </select>
+  <select id="selectEvents" resultType="map">
+    select event_id eventId,project_id projectId,award_id awardId,event_type eventType,from_status fromStatus,
+      to_status toStatus,operator_user_id operatorUserId,operator_name operatorName,reason,create_time createTime
+    from biz_incentive_event where project_id=#{projectId} order by event_id desc
+  </select>
+  <insert id="insertEvent" parameterType="map">
+    insert into biz_incentive_event(project_id,award_id,event_type,from_status,to_status,operator_user_id,operator_name,reason,create_time)
+    values(#{projectId},#{awardId},#{eventType},#{fromStatus},#{toStatus},#{operatorUserId},#{operatorName},#{reason},sysdate())
+  </insert>
+  <update id="voidSourceFact">
+    update biz_operating_fact set status='VOIDED',version=version+1,update_by=#{userName},update_time=sysdate()
+    where fact_id=#{factId} and version=#{version} and source_domain='HR_INCENTIVE' and source_type='BONUS'
+      and status in('DRAFT','RETURNED')
+  </update>
+  <update id="resubmitSourceFact">
+    update biz_operating_fact set status='DRAFT',version=version+1,update_by=#{userName},update_time=sysdate()
+    where fact_id=#{factId} and version=#{version} and source_domain='HR_INCENTIVE' and source_type='BONUS' and status='RETURNED'
+  </update>
+</mapper>

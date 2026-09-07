@@ -17,6 +17,7 @@ import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 import com.ruoyi.business.domain.BusinessOperatingFact;
 import com.ruoyi.business.domain.BusinessProject;
 import com.ruoyi.business.domain.BusinessProjectBonusTier;
@@ -30,6 +31,7 @@ import com.ruoyi.business.mapper.BusinessProjectMapper;
 import com.ruoyi.business.service.IBusinessAccountingService;
 import com.ruoyi.business.service.IBusinessProjectKpiService;
 import com.ruoyi.business.service.BusinessFileService;
+import com.ruoyi.business.support.BusinessProjectLifecycle;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.StringUtils;
 
@@ -84,21 +86,29 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         sourceOptions.put("tasks", safe(projectMapper.selectTasks(projectId)));
         sourceOptions.put("milestones", safe(projectMapper.selectMilestones(projectId)));
         result.put("sourceOptions", sourceOptions);
-        result.put("canManage", canManage(project, userId, viewAll, boss));
-        result.put("canSettle", userId != null && userId.equals(project.getMainOwnerUserId()));
+        boolean accountingOpen = !BusinessProjectLifecycle.isAccountingClosed(project);
+        result.put("canManage", canManage(project, userId, viewAll, boss) && accountingOpen
+            && "ACTIVE".equals(project.getStatus()));
+        result.put("canVoid", canManage(project, userId, viewAll, boss) && accountingOpen);
+        result.put("canReview", canReview(project, userId, viewAll, boss) && accountingOpen
+            && (selectedPlan == null || !"INDEPENDENT_V1".equals(selectedPlan.getRewardPolicyVersion())));
+        result.put("canSettle", userId != null && userId.equals(project.getMainOwnerUserId())
+            && accountingOpen && allowsSettlement(project));
+        result.put("canConfirm", Boolean.TRUE.equals(result.get("canSettle"))
+            && (selectedPlan == null || selectedPlan.getSettlement() == null
+                || !"PENDING_COST".equals(selectedPlan.getSettlement().getDataStatus())));
         return result;
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Map<String, Object> publishPlan(BusinessProjectKpiPlan plan, Long userId, String userName,
         boolean viewAll, boolean boss)
     {
         if (plan == null || plan.getProjectId() == null) throw new ServiceException("请选择项目");
-        BusinessProject project = requireProject(plan.getProjectId());
+        BusinessProject project = requireProjectForUpdate(plan.getProjectId());
         requireManage(project, userId, viewAll, boss);
-        if (!"CNY".equalsIgnoreCase(project.getBaseCurrency()))
-            throw new ServiceException("人民币奖金阶梯只能发布到本位币为 CNY 的项目");
+        BusinessProjectLifecycle.requireAccountingOpen(project);
         ensureProjectAllowsPlan(project);
         validatePlanPeriod(plan);
         if (mapper.countOverlappingPlans(plan.getProjectId(), plan.getCycleStart(), plan.getCycleEnd()) > 0)
@@ -108,12 +118,14 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         for (BusinessProjectKpi target : safe(projectMapper.selectProjectKpis(plan.getProjectId())))
             if ("CURRENT".equals(target.getStatus())) targets.add(target);
         validateTargets(targets);
-        List<BusinessProjectBonusTier> tiers = validateTiers(plan.getTiers());
+        // Existing plans keep LEGACY_LINKED. A new publication always measures project results only.
+        List<BusinessProjectBonusTier> tiers = Collections.emptyList();
 
         plan.setPlanId(null);
         plan.setPlanVersion(mapper.selectNextPlanVersion(plan.getProjectId()));
-        plan.setBonusMode("LADDER");
-        plan.setCurrency("CNY");
+        plan.setRewardPolicyVersion("INDEPENDENT_V1");
+        plan.setBonusMode("NONE");
+        plan.setCurrency(project.getBaseCurrency());
         plan.setStatus("PUBLISHED");
         plan.setPublishedUserId(userId);
         plan.setPublishedUserName(userName);
@@ -141,7 +153,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         settlement.setPeriodStart(plan.getCycleStart());
         settlement.setPeriodEnd(plan.getCycleEnd());
         settlement.setStatus("DRAFT");
-        settlement.setCurrency("CNY");
+        settlement.setCurrency(project.getBaseCurrency());
         settlement.setCreateBy(userName);
         mapper.insertSettlement(settlement);
         addEvent(project, "KPI_PLAN_PUBLISHED", userId, userName,
@@ -150,15 +162,17 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void voidPlan(Long planId, Long userId, String userName, boolean viewAll, boolean boss)
     {
         BusinessProjectKpiPlan plan = mapper.selectPlanById(planId);
         if (plan == null) throw new ServiceException("KPI方案不存在");
-        BusinessProject project = requireProject(plan.getProjectId());
+        BusinessProject project = requireProjectForUpdate(plan.getProjectId());
         requireManage(project, userId, viewAll, boss);
+        BusinessProjectLifecycle.requireAccountingOpen(project);
         BusinessProjectKpiSettlement settlement = mapper.selectSettlementByPlanId(planId);
         if (settlement == null) throw new ServiceException("KPI方案结算不存在，不能作废");
+        settlement = requireSettlementForUpdate(settlement.getSettlementId());
         if (!Arrays.asList("DRAFT", "RETURNED").contains(settlement.getStatus())
             || settlement.getAccountingFactId() != null)
             throw new ServiceException("仅可作废未提交、未入账的KPI方案");
@@ -171,12 +185,13 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public BusinessProjectKpiSettlement saveResults(Long settlementId, BusinessProjectKpiSettlement input,
         Long userId, String userName, boolean viewAll)
     {
         BusinessProjectKpiSettlement settlement = requireSettlement(settlementId);
-        BusinessProject project = requireProject(settlement.getProjectId());
+        BusinessProject project = requireProjectForUpdate(settlement.getProjectId());
+        settlement = requireSettlementForUpdate(settlementId);
         requireOwner(project, userId, viewAll);
         ensureProjectAllowsSettlement(project);
         if (!Arrays.asList("DRAFT", "RETURNED").contains(settlement.getStatus()))
@@ -207,18 +222,26 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         List<BusinessProjectKpiResult> stored = mapper.selectSettlementResults(settlementId);
         List<BusinessProjectKpiResult> live = mergeAutomaticResults(settlement, items, stored, userId, userName);
         BigDecimal total = totalScore(items, live);
-        BigDecimal bonus = live.size() == items.size() ? matchBonus(mapper.selectBonusTiers(settlement.getPlanId()), total) : null;
+        BigDecimal bonus = independent(settlement) ? null
+            : live.size() == items.size() ? matchBonus(mapper.selectBonusTiers(settlement.getPlanId()), total) : null;
         if (mapper.updateSettlementPreview(settlementId, total, bonus, userName, settlement.getVersion()) != 1)
             throw changed();
-        return detail(settlementId);
+        BusinessProjectKpiSettlement saved = detail(settlementId);
+        if (independent(settlement))
+        {
+            saved.setResults(live); saved.setTotalScore(total); saved.setBonusAmount(null);
+            saved.setDataStatus(total == null ? "PENDING_COST" : "READY");
+        }
+        return saved;
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public BusinessProjectKpiSettlement submit(Long settlementId, Long userId, String userName, boolean viewAll)
     {
         BusinessProjectKpiSettlement settlement = requireSettlement(settlementId);
-        BusinessProject project = requireProject(settlement.getProjectId());
+        BusinessProject project = requireProjectForUpdate(settlement.getProjectId());
+        settlement = requireSettlementForUpdate(settlementId);
         requireOwner(project, userId, viewAll);
         ensureProjectAllowsSettlement(project);
         if (!Arrays.asList("DRAFT", "RETURNED").contains(settlement.getStatus()))
@@ -229,29 +252,41 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         List<BusinessProjectKpiResult> results = mapper.selectSettlementResults(settlementId);
         requireComplete(items, results);
         BigDecimal total = totalScore(items, results);
-        BigDecimal bonus = matchBonus(mapper.selectBonusTiers(settlement.getPlanId()), total);
+        boolean independent = independent(settlement);
+        BigDecimal bonus = independent ? null : matchBonus(mapper.selectBonusTiers(settlement.getPlanId()), total);
         if (mapper.submitSettlement(settlementId, total, bonus, userId, userName, settlement.getVersion()) != 1)
             throw changed();
+        // A returned legacy review retains its reviewer instead of becoming owner self-confirmation.
+        if (!independent && "RETURNED".equals(settlement.getStatus()) && settlement.getReviewedUserId() != null)
+        {
+            addEvent(project, "KPI_SETTLEMENT_SUBMITTED", userId, userName, "修正后重新提交原审核流程");
+            return detail(settlementId);
+        }
         BusinessProjectKpiSettlement submitted = requireSettlement(settlementId);
-        BusinessOperatingFact fact = accountingService.recordProjectBonus(project.getProjectId(), submitted.getPeriodEnd(),
+        BusinessOperatingFact fact = independent ? null : accountingService.recordProjectBonus(project.getProjectId(), submitted.getPeriodEnd(),
             bonus, settlementId, userId, userName);
         Long factId = fact == null ? null : fact.getFactId();
-        if (mapper.confirmSettlement(settlementId, total, bonus, factId, "负责人确认KPI及奖金",
+        if (mapper.confirmSettlement(settlementId, total, bonus, factId,
+            independent ? "负责人确认项目指标；奖励须独立申请核准" : "负责人确认KPI及奖金",
             userId, userName, submitted.getVersion()) != 1) throw changed();
         if (mapper.closePlan(settlement.getPlanId()) != 1) throw changed();
         addEvent(project, "KPI_SETTLEMENT_CONFIRMED", userId, userName,
-            "负责人完成KPI结算，综合得分 " + total.toPlainString() + "，项目奖金 ¥" + bonus.toPlainString());
+            "负责人完成项目指标确认，综合得分 " + total.toPlainString()
+                + (independent ? "；未生成奖励或成本" : "，历史项目奖金 ¥" + bonus.toPlainString()));
         return detailWithAutomatic(settlementId, userId, userName);
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public BusinessProjectKpiSettlement review(Long settlementId, String decision, String comment,
         Long userId, String userName, boolean viewAll, boolean boss)
     {
         BusinessProjectKpiSettlement settlement = requireSettlement(settlementId);
-        BusinessProject project = requireProject(settlement.getProjectId());
+        BusinessProject project = requireProjectForUpdate(settlement.getProjectId());
+        settlement = requireSettlementForUpdate(settlementId);
+        if (independent(settlement)) throw new ServiceException("独立项目指标由主负责人确认，不走历史奖金审核流程");
         requireBoss(project, userId, viewAll, boss);
+        BusinessProjectLifecycle.requireAccountingOpen(project);
         if (!"SUBMITTED".equals(settlement.getStatus())) throw new ServiceException("没有待确认的KPI结算");
         if (!"CONFIRMED".equals(decision) && !"RETURNED".equals(decision))
             throw new ServiceException("审核决定不正确");
@@ -264,6 +299,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
             return detail(settlementId);
         }
 
+        if (!settlement.getPeriodEnd().before(today())) throw new ServiceException("考核周期尚未结束，截止日期次日才能确认结算");
         List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
         List<BusinessProjectKpiResult> results = mapper.selectSettlementResults(settlementId);
         requireComplete(items, results);
@@ -297,7 +333,9 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
                 settlement.setResults(live);
                 BigDecimal score = totalScore(items, live);
                 settlement.setTotalScore(score);
-                settlement.setBonusAmount(live.size() == items.size() ? matchBonus(tiers, score) : null);
+                settlement.setDataStatus(score == null ? "PENDING_COST" : "READY");
+                settlement.setBonusAmount("INDEPENDENT_V1".equals(plan.getRewardPolicyVersion()) ? null
+                    : live.size() == items.size() ? matchBonus(tiers, score) : null);
             }
             else settlement.setResults(stored);
         }
@@ -316,6 +354,18 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         BusinessProjectKpiSettlement settlement = requireSettlement(settlementId);
         List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
         List<BusinessProjectKpiResult> stored = mapper.selectSettlementResults(settlementId);
+        if ("CONFIRMED".equals(settlement.getStatus()))
+        {
+            // A confirmed indicator is evidence. Later reward costs must not change its presented result.
+            Map<Long, BusinessProjectKpiPlanItem> itemMap = itemMap(items);
+            for (BusinessProjectKpiResult result : safe(stored))
+            {
+                BusinessProjectKpiPlanItem item = itemMap.get(result.getPlanItemId());
+                if (item != null) { result.setSourceType(item.getSourceType()); result.setAutomatic(isAutomatic(item)); }
+            }
+            settlement.setResults(stored);
+            return settlement;
+        }
         settlement.setResults(mergeAutomaticResults(settlement, items, stored, userId, userName));
         return settlement;
     }
@@ -427,6 +477,9 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         List<BusinessProjectKpiPlanItem> items, Long userId, String userName)
     {
         Map<String, Object> financialSummary = automaticFinancialSummary(settlement, items, userId);
+        if (Boolean.TRUE.equals(financialSummary.get("_pendingCost")))
+            for (BusinessProjectKpiPlanItem item : items)
+                if (costDependent(item)) throw new ServiceException("项目仍有投入待计价，人员成本或利润指标尚不能确认；请先完成全项目成本计价");
         for (BusinessProjectKpiPlanItem item : items)
             if (isAutomatic(item)) mapper.upsertSettlementResult(
                 automaticResult(settlement, item, financialSummary, userId, userName));
@@ -446,13 +499,31 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         query.put("dateTo", date(statisticsEnd(settlement)));
         Map<String, Object> dashboard = accountingService.projectDashboard(settlement.getProjectId(), query, userId, true);
         Object summary = dashboard == null ? null : dashboard.get("summary");
-        return summary instanceof Map ? (Map<String, Object>) summary : Collections.<String, Object>emptyMap();
+        Map<String,Object> result = summary instanceof Map ? new LinkedHashMap<String,Object>((Map<String,Object>) summary)
+            : new LinkedHashMap<String,Object>();
+        if (independent(settlement) && dashboard != null && "ACTUAL_WORK_V1".equals(dashboard.get("costPolicyVersion")))
+        {
+            Object count = dashboard.get("pendingCostCount");
+            result.put("_pendingCost", count == null || number(count).signum() > 0);
+            result.put("_pendingCostCount", count);
+        }
+        return result;
     }
 
     private BusinessProjectKpiResult automaticResult(BusinessProjectKpiSettlement settlement,
         BusinessProjectKpiPlanItem item, Map<String, Object> financialSummary, Long userId, String userName)
     {
         Date end = statisticsEnd(settlement);
+        if (costDependent(item) && Boolean.TRUE.equals(financialSummary.get("_pendingCost")))
+        {
+            BusinessProjectKpiResult pending = new BusinessProjectKpiResult();
+            pending.setSettlementId(settlement.getSettlementId()); pending.setPlanItemId(item.getItemId());
+            pending.setSourceType(item.getSourceType()); pending.setAutomatic(true); pending.setDataStatus("PENDING_COST");
+            Object count = financialSummary.get("_pendingCostCount");
+            pending.setPendingCostCount(count == null ? null : number(count).intValue());
+            pending.setResultNote("全项目仍有投入待计价，成本或利润尚未完整；完成计价后才能确认本指标");
+            return pending;
+        }
         BigDecimal actual = BigDecimal.ZERO;
         if (!end.before(settlement.getPeriodStart()))
         {
@@ -478,8 +549,12 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         result.setInputUserName(StringUtils.isBlank(userName) ? "系统自动统计" : userName);
         result.setSourceType(item.getSourceType());
         result.setAutomatic(true);
+        result.setDataStatus("READY");
         return result;
     }
+
+    private boolean costDependent(BusinessProjectKpiPlanItem item)
+    { return item != null && Arrays.asList("PERSONNEL_COST", "PROFIT").contains(item.getSourceType()); }
 
     private Date statisticsEnd(BusinessProjectKpiSettlement settlement)
     { return settlement.getPeriodEnd().before(today()) ? settlement.getPeriodEnd() : today(); }
@@ -521,6 +596,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         {
             BusinessProjectKpiPlanItem item = itemsById.get(result.getPlanItemId());
             if (item == null) throw new ServiceException("KPI结果与方案快照不一致");
+            if (result.getActualValue() == null) return null;
             BigDecimal rate = completionRate(item, result.getActualValue());
             total = total.add(weightedScore(rate, item.getWeight()));
         }
@@ -565,6 +641,21 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         return project;
     }
 
+    private BusinessProject requireProjectForUpdate(Long projectId)
+    {
+        if (projectId == null) throw new ServiceException("项目ID不能为空");
+        BusinessProject project = projectMapper.selectProjectByIdForUpdate(projectId);
+        if (project == null) throw new ServiceException("项目不存在");
+        return project;
+    }
+
+    private BusinessProjectKpiSettlement requireSettlementForUpdate(Long settlementId)
+    {
+        BusinessProjectKpiSettlement settlement = mapper.selectSettlementByIdForUpdate(settlementId);
+        if (settlement == null) throw new ServiceException("KPI结算不存在");
+        return settlement;
+    }
+
     private BusinessProjectKpiPlan requirePlan(Long planId, Long projectId)
     {
         BusinessProjectKpiPlan plan = mapper.selectPlanById(planId);
@@ -578,6 +669,14 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         BusinessProjectKpiSettlement settlement = mapper.selectSettlementById(settlementId);
         if (settlement == null) throw new ServiceException("KPI结算不存在");
         return settlement;
+    }
+
+    private boolean independent(BusinessProjectKpiSettlement settlement)
+    {
+        String version = settlement.getRewardPolicyVersion();
+        if (version == null || "LEGACY_LINKED".equals(version)) return false;
+        if ("INDEPENDENT_V1".equals(version)) return true;
+        throw new ServiceException("项目指标奖励策略版本无法识别，请先核对迁移记录");
     }
 
     private void requireView(BusinessProject project, Long userId, boolean viewAll, boolean boss)
@@ -600,8 +699,11 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
 
     private void requireBoss(BusinessProject project, Long userId, boolean viewAll, boolean boss)
     {
-        if (!canManage(project, userId, viewAll, boss)) throw new ServiceException("只有项目归属老板可以执行此操作");
+        if (!canReview(project, userId, viewAll, boss)) throw new ServiceException("只有项目归属老板可以执行此操作");
     }
+
+    private boolean canReview(BusinessProject project, Long userId, boolean viewAll, boolean boss)
+    { return viewAll || boss && userId != null && userId.equals(sponsor(project)); }
 
     private void requireOwner(BusinessProject project, Long userId, boolean viewAll)
     {
@@ -619,8 +721,16 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
 
     private void ensureProjectAllowsSettlement(BusinessProject project)
     {
-        if (!Arrays.asList("ACTIVE", "ACCEPTANCE").contains(project.getStatus()))
+        BusinessProjectLifecycle.requireAccountingOpen(project);
+        if (!allowsSettlement(project))
             throw new ServiceException("当前项目状态不能进行KPI结算");
+    }
+
+    private boolean allowsSettlement(BusinessProject project)
+    {
+        return Arrays.asList("ACTIVE", "ACCEPTANCE").contains(project.getStatus())
+            || BusinessProjectLifecycle.isSeparated(project)
+                && Arrays.asList("CLOSED", "CANCELED").contains(project.getStatus());
     }
 
     private void addEvent(BusinessProject project, String type, Long userId, String userName, String comment)

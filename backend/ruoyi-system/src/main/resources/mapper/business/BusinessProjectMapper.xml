@@ -19,6 +19,12 @@
         <result property="acceptanceCriteria" column="acceptance_criteria"/>
         <result property="objective" column="objective"/>
         <result property="status" column="status"/>
+        <result property="deliveryPolicyVersion" column="delivery_policy_version"/>
+        <result property="accountingState" column="accounting_state"/>
+        <result property="settlementPolicyVersion" column="settlement_policy_version"/>
+        <result property="costPolicyVersion" column="cost_policy_version"/>
+        <result property="templateVersion" column="template_version"/>
+        <result property="templateSnapshotJson" column="template_snapshot_json"/>
         <result property="baselineStatus" column="baseline_status"/>
         <result property="applicantUserId" column="applicant_user_id"/>
         <result property="applicantName" column="applicant_name"/>
@@ -81,7 +87,7 @@
     <sql id="projectColumns">
         p.project_id,p.project_no,p.source_proposal_id,p.parent_id,parent.project_name parent_name,p.company_dept_id,company.dept_name company_name,p.project_name,p.project_type,
         p.accounting_mode,p.management_mode,p.close_method,p.management_reason,p.acceptance_criteria,
-        p.objective,p.status,p.baseline_status,
+        p.objective,p.status,p.baseline_status,p.delivery_policy_version,p.accounting_state,p.settlement_policy_version,p.cost_policy_version,p.template_version,p.template_snapshot_json,
         p.applicant_user_id,p.applicant_name,p.sponsor_owner_user_id,p.sponsor_owner_name,p.initiator_user_id,p.initiator_name,
         p.main_owner_user_id,p.main_owner_name,
         p.plan_start_date,p.plan_end_date,p.actual_start_date,p.actual_end_date,p.priority,p.base_currency,
@@ -155,20 +161,42 @@
         where p.project_id=#{projectId} and p.del_flag='0'
     </select>
 
+    <select id="selectProjectByIdForUpdate" resultMap="ProjectResult" flushCache="true" useCache="false">
+        select * from biz_project where project_id=#{projectId} and del_flag='0' for update
+    </select>
+
+    <update id="closeAccounting">
+        update biz_project set accounting_state='CLOSED',version=version+1,
+          update_by=#{userName},update_time=sysdate()
+        where project_id=#{projectId} and del_flag='0' and version=#{version}
+          and delivery_policy_version='SEPARATED_V1' and accounting_state='OPEN'
+          and status in ('CLOSED','CANCELED')
+    </update>
+
+    <select id="countPendingProjectKpi" resultType="int" flushCache="true" useCache="false">
+        select count(*) from biz_project_kpi_plan p
+        where p.project_id=#{projectId} and p.status in ('DRAFT','PUBLISHED','CLOSED')
+          and not exists(select 1 from biz_project_kpi_settlement s
+            where s.plan_id=p.plan_id and s.status='CONFIRMED')
+    </select>
+
     <insert id="insertProject" parameterType="com.ruoyi.business.domain.BusinessProject"
             useGeneratedKeys="true" keyProperty="projectId">
         insert into biz_project(project_no,parent_id,company_dept_id,project_name,project_type,accounting_mode,management_mode,
           close_method,management_reason,acceptance_criteria,objective,status,
+          delivery_policy_version,accounting_state,settlement_policy_version,cost_policy_version,template_version,template_snapshot_json,
           baseline_status,applicant_user_id,applicant_name,sponsor_owner_user_id,sponsor_owner_name,
           initiator_user_id,initiator_name,main_owner_user_id,main_owner_name,source_proposal_id,
           plan_start_date,plan_end_date,actual_start_date,priority,base_currency,
           budget_limit,baseline_version,version,del_flag,create_by,create_time,remark)
         values(#{projectNo},#{parentId},#{companyDeptId},#{projectName},#{projectType},#{accountingMode},#{managementMode},
           #{closeMethod},#{managementReason},#{acceptanceCriteria},#{objective},#{status},
+          coalesce(#{deliveryPolicyVersion},'LEGACY_V1'),coalesce(#{accountingState},'OPEN'),
+          coalesce(#{settlementPolicyVersion},'LEGACY_COMPAT'),coalesce(#{costPolicyVersion},'PERCENTAGE_V1'),coalesce(#{templateVersion},'LEGACY_V1'),#{templateSnapshotJson},
           #{baselineStatus},#{applicantUserId},#{applicantName},#{sponsorOwnerUserId},#{sponsorOwnerName},
           #{initiatorUserId},#{initiatorName},#{mainOwnerUserId},#{mainOwnerName},#{sourceProposalId},
           #{planStartDate},#{planEndDate},#{actualStartDate},#{priority},
-          #{baseCurrency},#{budgetLimit},0,0,'0',#{createBy},sysdate(),#{remark})
+          #{baseCurrency},#{budgetLimit},coalesce(#{baselineVersion},0),0,'0',#{createBy},sysdate(),#{remark})
     </insert>
 
     <update id="updateProject" parameterType="com.ruoyi.business.domain.BusinessProject">
@@ -305,11 +333,11 @@
 
     <select id="selectStaffCostPolicies" resultType="com.ruoyi.business.domain.BusinessStaffCostPolicy">
         select c.policy_id policyId,c.user_id userId,c.cost_mode costMode,c.unit_cost unitCost,c.currency,
-          c.country_region_snapshot countryRegion,c.standard_work_days standardWorkDays,
+          c.country_region_snapshot countryRegion,c.standard_work_days standardWorkDays,c.rate_minutes_per_day rateMinutesPerDay,
           c.effective_from effectiveFrom,c.effective_to effectiveTo,c.policy_version policyVersion,c.status,
           c.create_by createBy,c.create_time createTime,c.remark,c.voided_user_id voidedUserId,
           c.voided_user_name voidedUserName,c.voided_time voidedTime,c.void_reason voidReason,
-          (select count(*) from biz_project_staff_allocation a where a.cost_policy_id=c.policy_id) referenceCount
+          ((select count(*) from biz_project_staff_allocation a where a.cost_policy_id=c.policy_id)+(select count(*) from biz_project_work_cost w where w.rate_policy_id=c.policy_id)) referenceCount
         from biz_staff_cost_policy c where c.user_id=#{userId}
         order by c.policy_version desc,c.policy_id desc
     </select>
@@ -325,16 +353,16 @@
     </select>
     <select id="selectStaffCostPolicyById" resultType="com.ruoyi.business.domain.BusinessStaffCostPolicy">
         select c.policy_id policyId,c.user_id userId,c.cost_mode costMode,c.unit_cost unitCost,c.currency,
-          c.country_region_snapshot countryRegion,c.standard_work_days standardWorkDays,
+          c.country_region_snapshot countryRegion,c.standard_work_days standardWorkDays,c.rate_minutes_per_day rateMinutesPerDay,
           c.effective_from effectiveFrom,c.effective_to effectiveTo,c.policy_version policyVersion,c.status,
           c.create_by createBy,c.create_time createTime,c.remark,c.voided_user_id voidedUserId,
           c.voided_user_name voidedUserName,c.voided_time voidedTime,c.void_reason voidReason,
-          (select count(*) from biz_project_staff_allocation a where a.cost_policy_id=c.policy_id) referenceCount
+          ((select count(*) from biz_project_staff_allocation a where a.cost_policy_id=c.policy_id)+(select count(*) from biz_project_work_cost w where w.rate_policy_id=c.policy_id)) referenceCount
         from biz_staff_cost_policy c where c.policy_id=#{policyId} limit 1 for update
     </select>
     <select id="selectEffectiveStaffCostPolicy" resultType="com.ruoyi.business.domain.BusinessStaffCostPolicy">
         select policy_id policyId,user_id userId,cost_mode costMode,unit_cost unitCost,currency,
-          country_region_snapshot countryRegion,standard_work_days standardWorkDays,
+          country_region_snapshot countryRegion,standard_work_days standardWorkDays,rate_minutes_per_day rateMinutesPerDay,
           effective_from effectiveFrom,effective_to effectiveTo,policy_version policyVersion,status,
           create_by createBy,create_time createTime,remark
         from biz_staff_cost_policy where user_id=#{userId} and status='ACTIVE'
@@ -356,14 +384,15 @@
     <insert id="insertStaffCostPolicy" parameterType="com.ruoyi.business.domain.BusinessStaffCostPolicy"
             useGeneratedKeys="true" keyProperty="policyId">
         insert into biz_staff_cost_policy(user_id,cost_mode,unit_cost,currency,country_region_snapshot,
-          standard_work_days,effective_from,effective_to,policy_version,status,create_by,create_time,remark)
-        values(#{userId},#{costMode},#{unitCost},#{currency},#{countryRegion},#{standardWorkDays},
+          standard_work_days,rate_minutes_per_day,effective_from,effective_to,policy_version,status,create_by,create_time,remark)
+        values(#{userId},#{costMode},#{unitCost},#{currency},#{countryRegion},#{standardWorkDays},#{rateMinutesPerDay},
            #{effectiveFrom},#{effectiveTo},#{policyVersion},#{status},#{createBy},sysdate(),#{remark})
     </insert>
     <delete id="deleteUnusedFutureStaffCostPolicy">
         delete c from biz_staff_cost_policy c
         where c.policy_id=#{policyId} and c.status='ACTIVE' and c.effective_from&gt;curdate()
           and not exists(select 1 from biz_project_staff_allocation a where a.cost_policy_id=c.policy_id)
+          and not exists(select 1 from biz_project_work_cost w where w.rate_policy_id=c.policy_id)
     </delete>
     <update id="voidStaffCostPolicy">
         update biz_staff_cost_policy set status='VOID',void_reason=#{reason},voided_user_id=#{voidedUserId},
@@ -386,7 +415,7 @@
           a.effective_to effectiveTo,a.cost_policy_id costPolicyId,a.exception_allowed exceptionAllowed,
           a.exception_reason exceptionReason,a.status,a.version,a.remark,
           c.cost_mode costMode,c.unit_cost unitCost,c.currency,c.policy_version policyVersion,
-          c.country_region_snapshot countryRegion,c.standard_work_days standardWorkDays,
+          c.country_region_snapshot countryRegion,c.standard_work_days standardWorkDays,c.rate_minutes_per_day rateMinutesPerDay,
           case when a.allocation_mode='PERCENTAGE' and c.cost_mode='MONTHLY'
                     then c.unit_cost/c.standard_work_days*a.allocation_value/100
                when a.allocation_mode='PERCENTAGE' then c.unit_cost*a.allocation_value/100
@@ -485,7 +514,8 @@
           <if test="baselineStatus != null">baseline_status=#{baselineStatus},</if>
           <if test="baselineIncrement">baseline_version=baseline_version+1,</if>
           <if test="status == 'ACTIVE'">actual_start_date=coalesce(actual_start_date,current_date()),</if>
-          <if test="status == 'CLOSED' or status == 'CANCELED'">actual_end_date=coalesce(actual_end_date,current_date()),</if>
+          <if test="status == 'CLOSED' or status == 'CANCELED'">actual_end_date=coalesce(actual_end_date,current_date()),
+            accounting_state=case when delivery_policy_version='SEPARATED_V1' then accounting_state else 'CLOSED' end,</if>
           update_by=#{userName},update_time=sysdate(),version=version+1
         where project_id=#{projectId} and del_flag='0' and status=#{expectedStatus} and version=#{version}
     </update>
@@ -1669,5 +1699,16 @@
           union all select submitted_project_id from biz_staff_leave_request
             where find_in_set(#{attachmentUrl},replace(replace(coalesce(attachment_urls,''),' ',''),char(92),'/'))&gt;0
         ) attachment_project
+    </select>
+    <select id="selectStaffCompanyId" resultType="long">select c.dept_id from sys_user u join sys_dept d on d.dept_id=u.dept_id and d.del_flag='0' join sys_dept c on c.parent_id=100 and c.del_flag='0' and c.status='0' and (c.dept_id=d.dept_id or find_in_set(c.dept_id,d.ancestors)) where u.user_id=#{userId} and u.del_flag='0' limit 1</select>
+    <select id="lockStaffCostPerson" resultType="long" flushCache="true" useCache="false">select user_id from sys_user where user_id=#{userId} and del_flag='0' for update</select>
+    <select id="selectStaffCostOptions" resultType="map">
+      select u.user_id userId,u.nick_name nickName,u.user_name userName,c.dept_id companyDeptId,c.dept_name companyName,p.country_region countryRegion
+      from sys_user u join sys_dept d on d.dept_id=u.dept_id and d.del_flag='0'
+      join sys_dept c on c.parent_id=100 and c.del_flag='0' and c.status='0' and (c.dept_id=d.dept_id or find_in_set(c.dept_id,d.ancestors))
+      left join biz_staff_profile p on p.user_id=u.user_id
+      where u.del_flag='0' and u.status='0' and coalesce(p.employment_status,'ACTIVE')&lt;&gt;'LEFT'
+      <choose><when test="administrator == true"/><when test="companyOwner == true">and c.leader_user_id=#{userId}</when><when test="financeManager == true">and c.dept_id=#{companyDeptId}</when><otherwise>and exists(select 1 from biz_project_member m join biz_project pr on pr.project_id=m.project_id and pr.main_owner_user_id=#{userId} and pr.del_flag='0' and pr.status not in('CLOSED','CANCELED') where m.user_id=u.user_id and m.status='0')</otherwise></choose>
+      order by c.order_num,u.nick_name,u.user_id
     </select>
 </mapper>

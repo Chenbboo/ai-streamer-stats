@@ -18,7 +18,7 @@ public class ProjectOperatingConfigCapability implements AiCapability
     private final IBusinessProjectService service;
     @Autowired public ProjectOperatingConfigCapability(IBusinessProjectService service) { this.service = service; }
     @Override public String code() { return "project.operating-config.get"; }
-    @Override public String description() { return "读取项目经营配置，包括预算、KPI版本、成员计划投入和内部核算配置。修改这些资料前先调用本能力取得稳定ID和当前版本。"; }
+    @Override public String description() { return "读取项目经营配置，包括预算、KPI版本和历史成员比例投入。标准 ACTUAL_WORK_V1 项目的资源与实际工作请查询 project.work.get，计划基线、变更和预测请查询 project.plan.get。新项目不能通过旧配置修改比例成本或直接改写预算。"; }
     @Override public String requiredPermission() { return "business:project:list"; }
     @Override public AiCapabilityRisk risk() { return AiCapabilityRisk.READ_ONLY; }
     @Override public Map<String, Object> inputSchema()

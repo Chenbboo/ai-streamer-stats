@@ -1344,6 +1344,74 @@ class BusinessAiServiceImplTest
     }
 
     @Test
+    void separatedAcceptanceLegacyRouteRetainsOpenAccountingAfterDelivery()
+    {
+        BusinessProject acceptance = pendingAcceptanceProject(31L, "新品视频交付", 501L);
+        acceptance.setDeliveryPolicyVersion("SEPARATED_V1"); acceptance.setAccountingState("OPEN");
+        Map<String, Object> action = preparedAcceptanceAction(acceptance);
+        assertEquals(true, String.valueOf(action.get("confirmationSummary")).contains("仅关闭项目交付"));
+        Long actionId = (Long) action.get("actionRequestId");
+        when(mapper.finishActionRequest(eq(actionId), any())).thenReturn(1);
+        BusinessProject closed = pendingAcceptanceProject(31L, "新品视频交付", 501L);
+        closed.setStatus("CLOSED"); closed.setDeliveryPolicyVersion("SEPARATED_V1"); closed.setAccountingState("OPEN");
+        when(projectService.reviewAcceptance(31L, "APPROVED", "", 23L, "jianglan", true)).thenReturn(closed);
+
+        Map<String, Object> result = service.confirmAction(actionId, 23L, "jianglan");
+
+        assertEquals("CLOSED", result.get("projectStatus"));
+        assertEquals("OPEN", result.get("accountingState"));
+        assertEquals("SEPARATED_V1", result.get("deliveryPolicyVersion"));
+    }
+
+    @Test
+    void separatedAcceptanceLegacyRouteRejectsOldUnversionedCard() throws Exception
+    {
+        BusinessProject acceptance = pendingAcceptanceProject(31L, "新品视频交付", 501L);
+        acceptance.setDeliveryPolicyVersion("SEPARATED_V1"); acceptance.setAccountingState("OPEN");
+        Map<String, Object> action = preparedAcceptanceAction(acceptance);
+        com.fasterxml.jackson.databind.ObjectMapper json = new com.fasterxml.jackson.databind.ObjectMapper();
+        Map<String, Object> payload = json.readValue(String.valueOf(action.get("actionPayloadJson")), Map.class);
+        payload.remove("deliveryPolicyVersion"); payload.remove("accountingState");
+        action.put("actionPayloadJson", json.writeValueAsString(payload));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.confirmAction((Long) action.get("actionRequestId"), 23L, "jianglan"));
+
+        assertEquals(true, error.getMessage().contains("重新生成验收确认单"));
+        verify(projectService, never()).reviewAcceptance(any(), any(), any(), any(), any(), any(Boolean.class));
+    }
+
+    @Test
+    void separatedAcceptanceLegacyRouteRejectsAccountingStateChangedAfterPreparation()
+    {
+        BusinessProject acceptance = pendingAcceptanceProject(31L, "新品视频交付", 501L);
+        acceptance.setDeliveryPolicyVersion("SEPARATED_V1"); acceptance.setAccountingState("OPEN");
+        Map<String, Object> action = preparedAcceptanceAction(acceptance);
+        acceptance.setAccountingState("CLOSED");
+
+        assertThrows(ServiceException.class,
+            () -> service.confirmAction((Long) action.get("actionRequestId"), 23L, "jianglan"));
+        verify(projectService, never()).reviewAcceptance(any(), any(), any(), any(), any(), any(Boolean.class));
+    }
+
+    private Map<String, Object> preparedAcceptanceAction(BusinessProject acceptance)
+    {
+        Map<String, Object> dashboard = new LinkedHashMap<String, Object>();
+        dashboard.put("decisions", Collections.singletonList(acceptance));
+        when(projectService.dashboard(23L, false, true)).thenReturn(dashboard);
+        when(projectService.getProject(31L, 23L, false, true)).thenReturn(acceptance);
+        service.chat(null, "验收通过并结项新品视频交付", 23L, "jianglan", false);
+        ArgumentCaptor<Map<String, Object>> actionCaptor = mapCaptor();
+        verify(mapper).insertActionRequest(actionCaptor.capture());
+        Map<String, Object> persisted = new LinkedHashMap<String, Object>(actionCaptor.getValue());
+        persisted.put("status", "PENDING"); persisted.put("traceId", "trace-separated-acceptance");
+        Long actionId = (Long) persisted.get("actionRequestId");
+        when(mapper.selectActionRequest(actionId, 23L)).thenReturn(persisted);
+        when(mapper.confirmActionRequest(actionId, 23L)).thenReturn(1);
+        return persisted;
+    }
+
+    @Test
     @org.junit.jupiter.api.Disabled("老板 AI 直接立项旧流程已停用，改由立项申请页面")
     void activeCreateWorkflowContinuesFromShortAnswerEvenWhenModelCallsNoTool()
     {

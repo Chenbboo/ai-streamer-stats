@@ -22,14 +22,15 @@
       <div v-if="period==='DAY'"><span>计划投入</span><b>{{ summary.plannedEffortPercent || 0 }}%</b></div>
     </section>
 
-    <section v-if="period==='DAY'" class="panel effort-panel">
+    <section class="panel"><h2>实际工作</h2><p>按人员与工作日期填报小时或人天，由责任人确认。计划不会自动计入实际。</p><el-button v-hasPermi="['business:work:report']" type="primary" @click="router.push('/business/resources')">记录或查看实际投入</el-button></section>
+    <section v-if="period==='DAY' && efforts.length" class="panel effort-panel">
       <div class="panel-head"><div><h2>当天项目投入</h2><p>负责人设置的计划会自动生效；只有实际投入发生变化时才需要申报。</p></div><strong>计划合计 {{ summary.plannedEffortPercent || 0 }}%</strong></div>
       <el-empty v-if="!efforts.length" description="项目负责人尚未设置当天计划投入" />
       <div class="effort-grid">
         <article v-for="item in efforts" :key="item.allocationId" class="effort-card">
           <div class="card-top"><div><el-tag size="small" effect="plain">{{ item.projectName }}</el-tag><span>{{ item.initiatorName }}立项</span></div><el-tag size="small" :type="effortTone[item.reportStatus]">{{ effortStatusLabel[item.reportStatus] }}</el-tag></div>
           <div class="effort-values"><span>计划投入 <b>{{ item.plannedPercent }}%</b></span><span v-if="['SUBMITTED','CONFIRMED','RETURNED'].includes(item.reportStatus)">实际投入 <b>{{ item.actualPercent }}%</b></span></div>
-          <el-alert v-if="item.reportStatus==='LEAVE'" :title="`今日已登记请假${item.leaveReason ? `：${item.leaveReason}` : ''}，无需填报投入，也不计算人员成本。`" type="info" :closable="false" show-icon />
+          <el-alert v-if="item.reportStatus==='LEAVE'" :title="`历史比例规则：本地请假${item.leaveReason ? `：${item.leaveReason}` : ''}影响此旧项目投入。`" type="info" :closable="false" show-icon />
           <div v-else-if="item.reportStatus==='UNSUBMITTED' && !item.editing" class="effort-default">
             <span>今天默认按计划核算，无需确认</span>
             <el-button type="primary" plain @click="beginEffortAdjustment(item)">实际投入有变化</el-button>
@@ -118,6 +119,7 @@ import { getBusinessWorkDashboard, submitBusinessTaskReport, submitBusinessRouti
 import { ElMessage } from 'element-plus'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 
+const router=useRouter()
 const loading=ref(false),saving=ref(false),savingEffortId=ref(null),data=ref({}),period=ref('DAY'),anchorDate=ref(today()),reportDialog=ref(false),reportForm=ref({}),taskReportDialog=ref(false),taskReportForm=ref({})
 const summary=computed(()=>data.value.summary||{}),tasks=computed(()=>data.value.tasks||[]),routines=computed(()=>data.value.routines||[]),efforts=computed(()=>data.value.efforts||[])
 const isToday=computed(()=>period.value==='DAY'&&data.value.dateFrom===data.value.today)

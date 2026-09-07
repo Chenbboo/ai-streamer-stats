@@ -20,11 +20,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.business.domain.BusinessProject;
 import com.ruoyi.business.domain.BusinessProjectProposal;
 import com.ruoyi.business.mapper.BusinessProjectProposalMapper;
+import com.ruoyi.business.mapper.BusinessProjectWorkMapper;
 import com.ruoyi.business.service.IBusinessProjectProposalService;
 import com.ruoyi.business.service.IBusinessProjectService;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.common.utils.StringUtils;
+import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.uuid.IdUtils;
 
 @Service
@@ -38,6 +40,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     @Autowired private BusinessProjectProposalMapper mapper;
     @Autowired private IBusinessProjectService projectService;
     @Autowired private ObjectMapper objectMapper;
+    @Autowired private BusinessProjectWorkMapper workMapper;
 
     @Override
     public List<BusinessProjectProposal> listOwn(Map<String, Object> query, Long userId, boolean viewAll)
@@ -88,7 +91,40 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         hydratePlanLines(proposal);
         proposal.setEvents(mapper.selectEvents(proposalId));
         decorate(proposal, userId, boss, viewAll);
+        if (!canReadRawRates(userId)) redactRawRates(proposal);
         return proposal;
+    }
+
+    private boolean canReadRawRates(Long userId)
+    {
+        if (SecurityUtils.isAdmin(userId)) return true;
+        try { return SecurityUtils.hasPermi("business:staff:cost"); }
+        catch (ServiceException ex) { return false; }
+    }
+
+    private void redactRawRates(BusinessProjectProposal proposal)
+    {
+        proposal.setStaffingLines(redactStaffing(proposal.getStaffingLines()));
+        List<Map<String,Object>> events=new ArrayList<Map<String,Object>>();
+        if(proposal.getEvents()!=null) for(Map<String,Object> original:proposal.getEvents())
+        {
+            Map<String,Object> event=new LinkedHashMap<String,Object>(original);
+            // Event summaries remain readable; archived financial snapshots require the separate cost permission.
+            event.remove("snapshotJson");event.remove("snapshot_json");events.add(event);
+        }
+        proposal.setEvents(events);
+    }
+
+    private List<Map<String,Object>> redactStaffing(List<Map<String,Object>> rows)
+    {
+        List<Map<String,Object>> safe=new ArrayList<Map<String,Object>>();
+        if(rows!=null) for(Map<String,Object> original:rows)
+        {
+            Map<String,Object> row=new LinkedHashMap<String,Object>(original);
+            for(String field:Arrays.asList("monthlyCostSnapshot","standardWorkDaysSnapshot","dailyCostSnapshot","costPolicyId","costPolicyVersion","costCurrency","estimatedCost"))row.remove(field);
+            safe.add(row);
+        }
+        return safe;
     }
 
     @Override
@@ -98,6 +134,8 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         Map<String, Object> applicant = requireActiveUser(userId);
         proposal.setApplicantUserId(userId);
         proposal.setApplicantName(displayName(applicant));
+        if (StringUtils.isBlank(proposal.getTemplateVersion())) proposal.setTemplateVersion("LIGHT_V1");
+        if("LEGACY_V1".equals(proposal.getTemplateVersion()))throw new ServiceException("新立项必须选择已发布标准模板，不能创建旧策略项目");
         normalizeAndValidate(proposal);
         proposal.setProposalNo("LX" + DateUtils.dateTimeNow("yyyyMMddHHmmss")
             + IdUtils.fastSimpleUUID().substring(0, 4).toUpperCase());
@@ -119,6 +157,8 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         input.setApplicantUserId(userId);
         input.setApplicantName(current.getApplicantName());
         input.setVersion(current.getVersion());
+        if (!isNewTemplate(current)) input.setTemplateVersion("LEGACY_V1");
+        else if (StringUtils.isBlank(input.getTemplateVersion())) input.setTemplateVersion(current.getTemplateVersion());
         normalizeAndValidate(input);
         input.setUpdateBy(userName);
         if (mapper.updateDraft(input) != 1) throw changed();
@@ -151,11 +191,19 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         validateBusinessPlanForLaunch(current);
         if (mapper.updateComputedPlan(current) != 1) throw changed();
         savePlanLines(current);
+        if ("CONTROLLED_V1".equals(current.getTemplateVersion()))
+        {
+            if (userId.equals(current.getSponsorOwnerUserId())) throw new ServiceException("受控项目必须由另一位归属老板审批");
+            if (mapper.submit(proposalId,userId,current.getVersion(),userName)!=1) throw changed();
+            BusinessProjectProposal submitted=require(proposalId);
+            addEvent(submitted,"SUBMIT",current.getStatus(),"PENDING",userId,userName,"提交受控模板立项审批");
+            return get(proposalId,userId,false,false);
+        }
         BusinessProject project = projectService.createApprovedProject(current, userId, userName);
         if (mapper.activate(proposalId, userId, current.getVersion(), project.getProjectId(),
             current.getApplicantName(), userName) != 1) throw changed();
         BusinessProjectProposal stored = require(proposalId);
-        addEvent(stored, "OWNER_LAUNCH", current.getStatus(), "APPROVED", userId, userName,
+        addEvent(stored, isNewTemplate(current) ? "SELF_AUTHORIZED" : "OWNER_LAUNCH", current.getStatus(), "APPROVED", userId, userName,
             "负责人确认项目测算并自主启动项目");
         return get(proposalId, userId, false, false);
     }
@@ -187,11 +235,13 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         if (!"APPROVED".equals(decision) && !"RETURNED".equals(decision)) throw new ServiceException("审批决定不正确");
         if ("RETURNED".equals(decision) && StringUtils.isBlank(comment)) throw new ServiceException("退回原因不能为空");
         if (StringUtils.isNotBlank(comment) && comment.length() > 2000) throw new ServiceException("审批意见不能超过2000个字符");
+        hydratePlanLines(current);
         normalizeAndValidate(current);
         Map<String, Object> reviewer = requireActiveBoss(userId);
         Long projectId = null;
         if ("APPROVED".equals(decision))
         {
+            if (isNewTemplate(current)) validateBusinessPlanForLaunch(current);
             BusinessProject project = projectService.createApprovedProject(current, userId, userName);
             projectId = project.getProjectId();
         }
@@ -212,12 +262,27 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         result.put("bosses", mapper.selectBossOptions(null));
         result.put("companies", mapper.selectCompanyOptions());
         result.put("applicantUserId", userId);
+        List<Map<String,Object>> templates=new ArrayList<Map<String,Object>>();
+        for(String version:Arrays.asList("LIGHT_V1","CONTROLLED_V1","SERVICE_V1")) { Map<String,Object> template=workMapper.selectTemplate(version);if(template!=null)templates.add(template); }
+        result.put("templates",templates);
+        result.put("calendars",workMapper.selectCalendars());result.put("unitPolicies",workMapper.selectUnitPolicies());
         return result;
     }
 
     private void normalizeAndValidate(BusinessProjectProposal proposal)
     {
         if (proposal == null || StringUtils.isBlank(proposal.getProjectName())) throw new ServiceException("项目名称不能为空");
+        if (isNewTemplate(proposal))
+        {
+            Map<String,Object> template=workMapper.selectTemplate(proposal.getTemplateVersion());
+            if(template==null)throw new ServiceException("项目模板版本不存在或未启用");
+            proposal.setTemplateSnapshotJson(text(template.get("snapshotJson")));
+            proposal.setManagementMode(text(template.get("managementMode")));
+            proposal.setCloseMethod(text(template.get("closeMethod")));
+            if(proposal.getBudgetLimit()==null)proposal.setNoBudget("1");
+            if(StringUtils.isBlank(proposal.getAccountingMode()))proposal.setAccountingMode("COST");
+            if(proposal.getPlanEndDate()==null)throw new ServiceException("请填写有限的项目计划窗口；持续服务以窗口结束日作为本周期复核日");
+        }
         proposal.setProjectName(proposal.getProjectName().trim());
         if (proposal.getProjectName().length() > 160) throw new ServiceException("项目名称不能超过160个字符");
         if (proposal.getApplicantUserId() == null) throw new ServiceException("申请人不能为空");
@@ -316,6 +381,22 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         for (Map<String, Object> line : staffing)
         {
             Long selectedUserId = longValue(line.get("userId"));
+            if(isNewTemplate(proposal))
+            {
+                if(selectedUserId==null||!selectedUsers.add(selectedUserId))throw new ServiceException("人员计划须选择不同的具体人员");
+                Map<String,Object> staff=mapper.selectProposalStaff(selectedUserId,proposal.getPlanStartDate());
+                if(staff==null||!proposal.getCompanyDeptId().equals(longValue(staff.get("companyDeptId"))))throw new ServiceException("人员不在当前公司有效任职范围");
+                Date from=DateUtils.parseDate(line.get("planStartDate")),to=DateUtils.parseDate(line.get("planEndDate"));
+                if(from==null||to==null||from.after(to)||from.before(proposal.getPlanStartDate())||to.after(proposal.getPlanEndDate()))throw new ServiceException("请为人员独立填写项目窗口内的参与起止日期");
+                String unit=code(line.get("inputUnit"),"DAY");BigDecimal quantity=nonNegative(line.get("inputQuantity"),"计划工作量");
+                if(quantity.signum()<=0||!Arrays.asList("HOUR","DAY","PERCENTAGE").contains(unit))throw new ServiceException("请填写有效计划工作量和单位");
+                if(line.get("calendarId")==null||line.get("unitPolicyId")==null)throw new ServiceException("人员计划必须选择日历和工作量单位政策");
+                line.put("userName",displayStaffName(staff));line.put("roleName",StringUtils.defaultIfEmpty(text(staff.get("positionName")),"项目成员"));line.put("headcount",1);
+                line.put("planStartDate",from);line.put("planEndDate",to);line.put("inputUnit",unit);line.put("inputQuantity",quantity);
+                line.put("allocationPercent","PERCENTAGE".equals(unit)?quantity:null);line.put("estimatedCost",null);
+                for(String sensitive:Arrays.asList("costPolicyId","costPolicyVersion","monthlyCostSnapshot","standardWorkDaysSnapshot","dailyCostSnapshot","costCurrency"))line.put(sensitive,null);
+                headcount++;continue;
+            }
             if (selectedUserId == null)
             {
                 // 历史记录仍按原岗位汇总方式读取；新立项启动前必须改为选择具体人员。
@@ -385,10 +466,22 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         proposal.setKeyAssumptions(null);
         proposal.setStopLossRule(null);
         proposal.setPlannedHeadcount(headcount);
+        if(isNewTemplate(proposal)&&headcount>0)
+        {
+            proposal.setEstimatedPersonnelCost(null);proposal.setEstimatedTotalCost(null);proposal.setExpectedProfit(null);
+            proposal.setExpectedMargin(null);proposal.setBreakEvenRevenue(null);
+        }
     }
 
     private void validateBusinessPlanForLaunch(BusinessProjectProposal proposal)
     {
+        if(isNewTemplate(proposal))
+        {
+            if(StringUtils.isBlank(proposal.getAcceptanceCriteria()))throw new ServiceException("请填写成果清单及验收依据");
+            if(proposal.getPlanEndDate()==null)throw new ServiceException("请填写项目计划窗口");
+            if(proposal.getBudgetLimit()!=null&&proposal.getBudgetLimit().compareTo(proposal.getEstimatedExternalCost())<0)throw new ServiceException("预算上限低于已估算外部支出");
+            return;
+        }
         if (proposal.getStaffingLines() == null || proposal.getStaffingLines().isEmpty())
             throw new ServiceException("请至少填写一项人员投入计划");
         if (proposal.getTargetLines() == null || proposal.getTargetLines().isEmpty())
@@ -504,8 +597,14 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             throw new ServiceException("请选择有效归属公司");
         Date date = StringUtils.isBlank(effectiveDate) ? new Date() : DateUtils.parseDate(effectiveDate);
         if (date == null) throw new ServiceException("计划开始日期格式不正确");
-        return mapper.selectStaffOptions(companyDeptId, date);
+        List<Map<String,Object>> rows=mapper.selectStaffOptions(companyDeptId,date);
+        // Personnel selection is not an internal-rate permission. Legacy estimates are computed server-side.
+        for(Map<String,Object> row:rows)for(String field:Arrays.asList("monthlyCost","dailyCost","standardWorkDays","costMode","costPolicyId","costPolicyVersion","costCurrency"))row.remove(field);
+        return rows;
     }
+
+    private boolean isNewTemplate(BusinessProjectProposal proposal)
+    { return proposal!=null&&proposal.getTemplateVersion()!=null&&!"LEGACY_V1".equals(proposal.getTemplateVersion()); }
 
     private BigDecimal nonNegative(Object value, String label)
     {

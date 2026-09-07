@@ -25,6 +25,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.business.domain.BusinessProject;
 import com.ruoyi.business.domain.BusinessProjectProposal;
 import com.ruoyi.business.mapper.BusinessProjectProposalMapper;
+import com.ruoyi.business.mapper.BusinessProjectWorkMapper;
 import com.ruoyi.business.service.IBusinessProjectService;
 import com.ruoyi.common.exception.ServiceException;
 
@@ -32,6 +33,7 @@ import com.ruoyi.common.exception.ServiceException;
 class BusinessProjectProposalServiceImplTest
 {
     @Mock private BusinessProjectProposalMapper mapper;
+    @Mock private BusinessProjectWorkMapper workMapper;
     @Mock private IBusinessProjectService projectService;
     @Spy private ObjectMapper objectMapper = new ObjectMapper();
     @InjectMocks private BusinessProjectProposalServiceImpl service;
@@ -41,6 +43,7 @@ class BusinessProjectProposalServiceImplTest
     @BeforeEach
     void setUp()
     {
+        org.mockito.Mockito.lenient().when(workMapper.selectTemplate("LIGHT_V1")).thenReturn(BusinessProjectWorkServiceTest.row("templateVersion","LIGHT_V1","snapshotJson","{}","managementMode","LIGHT","closeMethod","DIRECT"));
         proposal = new BusinessProjectProposal();
         proposal.setProposalId(77L);
         proposal.setProjectName("越南直播增长");
@@ -117,25 +120,12 @@ class BusinessProjectProposalServiceImplTest
     }
 
     @Test
-    void createAllowsPlanWithoutEndDate()
+    void newTemplateRequiresFinitePlanningWindow()
     {
-        proposal.setProposalId(null);
-        proposal.setPlanEndDate(null);
+        proposal.setProposalId(null);proposal.setPlanEndDate(null);
         when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
-        when(mapper.selectCompany(111L)).thenReturn(Collections.<String,Object>singletonMap("deptId",111L));
-        when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","审批老板"));
-        doAnswer(invocation -> {
-            BusinessProjectProposal input = invocation.getArgument(0);
-            input.setProposalId(77L); input.setStatus("DRAFT"); input.setVersion(0); input.setSubmissionVersion(0);
-            return 1;
-        }).when(mapper).insertProposal(any(BusinessProjectProposal.class));
-        when(mapper.selectById(77L)).thenAnswer(invocation -> proposal);
-        when(mapper.selectEvents(77L)).thenReturn(Collections.<Map<String,Object>>emptyList());
-
-        BusinessProjectProposal created = service.create(proposal,9L,"applicant9");
-
-        assertEquals(null,created.getPlanEndDate());
-        verify(mapper).insertProposal(any(BusinessProjectProposal.class));
+        assertThrows(ServiceException.class,()->service.create(proposal,9L,"applicant9"));
+        verify(mapper,never()).insertProposal(any());
     }
 
     @Test
@@ -276,6 +266,47 @@ class BusinessProjectProposalServiceImplTest
         assertEquals(9L,result.get("applicantUserId"));
         assertEquals(1,((java.util.List<?>)result.get("bosses")).size());
         verify(mapper).selectBossOptions(null);
+    }
+
+    @Test
+    void lightTemplateLaunchesWithoutBudgetStaffCostRevenueKpiOrBonus()
+    {
+        proposal.setTemplateVersion("LIGHT_V1");proposal.setStatus("DRAFT");proposal.setBudgetLimit(null);proposal.setAcceptanceCriteria("交付可验收文件");
+        when(mapper.selectById(77L)).thenReturn(proposal);
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
+        when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","审批老板"));
+        when(mapper.selectCompany(111L)).thenReturn(Collections.<String,Object>singletonMap("deptId",111L));
+        when(mapper.updateComputedPlan(proposal)).thenReturn(1);
+        BusinessProject created=new BusinessProject();created.setProjectId(88L);
+        when(projectService.createApprovedProject(proposal,9L,"applicant9")).thenReturn(created);
+        when(mapper.activate(77L,9L,2,88L,"申请人九","applicant9")).thenAnswer(call->{proposal.setStatus("APPROVED");return 1;});
+        BusinessProjectProposal result=service.submit(77L,9L,"applicant9");
+        assertEquals("APPROVED",result.getStatus());assertEquals("1",result.getNoBudget());assertEquals(0,result.getPlannedHeadcount());
+        verify(mapper,never()).selectProposalStaff(any(),any());verify(mapper,never()).submit(any(),any(),any(),any());
+    }
+
+    @Test
+    void controlledTemplateWaitsForDistinctSponsorApprovalWithoutMandatoryBudget()
+    {
+        proposal.setTemplateVersion("CONTROLLED_V1");proposal.setStatus("DRAFT");proposal.setBudgetLimit(null);proposal.setAcceptanceCriteria("交付文件验收");proposal.setManagementReason("交付范围需要归属老板审核");
+        when(workMapper.selectTemplate("CONTROLLED_V1")).thenReturn(BusinessProjectWorkServiceTest.row("snapshotJson","{}","managementMode","KEY_CONTROL","closeMethod","RESULT_ACCEPTANCE"));
+        when(mapper.selectById(77L)).thenReturn(proposal);when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
+        when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","审批老板"));when(mapper.selectCompany(111L)).thenReturn(Collections.<String,Object>singletonMap("deptId",111L));
+        when(mapper.updateComputedPlan(proposal)).thenReturn(1);when(mapper.submit(77L,9L,2,"applicant9")).thenAnswer(call->{proposal.setStatus("PENDING");return 1;});
+        assertEquals("PENDING",service.submit(77L,9L,"applicant9").getStatus());verify(projectService,never()).createApprovedProject(any(),any(),any());
+    }
+
+    @Test
+    void proposalOwnerCanContinueLegacyPlanWithoutReceivingRawRateSnapshots()
+    {
+        proposal.setStatus("DRAFT");when(mapper.selectById(77L)).thenReturn(proposal);
+        when(mapper.selectStaffingLines(77L)).thenReturn(Collections.singletonList(BusinessProjectWorkServiceTest.row("userId",12L,"monthlyCostSnapshot",15000,"dailyCostSnapshot",500,"estimatedCost",500)));
+        when(mapper.selectEvents(77L)).thenReturn(Collections.singletonList(BusinessProjectWorkServiceTest.row("eventType","CREATE","snapshotJson","{\"monthlyCostSnapshot\":15000}")));
+        BusinessProjectProposal result=service.get(77L,9L,false,false);
+        assertEquals(12L,result.getStaffingLines().get(0).get("userId"));
+        org.junit.jupiter.api.Assertions.assertFalse(result.getStaffingLines().get(0).containsKey("monthlyCostSnapshot"));
+        org.junit.jupiter.api.Assertions.assertFalse(result.getStaffingLines().get(0).containsKey("estimatedCost"));
+        org.junit.jupiter.api.Assertions.assertFalse(result.getEvents().get(0).containsKey("snapshotJson"));
     }
 
     @Test

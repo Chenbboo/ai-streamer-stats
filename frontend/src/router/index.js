@@ -26,6 +26,13 @@ import Layout from '@/layout'
 
 // 公共路由
 export const constantRoutes = [
+  ...Object.entries({
+    '/business/staff': '/hcm/staff',
+    '/business/departments': '/hcm/departments',
+    '/business/accounting': '/finance/accounting',
+    '/business/boss': '/finance/boss',
+    '/business/boss-ai': '/platform/boss-ai'
+  }).map(([path, target]) => ({ path, hidden: true, redirect: to => ({ path: target, query: to.query, hash: to.hash }) })),
   {
     path: '/redirect',
     component: Layout,

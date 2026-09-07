@@ -21,8 +21,15 @@ import com.ruoyi.business.domain.BusinessStaffCostPolicy;
 
 public interface BusinessProjectMapper
 {
+    Long selectStaffCompanyId(Long userId);
+    Long lockStaffCostPerson(Long userId);
+    List<Map<String,Object>> selectStaffCostOptions(Map<String,Object> query);
     List<BusinessProject> selectProjectList(Map<String, Object> query);
     BusinessProject selectProjectById(Long projectId);
+    BusinessProject selectProjectByIdForUpdate(Long projectId);
+    int closeAccounting(@Param("projectId") Long projectId, @Param("version") Integer version,
+        @Param("userName") String userName);
+    int countPendingProjectKpi(@Param("projectId") Long projectId);
     int insertProject(BusinessProject project);
     int updateProject(BusinessProject project);
     int updateProjectBudget(@Param("projectId") Long projectId, @Param("budgetLimit") java.math.BigDecimal budgetLimit,
