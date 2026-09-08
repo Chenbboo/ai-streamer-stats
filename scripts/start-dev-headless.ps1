@@ -5,6 +5,17 @@ $logDirectory = Join-Path $projectRoot 'logs'
 New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
 $env:RUOYI_PROFILE = Join-Path $projectRoot 'backend\uploads'
 New-Item -ItemType Directory -Force -Path $env:RUOYI_PROFILE | Out-Null
+# Optional Windows-user encrypted local integration settings, never stored in Git.
+$feishuLocalPath = Join-Path $env:LOCALAPPDATA 'meimaru\feishu.local.json'
+if (Test-Path -LiteralPath $feishuLocalPath) {
+    $feishuLocal = Get-Content -LiteralPath $feishuLocalPath -Raw | ConvertFrom-Json
+    if (-not $env:FEISHU_ATTENDANCE_ENABLED) { $env:FEISHU_ATTENDANCE_ENABLED = 'true' }
+    if (-not $env:FEISHU_APP_ID) { $env:FEISHU_APP_ID = $feishuLocal.appId }
+    if (-not $env:FEISHU_APP_SECRET) { $env:FEISHU_APP_SECRET = [System.Net.NetworkCredential]::new('', ($feishuLocal.appSecretDpapi | ConvertTo-SecureString)).Password }
+    if (-not $env:FEISHU_TENANT_KEY) { $env:FEISHU_TENANT_KEY = $feishuLocal.tenantKey }
+    if (-not $env:FEISHU_ATTENDANCE_POLL_ENABLED) { $env:FEISHU_ATTENDANCE_POLL_ENABLED = ([string][bool]$feishuLocal.pollEnabled).ToLowerInvariant() }
+    if (-not $env:FEISHU_ATTENDANCE_POLL_LOOKBACK_DAYS -and $feishuLocal.pollLookbackDays) { $env:FEISHU_ATTENDANCE_POLL_LOOKBACK_DAYS = [string]$feishuLocal.pollLookbackDays }
+}
 function Test-LocalPort([int]$Port) {
     $connection = New-Object System.Net.Sockets.TcpClient
     try { $operation = $connection.ConnectAsync('127.0.0.1', $Port); return $operation.Wait(800) -and $connection.Connected }

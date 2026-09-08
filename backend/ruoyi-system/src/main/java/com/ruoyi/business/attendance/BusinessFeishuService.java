@@ -116,6 +116,62 @@ public class BusinessFeishuService
         return mapper.mapping(id(row,"mappingId"));
     }
 
+    public Map<String,Object> directory(Long connectionId)
+    {
+        Map<String,Object> c=connection(connectionId);
+        return map("employees",provider.directory(string(c,"tenantKey")),"people",mapper.people(id(c,"companyDeptId")),
+            "mappings",mapper.mappings(connectionId),"connectionVersion",c.get("version"));
+    }
+
+    /** All rows are validated before the first insert; conflicts roll back the complete selection. */
+    public Map<String,Object> addMappings(Long connectionId, Map<String,Object> input, Long actor)
+    {
+        if (!Boolean.TRUE.equals(input.get("confirmed"))) fail("请先逐项核对并确认人员关联");
+        Object raw=input.get("items");
+        if (!(raw instanceof List) || ((List<?>)raw).isEmpty() || ((List<?>)raw).size()>50) fail("每次确认 1 至 50 名人员");
+        List<?> items=(List<?>)raw;
+        Map<String,Object> c=connection(connectionId);
+        Map<String,Map<String,Object>> authorized=new HashMap<>();
+        for(Map<String,Object> person:provider.directory(string(c,"tenantKey"))) authorized.put(string(person,"externalUserId"),person);
+        return transaction.execute(tx -> {
+            Map<String,Object> current=lock(connectionId);requireIdle(current);mapper.lockTenant(string(current,"tenantKey"));
+            if (!Objects.equals(requiredId(input,"connectionVersion"),id(current,"version"))) fail("人员映射已变化，请重新读取名单");
+            Set<Long> locals=new HashSet<>();Set<String> externals=new HashSet<>();List<Map<String,Object>> prepared=new ArrayList<>();
+            LocalDate from=date(input,"effectiveFrom"),to=optionalDate(input.get("effectiveTo"));
+            if(to!=null&&to.isBefore(from))fail("映射生效区间不正确");
+            for(Object item:items)
+            {
+                if(!(item instanceof Map))fail("人员关联格式不正确");
+                Map<String,Object> selected=(Map<String,Object>)item;
+                Long userId=requiredId(selected,"userId");String external=requiredText(selected,"externalUserId",128);
+                if(!locals.add(userId)||!externals.add(external))fail("同一批次中不能重复关联本地或飞书人员");
+                Map<String,Object> externalPerson=authorized.get(external);
+                if(externalPerson==null||Boolean.TRUE.equals(externalPerson.get("unavailable")))fail("员工不在当前飞书可用授权名单，请重新读取");
+                Map<String,Object> staff=mapper.staff(userId);
+                if(staff==null||!"0".equals(string(staff,"delFlag"))||!Objects.equals(id(current,"companyDeptId"),id(staff,"companyDeptId"))
+                    || (staff.get("employmentStatus")!=null&&!"ACTIVE".equals(string(staff,"employmentStatus"))))fail("关联人员必须是在职的本公司人员");
+                Map<String,Object> row=map("connectionId",connectionId,"tenantKey",current.get("tenantKey"),"userId",userId,"externalUserId",external,
+                    "effectiveFrom",from.toString(),"effectiveTo",to==null?null:to.toString(),"actorId",actor);
+                if(mapper.mappingConflicts(row)>0)fail("人员或外部身份在此有效期已有映射，请重新读取名单");
+                prepared.add(row);
+            }
+            for(Map<String,Object> row:prepared)
+            {
+                mapper.insertMapping(row);
+                audit(connectionId,"CREATE_MAPPING",actor,id(row,"mappingId"),"批量关联：人工核对飞书授权名单与本地账号");
+            }
+            mapper.bumpVersion(connectionId);
+            return map("createdCount",prepared.size());
+        });
+    }
+
+    public Map<String,Object> syncOverview(Long connectionId)
+    {
+        Map<String,Object> c=connection(connectionId);
+        return map("configuration",provider.configurationStatus(),"people",mapper.syncCoverage(connectionId),
+            "sourceToday",LocalDate.now(ZoneId.of(string(c,"timezone"))).toString(),"timezone",c.get("timezone"));
+    }
+
     @Transactional
     public void retireMapping(Long mappingId, Map<String, Object> input, Long actor)
     {
@@ -538,8 +594,20 @@ public class BusinessFeishuService
     private static List<Map<String,Object>> activeMappings(List<Map<String,Object>> all,LocalDate date)
     { List<Map<String,Object>> result=new ArrayList<>(); for(Map<String,Object> m:all) { LocalDate from=optionalDate(m.get("effectiveFrom")),to=optionalDate(m.get("effectiveTo")); if(from!=null&&!date.isBefore(from)&&(to==null||!date.isAfter(to))) result.add(m); } return result; }
     private static String safeError(Exception ex) { String message=ex.getMessage(); return message!=null&&message.matches("FEISHU_[A-Z0-9_]{1,80}")?message:"FEISHU_SYNC_FAILED"; }
-    private static boolean recent(Object value) { return value instanceof java.util.Date && ((java.util.Date)value).getTime()>=System.currentTimeMillis()-48L*3600*1000; }
-    private static boolean expired(Object value) { return !(value instanceof java.util.Date)||((java.util.Date)value).getTime()<System.currentTimeMillis(); }
+    private static boolean recent(Object value)
+    {
+        // MySQL DATETIME in map results can be returned as LocalDateTime by Connector/J.
+        if (value instanceof LocalDateTime)
+            return !((LocalDateTime) value).isBefore(LocalDateTime.now().minusHours(48));
+        return value instanceof java.util.Date
+            && ((java.util.Date) value).getTime() >= System.currentTimeMillis() - 48L * 3600 * 1000;
+    }
+    static boolean expired(Object value)
+    {
+        if(value==null)return true;
+        if(value instanceof LocalDateTime)return ((LocalDateTime)value).isBefore(LocalDateTime.now());
+        return value instanceof java.util.Date && ((java.util.Date)value).getTime()<System.currentTimeMillis();
+    }
     private static LocalDate date(Map<String,Object> value,String key) { LocalDate date=optionalDate(value.get(key)); if(date==null) fail("缺少日期："+key); return date; }
     private static LocalDate optionalDate(Object value) { if(value==null||String.valueOf(value).isEmpty())return null; if(value instanceof java.sql.Date)return ((java.sql.Date)value).toLocalDate(); if(value instanceof java.util.Date)return Instant.ofEpochMilli(((java.util.Date)value).getTime()).atZone(ZoneId.of("Asia/Shanghai")).toLocalDate(); try{return LocalDate.parse(String.valueOf(value).substring(0,10));}catch(Exception ex){throw new ServiceException("日期格式须为 yyyy-MM-dd");} }
     private static Long requiredId(Map<String,Object> row,String key) { Long value=id(row,key); if(value==null||value<=0)fail("缺少有效标识："+key); return value; }

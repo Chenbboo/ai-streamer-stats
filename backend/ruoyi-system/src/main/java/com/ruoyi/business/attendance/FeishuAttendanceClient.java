@@ -29,6 +29,11 @@ public class FeishuAttendanceClient implements AttendanceProvider
     @Value("${FEISHU_APP_ID:}") private String appId = "";
     @Value("${FEISHU_APP_SECRET:}") private String appSecret = "";
     @Value("${FEISHU_TENANT_KEY:}") private String tenantKey = "";
+    @Value("${FEISHU_ATTENDANCE_POLL_ENABLED:false}") private boolean pollEnabled;
+    @Value("${FEISHU_ATTENDANCE_POLL_DELAY_MS:900000}") private long pollDelayMs = 900000;
+    @Value("${FEISHU_ATTENDANCE_POLL_LOOKBACK_DAYS:3}") private int pollLookbackDays = 3;
+    private final Object rateLock = new Object();
+    private long nextRequestNanos;
     private final RestTemplate http;
     private final ObjectMapper json = new ObjectMapper();
     private volatile String token;
@@ -52,8 +57,80 @@ public class FeishuAttendanceClient implements AttendanceProvider
     {
         return map("enabled", enabled, "appIdPresent", !appId.isEmpty(),
             "appSecretPresent", !appSecret.isEmpty(), "tenantKeyPresent", !tenantKey.isEmpty(),
-            "provider", "FEISHU", "adapterVersion", "FEISHU_ATTENDANCE_V1_20260907",
-            "identityType", "employee_id", "rawPunchDetailsStored", false);
+            "provider", "FEISHU", "adapterVersion", "FEISHU_ATTENDANCE_V2_20260907",
+            "identityType", "employee_id", "rawPunchDetailsStored", false,
+            "pollEnabled", pollEnabled, "pollDelayMs", pollDelayMs,
+            "pollLookbackDays", Math.max(1, Math.min(7, pollLookbackDays)), "requestLimitPerSecond", 5);
+    }
+
+    /** Complete authorized directory only. Never return a truncated list as a full scope. */
+    @Override public List<Map<String, Object>> directory(String tenant)
+    {
+        if (!isConfigured(tenant)) throw new ServiceException("FEISHU_NOT_CONFIGURED");
+        verifyTenant(tenant);
+        long deadline = System.nanoTime() + 120_000_000_000L;
+        Set<String> users = new LinkedHashSet<>(), departments = new LinkedHashSet<>();
+        for (JsonNode page : contactPages("/contact/v3/scopes?user_id_type=user_id&department_id_type=open_department_id&page_size=100", deadline))
+        {
+            for (JsonNode id : optionalArray(page, "user_ids")) users.add(contactId(id.asText()));
+            for (JsonNode id : optionalArray(page, "department_ids")) departments.add(contactId(id.asText()));
+        }
+        // Scope departments include their children. Query only explicitly granted roots.
+        for (String root : new ArrayList<>(departments))
+            for (JsonNode page : contactPages("/contact/v3/departments/" + root + "/children?user_id_type=user_id&department_id_type=open_department_id&fetch_child=true&page_size=50", deadline))
+                for (JsonNode d : optionalArray(page, "items")) departments.add(contactId(required(d,"open_department_id")));
+        if (departments.size() > 200) throw new ServiceException("FEISHU_DIRECTORY_TOO_LARGE");
+        Map<String,Map<String,Object>> result = new LinkedHashMap<>();
+        for (String department : departments)
+            for (JsonNode page : contactPages("/contact/v3/users/find_by_department?user_id_type=user_id&department_id_type=open_department_id&department_id=" + department + "&page_size=50", deadline))
+                for (JsonNode user : optionalArray(page, "items")) addDirectoryUser(result, user);
+        for (String id : users)
+        {
+            if (result.containsKey(id)) continue;
+            checkDirectoryDeadline(deadline);
+            JsonNode user = request("/contact/v3/users/" + id + "?user_id_type=user_id", null, true).path("user");
+            if (!id.equals(required(user,"user_id"))) throw new ServiceException("FEISHU_SCOPE_MISMATCH");
+            addDirectoryUser(result, user);
+        }
+        return new ArrayList<>(result.values());
+    }
+
+    private List<JsonNode> contactPages(String path, long deadline)
+    {
+        List<JsonNode> pages = new ArrayList<>(); Set<String> tokens = new HashSet<>(); String cursor = "";
+        for (int page = 0; page < 100; page++)
+        {
+            checkDirectoryDeadline(deadline);
+            JsonNode data = request(path + (cursor.isEmpty() ? "" : "&page_token=" + org.springframework.web.util.UriUtils.encode(cursor, StandardCharsets.UTF_8)), null, true);
+            if (!data.path("has_more").isBoolean()) throw new ServiceException("FEISHU_DIRECTORY_INVALID_PAGE");
+            pages.add(data);
+            if (!data.path("has_more").asBoolean()) return pages;
+            cursor = required(data,"page_token");
+            if (!tokens.add(cursor)) throw new ServiceException("FEISHU_DIRECTORY_REPEATED_CURSOR");
+        }
+        throw new ServiceException("FEISHU_DIRECTORY_TOO_LARGE");
+    }
+    private static Iterable<JsonNode> optionalArray(JsonNode node, String field)
+    {
+        if (!node.has(field)) return Collections.emptyList();
+        return requiredArray(node,field);
+    }
+    private static String contactId(String id)
+    {
+        if (!id.matches("[A-Za-z0-9_-]{1,128}")) throw new ServiceException("FEISHU_INVALID_CONTACT_ID");
+        return id;
+    }
+    private static void checkDirectoryDeadline(long deadline)
+    { if (System.nanoTime() > deadline) throw new ServiceException("FEISHU_DIRECTORY_TIMEOUT"); }
+    private static void addDirectoryUser(Map<String,Map<String,Object>> result, JsonNode user)
+    {
+        String id = contactId(required(user,"user_id"));
+        // Keep only identity and a review label; do not copy mobile, email, avatar or other profile fields.
+        Map<String,Object> row = map("externalUserId",id,"name",required(user,"name"),
+            "unavailable",user.path("status").path("is_resigned").asBoolean() || user.path("status").path("is_frozen").asBoolean());
+        Map<String,Object> previous = result.put(id,row);
+        if (previous != null && !previous.equals(row)) throw new ServiceException("FEISHU_SOURCE_CHANGED_DURING_READ");
+        if (result.size() > 2000) throw new ServiceException("FEISHU_DIRECTORY_TOO_LARGE");
     }
 
     @Override public List<Map<String, Object>> query(String tenant, String timezone, String resource,
@@ -84,7 +161,24 @@ public class FeishuAttendanceClient implements AttendanceProvider
             JsonNode data = request("/attendance/v1/user_tasks/query?employee_type=employee_id", body, true);
             if (data.path("invalid_user_ids").size() > 0 || data.path("unauthorized_user_ids").size() > 0)
                 throw new ServiceException("FEISHU_SCOPE_REJECTED");
-            return normalizeTasks(data, timezone, ids, date);
+            List<Map<String, Object>> result = normalizeTasks(data, timezone, ids, date);
+            Map<String, Object> remedyBody = map("user_ids", ids, "status", 2, "check_date_type", "PeriodTime",
+                "check_time_from", String.valueOf(date.atStartOfDay(ZoneId.of(timezone)).toEpochSecond()),
+                "check_time_to", String.valueOf(date.plusDays(1).atStartOfDay(ZoneId.of(timezone)).toEpochSecond() - 1));
+            JsonNode remedies = request("/attendance/v1/user_task_remedys/query?employee_type=employee_id", remedyBody, true);
+            for (JsonNode remedy : requiredArray(remedies, "user_remedys"))
+            {
+                Map<String,Object> out = base(required(remedy,"user_id"), "REMEDY:" + required(remedy,"approval_id")
+                    + ":" + remedy.path("punch_no").asInt() + ":" + remedy.path("work_type").asInt(), "REMEDY", date, timezone);
+                if (!date.format(DAY).equals(required(remedy,"remedy_date"))) throw new ServiceException("FEISHU_SCOPE_MISMATCH");
+                out.put("sourceStatus", required(remedy,"status"));
+                out.put("normalizedStatus", remedy.path("status").asInt() == 2 ? "CONFIRMED" : "UNKNOWN");
+                out.put("sourceDetails", map("remedyTime",remedy.path("remedy_time").asText("")));
+                out.put("intervals", Collections.emptyList());
+                checkScope(out, ids, date); result.add(out);
+            }
+            rejectAmbiguousKeys(result);
+            return result;
         }
         if ("SHIFT".equals(resource))
         {
@@ -166,8 +260,14 @@ public class FeishuAttendanceClient implements AttendanceProvider
                 "ATTENDANCE", businessDate, timezone);
             List<Map<String, Object>> statuses = new ArrayList<>();
             for (JsonNode record : requiredArray(row, "records"))
+            {
                 statuses.add(map("checkInResult", record.path("check_in_result").asText("UNKNOWN"),
-                    "checkOutResult", record.path("check_out_result").asText("UNKNOWN")));
+                    "checkOutResult", record.path("check_out_result").asText("UNKNOWN"),
+                    "checkInTime", punchTime(record.path("check_in_record"), required(row,"user_id")),
+                    "checkOutTime", punchTime(record.path("check_out_record"), required(row,"user_id")),
+                    "scheduledIn", optionalEpoch(record.path("check_in_shift_time")),
+                    "scheduledOut", optionalEpoch(record.path("check_out_shift_time"))));
+            }
             out.put("sourceDetails", map("results", statuses));
             // Preserve source enum meanings; do not collapse an unknown code into absent/normal.
             out.put("sourceStatus", "SOURCE_RESULTS"); out.put("normalizedStatus", "OBSERVED");
@@ -178,6 +278,20 @@ public class FeishuAttendanceClient implements AttendanceProvider
             checkScope(out, ids, date); result.add(out);
         }
         rejectAmbiguousKeys(result); return result;
+    }
+
+    private static Long optionalEpoch(JsonNode value)
+    {
+        if (value.isMissingNode() || value.isNull() || value.asText().isEmpty() || "0".equals(value.asText())) return null;
+        try { long seconds = Long.parseLong(value.asText()); if (seconds <= 0 || seconds > 253402300799L) throw new NumberFormatException(); return seconds; }
+        catch (NumberFormatException ex) { throw new ServiceException("FEISHU_INVALID_PUNCH_TIME"); }
+    }
+
+    private static Long punchTime(JsonNode record, String user)
+    {
+        if (record.hasNonNull("user_id") && !record.path("user_id").asText().isEmpty() && !user.equals(record.path("user_id").asText()))
+            throw new ServiceException("FEISHU_SCOPE_MISMATCH");
+        return optionalEpoch(record.path("check_time"));
     }
 
     /** Fixed shifts only. Flexible/special rules stay UNKNOWN until a validated adapter exists. */
@@ -205,7 +319,8 @@ public class FeishuAttendanceClient implements AttendanceProvider
             {
                 HttpHeaders headers = new HttpHeaders(); headers.setContentType(MediaType.APPLICATION_JSON);
                 if (authenticated) headers.setBearerAuth(accessToken());
-                String response = http.exchange(BASE + path, body == null ? HttpMethod.GET : HttpMethod.POST,
+                acquireRequestSlot();
+                String response = http.exchange(java.net.URI.create(BASE + path), body == null ? HttpMethod.GET : HttpMethod.POST,
                     new HttpEntity<>(body, headers), String.class).getBody();
                 JsonNode root = json.readTree(response);
                 if (!root.has("code")) throw new ServiceException("FEISHU_INVALID_RESPONSE");
@@ -249,6 +364,18 @@ public class FeishuAttendanceClient implements AttendanceProvider
         verifiedTenantToken=token;
     }
 
+    /** Shared by contact, attendance and retries within this backend instance. */
+    private void acquireRequestSlot()
+    {
+        synchronized (rateLock)
+        {
+            long remaining = nextRequestNanos - System.nanoTime();
+            if (remaining > 0) try { java.util.concurrent.TimeUnit.NANOSECONDS.sleep(remaining); }
+            catch (InterruptedException ex) { Thread.currentThread().interrupt(); throw new ServiceException("FEISHU_INTERRUPTED"); }
+            nextRequestNanos = System.nanoTime() + 200_000_000L;
+        }
+    }
+
     private static void backoff(int attempt)
     { try { Thread.sleep(300L * (attempt + 1)); } catch (InterruptedException ex) { Thread.currentThread().interrupt(); throw new ServiceException("FEISHU_INTERRUPTED"); } }
     private static JsonNode requiredArray(JsonNode node, String field)
@@ -264,7 +391,7 @@ public class FeishuAttendanceClient implements AttendanceProvider
     private static long shiftInstant(LocalDate date, String time, String zone)
     { String[] parts = time.split(":"); int hour = Integer.parseInt(parts[0]), minute = Integer.parseInt(parts[1]); if (hour < 0 || hour > 47 || minute < 0 || minute > 59) throw new ServiceException("FEISHU_INVALID_SHIFT_TIME"); return localInstant(date.plusDays(hour / 24).atTime(hour % 24, minute).format(LOCAL), zone); }
     private static Map<String, Object> base(String user, String key, String kind, LocalDate date, String timezone)
-    { return map("externalUserId", user, "sourceRecordKey", key, "kind", kind, "businessDate", date.toString(), "sourceTimezone", timezone, "quality", "KNOWN", "adapterVersion", "FEISHU_ATTENDANCE_V1_20260907"); }
+    { return map("externalUserId", user, "sourceRecordKey", key, "kind", kind, "businessDate", date.toString(), "sourceTimezone", timezone, "quality", "KNOWN", "adapterVersion", "FEISHU_ATTENDANCE_V2_20260907"); }
     public static Map<String, Object> map(Object... values)
     { Map<String, Object> result = new LinkedHashMap<>(); for (int i = 0; i < values.length; i += 2) result.put(String.valueOf(values[i]), values[i + 1]); return result; }
     public static String sha256(String value)

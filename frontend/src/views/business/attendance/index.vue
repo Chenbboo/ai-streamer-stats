@@ -1,21 +1,67 @@
-<template><div class="business-product" v-loading="loading"><header class="product-head"><div><h1>{{ tr('飞书假勤查询','Tra cứu nghỉ phép Feishu') }}</h1><p>{{ tr('只读查看有权访问的飞书结果，出勤不自动生成项目投入。','Chỉ đọc kết quả Feishu trong phạm vi được phép; không tự tạo công việc dự án.') }}</p></div><el-button icon="Refresh" @click="load">{{ tr('刷新','Làm mới') }}</el-button></header><div class="product-toolbar"><el-select v-if="options.companies?.length" v-model="query.companyDeptId" clearable :placeholder="tr('本人或授权公司','Bản thân hoặc công ty được phép')" @change="resetLoad"><el-option v-for="c in options.companies" :key="c.companyDeptId" :label="c.companyName" :value="c.companyDeptId"/></el-select><el-date-picker v-model="dates" type="daterange" value-format="YYYY-MM-DD" @change="resetLoad"/><el-checkbox v-model="query.includeHistory" @change="resetLoad">{{ tr('查看历史修订','Xem các phiên bản cũ') }}</el-checkbox></div><el-alert :title="tr('无记录、同步不完整或数据陈旧均不代表缺勤。请假、补卡和更正在飞书办理。','Không có dữ liệu, dữ liệu thiếu hoặc cũ không có nghĩa là vắng mặt. Xử lý nghỉ phép và sửa chấm công tại Feishu.')" type="info" :closable="false" show-icon/><el-table :data="rows" :empty-text="tr('当前范围没有可用记录，状态未知','Chưa có bản ghi trong phạm vi này; trạng thái chưa rõ')"><el-table-column prop="observationId" :label="tr('来源编号','Mã nguồn')" width="100"/><el-table-column :label="tr('人员','Nhân sự')" min-width="120"><template #default="{row}">{{ row.userName || row.userId }}</template></el-table-column><el-table-column prop="businessDate" :label="tr('业务日期','Ngày nghiệp vụ')" width="115"/><el-table-column :label="tr('类型','Loại')"><template #default="{row}">{{ kind(row.kind) }}</template></el-table-column><el-table-column :label="tr('飞书结果','Kết quả Feishu')"><template #default="{row}">{{ state(row.normalizedStatus) }}</template></el-table-column><el-table-column :label="tr('可靠程度','Chất lượng')"><template #default="{row}"><el-tag :type="row.quality==='KNOWN'?'success':'warning'">{{ state(row.quality) }}</el-tag></template></el-table-column><el-table-column prop="sourceTimezone" :label="tr('时区','Múi giờ')" min-width="150"/><el-table-column prop="receivedAt" :label="tr('读取时间','Thời gian đọc')" min-width="175"/><el-table-column prop="sourceRevision" :label="tr('修订','Phiên bản')" width="95"/><el-table-column :label="tr('版本状态','Trạng thái phiên bản')" width="115"><template #default="{row}">{{ row.isCurrent ? tr('当前版本','Hiện tại') : tr('历史版本','Lịch sử') }}</template></el-table-column><el-table-column :label="tr('详情','Chi tiết')" width="90"><template #default="{row}"><el-button link type="primary" @click="showDetails(row)">{{ tr('查看','Xem') }}</el-button></template></el-table-column></el-table><div class="product-toolbar"><el-button :disabled="query.pageNum <= 1" @click="changePage(-1)">{{ tr('上一页','Trang trước') }}</el-button><span>{{ tr('第','Trang') }} {{ query.pageNum }} {{ tr('页','') }}</span><el-button :disabled="rows.length < query.pageSize" @click="changePage(1)">{{ tr('下一页','Trang sau') }}</el-button></div><el-dialog v-model="detailOpen" :title="tr('飞书来源详情（只读）','Chi tiết nguồn Feishu (chỉ đọc)')" width="min(650px,95vw)" append-to-body><template v-if="detail"><el-alert v-if="detail.qualityReason==='NOT_SEEN_IN_LATEST_COMPLETE'" :title="tr('最近完整补拉未再返回此记录，保留旧来源并待核实；不能据此计算确定容量。','Lần đồng bộ đầy đủ gần nhất không trả lại bản ghi này; giữ nguồn cũ để kiểm tra, chưa thể tính công suất chính xác.')" type="warning" :closable="false"/><el-descriptions :column="1" border><el-descriptions-item :label="tr('人员 / 业务日期','Nhân sự / ngày nghiệp vụ')">{{ detail.userName || detail.userId }} · {{ detail.businessDate }}</el-descriptions-item><el-descriptions-item :label="tr('来源批次 / 修订','Lần đồng bộ / phiên bản')">{{ detail.syncRunId }} / {{ detail.sourceRevision }}</el-descriptions-item><el-descriptions-item :label="tr('最近实际读到批次','Lần đọc thực tế gần nhất')">{{ detail.lastSeenRunId || detail.syncRunId }}</el-descriptions-item><el-descriptions-item :label="tr('源端认可时长','Thời lượng nguồn công nhận')">{{ detail.sourceDurationSeconds == null ? tr('未提供','Chưa cung cấp') : detail.sourceDurationSeconds / 60 + tr(' 分钟',' phút') }}</el-descriptions-item><el-descriptions-item :label="tr('来源时区','Múi giờ nguồn')">{{ detail.sourceTimezone }}</el-descriptions-item></el-descriptions><ul v-if="detailIntervals.length"><li v-for="(p,i) in detailIntervals" :key="i">{{ formatInstant(p[0],detail.sourceTimezone) }} — {{ formatInstant(p[1],detail.sourceTimezone) }}</li></ul><el-table v-if="detailResults.length" :data="detailResults"><el-table-column :label="tr('上班结果','Kết quả vào ca')"><template #default="{row}">{{ sourceResult(row.checkInResult) }}</template></el-table-column><el-table-column :label="tr('下班结果','Kết quả tan ca')"><template #default="{row}">{{ sourceResult(row.checkOutResult) }}</template></el-table-column></el-table><p>{{ tr('来源时段跨度与飞书认可时长可能不同；这些结果不直接生成项目实际投入或人工成本。','Khoảng thời gian và thời lượng Feishu công nhận có thể khác nhau; kết quả không tự tạo công việc hoặc chi phí nhân sự dự án.') }}</p></template></el-dialog></div></template>
+<template>
+  <div class="business-product" v-loading="loading">
+    <header class="product-head"><div><h1>{{ tr('考勤记录','Bảng chấm công') }}</h1><p>{{ tr('按天查看飞书打卡、排班和请假。请假与补卡仍在飞书办理。','Xem chấm công, ca làm và nghỉ phép theo ngày. Đăng ký nghỉ và bổ sung chấm công trên Feishu.') }}</p></div><el-button icon="Refresh" @click="load">{{ tr('刷新','Làm mới') }}</el-button></header>
+    <div class="product-toolbar">
+      <el-select v-if="options.companies?.length" v-model="companyDeptId" clearable :placeholder="tr('本人或授权公司','Bản thân hoặc công ty được phép')" @change="load"><el-option v-for="c in options.companies" :key="c.companyDeptId" :label="c.companyName" :value="c.companyDeptId" /></el-select>
+      <el-date-picker v-model="dates" type="daterange" value-format="YYYY-MM-DD" :clearable="false" @change="load" />
+    </div>
+    <el-alert v-if="error" :title="error" type="error" :closable="false" />
+    <el-alert v-else :title="tr('仅展示已同步的日期；没有记录不代表缺勤。时间按飞书考勤时区显示。','Chỉ hiển thị ngày đã đồng bộ; không có bản ghi không có nghĩa là vắng mặt. Giờ hiển thị theo múi giờ chấm công.')" type="info" :closable="false" />
+    <el-table :data="pageRows" :empty-text="tr('所选日期暂无已同步的考勤记录','Chưa có dữ liệu chấm công đã đồng bộ trong khoảng ngày này')" row-key="key">
+      <el-table-column prop="date" :label="tr('日期','Ngày')" width="120" />
+      <el-table-column prop="userName" :label="tr('姓名','Họ tên')" min-width="100" />
+      <el-table-column :label="tr('排班时间','Giờ theo ca')" min-width="170"><template #default="{row}"><div v-for="(p,i) in schedule(row)" :key="i">{{ time(p.start,p.zone,row.date) }} – {{ time(p.end,p.zone,row.date) }}</div><span v-if="!schedule(row).length">{{ tr('未提供','Chưa cung cấp') }}</span></template></el-table-column>
+      <el-table-column :label="tr('上班打卡','Chấm công vào')" min-width="130"><template #default="{row}"><div v-for="(p,i) in row.punches" :key="i">{{ time(p.checkInTime,p.zone,row.date) }}<small>{{ result(p.checkInResult) }}</small></div><span v-if="!row.punches.length">—</span></template></el-table-column>
+      <el-table-column :label="tr('下班打卡','Chấm công ra')" min-width="130"><template #default="{row}"><div v-for="(p,i) in row.punches" :key="i">{{ time(p.checkOutTime,p.zone,row.date) }}<small>{{ result(p.checkOutResult) }}</small></div><span v-if="!row.punches.length">—</span></template></el-table-column>
+      <el-table-column :label="tr('考勤结果','Kết quả')" min-width="150"><template #default="{row}"><el-tag :type="normal(row)?'success':'info'">{{ outcome(row) }}</el-tag><small v-if="row.warnings.length">{{ tr('部分数据待更新或核实','Một phần dữ liệu cần cập nhật hoặc kiểm tra') }}</small></template></el-table-column>
+      <el-table-column :label="tr('请假情况','Nghỉ phép')" min-width="200"><template #default="{row}"><div v-for="(leave,i) in row.leaves" :key="i"><span>{{ leave.status==='CONFIRMED'?tr('已批准','Đã duyệt'):tr('已撤回 / 待核实','Đã rút / cần kiểm tra') }}</span><div v-for="(p,j) in leave.intervals" :key="j">{{ time(p[0],leave.zone,row.date) }} – {{ time(p[1],leave.zone,row.date) }}</div><small v-if="leave.seconds!=null">{{ leave.seconds/3600 }} {{ tr('小时（飞书认可）','giờ (Feishu xác nhận)') }}</small></div><span v-if="!row.leaves.length">{{ tr('未见请假记录','Chưa thấy bản ghi nghỉ phép') }}</span></template></el-table-column>
+      <el-table-column :label="tr('已通过补卡','Bổ sung đã duyệt')" min-width="160"><template #default="{row}"><div v-for="(p,i) in row.remedies" :key="i">{{ p.time || tr('已通过','Đã duyệt') }}</div><span v-if="!row.remedies.length">{{ tr('未见已通过记录','Chưa thấy bản ghi đã duyệt') }}</span></template></el-table-column>
+    </el-table>
+    <div class="product-toolbar daily-pagination"><span>{{ tr('共','Tổng') }} {{ days.length }} {{ tr('条','bản ghi') }}</span><el-button :disabled="page===1" @click="page--">{{ tr('上一页','Trang trước') }}</el-button><span>{{ page }} / {{ Math.max(1,Math.ceil(days.length/20)) }}</span><el-button :disabled="page*20>=days.length" @click="page++">{{ tr('下一页','Trang sau') }}</el-button></div>
+  </div>
+</template>
 <script setup name="BusinessAttendance">
 import {computed,onMounted,reactive,ref} from 'vue'
 import {useI18n} from 'vue-i18n'
 import {getFeishuRecords,getFeishuQueryOptions} from '@/api/business/feishu'
+import {dailyAttendance} from './daily.mjs'
 import '@/assets/styles/business-product.scss'
-const {locale}=useI18n(),tr=(zh,vi)=>locale.value==='vi-VN'?vi:zh,query=reactive({companyDeptId:null,includeHistory:false,pageNum:1,pageSize:50}),options=reactive({}),rows=ref([]),loading=ref(false)
-const fmt=d=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10),start=new Date();start.setDate(start.getDate()-6);const dates=ref([fmt(start),fmt(new Date())]);let sequence=0
-const detailOpen=ref(false),detail=ref(null)
-const parseJson=(value,fallback)=>{try{return JSON.parse(value||'null')||fallback}catch{return fallback}}
-const detailIntervals=computed(()=>parseJson(detail.value?.intervalsJson,[])),detailResults=computed(()=>parseJson(detail.value?.detailsJson,{}).results||[])
-function showDetails(row){detail.value=row;detailOpen.value=true}
-function formatInstant(seconds,timezone){try{return new Intl.DateTimeFormat(locale.value==='vi-VN'?'vi-VN':'zh-CN',{timeZone:timezone,dateStyle:'short',timeStyle:'short'}).format(new Date(seconds*1000))}catch{return String(seconds)}}
-function sourceResult(value){return {Normal:tr('正常','Bình thường'),NoNeedCheck:tr('无需打卡','Không cần chấm công'),SystemCheck:tr('系统打卡（旧状态）','Chấm công hệ thống (cũ)'),Early:tr('早退','Về sớm'),Late:tr('迟到','Đi muộn'),Lack:tr('缺卡','Thiếu lượt chấm'),Todo:tr('未打卡','Chưa chấm công')}[value]||tr('待解释：','Cần giải thích: ')+value}
-async function resetLoad(){query.pageNum=1;await load()}
-async function changePage(delta){query.pageNum+=delta;await load()}
-const state=s=>({KNOWN:tr('已读取','Đã đọc'),PARTIAL:tr('不完整','Chưa đầy đủ'),STALE:tr('数据陈旧','Dữ liệu cũ'),UNKNOWN:tr('未知','Chưa rõ'),CONFIRMED:tr('已生效','Có hiệu lực'),APPROVED:tr('已批准','Đã duyệt'),REVOKED:tr('已撤回','Đã thu hồi'),CANCELED:tr('已撤销','Đã hủy'),INVALID:tr('已失效','Không còn hiệu lực'),NORMAL:tr('正常','Bình thường'),OBSERVED:tr('源端结果','Kết quả nguồn')}[s]||s||tr('待核实','Cần kiểm tra'))
-const kind=s=>({SHIFT:tr('排班','Ca làm'),LEAVE:tr('请假','Nghỉ phép'),APPROVAL:tr('假勤审批结果','Kết quả phê duyệt'),ATTENDANCE:tr('出勤结果','Kết quả chấm công'),TASK:tr('考勤结果','Kết quả chấm công')}[s]||s)
-async function load(){const n=++sequence;if(!dates.value?.[0])return;loading.value=true;try{const r=await getFeishuRecords({...query,companyDeptId:query.companyDeptId||undefined,dateFrom:dates.value[0],dateTo:dates.value[1]});if(n===sequence)rows.value=Array.isArray(r.data)?r.data:r.data?.rows||[]}finally{if(n===sequence)loading.value=false}}
+const {locale}=useI18n(), tr=(zh,vi)=>locale.value==='vi-VN'?vi:zh
+const options=reactive({}), companyDeptId=ref(null), rows=ref([]), loading=ref(false), error=ref(''), page=ref(1)
+const fmt=d=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10), start=new Date(); start.setDate(start.getDate()-6)
+const dates=ref([fmt(start),fmt(new Date())]), days=computed(()=>dailyAttendance(rows.value)), pageRows=computed(()=>days.value.slice((page.value-1)*20,page.value*20))
+let sequence=0
+function time(seconds,zone,day){
+  if (!seconds) return tr('未提供','Chưa cung cấp')
+  try {
+    const value=new Date(Number(seconds)*1000), parts=new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(value)
+    const get=t=>parts.find(p=>p.type===t)?.value, date=`${get('year')}-${get('month')}-${get('day')}`
+    const clock=new Intl.DateTimeFormat('en-GB',{timeZone:zone,hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(value)
+    return (date===day?'':date+' ')+clock
+  }catch{return tr('待核实','Cần kiểm tra')}
+}
+function result(v){return {Normal:tr('正常','Bình thường'),NoNeedCheck:tr('无需打卡','Không cần chấm công'),SystemCheck:tr('系统打卡','Chấm công hệ thống'),Early:tr('早退','Về sớm'),Late:tr('迟到','Đi muộn'),Lack:tr('缺卡','Thiếu chấm công'),Todo:tr('未打卡','Chưa chấm công')}[v]||tr('待核实','Cần kiểm tra')}
+const codes=row=>[...new Set(row.punches.flatMap(p=>[p.checkInResult,p.checkOutResult]))]
+const normal=row=>!row.warnings.length&&codes(row).length===1&&codes(row)[0]==='Normal'
+function outcome(row){return codes(row).length?codes(row).map(result).join(' / '):tr('暂无打卡结果','Chưa có kết quả chấm công')}
+function schedule(row){const scheduled=row.punches.filter(p=>p.scheduledIn&&p.scheduledOut).map(p=>({start:p.scheduledIn,end:p.scheduledOut,zone:p.zone}));return scheduled.length?scheduled:row.shifts}
+async function load(){
+  const n=++sequence; if(!dates.value?.[0])return
+  loading.value=true;error.value='';rows.value=[];page.value=1
+  const params={companyDeptId:companyDeptId.value||undefined,dateFrom:dates.value[0],dateTo:dates.value[1],includeHistory:false,pageSize:1000}, collected=[]
+  try {
+    // Collect complete source pages before grouping: one employee/day must never be split across pages.
+    for(let p=1;p<=100;p++){
+      const response=await getFeishuRecords({...params,pageNum:p});if(n!==sequence)return
+      const batch=Array.isArray(response.data)?response.data:response.data?.rows||[];collected.push(...batch)
+      if(batch.length<1000){rows.value=collected;return}
+    }
+    throw new Error(tr('数据量较大，请缩小日期或公司范围','Quá nhiều dữ liệu, hãy thu hẹp khoảng ngày hoặc công ty'))
+  }catch(e){if(n===sequence)error.value=e.message||tr('读取失败，请重试','Không thể tải, vui lòng thử lại')}
+  finally{if(n===sequence)loading.value=false}
+}
 onMounted(async()=>{Object.assign(options,(await getFeishuQueryOptions()).data||{});await load()})
 </script>
+<style scoped>
+small{display:block;color:#7b8494;font-size:12px;line-height:1.7} .daily-pagination{margin-top:20px} :deep(.el-table){margin-top:16px} :deep(.el-table .cell>div+div){margin-top:6px}
+</style>

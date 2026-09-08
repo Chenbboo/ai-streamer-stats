@@ -20,6 +20,7 @@ public interface BusinessFeishuMapper
     int activate(Map<String, Object> row);
     Map<String, Object> staff(Long userId);
     List<Map<String, Object>> people(Long companyDeptId);
+    List<Map<String, Object>> syncCoverage(Long connectionId);
     List<Map<String, Object>> mappings(Long connectionId);
     Map<String, Object> mapping(Long mappingId);
     int mappingConflicts(Map<String, Object> row);

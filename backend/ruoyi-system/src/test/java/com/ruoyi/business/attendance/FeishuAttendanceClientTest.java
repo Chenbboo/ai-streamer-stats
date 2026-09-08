@@ -1,5 +1,7 @@
 package com.ruoyi.business.attendance;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.*;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
@@ -73,6 +75,18 @@ class FeishuAttendanceClientTest
         assertEquals("OBSERVED",row.get("normalizedStatus"));
     }
 
+    @Test void actualPunchTimesStaySeparateFromScheduleAndMissingPunches() throws Exception
+    {
+        String payload="{\"user_task_results\":[{\"result_id\":\"r1\",\"user_id\":\"u1\",\"day\":20260907,\"records\":[{\"check_in_result\":\"Normal\",\"check_out_result\":\"Lack\",\"check_in_shift_time\":\"1788483600\",\"check_in_record\":{\"user_id\":\"u1\",\"check_time\":\"1788483207\",\"location_name\":\"private\"}}]}]}";
+        Map<String,Object> row=client.normalizeTasks(json.readTree(payload),"Asia/Shanghai",Arrays.asList("u1"),day).get(0);
+        JsonNode result=json.valueToTree(row).path("sourceDetails").path("results").get(0);
+        assertEquals(1788483207L,result.path("checkInTime").asLong());
+        assertEquals(1788483600L,result.path("scheduledIn").asLong());
+        assertTrue(result.path("checkOutTime").isNull());
+        assertFalse(json.writeValueAsString(row).contains("private"));
+        assertThrows(ServiceException.class,()->client.normalizeTasks(json.readTree(payload.replace("1788483207","invalid")),"Asia/Shanghai",Arrays.asList("u1"),day));
+    }
+
     @Test void clientRequestsApprovedAndWithdrawnStatusesWithEmployeeIdAndNoWriteEndpoint()
     {
         configure();
@@ -97,6 +111,19 @@ class FeishuAttendanceClientTest
         server.expect(anything()).andRespond(withSuccess("{\"code\":0,\"data\":{\"user_task_results\":[],\"unauthorized_user_ids\":[\"u1\"]}}",MediaType.APPLICATION_JSON));
         ServiceException ex=assertThrows(ServiceException.class,()->client.query("tenant","Asia/Shanghai","TASK",Arrays.asList("u1"),day));
         assertEquals("FEISHU_SCOPE_REJECTED",ex.getMessage()); server.verify();
+    }
+    @Test void taskSyncIncludesApprovedRemediesWithoutSavingReasons()
+    {
+        configure(); ReflectionTestUtils.setField(client,"token","test-token"); ReflectionTestUtils.setField(client,"expiresAt",Long.MAX_VALUE);
+        ReflectionTestUtils.setField(client,"verifiedTenantToken","test-token");
+        MockRestServiceServer server=MockRestServiceServer.createServer((RestTemplate)ReflectionTestUtils.getField(client,"http"));
+        server.expect(requestTo("https://open.feishu.cn/open-apis/attendance/v1/user_tasks/query?employee_type=employee_id"))
+            .andRespond(withSuccess("{\"code\":0,\"data\":{\"user_task_results\":[]}}",MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://open.feishu.cn/open-apis/attendance/v1/user_task_remedys/query?employee_type=employee_id"))
+            .andExpect(content().json("{\"status\":2,\"user_ids\":[\"u1\"],\"check_date_type\":\"PeriodTime\"}"))
+            .andRespond(withSuccess("{\"code\":0,\"data\":{\"user_remedys\":[{\"user_id\":\"u1\",\"approval_id\":\"a1\",\"remedy_date\":20260907,\"remedy_time\":\"2026-09-07 09:00\",\"status\":2,\"reason\":\"private\"}]}}",MediaType.APPLICATION_JSON));
+        Map<String,Object> remedy=client.query("tenant","Asia/Shanghai","TASK",Arrays.asList("u1"),day).get(0);
+        assertEquals("REMEDY",remedy.get("kind")); assertFalse(remedy.toString().contains("private"));server.verify();
     }
     private void configure()
     { ReflectionTestUtils.setField(client,"enabled",true); ReflectionTestUtils.setField(client,"appId","test-id"); ReflectionTestUtils.setField(client,"appSecret","test-secret"); ReflectionTestUtils.setField(client,"tenantKey","tenant"); }

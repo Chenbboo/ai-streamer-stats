@@ -16,8 +16,18 @@
   <update id="bumpVersion">update biz_feishu_connection set version=version+1,last_complete_at=null,last_complete_run_id=null where connection_id=#{connectionId}</update>
   <update id="activate">update biz_feishu_connection set state='ACTIVE',effective_date=#{effectiveDate},version=version+1 where connection_id=#{connectionId} and version=#{version} and state='PARALLEL' and running_run_id is null</update>
   <select id="staff" resultType="map">select u.user_id userId,u.del_flag delFlag,p.employment_status employmentStatus,c.dept_id companyDeptId,coalesce(nullif(u.nick_name,''),u.user_name) userName from sys_user u left join biz_staff_profile p on p.user_id=u.user_id left join sys_dept d on d.dept_id=u.dept_id and d.del_flag='0' left join sys_dept c on c.parent_id=100 and c.del_flag='0' and (c.dept_id=d.dept_id or find_in_set(c.dept_id,d.ancestors)) where u.user_id=#{userId}</select>
-  <select id="people" resultType="map">select u.user_id userId,coalesce(nullif(u.nick_name,''),u.user_name) userName,c.dept_name companyName from sys_user u join sys_dept d on d.dept_id=u.dept_id and d.del_flag='0' join sys_dept c on c.dept_id=#{companyDeptId} and c.parent_id=100 and (d.dept_id=c.dept_id or find_in_set(c.dept_id,d.ancestors)) where u.del_flag='0' order by u.user_id limit 2000</select>
+  <select id="people" resultType="map">select u.user_id userId,coalesce(nullif(u.nick_name,''),u.user_name) userName,c.dept_name companyName,u.user_name loginName,d.dept_name departmentName from sys_user u join sys_dept d on d.dept_id=u.dept_id and d.del_flag='0' join sys_dept c on c.dept_id=#{companyDeptId} and c.parent_id=100 and (d.dept_id=c.dept_id or find_in_set(c.dept_id,d.ancestors)) where u.del_flag='0' order by u.user_id limit 2000</select>
   <sql id="mappingColumns">m.mapping_id mappingId,m.connection_id connectionId,m.user_id userId,m.external_user_id externalUserId,m.identity_type identityType,m.effective_from effectiveFrom,m.effective_to effectiveTo,m.status,m.created_by createdBy,m.created_at createdAt,coalesce(nullif(u.nick_name,''),u.user_name) userName</sql>
+  <select id="syncCoverage" resultType="map">
+    select m.mapping_id mappingId,m.user_id userId,coalesce(nullif(u.nick_name,''),u.user_name) userName,
+      m.effective_from effectiveFrom,m.effective_to effectiveTo,m.status,
+      o.firstDate,o.lastDate,o.lastReadAt,o.dateCount
+    from biz_feishu_mapping m left join sys_user u on u.user_id=m.user_id
+    left join (select mapping_id,min(business_date) firstDate,max(business_date) lastDate,max(last_seen_at) lastReadAt,
+      count(distinct business_date) dateCount from biz_feishu_observation
+      where connection_id=#{connectionId} and is_current=1 and kind='ATTENDANCE' group by mapping_id) o on o.mapping_id=m.mapping_id
+    where m.connection_id=#{connectionId} order by m.user_id,m.effective_from
+  </select>
   <select id="mappings" resultType="map" useCache="false">select <include refid="mappingColumns"/> from biz_feishu_mapping m left join sys_user u on u.user_id=m.user_id where m.connection_id=#{connectionId} order by m.user_id,m.effective_from,m.mapping_id</select>
   <select id="mapping" resultType="map">select <include refid="mappingColumns"/> from biz_feishu_mapping m left join sys_user u on u.user_id=m.user_id where m.mapping_id=#{mappingId}</select>
   <select id="mappingConflicts" resultType="int">select count(*) from biz_feishu_mapping m join biz_feishu_connection c on c.connection_id=m.connection_id where (m.connection_id=#{connectionId} or c.tenant_key=#{tenantKey}) and (m.user_id=#{userId} or m.external_user_id=#{externalUserId}) and m.effective_from &lt;= coalesce(#{effectiveTo},'9999-12-31') and coalesce(m.effective_to,'9999-12-31') &gt;= #{effectiveFrom}</select>

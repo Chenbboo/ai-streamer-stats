@@ -17,3 +17,7 @@ export const resolveFeishuIssue = (id,issueId,data) => request({ url:`/business/
 export const getFeishuReaders = id => request({ url:`/business/feishu/${id}/readers`, method:'get' })
 export const getFeishuReaderCandidates = id => request({ url:`/business/feishu/${id}/reader-candidates`, method:'get' })
 export const saveFeishuReader = (id,data) => request({ url:`/business/feishu/${id}/readers`, method:'post', data })
+
+export const getFeishuDirectory = id => request({ url:`/business/feishu/${id}/directory`, method:'get', timeout:180000 })
+export const batchFeishuMappings = (id,data) => request({ url:`/business/feishu/${id}/mappings/batch`, method:'post', data, timeout:180000 })
+export const getFeishuSyncOverview = id => request({ url:`/business/feishu/${id}/sync-overview`, method:'get' })

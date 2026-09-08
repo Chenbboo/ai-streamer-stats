@@ -18,6 +18,20 @@ public class BusinessFeishuController extends BaseController
     private final BusinessFeishuService service;
     public BusinessFeishuController(BusinessFeishuService service) { this.service=service; }
 
+    @PreAuthorize("@ss.hasPermi('business:integration:feishu')")
+    @GetMapping("/{connectionId}/directory") public AjaxResult directory(@PathVariable Long connectionId)
+    { return success(service.directory(connectionId)); }
+
+    @PreAuthorize("@ss.hasPermi('business:integration:feishu')")
+    @PostMapping("/{connectionId}/mappings/batch")
+    @Log(title="飞书批量人员关联",businessType=BusinessType.INSERT,isSaveRequestData=false,isSaveResponseData=false)
+    public AjaxResult batchMappings(@PathVariable Long connectionId,@RequestBody Map<String,Object> body)
+    { return success(service.addMappings(connectionId,body,SecurityUtils.getUserId())); }
+
+    @PreAuthorize("@ss.hasPermi('business:integration:feishu')")
+    @GetMapping("/{connectionId}/sync-overview") public AjaxResult overview(@PathVariable Long connectionId)
+    { return success(service.syncOverview(connectionId)); }
+
     @PreAuthorize("@ss.hasAnyPermi('business:integration:feishu,business:attendance:cutover')")
     @GetMapping("/connections") public AjaxResult connections()
     { return success(service.connections(SecurityUtils.getUserId(),SecurityUtils.hasPermi("business:integration:feishu"))); }

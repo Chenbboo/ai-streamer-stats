@@ -16,21 +16,23 @@ import com.ruoyi.business.mapper.BusinessFeishuMapper;
 public class FeishuAttendancePolling
 {
     @Value("${FEISHU_ATTENDANCE_POLL_ENABLED:false}") private boolean enabled;
+    @Value("${FEISHU_ATTENDANCE_POLL_LOOKBACK_DAYS:3}") private int lookbackDays = 3;
     private final BusinessFeishuService service;
     private final BusinessFeishuMapper mapper;
     private final AttendanceProvider provider;
     public FeishuAttendancePolling(BusinessFeishuService service,BusinessFeishuMapper mapper,AttendanceProvider provider)
     { this.service=service;this.mapper=mapper;this.provider=provider; }
 
-    @Scheduled(fixedDelayString="${FEISHU_ATTENDANCE_POLL_DELAY_MS:900000}",initialDelayString="${FEISHU_ATTENDANCE_POLL_DELAY_MS:900000}")
+    @Scheduled(fixedDelayString="${FEISHU_ATTENDANCE_POLL_DELAY_MS:900000}",initialDelayString="${FEISHU_ATTENDANCE_POLL_INITIAL_DELAY_MS:10000}")
     public void poll()
     {
         if(!enabled)return;
         for(Map<String,Object> c:mapper.connections())
         {
-            if(!provider.isConfigured(String.valueOf(c.get("tenantKey")))||c.get("runningRunId")!=null)continue;
-            LocalDate yesterday=LocalDate.now(ZoneId.of(String.valueOf(c.get("timezone")))).minusDays(1);
-            try { service.startSync(((Number)c.get("connectionId")).longValue(),map("windowStart",yesterday.minusDays(1).toString(),"windowEnd",yesterday.toString()),0L); }
+            if(!provider.isConfigured(String.valueOf(c.get("tenantKey")))||(c.get("runningRunId")!=null&&(c.get("leaseUntil")==null||!BusinessFeishuService.expired(c.get("leaseUntil")))))continue;
+            LocalDate today=LocalDate.now(ZoneId.of(String.valueOf(c.get("timezone"))));
+            int days=Math.max(1,Math.min(7,lookbackDays));
+            try { service.startSync(((Number)c.get("connectionId")).longValue(),map("windowStart",today.minusDays(days-1).toString(),"windowEnd",today.toString()),0L); }
             catch(Exception ignored) { /* Detailed run outcome is retained by the service; never log provider payloads. */ }
         }
     }

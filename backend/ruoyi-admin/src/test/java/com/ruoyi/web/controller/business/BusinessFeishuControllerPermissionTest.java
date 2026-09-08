@@ -20,6 +20,8 @@ class BusinessFeishuControllerPermissionTest
             { Log log=method.getAnnotation(Log.class);assertNotNull(log,method.getName());assertFalse(log.isSaveRequestData());assertFalse(log.isSaveResponseData()); }
             if(method.getName().equals("records")||method.getName().equals("availability"))
                 assertFalse(method.getAnnotation(PreAuthorize.class).value().contains("integration"));
+            if(java.util.Arrays.asList("directory","batchMappings","overview").contains(method.getName()))
+                assertEquals("@ss.hasPermi('business:integration:feishu')",method.getAnnotation(PreAuthorize.class).value());
             if(method.getName().equals("activate")||method.getName().equals("validate"))
                 assertEquals("@ss.hasPermi('business:attendance:cutover')",method.getAnnotation(PreAuthorize.class).value());
         }

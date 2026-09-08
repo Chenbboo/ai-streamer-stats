@@ -27,6 +27,49 @@ class BusinessFeishuServiceTest
         when(tx.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
         service=new BusinessFeishuService(mapper,provider,tx);
     }
+    @Test void bulkMappingRejectsUnconfirmedAndRevokedScopeBeforeWriting()
+    {
+        assertThrows(ServiceException.class,()->service.addMappings(1L,map("confirmed",false),9L));
+        verifyNoInteractions(provider);
+        when(mapper.connection(1L)).thenReturn(connection());when(mapper.lockConnection(1L)).thenReturn(connection());
+        when(provider.directory("tenant")).thenReturn(Collections.emptyList());
+        Map<String,Object> input=map("confirmed",true,"connectionVersion",2,"effectiveFrom","2026-09-01","items",Arrays.asList(map("userId",7L,"externalUserId","u1")));
+        assertThrows(ServiceException.class,()->service.addMappings(1L,input,9L));verify(mapper,never()).insertMapping(anyMap());
+    }
+    @Test void bulkMappingValidatesAllRowsBeforeAnyWriteAndBumpsVersionOnce()
+    {
+        when(mapper.connection(1L)).thenReturn(connection());when(mapper.lockConnection(1L)).thenReturn(connection());
+        when(provider.directory(anyString())).thenReturn(Arrays.asList(map("externalUserId","u1"),map("externalUserId","u2")));
+        when(mapper.staff(7L)).thenReturn(map("delFlag","0","companyDeptId",110L));
+        when(mapper.staff(8L)).thenReturn(map("delFlag","0","companyDeptId",111L));
+        Map<String,Object> input=map("confirmed",true,"connectionVersion",2,"effectiveFrom","2026-09-01","items",Arrays.asList(map("userId",7L,"externalUserId","u1"),map("userId",8L,"externalUserId","u2")));
+        assertThrows(ServiceException.class,()->service.addMappings(1L,input,9L));verify(mapper,never()).insertMapping(anyMap());
+        when(mapper.staff(8L)).thenReturn(map("delFlag","0","companyDeptId",110L));
+        assertEquals(2,service.addMappings(1L,input,9L).get("createdCount"));verify(mapper,times(2)).insertMapping(anyMap());verify(mapper).bumpVersion(1L);
+    }
+    @Test void bulkMappingRejectsDuplicateSelectionAndStaleVersion()
+    {
+        when(mapper.connection(1L)).thenReturn(connection());when(mapper.lockConnection(1L)).thenReturn(connection());
+        when(provider.directory(anyString())).thenReturn(Arrays.asList(map("externalUserId","u1"),map("externalUserId","u2")));
+        when(mapper.staff(7L)).thenReturn(map("delFlag","0","companyDeptId",110L));
+        Map<String,Object> input=map("confirmed",true,"connectionVersion",2,"effectiveFrom","2026-09-01","items",Arrays.asList(map("userId",7L,"externalUserId","u1"),map("userId",7L,"externalUserId","u2")));
+        assertThrows(ServiceException.class,()->service.addMappings(1L,input,9L));
+        input.put("connectionVersion",1);assertThrows(ServiceException.class,()->service.addMappings(1L,input,9L));verify(mapper,never()).insertMapping(anyMap());
+    }
+    @Test void freshnessSupportsJdbcDatetimeAndTimestampWithoutHidingStaleRecords()
+    {
+        for (boolean stale : new boolean[] {false, true})
+        {
+            java.time.LocalDateTime seen = java.time.LocalDateTime.now().minusHours(stale ? 49 : 1);
+            for (Object timestamp : new Object[] {seen, java.sql.Timestamp.valueOf(seen)})
+            {
+                Map<String,Object> source=map("lastSeenAt",timestamp,"quality","KNOWN");
+                when(mapper.records(anyMap())).thenReturn(Arrays.asList(source));
+                Map<String,Object> result=service.records(map("dateFrom","2026-09-01","dateTo","2026-09-07"),7L,false).get(0);
+                assertEquals(stale ? "STALE" : "KNOWN",result.get("quality"));
+            }
+        }
+    }
     @Test void employeeCanReadSelfButCannotChooseOtherPersonOrAllCompany()
     {
         when(mapper.records(anyMap())).thenReturn(new ArrayList<>());
