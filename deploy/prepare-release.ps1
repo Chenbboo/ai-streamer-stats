@@ -57,7 +57,8 @@ try {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'ai-streamer-business-ai.conf') -Destination $releaseRoot
     Copy-Item -LiteralPath (Join-Path $migrationRoot 'preflight_business_upgrade.sql') -Destination $releaseMigrations.FullName
     Copy-Item -LiteralPath (Join-Path $migrationRoot 'verify_business_schema.sql') -Destination $releaseMigrations.FullName
-foreach ($version in 10..62) {
+    Copy-Item -LiteralPath (Join-Path $migrationRoot 'verify_continuous_operations.sql') -Destination $releaseMigrations.FullName
+foreach ($version in 10..74) {
         $migration = @(Get-ChildItem -LiteralPath $migrationRoot -Filter ('V{0:D3}__*.sql' -f $version) -File)
         if ($migration.Count -ne 1) { throw "Expected exactly one V$('{0:D3}' -f $version) migration." }
         Copy-Item -LiteralPath $migration[0].FullName -Destination $releaseMigrations.FullName

@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Param;
 /** Versioned resource plans and actual work. Legacy percentage records are deliberately separate. */
 public interface BusinessProjectWorkMapper
 {
+    List<Map<String,Object>> selectBudgetRates(@Param("userId") Long userId, @Param("from") String from, @Param("to") String to);
     List<Map<String,Object>> selectCalendars();
     List<Map<String,Object>> selectUnitPolicies();
     Map<String,Object> selectCalendar(Long id);

@@ -1068,7 +1068,7 @@ class BusinessAiServiceImplTest
         String content = String.valueOf(result.get("content"));
         assertEquals(true, content.contains("情趣内衣视频制作"), content);
         assertEquals(true, content.contains("尚未设置项目 KPI"), content);
-        assertEquals(true, content.contains("尚未设置成员计划投入"), content);
+        assertEquals(true, content.contains("历史项目未保存成员投入配置"), content);
         Map<?, ?> planReview = (Map<?, ?>) result.get("planReview");
         assertEquals(true, planReview.get("ready"));
         assertEquals("情趣内衣视频制作", ((Map<?, ?>) planReview.get("project")).get("projectName"));

@@ -48,13 +48,12 @@ public class BusinessStaffMenuPermissionServiceImpl implements IBusinessStaffMen
         List<SysMenu> allMenus = permissionResolver.selectAllActiveMenus();
         Set<Long> inheritedIds = permissionResolver.selectRoleMenuIds(userId);
         Set<Long> currentIds = permissionResolver.selectEffectiveMenuIds(userId, false);
-        Set<Long> ceilingIds = permissionCeiling(operatorUserId, administrator, currentIds, allMenus);
+        Set<Long> ceilingIds = new HashSet<Long>(inheritedIds);
         Map<Long, List<SysMenu>> ownedActions = actionsByController(allMenus);
 
         Map<Long, String> inheritedLevels = navigationLevels(allMenus, inheritedIds, ownedActions);
         Map<Long, String> currentLevels = navigationLevels(allMenus, currentIds, ownedActions);
         Map<Long, String> maximumLevels = navigationLevels(allMenus, ceilingIds, ownedActions);
-        allowOwnerToSetEveryNavigationLevel(administrator, allMenus, maximumLevels);
 
         Map<String, Object> result = new LinkedHashMap<String, Object>();
         result.put("userId", target.getUserId());
@@ -77,9 +76,8 @@ public class BusinessStaffMenuPermissionServiceImpl implements IBusinessStaffMen
         Map<Long, SysMenu> byId = byId(allMenus);
         Map<Long, List<SysMenu>> ownedActions = actionsByController(allMenus);
         Set<Long> currentIds = permissionResolver.selectEffectiveMenuIds(userId, false);
-        Set<Long> ceilingIds = permissionCeiling(operatorUserId, administrator, currentIds, allMenus);
+        Set<Long> ceilingIds = permissionResolver.selectRoleMenuIds(userId);
         Map<Long, String> maximumLevels = navigationLevels(allMenus, ceilingIds, ownedActions);
-        allowOwnerToSetEveryNavigationLevel(administrator, allMenus, maximumLevels);
         Map<Long, String> currentLevels = navigationLevels(allMenus, currentIds, ownedActions);
         Map<Long, String> requested = parseRequestedLevels(permissions);
 
@@ -173,30 +171,6 @@ public class BusinessStaffMenuPermissionServiceImpl implements IBusinessStaffMen
                 throw new ServiceException("只能设置本人负责公司的员工目录权限");
         }
         return target;
-    }
-
-    private Set<Long> permissionCeiling(Long operatorUserId, boolean administrator,
-        Set<Long> currentTargetIds, List<SysMenu> allMenus)
-    {
-        Set<Long> result = new HashSet<Long>(currentTargetIds);
-        result.addAll(permissionResolver.selectEffectiveMenuIds(operatorUserId, administrator));
-        if (!administrator)
-        {
-            // Company owners may delegate every active menu and action to employees in their own
-            // company, even when the owner's navigation role does not contain that menu.
-            for (SysMenu menu : allMenus) result.add(menu.getMenuId());
-        }
-        return result;
-    }
-
-    private void allowOwnerToSetEveryNavigationLevel(boolean administrator, List<SysMenu> allMenus,
-        Map<Long, String> maximumLevels)
-    {
-        if (administrator) return;
-        for (SysMenu menu : allMenus)
-        {
-            if (isEditableNavigation(menu)) maximumLevels.put(menu.getMenuId(), MAINTAIN);
-        }
     }
 
     private Map<Long, String> parseRequestedLevels(List<Map<String, Object>> permissions)

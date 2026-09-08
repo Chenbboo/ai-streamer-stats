@@ -23,6 +23,18 @@ import com.ruoyi.business.domain.BusinessProject;
 /** Executes the shipped work mapper and additive migration tables, rather than a SQL imitation. */
 class BusinessProjectWorkMapperIntegrationTest
 {
+    @Test void budgetRateRangeAndRenewedSnapshotUseProductionSql() throws Exception
+    {
+        try(SqlSession session=factory.openSession();Statement sql=session.getConnection().createStatement())
+        {
+            sql.execute("insert into biz_staff_cost_policy(policy_id,user_id,policy_version,cost_mode,unit_cost,currency,effective_from,effective_to,status) values(101,30,1,'HOURLY',100,'CNY','2026-09-01','2026-09-15','ACTIVE'),(102,30,2,'HOURLY',200,'CNY','2026-09-16',null,'ACTIVE'),(103,30,3,'HOURLY',300,'CNY','2026-09-01',null,'VOID')");
+            BusinessProjectWorkMapper m=session.getMapper(BusinessProjectWorkMapper.class);
+            assertEquals(2,m.selectBudgetRates(30L,"2026-09-01","2026-09-30").size());assertEquals(1,m.selectBudgetRates(30L,"2026-10-01","2026-10-31").size());
+            String snapshot="{\"budget\":{\"cycle\":\"MONTH\",\"totalAmount\":1000}}";
+            assertEquals(1,m.applyPlanChange(row("projectId",1L,"baseVersion",1,"projectVersion",0,"objective","目标","acceptanceCriteria","交付","planStartDate","2026-09-01","planEndDate",null,"budgetLimit",1000,"templateSnapshotJson",snapshot,"userName","owner")));
+            try(ResultSet result=sql.executeQuery("select budget_limit,template_snapshot_json from biz_project where project_id=1")){assertTrue(result.next());assertEquals(new BigDecimal("1000.00"),result.getBigDecimal(1));assertEquals(snapshot,result.getString(2));}
+        }
+    }
     DataSource source;SqlSessionFactory factory;
     @BeforeEach void setup()throws Exception
     {
@@ -32,6 +44,7 @@ class BusinessProjectWorkMapperIntegrationTest
         try(Connection c=source.getConnection();Statement s=c.createStatement())
         {
             while(create.find())s.execute(create.group());
+            s.execute("alter table biz_project_resource_assignment modify effective_to date null");
             s.execute("create table sys_user(user_id bigint primary key,nick_name varchar(80),del_flag char(1))");
             s.execute("insert into sys_user values(30,'member','0')");
             s.execute("create table biz_project(project_id bigint primary key,actual_end_date date,objective varchar(1000),plan_start_date date,plan_end_date date,acceptance_criteria varchar(2000),budget_limit decimal(20,2),baseline_version int,version int,accounting_state varchar(16),status varchar(16),update_by varchar(64),update_time timestamp)");
@@ -46,7 +59,7 @@ class BusinessProjectWorkMapperIntegrationTest
             for(String column:Arrays.asList("project_name varchar(160)","company_dept_id bigint","actual_start_date date","cost_policy_version varchar(32)","base_currency varchar(3)","del_flag char(1)","sponsor_owner_user_id bigint","initiator_user_id bigint"))s.execute("alter table biz_project add "+column);
             s.execute("update biz_project set project_name='sample',cost_policy_version='ACTUAL_WORK_V1',base_currency='CNY',del_flag='0'");
             s.execute("alter table biz_project modify project_id bigint auto_increment");
-            for(String column:Arrays.asList("project_no varchar(80)","parent_id bigint","project_type varchar(32)","accounting_mode varchar(32)","management_mode varchar(32)","close_method varchar(32)","management_reason varchar(1000)","delivery_policy_version varchar(32)","settlement_policy_version varchar(32)","template_version varchar(32)","template_snapshot_json clob","baseline_status varchar(32)","applicant_user_id bigint","applicant_name varchar(80)","sponsor_owner_name varchar(80)","initiator_name varchar(80)","main_owner_user_id bigint","main_owner_name varchar(80)","source_proposal_id bigint","priority varchar(16)","create_by varchar(64)","create_time timestamp","remark varchar(2000)"))s.execute("alter table biz_project add "+column);
+            for(String column:Arrays.asList("goal_mode varchar(16)","budget_mode varchar(16)","daily_budget_limit decimal(20,2)","budget_scope varchar(24)","startup_budget_limit decimal(20,2)","budget_reason varchar(500)","project_no varchar(80)","parent_id bigint","project_type varchar(32)","accounting_mode varchar(32)","management_mode varchar(32)","close_method varchar(32)","management_reason varchar(1000)","delivery_policy_version varchar(32)","settlement_policy_version varchar(32)","template_version varchar(32)","template_snapshot_json clob","baseline_status varchar(32)","applicant_user_id bigint","applicant_name varchar(80)","sponsor_owner_name varchar(80)","initiator_name varchar(80)","main_owner_user_id bigint","main_owner_name varchar(80)","source_proposal_id bigint","priority varchar(16)","create_by varchar(64)","create_time timestamp","remark varchar(2000)"))s.execute("alter table biz_project add "+column);
         }
         Configuration config=new Configuration(new Environment("p2",new JdbcTransactionFactory(),source));config.setMapUnderscoreToCamelCase(true);
         for(String name:Arrays.asList("BusinessProjectWorkMapper","BusinessProjectMapper")){String resource="mapper/business/"+name+".xml";try(InputStream in=Resources.getResourceAsStream(resource)){new XMLMapperBuilder(in,config,resource,config.getSqlFragments()).parse();}}factory=new SqlSessionFactoryBuilder().build(config);
@@ -130,6 +143,24 @@ class BusinessProjectWorkMapperIntegrationTest
                 if(i<3){Long id=((Number)e.get("entryId")).longValue();transition(m,id,"DRAFT","SUBMITTED",0);transition(m,id,"SUBMITTED","CONFIRMED",1);}
             }
             assertEquals(Arrays.asList("2026-03-02","2026-03-03"),m.selectConfirmedWorkDates(1L));
+        }
+    }
+    @Test void unlimitedPlanClearsEndDateAndStillChecksStaffStartBoundary() throws Exception
+    {
+        try(SqlSession session=factory.openSession())
+        {
+            BusinessProjectWorkMapper work=session.getMapper(BusinessProjectWorkMapper.class);
+            try(Statement sql=session.getConnection().createStatement())
+            { sql.execute("update biz_project set plan_end_date='2026-12-31' where project_id=1"); }
+            work.insertAssignment(row("projectId",1L,"userId",30L,"effectiveFrom","2027-01-01","effectiveTo","2027-01-31",
+                "inputUnit","DAY","inputQuantity",1,"plannedMinutes",480,"calendarId",1L,"calendarSnapshotJson","{}",
+                "unitPolicyId",1L,"unitSnapshotJson","{}","userName","owner"));
+            Map<String,Object> plan=row("projectId",1L,"baseVersion",1,"projectVersion",0,"objective","持续运营",
+                "planStartDate","2026-01-01","planEndDate",null,"acceptanceCriteria","按阶段验收","userName","owner");
+            assertEquals(0,work.countAssignmentsOutside(plan));assertEquals(1,work.applyPlanChange(plan));
+            assertNull(session.getMapper(BusinessProjectMapper.class).selectProjectByIdForUpdate(1L).getPlanEndDate());
+            plan.put("planStartDate","2027-01-02");assertEquals(1,work.countAssignmentsOutside(plan));
+            plan.put("planStartDate","2026-01-01");plan.put("planEndDate","2026-12-31");assertEquals(1,work.countAssignmentsOutside(plan));
         }
     }
     private void transition(BusinessProjectWorkMapper mapper,Long id,String from,String to,int version){assertEquals(1,mapper.transitionEntry(row("entryId",id,"fromStatus",from,"toStatus",to,"version",version,"isCurrent","CONFIRMED".equals(to)?"1":"0","actorId",10L,"userName","owner")));}

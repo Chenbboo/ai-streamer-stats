@@ -4,7 +4,7 @@
       <div>
         <span>PROJECT OWNER WORKBENCH</span>
         <h1>项目负责人工作台</h1>
-        <p>负责人管理项目执行、收入、花费、人员投入和目标；提交后直接进入项目经营核算。</p>
+        <p>负责人管理项目执行、收入、花费、人员成本和目标；提交后直接进入项目经营核算。</p>
       </div>
       <div class="hero-actions">
         <el-button v-hasPermi="['business:project:report']" type="primary" :disabled="!canReportFinance" @click="openRevenue">{{ isLateSettlement ? '补录收入' : '录入收入' }}</el-button>
@@ -33,55 +33,20 @@
         <article><span>昨日汇报总额</span><b>{{ xu(yesterdayReportedTotalXu) }} <em>Xu</em></b><small>{{ reportedSourceRoutineCount }} 人已提交 · {{ unreportedSourceRoutineCount }} 人未提交</small></article>
         <article><span>持续工作</span><b>{{ todayRoutines.length }}</b><small>{{ sourceRoutineCount }} 项直播同步 · {{ unreportedRoutineCount }} 项未完成</small></article>
         <article><span>未完成任务</span><b>{{ openTasks.length }}</b><small>{{ overdueTaskCount }} 项已逾期</small></article>
-        <article :class="{ 'metric-warning': pendingEffortRequests.length }"><span>投入偏差待确认</span><b>{{ pendingEffortRequests.length }}</b><small>全部负责项目 · 当前项目 {{ pendingTodayEfforts.length }} 项</small></article>
-        <article :class="{ 'metric-warning': personnelSetupIssueCount }"><span>人员成本待处理</span><b>{{ personnelSetupIssueCount }}</b><small>{{ missingAllocationMemberCount }} 人待设投入 · {{ bossBlockingMemberCount }} 人等待老板</small></article>
-        <article><span>项目进度</span><b>{{ projectProgress }}%</b><small>{{ project.progressBizDate ? `${project.progressBizDate} 负责人填报` : '负责人尚未填报' }}</small></article>
+        <article><span>项目目标</span><b>{{ project.goalMode==='NO_TOTAL' ? '持续经营' : `${projectProgress}%` }}</b><small>{{ project.goalMode==='NO_TOTAL' ? '按每日目标和成果跟踪' : (project.progressBizDate ? `${project.progressBizDate} 负责人填报` : '负责人尚未填报') }}</small></article>
       </section>
 
-      <section v-if="pendingEffortRequests.length" class="panel pending-effort-panel">
-        <div class="panel-head">
-          <div><h2>待确认投入偏差</h2><p>汇总你负责的全部项目，不受当前项目选择影响。</p></div>
-          <el-tag type="warning" effect="plain">{{ pendingEffortRequests.length }} 项待处理</el-tag>
-        </div>
-        <div v-for="item in pendingEffortRequests" :key="item.effortId" class="pending-effort-row">
-          <span><b>{{ item.userName }}申报了投入偏差</b><small>{{ item.projectName }} · {{ item.bizDate }}</small></span>
-          <div class="pending-effort-change"><span>计划 {{ item.plannedPercent }}%</span><b>→</b><span>实际 {{ item.actualPercent }}%</span></div>
-          <p>原因：{{ item.deviationReason || '未填写' }}</p>
-          <div class="pending-effort-actions">
-            <el-button size="small" @click="switchProject(item.projectId)">查看项目</el-button>
-            <el-button size="small" type="success" plain :loading="saving" @click="confirmPendingEffort(item)">确认</el-button>
-            <el-button size="small" type="danger" plain :loading="saving" @click="returnPendingEffort(item)">退回</el-button>
-          </div>
-        </div>
-      </section>
-
-      <section v-if="allocationAlerts.length" class="panel allocation-alert-panel">
-        <div class="panel-head">
-          <div><h2>人员成本配置待处理</h2><p>负责人设置项目投入；国家或月度用人成本缺失时，由获授权的财务人员在用人成本政策中补充。</p></div>
-          <el-tag type="warning" effect="plain">{{ allocationAlerts.length }} 个项目</el-tag>
-        </div>
-        <div v-for="item in allocationAlerts" :key="item.projectId" class="allocation-alert-row">
-          <span><b>{{ item.projectName }}</b><small>{{ item.projectNo || '暂无项目编号' }} · {{ projectStatusLabel(item) }}</small></span>
-          <div class="allocation-issue-list">
-            <p v-if="Number(item.missingRegionCount)"><el-tag size="small" type="danger" effect="plain">等待老板</el-tag><span>{{ item.missingRegionMemberNames }}：国家/地区未设置</span></p>
-            <p v-if="Number(item.missingCostCount)"><el-tag size="small" type="warning" effect="plain">等待老板</el-tag><span>{{ item.missingCostMemberNames }}：月度用人成本未设置</span></p>
-            <p v-if="Number(item.missingAllocationCount)"><el-tag size="small" type="primary" effect="plain">负责人处理</el-tag><span>{{ item.missingMemberNames }}：项目投入未设置</span></p>
-          </div>
-          <el-button v-if="Number(item.missingAllocationCount)" type="primary" plain @click="openProjectAllocation(item)">设置投入</el-button>
-          <el-button v-else disabled>等待老板处理</el-button>
-        </div>
-      </section>
-
-      <section v-if="usesActualWork" class="panel"><el-tabs><el-tab-pane label="实际工作与人员计划"><BusinessProjectWorkPanel :project-id="project.projectId"/></el-tab-pane><el-tab-pane label="计划基线与变更" lazy><BusinessProjectPlanPanel :project="project" @changed="load(project.projectId)"/></el-tab-pane></el-tabs></section>
+      <section v-if="usesActualWork" class="panel"><el-tabs><el-tab-pane label="人员工作日成本"><BusinessProjectWorkPanel :project-id="project.projectId"/></el-tab-pane><el-tab-pane label="计划基线与变更" lazy><BusinessProjectPlanPanel :project="project" @changed="load(project.projectId)"/></el-tab-pane></el-tabs></section>
       <section class="workspace-grid">
         <div class="main-column">
           <article class="panel project-progress-panel">
-            <div class="panel-head">
+            <div v-if="project.goalMode!=='NO_TOTAL'" class="panel-head">
               <div><h2>项目完成量</h2><p>由主负责人每日填报项目整体完成情况，保存后同步到老板工作台。</p></div>
               <el-button v-hasPermi="['business:project:report']" type="primary" :plain="!!todayProjectProgress" :disabled="!canReportProgress" @click="openProjectProgressReport">{{ todayProjectProgress ? '修改今日填报' : '填报今日完成量' }}</el-button>
             </div>
-            <el-alert v-if="!canReportProgress" :title="progressReportBlockReason" type="info" :closable="false" show-icon />
-            <div class="project-progress-card">
+            <el-alert v-if="project.goalMode==='NO_TOTAL'" title="该项目为持续经营模式，不需要填写项目总完成百分比；请通过下方每日目标、持续工作和一次性任务跟踪产出。" type="info" :closable="false" show-icon />
+            <el-alert v-else-if="!canReportProgress" :title="progressReportBlockReason" type="info" :closable="false" show-icon />
+            <div v-if="project.goalMode!=='NO_TOTAL'" class="project-progress-card">
               <div class="project-progress-title"><span><b>{{ project.projectName }}</b><small>{{ project.mainOwnerName || '未指定负责人' }}负责</small></span><strong>{{ projectProgress }}%</strong></div>
               <el-progress :percentage="projectProgress" :status="project.status==='CLOSED'?'success':undefined" :stroke-width="9" />
               <template v-if="project.progressReportId">
@@ -101,10 +66,11 @@
             <div v-if="!todayRoutines.length" class="empty-block">当前没有持续工作计划，可在项目详情中新增</div>
             <div v-for="routine in todayRoutines" :key="routine.routineId" class="routine-card">
               <div class="routine-main">
-                <div class="routine-title"><b>{{ routine.routineName }}</b><el-tag size="small" effect="plain">{{ frequencyLabel[routine.frequency] }}</el-tag><el-tag v-if="routine.sourceManaged" size="small" type="info" effect="plain">直播同步</el-tag></div>
+                <div class="routine-title"><b>{{ routine.routineName }}</b><el-tag size="small" effect="plain">{{ routineTargetModeLabel[routine.targetMode || 'FIXED'] }}</el-tag><el-tag v-if="routine.sourceManaged" size="small" type="info" effect="plain">直播同步</el-tag></div>
                 <small v-if="routine.sourceManaged">{{ routine.assigneeName }} · 数据日期 {{ routine.sourceBizDate }} · {{ routine.supervisorName }}监督</small>
-                <small v-else>{{ routine.assigneeName || '未分配' }} · 目标 {{ routine.targetValue }} {{ routine.unit }} · 累计 {{ routine.cumulativeActual || 0 }} {{ routine.unit }}</small>
-                <el-progress :percentage="routineRate(routine)" :status="routine.todayReportId && Number(routine.todayActual) >= Number(routine.targetValue) ? 'success' : undefined" :stroke-width="7" />
+                <small v-else>{{ routine.assigneeName || '未分配' }} · {{ routineTargetDescription(routine) }} · 累计 {{ routine.cumulativeActual || 0 }} {{ routine.unit }}</small>
+                <small v-if="routine.todayRequirement">客户要求：{{ routine.todayRequirement }}</small>
+                <el-progress v-if="routine.targetMode!=='NONE'" :percentage="routineRate(routine)" :status="routine.todayReportId && Number(routine.todayActual) >= Number(routine.todayTarget) ? 'success' : undefined" :stroke-width="7" />
                 <p v-if="routine.todaySummary">今日说明：{{ routine.todaySummary }}</p>
                 <p v-if="routineBelowTarget(routine) && routine.todayIssueReason" class="danger">未达原因：{{ routine.todayIssueReason }}</p>
               </div>
@@ -112,9 +78,10 @@
                 <span>{{ routine.sourceManaged ? '昨日直播日报' : (routineLeave(routine) ? '今日状态' : '今日完成') }}</span>
                 <el-tag v-if="routine.sourceManaged" :type="routine.todayReportId?'success':'warning'">{{ routine.todayReportId ? '已提交' : '未提交' }}</el-tag>
                 <b v-if="routine.sourceManaged && routine.todayReportId" class="routine-xu">{{ xu(routine.sourceReportedAmount) }} Xu</b>
-                <b v-else-if="!routine.sourceManaged && !routineLeave(routine)">{{ routine.todayReportId ? routine.todayActual : '—' }} {{ routine.unit }}</b><el-tag v-else-if="!routine.sourceManaged" type="info">今日请假</el-tag>
+                <b v-else-if="!routine.sourceManaged && !routineLeave(routine)">{{ routine.todayReportId ? (routine.targetMode==='NONE'?'已说明':`${routine.todayActual} ${routine.unit}`) : '—' }}</b><el-tag v-else-if="!routine.sourceManaged" type="info">今日请假</el-tag>
                 <el-button v-if="routine.todayEvidenceUrls" size="small" type="primary" plain @click="openEvidence(routine)">查看成果凭证（{{ evidenceCount(routine.todayEvidenceUrls) }}）</el-button>
                 <el-button v-if="canSubmitRoutine(routine)" v-hasPermi="['business:project:report']" size="small" :type="routine.todayReportId?'default':'primary'" :disabled="!canReport" @click="openRoutineReport(routine)">{{ routine.todayReportId ? '修改填报' : '填报完成量' }}</el-button>
+                <el-button v-if="routine.targetMode==='DAILY_DYNAMIC'&&canSetDailyTarget&&!routine.todayReportId" v-hasPermi="['business:project:task']" size="small" type="success" plain @click="openDailyTarget(routine)">{{ routine.todayTargetId ? '修改今日目标' : '下达今日目标' }}</el-button>
                 <small v-else class="assignee-report-hint">{{ routine.sourceManaged ? '完成状态由直播数据管理自动回传' : (!routine.assigneeUserId ? '等待重新分配负责人' : (routineLeave(routine) ? '今日请假，无需填报' : `由 ${routine.assigneeName} 本人填报`)) }}</small>
               </div>
             </div>
@@ -167,40 +134,6 @@
             </section>
           </article>
 
-          <article v-if="!usesActualWork" class="panel">
-            <div class="panel-head">
-              <div><h2>今日成员投入确认</h2><p>{{ today() }} · 员工只申报当天投入偏差，负责人逐条确认或退回。</p></div>
-              <el-button link @click="openProjectAllocation(project)">设置计划</el-button>
-            </div>
-            <div v-if="!todayEfforts.length" class="empty-block">尚未设置今日成员计划投入</div>
-            <div v-for="item in todayEfforts" :key="item.allocationId" class="today-effort-card">
-              <div class="today-effort-head">
-                <span><b>{{ item.userName }}</b><small>{{ effortDayHint(item) }}</small></span>
-                <el-tag size="small" :type="effortStatusTone[item.reportStatus]">{{ effortStatusLabel[item.reportStatus] }}</el-tag>
-              </div>
-              <div class="today-effort-values"><span>计划投入 <b>{{ item.plannedPercent }}%</b></span><span>实际投入 <b>{{ item.actualPercent }}%</b></span></div>
-              <p v-if="item.deviationReason" class="today-effort-reason">偏差原因：{{ item.deviationReason }}</p>
-              <p v-if="item.reviewComment" class="danger">退回原因：{{ item.reviewComment }}</p>
-              <div class="today-effort-actions">
-                <template v-if="item.reportStatus==='SUBMITTED'">
-                  <el-button type="success" plain :loading="saving" @click="confirmEffort(item)">确认</el-button>
-                  <el-button type="danger" plain :loading="saving" @click="openEffortReturn(item)">退回修改</el-button>
-                </template>
-              </div>
-            </div>
-          </article>
-
-          <article v-if="!usesActualWork" class="panel week-effort-summary">
-            <div class="panel-head"><div><h2>本周投入汇总</h2><p>{{ data.effortWeekFrom }} 至 {{ data.effortWeekTo }} · 仅用于查看，不在这里批量审批偏差。</p></div></div>
-            <div v-if="!effortMembers.length" class="empty-block">本周暂无投入安排</div>
-            <div v-for="member in effortMembers" :key="member.userId" class="week-effort-row">
-              <span><b>{{ member.userName }}</b><small>{{ member.deviationCount }} 天存在投入偏差</small></span>
-              <span>计划日均 <b>{{ member.plannedAverage }}%</b></span>
-              <span>实际日均 <b>{{ member.actualAverage }}%</b></span>
-              <el-tag :type="member.confirmedDays===member.days?'success':'info'">已处理 {{ member.confirmedDays }}/{{ member.days }} 天</el-tag>
-            </div>
-          </article>
-
           <article class="panel">
             <div class="panel-head">
               <div><h2>今日项目总花费</h2><p>{{ accounting.bizDate }} · 负责人确认后直接计入经营结果；不包含人员成本</p></div>
@@ -234,7 +167,7 @@
           <article class="panel project-summary">
             <div class="project-title"><div><small>{{ project.projectNo }}</small><h2>{{ project.projectName }}</h2></div><el-tag :type="statusTone[project.status] || 'info'">{{ projectStatusLabel(project) }}</el-tag></div>
             <p>{{ project.objective || '尚未填写项目目标' }}</p>
-      <dl><div><dt>归属老板</dt><dd>{{ project.sponsorOwnerName || project.initiatorName }}</dd></div><div><dt>归属公司</dt><dd>{{ project.companyName || '待设置' }}</dd></div><div><dt>计划周期</dt><dd>{{ project.planStartDate ? `${project.planStartDate} 至 ${project.planEndDate || '不限期'}` : '—' }}</dd></div><div><dt>项目进度</dt><dd>{{ projectProgress }}%</dd></div></dl>
+      <dl><div><dt>归属老板</dt><dd>{{ project.sponsorOwnerName || project.initiatorName }}</dd></div><div><dt>归属公司</dt><dd>{{ project.companyName || '待设置' }}</dd></div><div><dt>计划周期</dt><dd>{{ project.planStartDate ? `${project.planStartDate} 至 ${project.planEndDate || '不限期'}` : '—' }}</dd></div><div><dt>目标模式</dt><dd>{{ project.goalMode==='NO_TOTAL'?'持续经营':`${projectProgress}%` }}</dd></div></dl>
           </article>
 
           <article class="panel">
@@ -244,44 +177,18 @@
           </article>
 
           <article class="panel">
-            <div class="panel-head"><div><h2>参项人员</h2><p>本项目共 {{ project.members?.length || 0 }} 人，不展示人员成本金额。</p></div></div>
+            <div class="panel-head"><div><h2>参项人员</h2><p>本项目共 {{ project.members?.length || 0 }} 人，考勤由飞书自动同步。</p></div></div>
             <div v-if="!project.members?.length" class="empty-block compact">尚未添加参项人员</div>
             <div v-else class="participant-list">
               <div v-for="member in project.members" :key="member.memberId || member.userId" class="participant-row">
                 <el-avatar :size="34">{{ (member.userNameSnapshot || '员').slice(0, 1) }}</el-avatar>
                 <span><b>{{ member.userNameSnapshot }}</b><small v-if="participantLeave(member)" class="leave-note">今日请假：{{ participantLeave(member).reason || '已登记' }}</small><small v-else>{{ member.joinedDate ? `${member.joinedDate} 加入` : '项目成员' }}</small></span>
                 <el-tag size="small" :type="memberRoleTone[member.memberRole] || 'info'">{{ memberRoleLabel[member.memberRole] || member.memberRole }}</el-tag>
-                <div v-if="memberLeaveAllowed(member)" class="participant-action">
-                  <template v-if="participantLeave(member)">
-                    <el-tag v-if="cancelPendingLeaveRequest(member)" size="small" type="warning">取消请假待审批</el-tag>
-                    <template v-else><el-tag size="small" type="success">请假已批准</el-tag><el-button v-if="approvedLeaveRequest(member)" link type="danger" :loading="saving" @click="withdrawLeave(approvedLeaveRequest(member))">申请取消</el-button></template>
-                  </template>
-                  <template v-else-if="pendingLeaveRequest(member)">
-                    <el-tag size="small" type="warning">请假待审批</el-tag>
-                    <el-button link type="danger" :loading="saving" @click="withdrawLeave(pendingLeaveRequest(member))">撤回</el-button>
-                  </template>
-                  <template v-else>
-                    <el-tag v-if="!usesActualWork && participantEffort(member)" size="small" :type="effortStatusTone[participantEffort(member).reportStatus]">{{ effortStatusLabel[participantEffort(member).reportStatus] }}</el-tag>
-                    <el-tag v-else-if="!usesActualWork" size="small" type="info">今日无投入计划</el-tag>
-                    <el-button link type="primary" :loading="saving" @click="openLeave(member)">申请请假</el-button>
-                  </template>
-                </div>
               </div>
             </div>
           </article>
 
-          <article class="panel">
-            <div class="panel-head"><div><h2>请假申请记录</h2><p>保留本地历史与切换前在办记录；切换后在飞书办理，实际工作独立记录。</p></div></div>
-            <el-alert v-if="!localLeaveAllowed" title="假勤已切换至飞书，本地记录仅供追溯。" type="info" :closable="false"/><el-button v-if="!localLeaveAllowed" v-hasPermi="['business:attendance:self']" link @click="router.push('/hcm/attendance')">查询飞书假勤</el-button><div v-if="!leaveRequests.length" class="empty-block compact">暂无请假申请</div>
-            <div v-for="request in leaveRequests" :key="request.requestId" class="leave-request-row">
-              <span><b>{{ request.userName }} · {{ leaveTypeLabel[request.leaveType] || request.leaveType }}</b><small>{{ leaveDateText(request) }} · {{ request.reason }}</small></span>
-              <el-tag size="small" :type="leaveStatusTone[request.status]">{{ leaveStatusLabel[request.status] || request.status }}</el-tag>
-              <el-button v-if="canChangeLocalLeave(request) && request.status==='PENDING'" link type="danger" :loading="saving" @click="withdrawLeave(request)">撤回</el-button>
-              <el-button v-else-if="canChangeLocalLeave(request) && request.status==='APPROVED'" link type="danger" :loading="saving" @click="withdrawLeave(request)">申请取消</el-button>
-              <business-file-upload v-if="request.attachmentUrls" class="leave-request-files" :model-value="request.attachmentUrls" :project-id="request.submittedProjectId" disabled :drag="false" :is-show-tip="false" />
-              <small v-if="request.reviewComment" class="leave-review-comment">审批意见：{{ request.reviewComment }}</small>
-            </div>
-          </article>
+
         </aside>
       </section>
     </template>
@@ -297,7 +204,11 @@
           </el-select>
         </el-form-item>
         <el-form-item label="收入金额" required><el-input-number v-model="revenueForm.amount" :min="0" :precision="2" style="width:100%" /></el-form-item>
-        <el-form-item label="币种"><el-input v-model="revenueForm.currency" maxlength="3" /></el-form-item>
+        <el-form-item label="币种" required>
+          <el-select v-model="revenueForm.currency" placeholder="请选择币种" style="width:100%">
+            <el-option v-for="currency in revenueCurrencies" :key="currency" :label="currency" :value="currency" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="收入说明" required><el-input v-model="revenueForm.description" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="请说明收入来源或对应业务" /></el-form-item>
         <el-form-item label="付款单位"><el-input v-model="revenueForm.counterparty" maxlength="200" /></el-form-item>
         <el-form-item label="凭证附件"><business-file-upload v-model="revenueForm.attachmentUrls" :project-id="revenueForm.projectId" /></el-form-item>
@@ -320,9 +231,9 @@
     <el-dialog v-model="routineReportDialog" :title="routineReportForm.reportId?'修改今日完成量':'填报今日完成量'" width="min(620px, 94vw)" append-to-body>
       <el-alert :title="`${routineReportForm.routineName || ''} · ${accounting.bizDate || today()}`" type="info" :closable="false" show-icon />
       <el-form :model="routineReportForm" label-width="92px" class="report-form">
-        <el-form-item label="周期目标"><el-input :model-value="`${routineReportForm.targetValue || 0} ${routineReportForm.unit || ''}`" disabled /></el-form-item>
-        <el-form-item label="实际完成" required><el-input-number v-model="routineReportForm.actualValue" :min="0" :precision="4" style="width:100%" /></el-form-item>
-        <el-form-item label="今日说明"><el-input v-model="routineReportForm.summary" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="可填写成果位置、质量情况或下一步安排" /></el-form-item>
+        <el-form-item v-if="routineReportForm.targetMode!=='NONE'" label="今日目标"><el-input :model-value="`${routineReportForm.todayTarget || 0} ${routineReportForm.unit || ''}`" disabled /></el-form-item>
+        <el-form-item v-if="routineReportForm.targetMode!=='NONE'" label="实际完成" required><el-input-number v-model="routineReportForm.actualValue" :min="0" :precision="4" style="width:100%" /></el-form-item>
+        <el-form-item label="今日说明" required><el-input v-model="routineReportForm.summary" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="填写成果位置、质量情况或下一步安排" /></el-form-item>
         <el-form-item v-if="routineReportNeedsReason" label="未达原因" required><el-input v-model="routineReportForm.issueReason" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="说明未达到今日目标的原因和改进安排" /></el-form-item>
         <el-form-item label="成果凭证" :required="routineReportForm.evidenceRequired==='1'"><business-file-upload v-model="routineReportForm.evidenceUrls" :project-id="routineReportForm.projectId" /></el-form-item>
       </el-form>
@@ -348,6 +259,18 @@
       <template #footer><el-button type="primary" @click="taskReportDialog=false">关闭</el-button></template>
     </el-dialog>
 
+    <el-dialog v-model="dailyTargetDialog" :title="dailyTargetForm.todayTargetId?'修改今日目标':'下达今日目标'" width="min(560px, 94vw)" append-to-body>
+      <el-alert title="目标只对今天生效；修改会保留旧版本和原因。执行人提交完成情况后不可再改。" type="info" :closable="false" show-icon />
+      <el-form :model="dailyTargetForm" label-width="100px" class="report-form">
+        <el-form-item label="持续工作"><el-input :model-value="dailyTargetForm.routineName" disabled /></el-form-item>
+        <el-form-item label="执行人"><el-input :model-value="dailyTargetForm.assigneeName || '未分配'" disabled /></el-form-item>
+        <el-form-item label="今日目标" required><el-input-number v-model="dailyTargetForm.targetValue" :min="0.0001" :precision="4" style="width:100%" /><small>{{ dailyTargetForm.unit }}</small></el-form-item>
+        <el-form-item label="客户要求"><el-input v-model="dailyTargetForm.customerRequirement" type="textarea" :rows="3" maxlength="1000" show-word-limit placeholder="填写客户当天要求、口径或交付标准" /></el-form-item>
+        <el-form-item v-if="dailyTargetForm.todayTargetId" label="修改原因" required><el-input v-model="dailyTargetForm.changeReason" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="dailyTargetDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveDailyTarget">确认下达</el-button></template>
+    </el-dialog>
+
     <el-dialog v-model="evidenceDialog" :title="`${evidencePreview.title || ''} · 成果凭证`" width="min(840px, 96vw)" append-to-body destroy-on-close>
       <div class="evidence-dialog-summary">
         <span>{{ evidencePreview.assigneeName || '执行人' }}提交</span>
@@ -364,25 +287,8 @@
       <template #footer><el-button type="primary" @click="evidenceDialog=false">关闭</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="effortReturnDialog" title="退回今日投入申报" width="min(520px, 94vw)" append-to-body>
-      <el-alert :title="`${effortReturnForm.userName || ''} · ${effortReturnForm.bizDate || today()} · 退回后由员工修改并重新提交`" type="warning" :closable="false" show-icon />
-      <el-form :model="effortReturnForm" label-width="88px" class="report-form">
-        <el-form-item label="退回原因" required><el-input v-model="effortReturnForm.reviewComment" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="请明确说明需要员工修改的内容" /></el-form-item>
-      </el-form>
-      <template #footer><el-button @click="effortReturnDialog=false">取消</el-button><el-button type="danger" :loading="saving" @click="submitEffortReturn">确认退回</el-button></template>
-    </el-dialog>
 
-    <el-dialog v-model="leaveDialog" title="提交员工请假申请" width="min(620px, 94vw)" append-to-body>
-      <el-alert title="提交后由归属老板审批；只有批准后才会对该员工同期参与的全部项目生效，并重新计算人员成本。" type="info" :closable="false" show-icon />
-      <el-form :model="leaveForm" label-width="88px" class="report-form">
-        <el-form-item label="请假人员"><el-input :model-value="leaveForm.userName" disabled /></el-form-item>
-        <el-form-item label="请假类型" required><el-select v-model="leaveForm.leaveType" style="width:100%"><el-option v-for="(label,key) in leaveTypeLabel" :key="key" :label="label" :value="key" /></el-select></el-form-item>
-        <el-form-item label="请假日期" required><el-date-picker v-model="leaveForm.dates" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" :disabled-date="disablePastLeaveDate" style="width:100%" /></el-form-item>
-        <el-form-item label="请假原因" required><el-input v-model="leaveForm.reason" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="请填写便于老板判断的具体原因" /></el-form-item>
-        <el-form-item label="证明附件"><business-file-upload v-model="leaveForm.attachmentUrls" :project-id="project?.projectId" /></el-form-item>
-      </el-form>
-      <template #footer><el-button @click="leaveDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="submitLeave">提交老板审批</el-button></template>
-    </el-dialog>
+
 
     <el-dialog v-model="reportDialog" :title="isLateSettlement ? '补录执行期间每日总花费' : accounting.dailySpend ? '修改今日项目总花费' : '填写今日项目总花费'" width="min(620px, 94vw)" append-to-body>
       <el-alert title="这里仅填写项目当天发生的业务花费，不含人员成本；负责人确认后直接计入经营结果，修改会保留原记录及冲正轨迹。" type="info" :closable="false" show-icon />
@@ -401,7 +307,7 @@
 </template>
 
 <script setup name="BusinessOwnerWorkbench">
-import { getBusinessOwnerWorkbench, submitBusinessProjectProgressReport, submitBusinessRoutineReport, confirmBusinessMemberEffort, returnBusinessMemberEffort, markBusinessMemberLeave, cancelBusinessMemberLeaveRequest } from '@/api/business/project'
+import { getBusinessOwnerWorkbench, saveBusinessRoutineDailyTarget, submitBusinessProjectProgressReport, submitBusinessRoutineReport, confirmBusinessMemberEffort, returnBusinessMemberEffort } from '@/api/business/project'
 import { getBusinessProjectDashboard, saveBusinessProjectDailySpend, saveBusinessProjectFact } from '@/api/business/accounting'
 import useUserStore from '@/store/modules/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -413,7 +319,7 @@ import { canContinueProjectSettlement, isSeparatedDelivery, isDeliveryEnded, pro
 
 const route=useRoute(),router=useRouter()
 const userStore=useUserStore()
-const loading=ref(false),saving=ref(false),data=ref({}),selectedProjectId=ref(null),revenueDialog=ref(false),reportDialog=ref(false),projectProgressDialog=ref(false),routineReportDialog=ref(false),leaveDialog=ref(false),effortReturnDialog=ref(false),taskReportDialog=ref(false),evidenceDialog=ref(false)
+const loading=ref(false),saving=ref(false),data=ref({}),selectedProjectId=ref(null),revenueDialog=ref(false),reportDialog=ref(false),projectProgressDialog=ref(false),routineReportDialog=ref(false),dailyTargetDialog=ref(false),effortReturnDialog=ref(false),taskReportDialog=ref(false),evidenceDialog=ref(false)
 const projects=computed(()=>data.value.projects||[]),project=computed(()=>data.value.project||null)
 const operating=computed(()=>data.value.operating||{}),accounting=computed(()=>data.value.accounting||{})
 const revenueCategories=computed(()=>accounting.value.revenueCategories||[])
@@ -442,17 +348,14 @@ const reportedSourceRoutineCount=computed(()=>sourceRoutines.value.filter(item=>
 const unreportedSourceRoutineCount=computed(()=>sourceRoutineCount.value-reportedSourceRoutineCount.value)
 const yesterdayReportedTotalXu=computed(()=>sourceRoutines.value.reduce((sum,item)=>sum+Number(item.sourceReportedAmount||0),0))
 const currentKpis=computed(()=>(operating.value.kpis||[]).filter(item=>item.status==='CURRENT'))
-const usesActualWork=computed(()=>project.value?.costPolicyVersion==='ACTUAL_WORK_V1')
-const localLeaveAllowed=computed(()=>data.value.attendanceAuthority?.localLeaveAllowed !== false)
-function memberLeaveAllowed(row){return (data.value.memberAttendanceAuthorities?.[row.userId]||data.value.attendanceAuthority)?.localLeaveAllowed!==false}
-function canChangeLocalLeave(row){const day=(data.value.memberAttendanceAuthorities?.[row.userId]||data.value.attendanceAuthority)?.effectiveDate;return !day||String(row.endDate).slice(0,10)<day}
-const leaveRequests=computed(()=>data.value.leaveRequests||[])
+const usesActualWork=computed(()=>project.value?.costPolicyVersion==='MEMBER_DAYS_V1')
 const canReport=computed(()=>['ACTIVE','ACCEPTANCE'].includes(project.value?.status)&&!!project.value?.companyDeptId)
 const isLateSettlement=computed(()=>isSeparatedDelivery(project.value)&&isDeliveryEnded(project.value))
 const canReportFinance=computed(()=>canContinueProjectSettlement(project.value)&&!!project.value?.companyDeptId&&(!isLateSettlement.value||!!project.value?.actualEndDate))
-const canReportProgress=computed(()=>project.value?.status==='ACTIVE')
+const canReportProgress=computed(()=>project.value?.status==='ACTIVE'&&project.value?.goalMode!=='NO_TOTAL')
+const canSetDailyTarget=computed(()=>project.value?.status==='ACTIVE'&&(Number(project.value?.mainOwnerUserId)===Number(userStore.id)||userStore.roles.includes('admin')||userStore.permissions.includes('*:*:*')||userStore.permissions.includes('business:boss:view')))
 const unreportedRoutineCount=computed(()=>todayRoutines.value.filter(item=>!item.todayReportId&&!routineLeave(item)).length)
-const routineReportNeedsReason=computed(()=>routineReportForm.value.frequency==='DAILY'&&routineReportForm.value.actualValue!==null&&routineReportForm.value.actualValue!==undefined&&Number(routineReportForm.value.actualValue)<Number(routineReportForm.value.targetValue||0))
+const routineReportNeedsReason=computed(()=>routineReportForm.value.targetMode!=='NONE'&&routineReportForm.value.actualValue!==null&&routineReportForm.value.actualValue!==undefined&&Number(routineReportForm.value.actualValue)<Number(routineReportForm.value.todayTarget||0))
 const reportBlockReason=computed(()=>projectAccountingState(project.value)==='CLOSED'?'项目核算已关闭，不能继续录入或更正收支':!project.value?.companyDeptId?'项目尚未设置归属公司，请联系归属老板完善后再填报':isLateSettlement.value?'实际结束日期缺失，请联系项目归属责任人核对':'项目进入执行中后才能提交经营数据')
 const progressReportBlockReason=computed(()=>project.value?.status==='CLOSED'?'项目已结项，进度固定为 100%':'项目进入执行中后才能填报项目完成量')
 const overdueTaskCount=computed(()=>openTasks.value.filter(task=>task.dueDate&&task.dueDate<today()).length)
@@ -485,14 +388,11 @@ const projectStatusLabel=item=>item?.status==='ACCEPTANCE'&&item?.closeMethod===
 const managementLabel={LIGHT:'轻量管理',STANDARD:'标准管理',KEY_CONTROL:'重点监管',SIMPLE:'轻量管理',DELIVERY:'标准管理'}
 const closeMethodLabel={DIRECT:'直接结项',RESULT_ACCEPTANCE:'成果验收',STAGED_ACCEPTANCE:'阶段验收'}
 const governanceDescription=computed(()=>{const p=project.value;if(!p)return '';const cycle=p.governanceProfile?.reportCycle==='EXCEPTION'?'异常时更新':p.governanceProfile?.reportCycle==='WEEKLY_AND_EVENT'?'每周更新并在重大事件时专项汇报':'每周更新';const close={DIRECT:'负责人提交结项申请，由老板检验通过后结项。',RESULT_ACCEPTANCE:'负责人提交整体验收资料，由老板验收通过后结项。',STAGED_ACCEPTANCE:'负责人按里程碑提交成果，由老板逐项验收并最终确认结项。'}[p.closeMethod]||'';return `过程要求：${cycle}；${close}`})
-const frequencyLabel={DAILY:'每日',WEEKLY:'每周',MONTHLY:'每月'}
 const memberRoleLabel={OWNER:'主负责人',DEPUTY:'副负责人',MEMBER:'成员',OBSERVER:'观察者'}
 const memberRoleTone={OWNER:'primary',DEPUTY:'success',MEMBER:'info',OBSERVER:'warning'}
 const effortStatusLabel={UNSUBMITTED:'按计划执行',SUBMITTED:'待确认',CONFIRMED:'已确认',RETURNED:'已退回',LEAVE:'今日请假'}
 const effortStatusTone={UNSUBMITTED:'info',SUBMITTED:'warning',CONFIRMED:'success',RETURNED:'danger',LEAVE:'info'}
-const leaveTypeLabel={SICK:'病假',PERSONAL:'事假',ANNUAL:'年假',COMPENSATORY:'调休',OTHER:'其他'}
-const leaveStatusLabel={PENDING:'待老板审批',APPROVED:'已批准',RETURNED:'已退回',CANCEL_PENDING:'取消待审批',CANCELED:'已取消'}
-const leaveStatusTone={PENDING:'warning',APPROVED:'success',RETURNED:'danger',CANCEL_PENDING:'warning',CANCELED:'info'}
+const revenueCurrencies=['CNY','VND','USD']
 const blankReport=()=>({projectId:null,bizDate:today(),amount:null,description:'',attachmentUrls:''})
 const reportForm=ref(blankReport())
 const spendDateLoading=ref(false),spendDateLoaded=ref(false)
@@ -501,7 +401,7 @@ const blankRevenue=()=>({projectId:null,bizDate:today(),categoryId:null,amount:n
 const revenueForm=ref(blankRevenue())
 const projectProgressForm=ref({})
 const routineReportForm=ref({})
-const leaveForm=ref({userId:null,userName:'',leaveType:'SICK',dates:[today(),today()],reason:'',attachmentUrls:''})
+const dailyTargetForm=reactive({})
 const effortReturnForm=ref({userId:null,userName:'',bizDate:today(),reviewComment:''})
 const evidencePreview=ref({title:'',assigneeName:'',bizDate:'',rawUrls:'',projectId:null,files:[]})
 function today(){return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Shanghai'})}
@@ -515,7 +415,7 @@ function evidenceKind(path){const ext=path.split('?')[0].split('.').pop()?.toLow
 function openEvidenceFiles(title,assigneeName,bizDate,urls){const files=evidencePaths(urls).map(path=>({path,name:evidenceName(path),kind:evidenceKind(path)}));evidencePreview.value={title,assigneeName,bizDate,rawUrls:urls,projectId:project.value?.projectId,files};evidenceDialog.value=true}
 function openEvidence(routine){openEvidenceFiles(routine.routineName,routine.assigneeName,accounting.value.bizDate||today(),routine.todayEvidenceUrls)}
 function openProjectProgressEvidence(){openEvidenceFiles(project.value.projectName,project.value.progressReporterName||project.value.mainOwnerName,project.value.progressBizDate,project.value.progressEvidenceUrls)}
-function taskName(taskId){return (project.value?.tasks||[]).find(task=>Number(task.taskId)===Number(taskId))?.taskName||'一次性任务'}
+function taskName(taskId){return [...(project.value?.tasks||[]),...(project.value?.inactiveTasks||[])].find(task=>Number(task.taskId)===Number(taskId))?.taskName||'一次性任务'}
 function taskFinishDate(task){return String(task.actualFinishTime||task.latestReport?.bizDate||'').slice(0,10)}
 function taskFinishTime(task){return task.actualFinishTime||task.latestReport?.bizDate||'未记录'}
 function isTaskCompletedLate(task){const finishDate=taskFinishDate(task);return !!task.dueDate&&!!finishDate&&finishDate>task.dueDate}
@@ -526,17 +426,14 @@ function xu(value){return Number(value||0).toLocaleString('zh-CN',{maximumFracti
 function signed(value){const n=Number(value||0);return `${n>0?'+':''}${money(n)}`}
 function amountTone(value){return Number(value||0)<0?'amount-loss':'amount-profit'}
 function kpiRate(kpi){const target=Number(kpi.targetValue||0);return target?Math.round(Number(kpi.actualValue||0)*100/target):0}
-function routineRate(routine){const target=Number(routine.targetValue||0);return target?Math.min(100,Math.round(Number(routine.todayActual||0)*100/target)):0}
-function routineBelowTarget(routine){return routine.frequency==='DAILY'&&!!routine.todayReportId&&Number(routine.todayActual)<Number(routine.targetValue||0)}
-function canSubmitRoutine(routine){return !routine.sourceManaged&&!routineLeave(routine)&&Number(routine.assigneeUserId)===Number(userStore.id)}
+const routineTargetModeLabel={FIXED:'固定每日目标',AUTO_TOTAL:'自动分配',DAILY_DYNAMIC:'动态日目标',NONE:'无量化'}
+function routineTargetDescription(routine){if(routine.targetMode==='NONE')return '无量化目标，只填完成说明';if(routine.targetMode==='DAILY_DYNAMIC'&&!routine.todayTargetId)return '今日目标待负责人下达';return `今日目标 ${routine.todayTarget ?? 0} ${routine.unit}`}
+function routineRate(routine){const target=Number(routine.todayTarget||0);return target?Math.min(100,Math.round(Number(routine.todayActual||0)*100/target)):0}
+function routineBelowTarget(routine){return routine.targetMode!=='NONE'&&!!routine.todayReportId&&Number(routine.todayActual)<Number(routine.todayTarget||0)}
+function canSubmitRoutine(routine){return !routine.sourceManaged&&!routineLeave(routine)&&!(routine.targetMode==='DAILY_DYNAMIC'&&!routine.todayTargetId)&&Number(routine.assigneeUserId)===Number(userStore.id)}
 function effortDayHint(item){if(item.reportStatus==='SUBMITTED')return '员工已申报偏差，请逐条审核';if(item.reportStatus==='CONFIRMED')return '当天实际投入已确认并锁定';if(item.reportStatus==='RETURNED')return '已退回员工修改';if(item.reportStatus==='LEAVE')return `今日请假${item.leaveReason?`：${item.leaveReason}`:''}`;return '未申报偏差，按计划投入自动核算'}
 function participantEffort(member){return todayEfforts.value.find(item=>Number(item.userId)===Number(member.userId))}
 function participantLeave(member){const stored=(data.value.todayLeaves||[]).find(item=>Number(item.userId)===Number(member.userId));if(stored)return stored;const effort=participantEffort(member);return effort?.reportStatus==='LEAVE'?{userId:member.userId,reason:effort.leaveReason||''}:null}
-function pendingLeaveRequest(member){return leaveRequests.value.find(item=>Number(item.userId)===Number(member.userId)&&item.status==='PENDING')}
-function approvedLeaveRequest(member){return leaveRequests.value.find(item=>Number(item.userId)===Number(member.userId)&&item.status==='APPROVED'&&item.startDate<=today()&&item.endDate>=today())}
-function cancelPendingLeaveRequest(member){return leaveRequests.value.find(item=>Number(item.userId)===Number(member.userId)&&item.status==='CANCEL_PENDING'&&item.startDate<=today()&&item.endDate>=today())}
-function leaveDateText(request){return request.startDate===request.endDate?request.startDate:`${request.startDate} 至 ${request.endDate}`}
-function disablePastLeaveDate(date){return date.getTime()<new Date(`${today()}T00:00:00+08:00`).getTime()}
 function routineLeave(routine){return routine.sourceManaged?null:(data.value.todayLeaves||[]).find(item=>Number(item.userId)===Number(routine.assigneeUserId))}
 function participantName(member){return member.userNameSnapshot||member.userName||'项目成员'}
 async function load(projectId){loading.value=true;try{const{data:payload={}}=await getBusinessOwnerWorkbench(projectId||undefined);data.value=payload;selectedProjectId.value=payload.project?.projectId||null;if(selectedProjectId.value)router.replace({query:{...route.query,projectId:selectedProjectId.value}})}finally{loading.value=false}}
@@ -548,7 +445,8 @@ function openProposals(){router.push('/business/project-proposals')}
 function openRevenue(){
   if(!canReportFinance.value)return ElMessage.warning(reportBlockReason.value)
   if(!revenueCategories.value.length)return ElMessage.warning('收入类别尚未初始化，请联系管理员')
-  revenueForm.value={...blankRevenue(),projectId:project.value.projectId,bizDate:defaultFinancialDate(),categoryId:revenueCategories.value[0].categoryId,currency:project.value.baseCurrency||'CNY'}
+  const projectCurrency=String(project.value.baseCurrency||'CNY').toUpperCase()
+  revenueForm.value={...blankRevenue(),projectId:project.value.projectId,bizDate:defaultFinancialDate(),categoryId:revenueCategories.value[0].categoryId,currency:revenueCurrencies.includes(projectCurrency)?projectCurrency:'CNY'}
   revenueDialog.value=true
 }
 async function submitRevenue(){
@@ -557,6 +455,7 @@ async function submitRevenue(){
   if(!validFinancialDate(form.bizDate))return ElMessage.warning('请选择执行期间已发生业务的日期')
   if(!form.categoryId)return ElMessage.warning('请选择收入类别')
   if(form.amount===null||form.amount===undefined||Number(form.amount)<0)return ElMessage.warning('请填写收入金额')
+  if(!revenueCurrencies.includes(form.currency))return ElMessage.warning('请选择 CNY、VND 或 USD')
   if(!form.description?.trim())return ElMessage.warning('请填写收入说明')
   saving.value=true
   try{
@@ -612,11 +511,10 @@ async function submitEffortReturn(){
     ElMessage({type:'success',message:'已退回员工修改',duration:3000,showClose:true})
   }finally{saving.value=false}
 }
-function openRoutineReport(routine){routineReportForm.value={reportId:routine.todayReportId||null,routineId:routine.routineId,projectId:project.value.projectId,bizDate:accounting.value.bizDate||today(),routineName:routine.routineName,frequency:routine.frequency,targetValue:routine.targetValue,actualValue:routine.todayReportId?Number(routine.todayActual):null,unit:routine.unit,summary:routine.todaySummary||'',issueReason:routine.todayIssueReason||'',evidenceUrls:routine.todayEvidenceUrls||'',evidenceRequired:routine.evidenceRequired,version:null};routineReportDialog.value=true}
-async function submitRoutineReport(){const form=routineReportForm.value;if(form.actualValue===null||form.actualValue===undefined||Number(form.actualValue)<0)return ElMessage.warning('请填写实际完成量');if(routineReportNeedsReason.value&&!form.issueReason?.trim())return ElMessage.warning('未达到每日目标时请填写原因');if(form.evidenceRequired==='1'&&!form.evidenceUrls)return ElMessage.warning('该工作要求上传成果凭证');form.issueReason=routineReportNeedsReason.value?form.issueReason.trim():null;saving.value=true;try{await submitBusinessRoutineReport(form);routineReportDialog.value=false;ElMessage.success('今日完成量已保存');await load(selectedProjectId.value)}finally{saving.value=false}}
-function openLeave(member){leaveForm.value={userId:member.userId,userName:participantName(member),leaveType:'SICK',dates:[today(),today()],reason:'',attachmentUrls:''};leaveDialog.value=true}
-async function submitLeave(){const form=leaveForm.value;if(!form.dates?.[0]||!form.dates?.[1])return ElMessage.warning('请选择请假日期');if(!form.reason?.trim())return ElMessage.warning('请填写请假原因');saving.value=true;try{await markBusinessMemberLeave(project.value.projectId,form.userId,{startDate:form.dates[0],endDate:form.dates[1],leaveType:form.leaveType,reason:form.reason.trim(),attachmentUrls:form.attachmentUrls});leaveDialog.value=false;ElMessage({type:'success',message:'请假申请已提交，等待老板审批；批准前不会影响人员成本',duration:3500,showClose:true});await load(selectedProjectId.value)}finally{saving.value=false}}
-async function withdrawLeave(request){const approved=request.status==='APPROVED';const{value}=await ElMessageBox.prompt(approved?`申请取消 ${request.userName} 已批准的请假吗？取消仍需老板审批。`:`确认撤回 ${request.userName} 的请假申请吗？`,approved?'申请取消请假':'撤回请假申请',{inputPlaceholder:'请填写原因',inputValidator:value=>!!value?.trim()||'必须填写原因',type:'warning'});saving.value=true;try{await cancelBusinessMemberLeaveRequest(request.requestId,{reason:value.trim()});ElMessage.success(approved?'取消请假申请已提交，等待老板审批':'请假申请已撤回');await load(selectedProjectId.value)}finally{saving.value=false}}
+function openRoutineReport(routine){routineReportForm.value={reportId:routine.todayReportId||null,routineId:routine.routineId,projectId:project.value.projectId,bizDate:accounting.value.bizDate||today(),routineName:routine.routineName,frequency:routine.frequency,targetMode:routine.targetMode||'FIXED',todayTarget:routine.todayTarget,actualValue:routine.todayReportId?Number(routine.todayActual):null,unit:routine.unit,summary:routine.todaySummary||'',issueReason:routine.todayIssueReason||'',evidenceUrls:routine.todayEvidenceUrls||'',evidenceRequired:routine.evidenceRequired,version:null};routineReportDialog.value=true}
+async function submitRoutineReport(){const form=routineReportForm.value;if(form.targetMode!=='NONE'&&(form.actualValue===null||form.actualValue===undefined||Number(form.actualValue)<0))return ElMessage.warning('请填写实际完成量');if(!form.summary?.trim())return ElMessage.warning('请填写今日完成说明');if(routineReportNeedsReason.value&&!form.issueReason?.trim())return ElMessage.warning('未达到每日目标时请填写原因');if(form.evidenceRequired==='1'&&!form.evidenceUrls)return ElMessage.warning('该工作要求上传成果凭证');form.actualValue=form.targetMode==='NONE'?0:form.actualValue;form.issueReason=routineReportNeedsReason.value?form.issueReason.trim():null;saving.value=true;try{await submitBusinessRoutineReport(form);routineReportDialog.value=false;ElMessage.success('今日完成情况已保存');await load(selectedProjectId.value)}finally{saving.value=false}}
+function openDailyTarget(routine){Object.assign(dailyTargetForm,{routineId:routine.routineId,routineName:routine.routineName,assigneeName:routine.assigneeName,bizDate:accounting.value.bizDate||today(),todayTargetId:routine.todayTargetId||null,targetValue:routine.todayTargetId?Number(routine.todayTarget):null,unit:routine.unit,customerRequirement:routine.todayRequirement||'',changeReason:''});dailyTargetDialog.value=true}
+async function saveDailyTarget(){if(!(Number(dailyTargetForm.targetValue)>0))return ElMessage.warning('今日目标必须大于0');if(dailyTargetForm.todayTargetId&&!dailyTargetForm.changeReason?.trim())return ElMessage.warning('请填写修改原因');saving.value=true;try{await saveBusinessRoutineDailyTarget({...dailyTargetForm});dailyTargetDialog.value=false;ElMessage.success(dailyTargetForm.todayTargetId?'今日目标已修改并保留旧版本':'今日目标已下达');await load(selectedProjectId.value)}finally{saving.value=false}}
 async function openDailySpend(){
   if(!canReportFinance.value)return ElMessage.warning(reportBlockReason.value)
   reportForm.value={...blankReport(),...(!isLateSettlement.value?accounting.value.dailySpend||{}:{}),projectId:project.value.projectId,bizDate:defaultFinancialDate()}
@@ -662,7 +560,6 @@ useBusinessRefreshOnReactivated(() => load(selectedProjectId.value || (route.que
 .allocation-issue-list{display:flex;min-width:0;flex-direction:column;gap:7px}.allocation-issue-list p{display:flex;align-items:center;gap:8px;margin:0;color:#6f6250;line-height:1.45}.allocation-issue-list p span{min-width:0;overflow-wrap:anywhere}.allocation-issue-list .el-tag{flex:none}@media(max-width:640px){.allocation-issue-list p{align-items:flex-start;flex-direction:column;gap:4px}}
 .project-progress-panel{border-color:#cfe2df;background:linear-gradient(145deg,#fff,#f5fbfa)}.project-progress-card{padding:16px;border:1px solid #d9e8e5;border-radius:11px;background:#fff}.project-progress-title,.project-progress-meta{display:flex;align-items:center;justify-content:space-between;gap:12px}.project-progress-title>span{display:flex;min-width:0;flex-direction:column;gap:4px}.project-progress-title small,.project-progress-meta{color:#7d8b96;font-size:12px}.project-progress-title strong{color:#167268;font-size:26px}.project-progress-card :deep(.el-progress){margin:16px 0}.project-progress-meta{margin-bottom:10px}.project-progress-summary{margin:0 0 12px!important;color:#4c5e69!important;font-size:14px!important;line-height:1.7}.project-progress-form :deep(.el-slider){padding:0 12px}.project-progress-form :deep(.el-slider__runway.show-input){margin-right:88px}.progress-tip{display:block;width:100%;margin-top:6px;color:#909399;font-size:12px}@media(max-width:640px){.project-progress-panel>.panel-head{align-items:stretch;flex-direction:column}.project-progress-title{align-items:flex-start}.project-progress-meta{align-items:flex-start;flex-direction:column}}
 .task-latest-report{display:-webkit-box;margin:2px 0 0!important;overflow:hidden;color:#4c5e69!important;font-size:13px!important;line-height:1.55;-webkit-box-orient:vertical;-webkit-line-clamp:2}.task-latest-report span{color:#738392}.task-actions{align-items:center;gap:8px}.task-report-list{display:flex;max-height:65vh;flex-direction:column;gap:12px;overflow-y:auto;padding-right:4px}.task-report-row{padding:16px;border:1px solid #dfe6eb;border-radius:11px;background:#fbfcfd}.task-report-head,.task-report-footer{display:flex;align-items:center;justify-content:space-between;gap:14px}.task-report-head>span{display:flex;min-width:0;flex-direction:column;gap:4px}.task-report-head small,.task-report-footer small,.no-evidence{color:#8b97a4}.task-report-row>p{margin:13px 0!important;color:#415361!important;font-size:14px!important;line-height:1.7;white-space:pre-wrap}.no-evidence{font-size:12px}@media(max-width:640px){.task-report-head,.task-report-footer{align-items:flex-start;flex-direction:column}.task-report-footer .el-button{padding-left:0}.task-report-list{max-height:70vh}}
-.leave-request-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:12px 2px;border-top:1px solid #edf0f2}.leave-request-row>span{display:flex;min-width:0;flex-direction:column;gap:4px}.leave-request-row>span small{overflow-wrap:anywhere;color:#8b97a4}.leave-request-files,.leave-review-comment{grid-column:1/-1}.leave-review-comment{color:#a06b22!important}@media(max-width:640px){.leave-request-row{grid-template-columns:1fr auto}.leave-request-row>.el-button{grid-column:2}.leave-request-files,.leave-review-comment{grid-column:1/-1}}
 .task-group+.task-group{margin-top:18px}.task-group-head{display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid #edf0f2}.task-group-head h3{margin:0;font-size:14px}.completed-task-group{padding-top:2px}.completed-task-card{background:#fbfdfc}.completed-task-actions{flex-wrap:wrap;justify-content:flex-end}@media(max-width:640px){.completed-task-actions{justify-content:flex-start}}
 .pending-effort-panel{margin-bottom:14px;border-color:#efcf93;background:#fffdf8}.pending-effort-row{display:grid;grid-template-columns:minmax(190px,.8fr) auto minmax(180px,1fr) auto;align-items:center;gap:16px;padding:13px 4px;border-top:1px solid #f1e5ce}.pending-effort-row>span{display:flex;min-width:0;flex-direction:column;gap:4px}.pending-effort-row small{color:#8b7755}.pending-effort-row>p{margin:0;color:#7a633d;overflow-wrap:anywhere}.pending-effort-change{display:flex;align-items:center;gap:8px;color:#72592f;white-space:nowrap}.pending-effort-change b{color:#d28b1f}.pending-effort-actions{display:flex;gap:6px}.pending-effort-actions .el-button{margin:0}@media(max-width:900px){.pending-effort-row{grid-template-columns:1fr auto}.pending-effort-row>p{grid-column:1/-1}.pending-effort-actions{grid-column:1/-1;justify-content:flex-end}}@media(max-width:520px){.pending-effort-row{grid-template-columns:1fr}.pending-effort-row>p,.pending-effort-actions{grid-column:auto}.pending-effort-actions{display:grid;grid-template-columns:repeat(3,1fr)}.pending-effort-actions .el-button{width:100%}}
 </style>

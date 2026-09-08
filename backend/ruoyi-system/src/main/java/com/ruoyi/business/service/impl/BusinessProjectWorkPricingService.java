@@ -30,7 +30,6 @@ public class BusinessProjectWorkPricingService
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private ObjectMapper json;
 
-    @Scheduled(fixedDelay=30000,initialDelay=30000)
     public void consumePending()
     {
         for(Map<String,Object> event:mapper.selectPendingEvents())process(id(event.get("eventId")),"work-pricing");

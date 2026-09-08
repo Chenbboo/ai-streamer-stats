@@ -28,6 +28,10 @@ public class BusinessProject extends BaseEntity
     private String closeMethod;
     private String managementReason;
     private String acceptanceCriteria;
+    /** TOTAL=计入总目标；NO_TOTAL=持续经营、不设置项目总完成百分比。 */
+    private String goalMode;
+    /** 仅用于已运行项目切换目标模式时提交变更原因。 */
+    private String goalModeChangeReason;
     /** 仅用于治理模式变更时提交原因，不作为项目主档字段持久化。 */
     private String governanceChangeReason;
     private String objective;
@@ -52,6 +56,11 @@ public class BusinessProject extends BaseEntity
     private String priority;
     private String baseCurrency;
     private BigDecimal budgetLimit;
+    private String budgetMode;
+    private BigDecimal dailyBudgetLimit;
+    private String budgetScope;
+    private BigDecimal startupBudgetLimit;
+    private String budgetReason;
     private Integer baselineVersion;
     private Integer version;
     private String delFlag;
@@ -72,7 +81,9 @@ public class BusinessProject extends BaseEntity
     private List<BusinessProjectMember> members;
     private List<BusinessProjectMilestone> milestones;
     private List<BusinessProjectTask> tasks;
+    private List<BusinessProjectTask> inactiveTasks;
     private List<BusinessProjectRoutine> routines;
+    private List<BusinessProjectRoutine> retiredRoutines;
     private List<BusinessProjectRisk> risks;
     private List<Map<String, Object>> ownerHistory;
     private List<BusinessProjectAcceptance> acceptances;
@@ -97,6 +108,7 @@ public class BusinessProject extends BaseEntity
     public String getTemplateVersion() { return templateVersion; }
     public void setTemplateVersion(String value) { templateVersion = value; }
     public String getTemplateSnapshotJson() { return templateSnapshotJson; }
+    public Map<String,Object> getBudget() { return com.ruoyi.business.support.BusinessBudgetSnapshot.read(templateSnapshotJson); }
     public void setTemplateSnapshotJson(String value) { templateSnapshotJson = value; }
     public String getProjectName() { return projectName; }
     public void setProjectName(String projectName) { this.projectName = projectName; }
@@ -112,6 +124,10 @@ public class BusinessProject extends BaseEntity
     public void setManagementReason(String managementReason) { this.managementReason = managementReason; }
     public String getAcceptanceCriteria() { return acceptanceCriteria; }
     public void setAcceptanceCriteria(String acceptanceCriteria) { this.acceptanceCriteria = acceptanceCriteria; }
+    public String getGoalMode() { return goalMode; }
+    public void setGoalMode(String goalMode) { this.goalMode = goalMode; }
+    public String getGoalModeChangeReason() { return goalModeChangeReason; }
+    public void setGoalModeChangeReason(String goalModeChangeReason) { this.goalModeChangeReason = goalModeChangeReason; }
     public String getGovernanceChangeReason() { return governanceChangeReason; }
     public void setGovernanceChangeReason(String governanceChangeReason) { this.governanceChangeReason = governanceChangeReason; }
     public String getObjective() { return objective; }
@@ -158,6 +174,16 @@ public class BusinessProject extends BaseEntity
     public void setBaseCurrency(String baseCurrency) { this.baseCurrency = baseCurrency; }
     public BigDecimal getBudgetLimit() { return budgetLimit; }
     public void setBudgetLimit(BigDecimal budgetLimit) { this.budgetLimit = budgetLimit; }
+    public String getBudgetMode() { return budgetMode; }
+    public void setBudgetMode(String budgetMode) { this.budgetMode = budgetMode; }
+    public BigDecimal getDailyBudgetLimit() { return dailyBudgetLimit; }
+    public void setDailyBudgetLimit(BigDecimal dailyBudgetLimit) { this.dailyBudgetLimit = dailyBudgetLimit; }
+    public String getBudgetScope() { return budgetScope; }
+    public void setBudgetScope(String budgetScope) { this.budgetScope = budgetScope; }
+    public BigDecimal getStartupBudgetLimit() { return startupBudgetLimit; }
+    public void setStartupBudgetLimit(BigDecimal startupBudgetLimit) { this.startupBudgetLimit = startupBudgetLimit; }
+    public String getBudgetReason() { return budgetReason; }
+    public void setBudgetReason(String budgetReason) { this.budgetReason = budgetReason; }
     public Integer getBaselineVersion() { return baselineVersion; }
     public void setBaselineVersion(Integer baselineVersion) { this.baselineVersion = baselineVersion; }
     public Integer getVersion() { return version; }
@@ -194,8 +220,12 @@ public class BusinessProject extends BaseEntity
     public void setMilestones(List<BusinessProjectMilestone> milestones) { this.milestones = milestones; }
     public List<BusinessProjectTask> getTasks() { return tasks; }
     public void setTasks(List<BusinessProjectTask> tasks) { this.tasks = tasks; }
+    public List<BusinessProjectTask> getInactiveTasks() { return inactiveTasks; }
+    public void setInactiveTasks(List<BusinessProjectTask> inactiveTasks) { this.inactiveTasks = inactiveTasks; }
     public List<BusinessProjectRoutine> getRoutines() { return routines; }
     public void setRoutines(List<BusinessProjectRoutine> routines) { this.routines = routines; }
+    public List<BusinessProjectRoutine> getRetiredRoutines() { return retiredRoutines; }
+    public void setRetiredRoutines(List<BusinessProjectRoutine> retiredRoutines) { this.retiredRoutines = retiredRoutines; }
     public List<BusinessProjectRisk> getRisks() { return risks; }
     public void setRisks(List<BusinessProjectRisk> risks) { this.risks = risks; }
     public List<Map<String, Object>> getOwnerHistory() { return ownerHistory; }

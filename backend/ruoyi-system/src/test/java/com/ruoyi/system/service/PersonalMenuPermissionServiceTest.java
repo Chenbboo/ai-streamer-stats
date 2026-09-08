@@ -50,11 +50,36 @@ class PersonalMenuPermissionServiceTest
 
         Set<String> permissions = service.applyPermissions(9L,
             Arrays.asList("demo:item:list", "demo:item:add"));
-        List<SysMenu> routes = service.applyRoutes(9L, Collections.emptyList());
+        List<SysMenu> routes = service.applyRoutes(9L, Arrays.asList(
+            menu(10L, 0L, "M", ""), menu(11L, 10L, "C", "demo:item:list")));
 
         assertTrue(permissions.contains("demo:item:list"));
         assertFalse(permissions.contains("demo:item:add"));
         assertEquals(2, routes.size());
+    }
+
+    @Test
+    void explicitSnapshotCannotGrantPermissionsOrRoutesBeyondRole()
+    {
+        List<BusinessStaffMenuPermission> policy = Arrays.asList(
+            policy(10L, PersonalMenuPermissionService.READ),
+            policy(11L, PersonalMenuPermissionService.READ),
+            policy(20L, PersonalMenuPermissionService.READ),
+            policy(21L, PersonalMenuPermissionService.READ));
+        when(permissionMapper.selectByUserId(9L)).thenReturn(policy);
+        when(menuMapper.selectActiveMenuList()).thenReturn(Arrays.asList(
+            menu(10L, 0L, "M", ""), menu(11L, 10L, "C", "business:project:work:view"),
+            menu(20L, 0L, "M", ""), menu(21L, 20L, "C", "business:kpi:list")));
+
+        Set<String> permissions = service.applyPermissions(9L,
+            Collections.singletonList("business:project:work:view"));
+        List<SysMenu> routes = service.applyRoutes(9L, Arrays.asList(
+            menu(10L, 0L, "M", ""), menu(11L, 10L, "C", "business:project:work:view")));
+
+        assertTrue(permissions.contains("business:project:work:view"));
+        assertFalse(permissions.contains("business:kpi:list"));
+        assertEquals(2, routes.size());
+        assertFalse(routes.stream().anyMatch(menu -> Long.valueOf(21L).equals(menu.getMenuId())));
     }
 
     @Test

@@ -23,6 +23,7 @@
         <result property="closeMethod" column="close_method"/>
         <result property="managementReason" column="management_reason"/>
         <result property="acceptanceCriteria" column="acceptance_criteria"/>
+        <result property="goalMode" column="goal_mode"/>
         <result property="objective" column="objective"/>
         <result property="applicationReason" column="application_reason"/>
         <result property="planStartDate" column="plan_start_date"/>
@@ -31,15 +32,26 @@
         <result property="baseCurrency" column="base_currency"/>
         <result property="budgetLimit" column="budget_limit"/>
         <result property="noBudget" column="no_budget"/>
+        <result property="budgetMode" column="budget_mode"/>
+        <result property="dailyBudgetLimit" column="daily_budget_limit"/>
+        <result property="budgetScope" column="budget_scope"/>
+        <result property="startupBudgetLimit" column="startup_budget_limit"/>
+        <result property="budgetReason" column="budget_reason"/>
+        <result property="forecastPeriod" column="forecast_period"/>
+        <result property="forecastDays" column="forecast_days"/>
         <result property="revenueModel" column="revenue_model"/>
         <result property="estimatedRevenue" column="estimated_revenue"/>
+        <result property="recurringEstimatedRevenue" column="recurring_estimated_revenue"/>
         <result property="estimatedExternalCost" column="estimated_external_cost"/>
+        <result property="recurringEstimatedExternalCost" column="recurring_estimated_external_cost"/>
         <result property="estimatedPersonnelCost" column="estimated_personnel_cost"/>
         <result property="estimatedBonusCost" column="estimated_bonus_cost"/>
         <result property="estimatedTaxCost" column="estimated_tax_cost"/>
         <result property="contingencyCost" column="contingency_cost"/>
         <result property="estimatedTotalCost" column="estimated_total_cost"/>
+        <result property="recurringEstimatedTotalCost" column="recurring_estimated_total_cost"/>
         <result property="expectedProfit" column="expected_profit"/>
+        <result property="recurringExpectedProfit" column="recurring_expected_profit"/>
         <result property="expectedMargin" column="expected_margin"/>
         <result property="breakEvenRevenue" column="break_even_revenue"/>
         <result property="peakCashNeed" column="peak_cash_need"/>
@@ -69,12 +81,15 @@
         p.proposal_id,p.proposal_no,p.submission_version,p.project_name,p.template_version,p.template_snapshot_json,
         p.applicant_user_id,p.applicant_name,p.sponsor_owner_user_id,p.sponsor_owner_name,
         p.company_dept_id,company.dept_name company_name,p.parent_project_id,parent.project_name parent_project_name,
-        p.project_type,p.accounting_mode,p.management_mode,p.close_method,p.management_reason,p.acceptance_criteria,
+        p.project_type,p.accounting_mode,p.management_mode,p.close_method,p.management_reason,p.acceptance_criteria,p.goal_mode,
         p.objective,p.application_reason,
         p.plan_start_date,p.plan_end_date,p.priority,p.base_currency,p.budget_limit,p.no_budget,
-        p.revenue_model,p.estimated_revenue,p.estimated_external_cost,p.estimated_personnel_cost,
+        p.budget_mode,p.daily_budget_limit,p.budget_scope,p.startup_budget_limit,p.budget_reason,
+        p.forecast_period,p.forecast_days,p.revenue_model,p.estimated_revenue,p.recurring_estimated_revenue,
+        p.estimated_external_cost,p.recurring_estimated_external_cost,p.estimated_personnel_cost,
         p.estimated_bonus_cost,p.estimated_tax_cost,p.contingency_cost,p.estimated_total_cost,
-        p.expected_profit,p.expected_margin,p.break_even_revenue,p.peak_cash_need,p.planned_headcount,
+        p.recurring_estimated_total_cost,p.expected_profit,p.recurring_expected_profit,
+        p.expected_margin,p.break_even_revenue,p.peak_cash_need,p.planned_headcount,
         p.funding_plan,p.key_assumptions,p.risk_summary,p.stop_loss_rule,
         p.execution_source,p.status,p.submitted_time,p.reviewed_user_id,p.reviewed_user_name,p.reviewed_time,
         p.review_comment,p.created_project_id,p.version,p.del_flag,p.create_by,p.create_time,p.update_by,p.update_time,p.remark
@@ -130,18 +145,24 @@
             useGeneratedKeys="true" keyProperty="proposalId">
         insert into biz_project_proposal(proposal_no,submission_version,project_name,template_version,template_snapshot_json,applicant_user_id,applicant_name,
           sponsor_owner_user_id,sponsor_owner_name,company_dept_id,parent_project_id,project_type,accounting_mode,
-          management_mode,close_method,management_reason,acceptance_criteria,objective,application_reason,
+          management_mode,close_method,management_reason,acceptance_criteria,goal_mode,objective,application_reason,
           plan_start_date,plan_end_date,priority,base_currency,
-          budget_limit,no_budget,revenue_model,estimated_revenue,estimated_external_cost,estimated_personnel_cost,
+          budget_limit,no_budget,budget_mode,daily_budget_limit,budget_scope,startup_budget_limit,budget_reason,
+          forecast_period,forecast_days,revenue_model,estimated_revenue,recurring_estimated_revenue,
+          estimated_external_cost,recurring_estimated_external_cost,estimated_personnel_cost,
           estimated_bonus_cost,estimated_tax_cost,contingency_cost,estimated_total_cost,expected_profit,
-          expected_margin,break_even_revenue,peak_cash_need,planned_headcount,funding_plan,key_assumptions,
+          recurring_estimated_total_cost,recurring_expected_profit,expected_margin,break_even_revenue,
+          peak_cash_need,planned_headcount,funding_plan,key_assumptions,
           risk_summary,stop_loss_rule,execution_source,status,version,del_flag,create_by,create_time,update_by,update_time,remark)
         values(#{proposalNo},0,#{projectName},#{templateVersion},#{templateSnapshotJson},#{applicantUserId},#{applicantName},#{sponsorOwnerUserId},#{sponsorOwnerName},
           #{companyDeptId},#{parentProjectId},#{projectType},#{accountingMode},#{managementMode},#{closeMethod},
-          #{managementReason},#{acceptanceCriteria},#{objective},#{applicationReason},#{planStartDate},#{planEndDate},
-          #{priority},#{baseCurrency},#{budgetLimit},#{noBudget},#{revenueModel},#{estimatedRevenue},
-          #{estimatedExternalCost},#{estimatedPersonnelCost},#{estimatedBonusCost},#{estimatedTaxCost},
-          #{contingencyCost},#{estimatedTotalCost},#{expectedProfit},#{expectedMargin},#{breakEvenRevenue},
+          #{managementReason},#{acceptanceCriteria},#{goalMode},#{objective},#{applicationReason},#{planStartDate},#{planEndDate},
+          #{priority},#{baseCurrency},#{budgetLimit},#{noBudget},#{budgetMode},#{dailyBudgetLimit},#{budgetScope},
+          #{startupBudgetLimit},#{budgetReason},#{forecastPeriod},#{forecastDays},#{revenueModel},#{estimatedRevenue},
+          #{recurringEstimatedRevenue},#{estimatedExternalCost},#{recurringEstimatedExternalCost},
+          #{estimatedPersonnelCost},#{estimatedBonusCost},#{estimatedTaxCost},#{contingencyCost},
+          #{estimatedTotalCost},#{expectedProfit},#{recurringEstimatedTotalCost},#{recurringExpectedProfit},
+          #{expectedMargin},#{breakEvenRevenue},
           #{peakCashNeed},#{plannedHeadcount},#{fundingPlan},#{keyAssumptions},#{riskSummary},#{stopLossRule},
           #{executionSource},'DRAFT',0,'0',#{createBy},sysdate(),#{createBy},sysdate(),#{remark})
     </insert>
@@ -150,20 +171,25 @@
         update biz_project_proposal set template_version=#{templateVersion},template_snapshot_json=#{templateSnapshotJson},project_name=#{projectName},sponsor_owner_user_id=#{sponsorOwnerUserId},
           sponsor_owner_name=#{sponsorOwnerName},company_dept_id=#{companyDeptId},parent_project_id=#{parentProjectId},
           project_type=#{projectType},accounting_mode=#{accountingMode},management_mode=#{managementMode},
-          close_method=#{closeMethod},management_reason=#{managementReason},acceptance_criteria=#{acceptanceCriteria},
+          close_method=#{closeMethod},management_reason=#{managementReason},acceptance_criteria=#{acceptanceCriteria},goal_mode=#{goalMode},
           objective=#{objective},application_reason=#{applicationReason},plan_start_date=#{planStartDate},
           plan_end_date=#{planEndDate},priority=#{priority},base_currency=#{baseCurrency},budget_limit=#{budgetLimit},
-          no_budget=#{noBudget},revenue_model=#{revenueModel},estimated_revenue=#{estimatedRevenue},
-          estimated_external_cost=#{estimatedExternalCost},estimated_personnel_cost=#{estimatedPersonnelCost},
+          no_budget=#{noBudget},budget_mode=#{budgetMode},daily_budget_limit=#{dailyBudgetLimit},
+          budget_scope=#{budgetScope},startup_budget_limit=#{startupBudgetLimit},budget_reason=#{budgetReason},
+          forecast_period=#{forecastPeriod},forecast_days=#{forecastDays},revenue_model=#{revenueModel},
+          estimated_revenue=#{estimatedRevenue},recurring_estimated_revenue=#{recurringEstimatedRevenue},
+          estimated_external_cost=#{estimatedExternalCost},recurring_estimated_external_cost=#{recurringEstimatedExternalCost},
+          estimated_personnel_cost=#{estimatedPersonnelCost},
           estimated_bonus_cost=#{estimatedBonusCost},estimated_tax_cost=#{estimatedTaxCost},
           contingency_cost=#{contingencyCost},estimated_total_cost=#{estimatedTotalCost},
-          expected_profit=#{expectedProfit},expected_margin=#{expectedMargin},break_even_revenue=#{breakEvenRevenue},
+          recurring_estimated_total_cost=#{recurringEstimatedTotalCost},expected_profit=#{expectedProfit},
+          recurring_expected_profit=#{recurringExpectedProfit},expected_margin=#{expectedMargin},break_even_revenue=#{breakEvenRevenue},
           peak_cash_need=#{peakCashNeed},planned_headcount=#{plannedHeadcount},funding_plan=#{fundingPlan},
           key_assumptions=#{keyAssumptions},risk_summary=#{riskSummary},stop_loss_rule=#{stopLossRule},
           execution_source=#{executionSource},review_comment=null,reviewed_user_id=null,
           reviewed_user_name=null,reviewed_time=null,update_by=#{updateBy},update_time=sysdate(),version=version+1,remark=#{remark}
         where proposal_id=#{proposalId} and applicant_user_id=#{applicantUserId} and del_flag='0'
-          and status in ('DRAFT','RETURNED','WITHDRAWN') and version=#{version}
+          and status in ('DRAFT','PENDING','RETURNED','WITHDRAWN') and version=#{version}
     </update>
 
     <update id="softDelete">
@@ -181,14 +207,16 @@
     </update>
 
     <update id="updateComputedPlan" parameterType="com.ruoyi.business.domain.BusinessProjectProposal">
-        update biz_project_proposal set estimated_revenue=#{estimatedRevenue},
-          estimated_external_cost=#{estimatedExternalCost},estimated_personnel_cost=#{estimatedPersonnelCost},
+        update biz_project_proposal set budget_mode=#{budgetMode},budget_scope=#{budgetScope},daily_budget_limit=#{dailyBudgetLimit},startup_budget_limit=#{startupBudgetLimit},budget_reason=#{budgetReason},forecast_period=#{forecastPeriod},forecast_days=#{forecastDays},goal_mode=#{goalMode},template_snapshot_json=#{templateSnapshotJson},budget_limit=#{budgetLimit},no_budget=#{noBudget},
+          management_mode=#{managementMode},close_method=#{closeMethod},estimated_revenue=#{estimatedRevenue},
+          recurring_estimated_revenue=#{recurringEstimatedRevenue},estimated_external_cost=#{estimatedExternalCost},recurring_estimated_external_cost=#{recurringEstimatedExternalCost},estimated_personnel_cost=#{estimatedPersonnelCost},
           estimated_bonus_cost=#{estimatedBonusCost},estimated_tax_cost=#{estimatedTaxCost},
           contingency_cost=#{contingencyCost},estimated_total_cost=#{estimatedTotalCost},
-          expected_profit=#{expectedProfit},expected_margin=#{expectedMargin},break_even_revenue=#{breakEvenRevenue},
+          recurring_estimated_total_cost=#{recurringEstimatedTotalCost},expected_profit=#{expectedProfit},
+          recurring_expected_profit=#{recurringExpectedProfit},expected_margin=#{expectedMargin},break_even_revenue=#{breakEvenRevenue},
           peak_cash_need=#{peakCashNeed},planned_headcount=#{plannedHeadcount},update_time=sysdate()
         where proposal_id=#{proposalId} and applicant_user_id=#{applicantUserId} and del_flag='0'
-          and status in ('DRAFT','RETURNED','WITHDRAWN') and version=#{version}
+          and status in ('DRAFT','PENDING','RETURNED','WITHDRAWN') and version=#{version}
     </update>
 
     <update id="activate">
@@ -197,7 +225,7 @@
           reviewed_time=case when template_version='LEGACY_V1' then sysdate() else null end,review_comment='负责人自主确认并启动',created_project_id=#{createdProjectId},
           update_by=#{userName},update_time=sysdate(),version=version+1
         where proposal_id=#{proposalId} and applicant_user_id=#{applicantUserId}
-          and status in ('DRAFT','RETURNED','WITHDRAWN') and del_flag='0' and version=#{version}
+          and status in ('DRAFT','PENDING','RETURNED','WITHDRAWN') and del_flag='0' and version=#{version}
     </update>
 
     <delete id="deleteRevenueLines">delete from biz_project_proposal_revenue where proposal_id=#{proposalId}</delete>
@@ -207,21 +235,21 @@
 
     <insert id="insertRevenueLine" parameterType="map">
         insert into biz_project_proposal_revenue(proposal_id,scenario,revenue_type,item_name,unit_price,quantity,
-          conversion_rate,expected_amount,expected_date,assumption_text,sort_order,create_time)
+          conversion_rate,expected_amount,occurrence_type,expected_date,assumption_text,sort_order,create_time)
         values(#{proposalId},#{scenario},#{revenueType},#{itemName},#{unitPrice},#{quantity},#{conversionRate},
-          #{expectedAmount},#{expectedDate},#{assumptionText},#{sortOrder},sysdate())
+          #{expectedAmount},#{occurrenceType},#{expectedDate},#{assumptionText},#{sortOrder},sysdate())
     </insert>
     <insert id="insertExpenseLine" parameterType="map">
         insert into biz_project_proposal_expense(proposal_id,expense_category,item_name,purpose,counterparty,
-          amount,occur_date,expense_type,has_quotation,sort_order,create_time)
-        values(#{proposalId},#{expenseCategory},#{itemName},#{purpose},#{counterparty},#{amount},#{occurDate},
+          amount,occurrence_type,occur_date,expense_type,has_quotation,sort_order,create_time)
+        values(#{proposalId},#{expenseCategory},#{itemName},#{purpose},#{counterparty},#{amount},#{occurrenceType},#{occurDate},
           #{expenseType},#{hasQuotation},#{sortOrder},sysdate())
     </insert>
     <insert id="insertStaffingLine" parameterType="map">
-        insert into biz_project_proposal_staffing(proposal_id,user_id,user_name,role_name,headcount,allocation_percent,
+        insert into biz_project_proposal_staffing(proposal_id,user_id,user_name,role_name,participation_mode,headcount,allocation_percent,
           plan_start_date,plan_end_date,person_months,cost_policy_id,cost_policy_version,monthly_cost_snapshot,
           standard_work_days_snapshot,daily_cost_snapshot,cost_currency,estimated_cost,note,input_unit,input_quantity,calendar_id,unit_policy_id,sort_order,create_time)
-        values(#{proposalId},#{userId},#{userName},#{roleName},#{headcount},#{allocationPercent},
+        values(#{proposalId},#{userId},#{userName},#{roleName},#{participationMode},#{headcount},#{allocationPercent},
           #{planStartDate},#{planEndDate},#{personMonths},#{costPolicyId},#{costPolicyVersion},
           #{monthlyCostSnapshot},#{standardWorkDaysSnapshot},#{dailyCostSnapshot},#{costCurrency},
           #{estimatedCost},#{note},#{inputUnit},#{inputQuantity},#{calendarId},#{unitPolicyId},#{sortOrder},sysdate())
@@ -235,17 +263,17 @@
 
     <select id="selectRevenueLines" resultType="map">
         select revenue_line_id revenueLineId,scenario,revenue_type revenueType,item_name itemName,
-          unit_price unitPrice,quantity,conversion_rate conversionRate,expected_amount expectedAmount,
+          unit_price unitPrice,quantity,conversion_rate conversionRate,expected_amount expectedAmount,occurrence_type occurrenceType,
           expected_date expectedDate,assumption_text assumptionText
         from biz_project_proposal_revenue where proposal_id=#{proposalId} order by sort_order,revenue_line_id
     </select>
     <select id="selectExpenseLines" resultType="map">
         select expense_line_id expenseLineId,expense_category expenseCategory,item_name itemName,purpose,
-          counterparty,amount,occur_date occurDate,expense_type expenseType,has_quotation hasQuotation
+          counterparty,amount,occurrence_type occurrenceType,occur_date occurDate,expense_type expenseType,has_quotation hasQuotation
         from biz_project_proposal_expense where proposal_id=#{proposalId} order by sort_order,expense_line_id
     </select>
     <select id="selectStaffingLines" resultType="map">
-        select staffing_line_id staffingLineId,user_id userId,user_name userName,role_name roleName,headcount,
+        select staffing_line_id staffingLineId,user_id userId,user_name userName,role_name roleName,participation_mode participationMode,headcount,
           allocation_percent allocationPercent,plan_start_date planStartDate,plan_end_date planEndDate,
           person_months personMonths,cost_policy_id costPolicyId,cost_policy_version costPolicyVersion,
           monthly_cost_snapshot monthlyCostSnapshot,standard_work_days_snapshot standardWorkDaysSnapshot,

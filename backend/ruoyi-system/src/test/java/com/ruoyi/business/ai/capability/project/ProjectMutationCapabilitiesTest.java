@@ -242,9 +242,9 @@ class ProjectMutationCapabilitiesTest
         RemoveProjectTaskCapability capability = new RemoveProjectTaskCapability(projectService);
         Map<String, Object> input = map("projectId", 16L, "taskId", 701L, "taskName", "最终交付");
         assertEquals(true, capability.confirmationSummary(invocation, input).contains("最终交付"));
-        verify(projectService, never()).deleteTask(any(), any(), any(), any(Boolean.class));
-        assertEquals("REMOVED", capability.executeConfirmed(invocation, input).get("status"));
-        verify(projectService).deleteTask(16L, 701L, 23L, true);
+        verify(projectService, never()).deleteTask(any(), any(), any(), any(), any(Boolean.class));
+        assertEquals("RETIRED", capability.executeConfirmed(invocation, input).get("status"));
+        verify(projectService).deleteTask(16L, 701L, 23L, "jianglan", true);
     }
 
     private BusinessProject project(String name, String status)

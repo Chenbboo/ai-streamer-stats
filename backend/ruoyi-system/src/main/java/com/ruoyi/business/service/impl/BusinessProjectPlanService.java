@@ -21,6 +21,7 @@ public class BusinessProjectPlanService
     @Autowired private BusinessProjectMapper projectMapper;
     @Autowired private BusinessProjectWorkMapper mapper;
     @Autowired private ObjectMapper json;
+    @Autowired private BusinessProjectBudgetService budgets;
 
     public Map<String,Object> plan(Long projectId,Long actor,boolean admin)
     {
@@ -73,22 +74,52 @@ public class BusinessProjectPlanService
     private void apply(BusinessProject p,Map<String,Object> proposed,Long actor,String userName,String source)
     {
         proposed.put("projectId",p.getProjectId());proposed.put("baseVersion",p.getBaselineVersion());proposed.put("projectVersion",p.getVersion());proposed.put("userName",userName);
-        if(mapper.countAssignmentsOutside(proposed)>0)throw new ServiceException("变更日期不覆盖当前资源计划，请先停用并调整受影响安排");
+        if(!BusinessMemberDayCostService.enabled(p)&&mapper.countAssignmentsOutside(proposed)>0)throw new ServiceException("变更日期不覆盖当前资源计划，请先停用并调整受影响安排");
         if(mapper.applyPlanChange(proposed)!=1)throw changed();Map<String,Object> baseline=new LinkedHashMap<String,Object>();baseline.put("projectId",p.getProjectId());baseline.put("baselineVersion",p.getBaselineVersion()+1);baseline.put("templateVersion",p.getTemplateVersion());
-        Map<String,Object> snapshot=new LinkedHashMap<String,Object>(proposed);snapshot.put("assignments",mapper.selectAssignments(p.getProjectId()));snapshot.put("tasks",projectMapper.selectTasks(p.getProjectId()));snapshot.put("templateSnapshotJson",p.getTemplateSnapshotJson());
+        Map<String,Object> snapshot=new LinkedHashMap<String,Object>(proposed);snapshot.put("assignments",mapper.selectAssignments(p.getProjectId()));snapshot.put("tasks",projectMapper.selectTasks(p.getProjectId()));snapshot.put("templateSnapshotJson",proposed.getOrDefault("templateSnapshotJson",p.getTemplateSnapshotJson()));
         baseline.put("snapshotJson",write(snapshot));baseline.put("authorizationSource",source);baseline.put("userId",actor);baseline.put("userName",userName);mapper.insertBaseline(baseline);
     }
     private Map<String,Object> normalize(BusinessProject p,Map<String,Object> input)
     {
         Map<String,Object> row=new LinkedHashMap<String,Object>();String objective=text(input.get("objective")),criteria=text(input.get("acceptanceCriteria"));
         if(objective==null||objective.isEmpty()||objective.length()>1000||criteria==null||criteria.isEmpty()||criteria.length()>2000)throw new ServiceException("范围目标和验收标准不能为空或超出长度");
-        Date from=DateUtils.parseDate(input.get("planStartDate")),to=DateUtils.parseDate(input.get("planEndDate"));if(from==null||to==null||to.before(from))throw new ServiceException("请填写有效的计划窗口");
-        row.put("objective",objective);row.put("acceptanceCriteria",criteria);row.put("planStartDate",DateUtils.parseDateToStr("yyyy-MM-dd",from));row.put("planEndDate",DateUtils.parseDateToStr("yyyy-MM-dd",to));row.put("budgetLimit",money(input.get("budgetLimit")));return row;
+        Date from=DateUtils.parseDate(input.get("planStartDate")),to=DateUtils.parseDate(input.get("planEndDate"));
+        String endText=text(input.get("planEndDate"));
+        if(from==null||endText!=null&&!endText.isEmpty()&&to==null||to!=null&&to.before(from))throw new ServiceException("请填写有效的计划起止日期；不限期项目可以不设置结束日期");
+        row.put("objective",objective);row.put("acceptanceCriteria",criteria);row.put("planStartDate",DateUtils.parseDateToStr("yyyy-MM-dd",from));row.put("planEndDate",to==null?null:DateUtils.parseDateToStr("yyyy-MM-dd",to));row.put("budgetLimit",money(input.get("budgetLimit")));
+        if(p.getBudget()!=null)
+        {
+            com.ruoyi.business.domain.BusinessProjectProposal estimate=new com.ruoyi.business.domain.BusinessProjectProposal();
+            estimate.setPlanStartDate(from);estimate.setPlanEndDate(to);estimate.setTemplateVersion(p.getTemplateVersion());estimate.setCompanyDeptId(p.getCompanyDeptId());estimate.setBaseCurrency(p.getBaseCurrency());
+            Map<String,Object> requested=input.get("budget") instanceof Map?new LinkedHashMap<String,Object>((Map<String,Object>)input.get("budget")):new LinkedHashMap<String,Object>(p.getBudget());
+            if(to==null&&"PROJECT".equals(requested.get("cycle")))requested.put("cycle","MONTH");estimate.setBudget(requested);
+            estimate.setRevenueLines((List<Map<String,Object>>)requested.get("revenueLines"));
+            estimate.setExpenseLines((List<Map<String,Object>>)requested.get("expenseLines"));
+            List<Map<String,Object>> staff=new ArrayList<Map<String,Object>>();
+            for(Map<String,Object> assignment:mapper.selectAssignments(p.getProjectId()))if("ACTIVE".equals(assignment.get("status")))
+            {Map<String,Object> person=new LinkedHashMap<String,Object>(assignment);person.put("planStartDate",person.get("effectiveFrom"));person.put("planEndDate",person.get("effectiveTo"));person.put("participationMode",person.get("effectiveTo")==null?"UNLIMITED":"CUSTOM");staff.add(person);}
+            if(BusinessMemberDayCostService.enabled(p)) {
+                Set<Long> activeMembers=new HashSet<>();
+                for(Map<String,Object> member:mapper.selectMembers(p.getProjectId()))
+                    if("0".equals(String.valueOf(member.get("status")))&&!"OBSERVER".equals(member.get("memberRole")))activeMembers.add(id(member.get("userId")));
+                staff.removeIf(person->!activeMembers.contains(id(person.get("userId"))));
+                Set<Long> planned=new HashSet<>();for(Map<String,Object> person:staff)planned.add(id(person.get("userId")));
+                for(Long uid:activeMembers)if(!planned.contains(uid)) {Map<String,Object> person=new LinkedHashMap<>();person.put("userId",uid);person.put("participationMode","FOLLOW_PROJECT");person.put("calendarId",1L);staff.add(person);}
+            }
+            estimate.setStaffingLines(staff);
+            Map<String,Object> budget=budgets.estimateResourcePlan(estimate);
+            if(!"READY".equals(budget.get("status")))throw new ServiceException("预算尚未计算完整："+budget.get("issues"));
+            row.put("budget",budget);row.put("budgetLimit","TOTAL".equals(budget.getOrDefault("mode","TOTAL"))?budget.get("totalAmount"):null);
+            row.put("budgetMode",budget.getOrDefault("mode","TOTAL"));row.put("budgetScope",budget.getOrDefault("scope","FULL_COST"));
+            row.put("dailyBudgetLimit",budget.get("dailyLimit"));row.put("startupBudgetLimit",budget.get("startupLimit"));row.put("budgetReason",budget.get("reason"));
+            try{Map<String,Object> snapshot=json.readValue(p.getTemplateSnapshotJson(),new TypeReference<Map<String,Object>>(){});snapshot.put("budget",budget);row.put("templateSnapshotJson",write(snapshot));}catch(Exception ex){throw new ServiceException("预算快照无法保存");}
+        }
+        return row;
     }
     private boolean canReview(BusinessProject p,Map<String,Object> row,Long actor){return mutable(p)&&"SUBMITTED".equals(row.get("status"))&&actor.equals(sponsor(p))&&!actor.equals(id(row.get("requestUserId")));}
     private boolean mutable(BusinessProject p){return !BusinessProjectLifecycle.isAccountingClosed(p)&&!Arrays.asList("CLOSED","CANCELED","ACCEPTANCE").contains(p.getStatus());}
     private void requireMutable(BusinessProject p){if(!mutable(p))throw new ServiceException("当前项目状态不能调整计划");}
-    private void requireProject(BusinessProject p){if(p==null||!"ACTUAL_WORK_V1".equals(p.getCostPolicyVersion()))throw new ServiceException("该项目未启用版本化计划");}
+    private void requireProject(BusinessProject p){if(p==null||!BusinessMemberDayCostService.enabled(p)&&!"ACTUAL_WORK_V1".equals(p.getCostPolicyVersion()))throw new ServiceException("该项目未启用版本化计划");}
     private boolean manager(BusinessProject p,Long actor){return actor.equals(p.getMainOwnerUserId())||actor.equals(sponsor(p));}
     private Long sponsor(BusinessProject p){return p.getSponsorOwnerUserId()==null?p.getInitiatorUserId():p.getSponsorOwnerUserId();}
     private String reason(Object v){String s=text(v);if(s==null||s.isEmpty()||s.length()>2000)throw new ServiceException("请填写2000字符内的变更说明");return s;}

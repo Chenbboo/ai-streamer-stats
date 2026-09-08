@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -12,6 +13,7 @@ import java.util.Map;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Arrays;
+import com.github.pagehelper.Page;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -51,7 +53,7 @@ class BusinessStaffServiceImplTest
         vietnamProfile.setUserId(148L); vietnamProfile.setCompanyDeptId(111L);
         vietnamProfile.setCompanyName("越南meimaru公司"); vietnamProfile.setCompanyLeaderUserId(143L);
         vietnamProfile.setEmploymentStatus("ACTIVE");
-        when(userService.selectUserList(any())).thenReturn(Arrays.asList(shanghaiStaff, vietnamStaff));
+        when(projectMapper.selectStaffDirectory(any(), nullable(Long.class))).thenReturn(Arrays.asList(shanghaiStaff, vietnamStaff));
         when(profileMapper.selectByUserIds(any())).thenReturn(Arrays.asList(shanghaiProfile, vietnamProfile));
 
         List<?> rows = service.listStaff(new SysUser(), 120L, false, true, true).getRows();
@@ -77,7 +79,7 @@ class BusinessStaffServiceImplTest
         BusinessStaffProfile vietnamProfile = new BusinessStaffProfile();
         vietnamProfile.setUserId(148L); vietnamProfile.setCompanyLeaderUserId(143L);
         vietnamProfile.setEmploymentStatus("ACTIVE");
-        when(userService.selectUserList(any())).thenReturn(Arrays.asList(shanghaiStaff, vietnamStaff));
+        when(projectMapper.selectStaffDirectory(any(), nullable(Long.class))).thenReturn(Arrays.asList(shanghaiStaff, vietnamStaff));
         when(profileMapper.selectByUserIds(any())).thenReturn(Arrays.asList(shanghaiProfile, vietnamProfile));
 
         List<?> rows = service.listStaff(new SysUser(), 1L, true, true, true).getRows();
@@ -97,7 +99,7 @@ class BusinessStaffServiceImplTest
         disabledStaff.setUserName("disabled111"); disabledStaff.setStatus("1");
         BusinessStaffProfile profile = new BusinessStaffProfile();
         profile.setUserId(111L); profile.setEmploymentStatus("ACTIVE");
-        when(userService.selectUserList(any())).thenReturn(Arrays.asList(disabledStaff));
+        when(projectMapper.selectStaffDirectory(any(), nullable(Long.class))).thenReturn(Arrays.asList(disabledStaff));
         when(profileMapper.selectByUserIds(any())).thenReturn(Arrays.asList(profile));
 
         List<?> rows = service.listStaff(new SysUser(), 1L, true, true, true).getRows();
@@ -114,15 +116,51 @@ class BusinessStaffServiceImplTest
         staff.setUserName("staff147"); staff.setStatus("0");
         BusinessStaffProfile profile = new BusinessStaffProfile();
         profile.setUserId(147L); profile.setEmploymentStatus("ACTIVE");
-        when(userService.selectUserList(any())).thenReturn(Arrays.asList(staff));
+        when(projectMapper.selectStaffDirectory(any(), nullable(Long.class))).thenReturn(Arrays.asList(staff));
         when(profileMapper.selectByUserIds(any())).thenReturn(Arrays.asList(profile));
         when(projectMapper.selectManagedProjectMemberUserIds(134L)).thenReturn(Arrays.asList(147L));
 
-        List<?> rows = service.listStaff(new SysUser(), 134L, false, false, true).getRows();
+        List<?> rows = service.listStaff(new SysUser(), 134L, false, false, false).getRows();
 
         @SuppressWarnings("unchecked") Map<String, Object> row = (Map<String, Object>) rows.get(0);
         assertEquals(true, row.get("canViewCost"));
         assertEquals(true, row.get("canManageCost"));
+    }
+
+    @Test
+    void projectOwnerDirectoryKeepsDatabasePageTotalWithoutAppendingMembers()
+    {
+        SysUser staff = new SysUser(147L);
+        staff.setUserName("staff147"); staff.setStatus("0");
+        BusinessStaffProfile profile = new BusinessStaffProfile();
+        profile.setUserId(147L); profile.setEmploymentStatus("ACTIVE");
+        Page<SysUser> page = new Page<SysUser>(2, 1);
+        page.setTotal(3L); page.add(staff);
+        when(projectMapper.selectStaffDirectory(any(), nullable(Long.class))).thenReturn(page);
+        when(projectMapper.selectManagedProjectMemberUserIds(134L)).thenReturn(Arrays.asList(147L, 148L, 149L));
+        when(profileMapper.selectByUserIds(any())).thenReturn(Arrays.asList(profile));
+
+        com.ruoyi.common.core.page.TableDataInfo result = service.listStaff(new SysUser(), 134L, false, false, false);
+
+        assertEquals(1, result.getRows().size());
+        assertEquals(3L, result.getTotal());
+        verify(projectMapper).selectStaffDirectory(any(), org.mockito.ArgumentMatchers.eq(134L));
+        verify(userService, never()).selectUserById(148L);
+        verify(userService, never()).selectUserById(149L);
+    }
+
+    @Test
+    void projectOwnerCannotManageCostsForOtherVisibleStaffOrDepartedMembers()
+    {
+        SysUser outsider = new SysUser(148L);outsider.setStatus("0");
+        SysUser departed = new SysUser(149L);departed.setStatus("0");
+        BusinessStaffProfile active = new BusinessStaffProfile();active.setUserId(148L);active.setEmploymentStatus("ACTIVE");
+        BusinessStaffProfile left = new BusinessStaffProfile();left.setUserId(149L);left.setEmploymentStatus("LEFT");
+        when(projectMapper.selectStaffDirectory(any(), nullable(Long.class))).thenReturn(Arrays.asList(outsider,departed));
+        when(profileMapper.selectByUserIds(any())).thenReturn(Arrays.asList(active,left));
+        when(projectMapper.selectManagedProjectMemberUserIds(134L)).thenReturn(Arrays.asList(147L,149L));
+        for(Object value:service.listStaff(new SysUser(),134L,false,false,false).getRows())
+            assertEquals(false,((Map<?,?>)value).get("canManageCost"));
     }
 
     @Test

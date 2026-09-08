@@ -39,11 +39,11 @@
       </section>
 
       <section>
-        <div class="section-title"><h4>参项人员与投入</h4><span>谁参与、计划投入多少</span></div>
+        <div class="section-title"><h4>参项人员</h4><span>按参与期间的工作日自动计算人员成本</span></div>
         <div v-if="review.members?.length" class="detail-list">
           <div v-for="item in review.members" :key="item.userId" class="detail-row">
             <div><b>{{ item.userName || item.userNameSnapshot }}</b><small>{{ roleLabel[item.memberRole] || item.memberRole || '成员' }}</small></div>
-            <span>{{ allocationText(item.userId) }}</span>
+            <span>{{ item.joinedDate || '跟随项目日期' }}</span>
           </div>
         </div>
         <p v-else class="empty">尚未添加参项人员</p>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.business.mapper.BusinessMemberDayCostMapper">
+  <insert id="archiveMembership">insert ignore into biz_project_member_cost_period(project_id,user_id,user_name,member_role,joined_date,left_date) select project_id,user_id,user_name_snapshot,member_role,joined_date,left_date from biz_project_member where project_id=#{projectId} and user_id=#{userId} and status='1' and joined_date is not null and left_date is not null</insert>
+  <select id="selectPastMemberships" resultType="map">select user_id userId,user_name userName,member_role memberRole,joined_date joinedDate,left_date leftDate,'1' status from biz_project_member_cost_period where project_id=#{projectId}</select>
+  <select id="selectOpenProjects" resultType="long">select project_id from biz_project where del_flag='0' and cost_policy_version='MEMBER_DAYS_V1' and coalesce(accounting_state,'OPEN')&lt;&gt;'CLOSED' and coalesce(actual_start_date,plan_start_date)&lt;=current_date()</select>
+  <sql id="columns">project_id projectId,user_id userId,user_name userName,biz_date bizDate,amount,currency,pricing_status pricingStatus,issue,rate_policy_id ratePolicyId,calendar_id calendarId,basis_json basisJson,concat(user_name,' · 工作日成本') componentName,basis_json calculationDetail</sql>
+  <select id="selectCosts" resultType="map">select <include refid="columns"/> from biz_project_member_day_cost where project_id=#{projectId} order by biz_date,user_id</select>
+  <select id="selectDayCosts" resultType="map">select <include refid="columns"/> from biz_project_member_day_cost where project_id=#{projectId} and biz_date=#{bizDate} order by user_id</select>
+  <delete id="deleteDay">delete from biz_project_member_day_cost where project_id=#{projectId} and biz_date=#{bizDate}</delete>
+  <insert id="insertCost">insert into biz_project_member_day_cost(project_id,user_id,user_name,biz_date,amount,currency,pricing_status,issue,rate_policy_id,calendar_id,basis_json,update_time) values(#{projectId},#{userId},#{userName},#{bizDate},#{amount},#{currency},#{pricingStatus},#{issue},#{ratePolicyId},#{calendarId},#{basisJson},sysdate())</insert>
+  <select id="countPending" resultType="int">select count(*) from biz_project_member_day_cost where project_id=#{projectId} and pricing_status='PENDING'</select>
+  <select id="selectLegacyResultDates" resultType="string">select date_format(r.biz_date,'%Y-%m-%d') from biz_project_daily_result r where r.project_id=#{projectId} and r.is_current='1' and not exists(select 1 from biz_project_daily_result_item i where i.result_id=r.result_id and i.component_code='PERSONNEL_COST' and i.calculation_detail like '成员参与期间有效工作日%')</select>
+</mapper>

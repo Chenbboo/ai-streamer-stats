@@ -49,19 +49,17 @@ class BusinessProjectControllerPermissionTest
         expected.put("ownerDashboard", "@ss.hasPermi('business:project:owner:view')");
         expected.put("saveKpi", "@ss.hasAnyPermi('business:project:manage,business:kpi:manage')");
         expected.put("retireKpi", "@ss.hasAnyPermi('business:project:manage,business:kpi:manage')");
-        expected.put("staffCostOptions", "@ss.hasPermi('business:staff:cost')");
-        expected.put("staffCostPolicies", "@ss.hasPermi('business:staff:cost')");
-        expected.put("saveStaffCostPolicy", "@ss.hasPermi('business:staff:cost')");
-        expected.put("saveStaffCostPolicies", "@ss.hasPermi('business:staff:cost')");
-        expected.put("deleteStaffCostPolicy", "@ss.hasPermi('business:staff:cost')");
-        expected.put("voidStaffCostPolicy", "@ss.hasPermi('business:staff:cost')");
+        expected.put("staffCostOptions", "@ss.hasAnyPermi('business:staff:cost,business:staff:list')");
+        expected.put("staffCostPolicies", "@ss.hasAnyPermi('business:staff:cost,business:staff:list')");
+        expected.put("saveStaffCostPolicy", "@ss.hasAnyPermi('business:staff:cost,business:staff:list')");
+        expected.put("saveStaffCostPolicies", "@ss.hasAnyPermi('business:staff:cost,business:staff:list')");
+        expected.put("deleteStaffCostPolicy", "@ss.hasAnyPermi('business:staff:cost,business:staff:list')");
+        expected.put("voidStaffCostPolicy", "@ss.hasAnyPermi('business:staff:cost,business:staff:list')");
         expected.put("saveStaffAllocation", "@ss.hasPermi('business:project:allocation')");
         expected.put("removeStaffAllocation", "@ss.hasPermi('business:project:allocation')");
         expected.put("confirmProjectEffortWeek", "@ss.hasPermi('business:project:allocation')");
         expected.put("confirmMemberEffort", "@ss.hasPermi('business:project:allocation')");
         expected.put("returnMemberEffort", "@ss.hasPermi('business:project:allocation')");
-        expected.put("markMemberLeave", "@ss.hasPermi('business:project:allocation')");
-        expected.put("cancelMemberLeave", "@ss.hasPermi('business:project:allocation')");
 
         for (Map.Entry<String, String> item : expected.entrySet())
         {

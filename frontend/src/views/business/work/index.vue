@@ -2,7 +2,12 @@
   <div class="app-container work-page" v-loading="loading">
     <header class="work-hero">
       <div><span>MY WORK SCHEDULE</span><h1>我的安排</h1><p>只显示分配给你的工作，按今日、本周和本月查看。</p></div>
-      <el-button icon="Refresh" :loading="loading" @click="load">刷新</el-button>
+      <div class="work-hero-actions">
+        <el-select v-model="selectedProjectId" class="work-project-select" filterable :disabled="!projectOptions.length" placeholder="暂无参与项目" aria-label="选择当前项目">
+          <el-option v-for="project in projectOptions" :key="project.projectId" :label="projectOptionLabel(project)" :value="project.projectId" />
+        </el-select>
+        <el-button icon="Refresh" :loading="loading" @click="load">刷新</el-button>
+      </div>
     </header>
 
     <section class="schedule-bar">
@@ -16,42 +21,15 @@
 
     <section class="period-summary">
       <div><span>{{ periodTitle }}</span><b>{{ data.dateFrom }}<template v-if="data.dateTo!==data.dateFrom"> 至 {{ data.dateTo }}</template></b></div>
+      <div class="project-bonus-card">
+        <span>项目总奖金</span>
+        <b>{{ money(selectedProjectBonus?.totalBonus) }} {{ selectedProjectBonus?.currency || 'CNY' }}</b><small v-if="selectedProjectBonus?.currency!=='CNY' && Number(selectedProjectBonus?.legacyBonus)>0">另有历史奖金 {{ money(selectedProjectBonus.legacyBonus) }} CNY</small>
+        <small v-if="selectedProjectBonus">{{ selectedProjectBonus.projectName }} · 已核准 / 已确认累计，非个人实发</small>
+        <small v-else>暂无参与项目</small>
+      </div>
       <div><span>持续工作</span><b>{{ summary.routineCount || 0 }}</b></div>
       <div><span>一次性任务</span><b>{{ summary.taskCount || 0 }}</b></div>
       <div v-if="isToday"><span>今日已处理</span><b>{{ summary.reportedRoutineCount || 0 }} / {{ summary.routineCount || 0 }}</b></div>
-      <div v-if="period==='DAY'"><span>计划投入</span><b>{{ summary.plannedEffortPercent || 0 }}%</b></div>
-    </section>
-
-    <section class="panel"><h2>实际工作</h2><p>按人员与工作日期填报小时或人天，由责任人确认。计划不会自动计入实际。</p><el-button v-hasPermi="['business:work:report']" type="primary" @click="router.push('/business/resources')">记录或查看实际投入</el-button></section>
-    <section v-if="period==='DAY' && efforts.length" class="panel effort-panel">
-      <div class="panel-head"><div><h2>当天项目投入</h2><p>负责人设置的计划会自动生效；只有实际投入发生变化时才需要申报。</p></div><strong>计划合计 {{ summary.plannedEffortPercent || 0 }}%</strong></div>
-      <el-empty v-if="!efforts.length" description="项目负责人尚未设置当天计划投入" />
-      <div class="effort-grid">
-        <article v-for="item in efforts" :key="item.allocationId" class="effort-card">
-          <div class="card-top"><div><el-tag size="small" effect="plain">{{ item.projectName }}</el-tag><span>{{ item.initiatorName }}立项</span></div><el-tag size="small" :type="effortTone[item.reportStatus]">{{ effortStatusLabel[item.reportStatus] }}</el-tag></div>
-          <div class="effort-values"><span>计划投入 <b>{{ item.plannedPercent }}%</b></span><span v-if="['SUBMITTED','CONFIRMED','RETURNED'].includes(item.reportStatus)">实际投入 <b>{{ item.actualPercent }}%</b></span></div>
-          <el-alert v-if="item.reportStatus==='LEAVE'" :title="`历史比例规则：本地请假${item.leaveReason ? `：${item.leaveReason}` : ''}影响此旧项目投入。`" type="info" :closable="false" show-icon />
-          <div v-else-if="item.reportStatus==='UNSUBMITTED' && !item.editing" class="effort-default">
-            <span>今天默认按计划核算，无需确认</span>
-            <el-button type="primary" plain @click="beginEffortAdjustment(item)">实际投入有变化</el-button>
-          </div>
-          <div v-else-if="item.reportStatus==='CONFIRMED'" class="effort-result">
-            <p v-if="Number(item.actualPercent)!==Number(item.plannedPercent)">偏差原因：{{ item.deviationReason || '未填写' }}</p>
-            <span>负责人已确认，当天投入已锁定</span>
-          </div>
-          <div v-else-if="!item.editing" class="effort-result">
-            <p v-if="item.reportStatus==='RETURNED'" class="effort-returned">退回原因：{{ item.reviewComment || '请修改后重新提交' }}</p>
-            <p v-if="Number(item.actualPercent)!==Number(item.plannedPercent)">偏差原因：{{ item.deviationReason || '未填写' }}</p>
-            <span v-else>已改回计划投入，等待负责人确认</span>
-            <el-button type="primary" plain @click="beginEffortAdjustment(item)">修改偏差申报</el-button>
-          </div>
-          <div v-else class="effort-editor">
-            <div class="effort-editor-value"><span>实际投入</span><el-input-number v-model="item.actualPercent" :min="0" :max="100" :precision="1" /></div>
-            <el-input v-if="Number(item.actualPercent)!==Number(item.plannedPercent)" v-model="item.deviationReason" type="textarea" :rows="2" maxlength="500" show-word-limit placeholder="请说明实际投入与计划不同的原因" />
-            <div class="effort-editor-actions"><el-button @click="cancelEffortAdjustment(item)">取消</el-button><el-button type="primary" :loading="savingEffortId===item.projectId" @click="saveEffort(item)">{{ item.reportStatus==='SUBMITTED'?'更新偏差申报':'提交偏差申报' }}</el-button></div>
-          </div>
-        </article>
-      </div>
     </section>
 
     <section class="work-grid">
@@ -59,14 +37,16 @@
         <div class="panel-head"><div><h2>持续工作</h2><p>{{ isToday ? '完成后填写今天的实际数量。' : '查看该周期内持续执行的工作和累计完成量。' }}</p></div></div>
         <el-empty v-if="!routines.length" description="这个周期没有分配给你的持续工作" />
         <div v-for="routine in routines" :key="routine.routineId" class="work-card">
-          <div class="card-top"><div><el-tag size="small" effect="plain">{{ routine.projectName }}</el-tag><span>{{ routine.initiatorName }}立项</span></div><el-tag size="small">{{ frequencyLabel[routine.frequency] }}</el-tag></div>
+          <div class="card-top"><div><el-tag size="small" effect="plain">{{ routine.projectName }}</el-tag><span>{{ routine.initiatorName }}立项</span></div><el-tag size="small">{{ routineTargetModeLabel[routine.targetMode || 'FIXED'] }}</el-tag></div>
           <h3>{{ routine.routineName }}</h3>
-          <p class="target">目标：{{ routine.targetValue }} {{ routine.unit }} / {{ frequencyLabel[routine.frequency] }}</p>
-          <div class="result-line"><span>{{ isToday ? (routine.todayLeaveId ? '今日状态' : '今日完成') : '周期累计' }}</span><b>{{ isToday && routine.todayLeaveId ? '今日请假' : `${isToday ? (routine.todayReportId ? routine.todayActual : '—') : (routine.periodActual || 0)} ${routine.unit}` }}</b></div>
+          <p class="target">{{ routineTargetDescription(routine) }}</p>
+          <p v-if="isToday&&routine.todayRequirement" class="note">客户要求：{{ routine.todayRequirement }}</p>
+          <div class="result-line"><span>{{ isToday ? (routine.todayLeaveId ? '今日状态' : '今日完成') : '周期累计' }}</span><b>{{ isToday && routine.todayLeaveId ? '今日请假' : (isToday&&routine.targetMode==='NONE'&&routine.todayReportId?'已填写完成说明':`${isToday ? (routine.todayReportId ? routine.todayActual : '—') : (routine.periodActual || 0)} ${routine.unit}`) }}</b></div>
           <p v-if="isToday && routine.todayLeaveId" class="note">请假说明：{{ routine.todayLeaveReason || '今日无需填报' }}</p>
           <p v-if="routine.todaySummary" class="note">今日说明：{{ routine.todaySummary }}</p>
           <p v-if="routineBelowTarget(routine) && routine.todayIssueReason" class="issue">未达原因：{{ routine.todayIssueReason }}</p>
-          <el-button v-if="isToday && !routine.todayLeaveId" type="primary" :plain="!!routine.todayReportId" @click="openRoutineReport(routine)">{{ routine.todayReportId ? '修改今日填报' : '填报今日完成量' }}</el-button>
+          <el-button v-if="isToday && !routine.todayLeaveId && !(routine.targetMode==='DAILY_DYNAMIC'&&!routine.todayTargetId)" type="primary" :plain="!!routine.todayReportId" @click="openRoutineReport(routine)">{{ routine.todayReportId ? '修改今日填报' : (routine.targetMode==='NONE'?'填写今日完成说明':'填报今日完成量') }}</el-button>
+          <el-alert v-else-if="isToday && routine.targetMode==='DAILY_DYNAMIC'&&!routine.todayTargetId" title="负责人尚未下达今日目标，下达后才能填报。" type="warning" :closable="false" show-icon />
         </div>
       </article>
 
@@ -92,9 +72,9 @@
     <el-dialog v-model="reportDialog" :title="reportForm.reportId?'修改今日完成量':'填报今日完成量'" width="min(620px, 94vw)" append-to-body>
       <el-alert :title="`${reportForm.routineName || ''} · ${data.today || today()}`" type="info" :closable="false" show-icon />
       <el-form :model="reportForm" label-width="92px" class="report-form">
-        <el-form-item label="每日目标"><el-input :model-value="`${reportForm.targetValue || 0} ${reportForm.unit || ''}`" disabled /></el-form-item>
-        <el-form-item label="实际完成" required><el-input-number v-model="reportForm.actualValue" :min="0" :precision="4" style="width:100%" /></el-form-item>
-        <el-form-item label="今日说明"><el-input v-model="reportForm.summary" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
+        <el-form-item v-if="reportForm.targetMode!=='NONE'" label="每日目标"><el-input :model-value="`${reportForm.todayTarget || 0} ${reportForm.unit || ''}`" disabled /></el-form-item>
+        <el-form-item v-if="reportForm.targetMode!=='NONE'" label="实际完成" required><el-input-number v-model="reportForm.actualValue" :min="0" :precision="4" style="width:100%" /></el-form-item>
+        <el-form-item label="今日说明" required><el-input v-model="reportForm.summary" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
         <el-form-item v-if="needsReason" label="未达原因" required><el-input v-model="reportForm.issueReason" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
         <el-form-item label="成果凭证" :required="reportForm.evidenceRequired==='1'"><business-file-upload v-model="reportForm.evidenceUrls" :project-id="reportForm.projectId" /></el-form-item>
       </el-form>
@@ -120,27 +100,46 @@ import { ElMessage } from 'element-plus'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 
 const router=useRouter()
-const loading=ref(false),saving=ref(false),savingEffortId=ref(null),data=ref({}),period=ref('DAY'),anchorDate=ref(today()),reportDialog=ref(false),reportForm=ref({}),taskReportDialog=ref(false),taskReportForm=ref({})
-const summary=computed(()=>data.value.summary||{}),tasks=computed(()=>data.value.tasks||[]),routines=computed(()=>data.value.routines||[]),efforts=computed(()=>data.value.efforts||[])
+const loading=ref(false),saving=ref(false),savingEffortId=ref(null),data=ref({}),period=ref('DAY'),anchorDate=ref(today()),selectedProjectId=ref(null),reportDialog=ref(false),reportForm=ref({}),taskReportDialog=ref(false),taskReportForm=ref({})
+const projectBonuses=computed(()=>data.value.projectBonuses||[])
+const projectOptions=computed(()=>projectBonuses.value)
+const projectMatches=item=>selectedProjectId.value!==null&&String(item.projectId)===String(selectedProjectId.value)
+const tasks=computed(()=>(data.value.tasks||[]).filter(projectMatches))
+const routines=computed(()=>(data.value.routines||[]).filter(projectMatches))
+const efforts=computed(()=>(data.value.efforts||[]).filter(projectMatches))
+const summary=computed(()=>({
+  taskCount:tasks.value.length,
+  routineCount:routines.value.length,
+  reportedRoutineCount:routines.value.filter(item=>item.todayReportId||item.todayLeaveId).length,
+  plannedEffortPercent:efforts.value.reduce((sum,item)=>sum+Number(item.plannedPercent||0),0),
+  actualEffortPercent:efforts.value.reduce((sum,item)=>sum+Number(item.actualPercent||0),0),
+  submittedEffortCount:efforts.value.filter(item=>item.reportStatus!=='UNSUBMITTED').length
+}))
+const selectedProjectBonus=computed(()=>projectBonuses.value.find(project=>projectMatches(project))||null)
 const isToday=computed(()=>period.value==='DAY'&&data.value.dateFrom===data.value.today)
 const periodTitle=computed(()=>({DAY:'今日',WEEK:'本周',MONTH:'本月'}[period.value]))
-const needsReason=computed(()=>reportForm.value.frequency==='DAILY'&&reportForm.value.actualValue!==null&&reportForm.value.actualValue!==undefined&&Number(reportForm.value.actualValue)<Number(reportForm.value.targetValue||0))
-const frequencyLabel={DAILY:'每日',WEEKLY:'每周',MONTHLY:'每月'}
+const needsReason=computed(()=>reportForm.value.targetMode!=='NONE'&&reportForm.value.actualValue!==null&&reportForm.value.actualValue!==undefined&&Number(reportForm.value.actualValue)<Number(reportForm.value.todayTarget||0))
+const routineTargetModeLabel={FIXED:'固定每日目标',AUTO_TOTAL:'自动分配',DAILY_DYNAMIC:'动态日目标',NONE:'无量化'}
 const taskStatusLabel={TODO:'待开始',DOING:'进行中',BLOCKED:'受阻',DONE:'已完成'}
 const taskTone={TODO:'info',DOING:'primary',BLOCKED:'danger',DONE:'success'}
 const effortStatusLabel={UNSUBMITTED:'按计划执行',SUBMITTED:'待负责人确认',CONFIRMED:'已确认',RETURNED:'已退回',LEAVE:'今日请假'}
 const effortTone={UNSUBMITTED:'info',SUBMITTED:'warning',CONFIRMED:'success',RETURNED:'danger',LEAVE:'info'}
-function routineBelowTarget(routine){return routine.frequency==='DAILY'&&!!routine.todayReportId&&Number(routine.todayActual)<Number(routine.targetValue||0)}
+const money=value=>Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})
+const projectOptionLabel=project=>project.projectNo?`${project.projectName} · ${project.projectNo}`:project.projectName
+function routineBelowTarget(routine){return routine.targetMode!=='NONE'&&!!routine.todayReportId&&Number(routine.todayActual)<Number(routine.todayTarget||0)}
+function routineTargetDescription(routine){if(routine.targetMode==='NONE')return '无量化目标：只需填写今日完成说明';if(isToday.value&&routine.targetMode==='DAILY_DYNAMIC'&&!routine.todayTargetId)return '今日目标：等待负责人下达';if(isToday.value)return `今日目标：${routine.todayTarget ?? 0} ${routine.unit}`;return `周期累计：${routine.periodActual || 0} ${routine.unit}`}
 function today(){return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Shanghai'})}
-async function load(){loading.value=true;try{const payload=(await getBusinessWorkDashboard({period:period.value,anchorDate:anchorDate.value})).data||{};payload.efforts=(payload.efforts||[]).map(item=>({...item,actualPercent:Number(item.actualPercent||0),editing:false,_savedActualPercent:Number(item.actualPercent||0),_savedDeviationReason:item.deviationReason||''}));data.value=payload}finally{loading.value=false}}
+async function load(){loading.value=true;try{const payload=(await getBusinessWorkDashboard({period:period.value,anchorDate:anchorDate.value})).data||{};payload.efforts=(payload.efforts||[]).map(item=>({...item,actualPercent:Number(item.actualPercent||0),editing:false,_savedActualPercent:Number(item.actualPercent||0),_savedDeviationReason:item.deviationReason||''}));data.value=payload;const projects=payload.projectBonuses||[];if(!projects.some(project=>String(project.projectId)===String(selectedProjectId.value)))selectedProjectId.value=projects[0]?.projectId??null}finally{loading.value=false}}
 function changePeriod(){load()}
 function goToday(){anchorDate.value=today();load()}
-function openRoutineReport(routine){reportForm.value={reportId:routine.todayReportId||null,routineId:routine.routineId,projectId:routine.projectId,bizDate:data.value.today,routineName:routine.routineName,frequency:routine.frequency,targetValue:routine.targetValue,actualValue:routine.todayReportId?Number(routine.todayActual):null,unit:routine.unit,summary:routine.todaySummary||'',issueReason:routine.todayIssueReason||'',evidenceUrls:routine.todayEvidenceUrls||'',evidenceRequired:routine.evidenceRequired,version:null};reportDialog.value=true}
+function openRoutineReport(routine){reportForm.value={reportId:routine.todayReportId||null,routineId:routine.routineId,projectId:routine.projectId,bizDate:data.value.today,routineName:routine.routineName,frequency:routine.frequency,targetMode:routine.targetMode||'FIXED',todayTarget:routine.todayTarget,actualValue:routine.todayReportId?Number(routine.todayActual):null,unit:routine.unit,summary:routine.todaySummary||'',issueReason:routine.todayIssueReason||'',evidenceUrls:routine.todayEvidenceUrls||'',evidenceRequired:routine.evidenceRequired,version:null};reportDialog.value=true}
 async function submitRoutine(){
   const form=reportForm.value
-  if(form.actualValue===null||form.actualValue===undefined||Number(form.actualValue)<0)return ElMessage.warning('请填写实际完成量')
+  if(form.targetMode!=='NONE'&&(form.actualValue===null||form.actualValue===undefined||Number(form.actualValue)<0))return ElMessage.warning('请填写实际完成量')
+  if(!form.summary?.trim())return ElMessage.warning('请填写今日完成说明')
   if(needsReason.value&&!form.issueReason?.trim())return ElMessage.warning('未达到每日目标时请填写原因')
   if(form.evidenceRequired==='1'&&!form.evidenceUrls)return ElMessage.warning('该工作要求上传成果凭证')
+  form.actualValue=form.targetMode==='NONE'?0:form.actualValue
   form.issueReason=needsReason.value?form.issueReason.trim():null
   saving.value=true
   try{
@@ -175,7 +174,7 @@ useBusinessRefreshOnReactivated(load)
 </script>
 
 <style scoped>
-.work-page{min-height:calc(100vh - 84px);padding:24px;background:#f3f6f8;color:#172335}.work-hero{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:25px 28px;border-radius:16px;background:linear-gradient(120deg,#173b59,#1d6d70);color:#fff}.work-hero span{font-size:11px;letter-spacing:.17em;color:#6de0da}.work-hero h1{margin:5px 0;font-size:28px}.work-hero p{margin:0;color:#c1d4de}.schedule-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:16px 0;padding:14px;border:1px solid #dfe6eb;border-radius:12px;background:#fff}.date-tools{display:flex;gap:8px}.period-summary{display:grid;grid-template-columns:2fr repeat(4,1fr);gap:10px;margin-bottom:14px}.period-summary>div{padding:16px 18px;border:1px solid #dfe6eb;border-radius:12px;background:#fff}.period-summary span,.period-summary b{display:block}.period-summary span{color:#7d8997}.period-summary b{margin-top:7px;font-size:19px}.work-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.panel{min-width:0;padding:18px;border:1px solid #dfe6eb;border-radius:13px;background:#fff}.panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.panel-head h2{margin:0;font-size:18px}.panel-head p{margin:5px 0 12px;color:#84919f;font-size:12px}.effort-panel{margin-bottom:14px}.effort-panel>.panel-head>strong{color:#167268;font-size:18px}.effort-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.effort-card{padding:15px;border:1px solid #dce8e5;border-radius:11px;background:#f8fbfa}.effort-values{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:14px 0}.effort-values span{color:#73827e}.effort-values b{color:#1d3f3a}.effort-default,.effort-result{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 12px;border-radius:8px;background:#eef6f4;color:#667b76;font-size:13px}.effort-result{align-items:flex-start;flex-direction:column}.effort-result p{margin:0;color:#536a64;line-height:1.6}.effort-result .el-button{align-self:stretch}.effort-editor{display:flex;flex-direction:column;gap:10px}.effort-editor-value,.effort-editor-actions{display:flex;align-items:center;justify-content:space-between;gap:10px}.effort-editor-value span{color:#73827e}.effort-editor-actions{justify-content:flex-end}.work-card{margin-top:10px;padding:15px;border:1px solid #e3e8ed;border-radius:11px;background:#fbfcfd}.card-top,.card-top>div,.result-line,.task-actions{display:flex;align-items:center}.card-top{justify-content:space-between;gap:10px}.card-top>div{min-width:0;gap:8px}.card-top span{color:#8793a0;font-size:12px}.work-card h3{margin:13px 0 7px}.target,.note,.issue{margin:5px 0;color:#788694;font-size:13px}.result-line{justify-content:space-between;margin:13px 0;padding:11px;border-radius:8px;background:#eff7f5}.result-line span{color:#708078}.result-line b{font-size:17px}.issue{color:#c84550}.task-card :deep(.el-progress){margin:13px 0}.task-actions{justify-content:flex-end;gap:8px}.task-actions .el-button{margin:0}.report-form{margin-top:18px}@media(max-width:900px){.period-summary{grid-template-columns:repeat(2,1fr)}.work-grid,.effort-grid{grid-template-columns:1fr}}@media(max-width:640px){.work-page{padding:12px}.work-hero{align-items:flex-start;flex-direction:column;padding:20px}.work-hero>.el-button{width:100%}.schedule-bar{align-items:stretch;flex-direction:column}.schedule-bar :deep(.el-radio-group){display:grid;grid-template-columns:repeat(3,1fr)}.schedule-bar :deep(.el-radio-button__inner){width:100%;padding:9px 5px}.date-tools{display:grid;grid-template-columns:1fr auto}.period-summary{grid-template-columns:1fr 1fr}.period-summary>div{padding:13px}.period-summary b{font-size:15px}.effort-panel>.panel-head{flex-direction:column}.card-top{align-items:flex-start}.card-top>div{align-items:flex-start;flex-direction:column;gap:5px}.effort-values,.effort-default{align-items:stretch;flex-direction:column}.effort-editor-value :deep(.el-input-number){width:100%}}
+.work-page{min-height:calc(100vh - 84px);padding:24px;background:#f3f6f8;color:#172335}.work-hero{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:25px 28px;border-radius:16px;background:linear-gradient(120deg,#173b59,#1d6d70);color:#fff}.work-hero span{font-size:11px;letter-spacing:.17em;color:#6de0da}.work-hero h1{margin:5px 0;font-size:28px}.work-hero p{margin:0;color:#c1d4de}.work-hero-actions{display:flex;align-items:center;gap:10px}.work-project-select{width:320px}.schedule-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:16px 0;padding:14px;border:1px solid #dfe6eb;border-radius:12px;background:#fff}.date-tools{display:flex;gap:8px}.period-summary{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1.45fr) repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}.period-summary>div{box-sizing:border-box;min-width:0;min-height:112px;padding:16px 18px;border:1px solid #dfe6eb;border-radius:12px;background:#fff}.period-summary span,.period-summary b{display:block}.period-summary span{color:#7d8997}.period-summary b{margin-top:7px;font-size:19px}.project-bonus-card small{display:block;overflow:hidden;margin-top:4px;color:#98a2ad;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.project-bonus-card b{color:#167268}.work-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.panel{min-width:0;padding:18px;border:1px solid #dfe6eb;border-radius:13px;background:#fff}.panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.panel-head h2{margin:0;font-size:18px}.panel-head p{margin:5px 0 12px;color:#84919f;font-size:12px}.effort-panel{margin-bottom:14px}.effort-panel>.panel-head>strong{color:#167268;font-size:18px}.effort-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.effort-card{padding:15px;border:1px solid #dce8e5;border-radius:11px;background:#f8fbfa}.effort-values{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:14px 0}.effort-values span{color:#73827e}.effort-values b{color:#1d3f3a}.effort-default,.effort-result{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 12px;border-radius:8px;background:#eef6f4;color:#667b76;font-size:13px}.effort-result{align-items:flex-start;flex-direction:column}.effort-result p{margin:0;color:#536a64;line-height:1.6}.effort-result .el-button{align-self:stretch}.effort-editor{display:flex;flex-direction:column;gap:10px}.effort-editor-value,.effort-editor-actions{display:flex;align-items:center;justify-content:space-between;gap:10px}.effort-editor-value span{color:#73827e}.effort-editor-actions{justify-content:flex-end}.work-card{margin-top:10px;padding:15px;border:1px solid #e3e8ed;border-radius:11px;background:#fbfcfd}.card-top,.card-top>div,.result-line,.task-actions{display:flex;align-items:center}.card-top{justify-content:space-between;gap:10px}.card-top>div{min-width:0;gap:8px}.card-top span{color:#8793a0;font-size:12px}.work-card h3{margin:13px 0 7px}.target,.note,.issue{margin:5px 0;color:#788694;font-size:13px}.result-line{justify-content:space-between;margin:13px 0;padding:11px;border-radius:8px;background:#eff7f5}.result-line span{color:#708078}.result-line b{font-size:17px}.issue{color:#c84550}.task-card :deep(.el-progress){margin:13px 0}.task-actions{justify-content:flex-end;gap:8px}.task-actions .el-button{margin:0}.report-form{margin-top:18px}@media(max-width:1400px){.period-summary{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:900px){.period-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.work-grid,.effort-grid{grid-template-columns:1fr}}@media(max-width:640px){.work-page{padding:12px}.work-hero{align-items:flex-start;flex-direction:column;padding:20px}.work-hero-actions{display:grid;width:100%;grid-template-columns:1fr auto}.work-project-select{width:100%}.schedule-bar{align-items:stretch;flex-direction:column}.schedule-bar :deep(.el-radio-group){display:grid;grid-template-columns:repeat(3,1fr)}.schedule-bar :deep(.el-radio-button__inner){width:100%;padding:9px 5px}.date-tools{display:grid;grid-template-columns:1fr auto}.period-summary{grid-template-columns:1fr 1fr}.period-summary>div{min-height:100px;padding:13px}.period-summary b{font-size:15px}.effort-panel>.panel-head{flex-direction:column}.card-top{align-items:flex-start}.card-top>div{align-items:flex-start;flex-direction:column;gap:5px}.effort-values,.effort-default{align-items:stretch;flex-direction:column}.effort-editor-value :deep(.el-input-number){width:100%}}
 .effort-result p.effort-returned{color:#c84550}
 .task-report-tip{color:#9aa4af;font-size:12px}
 .task-report-form :deep(.el-slider){padding:0 12px}

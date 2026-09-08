@@ -39,6 +39,8 @@ public interface BusinessAccountingMapper
     java.math.BigDecimal sumProjectPersonnelCost(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     List<Map<String,Object>> selectProjectPersonnelCostDetails(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     java.math.BigDecimal sumProjectCostToDate(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
+    String selectProjectBudgetSnapshot(@Param("projectId") Long projectId);
+    java.math.BigDecimal sumProjectCostInPeriod(@Param("projectId") Long projectId,@Param("from") Date from,@Param("to") Date to);
     List<Map<String,Object>> selectCurrentResultsAfter(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     int updateDailyResultBudgetSpent(@Param("resultId") Long resultId,
         @Param("budgetSpent") java.math.BigDecimal budgetSpent);

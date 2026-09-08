@@ -12,3 +12,5 @@ export const deleteProjectProposal = id => request({ url: `/business/project-pro
 export const submitProjectProposal = id => request({ url: `/business/project-proposal/${id}/submit`, method: 'post' })
 export const withdrawProjectProposal = (id, data = {}) => request({ url: `/business/project-proposal/${id}/withdraw`, method: 'post', data })
 export const reviewProjectProposal = (id, data) => request({ url: `/business/project-proposal/${id}/review`, method: 'put', data })
+
+export const estimateProjectProposalBudget = data => request({ url: '/business/project-proposal/budget-estimate', method: 'post', data, headers: { repeatSubmit: false } })

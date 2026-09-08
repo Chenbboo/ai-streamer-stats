@@ -12,6 +12,7 @@ import com.github.pagehelper.PageInfo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.ruoyi.common.annotation.DataScope;
 import com.ruoyi.business.domain.BusinessStaffProfile;
 import com.ruoyi.business.mapper.BusinessProjectMapper;
 import com.ruoyi.business.mapper.BusinessStaffProfileMapper;
@@ -40,27 +41,20 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
     @Autowired private BusinessStaffProfileMapper profileMapper;
 
     @Override
+    @DataScope(deptAlias = "d", userAlias = "u", permission = "business:staff:list")
     public TableDataInfo listStaff(SysUser query, Long viewerUserId, boolean administrator,
         boolean boss, boolean staffCostManager)
     {
         SysUser safeQuery = query == null ? new SysUser() : query;
-        List<SysUser> users = userService.selectUserList(safeQuery);
-        Set<Long> managedProjectMemberIds = staffCostManager && !administrator && !boss
+        boolean includeManagedProjectMembers = !administrator;
+        List<SysUser> users = projectMapper.selectStaffDirectory(safeQuery,
+            includeManagedProjectMembers ? viewerUserId : null);
+        if (users == null) users = Collections.emptyList();
+        long total = new PageInfo<SysUser>(users).getTotal();
+        Set<Long> managedProjectMemberIds = includeManagedProjectMembers
             ? new HashSet<Long>(projectMapper.selectManagedProjectMemberUserIds(viewerUserId))
             : Collections.emptySet();
         boolean projectOwner = !managedProjectMemberIds.isEmpty();
-        if (projectOwner)
-        {
-            Set<Long> listedIds = new HashSet<Long>();
-            for (SysUser user : users) listedIds.add(user.getUserId());
-            for (Long memberUserId : managedProjectMemberIds)
-            {
-                if (listedIds.contains(memberUserId)) continue;
-                SysUser member = userService.selectUserById(memberUserId);
-                if (member != null && matchesStaffQuery(member, safeQuery)) users.add(member);
-            }
-        }
-        long total = projectOwner ? users.size() : new PageInfo<SysUser>(users).getTotal();
         Map<Long, BusinessStaffProfile> profiles = profilesFor(users);
         List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
         for (SysUser user : users)
@@ -85,19 +79,6 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
         result.setRows(rows);
         result.setTotal(total);
         return result;
-    }
-
-    private boolean matchesStaffQuery(SysUser user, SysUser query)
-    {
-        if (StringUtils.isNotBlank(query.getNickName()))
-        {
-            String keyword = query.getNickName().toLowerCase();
-            String nickName = StringUtils.defaultString(user.getNickName()).toLowerCase();
-            String userName = StringUtils.defaultString(user.getUserName()).toLowerCase();
-            if (!nickName.contains(keyword) && !userName.contains(keyword)) return false;
-        }
-        if (query.getDeptId() != null && !sameLong(query.getDeptId(), user.getDeptId())) return false;
-        return StringUtils.isBlank(query.getStatus()) || query.getStatus().equals(user.getStatus());
     }
 
     @Override

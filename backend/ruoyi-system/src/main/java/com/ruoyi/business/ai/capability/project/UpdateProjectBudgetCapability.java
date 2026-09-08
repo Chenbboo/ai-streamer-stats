@@ -39,7 +39,8 @@ public class UpdateProjectBudgetCapability implements AiConfirmableCapability
         if (amount == null || amount.signum() < 0) throw new ServiceException("预算金额必须大于等于0");
         if (currency.length() != 3) throw new ServiceException("币种代码必须是三位字符");
         if (reason.isEmpty()) throw new ServiceException("请说明调整预算的原因");
-        return "将项目“" + project.getProjectName() + "”的预算调整为 " + amount.toPlainString()
+        return "将项目“" + project.getProjectName() + "”的"
+            + ("DAILY".equals(project.getBudgetMode()) ? "每日预算上限" : "项目总额预算") + "调整为 " + amount.toPlainString()
             + " " + currency + "，原因：" + reason;
     }
     @Override public Map<String, Object> confirmationDetails(AiCapabilityInvocation invocation, Map<String, Object> input)
@@ -47,7 +48,9 @@ public class UpdateProjectBudgetCapability implements AiConfirmableCapability
         BusinessProject project = project(input, invocation);
         Map<String, Object> details = new LinkedHashMap<String, Object>();
         details.put("projectId", project.getProjectId()); details.put("projectName", project.getProjectName());
-        details.put("oldBudgetLimit", project.getBudgetLimit()); details.put("budgetLimit", input.get("budgetLimit"));
+        details.put("oldBudgetLimit", "DAILY".equals(project.getBudgetMode())
+            ? project.getDailyBudgetLimit() : project.getBudgetLimit());
+        details.put("budgetMode", project.getBudgetMode()); details.put("budgetLimit", input.get("budgetLimit"));
         details.put("currency", text(input.get("currency")).toUpperCase()); details.put("reason", text(input.get("reason")));
         return details;
     }

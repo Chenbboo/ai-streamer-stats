@@ -78,6 +78,23 @@ class BusinessProjectWorkServiceTest
     }
     @Test void calendarHolidayAndUnitAreIndependentForPlanning(){calendar.put("exceptionsJson","[{\"bizDate\":\"2026-03-03\",\"minutes\":0}]");doAnswer(call->{((Map<String,Object>)call.getArgument(0)).put("assignmentId",55L);return 1;}).when(mapper).insertAssignment(anyMap());Map<String,Object> body=row("userId",30L,"effectiveFrom","2026-03-02","effectiveTo","2026-03-03","inputUnit","DAY","inputQuantity","0.5","calendarId",1L,"unitPolicyId",1L);Map<String,Object> result=service.saveAssignment(1L,body,10L,"owner");assertEquals(240,result.get("plannedMinutes"));ArgumentCaptor<Map<String,Object>> days=ArgumentCaptor.forClass(Map.class);verify(mapper).insertAllocationDay(days.capture());assertEquals("2026-03-02",days.getValue().get("bizDate"));}
     @Test void duplicateSourceCannotRevealOtherPersonsRecord(){when(mapper.selectEntryBySource(1L,"request-1")).thenReturn(row("createUserId",40L,"userId",40L));assertThrows(ServiceException.class,()->service.saveEntry(1L,input("1"),30L,"member"));}
+    @Test void unlimitedProjectSupportsBoundedStaffParticipation()
+    {
+        project.setPlanEndDate(null);
+        Map<String,Object> result=service.saveAssignment(1L,row("userId",30L,"effectiveFrom","2027-03-01","effectiveTo","2027-03-02",
+            "inputUnit","HOUR","inputQuantity",2,"calendarId",1L,"unitPolicyId",1L),10L,"owner");
+        assertEquals(120,result.get("plannedMinutes"));assertEquals("2027-03-02",result.get("effectiveTo"));
+        verify(mapper).insertAssignment(anyMap());
+    }
+    @Test void unlimitedParticipationStoresNoEndAndPlansOnlyCurrentBudgetPeriod()
+    {
+        project.setPlanEndDate(null);project.setTemplateSnapshotJson("{\"budget\":{\"cycle\":\"MONTH\",\"startDate\":\"2026-03-01\",\"endDate\":\"2026-03-31\"}}");
+        Map<String,Object> result=service.saveAssignment(1L,row("userId",30L,"effectiveFrom","2026-03-01","effectiveTo",null,
+            "participationOnly",true,"calendarId",1L,"unitPolicyId",1L),10L,"owner");
+        assertNull(result.get("effectiveTo"));assertEquals(0,result.get("plannedMinutes"));verify(mapper,never()).insertAllocationDay(anyMap());
+    }
+    @Test void finiteProjectRejectsUnlimitedParticipation()
+    {assertThrows(ServiceException.class,()->service.saveAssignment(1L,row("userId",30L,"effectiveFrom","2026-03-01","effectiveTo",null,"inputUnit","PERCENTAGE","inputQuantity",100,"calendarId",1L,"unitPolicyId",1L),10L,"owner"));}
     private Map<String,Object> input(String quantity){return row("bizDate","2026-03-02","inputUnit","DAY","inputQuantity",quantity,"unitPolicyId",1L,"calendarId",1L,"activity","交付结果整理","reason","未计划工作补录说明","sourceKey","request-1");}
     static Map<String,Object> row(Object... pairs){Map<String,Object> map=new LinkedHashMap<String,Object>();for(int i=0;i<pairs.length;i+=2)map.put(String.valueOf(pairs[i]),pairs[i+1]);return map;}
 }

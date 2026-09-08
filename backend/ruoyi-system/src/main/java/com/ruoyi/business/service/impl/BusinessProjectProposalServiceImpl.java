@@ -36,11 +36,14 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     private static final List<String> MANAGEMENT_MODES = Arrays.asList("LIGHT", "STANDARD", "KEY_CONTROL");
     private static final List<String> CLOSE_METHODS = Arrays.asList("DIRECT", "RESULT_ACCEPTANCE", "STAGED_ACCEPTANCE");
     private static final List<String> PRIORITIES = Arrays.asList("LOW", "MEDIUM", "HIGH");
+    private static final List<String> TARGET_TYPES = Arrays.asList("FINANCIAL", "QUANTITY", "SCHEDULE", "QUALITY",
+        "EFFICIENCY", "GROWTH", "CUSTOMER", "COMPLIANCE", "OTHER");
 
     @Autowired private BusinessProjectProposalMapper mapper;
     @Autowired private IBusinessProjectService projectService;
     @Autowired private ObjectMapper objectMapper;
     @Autowired private BusinessProjectWorkMapper workMapper;
+    @Autowired private BusinessProjectBudgetService budgetService;
 
     @Override
     public List<BusinessProjectProposal> listOwn(Map<String, Object> query, Long userId, boolean viewAll)
@@ -156,9 +159,10 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         requireEditable(current);
         input.setApplicantUserId(userId);
         input.setApplicantName(current.getApplicantName());
+        if (input.getVersion() == null || !input.getVersion().equals(current.getVersion())) throw changed();
         input.setVersion(current.getVersion());
         if (!isNewTemplate(current)) input.setTemplateVersion("LEGACY_V1");
-        else if (StringUtils.isBlank(input.getTemplateVersion())) input.setTemplateVersion(current.getTemplateVersion());
+        else input.setTemplateVersion(current.getTemplateVersion());
         normalizeAndValidate(input);
         input.setUpdateBy(userName);
         if (mapper.updateDraft(input) != 1) throw changed();
@@ -189,21 +193,15 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         hydratePlanLines(current);
         normalizeAndValidate(current);
         validateBusinessPlanForLaunch(current);
+        if (isNewTemplate(current)) updateGovernanceSnapshot(current, true);
         if (mapper.updateComputedPlan(current) != 1) throw changed();
         savePlanLines(current);
-        if ("CONTROLLED_V1".equals(current.getTemplateVersion()))
-        {
-            if (userId.equals(current.getSponsorOwnerUserId())) throw new ServiceException("受控项目必须由另一位归属老板审批");
-            if (mapper.submit(proposalId,userId,current.getVersion(),userName)!=1) throw changed();
-            BusinessProjectProposal submitted=require(proposalId);
-            addEvent(submitted,"SUBMIT",current.getStatus(),"PENDING",userId,userName,"提交受控模板立项审批");
-            return get(proposalId,userId,false,false);
-        }
+        String fromStatus = current.getStatus();
         BusinessProject project = projectService.createApprovedProject(current, userId, userName);
         if (mapper.activate(proposalId, userId, current.getVersion(), project.getProjectId(),
             current.getApplicantName(), userName) != 1) throw changed();
         BusinessProjectProposal stored = require(proposalId);
-        addEvent(stored, isNewTemplate(current) ? "SELF_AUTHORIZED" : "OWNER_LAUNCH", current.getStatus(), "APPROVED", userId, userName,
+        addEvent(stored, isNewTemplate(current) ? "SELF_AUTHORIZED" : "OWNER_LAUNCH", fromStatus, "APPROVED", userId, userName,
             "负责人确认项目测算并自主启动项目");
         return get(proposalId, userId, false, false);
     }
@@ -269,6 +267,20 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         return result;
     }
 
+    @Override
+    public Map<String,Object> estimateBudget(BusinessProjectProposal proposal,Long userId)
+    {
+        requireActiveUser(userId);
+        if(proposal==null)throw new ServiceException("请填写立项预算资料");
+        if(proposal.getProposalId()!=null)
+        {
+            BusinessProjectProposal current=require(proposal.getProposalId());requireApplicant(current,userId);requireEditable(current);
+            proposal.setTemplateVersion(current.getTemplateVersion());
+        }
+        else proposal.setTemplateVersion("LIGHT_V1");
+        return budgetService.estimate(proposal);
+    }
+
     private void normalizeAndValidate(BusinessProjectProposal proposal)
     {
         if (proposal == null || StringUtils.isBlank(proposal.getProjectName())) throw new ServiceException("项目名称不能为空");
@@ -277,11 +289,11 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             Map<String,Object> template=workMapper.selectTemplate(proposal.getTemplateVersion());
             if(template==null)throw new ServiceException("项目模板版本不存在或未启用");
             proposal.setTemplateSnapshotJson(text(template.get("snapshotJson")));
-            proposal.setManagementMode(text(template.get("managementMode")));
-            proposal.setCloseMethod(text(template.get("closeMethod")));
+            // Templates remain internal compatibility metadata; the applicant chooses governance.
+            if (StringUtils.isBlank(proposal.getManagementMode())) proposal.setManagementMode(text(template.get("managementMode")));
+            if (StringUtils.isBlank(proposal.getCloseMethod())) proposal.setCloseMethod(text(template.get("closeMethod")));
             if(proposal.getBudgetLimit()==null)proposal.setNoBudget("1");
             if(StringUtils.isBlank(proposal.getAccountingMode()))proposal.setAccountingMode("COST");
-            if(proposal.getPlanEndDate()==null)throw new ServiceException("请填写有限的项目计划窗口；持续服务以窗口结束日作为本周期复核日");
         }
         proposal.setProjectName(proposal.getProjectName().trim());
         if (proposal.getProjectName().length() > 160) throw new ServiceException("项目名称不能超过160个字符");
@@ -314,6 +326,9 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         if (!MANAGEMENT_MODES.contains(proposal.getManagementMode())) throw new ServiceException("项目管理模式不正确");
         if (StringUtils.isBlank(proposal.getCloseMethod())) proposal.setCloseMethod("DIRECT");
         if (!CLOSE_METHODS.contains(proposal.getCloseMethod())) throw new ServiceException("项目结项方式不正确");
+        proposal.setGoalMode(code(proposal.getGoalMode(), "TOTAL"));
+        if (!Arrays.asList("TOTAL", "NO_TOTAL").contains(proposal.getGoalMode()))
+            throw new ServiceException("项目目标模式不正确");
         if (StringUtils.isNotBlank(proposal.getManagementReason()) && proposal.getManagementReason().length() > 1000)
             throw new ServiceException("管理模式说明不能超过1000个字符");
         if ("KEY_CONTROL".equals(proposal.getManagementMode()) && StringUtils.isBlank(proposal.getManagementReason()))
@@ -328,9 +343,21 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         proposal.setBaseCurrency(proposal.getBaseCurrency().trim().toUpperCase());
         if (!proposal.getBaseCurrency().matches("^[A-Z]{3}$"))
             throw new ServiceException("币种必须是 ISO 4217 的3位大写英文代码");
-        proposal.setNoBudget("1".equals(proposal.getNoBudget()) ? "1" : "0");
+        proposal.setForecastPeriod(proposal.getPlanEndDate()==null ? "MONTH" : "PROJECT");
+        proposal.setForecastDays(proposal.getPlanEndDate()==null ? 30 : plannedDays(proposal.getPlanStartDate(),proposal.getPlanEndDate()).intValue());
+        proposal.setBudgetMode(code(proposal.getBudgetMode(), isNewTemplate(proposal)||proposal.getBudget()!=null ? "TOTAL" : "1".equals(proposal.getNoBudget())?"NONE":"TOTAL"));
+        proposal.setBudgetScope(code(proposal.getBudgetScope(),"FULL_COST"));
+        if(!Arrays.asList("TOTAL","DAILY","NONE").contains(proposal.getBudgetMode())||!Arrays.asList("FULL_COST","CASH_EXPENSE").contains(proposal.getBudgetScope()))throw new ServiceException("预算控制方式或统计口径不正确");
+        if("DAILY".equals(proposal.getBudgetMode())){
+            if(proposal.getDailyBudgetLimit()==null||proposal.getDailyBudgetLimit().signum()<=0)throw new ServiceException("每日预算上限必须大于0");
+            proposal.setDailyBudgetLimit(nonNegative(proposal.getDailyBudgetLimit(),"每日预算上限"));
+        }else proposal.setDailyBudgetLimit(null);
+        if("NONE".equals(proposal.getBudgetMode()))proposal.setStartupBudgetLimit(null);
+        if(proposal.getStartupBudgetLimit()!=null)proposal.setStartupBudgetLimit(nonNegative(proposal.getStartupBudgetLimit(),"启动预算上限"));
+        if(proposal.getBudgetReason()!=null&&proposal.getBudgetReason().length()>500)throw new ServiceException("预算说明不能超过500个字符");
+        proposal.setNoBudget("NONE".equals(proposal.getBudgetMode()) ? "1" : "0");
         if ("1".equals(proposal.getNoBudget())) proposal.setBudgetLimit(null);
-        if (!"1".equals(proposal.getNoBudget()) && proposal.getBudgetLimit() == null)
+        if (!isNewTemplate(proposal) && proposal.getBudget()==null && "TOTAL".equals(proposal.getBudgetMode()) && proposal.getBudgetLimit() == null)
             throw new ServiceException("请填写预算或明确选择不设置预算");
         if (proposal.getBudgetLimit() != null && proposal.getBudgetLimit().compareTo(BigDecimal.ZERO) < 0)
             throw new ServiceException("预算不能为负数");
@@ -344,18 +371,42 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
                 throw new ServiceException("上级项目必须属于同一位归属老板");
         }
         normalizeBusinessPlan(proposal);
+        if(isNewTemplate(proposal)||proposal.getBudget()!=null)budgetService.apply(proposal);
+        if (isNewTemplate(proposal)||proposal.getBudget()!=null) updateGovernanceSnapshot(proposal, false);
+    }
+
+    private void updateGovernanceSnapshot(BusinessProjectProposal proposal, boolean selfAuthorized)
+    {
+        try
+        {
+            Map<String, Object> snapshot = objectMapper.readValue(StringUtils.defaultIfBlank(proposal.getTemplateSnapshotJson(),"{}"),
+                new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+            snapshot.put("managementMode", proposal.getManagementMode());
+            snapshot.put("closeMethod", proposal.getCloseMethod());
+            snapshot.put("goalMode", proposal.getGoalMode());
+            snapshot.put("finiteReviewWindowRequired", false);
+            if(proposal.getBudget()!=null)snapshot.put("budget",proposal.getBudget());
+            if (selfAuthorized) snapshot.put("authorizationMode", "SELF_AUTHORIZED");
+            proposal.setTemplateSnapshotJson(objectMapper.writeValueAsString(snapshot));
+        }
+        catch (Exception ex) { throw new ServiceException("项目规则快照无法保存"); }
     }
 
     private void normalizeBusinessPlan(BusinessProjectProposal proposal)
     {
+        validatePlanDetails(proposal);
         List<Map<String, Object>> revenues = cleanLines(proposal.getRevenueLines(), "itemName");
         List<Map<String, Object>> expenses = cleanLines(proposal.getExpenseLines(), "itemName");
         List<Map<String, Object>> staffing = cleanStaffingLines(proposal.getStaffingLines());
-        List<Map<String, Object>> targets = cleanLines(proposal.getTargetLines(), "targetName");
+        List<Map<String, Object>> targets = "TOTAL".equals(proposal.getGoalMode())
+            ? cleanLines(proposal.getTargetLines(), "targetName")
+            : new ArrayList<Map<String, Object>>();
         proposal.setRevenueLines(revenues); proposal.setExpenseLines(expenses);
         proposal.setStaffingLines(staffing); proposal.setTargetLines(targets);
 
+        BigDecimal forecastDays = BigDecimal.valueOf(Math.max(1, proposal.getForecastDays()));
         BigDecimal revenue = BigDecimal.ZERO;
+        BigDecimal recurringRevenue = BigDecimal.ZERO;
         for (Map<String, Object> line : revenues)
         {
             String scenario = code(line.get("scenario"), "BASE");
@@ -364,14 +415,26 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             line.put("scenario", scenario);
             BigDecimal amount = nonNegative(line.get("expectedAmount"), "预计收入");
             line.put("expectedAmount", amount);
-            if ("BASE".equals(scenario)) revenue = revenue.add(amount);
+            String occurrenceType = occurrenceType(line.get("occurrenceType"));
+            line.put("occurrenceType", occurrenceType);
+            if ("BASE".equals(scenario))
+            {
+                BigDecimal forecastAmount = forecastAmount(amount, occurrenceType, forecastDays);
+                revenue = revenue.add(forecastAmount);
+                if (!"ONE_TIME".equals(occurrenceType)) recurringRevenue = recurringRevenue.add(forecastAmount);
+            }
         }
         BigDecimal external = BigDecimal.ZERO;
+        BigDecimal recurringExternal = BigDecimal.ZERO;
         for (Map<String, Object> line : expenses)
         {
             BigDecimal amount = nonNegative(line.get("amount"), "计划支出");
-            line.put("amount", amount); external = external.add(amount);
-            line.put("expenseType", code(line.get("expenseType"), "ONE_TIME"));
+            String occurrenceType = occurrenceType(line.get("occurrenceType"));
+            BigDecimal forecastAmount = forecastAmount(amount, occurrenceType, forecastDays);
+            line.put("amount", amount); line.put("occurrenceType", occurrenceType);
+            external = external.add(forecastAmount);
+            if (!"ONE_TIME".equals(occurrenceType)) recurringExternal = recurringExternal.add(forecastAmount);
+            line.put("expenseType", "ONE_TIME".equals(occurrenceType) ? "ONE_TIME" : "RECURRING");
             line.put("hasQuotation", "1".equals(String.valueOf(line.get("hasQuotation"))) ? "1" : "0");
         }
         BigDecimal personnel = BigDecimal.ZERO;
@@ -386,14 +449,20 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
                 if(selectedUserId==null||!selectedUsers.add(selectedUserId))throw new ServiceException("人员计划须选择不同的具体人员");
                 Map<String,Object> staff=mapper.selectProposalStaff(selectedUserId,proposal.getPlanStartDate());
                 if(staff==null||!proposal.getCompanyDeptId().equals(longValue(staff.get("companyDeptId"))))throw new ServiceException("人员不在当前公司有效任职范围");
-                Date from=DateUtils.parseDate(line.get("planStartDate")),to=DateUtils.parseDate(line.get("planEndDate"));
-                if(from==null||to==null||from.after(to)||from.before(proposal.getPlanStartDate())||to.after(proposal.getPlanEndDate()))throw new ServiceException("请为人员独立填写项目窗口内的参与起止日期");
-                String unit=code(line.get("inputUnit"),"DAY");BigDecimal quantity=nonNegative(line.get("inputQuantity"),"计划工作量");
-                if(quantity.signum()<=0||!Arrays.asList("HOUR","DAY","PERCENTAGE").contains(unit))throw new ServiceException("请填写有效计划工作量和单位");
-                if(line.get("calendarId")==null||line.get("unitPolicyId")==null)throw new ServiceException("人员计划必须选择日历和工作量单位政策");
+                String participationMode=com.ruoyi.business.support.BusinessProposalParticipation.mode(line,proposal);
+                if(!Arrays.asList("FOLLOW_PROJECT","CUSTOM","UNLIMITED").contains(participationMode))throw new ServiceException("人员参与方式不正确");
+                Date from,to;
+                if("FOLLOW_PROJECT".equals(participationMode)){from=proposal.getPlanStartDate();to=proposal.getPlanEndDate();}
+                else {from=com.ruoyi.business.support.BusinessProposalParticipation.date(line.get("planStartDate"));to="UNLIMITED".equals(participationMode)?null:com.ruoyi.business.support.BusinessProposalParticipation.date(line.get("planEndDate"));}
+                if("UNLIMITED".equals(participationMode)&&proposal.getPlanEndDate()!=null)throw new ServiceException("只有不限期项目的人员可以选择不限期参与");
+                if(from==null||"CUSTOM".equals(participationMode)&&to==null||to!=null&&from.after(to)||from.before(proposal.getPlanStartDate())
+                    ||proposal.getPlanEndDate()!=null&&to!=null&&to.after(proposal.getPlanEndDate()))
+                    throw new ServiceException("请填写有效的人员参与方式和项目范围内的日期");
+                if(line.get("calendarId")==null)throw new ServiceException("人员计划必须选择工作日历");
                 line.put("userName",displayStaffName(staff));line.put("roleName",StringUtils.defaultIfEmpty(text(staff.get("positionName")),"项目成员"));line.put("headcount",1);
-                line.put("planStartDate",from);line.put("planEndDate",to);line.put("inputUnit",unit);line.put("inputQuantity",quantity);
-                line.put("allocationPercent","PERCENTAGE".equals(unit)?quantity:null);line.put("estimatedCost",null);
+                line.put("participationMode",participationMode);line.put("planStartDate",from);line.put("planEndDate",to);
+                line.put("inputUnit","PERCENTAGE");line.put("inputQuantity",BigDecimal.ZERO);line.put("unitPolicyId",1L);
+                line.put("allocationPercent",null);line.put("estimatedCost",null);
                 for(String sensitive:Arrays.asList("costPolicyId","costPolicyVersion","monthlyCostSnapshot","standardWorkDaysSnapshot","dailyCostSnapshot","costCurrency"))line.put(sensitive,null);
                 headcount++;continue;
             }
@@ -426,7 +495,11 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             line.put("roleName", StringUtils.isBlank(text(staff.get("positionName")))
                 ? "项目成员" : text(staff.get("positionName")));
             line.put("headcount", 1);
-            line.put("allocationPercent", 100);
+            BigDecimal allocationPercent = line.get("allocationPercent") == null
+                ? new BigDecimal("100") : nonNegative(line.get("allocationPercent"), "人员投入比例");
+            if (allocationPercent.compareTo(BigDecimal.ZERO) <= 0 || allocationPercent.compareTo(new BigDecimal("100")) > 0)
+                throw new ServiceException("人员投入比例必须大于0且不超过100%");
+            line.put("allocationPercent", allocationPercent);
             line.put("personMonths", null);
             line.put("planStartDate", proposal.getPlanStartDate());
             line.put("planEndDate", proposal.getPlanEndDate());
@@ -436,27 +509,39 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             line.put("standardWorkDaysSnapshot", standardWorkDays);
             line.put("dailyCostSnapshot", dailyCost);
             line.put("costCurrency", monthlyCost == null ? null : text(staff.get("costCurrency")));
+            BigDecimal allocationRate = allocationPercent.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP);
             BigDecimal cost = proposal.getPlanEndDate() == null
-                ? (monthlyCost == null ? BigDecimal.ZERO : monthlyCost.setScale(2, RoundingMode.HALF_UP))
+                ? (monthlyCost == null ? BigDecimal.ZERO : monthlyCost.multiply(allocationRate).setScale(2, RoundingMode.HALF_UP))
                 : (dailyCost == null ? BigDecimal.ZERO
-                    : dailyCost.multiply(plannedDays).setScale(2, RoundingMode.HALF_UP));
+                    : dailyCost.multiply(plannedDays).multiply(allocationRate).setScale(2, RoundingMode.HALF_UP));
             line.put("estimatedCost", cost);
             headcount++; personnel = personnel.add(cost);
         }
         for (Map<String, Object> line : targets)
         {
-            line.put("targetType", code(line.get("targetType"), "RESULT"));
+            String targetType = normalizeTargetType(line.get("targetType"));
+            if (!TARGET_TYPES.contains(targetType)) throw new ServiceException("量化目标类型不正确");
+            line.put("targetType", targetType);
             line.put("targetValue", nonNegative(line.get("targetValue"), "目标值"));
+            String unit = text(line.get("unit"));
+            if (unit.length() > 32) throw new ServiceException("量化目标单位不能超过32个字符");
+            line.put("unit", unit);
         }
         BigDecimal bonus = BigDecimal.ZERO;
         BigDecimal tax = BigDecimal.ZERO;
         BigDecimal contingency = BigDecimal.ZERO;
         BigDecimal total = external.add(personnel).add(bonus).add(tax).add(contingency);
         BigDecimal profit = revenue.subtract(total);
+        BigDecimal recurringTotal = recurringExternal.add(personnel).add(bonus).add(tax).add(contingency);
+        BigDecimal recurringProfit = recurringRevenue.subtract(recurringTotal);
         proposal.setEstimatedRevenue(revenue); proposal.setEstimatedExternalCost(external);
+        proposal.setRecurringEstimatedRevenue(recurringRevenue);
+        proposal.setRecurringEstimatedExternalCost(recurringExternal);
         proposal.setEstimatedPersonnelCost(personnel); proposal.setEstimatedBonusCost(bonus);
         proposal.setEstimatedTaxCost(tax); proposal.setContingencyCost(contingency);
         proposal.setEstimatedTotalCost(total); proposal.setExpectedProfit(profit);
+        proposal.setRecurringEstimatedTotalCost(recurringTotal);
+        proposal.setRecurringExpectedProfit(recurringProfit);
         proposal.setExpectedMargin(revenue.compareTo(BigDecimal.ZERO) == 0 ? null
             : profit.multiply(new BigDecimal("100")).divide(revenue, 4, RoundingMode.HALF_UP));
         proposal.setBreakEvenRevenue(total);
@@ -475,16 +560,19 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
 
     private void validateBusinessPlanForLaunch(BusinessProjectProposal proposal)
     {
+        if(proposal.getBudget()!=null&&!"READY".equals(proposal.getBudget().get("status")))throw new ServiceException("预算尚未计算完整，请处理预算提示后再启动项目："+proposal.getBudget().get("issues"));
         if(isNewTemplate(proposal))
         {
             if(StringUtils.isBlank(proposal.getAcceptanceCriteria()))throw new ServiceException("请填写成果清单及验收依据");
-            if(proposal.getPlanEndDate()==null)throw new ServiceException("请填写项目计划窗口");
-            if(proposal.getBudgetLimit()!=null&&proposal.getBudgetLimit().compareTo(proposal.getEstimatedExternalCost())<0)throw new ServiceException("预算上限低于已估算外部支出");
+            if(proposal.getBudget()!=null&&!"READY".equals(proposal.getBudget().get("status")))
+                throw new ServiceException("预算尚未计算完整，请处理预算提示后再启动项目："+proposal.getBudget().get("issues"));
+            if(proposal.getBudget()==null&&proposal.getBudgetLimit()!=null&&proposal.getBudgetLimit().compareTo(proposal.getEstimatedExternalCost())<0)throw new ServiceException("预算上限低于已估算外部支出");
             return;
         }
         if (proposal.getStaffingLines() == null || proposal.getStaffingLines().isEmpty())
             throw new ServiceException("请至少填写一项人员投入计划");
-        if (proposal.getTargetLines() == null || proposal.getTargetLines().isEmpty())
+        if ("TOTAL".equals(proposal.getGoalMode())
+            && (proposal.getTargetLines() == null || proposal.getTargetLines().isEmpty()))
             throw new ServiceException("请至少填写一项可量化项目目标");
         if (Arrays.asList("PROFIT", "HYBRID").contains(proposal.getAccountingMode())
             && proposal.getEstimatedRevenue().compareTo(BigDecimal.ZERO) <= 0)
@@ -510,17 +598,92 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             if (!proposal.getBaseCurrency().equalsIgnoreCase(text(line.get("costCurrency"))))
                 throw new ServiceException(personName + "的人员成本币种与项目币种不一致");
         }
-        if ("1".equals(proposal.getNoBudget())) throw new ServiceException("启动项目前必须设置预算上限");
-        if (proposal.getBudgetLimit() == null || proposal.getBudgetLimit().compareTo(proposal.getEstimatedTotalCost()) < 0)
-            throw new ServiceException("预算上限不能低于预计总成本");
+        if ("TOTAL".equals(proposal.getBudgetMode())
+            && proposal.getBudgetLimit().compareTo(proposal.getEstimatedTotalCost()) < 0)
+            throw new ServiceException("项目总额预算上限不能低于当前测算周期的预计总成本");
+        if ("DAILY".equals(proposal.getBudgetMode()))
+        {
+            BigDecimal controllable = proposal.getRecurringEstimatedExternalCost();
+            if ("FULL_COST".equals(proposal.getBudgetScope()))
+                controllable = controllable.add(proposal.getEstimatedPersonnelCost());
+            BigDecimal expectedDaily = controllable.divide(BigDecimal.valueOf(proposal.getForecastDays()), 2, RoundingMode.HALF_UP);
+            if (proposal.getDailyBudgetLimit().compareTo(expectedDaily) < 0)
+                throw new ServiceException("每日预算上限不能低于预计日均可控成本 " + expectedDaily.toPlainString());
+            BigDecimal startupCost = oneTimeExpense(proposal.getExpenseLines());
+            if (startupCost.compareTo(BigDecimal.ZERO) > 0
+                && (proposal.getStartupBudgetLimit() == null || proposal.getStartupBudgetLimit().compareTo(startupCost) < 0))
+                throw new ServiceException("一次性启动预算不能低于一次性支出 " + startupCost.toPlainString());
+        }
+        if ("NONE".equals(proposal.getBudgetMode()) && StringUtils.isBlank(proposal.getBudgetReason()))
+            throw new ServiceException("暂不设置预算时必须填写原因");
         if (StringUtils.isBlank(proposal.getRiskSummary())) throw new ServiceException("请填写项目主要风险");
+    }
+
+    private String normalizeTargetType(Object value)
+    {
+        String type = code(value, "QUANTITY");
+        if ("RESULT".equals(type)) return "QUANTITY";
+        if ("VALUE".equals(type)) return "OTHER";
+        return type;
+    }
+
+    private void validatePlanDetails(BusinessProjectProposal proposal)
+    {
+        validateLines(proposal,proposal.getRevenueLines(),"收入测算",new String[]{"scenario","revenueType","itemName"},new int[]{16,32,160},"expectedDate");
+        validateLines(proposal,proposal.getExpenseLines(),"支出计划",new String[]{"expenseCategory","itemName","purpose"},new int[]{32,160,500},"occurDate");
+        if (!"NO_TOTAL".equals(proposal.getGoalMode()))
+        {
+            validateLines(proposal,proposal.getTargetLines(),"量化目标",new String[]{"targetType","targetName","unit","acceptanceEvidence"},new int[]{24,160,32,500},"dueDate");
+            if(proposal.getTargetLines()!=null)for(Map<String,Object> line:proposal.getTargetLines())
+                if(!TARGET_TYPES.contains(normalizeTargetType(line.get("targetType"))))throw new ServiceException("量化目标类型不正确");
+        }
+        if(proposal.getStaffingLines()!=null&&proposal.getStaffingLines().size()>100)throw new ServiceException("人员计划一次最多100行");
+        if(proposal.getStaffingLines()!=null)for(Map<String,Object> line:proposal.getStaffingLines())
+            if(line==null||isNewTemplate(proposal)&&line.get("userId")==null)throw new ServiceException("人员计划存在未选择人员的空行，请补全或删除");
+    }
+
+    private void validateLines(BusinessProjectProposal proposal,List<Map<String,Object>> lines,String label,String[] fields,int[] limits,String dateField)
+    {
+        if(lines==null)return;
+        if(lines.size()>100)throw new ServiceException(label+"一次最多100行");
+        for(int i=0;i<lines.size();i++)
+        {
+            Map<String,Object> line=lines.get(i);if(line==null)throw new ServiceException(label+"第"+(i+1)+"行不能为空");
+            String amountField="expectedDate".equals(dateField)?"expectedAmount":"occurDate".equals(dateField)?"amount":"targetValue";
+            Object rawAmount=line.get(amountField);
+            try{java.math.BigDecimal amount=new java.math.BigDecimal(String.valueOf(rawAmount));
+                int scale="targetValue".equals(amountField)?4:2;
+                if(amount.signum()<0||amount.scale()>scale||amount.compareTo(new java.math.BigDecimal("99999999999999.99"))>0)throw new NumberFormatException();}
+            catch(Exception ex){throw new ServiceException(label+"第"+(i+1)+"行请填写有效非负数值，金额最多两位小数、目标值最多四位小数");}
+            for(int n=0;n<fields.length;n++)
+            {
+                String value=text(line.get(fields[n]));
+                if(StringUtils.isBlank(value)||value.length()>limits[n])throw new ServiceException(label+"第"+(i+1)+"行必填内容缺失或超过允许长度，请补全后保存");
+                line.put(fields[n],value.trim());
+            }
+            if(StringUtils.isNotBlank(text(line.get(dateField))))
+            {
+                String issue=com.ruoyi.business.support.BusinessProposalPlanDates.issue(line.get(dateField),proposal.getPlanStartDate(),proposal.getPlanEndDate(),label,i+1);
+                if(issue!=null)throw new ServiceException(issue);
+            }
+        }
     }
 
     private void hydratePlanLines(BusinessProjectProposal proposal)
     {
+        if(proposal.getBudget()==null)proposal.setBudget(com.ruoyi.business.support.BusinessBudgetSnapshot.read(proposal.getTemplateSnapshotJson()));
         proposal.setRevenueLines(mapper.selectRevenueLines(proposal.getProposalId()));
         proposal.setExpenseLines(mapper.selectExpenseLines(proposal.getProposalId()));
         proposal.setStaffingLines(mapper.selectStaffingLines(proposal.getProposalId()));
+        if(isNewTemplate(proposal)&&proposal.getStaffingLines()!=null){
+            List<Map<String,Object>> staffing=new ArrayList<>();
+            for(Map<String,Object> source:proposal.getStaffingLines()){
+                if(source==null){staffing.add(null);continue;}
+                Map<String,Object> line=new LinkedHashMap<>(source);
+                line.put("participationMode",com.ruoyi.business.support.BusinessProposalParticipation.mode(line,proposal));staffing.add(line);
+            }
+            proposal.setStaffingLines(staffing);
+        }
         proposal.setTargetLines(mapper.selectTargetLines(proposal.getProposalId()));
     }
 
@@ -569,6 +732,35 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         return result;
     }
 
+    private String occurrenceType(Object value)
+    {
+        String result = code(value, "ONE_TIME");
+        if (!Arrays.asList("ONE_TIME", "DAILY", "WEEKLY", "MONTHLY").contains(result))
+            throw new ServiceException("收支发生方式不正确");
+        return result;
+    }
+
+    private BigDecimal forecastAmount(BigDecimal amount, String occurrenceType, BigDecimal days)
+    {
+        BigDecimal multiplier = BigDecimal.ONE;
+        if ("DAILY".equals(occurrenceType)) multiplier = days;
+        else if ("WEEKLY".equals(occurrenceType))
+            multiplier = days.divide(new BigDecimal("7"), 6, RoundingMode.HALF_UP);
+        else if ("MONTHLY".equals(occurrenceType))
+            multiplier = days.divide(new BigDecimal("30"), 6, RoundingMode.HALF_UP);
+        return amount.multiply(multiplier).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal oneTimeExpense(List<Map<String, Object>> lines)
+    {
+        BigDecimal result = BigDecimal.ZERO;
+        if (lines == null) return result;
+        for (Map<String, Object> line : lines)
+            if ("ONE_TIME".equals(text(line.get("occurrenceType"))))
+                result = result.add(nonNegative(line.get("amount"), "一次性支出"));
+        return result;
+    }
+
     private BigDecimal plannedDays(Date start, Date end)
     {
         if (start == null || end == null) return BigDecimal.ZERO;
@@ -593,13 +785,14 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     public List<Map<String, Object>> staffOptions(Long companyDeptId, String effectiveDate, Long userId)
     {
         requireActiveUser(userId);
-        if (companyDeptId != null && mapper.selectCompany(companyDeptId) == null)
+        if (companyDeptId == null || mapper.selectCompany(companyDeptId) == null)
             throw new ServiceException("请选择有效归属公司");
         Date date = StringUtils.isBlank(effectiveDate) ? new Date() : DateUtils.parseDate(effectiveDate);
         if (date == null) throw new ServiceException("计划开始日期格式不正确");
         List<Map<String,Object>> rows=mapper.selectStaffOptions(companyDeptId,date);
-        // Personnel selection is not an internal-rate permission. Legacy estimates are computed server-side.
-        for(Map<String,Object> row:rows)for(String field:Arrays.asList("monthlyCost","dailyCost","standardWorkDays","costMode","costPolicyId","costPolicyVersion","costCurrency"))row.remove(field);
+        // This endpoint requires proposal access. Planners need the selected company's
+        // effective monthly/daily rates to estimate costs, without staff-cost edit permission.
+        for(Map<String,Object> row:rows)row.put("rawCostVisible",true);
         return rows;
     }
 
@@ -656,7 +849,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
 
     private void requireEditable(BusinessProjectProposal proposal)
     {
-        if (!Arrays.asList("DRAFT", "RETURNED", "WITHDRAWN").contains(proposal.getStatus()))
+        if (!Arrays.asList("DRAFT", "PENDING", "RETURNED", "WITHDRAWN").contains(proposal.getStatus()))
             throw new ServiceException("当前状态不能修改或提交");
     }
 
@@ -665,7 +858,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         proposal.setCanOpen(viewAll || userId.equals(proposal.getApplicantUserId())
             || userId.equals(proposal.getSponsorOwnerUserId()));
         proposal.setCanEdit(userId.equals(proposal.getApplicantUserId())
-            && Arrays.asList("DRAFT", "RETURNED", "WITHDRAWN").contains(proposal.getStatus()));
+            && Arrays.asList("DRAFT", "PENDING", "RETURNED", "WITHDRAWN").contains(proposal.getStatus()));
         proposal.setCanReview(boss && userId.equals(proposal.getSponsorOwnerUserId())
             && "PENDING".equals(proposal.getStatus()));
     }

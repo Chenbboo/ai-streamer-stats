@@ -32,11 +32,17 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     @Autowired private BusinessIncentiveMapper incentiveMapper;
     @Autowired private BusinessFileService businessFileService;
     @Autowired private BusinessProjectWorkMapper workMapper;
+    @Autowired private BusinessMemberDayCostService memberDays;
 
     @Override
     public Map<String,Object> dashboard(Map<String,Object> query,Long userId,boolean viewAll)
     {
         Map<String,Object> scoped=scope(query,userId,viewAll);
+        List<Map<String,Object>> dailyProjects=mapper.selectProjectOptions(userId,viewAll,true);
+        if(dailyProjects!=null)for(Map<String,Object> p:dailyProjects)
+            if(BusinessMemberDayCostService.POLICY.equals(p.get("costPolicyVersion"))
+                &&(scoped.get("projectId")==null||String.valueOf(scoped.get("projectId")).equals(String.valueOf(p.get("projectId")))))
+                memberDays.synchronize(longValue(p.get("projectId")));
         Map<String,Object> result=new LinkedHashMap<String,Object>();
         result.put("summary",mapper.selectDailySummary(scoped));
         result.put("results",mapper.selectDailyResults(scoped));
@@ -50,6 +56,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             if(scoped.get("projectId")!=null&&!String.valueOf(scoped.get("projectId")).equals(String.valueOf(project.get("projectId"))))continue;
             if(scoped.get("companyDeptId")!=null&&!String.valueOf(scoped.get("companyDeptId")).equals(String.valueOf(project.get("companyDeptId"))))continue;
             if("ACTUAL_WORK_V1".equals(project.get("costPolicyVersion")))pendingCosts+=workMapper.countPendingCosts(longValue(project.get("projectId")));
+            if(BusinessMemberDayCostService.POLICY.equals(project.get("costPolicyVersion")))pendingCosts+=memberDays.pending(longValue(project.get("projectId")));
         }
         result.put("pendingCostCount",pendingCosts);
         result.put("costDataStatus",pendingCosts>0?"PENDING_COST":"AVAILABLE");
@@ -91,6 +98,11 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         List<Map<String,Object>> oldRows=mapper.selectPersonnelCostOverview(scoped);
         List<Map<String,Object>> rows=new java.util.ArrayList<Map<String,Object>>();if(oldRows!=null)rows.addAll(oldRows);
         List<Map<String,Object>> workRows=workMapper.selectPersonnelCostOverview(scoped);if(workRows!=null)rows.addAll(workRows);
+        for(Map<String,Object> p:mapper.selectProjectOptions(userId,viewAll,true))
+            if(BusinessMemberDayCostService.POLICY.equals(p.get("costPolicyVersion"))
+                &&(scoped.get("projectId")==null||longValue(scoped.get("projectId")).equals(longValue(p.get("projectId"))))
+                &&(scoped.get("companyDeptId")==null||longValue(scoped.get("companyDeptId")).equals(longValue(p.get("companyDeptId")))))
+                rows.addAll(memberDays.overview(longValue(p.get("projectId")),bizDate));
         boolean rawCostVisible=viewAll;
         if(!rawCostVisible)try{rawCostVisible=com.ruoyi.common.utils.SecurityUtils.hasPermi("business:staff:cost");}catch(ServiceException ex){rawCostVisible=false;}
         for(Map<String,Object> row:rows){row.put("rawCostVisible",rawCostVisible);if(!rawCostVisible)for(String field:Arrays.asList("monthlyCost","dailyCost","standardWorkDays","policyId"))row.remove(field);}
@@ -413,6 +425,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         Map<String,Object> project=requireProject(projectId,userId,viewAll);
         ensureAccountingOpen(project);
         ensureBusinessDate(project,bizDate,true);
+        if(BusinessMemberDayCostService.POLICY.equals(project.get("costPolicyVersion")))memberDays.synchronize(projectId);
         return recalculateInternal(projectId,bizDate,userName);
     }
 
@@ -433,6 +446,11 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         if(mapper.countProjectUnsettledFacts(projectId)>0)
             throw new ServiceException("项目仍有待确认或已退回未修改的收支，请处理完成后再结项");
         Map<String,Object> project=mapper.selectProjectForAccounting(projectId);
+        if(project!=null&&BusinessMemberDayCostService.POLICY.equals(project.get("costPolicyVersion")))
+        {
+            memberDays.synchronize(projectId);
+            if(memberDays.pending(projectId)>0)throw new ServiceException("成员工作日成本尚未计算完整，请完善工作日历和用人成本");
+        }
         if(project!=null&&"ACTUAL_WORK_V1".equals(project.get("costPolicyVersion")))
         {
             if(workMapper.countPendingWork(projectId)>0)throw new ServiceException("项目仍有未处理完的实际工作记录");
@@ -537,10 +555,11 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         BigDecimal bonus=decimal(sums.get("bonusCost"));
         BigDecimal adjustment=decimal(sums.get("adjustmentAmount")),value=decimal(sums.get("valueScore"));
         boolean actualWork="ACTUAL_WORK_V1".equals(project.get("costPolicyVersion"));
-        List<Map<String,Object>> actualItems=actualWork?workMapper.selectWorkCosts(projectId,bizDate):null;
+        boolean automaticDays=BusinessMemberDayCostService.POLICY.equals(project.get("costPolicyVersion"));
+        List<Map<String,Object>> actualItems=automaticDays?memberDays.dayCosts(projectId,bizDate):actualWork?workMapper.selectWorkCosts(projectId,bizDate):null;
         BigDecimal personnel=BigDecimal.ZERO;
         int pendingPersonnel=0;
-        if(actualWork)
+        if(actualWork||automaticDays)
         {
             if(actualItems!=null)for(Map<String,Object> item:actualItems)
                 if("PRICED".equals(item.get("pricingStatus"))&&item.get("amount")!=null)personnel=personnel.add(decimal(item.get("amount")));
@@ -559,18 +578,18 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         result.put("calculationDetail","收入 - 业务成本 - 内部人员成本 - 项目绩效奖金 + 核算调整；价值型项目将利润解释为净投入结果");
         result.put("createBy",userName);mapper.retireCurrentResult(projectId,bizDate);mapper.insertDailyResult(result);
         result.put("pendingPersonnelCount",pendingPersonnel);result.put("personnelPricingStatus",pendingPersonnel>0?"PENDING":"PRICED");
-        BigDecimal budgetSpent=decimal(mapper.sumProjectCostToDate(projectId,bizDate));
+        BigDecimal budgetSpent=budgetSpent(projectId,bizDate);
         result.put("budgetSpent",budgetSpent);
         mapper.updateDailyResultBudgetSpent(longValue(result.get("resultId")),budgetSpent);
         refreshLaterBudgetSnapshots(projectId,bizDate);
         addItem(result,"REVENUE","确认收入",revenue,"已确认收入经营事实合计");
         addItem(result,"BUSINESS_COST","业务成本",cost,"已确认成本经营事实合计");
-        addItem(result,"PERSONNEL_COST","内部人员成本",personnel,actualWork
+        addItem(result,"PERSONNEL_COST","内部人员成本",personnel,automaticDays?"成员参与期间有效工作日 × 当日有效日成本；无需填报投入。待完善："+pendingPersonnel:actualWork
             ? "仅汇总已确认且已计价工作；计划不代替实际。待计价记录："+pendingPersonnel
             : "按当日生效的成本政策和项目投入计算；已确认实际投入优先，否则使用计划投入");
-        List<Map<String,Object>> personnelItems=actualWork?actualItems:mapper.selectProjectPersonnelCostDetails(projectId,bizDate);
+        List<Map<String,Object>> personnelItems=actualWork||automaticDays?actualItems:mapper.selectProjectPersonnelCostDetails(projectId,bizDate);
         if(personnelItems!=null)for(Map<String,Object> personnelItem:personnelItems)
-            if(!actualWork||"PRICED".equals(personnelItem.get("pricingStatus")))
+            if(!(actualWork||automaticDays)||"PRICED".equals(personnelItem.get("pricingStatus")))
             addItem(result,"PERSONNEL_COST_PERSON",String.valueOf(personnelItem.get("componentName")),
                 decimal(personnelItem.get("amount")),String.valueOf(personnelItem.get("calculationDetail")));
         addItem(result,"PROJECT_BONUS_COST","项目绩效奖金",bonus,"独立奖励核准后由核算确认，或依历史KPI方案确认；不代表已向个人发放");
@@ -603,9 +622,28 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             if(String.valueOf(project.get("companyDeptId")).equals(String.valueOf(option.get("companyDeptId"))))allowedCompanies.add(option);
         result.put("companies",allowedCompanies);
         result.put("costPolicyVersion",project.get("costPolicyVersion"));
-        result.put("pendingCostCount","ACTUAL_WORK_V1".equals(project.get("costPolicyVersion"))?workMapper.countPendingCosts(projectId):0);
+        result.put("pendingCostCount",BusinessMemberDayCostService.POLICY.equals(project.get("costPolicyVersion"))?memberDays.pending(projectId):"ACTUAL_WORK_V1".equals(project.get("costPolicyVersion"))?workMapper.countPendingCosts(projectId):0);
+        Map<String,Object> budget=com.ruoyi.business.support.BusinessBudgetSnapshot.read(mapper.selectProjectBudgetSnapshot(projectId));
+        if(budget!=null)
+        {
+            Date from=DateUtils.parseDate(budget.get("startDate")),to=DateUtils.parseDate(budget.get("endDate"));
+            Date today=DateUtils.parseDate(DateUtils.getDate());
+            result.put("budget",budget);
+            result.put("budgetPeriodExpired",to!=null&&today.after(to));
+            result.put("budgetPeriodSpent",from==null||to==null||today.before(from)?BigDecimal.ZERO:
+                decimal(mapper.sumProjectCostInPeriod(projectId,from,today.after(to)?to:today)));
+        }
         return result;
     }
+    BigDecimal budgetSpent(Long projectId,Date bizDate)
+    {
+        Map<String,Object> budget=com.ruoyi.business.support.BusinessBudgetSnapshot.read(mapper.selectProjectBudgetSnapshot(projectId));
+        if(budget==null||"PROJECT".equals(budget.get("cycle")))return decimal(mapper.sumProjectCostToDate(projectId,bizDate));
+        Date from=DateUtils.parseDate(budget.get("startDate")),to=DateUtils.parseDate(budget.get("endDate"));
+        if(from==null||to==null||bizDate.before(from)||bizDate.after(to))return BigDecimal.ZERO;
+        return decimal(mapper.sumProjectCostInPeriod(projectId,from,bizDate));
+    }
+
     private void refreshLaterBudgetSnapshots(Long projectId,Date changedDate)
     {
         List<Map<String,Object>> later=mapper.selectCurrentResultsAfter(projectId,changedDate);
@@ -615,7 +653,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             Long resultId=longValue(row.get("resultId"));
             Date bizDate=row.get("bizDate") instanceof Date?(Date)row.get("bizDate"):DateUtils.parseDate(row.get("bizDate"));
             if(resultId!=null&&bizDate!=null)
-                mapper.updateDailyResultBudgetSpent(resultId,decimal(mapper.sumProjectCostToDate(projectId,bizDate)));
+                mapper.updateDailyResultBudgetSpent(resultId,budgetSpent(projectId,bizDate));
         }
     }
     private void addItem(Map<String,Object> result,String code,String name,BigDecimal amount,String detail)

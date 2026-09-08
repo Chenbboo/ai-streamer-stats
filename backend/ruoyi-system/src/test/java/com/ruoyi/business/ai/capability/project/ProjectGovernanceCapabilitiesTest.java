@@ -71,23 +71,11 @@ class ProjectGovernanceCapabilitiesTest
     }
 
     @Test
-    void leaveAndEffortReviewValidateNaturalLanguageArgumentsBeforeExecution()
+    void effortReviewValidatesNaturalLanguageArgumentsBeforeExecution()
     {
-        SetProjectMemberLeaveCapability leave = new SetProjectMemberLeaveCapability(service,attendance);
-        Map<String, Object> missingReason = map("operation", "MARK", "projectId", 17L,
-            "memberUserId", 66L, "leaveDate", "2026-08-19");
-        assertThrows(ServiceException.class, () -> leave.confirmationSummary(invocation, missingReason));
-
-        Map<String, Object> cancel = map("operation", "CANCEL", "projectId", 17L,
-            "memberUserId", 66L, "memberName", "施柳浩", "leaveDate", "2026-08-19");
-        BusinessProject project=new BusinessProject();project.setCompanyDeptId(110L);
-        BusinessProjectMember member=new BusinessProjectMember();member.setUserId(66L);member.setUserNameSnapshot("施柳浩");
-        project.setMembers(Collections.singletonList(member));
+        BusinessProject project=new BusinessProject();
+        project.setCostPolicyVersion("PERCENTAGE_V1");
         when(service.getProject(17L,23L,true,true)).thenReturn(project);
-        when(attendance.getPersonAuthority(eq(66L),eq(110L),any())).thenReturn(map("localLeaveAllowed",true));
-        leave.executeConfirmed(invocation, cancel);
-        verify(service).cancelMemberLeave(eq(17L), eq(66L), any(), eq(23L), eq("jianglan"), eq(true));
-
         ReviewProjectMemberEffortCapability review = new ReviewProjectMemberEffortCapability(service);
         BusinessProjectEffort returned = new BusinessProjectEffort(); returned.setProjectId(17L);
         returned.setUserId(66L); returned.setReportStatus("RETURNED");

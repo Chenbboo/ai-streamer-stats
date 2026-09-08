@@ -64,7 +64,7 @@ public class BusinessProjectProposalController extends BaseController
 
     @PreAuthorize("@ss.hasPermi('business:project:proposal:list')")
     @GetMapping("/staff-options")
-    public AjaxResult staffOptions(@RequestParam(required = false) Long companyDeptId,
+    public AjaxResult staffOptions(@RequestParam Long companyDeptId,
         @RequestParam(required = false) String effectiveDate)
     {
         return success(proposalService.staffOptions(companyDeptId, effectiveDate, userId()));
@@ -126,6 +126,13 @@ public class BusinessProjectProposalController extends BaseController
     {
         return success(proposalService.review(proposalId, text(body, "decision"), text(body, "comment"),
             userId(), userName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:project:proposal:add,business:project:proposal:edit')")
+    @PostMapping("/budget-estimate")
+    public AjaxResult estimateBudget(@RequestBody BusinessProjectProposal proposal)
+    {
+        return success(proposalService.estimateBudget(proposal,userId()));
     }
 
     private Long userId() { return SecurityUtils.getUserId(); }

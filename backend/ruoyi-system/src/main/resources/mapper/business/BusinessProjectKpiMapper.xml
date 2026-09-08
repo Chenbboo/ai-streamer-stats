@@ -33,6 +33,23 @@
     order by field(p.status,'ACTIVE','PAUSED','ACCEPTANCE','PLANNING','DRAFT','CLOSED','CANCELED'),
       p.update_time desc,p.project_id desc
   </select>
+  <select id="selectMemberProjectBonusTotals" resultType="map">
+    select p.project_id projectId,p.project_no projectNo,p.project_name projectName,
+      coalesce(legacy.total_bonus,0) legacyBonus,coalesce(reward.total_bonus,0) incentiveBonus,
+      coalesce(reward.total_bonus,0)+case when p.base_currency='CNY' then coalesce(legacy.total_bonus,0) else 0 end totalBonus,
+      p.base_currency currency
+    from biz_project p
+    left join (select settlement.project_id,sum(settlement.bonus_amount) total_bonus
+      from biz_project_kpi_settlement settlement join biz_project_kpi_plan plan on plan.plan_id=settlement.plan_id
+      where settlement.status='CONFIRMED' and plan.reward_policy_version='LEGACY_LINKED'
+      group by settlement.project_id) legacy on legacy.project_id=p.project_id
+    left join (select project_id,currency,sum(amount) total_bonus from biz_incentive_award
+      where status='APPROVED' group by project_id,currency) reward on reward.project_id=p.project_id and reward.currency=p.base_currency
+    where p.del_flag='0' and (p.main_owner_user_id=#{userId} or exists(
+      select 1 from biz_project_member member_scope where member_scope.project_id=p.project_id
+      and member_scope.user_id=#{userId} and member_scope.status='0'))
+    order by case p.status when 'ACTIVE' then 0 when 'PAUSED' then 1 else 2 end,p.update_time desc,p.project_id desc
+  </select>
   <select id="selectNextPlanVersion" resultType="int">
     select coalesce(max(plan_version),0)+1 from biz_project_kpi_plan where project_id=#{projectId}
   </select>

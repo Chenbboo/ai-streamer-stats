@@ -226,7 +226,8 @@ from (
   where role.role_key='project_owner' and role.del_flag='0'
     and (
       not exists(select 1 from sys_role_menu rm where rm.role_id=role.role_id and rm.menu_id=4004)
-      or not exists(select 1 from sys_role_menu rm where rm.role_id=role.role_id and rm.menu_id=4022)
+      or exists(select 1 from sys_role_menu rm join sys_menu m on m.menu_id=rm.menu_id
+        where rm.role_id=role.role_id and m.perms='business:staff:cost')
       or not exists(select 1 from sys_role_menu rm where rm.role_id=role.role_id and rm.menu_id=4072)
       or exists(select 1 from sys_role_menu rm where rm.role_id=role.role_id and rm.menu_id=4021)
     )
@@ -260,4 +261,20 @@ from (
     where ur.user_id=p.main_owner_user_id
       and r.role_key in ('admin','company_owner','project_owner')
   )
+  union all
+  select if(count(*)=2,0,1) from information_schema.tables where table_schema=database()
+    and table_name in ('biz_project_work_period','biz_project_routine_daily_target')
+  union all
+  select if(count(*)=17,0,1) from information_schema.columns where table_schema=database() and (
+    (table_name in ('biz_project','biz_project_proposal') and column_name in ('budget_mode','daily_budget_limit','budget_scope','startup_budget_limit','goal_mode'))
+    or (table_name='biz_project_routine' and column_name='target_mode')
+    or (table_name='biz_project_task' and column_name='active_status')
+    or (table_name='biz_project_event' and column_name in ('subject_user_id','subject_name','subject_account'))
+    or (table_name in ('biz_project_proposal_revenue','biz_project_proposal_expense') and column_name='occurrence_type'))
+  union all
+  select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
+    and table_name='biz_project_proposal_staffing' and column_name='participation_mode'
+  union all
+  select count(*) from (select routine_id,biz_date from biz_project_routine_daily_target
+    where status='CURRENT' group by routine_id,biz_date having count(*)>1) duplicate_target
 ) release_gate;

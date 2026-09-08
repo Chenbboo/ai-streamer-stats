@@ -1656,16 +1656,25 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         Object rows = dashboard.get("results");
         if (rows instanceof List && !((List<?>) rows).isEmpty())
         {
-            Map<String, Object> row = mapFields(((List<?>) rows).get(0), "resultId", "budgetSpent");
-            BigDecimal budgetSpent = decimal(row.get("budgetSpent"));
-            BigDecimal budgetLimit = project.getBudgetLimit();
+            Map<String, Object> row = mapFields(((List<?>) rows).get(0), "resultId", "budgetSpent",
+                "costAmount", "personnelCost", "bonusCost");
+            boolean dailyBudget = "DAILY".equals(project.getBudgetMode());
+            BigDecimal budgetSpent = dailyBudget ? decimal(row.get("costAmount")) : decimal(row.get("budgetSpent"));
+            if (dailyBudget && "FULL_COST".equals(project.getBudgetScope()))
+                budgetSpent = zero(budgetSpent).add(zero(decimal(row.get("personnelCost"))))
+                    .add(zero(decimal(row.get("bonusCost"))));
+            BigDecimal budgetLimit = effectiveBudget(project);
             BigDecimal overBudgetAmount = budgetSpent != null && budgetLimit != null
                 && budgetSpent.compareTo(budgetLimit) > 0 ? budgetSpent.subtract(budgetLimit) : BigDecimal.ZERO;
             Map<String, Object> budgetMetrics = new LinkedHashMap<String, Object>();
             budgetMetrics.put("budgetSpent", budgetSpent);
             budgetMetrics.put("budgetLimit", budgetLimit);
+            budgetMetrics.put("budgetMode", project.getBudgetMode());
+            budgetMetrics.put("budgetScope", project.getBudgetScope());
             budgetMetrics.put("overBudgetAmount", overBudgetAmount);
-            budgetMetrics.put("calculationRule", "超预算金额 = 累计成本 - 预算上限；不得把累计成本当作超预算金额");
+            budgetMetrics.put("calculationRule", dailyBudget
+                ? "当日超预算金额 = 当日纳入预算成本 - 每日预算上限"
+                : "超预算金额 = 累计成本 - 项目总额预算上限");
             data.put("budgetMetrics", budgetMetrics);
             Long resultId = longValue(row.get("resultId"));
             if (resultId != null)
@@ -2410,10 +2419,23 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         result.put("accountingMode", project.getAccountingMode()); result.put("managementMode", project.getManagementMode());
         result.put("priority", project.getPriority()); result.put("planStartDate", formatDate(project.getPlanStartDate()));
         result.put("planEndDate", formatDate(project.getPlanEndDate())); result.put("budgetLimit", project.getBudgetLimit());
+        result.put("budgetMode", project.getBudgetMode()); result.put("dailyBudgetLimit", project.getDailyBudgetLimit());
+        result.put("budgetScope", project.getBudgetScope()); result.put("startupBudgetLimit", project.getStartupBudgetLimit());
         result.put("baseCurrency", project.getBaseCurrency()); result.put("memberCount", project.getMemberCount());
         result.put("taskCount", project.getTaskCount()); result.put("completedTaskCount", project.getCompletedTaskCount());
         result.put("openRiskCount", project.getOpenRiskCount());
         return result;
+    }
+
+    private BigDecimal effectiveBudget(BusinessProject project)
+    {
+        return project != null && "DAILY".equals(project.getBudgetMode())
+            ? project.getDailyBudgetLimit() : project == null ? null : project.getBudgetLimit();
+    }
+
+    private BigDecimal zero(BigDecimal value)
+    {
+        return value == null ? BigDecimal.ZERO : value;
     }
 
     @SuppressWarnings("unchecked")
@@ -3104,7 +3126,7 @@ public class BusinessAiServiceImpl implements IBusinessAiService
             return prepared;
         }
         Map<String, Object> payload = projectIdentity(project);
-        payload.put("oldBudgetLimit", project.getBudgetLimit());
+        payload.put("oldBudgetLimit", effectiveBudget(project));
         payload.put("budgetLimit", newBudget);
         payload.put("currency", currency);
         payload.put("reason", reason);
@@ -3112,8 +3134,9 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         row.put("runId", runId); row.put("conversationId", conversationId); row.put("userId", userId);
         row.put("actionCode", "BUDGET_ADJUSTMENT"); row.put("riskLevel", "CONFIRM_REQUIRED");
         row.put("actionPayloadJson", toJson(payload));
-        row.put("confirmationSummary", "将项目“" + project.getProjectName() + "”的预算由 "
-            + money(project.getBudgetLimit()) + " 调整为 " + money(newBudget) + " " + currency + "，原因：" + reason);
+        row.put("confirmationSummary", "将项目“" + project.getProjectName() + "”的"
+            + ("DAILY".equals(project.getBudgetMode()) ? "每日预算上限" : "项目总额预算") + "由 "
+            + money(effectiveBudget(project)) + " 调整为 " + money(newBudget) + " " + currency + "，原因：" + reason);
         row.put("expireTime", new Date(System.currentTimeMillis() + 30L * 60L * 1000L));
         mapper.insertActionRequest(row);
         prepared.put("actionRequestId", row.get("actionRequestId"));
@@ -3178,7 +3201,9 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         project.put("projectName", detail.getProjectName()); project.put("companyName", detail.getCompanyName());
         project.put("mainOwnerName", detail.getMainOwnerName()); project.put("objective", detail.getObjective());
         project.put("planStartDate", formatDate(detail.getPlanStartDate())); project.put("planEndDate", formatDate(detail.getPlanEndDate()));
-        project.put("budgetLimit", detail.getBudgetLimit()); project.put("baseCurrency", detail.getBaseCurrency());
+        project.put("budgetLimit", detail.getBudgetLimit()); project.put("dailyBudgetLimit", detail.getDailyBudgetLimit());
+        project.put("budgetMode", detail.getBudgetMode()); project.put("budgetScope", detail.getBudgetScope());
+        project.put("baseCurrency", detail.getBaseCurrency());
         project.put("accountingMode", detail.getAccountingMode()); project.put("managementMode", detail.getManagementMode());
         result.put("project", project);
         result.put("members", copyFields(detail.getMembers(), "userId", "userNameSnapshot", "memberRole", "joinedDate"));
@@ -3210,7 +3235,7 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         if (detail.getRoutines() != null) for (BusinessProjectRoutine routine : detail.getRoutines())
             if (routine.getAssigneeUserId() == null) warnings.add("持续工作“" + routine.getRoutineName() + "”尚未指定执行人");
         if (kpiCount == 0) warnings.add("尚未设置项目 KPI，可根据项目需要后续补充");
-        if (allocationCount == 0) warnings.add("尚未设置成员计划投入，人员成本暂时无法按计划分摊");
+        if (allocationCount == 0 && !BusinessMemberDayCostService.enabled(detail)) warnings.add("历史项目未保存成员投入配置");
         if (detail.getRisks() != null) for (BusinessProjectRisk risk : detail.getRisks())
             if ("OPEN".equals(risk.getStatus()) && ("HIGH".equals(risk.getSeverity()) || "CRITICAL".equals(risk.getSeverity())))
                 warnings.add("存在未关闭的高风险：“" + risk.getRiskTitle() + "”");
@@ -3855,13 +3880,14 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         }
         Map<String, Object> project = data.get("project") instanceof Map
             ? (Map<String, Object>) data.get("project") : Collections.<String, Object>emptyMap();
-        Object budget = project.get("budgetLimit");
+        String budgetMode = stringValue(project.get("budgetMode"));
+        Object budget = "DAILY".equals(budgetMode) ? project.get("dailyBudgetLimit") : project.get("budgetLimit");
         String name = stringValue(project.get("projectName"));
         String currency = stringValue(project.get("baseCurrency"));
-        if (budget == null)
+        if ("NONE".equals(budgetMode) || budget == null)
             return "项目“" + name + "”当前没有设置预算上限。";
-        return "项目“" + name + "”当前设置的预算上限是 " + money(budget)
-            + (StringUtils.isBlank(currency) ? "。" : " " + currency + "。");
+        return "项目“" + name + "”当前设置的" + ("DAILY".equals(budgetMode) ? "每日预算上限" : "项目总额预算上限")
+            + "是 " + money(budget) + (StringUtils.isBlank(currency) ? "。" : " " + currency + ("DAILY".equals(budgetMode) ? " / 日。" : "。"));
     }
 
     @SuppressWarnings("unchecked")
@@ -3875,14 +3901,16 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         if (unresolved != null) return unresolved;
         Map<String, Object> project = (Map<String, Object>) data.get("project");
         String currency = stringValue(project.get("baseCurrency"));
-        Object budget = project.get("budgetLimit");
+        String budgetMode = stringValue(project.get("budgetMode"));
+        Object budget = "DAILY".equals(budgetMode) ? project.get("dailyBudgetLimit") : project.get("budgetLimit");
         return "项目“" + project.get("projectName") + "”目前处于" + projectStatusLabel(project.get("status"))
             + "，负责人是" + stringValue(project.get("mainOwnerName")) + "，归属"
             + stringValue(project.get("companyName")) + "。计划周期是" + stringValue(project.get("planStartDate"))
             + "至" + stringValue(project.get("planEndDate")) + "，当前有" + integer(project.get("memberCount"))
             + "名成员、" + integer(project.get("taskCount")) + "项任务、" + integer(project.get("openRiskCount"))
-            + "项未关闭风险，预算上限" + (budget == null ? "尚未设置" : money(budget)
-                + (StringUtils.isBlank(currency) ? "" : " " + currency)) + "。";
+            + "项未关闭风险，" + ("DAILY".equals(budgetMode) ? "每日预算上限" : "项目总额预算上限")
+            + (budget == null ? "尚未设置" : money(budget)
+                + (StringUtils.isBlank(currency) ? "" : " " + currency + ("DAILY".equals(budgetMode) ? " / 日" : ""))) + "。";
     }
 
     @SuppressWarnings("unchecked")

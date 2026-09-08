@@ -30,13 +30,14 @@
 import useUserStore from '@/store/modules/user'
 import { getMyBusinessDashboard } from '@/api/business/project'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
+import { todayLocal } from '@/utils/businessDate'
 const router=useRouter(), userStore=useUserStore(), loading=ref(false), summary=ref({}),projects=ref([]),tasks=ref([])
 const statusLabel={DRAFT:'草稿',PLANNING:'规划中',ACTIVE:'执行中',PAUSED:'已暂停',ACCEPTANCE:'待验收',CLOSED:'已关闭',CANCELED:'已取消'}
 const statusTone={DRAFT:'info',PLANNING:'warning',ACTIVE:'primary',PAUSED:'info',ACCEPTANCE:'success',CLOSED:'success',CANCELED:'danger'}
 const projectStatusLabel=project=>project?.status==='ACCEPTANCE'&&project?.closeMethod==='STAGED_ACCEPTANCE'?'待结项':statusLabel[project?.status]||project?.status
 const taskStatusLabel={TODO:'待开始',DOING:'进行中',BLOCKED:'受阻'}
 const progress=p=>p.taskCount?Math.round((p.completedTaskCount||0)*100/p.taskCount):0
-const isOverdue=date=>date&&date<new Date().toISOString().slice(0,10)
+const isOverdue=date=>date&&date<todayLocal()
 const openProject=id=>router.push({path:'/business/projects',query:{id}})
 async function load(){loading.value=true;try{const{data={}}=await getMyBusinessDashboard();summary.value=data.summary||{};projects.value=data.projects||[];tasks.value=data.tasks||[]}finally{loading.value=false}}
 load()

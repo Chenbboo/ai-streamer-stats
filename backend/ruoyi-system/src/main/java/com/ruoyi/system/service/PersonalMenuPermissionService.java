@@ -68,6 +68,7 @@ public class PersonalMenuPermissionService
         List<BusinessStaffMenuPermission> explicit = permissionMapper.selectByUserId(userId);
         if (explicit.isEmpty()) return splitPermissions(rolePermissions);
 
+        Set<String> roleCeiling = splitPermissions(rolePermissions);
         Map<Long, String> allowed = new HashMap<Long, String>();
         for (BusinessStaffMenuPermission item : explicit)
         {
@@ -78,7 +79,7 @@ public class PersonalMenuPermissionService
         {
             String level = allowed.get(menu.getMenuId());
             if (MAINTAIN.equals(level) || (READ.equals(level) && isReadPermission(menu.getPerms())))
-                addPermission(result, menu.getPerms());
+                addRolePermission(result, menu.getPerms(), roleCeiling);
         }
         return result;
     }
@@ -89,6 +90,7 @@ public class PersonalMenuPermissionService
         if (explicit.isEmpty()) return roleRoutes;
 
         List<SysMenu> all = menuMapper.selectActiveMenuList();
+        Set<Long> roleCeiling = menuIds(roleRoutes);
         Map<Long, SysMenu> byId = new HashMap<Long, SysMenu>();
         for (SysMenu menu : all) byId.put(menu.getMenuId(), menu);
         Set<Long> included = new HashSet<Long>();
@@ -98,6 +100,7 @@ public class PersonalMenuPermissionService
             // A directory is structural: it is visible only as an ancestor of a visible page.
             // This also repairs old snapshots that accidentally retained READ on an empty parent.
             if (menu != null && "C".equals(menu.getMenuType())
+                && roleCeiling.contains(item.getMenuId())
                 && !HIDDEN.equals(item.getAccessLevel())) included.add(item.getMenuId());
         }
         for (Long menuId : new HashSet<Long>(included))
@@ -137,6 +140,16 @@ public class PersonalMenuPermissionService
         if (StringUtils.isEmpty(permission)) return;
         for (String value : permission.trim().split(","))
             if (StringUtils.isNotEmpty(value.trim())) target.add(value.trim());
+    }
+
+    private void addRolePermission(Set<String> target, String permission, Set<String> roleCeiling)
+    {
+        if (StringUtils.isEmpty(permission)) return;
+        for (String value : permission.trim().split(","))
+        {
+            String token = value.trim();
+            if (StringUtils.isNotEmpty(token) && roleCeiling.contains(token)) target.add(token);
+        }
     }
 
     private boolean isReadPermission(String permission)

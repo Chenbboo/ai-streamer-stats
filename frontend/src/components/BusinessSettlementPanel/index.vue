@@ -13,7 +13,7 @@
       <div v-if="summary.accountingState === 'OPEN'" class="settlement-counts">
         <span>{{ t('pendingKpi') }} <b>{{ summary.pendingKpiCount || 0 }}</b></span>
         <span>{{ t('pendingFact') }} <b>{{ summary.pendingFactCount || 0 }}</b></span>
-        <span>{{ t('pendingEffort') }} <b>{{ summary.pendingEffortCount || 0 }}</b></span>
+
         <span>{{ t('pendingAward') }} <b>{{ summary.pendingAwardCount || 0 }}</b></span><span>{{ t('pendingCost') }} <b>{{ summary.pendingCostCount || 0 }}</b></span><span>{{ t('pendingLeave') }} <b>{{ summary.pendingLeaveCount || 0 }}</b></span>
       </div>
       <ul v-if="summary.blockers?.length" class="settlement-blockers">
@@ -51,7 +51,7 @@ const policyHint = computed(() => {
 const { t, te } = useI18n({ useScope: 'local', messages: {
   'zh-CN': {
     title: '交付与后续结算', refresh: '刷新状态', close: '关闭项目核算',
-    pendingAward: '奖金待处理', pendingCost: '工作待计价', pendingKpi: 'KPI待结算', pendingFact: '收支待处理', pendingEffort: '投入待确认', pendingLeave: '假勤待处理',
+    pendingAward: '奖金待处理', pendingCost: '人员成本待完善', pendingKpi: 'KPI待结算', pendingFact: '收支待处理', pendingEffort: '投入待确认', pendingLeave: '假勤待处理',
     loadFailed: '暂时无法读取结算待办，请刷新后核对；当前不能办理关账。',
     legacyHint: '本项目沿用原结项与核算规则，历史记录和金额不自动迁移。',
     separatedHint: '交付检查与核算关闭分别办理。已有KPI、奖金及费用待办不会自动阻止成果交付。',
@@ -61,7 +61,7 @@ const { t, te } = useI18n({ useScope: 'local', messages: {
     kpiLink: '办理KPI结算', accountingLink: '查看收支与核算',
     closeTitle: '确认独立关闭项目核算', closePrompt: '关闭后将停止普通KPI结算、费用入账和重算。请确认业务已结清，并填写关账说明。',
     reasonRequired: '请填写关账说明', cancel: '取消', confirm: '确认关账', closed: '项目核算已关闭',
-    blockers: { PENDING_AWARD: '奖金奖励单尚待处理或取消', PENDING_COST: '已确认工作尚待计价或核算', LEGACY_POLICY: '沿用原结项关账规则', DELIVERY_OPEN: '项目尚未完成交付或取消', ACCOUNTING_CLOSED: '项目核算已关闭', NOT_SPONSOR: '由项目归属责任人办理核算关闭', MISSING_END_DATE: '缺少实际结束日期，请核对', PENDING_KPI: '仍有未完成KPI结算，包括尚未到期的周期', PENDING_EFFORT: '仍有投入待确认', PENDING_LEAVE: '仍有假勤待处理', PENDING_FACT: '仍有收支待确认或退回修改' }
+    blockers: { PENDING_AWARD: '奖金奖励单尚待处理或取消', PENDING_COST: '成员工作日缺少有效成本或日历', LEGACY_POLICY: '沿用原结项关账规则', DELIVERY_OPEN: '项目尚未完成交付或取消', ACCOUNTING_CLOSED: '项目核算已关闭', NOT_SPONSOR: '由项目归属责任人办理核算关闭', MISSING_END_DATE: '缺少实际结束日期，请核对', PENDING_KPI: '仍有未完成KPI结算，包括尚未到期的周期', PENDING_EFFORT: '仍有投入待确认', PENDING_LEAVE: '仍有假勤待处理', PENDING_FACT: '仍有收支待确认或退回修改' }
   },
   'vi-VN': {
     title: 'Bàn giao và quyết toán tiếp theo', refresh: 'Làm mới', close: 'Đóng quyết toán dự án',

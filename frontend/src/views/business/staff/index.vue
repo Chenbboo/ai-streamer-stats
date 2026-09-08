@@ -1,7 +1,7 @@
 <template>
   <div class="app-container staff-page">
     <header class="hero">
-      <div><span class="eyebrow">COMPANY PEOPLE</span><h1>人员管理</h1><p>{{ canManagePeople ? '统一维护公司人员档案、组织关系和系统账号。' : '按授权范围查看人员资料与项目责任。' }}</p></div>
+      <div><span class="eyebrow">COMPANY PEOPLE</span><h1>人员管理</h1><p>{{ canManagePeople ? '统一维护公司人员档案、组织关系和系统账号。' : '查看自己项目的成员及授权人员，维护成员的用人成本。' }}</p></div>
       <el-button v-if="canManagePeople" type="primary" icon="Plus" @click="openCreate">新增人员</el-button>
     </header>
 
@@ -25,13 +25,13 @@
         <el-table-column label="联系方式" min-width="150"><template #default="{row}"><span>{{ formatPhone(row) }}</span><small>{{ row.email || '未设置邮箱' }}</small></template></el-table-column>
         <el-table-column label="任职" width="105"><template #default="{row}"><el-tag :type="employmentTag(row.employmentStatus)">{{ employmentStatusLabel(row.employmentStatus) }}</el-tag><small>{{ employmentTypeLabel(row.employmentType) }}</small></template></el-table-column>
         <el-table-column label="账号" width="90"><template #default="{row}"><el-switch v-model="row.status" active-value="0" inactive-value="1" :disabled="!canManagePeople || row.protectedAccount" @change="changeStatus(row)" /></template></el-table-column>
-        <el-table-column label="操作" width="132" fixed="right" align="center"><template #default="{row}">
+        <el-table-column label="操作" width="150" fixed="right" align="center"><template #default="{row}">
           <div class="row-actions">
             <el-button link type="primary" @click="openDetail(row)">查看</el-button>
             <el-dropdown v-if="canManagePeople || canManageRowCost(row)" trigger="click" @command="handlePersonCommand($event,row)">
-              <el-button link type="primary">管理<span class="dropdown-caret">⌄</span></el-button>
+              <el-button link type="primary">设置<span class="dropdown-caret">⌄</span></el-button>
               <template #dropdown><el-dropdown-menu>
-                <el-dropdown-item v-if="canManageRowCost(row)" command="cost">财务内部费率</el-dropdown-item>
+                <el-dropdown-item v-if="canManageRowCost(row)" command="cost">设置用人成本</el-dropdown-item>
                 <el-dropdown-item v-if="canManageDirectory(row)" command="menu">设置目录权限</el-dropdown-item>
                 <el-dropdown-item v-if="canManagePeople" command="edit">编辑人员资料</el-dropdown-item>
                 <el-dropdown-item v-if="canManagePeople && !row.protectedAccount" command="password" divided>重置密码</el-dropdown-item>
@@ -46,7 +46,7 @@
           <div class="card-head"><div><b>{{ row.nickName }}</b><span>{{ row.employeeNo || row.userName }}</span></div><el-tag :type="employmentTag(row.employmentStatus)">{{ employmentStatusLabel(row.employmentStatus) }}</el-tag></div>
           <p>{{ row.companyName || '集团层级' }} · {{ row.deptName || '未设置部门' }}</p>
           <p>直属负责人：{{ row.managerName || '未设置' }}</p>
-          <div class="card-foot"><span>{{ formatPhone(row) }}</span><div class="row-actions" @click.stop><el-button link type="primary" @click="openDetail(row)">查看</el-button><el-dropdown v-if="canManagePeople || canManageRowCost(row)" trigger="click" @command="handlePersonCommand($event,row)"><el-button link type="primary">管理<span class="dropdown-caret">⌄</span></el-button><template #dropdown><el-dropdown-menu><el-dropdown-item v-if="canManageRowCost(row)" command="cost">财务内部费率</el-dropdown-item><el-dropdown-item v-if="canManageDirectory(row)" command="menu">设置目录权限</el-dropdown-item><el-dropdown-item v-if="canManagePeople" command="edit">编辑人员资料</el-dropdown-item><el-dropdown-item v-if="canManagePeople && !row.protectedAccount" command="password" divided>重置密码</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></div>
+          <div class="card-foot"><span>{{ formatPhone(row) }}</span><div class="row-actions" @click.stop><el-button link type="primary" @click="openDetail(row)">查看</el-button><el-dropdown v-if="canManagePeople || canManageRowCost(row)" trigger="click" @command="handlePersonCommand($event,row)"><el-button link type="primary">设置<span class="dropdown-caret">⌄</span></el-button><template #dropdown><el-dropdown-menu><el-dropdown-item v-if="canManageRowCost(row)" command="cost">设置用人成本</el-dropdown-item><el-dropdown-item v-if="canManageDirectory(row)" command="menu">设置目录权限</el-dropdown-item><el-dropdown-item v-if="canManagePeople" command="edit">编辑人员资料</el-dropdown-item><el-dropdown-item v-if="canManagePeople && !row.protectedAccount" command="password" divided>重置密码</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></div>
         </article>
         <el-empty v-if="!loading && !rows.length" description="暂无人员" />
       </div>
@@ -96,7 +96,7 @@
           <div><span>用工类型</span><b>{{ employmentTypeLabel(selectedPerson.employmentType) }}</b></div><div><span>任职状态</span><b>{{ employmentStatusLabel(selectedPerson.employmentStatus) }}</b></div>
           <div><span>入职日期</span><b>{{ selectedPerson.hireDate || '未设置' }}</b></div><div><span>系统角色</span><b>{{ selectedPerson.roleNames || selectedPerson.accountType }}</b></div>
         </div></section>
-        <section v-if="canViewSelectedCost" class="detail-section"><div class="detail-section-head"><div><h3>内部费率</h3><p>费率及其历史统一在财务与管理核算维护。</p></div><el-button type="primary" plain @click="openCostPolicy">打开财务费率</el-button></div></section>
+        <section v-if="canViewSelectedCost" class="detail-section"><div class="detail-section-head"><div><h3>用人成本</h3><p>设置成员成本和生效日期，查看成本调整历史。</p></div><el-button type="primary" plain @click="openCostPolicy">设置用人成本</el-button></div></section>
         <section class="detail-section project-responsibility"><h3>项目责任</h3>
           <div class="responsibility-summary" v-loading="projectLoading">
             <div><span>主负责</span><b>{{ projectSummary.ownerCount }}</b></div><div><span>参与项目</span><b>{{ projectSummary.memberCount }}</b></div>
@@ -119,6 +119,10 @@
     </el-drawer>
 
 
+
+    <el-dialog v-model="costDialog" :title="`${selectedPerson?.nickName || ''} · 用人成本`" width="min(1100px,96vw)" append-to-body destroy-on-close :close-on-click-modal="false">
+      <StaffCostPolicies v-if="costDialog" :key="selectedPerson.userId" :staff-user-id="Number(selectedPerson.userId)" embedded />
+    </el-dialog>
 
     <el-dialog v-model="menuDialog" class="staff-menu-dialog" :title="`${menuPolicy.nickName || ''} · 目录权限`" width="min(920px, 96vw)" append-to-body :close-on-click-modal="false">
       <el-alert title="默认继承员工现有角色权限。老板可以设置员工的全部目录权限，包括系统管理和系统监控。保存后会同时约束菜单显示和后端操作权限。" type="success" :closable="false" show-icon />
@@ -149,6 +153,8 @@
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { addBusinessStaff, changeBusinessStaffStatus, deleteBusinessStaffCostPolicy, getBusinessStaffCostPolicies, getBusinessStaffMenuPermissions, getBusinessStaffProjects, listBusinessDepartments, listBusinessStaff, listBusinessStaffOptions, resetBusinessStaffMenuPermissions, resetBusinessStaffPassword, saveBusinessStaffCostPolicy, saveBusinessStaffMenuPermissions, updateBusinessStaff, voidBusinessStaffCostPolicy } from '@/api/business/staff'
 import useUserStore from '@/store/modules/user'
+import StaffCostPolicies from '@/views/business/cost-policies/index.vue'
+import { todayLocal } from '@/utils/businessDate'
 import { usePasswordRule } from '@/utils/passwordRule'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 
@@ -179,8 +185,8 @@ const isAdmin=computed(()=>userStore.roles.includes('admin')||userStore.permissi
 const canManagePeople=computed(()=>isAdmin.value||userStore.permissions.includes('business:staff:manage'))
 const canManageStaffCost=computed(()=>isAdmin.value||userStore.permissions.includes('business:staff:cost'))
 const costEligibleStaff=row=>row?.employmentStatus!=='LEFT'
-const canViewRowCost=row=>costEligibleStaff(row)&&(isAdmin.value||(canManageStaffCost.value&&!!row?.canViewCost))
-const canManageRowCost=row=>costEligibleStaff(row)&&(isAdmin.value||(canManageStaffCost.value&&!!row?.canManageCost))
+const canViewRowCost=row=>costEligibleStaff(row)&&(isAdmin.value||row?.canViewCost===true)
+const canManageRowCost=row=>costEligibleStaff(row)&&(isAdmin.value||row?.canManageCost===true)
 const canManageDirectory=row=>canManagePeople.value&&!row?.protectedAccount
 const canViewSelectedCost=computed(()=>canViewRowCost(selectedPerson.value))
 const canManageSelectedCost=computed(()=>canManageRowCost(selectedPerson.value))
@@ -250,7 +256,7 @@ async function retireCostPolicy(policy){
     await load()
   }catch(error){if(!['cancel','close'].includes(error))throw error}finally{retiringPolicyId.value=null}
 }
-function openCostPolicy(){if(!canManageSelectedCost.value)return ElMessage.warning('没有该人员的内部费率权限');detailOpen.value=false;router.push({path:'/finance/cost-policies',query:{userId:selectedPerson.value.userId}})}
+function openCostPolicy(){if(!canManageSelectedCost.value)return ElMessage.warning('只能设置授权范围内成员的用人成本');detailOpen.value=false;costDialog.value=true}
 async function openCostPolicyFor(row){selectedPerson.value=row;await openCostPolicy()}
 function handlePersonCommand(command,row){if(command==='cost')return openCostPolicyFor(row);if(command==='menu')return openMenuPermissions(row);if(command==='edit')return openEdit(row);if(command==='password')return resetPassword(row)}
 const menuLevelRank={HIDDEN:0,READ:1,MAINTAIN:2,MIXED:-1}

@@ -24,6 +24,7 @@ import com.ruoyi.business.domain.BusinessProjectTaskReport;
 import com.ruoyi.business.domain.BusinessProjectProgressReport;
 import com.ruoyi.business.domain.BusinessProjectRoutine;
 import com.ruoyi.business.domain.BusinessProjectRoutineReport;
+import com.ruoyi.business.domain.BusinessProjectRoutineDailyTarget;
 import com.ruoyi.business.domain.BusinessProjectEffort;
 import com.ruoyi.business.domain.BusinessProjectKpi;
 import com.ruoyi.business.domain.BusinessProjectStaffAllocation;
@@ -134,18 +135,18 @@ public class BusinessProjectController extends BaseController
         return success();
     }
 
-    @PreAuthorize("@ss.hasPermi('business:staff:cost')")
+    @PreAuthorize("@ss.hasAnyPermi('business:staff:cost,business:staff:list')")
     @GetMapping("/staff/cost-options")
     public AjaxResult staffCostOptions(){return success(projectService.staffCostOptions(currentUserId(),canManageStaffCost()));}
 
-    @PreAuthorize("@ss.hasPermi('business:staff:cost')")
+    @PreAuthorize("@ss.hasAnyPermi('business:staff:cost,business:staff:list')")
     @GetMapping("/staff/{staffUserId}/cost-policies")
     public AjaxResult staffCostPolicies(@PathVariable Long staffUserId)
     {
         return success(projectService.staffCostPolicies(staffUserId, currentUserId(), canManageStaffCost()));
     }
 
-    @PreAuthorize("@ss.hasPermi('business:staff:cost')")
+    @PreAuthorize("@ss.hasAnyPermi('business:staff:cost,business:staff:list')")
     @Log(title = "人员内部核算成本", businessType = BusinessType.INSERT)
     @PostMapping("/staff/cost-policy")
     public AjaxResult saveStaffCostPolicy(@RequestBody BusinessStaffCostPolicy policy)
@@ -153,7 +154,7 @@ public class BusinessProjectController extends BaseController
         return success(projectService.saveStaffCostPolicy(policy, currentUserId(), currentUserName(), canManageStaffCost()));
     }
 
-    @PreAuthorize("@ss.hasPermi('business:staff:cost')")
+    @PreAuthorize("@ss.hasAnyPermi('business:staff:cost,business:staff:list')")
     @Log(title = "批量人员内部核算成本", businessType = BusinessType.INSERT)
     @PostMapping("/staff/cost-policies")
     public AjaxResult saveStaffCostPolicies(@RequestBody List<BusinessStaffCostPolicy> policies)
@@ -161,7 +162,7 @@ public class BusinessProjectController extends BaseController
         return success(projectService.saveStaffCostPolicies(policies, currentUserId(), currentUserName(), canManageStaffCost()));
     }
 
-    @PreAuthorize("@ss.hasPermi('business:staff:cost')")
+    @PreAuthorize("@ss.hasAnyPermi('business:staff:cost,business:staff:list')")
     @Log(title = "人员内部核算成本", businessType = BusinessType.DELETE)
     @DeleteMapping("/staff/cost-policy/{policyId}")
     public AjaxResult deleteStaffCostPolicy(@PathVariable Long policyId)
@@ -170,7 +171,7 @@ public class BusinessProjectController extends BaseController
         return success();
     }
 
-    @PreAuthorize("@ss.hasPermi('business:staff:cost')")
+    @PreAuthorize("@ss.hasAnyPermi('business:staff:cost,business:staff:list')")
     @Log(title = "人员内部核算成本", businessType = BusinessType.UPDATE)
     @PutMapping("/staff/cost-policy/{policyId}/void")
     public AjaxResult voidStaffCostPolicy(@PathVariable Long policyId, @RequestBody Map<String, Object> body)
@@ -320,8 +321,16 @@ public class BusinessProjectController extends BaseController
     @DeleteMapping("/project/{projectId}/task/{taskId}")
     public AjaxResult deleteTask(@PathVariable Long projectId, @PathVariable Long taskId)
     {
-        projectService.deleteTask(projectId, taskId, currentUserId(), isBoss());
+        projectService.deleteTask(projectId, taskId, currentUserId(), currentUserName(), isBoss());
         return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:task')")
+    @Log(title = "启用项目任务", businessType = BusinessType.UPDATE)
+    @PostMapping("/project/{projectId}/task/{taskId}/enable")
+    public AjaxResult enableTask(@PathVariable Long projectId, @PathVariable Long taskId)
+    {
+        return success(projectService.enableTask(projectId, taskId, currentUserId(), currentUserName(), isBoss()));
     }
 
     @PreAuthorize("@ss.hasPermi('business:project:task')")
@@ -339,6 +348,24 @@ public class BusinessProjectController extends BaseController
     {
         projectService.removeRoutine(projectId, routineId, currentUserId(), currentUserName(), isBoss());
         return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:task')")
+    @Log(title = "启用项目持续工作", businessType = BusinessType.UPDATE)
+    @PostMapping("/project/{projectId}/routine/{routineId}/enable")
+    public AjaxResult enableRoutine(@PathVariable Long projectId, @PathVariable Long routineId,
+        @RequestBody(required = false) BusinessProjectRoutine activation)
+    {
+        return success(projectService.enableRoutine(projectId, routineId,
+            activation == null ? null : activation.getEndDate(), currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:task')")
+    @Log(title = "下达持续工作今日目标", businessType = BusinessType.INSERT)
+    @PostMapping("/project/routine-daily-target")
+    public AjaxResult saveRoutineDailyTarget(@RequestBody BusinessProjectRoutineDailyTarget target)
+    {
+        return success(projectService.saveRoutineDailyTarget(target, currentUserId(), currentUserName(), isBoss()));
     }
 
     @PreAuthorize("@ss.hasPermi('business:project:report')")
@@ -448,50 +475,6 @@ public class BusinessProjectController extends BaseController
             DateUtils.parseDate(body == null ? null : body.get("bizDate")),
             body == null || body.get("reviewComment") == null ? null : String.valueOf(body.get("reviewComment")),
             currentUserId(), currentUserName(), isBoss()));
-    }
-
-    @PreAuthorize("@ss.hasPermi('business:project:allocation')")
-    @Log(title = "成员请假申请", businessType = BusinessType.INSERT)
-    @PostMapping("/owner/{projectId}/member/{memberUserId}/leave")
-    public AjaxResult markMemberLeave(@PathVariable Long projectId, @PathVariable Long memberUserId,
-        @RequestBody Map<String, Object> body)
-    {
-        Object start = body == null ? null : (body.get("startDate") == null ? body.get("leaveDate") : body.get("startDate"));
-        Object end = body == null ? null : (body.get("endDate") == null ? start : body.get("endDate"));
-        return success(projectService.requestMemberLeave(projectId, memberUserId,
-            DateUtils.parseDate(start), DateUtils.parseDate(end), text(body, "leaveType"), text(body, "reason"),
-            text(body, "attachmentUrls"),
-            currentUserId(), currentUserName(), isBoss()));
-    }
-
-    @PreAuthorize("@ss.hasPermi('business:boss:view')")
-    @Log(title = "审批成员请假", businessType = BusinessType.UPDATE)
-    @PutMapping("/boss/leave-request/{requestId}/review")
-    public AjaxResult reviewMemberLeave(@PathVariable Long requestId, @RequestBody Map<String, Object> body)
-    {
-        return success(projectService.reviewMemberLeaveRequest(requestId, text(body, "decision"),
-            text(body, "comment"), currentUserId(), currentUserName(), isBoss()));
-    }
-
-    @PreAuthorize("@ss.hasAnyPermi('business:project:allocation,business:boss:view')")
-    @Log(title = "取消成员请假申请", businessType = BusinessType.UPDATE)
-    @PostMapping("/leave-request/{requestId}/cancel")
-    public AjaxResult cancelMemberLeaveRequest(@PathVariable Long requestId, @RequestBody Map<String, Object> body)
-    {
-        projectService.cancelMemberLeaveRequest(requestId, text(body, "reason"),
-            currentUserId(), currentUserName(), isBoss());
-        return success();
-    }
-
-    @PreAuthorize("@ss.hasPermi('business:project:allocation')")
-    @Log(title = "取消成员请假", businessType = BusinessType.DELETE)
-    @DeleteMapping("/owner/{projectId}/member/{memberUserId}/leave")
-    public AjaxResult cancelMemberLeave(@PathVariable Long projectId, @PathVariable Long memberUserId,
-        @RequestParam(required = false) String leaveDate)
-    {
-        projectService.cancelMemberLeave(projectId, memberUserId, DateUtils.parseDate(leaveDate),
-            currentUserId(), currentUserName(), isBoss());
-        return success();
     }
 
     private Long currentUserId()

@@ -91,6 +91,7 @@
 
 <script setup>
 import axios from 'axios'
+import { saveAs } from 'file-saver'
 import { getToken } from "@/utils/auth"
 import { isExternal } from "@/utils/validate"
 import Sortable from 'sortablejs'
@@ -155,9 +156,9 @@ const props = defineProps({
 
 const { proxy } = getCurrentInstance()
 const emit = defineEmits()
-const number = ref(0)
 const pendingBytes = ref(0)
 const pendingFileSizes = new Map()
+const completedUploads = []
 const baseUrl = import.meta.env.VITE_APP_BASE_API
 const uploadFileUrl = ref(import.meta.env.VITE_APP_BASE_API + props.action) // 上传文件服务器地址
 const headers = ref({ Authorization: "Bearer " + getToken() })
@@ -167,6 +168,7 @@ const videoPreviewUrl = ref("")
 const failedOptimizedPreviews = ref(new Set())
 const requestQueue = []
 let activeRequests = 0
+let uploadLoadingOpen = false
 const showTip = computed(
   () => props.isShowTip && (props.fileType || props.fileSize)
 )
@@ -245,10 +247,14 @@ function handleBeforeUpload(file) {
       return false
     }
   }
-  proxy.$modal.loading("正在上传文件，请稍候...")
-  pendingFileSizes.set(file.uid, file.size)
-  pendingBytes.value += file.size
-  number.value++
+  if (!pendingFileSizes.has(file.uid)) {
+    if (pendingFileSizes.size === 0) {
+      proxy.$modal.loading("正在上传文件，请稍候...")
+      uploadLoadingOpen = true
+    }
+    pendingFileSizes.set(file.uid, file.size)
+    pendingBytes.value += file.size
+  }
   return true
 }
 
@@ -259,32 +265,35 @@ function handleExceed() {
 
 // 上传失败
 function handleUploadError(err, file) {
-  releasePendingFile(file)
-  number.value = Math.max(0, number.value - 1)
-  proxy.$modal.msgError("上传文件失败")
-  if (number.value === 0) proxy.$modal.closeLoading()
+  try {
+    proxy.$modal.msgError("上传文件失败")
+  } finally {
+    finishUpload(file)
+  }
 }
 
 // 上传成功回调
 function handleUploadSuccess(res, file) {
-  releasePendingFile(file)
-  number.value = Math.max(0, number.value - 1)
-  if (res.code === 200) {
-    const uploaded = {
-      name: file?.name || res.originalFilename || res.fileName,
-      url: normalizedStoredPath(res.fileName),
-      previewUrl: normalizedStoredPath(res.previewFileName),
-      thumbnailUrl: normalizedStoredPath(res.thumbnailFileName),
-      size: Number(res.size || file?.size || 0)
+  try {
+    if (res?.code === 200) {
+      const uploaded = {
+        name: file?.name || res.originalFilename || res.fileName,
+        url: normalizedStoredPath(res.fileName),
+        previewUrl: normalizedStoredPath(res.previewFileName),
+        thumbnailUrl: normalizedStoredPath(res.thumbnailFileName),
+        size: Number(res.size || file?.size || 0),
+        uid: file?.uid
+      }
+      completedUploads.push(uploaded)
+    } else {
+      proxy.$modal.msgError(res?.msg || '上传文件失败')
+      try {
+        Promise.resolve(proxy.$refs.fileUpload?.handleRemove(file)).catch(() => {})
+      } catch {}
     }
-    fileList.value.push(uploaded)
-    if (props.businessPreview) hydrateAuthorizedFile(uploaded)
-    emit("update:modelValue", listToString(fileList.value))
-  } else {
-    proxy.$modal.msgError(res.msg)
-    proxy.$refs.fileUpload.handleRemove(file)
+  } finally {
+    finishUpload(file)
   }
-  if (number.value === 0) proxy.$modal.closeLoading()
 }
 
 // 删除文件
@@ -296,9 +305,39 @@ function handleDelete(index) {
 
 // 上传结束处理
 function releasePendingFile(file) {
-  const size = pendingFileSizes.get(file?.uid) || 0
-  pendingFileSizes.delete(file?.uid)
+  if (!pendingFileSizes.has(file?.uid)) return false
+  const size = pendingFileSizes.get(file.uid) || 0
+  pendingFileSizes.delete(file.uid)
   pendingBytes.value = Math.max(0, pendingBytes.value - size)
+  return true
+}
+
+function finishUpload(file) {
+  if (!releasePendingFile(file) || pendingFileSizes.size > 0) return
+
+  try {
+    if (completedUploads.length) {
+      const mergedFiles = [...fileList.value]
+      const existingUrls = new Set(mergedFiles.map(item => normalizedStoredPath(item.url)))
+      completedUploads.splice(0).forEach(uploaded => {
+        if (!existingUrls.has(uploaded.url)) {
+          mergedFiles.push(uploaded)
+          existingUrls.add(uploaded.url)
+        }
+      })
+      fileList.value = mergedFiles
+      if (props.businessPreview) nextTick(hydrateAuthorizedFiles)
+      emit("update:modelValue", listToString(fileList.value))
+    }
+  } finally {
+    closeUploadLoading()
+  }
+}
+
+function closeUploadLoading() {
+  if (!uploadLoadingOpen) return
+  uploadLoadingOpen = false
+  proxy.$modal.closeLoading()
 }
 
 function uploadWithConcurrency(options) {
@@ -349,6 +388,16 @@ function getFileName(name) {
   } catch {
     return name
   }
+}
+
+function preferredFileName(file) {
+  const name = getFileName(file?.originalFilename || file?.name || file?.url)
+  if (!name) return '附件'
+  // 业务附件落盘时会在扩展名前追加上传序号；历史记录只保存 URL，
+  // 因此重新打开页面时需要从存储名还原用户上传时的文件名。
+  return props.businessPreview
+    ? name.replace(/_(?:\d{12}|\d{14})A\d{3}(?=\.[^.]+$)/i, '')
+    : name
 }
 
 function fileUrl(file) {
@@ -455,6 +504,17 @@ async function previewVideo(file) {
 }
 
 async function openFile(file) {
+  if (props.businessPreview && shouldDownload(file)) {
+    try {
+      const blob = await fetchAuthorizedFile(rawFileUrl(file))
+      if (!blob) throw new Error('附件加载失败')
+      saveAs(blob, preferredFileName(file))
+    } catch {
+      proxy.$modal.msgError('附件下载失败或无权查看')
+    }
+    return
+  }
+
   const tab = window.open('', '_blank')
   try {
     const url = await ensureOriginalObjectUrl(file)
@@ -467,6 +527,10 @@ async function openFile(file) {
   }
 }
 
+function shouldDownload(file) {
+  return !isImage(file) && !isVideo(file) && !isPdf(file) && fileExtension(file) !== 'TXT'
+}
+
 function rawFileUrl(file) {
   const url = normalizedStoredPath(file?.url || file?.name)
   if (!url || isExternal(url) || /^(data:|blob:|\/\/)/i.test(url)) return url
@@ -476,14 +540,24 @@ function rawFileUrl(file) {
   return baseUrl + url
 }
 
-async function fetchAuthorizedBlob(url) {
+async function fetchAuthorizedFile(url, filename) {
   if (!url || /^(data:|blob:)/i.test(url)) return null
   const requestUrl = (baseUrl && String(url).startsWith(baseUrl)) || isExternal(url) ? url : absoluteFileUrl(url)
   const response = await axios.get(requestUrl, {
     responseType: 'blob',
     headers: { Authorization: `Bearer ${getToken()}` }
   })
-  return URL.createObjectURL(response.data)
+  const blob = response.data
+  if (!filename || typeof File === 'undefined') return blob
+  return new File([blob], filename, {
+    type: blob.type || 'application/octet-stream',
+    lastModified: Date.now()
+  })
+}
+
+async function fetchAuthorizedBlob(url, filename) {
+  const blob = await fetchAuthorizedFile(url, filename)
+  return blob ? URL.createObjectURL(blob) : null
 }
 
 async function hydrateAuthorizedFile(file) {
@@ -507,7 +581,7 @@ async function ensureOriginalObjectUrl(file) {
   if (file?._loadingOriginal) return file._loadingOriginal
   const original = normalizedStoredPath(file?.url || file?.name)
   if (!props.businessPreview || !original.startsWith('/profile/')) return rawFileUrl(file)
-  file._loadingOriginal = fetchAuthorizedBlob(rawFileUrl(file)).then(url => {
+  file._loadingOriginal = fetchAuthorizedBlob(rawFileUrl(file), preferredFileName(file)).then(url => {
     file.objectUrl = url
     return url
   }).finally(() => { file._loadingOriginal = null })
@@ -553,7 +627,13 @@ onMounted(() => {
   }
 })
 
-onBeforeUnmount(() => fileList.value.forEach(revokeObjectUrls))
+onBeforeUnmount(() => {
+  closeUploadLoading()
+  pendingFileSizes.clear()
+  pendingBytes.value = 0
+  completedUploads.splice(0)
+  fileList.value.forEach(revokeObjectUrls)
+})
 </script>
 <style scoped lang="scss">
 .file-upload-darg {

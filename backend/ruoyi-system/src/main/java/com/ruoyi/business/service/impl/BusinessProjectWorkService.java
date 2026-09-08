@@ -35,7 +35,7 @@ public class BusinessProjectWorkService
         List<Map<String,Object>> result=new ArrayList<Map<String,Object>>();Set<Long> seen=new HashSet<Long>();
         for(BusinessProject project:projects)
         {
-            if(!"ACTUAL_WORK_V1".equals(project.getCostPolicyVersion())||!seen.add(project.getProjectId()))continue;
+            if(!BusinessMemberDayCostService.enabled(project)||!seen.add(project.getProjectId()))continue;
             Map<String,Object> option=new LinkedHashMap<String,Object>();option.put("projectId",project.getProjectId());option.put("projectName",project.getProjectName());option.put("costPolicyVersion",project.getCostPolicyVersion());result.add(option);
         }
         return result;
@@ -77,19 +77,36 @@ public class BusinessProjectWorkService
         if(!isManager(p,actorId))throw new ServiceException("只有项目负责人或归属老板可以安排资源");
         if(BusinessProjectLifecycle.isTerminal(p.getStatus()))throw new ServiceException("交付结束后不能新增资源计划");
         Map<String,Object> row=copy(body);Long userId=id(row.get("userId"));
-        LocalDate from=date(row.get("effectiveFrom")),to=date(row.get("effectiveTo"));
-        if(to.isBefore(from)||Duration.between(from.atStartOfDay(),to.atStartOfDay()).toDays()>730)throw new ServiceException("参与日期范围不正确或超过两年");
-        requireMembership(p,userId,from);requireMembership(p,userId,to);
-        if(p.getPlanStartDate()!=null&&from.isBefore(date(p.getPlanStartDate()))||p.getPlanEndDate()!=null&&to.isAfter(date(p.getPlanEndDate())))throw new ServiceException("人员参与日期必须在项目计划窗口内");
-        Map<String,Object> calendar=calendar(row.get("calendarId"),from,to),unit=unit(row.get("unitPolicyId"),from,to);
+        LocalDate from=date(row.get("effectiveFrom")),to=blank(row.get("effectiveTo"))?null:date(row.get("effectiveTo"));
+        if(to==null&&p.getPlanEndDate()!=null)throw new ServiceException("固定期限项目的人员必须设置参与结束日期");
+        LocalDate allocationTo=to;
+        if(allocationTo==null)
+        {
+            Map<String,Object> budget=p.getBudget();
+            allocationTo=budget==null||budget.get("endDate")==null?null:date(budget.get("endDate"));
+            if(allocationTo==null)throw new ServiceException("不限期参与需要先建立当前预算期间");
+        }
+        if(allocationTo.isBefore(from)||Duration.between(from.atStartOfDay(),allocationTo.atStartOfDay()).toDays()>730)throw new ServiceException("参与日期范围不正确或当前预算期间超过两年");
+        requireMembership(p,userId,from);if(to!=null)requireMembership(p,userId,to);
+        if(p.getPlanStartDate()!=null&&from.isBefore(date(p.getPlanStartDate()))||p.getPlanEndDate()!=null&&to!=null&&to.isAfter(date(p.getPlanEndDate())))throw new ServiceException("人员参与日期必须在项目计划窗口内");
+        Map<String,Object> calendar=calendar(row.get("calendarId"),from,allocationTo),unit=unit(row.get("unitPolicyId"),from,allocationTo);
+        boolean participationOnly=BusinessMemberDayCostService.enabled(p)||Boolean.TRUE.equals(row.get("participationOnly"));
+        if(participationOnly)
+        {
+            row.put("projectId",projectId);row.put("userId",userId);row.put("effectiveFrom",from.toString());row.put("effectiveTo",to==null?null:to.toString());row.put("overlapTo",allocationTo.toString());
+            row.put("inputUnit","PERCENTAGE");row.put("inputQuantity",BigDecimal.ZERO);row.put("plannedMinutes",0);
+            row.put("calendarId",calendar.get("calendarId"));row.put("unitPolicyId",unit.get("unitPolicyId"));row.put("calendarSnapshotJson",write(calendar));row.put("unitSnapshotJson",write(unit));row.put("userName",userName);
+            if(mapper.countOverlappingAssignments(row)>0)throw new ServiceException("该人员在本项目已有重叠参与关系，请先停用或调整原安排");
+            row.put("reason",optionalReason(row.get("reason")));mapper.insertAssignment(row);return row;
+        }
         String inputUnit=code(row.get("inputUnit"));BigDecimal quantity=quantity(row.get("inputQuantity"),false);
         List<LocalDate> days=new ArrayList<LocalDate>();List<Integer> capacities=new ArrayList<Integer>();int totalCapacity=0;
-        for(LocalDate day=from;!day.isAfter(to);day=day.plusDays(1)){int c=capacity(calendar,day);if(c>0){days.add(day);capacities.add(c);totalCapacity+=c;}}
+        for(LocalDate day=from;!day.isAfter(allocationTo);day=day.plusDays(1)){int c=capacity(calendar,day);if(c>0){days.add(day);capacities.add(c);totalCapacity+=c;}}
         if(totalCapacity==0)throw new ServiceException("参与日期没有可用工作日，请选择适用日历");
         int total;
         if("PERCENTAGE".equals(inputUnit)){if(quantity.compareTo(new BigDecimal("100"))>0)throw new ServiceException("单项计划比例不能超过100%");total=exactMinutes(quantity.multiply(BigDecimal.valueOf(totalCapacity)).divide(new BigDecimal("100")));}
         else total=minutes(quantity,inputUnit,integer(unit.get("minutesPerDay")));
-        row.put("projectId",projectId);row.put("userId",userId);row.put("effectiveFrom",from.toString());row.put("effectiveTo",to.toString());row.put("plannedMinutes",total);
+        row.put("projectId",projectId);row.put("userId",userId);row.put("effectiveFrom",from.toString());row.put("effectiveTo",to==null?null:to.toString());row.put("overlapTo",allocationTo.toString());row.put("plannedMinutes",total);
         row.put("inputUnit",inputUnit);row.put("inputQuantity",quantity);row.put("calendarId",calendar.get("calendarId"));row.put("unitPolicyId",unit.get("unitPolicyId"));
         row.put("calendarSnapshotJson",write(calendar));row.put("unitSnapshotJson",write(unit));row.put("userName",userName);
         if(mapper.countOverlappingAssignments(row)>0)throw new ServiceException("该人员在本项目已有重叠参与计划，请先停用或调整原安排");
@@ -209,6 +226,33 @@ public class BusinessProjectWorkService
         int minutes=integer(row.get("minutesPerDay"));if(minutes<1||minutes>1440)throw new ServiceException("一人天必须为1至1440整数分钟");validity(row);row.put("userName",userName);mapper.insertUnitPolicy(row);return mapper.selectUnitPolicy(id(row.get("unitPolicyId")));
     }
 
+    /** Pure planning calculation shared by budget estimates; it never writes actual work or costs. */
+    public List<Map<String,Object>> plannedWorkDays(Map<String,Object> row)
+    {
+        LocalDate from=date(row.get("planStartDate")),to=date(row.get("planEndDate"));
+        if(to.isBefore(from)||java.time.temporal.ChronoUnit.DAYS.between(from,to)>730)
+            throw new ServiceException("人员参与日期范围不正确或超过两年");
+        Map<String,Object> cal=calendar(row.get("calendarId"),from,to);
+        List<Map<String,Object>> days=new ArrayList<Map<String,Object>>();int totalCapacity=0;
+        for(LocalDate d=from;!d.isAfter(to);d=d.plusDays(1))
+        {
+            int capacity=capacity(cal,d);if(capacity<=0)continue;
+            Map<String,Object> day=new LinkedHashMap<String,Object>();day.put("bizDate",d.toString());day.put("capacityMinutes",capacity);days.add(day);totalCapacity+=capacity;
+        }
+        if(totalCapacity==0)return days;
+        BigDecimal quantity=quantity(row.get("inputQuantity"),false);String inputUnit=code(row.get("inputUnit"));int total;
+        if("PERCENTAGE".equals(inputUnit))
+        {
+            if(quantity.compareTo(new BigDecimal("100"))>0)throw new ServiceException("计划容量比例不能超过100%");
+            total=exactMinutes(quantity.multiply(BigDecimal.valueOf(totalCapacity)).divide(new BigDecimal("100")));
+        }
+        else total=minutes(quantity,inputUnit,integer(unit(row.get("unitPolicyId"),from,to).get("minutesPerDay")));
+        int assigned=0;
+        for(Map<String,Object> day:days){int value=(int)((long)total*integer(day.get("capacityMinutes"))/totalCapacity);day.put("plannedMinutes",value);assigned+=value;}
+        for(int i=0;assigned<total;i=(i+1)%days.size()){Map<String,Object> day=days.get(i);day.put("plannedMinutes",integer(day.get("plannedMinutes"))+1);assigned++;}
+        return days;
+    }
+
     private void normalizeEntry(Map<String,Object> row,boolean correction)
     {
         LocalDate day=date(row.get("bizDate"));Map<String,Object> calendar=calendar(row.get("calendarId"),day,day),unit=unit(row.get("unitPolicyId"),day,day);
@@ -240,7 +284,7 @@ public class BusinessProjectWorkService
     private Long sponsor(BusinessProject p){return p.getSponsorOwnerUserId()==null?p.getInitiatorUserId():p.getSponsorOwnerUserId();}
     private boolean hasMember(List<Map<String,Object>> rows,Long actor){for(Map<String,Object> row:rows)if(actor.equals(id(row.get("userId"))))return true;return false;}
     private BusinessProject lockProject(Long id){BusinessProject p=projectMapper.selectProjectByIdForUpdate(id);requireProject(p);return p;}
-    private void requireProject(BusinessProject p){if(p==null)throw new ServiceException("项目不存在");if(!"ACTUAL_WORK_V1".equals(p.getCostPolicyVersion()))throw new ServiceException("旧项目继续使用原版投入记录");}
+    private void requireProject(BusinessProject p){if(p==null)throw new ServiceException("项目不存在");if(!BusinessMemberDayCostService.enabled(p)&&!"ACTUAL_WORK_V1".equals(p.getCostPolicyVersion()))throw new ServiceException("历史项目仅保留原记录");}
     private void requireOpen(BusinessProject p){BusinessProjectLifecycle.requireAccountingOpen(p);}
     private Map<String,Object> requireEntry(Long id){Map<String,Object> row=mapper.selectEntry(id);if(row==null)throw new ServiceException("工作记录不存在");return row;}
     private void requireVersion(Map<String,Object> row,Map<String,Object> body){if(body.get("version")==null||integer(row.get("version"))!=integer(body.get("version")))throw changed();}

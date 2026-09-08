@@ -57,8 +57,12 @@ class BusinessProjectMapperXmlTest
 
         assertTrue(query.contains("left join sys_user operator_user on operator_user.user_id=event.operator_user_id"));
         assertTrue(query.contains("operator_user.nick_name"));
-        assertTrue(query.contains("operatorAccount"));
+        assertTrue(query.contains("nullif(trim(operator_user.user_name),'') operatorAccount"));
+        assertTrue(!query.contains("event.operator_name) operatorAccount"));
+        assertTrue(!query.contains("operator_user.del_flag='0'"));
         assertTrue(query.contains("left join sys_user subject_user"));
+        assertTrue(query.contains("event.subject_user_id"));
+        assertTrue(query.contains("event.subject_account"));
         assertTrue(query.contains("subjectName"));
     }
 
@@ -131,19 +135,71 @@ class BusinessProjectMapperXmlTest
     }
 
     @Test
-    void terminalGuardReadsTheRealLeaveRequestStatusColumn()
+    void retiredLeaveWorkflowIsAbsentFromPendingQueriesAndWrites()
     {
         InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
         assertNotNull(input);
         String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
             .lines().collect(Collectors.joining("\n"));
-        int start = xml.indexOf("<select id=\"countPendingProjectLeaveRequests\"");
+        assertTrue(!xml.contains("bossPendingLeaveRequest"));
+        assertTrue(!xml.contains("leaveRequestCount"));
+        assertTrue(!xml.contains("insert into biz_staff_leave"));
+        assertTrue(!xml.contains("update biz_staff_leave"));
+        assertTrue(!xml.contains("countPendingProjectLeaveRequests"));
+    }
+
+    @Test
+    void routineQueriesUseVersionedDailyTargetsAndReportSnapshots()
+    {
+        InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
+        assertNotNull(input);
+        String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+        int start = xml.indexOf("<select id=\"selectRoutines\"");
+        int end = xml.indexOf("</select>", start);
+        String query = xml.substring(start, end);
+
+        assertTrue(query.contains("biz_project_routine_daily_target"));
+        assertTrue(query.contains("today_report.target_snapshot"));
+        assertTrue(query.contains("when 'DAILY_DYNAMIC' then daily_target.target_value"));
+        assertTrue(xml.contains("<insert id=\"insertRoutineDailyTarget\""));
+    }
+
+    @Test
+    void staffDirectoryCombinesDataScopeAndManagedMembersBeforePagination()
+    {
+        InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
+        assertNotNull(input);
+        String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+        int start = xml.indexOf("<select id=\"selectStaffDirectory\"");
         int end = xml.indexOf("</select>", start);
         assertTrue(start >= 0 && end > start);
         String query = xml.substring(start, end);
 
-        assertTrue(query.contains("status in ('PENDING','CANCEL_PENDING')"));
-        assertTrue(!query.contains("request_status"));
+        assertTrue(query.contains("select distinct u.user_id"));
+        assertTrue(query.contains("${query.params.dataScope}"));
+        assertTrue(query.contains("p.main_owner_user_id=#{managedOwnerUserId}"));
+        assertTrue(query.contains("m.user_id=u.user_id"));
+        assertTrue(query.contains("coalesce(d.order_num,999999) staff_sort_order"));
+        assertTrue(query.contains("order by staff_sort_order,u.user_id"));
+    }
+
+    @Test
+    void routineActivationPreservesChosenEndDateAndUsesOptimisticVersion()
+    {
+        InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
+        assertNotNull(input);
+        String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+        int start = xml.indexOf("<update id=\"activateRoutine\"");
+        int end = xml.indexOf("</update>", start);
+        assertTrue(start >= 0 && end > start);
+        String query = xml.substring(start, end);
+
+        assertTrue(query.contains("start_date=#{startDate},end_date=#{endDate}"));
+        assertTrue(query.contains("status='VOID' and version=#{version}"));
+        assertTrue(!query.contains("end_date=null"));
     }
 
 }

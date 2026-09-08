@@ -32,6 +32,7 @@ public class BusinessProjectProposal extends BaseEntity
     private String closeMethod;
     private String managementReason;
     private String acceptanceCriteria;
+    private String goalMode;
     private String objective;
     private String applicationReason;
     @JsonFormat(pattern = "yyyy-MM-dd") private Date planStartDate;
@@ -39,16 +40,28 @@ public class BusinessProjectProposal extends BaseEntity
     private String priority;
     private String baseCurrency;
     private BigDecimal budgetLimit;
+    private Map<String,Object> budget;
     private String noBudget;
+    private String budgetMode;
+    private BigDecimal dailyBudgetLimit;
+    private String budgetScope;
+    private BigDecimal startupBudgetLimit;
+    private String budgetReason;
+    private String forecastPeriod;
+    private Integer forecastDays;
     private String revenueModel;
     private BigDecimal estimatedRevenue;
+    private BigDecimal recurringEstimatedRevenue;
     private BigDecimal estimatedExternalCost;
+    private BigDecimal recurringEstimatedExternalCost;
     private BigDecimal estimatedPersonnelCost;
     private BigDecimal estimatedBonusCost;
     private BigDecimal estimatedTaxCost;
     private BigDecimal contingencyCost;
     private BigDecimal estimatedTotalCost;
+    private BigDecimal recurringEstimatedTotalCost;
     private BigDecimal expectedProfit;
+    private BigDecimal recurringExpectedProfit;
     private BigDecimal expectedMargin;
     private BigDecimal breakEvenRevenue;
     private BigDecimal peakCashNeed;
@@ -116,6 +129,8 @@ public class BusinessProjectProposal extends BaseEntity
     public void setManagementReason(String managementReason) { this.managementReason = managementReason; }
     public String getAcceptanceCriteria() { return acceptanceCriteria; }
     public void setAcceptanceCriteria(String acceptanceCriteria) { this.acceptanceCriteria = acceptanceCriteria; }
+    public String getGoalMode() { return goalMode; }
+    public void setGoalMode(String goalMode) { this.goalMode = goalMode; }
     public String getObjective() { return objective; }
     public void setObjective(String objective) { this.objective = objective; }
     public String getApplicationReason() { return applicationReason; }
@@ -129,15 +144,35 @@ public class BusinessProjectProposal extends BaseEntity
     public String getBaseCurrency() { return baseCurrency; }
     public void setBaseCurrency(String baseCurrency) { this.baseCurrency = baseCurrency; }
     public BigDecimal getBudgetLimit() { return budgetLimit; }
+    public Map<String,Object> getBudget() { return budget; }
+    public void setBudget(Map<String,Object> value) { budget=value; }
     public void setBudgetLimit(BigDecimal budgetLimit) { this.budgetLimit = budgetLimit; }
     public String getNoBudget() { return noBudget; }
     public void setNoBudget(String noBudget) { this.noBudget = noBudget; }
+    public String getBudgetMode() { return budgetMode; }
+    public void setBudgetMode(String budgetMode) { this.budgetMode = budgetMode; }
+    public BigDecimal getDailyBudgetLimit() { return dailyBudgetLimit; }
+    public void setDailyBudgetLimit(BigDecimal dailyBudgetLimit) { this.dailyBudgetLimit = dailyBudgetLimit; }
+    public String getBudgetScope() { return budgetScope; }
+    public void setBudgetScope(String budgetScope) { this.budgetScope = budgetScope; }
+    public BigDecimal getStartupBudgetLimit() { return startupBudgetLimit; }
+    public void setStartupBudgetLimit(BigDecimal startupBudgetLimit) { this.startupBudgetLimit = startupBudgetLimit; }
+    public String getBudgetReason() { return budgetReason; }
+    public void setBudgetReason(String budgetReason) { this.budgetReason = budgetReason; }
+    public String getForecastPeriod() { return forecastPeriod; }
+    public void setForecastPeriod(String forecastPeriod) { this.forecastPeriod = forecastPeriod; }
+    public Integer getForecastDays() { return forecastDays; }
+    public void setForecastDays(Integer forecastDays) { this.forecastDays = forecastDays; }
     public String getRevenueModel() { return revenueModel; }
     public void setRevenueModel(String revenueModel) { this.revenueModel = revenueModel; }
     public BigDecimal getEstimatedRevenue() { return estimatedRevenue; }
     public void setEstimatedRevenue(BigDecimal estimatedRevenue) { this.estimatedRevenue = estimatedRevenue; }
+    public BigDecimal getRecurringEstimatedRevenue() { return recurringEstimatedRevenue; }
+    public void setRecurringEstimatedRevenue(BigDecimal recurringEstimatedRevenue) { this.recurringEstimatedRevenue = recurringEstimatedRevenue; }
     public BigDecimal getEstimatedExternalCost() { return estimatedExternalCost; }
     public void setEstimatedExternalCost(BigDecimal estimatedExternalCost) { this.estimatedExternalCost = estimatedExternalCost; }
+    public BigDecimal getRecurringEstimatedExternalCost() { return recurringEstimatedExternalCost; }
+    public void setRecurringEstimatedExternalCost(BigDecimal recurringEstimatedExternalCost) { this.recurringEstimatedExternalCost = recurringEstimatedExternalCost; }
     public BigDecimal getEstimatedPersonnelCost() { return estimatedPersonnelCost; }
     public void setEstimatedPersonnelCost(BigDecimal estimatedPersonnelCost) { this.estimatedPersonnelCost = estimatedPersonnelCost; }
     public BigDecimal getEstimatedBonusCost() { return estimatedBonusCost; }
@@ -148,8 +183,12 @@ public class BusinessProjectProposal extends BaseEntity
     public void setContingencyCost(BigDecimal contingencyCost) { this.contingencyCost = contingencyCost; }
     public BigDecimal getEstimatedTotalCost() { return estimatedTotalCost; }
     public void setEstimatedTotalCost(BigDecimal estimatedTotalCost) { this.estimatedTotalCost = estimatedTotalCost; }
+    public BigDecimal getRecurringEstimatedTotalCost() { return recurringEstimatedTotalCost; }
+    public void setRecurringEstimatedTotalCost(BigDecimal recurringEstimatedTotalCost) { this.recurringEstimatedTotalCost = recurringEstimatedTotalCost; }
     public BigDecimal getExpectedProfit() { return expectedProfit; }
     public void setExpectedProfit(BigDecimal expectedProfit) { this.expectedProfit = expectedProfit; }
+    public BigDecimal getRecurringExpectedProfit() { return recurringExpectedProfit; }
+    public void setRecurringExpectedProfit(BigDecimal recurringExpectedProfit) { this.recurringExpectedProfit = recurringExpectedProfit; }
     public BigDecimal getExpectedMargin() { return expectedMargin; }
     public void setExpectedMargin(BigDecimal expectedMargin) { this.expectedMargin = expectedMargin; }
     public BigDecimal getBreakEvenRevenue() { return breakEvenRevenue; }

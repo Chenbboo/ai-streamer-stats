@@ -17,7 +17,7 @@ class BusinessProjectWorkspaceAccessTest
     {
         BusinessProjectMapper projects=mock(BusinessProjectMapper.class);
         BusinessProjectWorkService service=new BusinessProjectWorkService();ReflectionTestUtils.setField(service,"projectMapper",projects);
-        BusinessProject actual=project(1L,"ACTUAL_WORK_V1"),legacy=project(2L,"LEGACY_V1"),sponsored=project(3L,"ACTUAL_WORK_V1");
+        BusinessProject actual=project(1L,"MEMBER_DAYS_V1"),legacy=project(2L,"LEGACY_V1"),sponsored=project(3L,"MEMBER_DAYS_V1");
         when(projects.selectProjectList(anyMap())).thenAnswer(call->{Map<String,Object> query=call.getArgument(0);assertEquals(7L,query.get("userId"));assertEquals(false,query.get("viewAll"));return Boolean.TRUE.equals(query.get("boss"))?Arrays.asList(actual,sponsored):Arrays.asList(actual,legacy);});
         List<Map<String,Object>> options=service.options(7L,false);
         assertEquals(2,options.size());assertEquals(1L,options.get(0).get("projectId"));assertEquals(3L,options.get(1).get("projectId"));

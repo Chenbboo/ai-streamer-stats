@@ -34,10 +34,10 @@ done
 required=(
   SHA256SUMS ruoyi-admin.jar frontend.tar.gz deploy-release.sh
   ai-streamer-business-ai.conf migrations/preflight_business_upgrade.sql
-  migrations/verify_business_schema.sql migrations/release_gate.sql
+  migrations/verify_business_schema.sql migrations/verify_continuous_operations.sql migrations/release_gate.sql
 )
 for file in "${required[@]}"; do test -s "$stage_dir/$file"; done
-for version in $(seq -w 10 62); do
+for version in $(seq -w 10 74); do
   matches=("$stage_dir/migrations/V0${version}"__*.sql)
   test "${#matches[@]}" = 1
   test -s "${matches[0]}"
@@ -153,6 +153,7 @@ for migration in "$stage_dir"/migrations/V*.sql; do
 done
 
 mysql_query < "$stage_dir/migrations/verify_business_schema.sql" | tee "$backup_dir/verify-after.tsv"
+mysql_query < "$stage_dir/migrations/verify_continuous_operations.sql" | tee "$backup_dir/verify-continuous-after.tsv"
 gate="$(mysql_query < "$stage_dir/migrations/release_gate.sql")"
 test "$gate" = 0
 

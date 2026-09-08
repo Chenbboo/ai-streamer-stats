@@ -38,8 +38,11 @@ import com.ruoyi.business.domain.BusinessProjectMember;
 import com.ruoyi.business.domain.BusinessProjectRisk;
 import com.ruoyi.business.domain.BusinessProjectTask;
 import com.ruoyi.business.domain.BusinessProjectTaskReport;
+import com.ruoyi.business.domain.BusinessProjectProgressReport;
+import com.ruoyi.business.domain.BusinessProjectWorkPeriod;
 import com.ruoyi.business.domain.BusinessProjectRoutine;
 import com.ruoyi.business.domain.BusinessProjectRoutineReport;
+import com.ruoyi.business.domain.BusinessProjectRoutineDailyTarget;
 import com.ruoyi.business.domain.BusinessProjectEffort;
 import com.ruoyi.business.domain.BusinessProjectKpi;
 import com.ruoyi.business.domain.BusinessProjectStaffAllocation;
@@ -82,6 +85,7 @@ class BusinessProjectServiceImplTest
     @BeforeEach
     void currentProjectLockUsesTestFixture()
     {
+        lenient().when(mapper.selectRoutineByIdForUpdate(anyLong())).thenAnswer(call->mapper.selectRoutineById(call.getArgument(0)));
         lenient().when(feishuService.getAuthority(any(),any())).thenReturn(Collections.emptyMap());
         lenient().when(mapper.selectProjectByIdForUpdate(anyLong()))
             .thenAnswer(invocation -> mapper.selectProjectById(invocation.getArgument(0)));
@@ -447,6 +451,25 @@ class BusinessProjectServiceImplTest
         assertEquals(81L,((Map<?,?>)routines.get(0)).get("projectId"));
         assertEquals(82L,((Map<?,?>)routines.get(1)).get("projectId"));
         assertEquals(2,((Map<?,?>)result.get("summary")).get("reportedRoutineCount"));
+    }
+
+    @Test
+    void workDashboardReturnsConfirmedBonusTotalsForParticipatingProjects()
+    {
+        Map<String,Object> first = new HashMap<String,Object>();
+        first.put("projectId", 81L); first.put("projectName", "直播项目");
+        first.put("totalBonus", new BigDecimal("3800.00"));
+        Map<String,Object> second = new HashMap<String,Object>();
+        second.put("projectId", 82L); second.put("projectName", "短视频项目");
+        second.put("totalBonus", BigDecimal.ZERO);
+        when(kpiMapper.selectMemberProjectBonusTotals(147L)).thenReturn(Arrays.asList(first, second));
+
+        Map<String,Object> result = service.workDashboard("DAY", "2026-08-11", 147L);
+
+        List<?> bonuses = (List<?>) result.get("projectBonuses");
+        assertEquals(2, bonuses.size());
+        assertEquals(new BigDecimal("3800.00"), ((Map<?,?>) bonuses.get(0)).get("totalBonus"));
+        verify(kpiMapper).selectMemberProjectBonusTotals(147L);
     }
 
     @Test
@@ -958,6 +981,200 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
+    void assigningOneOffTaskStoresAssigneeAuditSnapshot()
+    {
+        BusinessProject project = project(85L, 9L, "ACTIVE", "APPROVED");
+        when(mapper.selectProjectById(85L)).thenReturn(project);
+        when(mapper.selectMemberRole(85L, 9L)).thenReturn("OWNER");
+        when(mapper.selectMemberRole(85L, 14L)).thenReturn("MEMBER");
+        Map<String, Object> assignee = new HashMap<String, Object>();
+        assignee.put("userId", 14L); assignee.put("userName", "lisi"); assignee.put("nickName", "李四");
+        when(mapper.selectActiveUserById(14L)).thenReturn(assignee);
+
+        BusinessProjectTask task = new BusinessProjectTask();
+        task.setProjectId(85L); task.setTaskName("完成接口联调"); task.setAssigneeUserId(14L);
+        service.saveTask(task, 9L, "zhangsan", false);
+
+        ArgumentCaptor<Map<String, Object>> event = mapCaptor();
+        verify(mapper).insertEvent(event.capture());
+        assertEquals("TASK_SAVE", event.getValue().get("eventType"));
+        assertEquals(14L, event.getValue().get("subjectUserId"));
+        assertEquals("李四", event.getValue().get("subjectName"));
+        assertEquals("lisi", event.getValue().get("subjectAccount"));
+    }
+
+    @Test
+    void assigningRoutineStoresAssigneeAuditSnapshotAndNormalizesFrequency()
+    {
+        BusinessProject project = project(86L, 9L, "ACTIVE", "APPROVED");
+        project.setPlanStartDate(new Date());
+        when(mapper.selectProjectById(86L)).thenReturn(project);
+        when(mapper.selectMemberRole(86L, 9L)).thenReturn("OWNER");
+        when(mapper.selectMemberRole(86L, 14L)).thenReturn("MEMBER");
+        Map<String, Object> assignee = new HashMap<String, Object>();
+        assignee.put("userId", 14L); assignee.put("userName", "lisi"); assignee.put("nickName", "李四");
+        when(mapper.selectActiveUserById(14L)).thenReturn(assignee);
+
+        BusinessProjectRoutine routine = new BusinessProjectRoutine();
+        routine.setProjectId(86L); routine.setRoutineName("每日发布视频"); routine.setFrequency("WEEKLY");
+        routine.setTargetValue(BigDecimal.TEN); routine.setUnit("条"); routine.setAssigneeUserId(14L);
+        service.saveRoutine(routine, 9L, "zhangsan", false);
+
+        assertEquals("DAILY", routine.getFrequency());
+        ArgumentCaptor<Map<String, Object>> event = mapCaptor();
+        verify(mapper).insertEvent(event.capture());
+        assertEquals("ROUTINE_SAVE", event.getValue().get("eventType"));
+        assertEquals(14L, event.getValue().get("subjectUserId"));
+        assertEquals("李四", event.getValue().get("subjectName"));
+        assertEquals("lisi", event.getValue().get("subjectAccount"));
+    }
+
+    @Test
+    void removingOneOffTaskSoftDisablesItAndClosesCurrentExecutionPeriod()
+    {
+        BusinessProject project = project(87L, 9L, "ACTIVE", "APPROVED");
+        BusinessProjectTask task = new BusinessProjectTask();
+        task.setTaskId(701L); task.setProjectId(87L); task.setTaskName("完成接口联调");
+        task.setAssigneeUserId(14L); task.setAssigneeName("李四"); task.setActiveStatus("ACTIVE");
+        when(mapper.selectProjectById(87L)).thenReturn(project);
+        when(mapper.selectMemberRole(87L, 9L)).thenReturn("OWNER");
+        when(mapper.selectTaskById(701L)).thenReturn(task);
+        Map<String, Object> assignee = new HashMap<String, Object>();
+        assignee.put("userId", 14L); assignee.put("userName", "lisi"); assignee.put("nickName", "李四");
+        when(mapper.selectUserAuditSnapshotById(14L)).thenReturn(assignee);
+        when(mapper.voidTask(87L, 701L, "zhangsan")).thenReturn(1);
+
+        service.deleteTask(87L, 701L, 9L, "zhangsan", false);
+
+        verify(mapper).voidTask(87L, 701L, "zhangsan");
+        verify(mapper).closeWorkPeriod(87L, "TASK", 701L, "zhangsan");
+        verify(mapper, never()).countTaskReports(701L);
+        ArgumentCaptor<Map<String, Object>> event = mapCaptor();
+        verify(mapper).insertEvent(event.capture());
+        assertEquals("TASK_VOID", event.getValue().get("eventType"));
+        assertEquals(14L, event.getValue().get("subjectUserId"));
+        assertEquals("李四", event.getValue().get("subjectName"));
+        assertEquals("lisi", event.getValue().get("subjectAccount"));
+    }
+
+    @Test
+    void enablingRoutineOpensASecondExecutionPeriodFromToday()
+    {
+        BusinessProject project = project(88L, 9L, "ACTIVE", "APPROVED");
+        BusinessProjectRoutine retired = new BusinessProjectRoutine();
+        retired.setRoutineId(801L); retired.setProjectId(88L); retired.setRoutineName("每日发布视频");
+        retired.setAssigneeUserId(14L); retired.setAssigneeName("李四"); retired.setStatus("VOID"); retired.setVersion(3);
+        BusinessProjectRoutine enabled = new BusinessProjectRoutine();
+        enabled.setRoutineId(801L); enabled.setProjectId(88L); enabled.setStatus("ACTIVE");
+        when(mapper.selectProjectById(88L)).thenReturn(project);
+        when(mapper.selectRoutineById(801L)).thenReturn(retired, enabled);
+        when(mapper.selectMemberRole(88L, 9L)).thenReturn("OWNER");
+        when(mapper.selectMemberRole(88L, 14L)).thenReturn("MEMBER");
+        Map<String, Object> assignee = new HashMap<String, Object>();
+        assignee.put("userId", 14L); assignee.put("userName", "lisi"); assignee.put("nickName", "李四");
+        when(mapper.selectActiveUserById(14L)).thenReturn(assignee);
+        when(mapper.selectUserAuditSnapshotById(14L)).thenReturn(assignee);
+        when(mapper.activateRoutine(eq(88L), eq(801L), any(Date.class), eq((Date) null), eq(3), eq("zhangsan"))).thenReturn(1);
+
+        BusinessProjectRoutine result = service.enableRoutine(88L, 801L, null, 9L, "zhangsan", false);
+
+        assertEquals("ACTIVE", result.getStatus());
+        ArgumentCaptor<BusinessProjectWorkPeriod> period = ArgumentCaptor.forClass(BusinessProjectWorkPeriod.class);
+        verify(mapper).insertWorkPeriod(period.capture());
+        assertEquals("ROUTINE", period.getValue().getWorkType());
+        assertEquals(801L, period.getValue().getWorkId());
+        assertEquals(14L, period.getValue().getAssigneeUserId());
+        assertTrue(period.getValue().getStartDate() != null);
+        ArgumentCaptor<Map<String, Object>> event = mapCaptor();
+        verify(mapper).insertEvent(event.capture());
+        assertEquals("ROUTINE_ENABLE", event.getValue().get("eventType"));
+        assertEquals(14L, event.getValue().get("subjectUserId"));
+        assertEquals("李四", event.getValue().get("subjectName"));
+        assertEquals("lisi", event.getValue().get("subjectAccount"));
+    }
+
+    @Test
+    void enablingAutoTotalRoutineKeepsFutureEndDateAndRemainingTarget()
+    {
+        BusinessProject project = project(89L, 9L, "ACTIVE", "APPROVED");
+        BusinessProjectRoutine retired = new BusinessProjectRoutine();
+        retired.setRoutineId(802L); retired.setProjectId(89L); retired.setRoutineName("累计发布视频");
+        retired.setTargetMode("AUTO_TOTAL"); retired.setTargetValue(new BigDecimal("100"));
+        retired.setEndDate(java.sql.Date.valueOf("2099-12-31"));
+        retired.setAssigneeUserId(14L); retired.setAssigneeName("李四"); retired.setStatus("VOID"); retired.setVersion(4);
+        BusinessProjectRoutine enabled = new BusinessProjectRoutine();
+        enabled.setRoutineId(802L); enabled.setProjectId(89L); enabled.setStatus("ACTIVE");
+        when(mapper.selectProjectById(89L)).thenReturn(project);
+        when(mapper.selectRoutineById(802L)).thenReturn(retired, enabled);
+        when(mapper.selectMemberRole(89L, 9L)).thenReturn("OWNER");
+        when(mapper.selectMemberRole(89L, 14L)).thenReturn("MEMBER");
+        Map<String, Object> assignee = new HashMap<String, Object>();
+        assignee.put("userId", 14L); assignee.put("userName", "lisi"); assignee.put("nickName", "李四");
+        when(mapper.selectActiveUserById(14L)).thenReturn(assignee);
+        when(mapper.selectUserAuditSnapshotById(14L)).thenReturn(assignee);
+        when(mapper.sumRoutineActualBefore(eq(802L), any(Date.class))).thenReturn(new BigDecimal("40"));
+        when(mapper.activateRoutine(eq(89L), eq(802L), any(Date.class),
+            eq(java.sql.Date.valueOf("2099-12-31")), eq(4), eq("zhangsan"))).thenReturn(1);
+
+        BusinessProjectRoutine result = service.enableRoutine(89L, 802L, null, 9L, "zhangsan", false);
+
+        assertEquals("ACTIVE", result.getStatus());
+        verify(mapper).activateRoutine(eq(89L), eq(802L), any(Date.class),
+            eq(java.sql.Date.valueOf("2099-12-31")), eq(4), eq("zhangsan"));
+    }
+
+    @Test
+    void expiredAutoTotalRoutineRequiresANewEndDate()
+    {
+        BusinessProject project = project(90L, 9L, "ACTIVE", "APPROVED");
+        BusinessProjectRoutine retired = new BusinessProjectRoutine();
+        retired.setRoutineId(803L); retired.setProjectId(90L); retired.setTargetMode("AUTO_TOTAL");
+        retired.setTargetValue(new BigDecimal("100")); retired.setEndDate(java.sql.Date.valueOf("2020-01-01"));
+        retired.setAssigneeUserId(14L); retired.setStatus("VOID"); retired.setVersion(1);
+        when(mapper.selectProjectById(90L)).thenReturn(project);
+        when(mapper.selectRoutineById(803L)).thenReturn(retired);
+        when(mapper.selectMemberRole(90L, 9L)).thenReturn("OWNER");
+        when(mapper.selectMemberRole(90L, 14L)).thenReturn("MEMBER");
+        when(mapper.selectActiveUserById(14L)).thenReturn(new HashMap<String, Object>());
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.enableRoutine(90L, 803L, null, 9L, "zhangsan", false));
+
+        assertTrue(error.getMessage().contains("选择新的结束日期"));
+        verify(mapper, never()).activateRoutine(anyLong(), anyLong(), any(Date.class), any(Date.class), any(), any());
+    }
+
+    @Test
+    void expiredAutoTotalRoutineCanRestartWithANewEndDate()
+    {
+        BusinessProject project = project(91L, 9L, "ACTIVE", "APPROVED");
+        BusinessProjectRoutine retired = new BusinessProjectRoutine();
+        retired.setRoutineId(804L); retired.setProjectId(91L); retired.setRoutineName("累计发布视频");
+        retired.setTargetMode("AUTO_TOTAL"); retired.setTargetValue(new BigDecimal("100"));
+        retired.setEndDate(java.sql.Date.valueOf("2020-01-01"));
+        retired.setAssigneeUserId(14L); retired.setAssigneeName("李四"); retired.setStatus("VOID"); retired.setVersion(2);
+        BusinessProjectRoutine enabled = new BusinessProjectRoutine();
+        enabled.setRoutineId(804L); enabled.setProjectId(91L); enabled.setStatus("ACTIVE");
+        when(mapper.selectProjectById(91L)).thenReturn(project);
+        when(mapper.selectRoutineById(804L)).thenReturn(retired, enabled);
+        when(mapper.selectMemberRole(91L, 9L)).thenReturn("OWNER");
+        when(mapper.selectMemberRole(91L, 14L)).thenReturn("MEMBER");
+        Map<String, Object> assignee = new HashMap<String, Object>();
+        assignee.put("userId", 14L); assignee.put("userName", "lisi"); assignee.put("nickName", "李四");
+        when(mapper.selectActiveUserById(14L)).thenReturn(assignee);
+        when(mapper.selectUserAuditSnapshotById(14L)).thenReturn(assignee);
+        when(mapper.sumRoutineActualBefore(eq(804L), any(Date.class))).thenReturn(new BigDecimal("40"));
+        Date newEndDate = java.sql.Date.valueOf("2099-12-31");
+        when(mapper.activateRoutine(eq(91L), eq(804L), any(Date.class), eq(newEndDate), eq(2), eq("zhangsan")))
+            .thenReturn(1);
+
+        BusinessProjectRoutine result = service.enableRoutine(91L, 804L, newEndDate, 9L, "zhangsan", false);
+
+        assertEquals("ACTIVE", result.getStatus());
+        verify(mapper).activateRoutine(eq(91L), eq(804L), any(Date.class), eq(newEndDate), eq(2), eq("zhangsan"));
+    }
+
+    @Test
     void projectOwnerCannotApproveResultAcceptance()
     {
         BusinessProject pending = project(83L, 9L, "ACCEPTANCE", "APPROVED");
@@ -1154,6 +1371,123 @@ class BusinessProjectServiceImplTest
 
         assertTrue(error.getMessage().contains("未达到周期目标"));
         verify(mapper, never()).upsertRoutineReport(any());
+    }
+
+    @Test
+    void ownerCanPublishDynamicDailyTargetWithAssigneeSnapshot()
+    {
+        BusinessProject project = project(74L, 9L, "ACTIVE", "APPROVED");
+        BusinessProjectRoutine routine = new BusinessProjectRoutine();
+        routine.setRoutineId(111L); routine.setProjectId(74L); routine.setTargetMode("DAILY_DYNAMIC");
+        routine.setStatus("ACTIVE"); routine.setUnit("条"); routine.setAssigneeUserId(147L);
+        routine.setAssigneeName("李四"); routine.setStartDate(new Date(0));
+        when(mapper.selectRoutineById(111L)).thenReturn(routine);
+        when(mapper.selectProjectById(74L)).thenReturn(project);
+        when(mapper.selectMemberRole(74L, 9L)).thenReturn("OWNER");
+
+        BusinessProjectRoutineDailyTarget target = new BusinessProjectRoutineDailyTarget();
+        target.setRoutineId(111L); target.setTargetValue(new BigDecimal("12"));
+        target.setCustomerRequirement("客户要求今天交付12条");
+
+        service.saveRoutineDailyTarget(target, 9L, "owner9", false);
+
+        ArgumentCaptor<BusinessProjectRoutineDailyTarget> captor = ArgumentCaptor.forClass(BusinessProjectRoutineDailyTarget.class);
+        verify(mapper).insertRoutineDailyTarget(captor.capture());
+        assertEquals(147L, captor.getValue().getAssigneeUserId());
+        assertEquals("李四", captor.getValue().getAssigneeName());
+        assertEquals(1, captor.getValue().getTargetVersion());
+    }
+
+    @Test
+    void dynamicRoutineCannotBeReportedBeforeOwnerPublishesTarget()
+    {
+        BusinessProject project = project(74L, 9L, "ACTIVE", "APPROVED");
+        BusinessProjectRoutine routine = new BusinessProjectRoutine();
+        routine.setRoutineId(112L); routine.setProjectId(74L); routine.setTargetMode("DAILY_DYNAMIC");
+        routine.setStatus("ACTIVE"); routine.setUnit("条"); routine.setAssigneeUserId(9L);
+        when(mapper.selectRoutineById(112L)).thenReturn(routine);
+        when(mapper.selectProjectById(74L)).thenReturn(project);
+        BusinessProjectRoutineReport report = new BusinessProjectRoutineReport();
+        report.setRoutineId(112L); report.setActualValue(BigDecimal.ONE);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.submitRoutineReport(report, 9L, "owner9", false));
+
+        assertTrue(error.getMessage().contains("尚未下达今日目标"));
+        verify(mapper, never()).upsertRoutineReport(any());
+    }
+
+    @Test
+    void dailyTargetCannotChangeAfterEmployeeReportAndUsesLockedCurrentRoutine()
+    {
+        BusinessProjectRoutine routine=new BusinessProjectRoutine();routine.setRoutineId(111L);routine.setProjectId(74L);
+        routine.setStatus("ACTIVE");routine.setTargetMode("DAILY_DYNAMIC");routine.setStartDate(new Date(0));
+        when(mapper.selectRoutineById(111L)).thenReturn(routine);
+        when(mapper.selectProjectById(74L)).thenReturn(project(74L,9L,"ACTIVE","APPROVED"));
+        when(mapper.selectMemberRole(74L,9L)).thenReturn("OWNER");
+        when(mapper.selectRoutineReport(eq(111L),any(Date.class))).thenReturn(new BusinessProjectRoutineReport());
+        BusinessProjectRoutineDailyTarget target=new BusinessProjectRoutineDailyTarget();target.setRoutineId(111L);target.setTargetValue(BigDecimal.TEN);
+        assertTrue(assertThrows(ServiceException.class,()->service.saveRoutineDailyTarget(target,9L,"owner9",false)).getMessage().contains("不能再修改"));
+        verify(mapper).selectProjectByIdForUpdate(74L);verify(mapper).selectRoutineByIdForUpdate(111L);
+        verify(mapper,never()).insertRoutineDailyTarget(any());verify(mapper,never()).supersedeRoutineDailyTarget(anyLong(),any());
+    }
+
+    @Test
+    void dailyTargetRevisionRetainsPreviousVersionAndRequiresReason()
+    {
+        BusinessProjectRoutine routine=new BusinessProjectRoutine();routine.setRoutineId(111L);routine.setProjectId(74L);
+        routine.setStatus("ACTIVE");routine.setTargetMode("DAILY_DYNAMIC");routine.setStartDate(new Date(0));routine.setUnit("条");
+        when(mapper.selectRoutineById(111L)).thenReturn(routine);
+        when(mapper.selectProjectById(74L)).thenReturn(project(74L,9L,"ACTIVE","APPROVED"));
+        when(mapper.selectMemberRole(74L,9L)).thenReturn("OWNER");
+        BusinessProjectRoutineDailyTarget previous=new BusinessProjectRoutineDailyTarget();previous.setDailyTargetId(20L);previous.setTargetVersion(2);
+        when(mapper.selectCurrentRoutineDailyTarget(eq(111L),any(Date.class))).thenReturn(previous);
+        BusinessProjectRoutineDailyTarget target=new BusinessProjectRoutineDailyTarget();target.setRoutineId(111L);target.setTargetValue(BigDecimal.TEN);
+        assertThrows(ServiceException.class,()->service.saveRoutineDailyTarget(target,9L,"owner9",false));
+        verify(mapper,never()).supersedeRoutineDailyTarget(anyLong(),any());
+        target.setChangeReason("客户追加目标");when(mapper.supersedeRoutineDailyTarget(20L,"owner9")).thenReturn(1);
+        service.saveRoutineDailyTarget(target,9L,"owner9",false);
+        assertEquals(3,target.getTargetVersion());assertEquals(2,previous.getTargetVersion());verify(mapper).insertRoutineDailyTarget(target);
+    }
+
+    @Test
+    void dynamicRoutineReportStoresPublishedTargetSnapshot()
+    {
+        BusinessProject project = project(74L, 9L, "ACTIVE", "APPROVED");
+        BusinessProjectRoutine routine = new BusinessProjectRoutine();
+        routine.setRoutineId(113L); routine.setProjectId(74L); routine.setTargetMode("DAILY_DYNAMIC");
+        routine.setStatus("ACTIVE"); routine.setUnit("条"); routine.setAssigneeUserId(9L);
+        BusinessProjectRoutineDailyTarget daily = new BusinessProjectRoutineDailyTarget();
+        daily.setTargetValue(new BigDecimal("12"));
+        Map<String, Object> user = new HashMap<String, Object>(); user.put("nickName", "员工九");
+        when(mapper.selectRoutineById(113L)).thenReturn(routine);
+        when(mapper.selectProjectById(74L)).thenReturn(project);
+        when(mapper.selectCurrentRoutineDailyTarget(eq(113L), any(Date.class))).thenReturn(daily);
+        when(mapper.selectActiveUserById(9L)).thenReturn(user);
+        BusinessProjectRoutineReport report = new BusinessProjectRoutineReport();
+        report.setRoutineId(113L); report.setActualValue(new BigDecimal("12"));
+
+        service.submitRoutineReport(report, 9L, "owner9", false);
+
+        ArgumentCaptor<BusinessProjectRoutineReport> captor = ArgumentCaptor.forClass(BusinessProjectRoutineReport.class);
+        verify(mapper).upsertRoutineReport(captor.capture());
+        assertEquals(new BigDecimal("12"), captor.getValue().getTargetSnapshot());
+    }
+
+    @Test
+    void noTotalProjectRejectsPercentageProgressReport()
+    {
+        BusinessProject project = project(74L, 9L, "ACTIVE", "APPROVED");
+        project.setGoalMode("NO_TOTAL");
+        when(mapper.selectProjectById(74L)).thenReturn(project);
+        BusinessProjectProgressReport report = new BusinessProjectProgressReport();
+        report.setProjectId(74L); report.setProgress(20);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.submitProjectProgressReport(report, 9L, "owner9", false));
+
+        assertTrue(error.getMessage().contains("无需填写项目完成百分比"));
+        verify(mapper, never()).upsertProjectProgressReport(any());
     }
 
     @Test
@@ -1511,6 +1845,7 @@ class BusinessProjectServiceImplTest
 
         BusinessStaffCostPolicy input = new BusinessStaffCostPolicy();
         input.setUserId(147L); input.setUnitCost(new BigDecimal("10000"));
+        input.setStandardWorkDays(new BigDecimal("30")); input.setRateMinutesPerDay(360);
         input.setEffectiveFrom(java.sql.Date.valueOf("2026-08-19"));
 
         BusinessStaffCostPolicy saved = service.saveStaffCostPolicy(input, 8L, "boss8", true);
@@ -1519,6 +1854,7 @@ class BusinessProjectServiceImplTest
         assertEquals("CNY", saved.getCurrency());
         assertEquals("CN", saved.getCountryRegion());
         assertEquals(new BigDecimal("21.75"), saved.getStandardWorkDays());
+        assertEquals(Integer.valueOf(480), saved.getRateMinutesPerDay());
         verify(mapper).insertStaffCostPolicy(saved);
     }
 
@@ -1528,8 +1864,10 @@ class BusinessProjectServiceImplTest
         BusinessProjectProposal proposal=new BusinessProjectProposal();proposal.setProposalId(66L);proposal.setProjectName("基础交付项目");proposal.setTemplateVersion("LIGHT_V1");proposal.setApplicantUserId(9L);proposal.setSponsorOwnerUserId(23L);proposal.setManagementMode("LIGHT");proposal.setAcceptanceCriteria("交付文件");
         when(mapper.selectActiveUserById(9L)).thenReturn(Collections.singletonMap("nickName","负责人"));when(mapper.selectActiveUserById(23L)).thenReturn(Collections.singletonMap("nickName","归属老板"));
         final BusinessProject[] stored=new BusinessProject[1];doAnswer(call->{stored[0]=call.getArgument(0);stored[0].setProjectId(88L);return 1;}).when(mapper).insertProject(any());when(mapper.selectProjectById(88L)).thenAnswer(call->stored[0]);
+        doAnswer(call->{((BusinessProjectTask)call.getArgument(0)).setTaskId(123L);return 1;}).when(mapper).insertTask(any());
         BusinessProject created=service.createApprovedProject(proposal,9L,"owner");ArgumentCaptor<Map<String,Object>> baseline=mapCaptor();verify(workMapper).insertBaseline(baseline.capture());
-        assertEquals(Integer.valueOf(1),created.getBaselineVersion());assertEquals(created.getBaselineVersion(),baseline.getValue().get("baselineVersion"));assertEquals("ACTUAL_WORK_V1",created.getCostPolicyVersion());
+        assertEquals(Integer.valueOf(1),created.getBaselineVersion());assertEquals(created.getBaselineVersion(),baseline.getValue().get("baselineVersion"));assertEquals("MEMBER_DAYS_V1",created.getCostPolicyVersion());
+        ArgumentCaptor<BusinessProjectWorkPeriod> initialPeriod=ArgumentCaptor.forClass(BusinessProjectWorkPeriod.class);verify(mapper).insertWorkPeriod(initialPeriod.capture());assertEquals(123L,initialPeriod.getValue().getWorkId());assertEquals("TASK",initialPeriod.getValue().getWorkType());
     }
 
     @Test
@@ -1542,15 +1880,39 @@ class BusinessProjectServiceImplTest
         when(mapper.selectStaffCountryRegion(147L)).thenReturn("OTHER");
         BusinessStaffCostPolicy input=new BusinessStaffCostPolicy();input.setUserId(147L);input.setCostMode("DAILY");input.setCurrency("USD");input.setUnitCost(new BigDecimal("100"));input.setRateMinutesPerDay(360);input.setEffectiveFrom(java.sql.Date.valueOf("2026-09-01"));
         BusinessStaffCostPolicy saved=service.saveStaffCostPolicy(input,80L,"finance",true);
-        assertEquals("DAILY",saved.getCostMode());assertEquals("USD",saved.getCurrency());assertEquals(Integer.valueOf(360),saved.getRateMinutesPerDay());assertEquals(null,saved.getStandardWorkDays());
+        assertEquals("DAILY",saved.getCostMode());assertEquals("USD",saved.getCurrency());assertEquals(Integer.valueOf(480),saved.getRateMinutesPerDay());assertEquals(null,saved.getStandardWorkDays());
         when(mapper.selectStaffCompanyId(147L)).thenReturn(222L);assertThrows(ServiceException.class,()->service.saveStaffCostPolicy(input,80L,"finance",true));
     }
 
     @Test
-    void projectResponsibilityWithoutIndependentRatePermissionCannotReadUnitRates()
+    void projectResponsibilityCanReadMemberRatesWithoutIndependentRatePermission()
     {
         when(mapper.selectManagedProjectMemberUserIds(10L)).thenReturn(Collections.singletonList(147L));
-        assertThrows(ServiceException.class,()->service.staffCostPolicies(147L,10L,false));verify(mapper,never()).selectStaffCostPolicies(anyLong());
+        when(mapper.selectActiveUserById(147L)).thenReturn(Collections.singletonMap("nickName","项目成员"));
+        when(mapper.countManagedProjectMember(10L,147L)).thenReturn(1);
+        when(mapper.selectStaffCostPolicies(147L)).thenReturn(Collections.singletonList(new BusinessStaffCostPolicy()));
+        assertEquals(1,service.staffCostPolicies(147L,10L,false).size());
+    }
+
+    @Test
+    void projectOwnerCannotReadOrWriteCostForUnmanagedMember()
+    {
+        when(mapper.selectManagedProjectMemberUserIds(10L)).thenReturn(Collections.singletonList(147L));
+        when(mapper.selectActiveUserById(148L)).thenReturn(Collections.singletonMap("nickName","其他人员"));
+        assertThrows(ServiceException.class,()->service.staffCostPolicies(148L,10L,false));
+        BusinessStaffCostPolicy input=new BusinessStaffCostPolicy();input.setUserId(148L);
+        assertThrows(ServiceException.class,()->service.saveStaffCostPolicy(input,10L,"owner",false));
+        verify(mapper,never()).selectStaffCostPolicies(anyLong());
+        verify(mapper,never()).insertStaffCostPolicy(any());
+    }
+
+    @Test
+    void ordinaryStaffCannotUseCostApiWithDirectoryPermissionOnly()
+    {
+        assertThrows(ServiceException.class,()->service.staffCostPolicies(147L,10L,false));
+        assertThrows(ServiceException.class,()->service.staffCostOptions(10L,false));
+        verify(mapper,never()).selectStaffCostPolicies(anyLong());
+        verify(mapper,never()).selectStaffCostOptions(any());
     }
 
     @Test
@@ -1566,6 +1928,7 @@ class BusinessProjectServiceImplTest
 
         BusinessStaffCostPolicy input = new BusinessStaffCostPolicy();
         input.setUserId(148L); input.setUnitCost(new BigDecimal("13000"));
+        input.setStandardWorkDays(new BigDecimal("21.75"));
         input.setEffectiveFrom(java.sql.Date.valueOf("2026-08-19"));
 
         BusinessStaffCostPolicy saved = service.saveStaffCostPolicy(input, 8L, "boss8", true);
@@ -1620,7 +1983,7 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
-    void otherStaffRegionRequiresExplicitMonthlyDayBasis()
+    void otherStaffRegionCannotOverrideMonthlyDayBasis()
     {
         Map<String, Object> staff = new HashMap<String, Object>();
         staff.put("nickName", "其他地区员工");
@@ -1629,13 +1992,13 @@ class BusinessProjectServiceImplTest
         when(mapper.selectStaffCompanyLeaderUserId(149L, true)).thenReturn(8L);
         when(mapper.selectStaffCountryRegion(149L)).thenReturn("OTHER");
         BusinessStaffCostPolicy input = new BusinessStaffCostPolicy();
-        input.setUserId(149L); input.setUnitCost(new BigDecimal("9000"));
+        input.setUserId(149L); input.setUnitCost(new BigDecimal("9000")); input.setStandardWorkDays(new BigDecimal("22"));
         input.setEffectiveFrom(java.sql.Date.valueOf("2026-08-19"));
 
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.saveStaffCostPolicy(input, 8L, "boss8", true));
 
-        assertTrue(error.getMessage().contains("标准工作天数"));
+        assertTrue(error.getMessage().contains("国家/地区"));
         verify(mapper, never()).insertStaffCostPolicy(any());
     }
 
@@ -1662,7 +2025,6 @@ class BusinessProjectServiceImplTest
     {
         Map<String, Object> staff = new HashMap<String, Object>();
         staff.put("nickName", "项目成员");
-        when(mapper.countUserRoleByKey(134L, "company_owner")).thenReturn(0);
         when(mapper.selectManagedProjectMemberUserIds(134L)).thenReturn(Arrays.asList(147L));
         when(mapper.countManagedProjectMember(134L, 147L)).thenReturn(1);
         when(mapper.selectActiveUserById(147L)).thenReturn(staff);
@@ -1672,7 +2034,7 @@ class BusinessProjectServiceImplTest
         input.setUserId(147L); input.setUnitCost(new BigDecimal("8000"));
         input.setEffectiveFrom(java.sql.Date.valueOf("2026-09-03"));
 
-        BusinessStaffCostPolicy saved = service.saveStaffCostPolicy(input, 134L, "zhangsan", true);
+        BusinessStaffCostPolicy saved = service.saveStaffCostPolicy(input, 134L, "zhangsan", false);
 
         assertEquals(Integer.valueOf(2), saved.getPolicyVersion());
         verify(mapper, never()).selectStaffCompanyLeaderUserId(anyLong(),
@@ -1706,6 +2068,7 @@ class BusinessProjectServiceImplTest
         when(mapper.selectStaffCompanyLeaderUserId(147L, true)).thenReturn(120L);
         BusinessStaffCostPolicy input = new BusinessStaffCostPolicy();
         input.setUserId(147L); input.setUnitCost(new BigDecimal("10000"));
+        input.setStandardWorkDays(new BigDecimal("30")); input.setRateMinutesPerDay(360);
         input.setEffectiveFrom(java.sql.Date.valueOf("2026-08-20"));
 
         ServiceException error = assertThrows(ServiceException.class,
@@ -1725,7 +2088,7 @@ class BusinessProjectServiceImplTest
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.saveStaffCostPolicy(input, 88L, "staff88", true));
 
-        assertTrue(error.getMessage().contains("范围授权"));
+        assertTrue(error.getMessage().contains("负责人"));
         verify(mapper, never()).selectActiveUserById(any());
         verify(mapper, never()).insertStaffCostPolicy(any());
     }
@@ -1752,6 +2115,7 @@ class BusinessProjectServiceImplTest
         assertEquals("MONTHLY", saved.getCostMode());
         assertEquals("CNY", saved.getCurrency());
         assertEquals(new BigDecimal("21.75"), saved.getStandardWorkDays());
+        assertEquals(Integer.valueOf(480), saved.getRateMinutesPerDay());
         verify(mapper).insertStaffCostPolicy(saved);
     }
 
@@ -2032,109 +2396,6 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
-    void projectOwnerSubmitsLeaveRequestWithoutChangingPersonnelCost()
-    {
-        BusinessProject project = project(90L,9L,"ACTIVE","APPROVED");
-        when(mapper.selectProjectById(90L)).thenReturn(project);
-        when(mapper.selectMemberRole(90L,9L)).thenReturn("OWNER");
-        when(mapper.selectMemberRole(90L,147L)).thenReturn("MEMBER");
-        Map<String,Object> staff = new HashMap<String,Object>(); staff.put("nickName","石头");
-        Map<String,Object> owner = new HashMap<String,Object>(); owner.put("nickName","蒋豪");
-        when(mapper.selectActiveUserById(147L)).thenReturn(staff);
-        when(mapper.selectActiveUserById(9L)).thenReturn(owner);
-        doAnswer(invocation -> { invocation.<Map<String,Object>>getArgument(0).put("requestId",BigInteger.valueOf(701L)); return 1; })
-            .when(mapper).insertLeaveRequest(any());
-        Map<String,Object> stored = new HashMap<String,Object>(); stored.put("status","PENDING");
-        when(mapper.selectLeaveRequestById(701L)).thenReturn(stored);
-
-        Map<String,Object> result = service.markMemberLeave(90L,147L,new Date(),"病假",
-            9L,"owner9",false);
-
-        assertEquals(stored,result);
-        verify(mapper).insertLeaveRequest(any());
-        verify(mapper,never()).upsertStaffLeave(any());
-        verify(accountingService,never()).recalculatePersonnelCost(anyLong(),any(),any());
-        verify(mapper).insertEvent(any());
-    }
-
-    @Test
-    void bossApprovalActivatesLeaveAndRecalculatesEveryAllocatedProject()
-    {
-        Date day = new Date();
-        BusinessProject project = project(90L,9L,"ACTIVE","APPROVED"); project.setSponsorOwnerUserId(8L);
-        BusinessProject other = project(91L,10L,"ACTIVE","APPROVED"); other.setSponsorOwnerUserId(8L);
-        when(mapper.selectProjectById(90L)).thenReturn(project);
-        when(mapper.selectProjectById(91L)).thenReturn(other);
-        Map<String,Object> request = new HashMap<String,Object>();
-        request.put("requestId",701L); request.put("status","PENDING"); request.put("version",0);
-        request.put("submittedProjectId",90L); request.put("submittedUserId",9L); request.put("submittedUserName","蒋豪");
-        request.put("userId",147L); request.put("userName","石头"); request.put("startDate",day); request.put("endDate",day);
-        request.put("leaveType","SICK"); request.put("reason","病假");
-        Map<String,Object> approved = new HashMap<String,Object>(request); approved.put("status","APPROVED");
-        when(mapper.selectLeaveRequestById(701L)).thenReturn(request,approved);
-        Map<String,Object> bossUser = new HashMap<String,Object>(); bossUser.put("nickName","老板");
-        when(mapper.selectActiveUserById(8L)).thenReturn(bossUser);
-        when(mapper.reviewLeaveRequest(eq(701L),eq("PENDING"),eq("APPROVED"),eq(8L),eq("老板"),any(),eq("boss8"),eq(0))).thenReturn(1);
-        when(mapper.selectAllocatedProjectIdsForUserDate(eq(147L),any(Date.class))).thenReturn(Arrays.asList(90L,91L));
-
-        Map<String,Object> result = service.reviewMemberLeaveRequest(701L,"APPROVED","同意",
-            8L,"boss8",true);
-
-        assertEquals("APPROVED",result.get("status"));
-        verify(mapper).upsertStaffLeave(any());
-        verify(accountingService).recalculatePersonnelCost(eq(90L),any(Date.class),eq("boss8"));
-        verify(accountingService).recalculatePersonnelCost(eq(91L),any(Date.class),eq("boss8"));
-        verify(mapper,times(2)).insertEvent(any());
-    }
-
-    @Test
-    void bossCannotApproveLeaveWhenWorkWasAlreadySubmittedForThatDate()
-    {
-        Date day = new Date();
-        BusinessProject project = project(90L,9L,"ACTIVE","APPROVED"); project.setSponsorOwnerUserId(8L);
-        when(mapper.selectProjectById(90L)).thenReturn(project);
-        Map<String,Object> request = new HashMap<String,Object>();
-        request.put("requestId",703L); request.put("status","PENDING"); request.put("version",0);
-        request.put("submittedProjectId",90L); request.put("userId",147L); request.put("userName","石头");
-        request.put("startDate",day); request.put("endDate",day);
-        when(mapper.selectLeaveRequestById(703L)).thenReturn(request);
-        Map<String,Object> conflict = new HashMap<String,Object>(); conflict.put("taskReportCount",1);
-        when(mapper.selectLeaveWorkConflictSummary(eq(147L),any(Date.class),any(Date.class))).thenReturn(conflict);
-
-        ServiceException error = assertThrows(ServiceException.class,
-            () -> service.reviewMemberLeaveRequest(703L,"APPROVED","同意",8L,"boss8",true));
-
-        assertTrue(error.getMessage().contains("已有工作填报"));
-        verify(mapper,never()).reviewLeaveRequest(any(),any(),any(),any(),any(),any(),any(),any());
-        verify(mapper,never()).upsertStaffLeave(any());
-    }
-
-    @Test
-    void cancellationApprovalUsesSeparateAuditAndOnlyCancelsItsOwnLeaveRows()
-    {
-        Date day = new Date();
-        BusinessProject project = project(90L,9L,"ACTIVE","APPROVED"); project.setSponsorOwnerUserId(8L);
-        when(mapper.selectProjectById(90L)).thenReturn(project);
-        Map<String,Object> request = new HashMap<String,Object>();
-        request.put("requestId",702L); request.put("status","CANCEL_PENDING"); request.put("version",2);
-        request.put("submittedProjectId",90L); request.put("userId",147L); request.put("userName","石头");
-        request.put("startDate",day); request.put("endDate",day);
-        Map<String,Object> canceled = new HashMap<String,Object>(request); canceled.put("status","CANCELED");
-        when(mapper.selectLeaveRequestById(702L)).thenReturn(request,canceled);
-        Map<String,Object> bossUser = new HashMap<String,Object>(); bossUser.put("nickName","老板");
-        when(mapper.selectActiveUserById(8L)).thenReturn(bossUser);
-        when(mapper.reviewLeaveCancellation(eq(702L),eq("CANCELED"),eq(8L),eq("老板"),
-            eq("同意撤销"),eq("boss8"),eq(2))).thenReturn(1);
-
-        Map<String,Object> result = service.reviewMemberLeaveRequest(702L,"APPROVED","同意撤销",
-            8L,"boss8",true);
-
-        assertEquals("CANCELED",result.get("status"));
-        verify(mapper).cancelActiveStaffLeaveRange(eq(702L),eq(147L),any(Date.class),any(Date.class),eq("boss8"));
-        verify(mapper,never()).reviewLeaveRequest(eq(702L),any(),any(),any(),any(),any(),any(),any());
-    }
-
-    @Test
     void projectOwnerConfirmsOneMembersTodayEffort()
     {
         BusinessProject project = project(90L,9L,"ACTIVE","APPROVED");
@@ -2280,6 +2541,16 @@ class BusinessProjectServiceImplTest
         assertEquals("CLOSED", service.settlementStatus(901L, 8L, false, true).get("accountingState"));
         assertThrows(ServiceException.class, () -> service.closeAccounting(901L, 0, "关闭", 8L, "boss8", true));
         verify(mapper, never()).closeAccounting(anyLong(), any(Integer.class), any(String.class));
+    }
+
+    @Test
+    void settlementNoLongerExposesLocalLeaveApprovalBlockers()
+    {
+        when(mapper.selectProjectById(901L)).thenReturn(separatedClosedProject());
+        Map<String,Object> status=service.settlementStatus(901L,8L,false,true);
+        assertEquals(true,status.get("canClose"));
+        assertEquals(false,status.containsKey("pendingLeaveCount"));
+        assertTrue(((List<?>)status.get("blockers")).isEmpty());
     }
 
     private BusinessProject separatedClosedProject()

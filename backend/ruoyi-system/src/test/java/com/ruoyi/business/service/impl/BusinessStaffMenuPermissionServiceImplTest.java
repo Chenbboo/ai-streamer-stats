@@ -41,7 +41,7 @@ class BusinessStaffMenuPermissionServiceImplTest
 
     @SuppressWarnings("unchecked")
     @Test
-    void companyOwnerCanDelegateEveryModuleWithoutOwningItsRole()
+    void companyOwnerCannotDelegateModulesOutsideTargetRole()
     {
         SysUser target = new SysUser();
         target.setUserId(200L);
@@ -69,7 +69,6 @@ class BusinessStaffMenuPermissionServiceImplTest
         when(permissionResolver.selectAllActiveMenus()).thenReturn(menus);
         when(permissionResolver.selectRoleMenuIds(200L)).thenReturn(Collections.emptySet());
         when(permissionResolver.selectEffectiveMenuIds(200L, false)).thenReturn(Collections.emptySet());
-        when(permissionResolver.selectEffectiveMenuIds(120L, false)).thenReturn(Collections.emptySet());
         when(permissionResolver.hasExplicitPolicy(200L)).thenReturn(false);
 
         Map<String, Object> result = service.getMenuPermissions(200L, 120L, false);
@@ -78,9 +77,9 @@ class BusinessStaffMenuPermissionServiceImplTest
         for (Map<String, Object> root : roots)
         {
             List<Map<String, Object>> children = (List<Map<String, Object>>) root.get("children");
-            assertEquals("MAINTAIN", root.get("maxLevel"));
+            assertEquals("HIDDEN", root.get("maxLevel"));
             for (Map<String, Object> child : children)
-                assertEquals("MAINTAIN", child.get("maxLevel"));
+                assertEquals("HIDDEN", child.get("maxLevel"));
         }
     }
 
@@ -97,7 +96,7 @@ class BusinessStaffMenuPermissionServiceImplTest
             menu(3001L, 3000L, "C", "product", "jewelry:product:list"));
         Map<String, Object> pagePermission = new HashMap<String, Object>();
         pagePermission.put("menuId", 3001L);
-        pagePermission.put("accessLevel", "MAINTAIN");
+        pagePermission.put("accessLevel", "READ");
 
         BusinessStaffProfile profile = new BusinessStaffProfile();
         profile.setCompanyLeaderUserId(120L);
@@ -106,8 +105,9 @@ class BusinessStaffMenuPermissionServiceImplTest
         when(projectMapper.countUserRoleByKey(120L, "company_owner")).thenReturn(1);
         when(profileMapper.selectByUserId(200L)).thenReturn(profile);
         when(permissionResolver.selectAllActiveMenus()).thenReturn(menus);
+        when(permissionResolver.selectRoleMenuIds(200L)).thenReturn(
+            new java.util.HashSet<Long>(Arrays.asList(3000L, 3001L)));
         when(permissionResolver.selectEffectiveMenuIds(200L, false)).thenReturn(Collections.emptySet());
-        when(permissionResolver.selectEffectiveMenuIds(120L, false)).thenReturn(Collections.emptySet());
 
         assertDoesNotThrow(() -> service.saveMenuPermissions(200L,
             Collections.singletonList(pagePermission), 120L, false, "owner"));
@@ -128,8 +128,9 @@ class BusinessStaffMenuPermissionServiceImplTest
         when(projectMapper.countUserRoleByKey(120L,"company_owner")).thenReturn(1);
         when(profileMapper.selectByUserId(200L)).thenReturn(profile);
         when(permissionResolver.selectAllActiveMenus()).thenReturn(menus);
+        when(permissionResolver.selectRoleMenuIds(200L)).thenReturn(
+            new java.util.HashSet<Long>(Arrays.asList(3000L,3001L)));
         when(permissionResolver.selectEffectiveMenuIds(200L,false)).thenReturn(new java.util.HashSet<Long>(Arrays.asList(3000L,3001L)));
-        when(permissionResolver.selectEffectiveMenuIds(120L,false)).thenReturn(Collections.emptySet());
 
         service.saveMenuPermissions(200L,Collections.singletonList(hidden),120L,false,"owner");
 

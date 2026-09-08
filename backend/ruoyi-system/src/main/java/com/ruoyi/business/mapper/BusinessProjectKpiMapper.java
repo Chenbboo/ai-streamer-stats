@@ -15,6 +15,7 @@ public interface BusinessProjectKpiMapper
     List<Map<String, Object>> selectProjectOverviews(@Param("userId") Long userId,
         @Param("viewAll") boolean viewAll, @Param("boss") boolean boss,
         @Param("projectIds") List<Long> projectIds);
+    List<Map<String, Object>> selectMemberProjectBonusTotals(@Param("userId") Long userId);
     Integer selectNextPlanVersion(Long projectId);
     int countOverlappingPlans(@Param("projectId") Long projectId,
         @Param("cycleStart") Date cycleStart, @Param("cycleEnd") Date cycleEnd);

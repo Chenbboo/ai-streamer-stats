@@ -1,5 +1,6 @@
 package com.ruoyi.business.domain;
 
+import java.util.List;
 import java.util.Date;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.ruoyi.common.core.domain.BaseEntity;
@@ -20,7 +21,9 @@ public class BusinessProjectTask extends BaseEntity
     @JsonFormat(pattern = "yyyy-MM-dd") private Date planStartDate;
     @JsonFormat(pattern = "yyyy-MM-dd") private Date dueDate;
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss") private Date actualFinishTime;
+    private String activeStatus;
     private Integer version;
+    private List<BusinessProjectWorkPeriod> executionPeriods;
 
     public Long getTaskId() { return taskId; }
     public void setTaskId(Long taskId) { this.taskId = taskId; }
@@ -48,6 +51,10 @@ public class BusinessProjectTask extends BaseEntity
     public void setDueDate(Date dueDate) { this.dueDate = dueDate; }
     public Date getActualFinishTime() { return actualFinishTime; }
     public void setActualFinishTime(Date actualFinishTime) { this.actualFinishTime = actualFinishTime; }
+    public String getActiveStatus() { return activeStatus; }
+    public void setActiveStatus(String activeStatus) { this.activeStatus = activeStatus; }
     public Integer getVersion() { return version; }
     public void setVersion(Integer version) { this.version = version; }
+    public List<BusinessProjectWorkPeriod> getExecutionPeriods() { return executionPeriods; }
+    public void setExecutionPeriods(List<BusinessProjectWorkPeriod> executionPeriods) { this.executionPeriods = executionPeriods; }
 }

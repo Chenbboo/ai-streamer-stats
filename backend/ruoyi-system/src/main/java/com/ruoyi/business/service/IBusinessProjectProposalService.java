@@ -18,5 +18,6 @@ public interface IBusinessProjectProposalService
     BusinessProjectProposal review(Long proposalId, String decision, String comment,
         Long userId, String userName, boolean boss);
     Map<String, Object> options(Long userId);
+    Map<String, Object> estimateBudget(BusinessProjectProposal proposal, Long userId);
     List<Map<String, Object>> staffOptions(Long companyDeptId, String effectiveDate, Long userId);
 }

@@ -24,6 +24,15 @@ import com.ruoyi.common.exception.ServiceException;
 @ExtendWith(MockitoExtension.class)
 class BusinessAccountingServiceImplTest
 {
+    @Test void periodicBudgetNeverUsesLifetimeCosts()
+    {
+        when(mapper.selectProjectBudgetSnapshot(11L)).thenReturn("{\"budget\":{\"cycle\":\"MONTH\",\"startDate\":\"2026-09-01\",\"endDate\":\"2026-09-30\"}}");
+        java.sql.Date day=java.sql.Date.valueOf("2026-09-15"),from=java.sql.Date.valueOf("2026-09-01");
+        when(mapper.sumProjectCostInPeriod(11L,from,day)).thenReturn(new BigDecimal("1500"));
+        assertEquals(new BigDecimal("1500"),service.budgetSpent(11L,day));
+        assertEquals(BigDecimal.ZERO,service.budgetSpent(11L,java.sql.Date.valueOf("2026-10-01")));
+        verify(mapper,never()).sumProjectCostToDate(any(),any());
+    }
     @Mock BusinessAccountingMapper mapper;
     @Mock BusinessFileService businessFileService;
     @Mock com.ruoyi.business.mapper.BusinessProjectWorkMapper workMapper;

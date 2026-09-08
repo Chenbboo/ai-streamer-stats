@@ -17,6 +17,8 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
@@ -35,6 +37,7 @@ class BusinessProjectProposalServiceImplTest
     @Mock private BusinessProjectProposalMapper mapper;
     @Mock private BusinessProjectWorkMapper workMapper;
     @Mock private IBusinessProjectService projectService;
+    @Mock private BusinessProjectBudgetService budgetService;
     @Spy private ObjectMapper objectMapper = new ObjectMapper();
     @InjectMocks private BusinessProjectProposalServiceImpl service;
 
@@ -65,6 +68,39 @@ class BusinessProjectProposalServiceImplTest
         proposal.setNoBudget("0");
         proposal.setSubmissionVersion(1);
         proposal.setVersion(2);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"1,true", "9,true"})
+    void staffOptionsExposeBudgetRatesToAdminAndProposalPlanner(Long userId,boolean visible)
+    {
+        when(mapper.selectActiveUser(userId)).thenReturn(BusinessProjectWorkServiceTest.row("userId",userId));
+        when(mapper.selectCompany(111L)).thenReturn(BusinessProjectWorkServiceTest.row("deptId",111L));
+        when(mapper.selectStaffOptions(eq(111L),any())).thenReturn(Collections.singletonList(
+            BusinessProjectWorkServiceTest.row("userId",7L,"monthlyCost",new BigDecimal("21750"),"dailyCost",new BigDecimal("1000"),"costCurrency","CNY","costMode","MONTHLY")));
+        Map<String,Object> staff=service.staffOptions(111L,"2026-09-01",userId).get(0);
+        assertEquals(visible,staff.get("rawCostVisible"));
+        assertEquals(visible,staff.containsKey("monthlyCost"));assertEquals(visible,staff.containsKey("dailyCost"));
+        assertEquals(visible,staff.containsKey("costCurrency"));assertEquals(7L,staff.get("userId"));
+        assertEquals(new BigDecimal("21750"),staff.get("monthlyCost"));
+        assertEquals(new BigDecimal("1000"),staff.get("dailyCost"));
+    }
+
+    @Test
+    void staffOptionsRequireSelectedValidCompany()
+    {
+        when(mapper.selectActiveUser(9L)).thenReturn(BusinessProjectWorkServiceTest.row("userId",9L));
+        when(mapper.selectCompany(999L)).thenReturn(null);
+        assertThrows(ServiceException.class,()->service.staffOptions(null,"2026-09-01",9L));
+        assertThrows(ServiceException.class,()->service.staffOptions(999L,"2026-09-01",9L));
+        verify(mapper,never()).selectStaffOptions(any(),any());
+    }
+
+    @Test
+    void staffOptionsRejectInactivePlanner()
+    {
+        assertThrows(ServiceException.class,()->service.staffOptions(111L,"2026-09-01",9L));
+        verify(mapper,never()).selectStaffOptions(any(),any());
     }
 
     @Test
@@ -120,12 +156,57 @@ class BusinessProjectProposalServiceImplTest
     }
 
     @Test
-    void newTemplateRequiresFinitePlanningWindow()
+    void newProposalCanBeSavedWithoutProjectEndDate()
     {
         proposal.setProposalId(null);proposal.setPlanEndDate(null);
         when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
-        assertThrows(ServiceException.class,()->service.create(proposal,9L,"applicant9"));
-        verify(mapper,never()).insertProposal(any());
+        when(mapper.selectCompany(111L)).thenReturn(Collections.<String,Object>singletonMap("deptId",111L));
+        when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","审批老板"));
+        doAnswer(invocation -> {
+            BusinessProjectProposal input = invocation.getArgument(0);
+            input.setProposalId(77L); input.setStatus("DRAFT"); input.setVersion(0); input.setSubmissionVersion(0);
+            return 1;
+        }).when(mapper).insertProposal(any(BusinessProjectProposal.class));
+        when(mapper.selectById(77L)).thenAnswer(invocation -> proposal);
+        when(mapper.selectEvents(77L)).thenReturn(Collections.<Map<String,Object>>emptyList());
+
+        BusinessProjectProposal created = service.create(proposal,9L,"applicant9");
+
+        assertEquals(null,created.getPlanEndDate());
+        assertEquals("MONTH",created.getForecastPeriod());
+        assertEquals(30,created.getForecastDays());
+        verify(mapper).insertProposal(any(BusinessProjectProposal.class));
+    }
+
+    @Test
+    void createDiscardsHiddenTargetsForContinuousOperation()
+    {
+        proposal.setProposalId(null);
+        proposal.setGoalMode("NO_TOTAL");
+        Map<String,Object> hiddenTarget = new HashMap<String,Object>();
+        hiddenTarget.put("targetType","QUANTITY");
+        hiddenTarget.put("targetName","切换模式前的旧目标");
+        hiddenTarget.put("targetValue",new BigDecimal("100"));
+        hiddenTarget.put("unit","项");
+        hiddenTarget.put("acceptanceEvidence","旧验收依据");
+        proposal.setTargetLines(Collections.singletonList(hiddenTarget));
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
+        when(mapper.selectCompany(111L)).thenReturn(Collections.<String,Object>singletonMap("deptId",111L));
+        when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","审批老板"));
+        doAnswer(invocation -> {
+            BusinessProjectProposal input = invocation.getArgument(0);
+            assertEquals(0,input.getTargetLines().size());
+            input.setProposalId(77L); input.setStatus("DRAFT"); input.setVersion(0); input.setSubmissionVersion(0);
+            return 1;
+        }).when(mapper).insertProposal(any(BusinessProjectProposal.class));
+        when(mapper.selectById(77L)).thenAnswer(invocation -> proposal);
+        when(mapper.selectEvents(77L)).thenReturn(Collections.<Map<String,Object>>emptyList());
+
+        BusinessProjectProposal created = service.create(proposal,9L,"applicant9");
+
+        assertEquals("NO_TOTAL",created.getGoalMode());
+        assertEquals(0,created.getTargetLines().size());
+        verify(mapper,never()).insertTargetLine(any());
     }
 
     @Test
@@ -245,7 +326,7 @@ class BusinessProjectProposalServiceImplTest
 
         assertEquals("APPROVED",launched.getStatus());
         assertEquals(88L,launched.getCreatedProjectId());
-        assertEquals(new BigDecimal("2000"),launched.getEstimatedRevenue());
+        assertEquals(new BigDecimal("2000.00"),launched.getEstimatedRevenue());
         assertEquals(new BigDecimal("800.00"),launched.getEstimatedTotalCost());
         assertEquals(new BigDecimal("1200.00"),launched.getExpectedProfit());
         assertEquals(1,launched.getPlannedHeadcount());
@@ -268,10 +349,45 @@ class BusinessProjectProposalServiceImplTest
         verify(mapper).selectBossOptions(null);
     }
 
+    @ParameterizedTest
+    @CsvSource({"2026-09-08,FOLLOW_PROJECT", "2026-09-15,UNLIMITED"})
+    void savedOpenEndedDraftWithoutModeCanLaunch(String staffStart,String expectedMode)
+    {
+        proposal.setTemplateVersion("LIGHT_V1");proposal.setStatus("DRAFT");proposal.setAcceptanceCriteria("交付文件");
+        proposal.setPlanStartDate(java.sql.Date.valueOf("2026-09-08"));proposal.setPlanEndDate(null);
+        proposal.setBudgetMode("NONE");proposal.setBudgetReason("持续经营");
+        when(mapper.selectById(77L)).thenReturn(proposal);
+        when(mapper.selectStaffingLines(77L)).thenReturn(Collections.singletonList(BusinessProjectWorkServiceTest.row(
+            "userId",12L,"planStartDate",java.sql.Date.valueOf(staffStart),"calendarId",1L)));
+        when(mapper.selectProposalStaff(eq(12L),any(Date.class))).thenReturn(BusinessProjectWorkServiceTest.row("userId",12L,"companyDeptId",111L));
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
+        when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","审批老板"));
+        when(mapper.selectCompany(111L)).thenReturn(Collections.<String,Object>singletonMap("deptId",111L));
+        when(mapper.updateComputedPlan(proposal)).thenReturn(1);
+        BusinessProject created=new BusinessProject();created.setProjectId(88L);
+        when(projectService.createApprovedProject(proposal,9L,"applicant9")).thenReturn(created);
+        when(mapper.activate(77L,9L,2,88L,"申请人九","applicant9")).thenAnswer(call->{proposal.setStatus("APPROVED");return 1;});
+        assertEquals("APPROVED",service.submit(77L,9L,"applicant9").getStatus());
+        assertEquals(expectedMode,proposal.getStaffingLines().get(0).get("participationMode"));
+        assertEquals(null,proposal.getStaffingLines().get(0).get("planEndDate"));
+    }
+
+    @Test
+    void explicitCustomParticipationStillRequiresEndDate()
+    {
+        proposal.setForecastDays(30);
+        proposal.setTemplateVersion("LIGHT_V1");proposal.setPlanStartDate(java.sql.Date.valueOf("2026-09-08"));proposal.setPlanEndDate(null);
+        proposal.setStaffingLines(Collections.singletonList(BusinessProjectWorkServiceTest.row("userId",12L,"participationMode","CUSTOM",
+            "planStartDate",java.sql.Date.valueOf("2026-09-08"),"calendarId",1L)));
+        when(mapper.selectProposalStaff(eq(12L),any(Date.class))).thenReturn(BusinessProjectWorkServiceTest.row("userId",12L,"companyDeptId",111L));
+        assertThrows(ServiceException.class,()->org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeBusinessPlan",proposal));
+    }
+
     @Test
     void lightTemplateLaunchesWithoutBudgetStaffCostRevenueKpiOrBonus()
     {
         proposal.setTemplateVersion("LIGHT_V1");proposal.setStatus("DRAFT");proposal.setBudgetLimit(null);proposal.setAcceptanceCriteria("交付可验收文件");
+        proposal.setBudgetMode("NONE");proposal.setBudgetReason("本次测试明确不设置预算控制上限");
         when(mapper.selectById(77L)).thenReturn(proposal);
         when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
         when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","审批老板"));
@@ -285,15 +401,124 @@ class BusinessProjectProposalServiceImplTest
         verify(mapper,never()).selectProposalStaff(any(),any());verify(mapper,never()).submit(any(),any(),any(),any());
     }
 
-    @Test
-    void controlledTemplateWaitsForDistinctSponsorApprovalWithoutMandatoryBudget()
+    @ParameterizedTest
+    @CsvSource({"LIGHT_V1,DRAFT", "CONTROLLED_V1,DRAFT", "SERVICE_V1,DRAFT",
+        "CONTROLLED_V1,PENDING", "CONTROLLED_V1,RETURNED", "SERVICE_V1,WITHDRAWN"})
+    void everyProposalLaunchesDirectlyIncludingPendingApplications(String templateVersion, String status) throws Exception
     {
-        proposal.setTemplateVersion("CONTROLLED_V1");proposal.setStatus("DRAFT");proposal.setBudgetLimit(null);proposal.setAcceptanceCriteria("交付文件验收");proposal.setManagementReason("交付范围需要归属老板审核");
-        when(workMapper.selectTemplate("CONTROLLED_V1")).thenReturn(BusinessProjectWorkServiceTest.row("snapshotJson","{}","managementMode","KEY_CONTROL","closeMethod","RESULT_ACCEPTANCE"));
+        proposal.setTemplateVersion(templateVersion);proposal.setStatus(status);proposal.setBudgetLimit(null);proposal.setAcceptanceCriteria("交付文件验收");
+        proposal.setPlanEndDate(null);
+        proposal.setManagementMode("KEY_CONTROL");proposal.setCloseMethod("STAGED_ACCEPTANCE");proposal.setManagementReason("逐阶段检查交付风险");
+        when(workMapper.selectTemplate(templateVersion)).thenReturn(BusinessProjectWorkServiceTest.row("snapshotJson","{}","managementMode","STANDARD","closeMethod","RESULT_ACCEPTANCE"));
         when(mapper.selectById(77L)).thenReturn(proposal);when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
         when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","审批老板"));when(mapper.selectCompany(111L)).thenReturn(Collections.<String,Object>singletonMap("deptId",111L));
-        when(mapper.updateComputedPlan(proposal)).thenReturn(1);when(mapper.submit(77L,9L,2,"applicant9")).thenAnswer(call->{proposal.setStatus("PENDING");return 1;});
-        assertEquals("PENDING",service.submit(77L,9L,"applicant9").getStatus());verify(projectService,never()).createApprovedProject(any(),any(),any());
+        when(mapper.updateComputedPlan(proposal)).thenReturn(1);
+        BusinessProject created = new BusinessProject();created.setProjectId(88L);
+        when(projectService.createApprovedProject(proposal,9L,"applicant9")).thenReturn(created);
+        when(mapper.activate(77L,9L,2,88L,"申请人九","applicant9")).thenAnswer(call->{proposal.setStatus("APPROVED");return 1;});
+        assertEquals("APPROVED",service.submit(77L,9L,"applicant9").getStatus());
+        assertEquals("KEY_CONTROL",proposal.getManagementMode());assertEquals("STAGED_ACCEPTANCE",proposal.getCloseMethod());
+        Map<?,?> snapshot=objectMapper.readValue(proposal.getTemplateSnapshotJson(),Map.class);
+        assertEquals("KEY_CONTROL",snapshot.get("managementMode"));assertEquals("STAGED_ACCEPTANCE",snapshot.get("closeMethod"));
+        assertEquals("SELF_AUTHORIZED",snapshot.get("authorizationMode"));
+        assertEquals(null,proposal.getPlanEndDate());assertEquals(false,snapshot.get("finiteReviewWindowRequired"));
+        verify(mapper,never()).submit(any(),any(),any(),any());
+        verify(mapper,never()).review(any(),any(),any(),any(),any(),any(),any(),any(),any());
+        org.mockito.ArgumentCaptor<Map<String,Object>> event=org.mockito.ArgumentCaptor.forClass(Map.class);
+        verify(mapper).insertEvent(event.capture());assertEquals(status,event.getValue().get("fromStatus"));
+        assertThrows(ServiceException.class,()->service.submit(77L,9L,"applicant9"));
+        verify(projectService).createApprovedProject(proposal,9L,"applicant9");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"LIGHT,DIRECT", "LIGHT,RESULT_ACCEPTANCE", "LIGHT,STAGED_ACCEPTANCE",
+        "STANDARD,DIRECT", "STANDARD,RESULT_ACCEPTANCE", "STANDARD,STAGED_ACCEPTANCE",
+        "KEY_CONTROL,DIRECT", "KEY_CONTROL,RESULT_ACCEPTANCE", "KEY_CONTROL,STAGED_ACCEPTANCE"})
+    void editingPreservesIndependentGovernanceChoices(String managementMode, String closeMethod) throws Exception
+    {
+        proposal.setTemplateVersion("LIGHT_V1");proposal.setStatus("PENDING");
+        BusinessProjectProposal input=new BusinessProjectProposal();
+        org.springframework.beans.BeanUtils.copyProperties(proposal,input);
+        input.setManagementMode(managementMode);input.setCloseMethod(closeMethod);
+        input.setManagementReason("项目涉及多阶段风险");input.setAcceptanceCriteria("逐项核对交付成果");
+        when(mapper.selectById(77L)).thenReturn(proposal);
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
+        when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","审批老板"));
+        when(mapper.selectCompany(111L)).thenReturn(Collections.<String,Object>singletonMap("deptId",111L));
+        when(mapper.updateDraft(input)).thenAnswer(call->{org.springframework.beans.BeanUtils.copyProperties(input,proposal);return 1;});
+        BusinessProjectProposal saved=service.update(input,9L,"applicant9");
+        assertEquals(managementMode,saved.getManagementMode());assertEquals(closeMethod,saved.getCloseMethod());
+        Map<?,?> snapshot=objectMapper.readValue(saved.getTemplateSnapshotJson(),Map.class);
+        assertEquals(managementMode,snapshot.get("managementMode"));assertEquals(closeMethod,snapshot.get("closeMethod"));
+        assertEquals(Boolean.TRUE,saved.getCanEdit());
+    }
+
+    @Test
+    void pendingProposalCannotBeStartedByAnotherUser()
+    {
+        proposal.setStatus("PENDING");when(mapper.selectById(77L)).thenReturn(proposal);
+        assertThrows(ServiceException.class,()->service.submit(77L,23L,"boss23"));
+        verify(projectService,never()).createApprovedProject(any(),any(),any());
+    }
+
+    @Test
+    void unlimitedProposalAcceptsIndependentStaffDatesAndQuantityTarget()
+    {
+        proposal.setStatus("DRAFT");proposal.setTemplateVersion("LIGHT_V1");
+        proposal.setPlanStartDate(java.sql.Date.valueOf("2026-01-01"));proposal.setPlanEndDate(null);
+        proposal.setAcceptanceCriteria("完成数量目标");
+        Map<String,Object> staffing=BusinessProjectWorkServiceTest.row("userId",12L,"planStartDate","2026-02-01",
+            "planEndDate","2026-03-31","inputUnit","DAY","inputQuantity",10,"calendarId",1L,"unitPolicyId",1L);
+        Map<String,Object> target=BusinessProjectWorkServiceTest.row("targetType","QUANTITY","targetName","交付数量",
+            "targetValue",20,"unit","件","acceptanceEvidence","验收清单");
+        proposal.setStaffingLines(Collections.singletonList(staffing));proposal.setTargetLines(Collections.singletonList(target));
+        when(mapper.selectById(77L)).thenReturn(proposal);
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
+        when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","审批老板"));
+        when(mapper.selectCompany(111L)).thenReturn(Collections.<String,Object>singletonMap("deptId",111L));
+        when(mapper.selectProposalStaff(eq(12L),any(Date.class))).thenReturn(BusinessProjectWorkServiceTest.row("userId",12L,"companyDeptId",111L,"nickName","成员十二"));
+        when(mapper.updateDraft(proposal)).thenReturn(1);
+        service.update(proposal,9L,"applicant9");
+        org.mockito.ArgumentCaptor<Map<String,Object>> staffArg=org.mockito.ArgumentCaptor.forClass(Map.class);
+        org.mockito.ArgumentCaptor<Map<String,Object>> targetArg=org.mockito.ArgumentCaptor.forClass(Map.class);
+        verify(mapper).insertStaffingLine(staffArg.capture());verify(mapper).insertTargetLine(targetArg.capture());
+        assertEquals(java.sql.Date.valueOf("2026-03-31"),staffArg.getValue().get("planEndDate"));
+        assertEquals("QUANTITY",targetArg.getValue().get("targetType"));
+        assertEquals(null,proposal.getPlanEndDate());
+    }
+
+    @Test
+    void staffingParticipationModesReplaceManualWorkload()
+    {
+        proposal.setStatus("DRAFT");proposal.setTemplateVersion("LIGHT_V1");
+        proposal.setPlanStartDate(java.sql.Date.valueOf("2026-01-01"));proposal.setPlanEndDate(null);
+        proposal.setAcceptanceCriteria("完成交付");
+        Map<String,Object> staffing=BusinessProjectWorkServiceTest.row("userId",12L,"participationMode","UNLIMITED",
+            "planStartDate","2026-02-01","inputUnit","HOUR","inputQuantity",2,"calendarId",1L,"unitPolicyId",999L);
+        proposal.setStaffingLines(Collections.singletonList(staffing));
+        when(mapper.selectById(77L)).thenReturn(proposal);
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
+        when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","审批老板"));
+        when(mapper.selectCompany(111L)).thenReturn(Collections.<String,Object>singletonMap("deptId",111L));
+        when(mapper.selectProposalStaff(eq(12L),any(Date.class))).thenReturn(BusinessProjectWorkServiceTest.row("userId",12L,"companyDeptId",111L,"nickName","成员十二"));
+        when(mapper.updateDraft(proposal)).thenReturn(1);
+        service.update(proposal,9L,"applicant9");
+        org.mockito.ArgumentCaptor<Map<String,Object>> saved=org.mockito.ArgumentCaptor.forClass(Map.class);verify(mapper).insertStaffingLine(saved.capture());
+        assertEquals("UNLIMITED",saved.getValue().get("participationMode"));assertEquals(null,saved.getValue().get("planEndDate"));
+        assertEquals("PERCENTAGE",saved.getValue().get("inputUnit"));assertEquals(BigDecimal.ZERO,saved.getValue().get("inputQuantity"));assertEquals(1L,saved.getValue().get("unitPolicyId"));
+    }
+
+    @Test
+    void followProjectParticipationAlwaysInheritsProjectDates()
+    {
+        proposal.setStatus("DRAFT");proposal.setTemplateVersion("LIGHT_V1");proposal.setAcceptanceCriteria("完成交付");
+        Map<String,Object> staffing=BusinessProjectWorkServiceTest.row("userId",12L,"participationMode","FOLLOW_PROJECT",
+            "planStartDate","2030-01-01","planEndDate","2030-12-31","calendarId",1L);
+        proposal.setStaffingLines(Collections.singletonList(staffing));when(mapper.selectById(77L)).thenReturn(proposal);
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","审批老板"));when(mapper.selectCompany(111L)).thenReturn(Collections.<String,Object>singletonMap("deptId",111L));
+        when(mapper.selectProposalStaff(eq(12L),any(Date.class))).thenReturn(BusinessProjectWorkServiceTest.row("userId",12L,"companyDeptId",111L));when(mapper.updateDraft(proposal)).thenReturn(1);
+        service.update(proposal,9L,"applicant9");org.mockito.ArgumentCaptor<Map<String,Object>> saved=org.mockito.ArgumentCaptor.forClass(Map.class);verify(mapper).insertStaffingLine(saved.capture());
+        assertEquals(proposal.getPlanStartDate(),saved.getValue().get("planStartDate"));assertEquals(proposal.getPlanEndDate(),saved.getValue().get("planEndDate"));
     }
 
     @Test
@@ -355,6 +580,44 @@ class BusinessProjectProposalServiceImplTest
 
         assertEquals("无权查看该立项申请",error.getMessage());
         verify(mapper,never()).selectEvents(77L);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"RESULT,QUANTITY", "VALUE,OTHER", "OTHER,OTHER", "FINANCIAL,FINANCIAL",
+        "QUANTITY,QUANTITY", "SCHEDULE,SCHEDULE", "QUALITY,QUALITY", "EFFICIENCY,EFFICIENCY",
+        "GROWTH,GROWTH", "CUSTOMER,CUSTOMER", "COMPLIANCE,COMPLIANCE"})
+    void targetTypesAndPrecisionSurviveRepeatedNormalization(String inputType, String savedType)
+    {
+        proposal.setGoalMode("TOTAL");proposal.setForecastDays(30);
+        proposal.setTargetLines(Collections.singletonList(BusinessProjectWorkServiceTest.row(
+            "targetType",inputType,"targetName","转化目标","targetValue",new BigDecimal("1.2345"),
+            "unit","%","acceptanceEvidence","统计报表")));
+        org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeBusinessPlan",proposal);
+        assertEquals(savedType,proposal.getTargetLines().get(0).get("targetType"));
+        // Editing and launch validate the canonical value read back from storage.
+        org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeBusinessPlan",proposal);
+        assertEquals(savedType,proposal.getTargetLines().get(0).get("targetType"));
+        assertEquals(new BigDecimal("1.2345"),proposal.getTargetLines().get(0).get("targetValue"));
+    }
+
+    @Test
+    void noTotalModeDiscardsIncompleteHiddenTargets()
+    {
+        proposal.setGoalMode("NO_TOTAL");proposal.setForecastDays(30);
+        proposal.setTargetLines(Collections.singletonList(BusinessProjectWorkServiceTest.row("targetType","VALUE")));
+        org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeBusinessPlan",proposal);
+        assertEquals(0,proposal.getTargetLines().size());
+    }
+
+    @Test
+    void totalModeStillRejectsIncompleteOrUnknownTargets()
+    {
+        proposal.setGoalMode("TOTAL");proposal.setForecastDays(30);
+        proposal.setTargetLines(Collections.singletonList(BusinessProjectWorkServiceTest.row("targetType","VALUE")));
+        assertThrows(ServiceException.class,()->org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeBusinessPlan",proposal));
+        proposal.setTargetLines(Collections.singletonList(BusinessProjectWorkServiceTest.row(
+            "targetType","UNKNOWN","targetName","目标","targetValue",1,"unit","个","acceptanceEvidence","清单")));
+        assertThrows(ServiceException.class,()->org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeBusinessPlan",proposal));
     }
 
     private Map<String,Object> user(Long id,String userName,String nickName)
