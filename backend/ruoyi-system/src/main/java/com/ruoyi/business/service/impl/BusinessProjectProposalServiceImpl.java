@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
@@ -278,6 +279,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             proposal.setTemplateVersion(current.getTemplateVersion());
         }
         else proposal.setTemplateVersion("LIGHT_V1");
+        proposal.setApplicantUserId(userId);
         return budgetService.estimate(proposal);
     }
 
@@ -352,7 +354,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             if(proposal.getDailyBudgetLimit()==null||proposal.getDailyBudgetLimit().signum()<=0)throw new ServiceException("每日预算上限必须大于0");
             proposal.setDailyBudgetLimit(nonNegative(proposal.getDailyBudgetLimit(),"每日预算上限"));
         }else proposal.setDailyBudgetLimit(null);
-        if("NONE".equals(proposal.getBudgetMode()))proposal.setStartupBudgetLimit(null);
+        if(!"DAILY".equals(proposal.getBudgetMode()))proposal.setStartupBudgetLimit(null);
         if(proposal.getStartupBudgetLimit()!=null)proposal.setStartupBudgetLimit(nonNegative(proposal.getStartupBudgetLimit(),"启动预算上限"));
         if(proposal.getBudgetReason()!=null&&proposal.getBudgetReason().length()>500)throw new ServiceException("预算说明不能超过500个字符");
         proposal.setNoBudget("NONE".equals(proposal.getBudgetMode()) ? "1" : "0");
@@ -394,6 +396,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
 
     private void normalizeBusinessPlan(BusinessProjectProposal proposal)
     {
+        budgetService.ensureOwner(proposal);
         validatePlanDetails(proposal);
         List<Map<String, Object>> revenues = cleanLines(proposal.getRevenueLines(), "itemName");
         List<Map<String, Object>> expenses = cleanLines(proposal.getExpenseLines(), "itemName");
@@ -672,6 +675,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     private void hydratePlanLines(BusinessProjectProposal proposal)
     {
         if(proposal.getBudget()==null)proposal.setBudget(com.ruoyi.business.support.BusinessBudgetSnapshot.read(proposal.getTemplateSnapshotJson()));
+        normalizeStoredBudgetForMode(proposal);
         proposal.setRevenueLines(mapper.selectRevenueLines(proposal.getProposalId()));
         proposal.setExpenseLines(mapper.selectExpenseLines(proposal.getProposalId()));
         proposal.setStaffingLines(mapper.selectStaffingLines(proposal.getProposalId()));
@@ -685,6 +689,28 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             proposal.setStaffingLines(staffing);
         }
         proposal.setTargetLines(mapper.selectTargetLines(proposal.getProposalId()));
+    }
+
+    private void normalizeStoredBudgetForMode(BusinessProjectProposal proposal)
+    {
+        Map<String,Object> stored=proposal.getBudget();
+        String mode=proposal.getBudgetMode()!=null?proposal.getBudgetMode():stored==null?null:text(stored.get("mode"));
+        if("DAILY".equals(mode)||stored==null)return;
+        proposal.setStartupBudgetLimit(null);
+        Map<String,Object> budget=new LinkedHashMap<String,Object>(stored);
+        budget.put("startupLimit",null);
+        List<Object> issues=new ArrayList<Object>();
+        Object rawIssues=budget.get("issues");
+        if(rawIssues instanceof Collection<?>)for(Object issue:(Collection<?>)rawIssues)
+        {
+            String message=String.valueOf(issue);
+            if(!message.startsWith("启动预算不能低于本期一次性支出")
+                &&!message.startsWith("每日预算模式下请单独设置一次性启动预算"))issues.add(issue);
+        }
+        else if(rawIssues!=null)issues.add(rawIssues);
+        budget.put("issues",issues);
+        if(issues.isEmpty()&&"PENDING".equals(budget.get("status")))budget.put("status","READY");
+        proposal.setBudget(budget);
     }
 
     private void savePlanLines(BusinessProjectProposal proposal)

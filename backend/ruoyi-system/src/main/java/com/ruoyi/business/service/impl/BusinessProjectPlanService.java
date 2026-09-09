@@ -97,7 +97,7 @@ public class BusinessProjectPlanService
             estimate.setExpenseLines((List<Map<String,Object>>)requested.get("expenseLines"));
             List<Map<String,Object>> staff=new ArrayList<Map<String,Object>>();
             for(Map<String,Object> assignment:mapper.selectAssignments(p.getProjectId()))if("ACTIVE".equals(assignment.get("status")))
-            {Map<String,Object> person=new LinkedHashMap<String,Object>(assignment);person.put("planStartDate",person.get("effectiveFrom"));person.put("planEndDate",person.get("effectiveTo"));person.put("participationMode",person.get("effectiveTo")==null?"UNLIMITED":"CUSTOM");staff.add(person);}
+            {Map<String,Object> person=new LinkedHashMap<String,Object>(assignment);person.put("planStartDate",person.get("effectiveFrom"));person.put("planEndDate",person.get("effectiveTo"));person.put("participationMode",person.getOrDefault("participationMode",person.get("effectiveTo")==null?"UNLIMITED":"CUSTOM"));staff.add(person);}
             if(BusinessMemberDayCostService.enabled(p)) {
                 Set<Long> activeMembers=new HashSet<>();
                 for(Map<String,Object> member:mapper.selectMembers(p.getProjectId()))

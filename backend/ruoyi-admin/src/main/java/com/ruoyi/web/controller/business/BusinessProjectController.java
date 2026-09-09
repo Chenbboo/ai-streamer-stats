@@ -49,6 +49,7 @@ public class BusinessProjectController extends BaseController
 {
     @Autowired
     private IBusinessProjectService projectService;
+    @Autowired private com.ruoyi.business.service.impl.BusinessFlowService flowService;
 
     @PreAuthorize("@ss.hasPermi('business:project:list')")
     @GetMapping("/project/list")
@@ -204,7 +205,7 @@ public class BusinessProjectController extends BaseController
     public AjaxResult changeOwner(@PathVariable Long projectId, @RequestBody Map<String, Object> body)
     {
         Long ownerUserId = requiredLong(body, "ownerUserId");
-        return success(projectService.changeOwner(projectId, ownerUserId, text(body, "reason"),
+        return success(flowService.changeOwner(projectId, ownerUserId, text(body, "reason"), Boolean.TRUE.equals(body.get("exitOldOwner")),
             currentUserId(), currentUserName(), isBoss()));
     }
 
@@ -251,7 +252,7 @@ public class BusinessProjectController extends BaseController
     @PostMapping("/project/{projectId}/transition")
     public AjaxResult transition(@PathVariable Long projectId, @RequestBody Map<String, Object> body)
     {
-        return success(projectService.transition(projectId, text(body, "action"), text(body, "comment"),
+        return success(flowService.transition(projectId, text(body, "action"), text(body, "comment"), text(body, "pauseCostMode"),
             currentUserId(), currentUserName(), isBoss()));
     }
 
@@ -299,7 +300,7 @@ public class BusinessProjectController extends BaseController
         return success(projectService.saveTask(task, currentUserId(), currentUserName(), isBoss()));
     }
 
-    @PreAuthorize("@ss.hasPermi('business:project:report')")
+    @PreAuthorize("@ss.hasAnyPermi('business:project:report,business:work:report,business:project:work:view')")
     @Log(title = "一次性任务完成填报", businessType = BusinessType.INSERT)
     @PostMapping("/project/task-report")
     public AjaxResult submitTaskReport(@RequestBody BusinessProjectTaskReport report)
@@ -368,7 +369,7 @@ public class BusinessProjectController extends BaseController
         return success(projectService.saveRoutineDailyTarget(target, currentUserId(), currentUserName(), isBoss()));
     }
 
-    @PreAuthorize("@ss.hasPermi('business:project:report')")
+    @PreAuthorize("@ss.hasAnyPermi('business:project:report,business:work:report,business:project:work:view')")
     @Log(title = "持续工作完成填报", businessType = BusinessType.INSERT)
     @PostMapping("/project/routine-report")
     public AjaxResult submitRoutineReport(@RequestBody BusinessProjectRoutineReport report)

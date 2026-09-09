@@ -12,9 +12,12 @@ import com.ruoyi.business.domain.BusinessStaffMenuPermission;
 import com.ruoyi.business.mapper.BusinessStaffMenuPermissionMapper;
 import com.ruoyi.common.core.domain.entity.SysMenu;
 import com.ruoyi.common.utils.StringUtils;
+import com.ruoyi.common.utils.SecurityUtils;
+import com.ruoyi.common.constant.Constants;
+import java.util.Collections;
 import com.ruoyi.system.mapper.SysMenuMapper;
 
-/** Applies an optional per-user menu snapshot on top of role permissions. */
+/** Uses role permissions by default, or the explicit menu policy delegated by an authorized owner. */
 @Service
 public class PersonalMenuPermissionService
 {
@@ -47,14 +50,14 @@ public class PersonalMenuPermissionService
 
     public Set<Long> selectRoleMenuIds(Long userId)
     {
+        if (SecurityUtils.isAdmin(userId)) return menuIds(menuMapper.selectActiveMenuList());
         return menuIds(menuMapper.selectActiveMenuListByUserId(userId));
     }
 
     public Set<Long> selectEffectiveMenuIds(Long userId, boolean administrator)
     {
-        if (administrator) return menuIds(menuMapper.selectActiveMenuList());
         List<BusinessStaffMenuPermission> explicit = permissionMapper.selectByUserId(userId);
-        if (explicit.isEmpty()) return selectRoleMenuIds(userId);
+        if (explicit.isEmpty()) return administrator ? menuIds(menuMapper.selectActiveMenuList()) : selectRoleMenuIds(userId);
         Set<Long> allowed = new HashSet<Long>();
         for (BusinessStaffMenuPermission item : explicit)
         {
@@ -66,9 +69,9 @@ public class PersonalMenuPermissionService
     public Set<String> applyPermissions(Long userId, List<String> rolePermissions)
     {
         List<BusinessStaffMenuPermission> explicit = permissionMapper.selectByUserId(userId);
-        if (explicit.isEmpty()) return splitPermissions(rolePermissions);
+        if (explicit.isEmpty()) return SecurityUtils.isAdmin(userId)
+            ? new HashSet<String>(Collections.singleton(Constants.ALL_PERMISSION)) : splitPermissions(rolePermissions);
 
-        Set<String> roleCeiling = splitPermissions(rolePermissions);
         Map<Long, String> allowed = new HashMap<Long, String>();
         for (BusinessStaffMenuPermission item : explicit)
         {
@@ -79,7 +82,7 @@ public class PersonalMenuPermissionService
         {
             String level = allowed.get(menu.getMenuId());
             if (MAINTAIN.equals(level) || (READ.equals(level) && isReadPermission(menu.getPerms())))
-                addRolePermission(result, menu.getPerms(), roleCeiling);
+                addPermission(result, menu.getPerms());
         }
         return result;
     }
@@ -90,7 +93,6 @@ public class PersonalMenuPermissionService
         if (explicit.isEmpty()) return roleRoutes;
 
         List<SysMenu> all = menuMapper.selectActiveMenuList();
-        Set<Long> roleCeiling = menuIds(roleRoutes);
         Map<Long, SysMenu> byId = new HashMap<Long, SysMenu>();
         for (SysMenu menu : all) byId.put(menu.getMenuId(), menu);
         Set<Long> included = new HashSet<Long>();
@@ -100,7 +102,6 @@ public class PersonalMenuPermissionService
             // A directory is structural: it is visible only as an ancestor of a visible page.
             // This also repairs old snapshots that accidentally retained READ on an empty parent.
             if (menu != null && "C".equals(menu.getMenuType())
-                && roleCeiling.contains(item.getMenuId())
                 && !HIDDEN.equals(item.getAccessLevel())) included.add(item.getMenuId());
         }
         for (Long menuId : new HashSet<Long>(included))
@@ -140,16 +141,6 @@ public class PersonalMenuPermissionService
         if (StringUtils.isEmpty(permission)) return;
         for (String value : permission.trim().split(","))
             if (StringUtils.isNotEmpty(value.trim())) target.add(value.trim());
-    }
-
-    private void addRolePermission(Set<String> target, String permission, Set<String> roleCeiling)
-    {
-        if (StringUtils.isEmpty(permission)) return;
-        for (String value : permission.trim().split(","))
-        {
-            String token = value.trim();
-            if (StringUtils.isNotEmpty(token) && roleCeiling.contains(token)) target.add(token);
-        }
     }
 
     private boolean isReadPermission(String permission)

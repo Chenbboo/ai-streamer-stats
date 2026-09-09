@@ -1,6 +1,7 @@
 <template>
   <section v-loading="loading" class="member-cost-panel">
-    <div class="heading"><div><h3>人员工作日成本</h3><p>按成员参与日期和工作日历自动计算，休息日不计费。每日使用当日有效日成本。</p></div><el-button icon="Refresh" @click="load">刷新</el-button></div>
+    <div class="heading"><div><h3>人员工作日成本</h3><p>按成员参与日期和工作日历自动计算，休息日不计费。每日使用当日有效日成本；已核算日期保留原依据。</p></div><el-button icon="Refresh" @click="load">刷新</el-button></div>
+    <el-alert v-if="data.overdue" title="项目已超过计划结束日，仍参与的成员继续按工作日计费，请更新项目计划。" type="warning" :closable="false" show-icon />
     <el-date-picker v-model="dates" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" :clearable="false" @change="load" />
     <el-alert v-if="data.pendingCount" title="部分日期缺少有效成本或工作日历，请完善用人成本后刷新。" type="warning" :closable="false" show-icon />
     <p>本期累计：<b>{{ data.totalAmount == null ? '待完善成本' : money(data.totalAmount) + ' ' + (data.currency || '') }}</b><span class="hint">（截至今天）</span></p>

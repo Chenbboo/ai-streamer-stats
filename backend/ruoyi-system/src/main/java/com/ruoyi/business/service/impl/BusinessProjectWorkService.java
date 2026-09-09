@@ -77,6 +77,10 @@ public class BusinessProjectWorkService
         if(!isManager(p,actorId))throw new ServiceException("只有项目负责人或归属老板可以安排资源");
         if(BusinessProjectLifecycle.isTerminal(p.getStatus()))throw new ServiceException("交付结束后不能新增资源计划");
         Map<String,Object> row=copy(body);Long userId=id(row.get("userId"));
+        String participationMode=String.valueOf(row.getOrDefault("participationMode","CUSTOM"));
+        if(!Arrays.asList("FOLLOW_PROJECT","CUSTOM","UNLIMITED").contains(participationMode))throw new ServiceException("参与方式不正确");
+        row.put("participationMode",participationMode);
+        if("FOLLOW_PROJECT".equals(participationMode)){row.put("effectiveFrom",p.getPlanStartDate());row.put("effectiveTo",p.getPlanEndDate());}
         LocalDate from=date(row.get("effectiveFrom")),to=blank(row.get("effectiveTo"))?null:date(row.get("effectiveTo"));
         if(to==null&&p.getPlanEndDate()!=null)throw new ServiceException("固定期限项目的人员必须设置参与结束日期");
         LocalDate allocationTo=to;

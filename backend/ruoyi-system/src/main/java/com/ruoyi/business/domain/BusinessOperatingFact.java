@@ -9,6 +9,9 @@ public class BusinessOperatingFact extends BaseEntity
 {
     private static final long serialVersionUID = 1L;
     private Long factId;
+    private String requestId;
+    public String getRequestId(){return requestId;}
+    public void setRequestId(String value){requestId=value;}
     private Long projectId;
     private Long companyDeptId;
     @JsonFormat(pattern = "yyyy-MM-dd") private Date bizDate;

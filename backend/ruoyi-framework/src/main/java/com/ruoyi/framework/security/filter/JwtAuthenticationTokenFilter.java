@@ -32,6 +32,9 @@ public class JwtAuthenticationTokenFilter extends OncePerRequestFilter
             throws ServletException, IOException
     {
         LoginUser loginUser = tokenService.getLoginUser(request);
+        if(loginUser!=null&&(loginUser.getUser()==null||!"0".equals(loginUser.getUser().getStatus())||!"0".equals(loginUser.getUser().getDelFlag()))){
+            tokenService.delLoginUser(loginUser.getToken());loginUser=null;
+        }
         if (StringUtils.isNotNull(loginUser) && StringUtils.isNull(SecurityUtils.getAuthentication()))
         {
             tokenService.verifyToken(loginUser);

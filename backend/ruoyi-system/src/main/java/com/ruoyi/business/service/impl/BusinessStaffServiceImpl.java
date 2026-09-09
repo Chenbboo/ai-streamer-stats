@@ -39,6 +39,7 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
     @Autowired private ISysDeptService deptService;
     @Autowired private BusinessProjectMapper projectMapper;
     @Autowired private BusinessStaffProfileMapper profileMapper;
+    @Autowired private com.ruoyi.system.service.OnlineUserPermissionService onlinePermissions;
 
     @Override
     @DataScope(deptAlias = "d", userAlias = "u", permission = "business:staff:list")
@@ -46,7 +47,9 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
         boolean boss, boolean staffCostManager)
     {
         SysUser safeQuery = query == null ? new SysUser() : query;
-        boolean includeManagedProjectMembers = !administrator;
+        boolean directoryOwner = !administrator && projectMapper.countUserRoleByKey(viewerUserId, "company_owner") > 0;
+        if (directoryOwner) safeQuery.getParams().put("dataScope", "");
+        boolean includeManagedProjectMembers = !administrator && !directoryOwner;
         List<SysUser> users = projectMapper.selectStaffDirectory(safeQuery,
             includeManagedProjectMembers ? viewerUserId : null);
         if (users == null) users = Collections.emptyList();
@@ -196,6 +199,7 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
     public Object createStaff(BusinessStaffProfile input, String operatorName)
     {
         validateCreate(input);
+        if("LEFT".equals(input.getEmploymentStatus()))throw new ServiceException("新增人员不能直接设为离职，请通过离职办理完成交接");
         validateDepartment(input.getDeptId(), false);
         if (!userService.checkUserNameUnique(input)) throw new ServiceException("登录账号已存在");
         normalizeAndValidateContact(input);
@@ -222,6 +226,7 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
     public Object updateStaff(BusinessStaffProfile input, String operatorName)
     {
         SysUser existing = requireExisting(input == null ? null : input.getUserId());
+        userService.checkUserDataScope(existing.getUserId());
         boolean protectedAccount = isProtected(existing);
         if (StringUtils.isBlank(input.getNickName())) throw new ServiceException("人员姓名不能为空");
         if (protectedAccount) input.setDeptId(existing.getDeptId());
@@ -229,6 +234,8 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
         normalizeAndValidateContact(input);
         validateContactUnique(input);
         BusinessStaffProfile existingProfile = profileMapper.selectByUserId(existing.getUserId());
+        if("LEFT".equals(input.getEmploymentStatus())&&(existingProfile==null||!"LEFT".equals(existingProfile.getEmploymentStatus())))
+            throw new ServiceException("请使用离职办理入口，完成项目及任务交接后再离职");
         if (protectedAccount && existingProfile != null)
         {
             input.setManagerUserId(existingProfile.getManagerUserId());
@@ -249,21 +256,28 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
         input.setUpdateBy(operatorName);
         if (profileMapper.upsert(input) < 1) throw new ServiceException("修改人员档案失败");
         profileMapper.syncDepartmentLeader(existing.getUserId());
+        if(!java.util.Objects.equals(existing.getDeptId(),input.getDeptId()))onlinePermissions.forceReloginAfterCommit(existing.getUserId());
         return toView(userService.selectUserById(existing.getUserId()), profileMapper.selectByUserId(existing.getUserId()));
     }
 
     @Override
+    @Transactional
     public void changeStatus(Long userId, String status, String operatorName)
     {
         requireManageable(userId);
         if (!"0".equals(status) && !"1".equals(status)) throw new ServiceException("账号状态不正确");
+        BusinessStaffProfile profile="0".equals(status)?profileMapper.selectByUserId(userId):null;
+        if("0".equals(status)&&profile!=null&&"LEFT".equals(profile.getEmploymentStatus()))
+            throw new ServiceException("该人员已离职，请先确认重新入职并更新人员状态后再启用账号");
         SysUser patch = new SysUser(userId);
         patch.setStatus(status);
         patch.setUpdateBy(operatorName);
         if (userService.updateUserStatus(patch) != 1) throw new ServiceException("修改账号状态失败");
+        if("1".equals(status))onlinePermissions.forceReloginAfterCommit(userId);
     }
 
     @Override
+    @Transactional
     public void resetPassword(Long userId, String password, String operatorName)
     {
         validatePassword(password);
@@ -271,6 +285,7 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
     }
 
     @Override
+    @Transactional
     public void resetEncodedPassword(Long userId, String encodedPassword, String operatorName)
     {
         requireManageable(userId);
@@ -280,6 +295,7 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
         patch.setPassword(encodedPassword);
         patch.setUpdateBy(operatorName);
         if (userService.resetPwd(patch) != 1) throw new ServiceException("重置密码失败");
+        onlinePermissions.forceReloginAfterCommit(userId);
     }
 
     private Map<Long, BusinessStaffProfile> profilesFor(List<SysUser> users)
@@ -303,6 +319,7 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
     private SysUser requireManageable(Long userId)
     {
         SysUser user = requireExisting(userId);
+        userService.checkUserDataScope(userId);
         if (isProtected(user)) throw new ServiceException("系统管理员和老板账号为受保护账号");
         return user;
     }
@@ -397,6 +414,7 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
     private void validateDepartment(Long deptId, boolean allowGroupRoot)
     {
         if (deptId == null) throw new ServiceException("请选择所属公司或部门");
+        deptService.checkDeptDataScope(deptId);
         SysDept dept = deptService.selectDeptById(deptId);
         if (dept == null || !"0".equals(dept.getStatus())) throw new ServiceException("所选部门不存在或已停用");
         if (!allowGroupRoot && Long.valueOf(0L).equals(dept.getParentId()))

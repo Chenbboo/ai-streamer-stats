@@ -34,6 +34,7 @@ import com.ruoyi.business.domain.BusinessProjectRoutine;
 import com.ruoyi.business.domain.BusinessProjectRoutineReport;
 import com.ruoyi.business.domain.BusinessProjectRoutineDailyTarget;
 import com.ruoyi.business.domain.BusinessProjectEffort;
+import com.ruoyi.business.domain.BusinessOperatingFact;
 import com.ruoyi.business.domain.BusinessProjectKpi;
 import com.ruoyi.business.domain.BusinessProjectStaffAllocation;
 import com.ruoyi.business.domain.BusinessStaffCostPolicy;
@@ -306,6 +307,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         ownerMember.setJoinedDate(standardTemplate ? proposal.getPlanStartDate() : new Date());
         ownerMember.setCreateBy(reviewerUserName);
         mapper.upsertMember(ownerMember);
+        memberDays.saveRole(project.getProjectId(),ownerMember.getUserId(),ownerMember.getJoinedDate(),"OWNER",reviewerUserName);
         grantProjectUser(project.getMainOwnerUserId(), true);
 
         Set<Long> selectedMemberIds = new HashSet<Long>();
@@ -325,20 +327,16 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             selectedMember.setUserNameSnapshot(displayName(selectedUser));
             selectedMember.setMemberRole("MEMBER");
             selectedMember.setStatus("0");
-            selectedMember.setJoinedDate(standardTemplate ? DateUtils.parseDate(line.get("planStartDate")) : new Date());
+            selectedMember.setJoinedDate(standardTemplate ? memberJoinedDate(proposal,line) : new Date());
             selectedMember.setCreateBy(reviewerUserName);
             selectedMember.setRemark("立项申请选择");
             mapper.upsertMember(selectedMember);
+            memberDays.saveRole(project.getProjectId(),selectedMember.getUserId(),selectedMember.getJoinedDate(),"MEMBER",reviewerUserName);
             grantProjectUser(selectedUserId, false);
         }
 
         if (standardTemplate)
         {
-            BusinessProjectTask initial=new BusinessProjectTask();initial.setProjectId(project.getProjectId());
-            initial.setTaskName("项目成果交付");initial.setAssigneeUserId(project.getMainOwnerUserId());initial.setAssigneeName(project.getMainOwnerName());
-            initial.setStatus("TODO");initial.setProgress(0);initial.setPriority(project.getPriority());initial.setPlanStartDate(project.getPlanStartDate());initial.setDueDate(project.getPlanEndDate());
-            initial.setRemark(project.getAcceptanceCriteria());initial.setCreateBy(reviewerUserName);mapper.insertTask(initial);
-            openWorkPeriod(project.getProjectId(),"TASK",initial.getTaskId(),initial.getAssigneeUserId(),initial.getAssigneeName(),initial.getPlanStartDate(),reviewerUserName);
             Map<String,Object> baseline=new LinkedHashMap<String,Object>();baseline.put("projectId",project.getProjectId());baseline.put("templateVersion",project.getTemplateVersion());baseline.put("baselineVersion",project.getBaselineVersion());
             baseline.put("authorizationSource",reviewerUserId.equals(proposal.getApplicantUserId())?"SELF_AUTHORIZED":"MANUAL_APPROVAL");
             baseline.put("userId",reviewerUserId);baseline.put("userName",reviewerUserName);
@@ -380,6 +378,14 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         syncExecutionSource(project, reviewerUserId, reviewerUserName);
         boolean operatorIsSponsor = reviewerUserId.equals(proposal.getSponsorOwnerUserId());
         return getProject(project.getProjectId(), reviewerUserId, SecurityUtils.isAdmin(reviewerUserId), operatorIsSponsor);
+    }
+
+    private Date memberJoinedDate(BusinessProjectProposal proposal, Map<String,Object> line)
+    {
+        Object value=line==null?null:line.get("planStartDate");
+        Date parsed=value instanceof Date?(Date)value:DateUtils.parseDate(value);
+        if(parsed!=null)return parsed;
+        return proposal.getPlanStartDate()==null?new Date():proposal.getPlanStartDate();
     }
 
     /** 仅保留供历史代码编译参考；新项目创建必须走 createApprovedProject。 */
@@ -960,6 +966,12 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         Map<String, Object> newOwner = requireActiveUser(newOwnerUserId);
         String newOwnerPreviousRole = mapper.selectMemberRole(projectId, newOwnerUserId);
         String newOwnerName = displayName(newOwner);
+        if(BusinessMemberDayCostService.enabled(project)){
+            Date effective=DateUtils.parseDate(DateUtils.getDate());
+            memberDays.archiveMembership(projectId,newOwnerUserId);
+            memberDays.saveRole(projectId,newOwnerUserId,effective,"OWNER",userName);
+            memberDays.saveRole(projectId,project.getMainOwnerUserId(),effective,"MEMBER",userName);
+        }
         if (mapper.updateProjectOwner(projectId, newOwnerUserId, newOwnerName, userName, project.getVersion()) != 1)
             throw changed();
 
@@ -1281,7 +1293,12 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         member.setJoinedDate(member.getJoinedDate() == null ? new Date() : member.getJoinedDate());
         String currentRole = mapper.selectMemberRole(project.getProjectId(), member.getUserId());
         requireDeputyAssignmentAuthority(project, userId, boss, currentRole, member.getMemberRole());
-        if(BusinessMemberDayCostService.enabled(project))memberDays.archiveMembership(project.getProjectId(),member.getUserId());
+        if(BusinessMemberDayCostService.enabled(project)){
+            memberDays.archiveMembership(project.getProjectId(),member.getUserId());
+            Date roleDate=member.getRoleEffectiveDate()==null?DateUtils.parseDate(DateUtils.getDate()):member.getRoleEffectiveDate();
+            if(currentRole!=null&&!currentRole.equals(member.getMemberRole())&&!roleDate.equals(DateUtils.parseDate(DateUtils.getDate())))throw new ServiceException("角色变更从今天起生效，历史成本请通过核算调整处理");
+            memberDays.saveRole(project.getProjectId(),member.getUserId(),currentRole==null?member.getJoinedDate():roleDate,member.getMemberRole(),userName);
+        }
         mapper.upsertMember(member);
         grantProjectUser(member.getUserId(), false);
         if ("DEPUTY".equals(currentRole) || "DEPUTY".equals(member.getMemberRole()))
@@ -1917,13 +1934,18 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         Map<String, Object> summary = mapper.selectDashboardSummary(userId, viewAll, boss);
         Map<String, Object> safeSummary = summary == null ? new HashMap<String, Object>() : summary;
         result.put("summary", safeSummary);
+        String projectKeyword = query == null || query.get("projectKeyword") == null ? "" : String.valueOf(query.get("projectKeyword")).trim();
+        String projectStatus = query == null || query.get("projectStatus") == null ? "" : String.valueOf(query.get("projectStatus")).trim();
+        long projectTotal = projectKeyword.isEmpty() && projectStatus.isEmpty()
+            ? longValue(safeSummary.get("totalCount"))
+            : mapper.countDashboardProjects(userId, viewAll, boss, projectKeyword, projectStatus);
+        projectPageNum = (int) Math.min(projectPageNum, Math.max(1L, (projectTotal + projectPageSize - 1) / projectPageSize));
         List<BusinessProject> projects = mapper.selectDashboardProjectPage(userId, viewAll, boss,
-            (projectPageNum - 1) * projectPageSize, projectPageSize);
+            (projectPageNum - 1) * projectPageSize, projectPageSize, projectKeyword, projectStatus);
         List<BusinessProject> decisions = mapper.selectDashboardDecisionPage(userId, viewAll, boss,
             (decisionPageNum - 1) * decisionPageSize, decisionPageSize);
         if (projects == null) projects = Collections.<BusinessProject>emptyList();
         if (decisions == null) decisions = Collections.<BusinessProject>emptyList();
-        long projectTotal = longValue(safeSummary.get("totalCount"));
         long decisionTotal = longValue(safeSummary.get("pendingDecisionCount"));
         result.put("projectPage", page(projects, projectTotal, projectPageNum, projectPageSize));
         result.put("decisionPage", page(decisions, decisionTotal, decisionPageNum, decisionPageSize));
@@ -1973,7 +1995,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         int pageSize = positiveInt(query, "pageSize", 5, 50);
         String category = query == null || query.get("category") == null
             ? "ALL" : String.valueOf(query.get("category")).trim().toUpperCase();
-        if (!Arrays.asList("ALL", "PROPOSAL", "ACCOUNTING", "STAGE_ACCEPTANCE", "KPI_MISSING", "KPI_REVIEW", "PERSONNEL_COST", "PROJECT")
+        if (!Arrays.asList("ALL", "PROPOSAL", "ACCOUNTING", "INCENTIVE_REVIEW", "STAGE_ACCEPTANCE", "KPI_MISSING", "KPI_REVIEW", "PERSONNEL_COST", "PROJECT")
             .contains(category)) category = "ALL";
         Date bizDate = new Date();
         Map<String, Object> counts = mapper.selectBossPendingCounts(userId, viewAll, bizDate);
@@ -1996,6 +2018,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         Map<String, String> keys = new HashMap<String, String>();
         keys.put("PROPOSAL", "proposalCount");
         keys.put("ACCOUNTING", "accountingCount");
+        keys.put("INCENTIVE_REVIEW", "incentiveReviewCount");
         keys.put("STAGE_ACCEPTANCE", "stageAcceptanceCount");
         keys.put("KPI_MISSING", "kpiMissingCount");
         keys.put("KPI_REVIEW", "kpiReviewCount");
@@ -2068,8 +2091,31 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
 
         Map<String, Object> accounting = new LinkedHashMap<String, Object>();
         accounting.put("bizDate", today);
-        accounting.put("dailySpend", accountingMapper.selectCurrentProjectDailySpend(selectedId,
-            java.sql.Date.valueOf(today)));
+        List<BusinessOperatingFact> dailySpendItems=accountingMapper.selectProjectDailySpendItems(selectedId,
+            java.sql.Date.valueOf(today));
+        if(dailySpendItems==null)dailySpendItems=Collections.emptyList();
+        BigDecimal dailySpendTotal=BigDecimal.ZERO;
+        boolean hasConfirmedSpend=false;
+        for(BusinessOperatingFact item:dailySpendItems)if("CONFIRMED".equals(item.getStatus()))
+        {
+            dailySpendTotal=dailySpendTotal.add(item.getAmount()==null?BigDecimal.ZERO:item.getAmount());
+            hasConfirmedSpend=true;
+        }
+        Map<String,Object> dailySpend=null;
+        Map<String,Object> noSpend=accountingMapper.selectSpendConfirmation(selectedId,java.sql.Date.valueOf(today));
+        accounting.put("spendConfirmation",noSpend);
+        if(hasConfirmedSpend)
+        {
+            dailySpend=new LinkedHashMap<String,Object>();dailySpend.put("amount",dailySpendTotal);
+            dailySpend.put("currency",detail.getBaseCurrency());dailySpend.put("status","CONFIRMED");
+            dailySpend.put("itemCount",dailySpendItems.size());
+        }
+        accounting.put("dailySpend",dailySpend);
+        if(!hasConfirmedSpend&&noSpend!=null){
+            Map<String,Object> zero=new LinkedHashMap<>();zero.put("amount",BigDecimal.ZERO);zero.put("currency",detail.getBaseCurrency());zero.put("status","NO_SPEND");zero.put("itemCount",0);
+            accounting.put("dailySpend",zero);
+        }
+        accounting.put("dailySpendItems",dailySpendItems);
         accounting.put("dailyRevenue", accountingMapper.selectProjectRevenueSummary(selectedId,
             java.sql.Date.valueOf(today)));
         List<Map<String, Object>> revenueCategories = new ArrayList<Map<String, Object>>();
@@ -2520,7 +2566,16 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     private void ensureReadyForAcceptance(Long projectId)
     {
         List<BusinessProjectTask> tasks = mapper.selectTasks(projectId);
-        if (tasks == null || tasks.isEmpty()) throw new ServiceException("项目至少需要一项任务才能验收");
+        if(tasks==null)tasks=Collections.emptyList();
+        if(tasks.isEmpty()){
+            List<BusinessProjectRoutine> routines=mapper.selectRoutines(projectId,new Date());
+            List<BusinessProjectRoutine> retired=mapper.selectRetiredRoutines(projectId,new Date());
+            Map<String,Object> relation=mapper.selectActiveExecutionRelation(projectId);
+            List<BusinessProjectRoutine> source=relation==null?Collections.emptyList():mapper.selectLiveStreamerRoutines(relation);
+            if((routines==null||routines.isEmpty())&&(retired==null||retired.isEmpty())&&(source==null||source.isEmpty()))
+                throw new ServiceException("项目至少需要一项任务或持续工作记录才能验收");
+            if(workMapper.countPendingWork(projectId)>0)throw new ServiceException("持续工作仍有待处理记录，请先处理后结项");
+        }
         List<String> blockers = new ArrayList<String>();
         List<String> unfinishedTasks = new ArrayList<String>();
         for (BusinessProjectTask task : tasks)

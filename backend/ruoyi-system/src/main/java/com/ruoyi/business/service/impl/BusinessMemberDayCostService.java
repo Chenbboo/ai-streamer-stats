@@ -32,12 +32,25 @@ public class BusinessMemberDayCostService {
     public void archiveMembership(Long projectId,Long userId){mapper.archiveMembership(projectId,userId);}
     public List<Map<String,Object>> dayCosts(Long projectId,Date date){return mapper.selectDayCosts(projectId,date);}
 
+    public void saveRole(Long projectId,Long userId,Date date,String role,String operator){mapper.saveRolePeriod(projectId,userId,date,role,operator);}
+    // A priced day is an accounting fact. Later policy/role/calendar changes never rewrite it.
+    private List<Map<String,Object>> preservePriced(Long projectId,LocalDate from,LocalDate to,List<Map<String,Object>> desired){
+        Map<String,Map<String,Object>> merged=new LinkedHashMap<>();
+        for(Map<String,Object> row:desired)merged.put(row.get("userId")+":"+day(row.get("bizDate")),row);
+        for(Map<String,Object> row:mapper.selectCosts(projectId)){
+            LocalDate d=day(row.get("bizDate"));
+            if(!d.isBefore(from)&&!d.isAfter(to)&&"PRICED".equals(row.get("pricingStatus"))&&row.get("amount")!=null)
+                merged.put(row.get("userId")+":"+d,new LinkedHashMap<>(row));
+        }
+        List<Map<String,Object>> result=new ArrayList<>(merged.values());
+        result.sort(Comparator.comparing(r->day(r.get("bizDate"))));return result;
+    }
     public List<Map<String,Object>> overview(Long projectId,String date){
         BusinessProject p=projects.selectProjectById(projectId);
         LocalDate d=day(date),start=projectStart(p);
         if(start==null||d.isBefore(start)||d.isAfter(LocalDate.now())||p.getActualEndDate()!=null&&d.isAfter(day(p.getActualEndDate())))return Collections.emptyList();
         List<Map<String,Object>> rows=BusinessProjectLifecycle.isAccountingClosed(p)?mapper.selectDayCosts(projectId,java.sql.Date.valueOf(d)):calculate(p,d,d);
-        for(Map<String,Object> row:rows){row.put("projectName",p.getProjectName());row.put("costPolicyVersion",POLICY);row.put("personnelCost",row.get("amount"));row.put("dailyCost",row.get("amount"));row.put("workingDays",1);row.put("costStatus","PRICED".equals(row.get("pricingStatus"))?"READY":"PENDING_COST");}
+        for(Map<String,Object> row:rows){Map<String,Object> metadata=mapper.selectStaffMetadata(id(row.get("userId")),id(row.get("ratePolicyId")));if(metadata!=null)row.putAll(metadata);if(row.get("basisJson")!=null)try{Map<String,Object> basis=json.readValue(String.valueOf(row.get("basisJson")),new TypeReference<Map<String,Object>>(){});for(String field:Arrays.asList("companyName","companyDeptId","countryRegion","costMode","monthlyCost","standardWorkDays"))if(basis.get(field)!=null)row.put(field,basis.get(field));}catch(Exception ignored){}row.put("projectName",p.getProjectName());row.put("costPolicyVersion",POLICY);row.put("personnelCost",row.get("amount"));row.put("dailyCost",row.get("amount"));row.put("workingDays",1);row.put("costStatus","PRICED".equals(row.get("pricingStatus"))?"READY":"PENDING_COST");}
         return rows;
     }
 
@@ -49,8 +62,14 @@ public class BusinessMemberDayCostService {
         if(from==null||from.isAfter(LocalDate.now()))return;
         LocalDate to=LocalDate.now();
         if(p.getActualEndDate()!=null&&day(p.getActualEndDate()).isBefore(to))to=day(p.getActualEndDate());
-        List<Map<String,Object>> desired=calculate(p,from,to);
-        Map<String,List<Map<String,Object>>> old=group(mapper.selectCosts(projectId)),next=group(desired);
+        List<Map<String,Object>> desired=calculateCurrent(p,from,to);
+        List<Map<String,Object>> stored=mapper.selectCosts(projectId);
+        // Also retain priced rows outside a changed project window.
+        Map<String,List<Map<String,Object>>> old=group(stored),next=group(desired);
+        for(Map<String,Object> row:stored)if("PRICED".equals(row.get("pricingStatus"))&&row.get("amount")!=null){
+            String key=day(row.get("bizDate")).toString();List<Map<String,Object>> rows=next.computeIfAbsent(key,k->new ArrayList<>());
+            rows.removeIf(r->Objects.equals(id(r.get("userId")),id(row.get("userId"))));rows.add(row);
+        }
         Set<String> dates=new TreeSet<>();dates.addAll(old.keySet());dates.addAll(next.keySet());
         Set<String> legacyDates=new HashSet<>(mapper.selectLegacyResultDates(projectId));dates.addAll(legacyDates);
         for(String date:dates) {
@@ -71,24 +90,34 @@ public class BusinessMemberDayCostService {
         Collections.sort(values);return values.toString();
     }
     public List<Map<String,Object>> calculate(BusinessProject p,LocalDate from,LocalDate to){
+        return preservePriced(p.getProjectId(),from,to,calculateCurrent(p,from,to));
+    }
+    public List<Map<String,Object>> calculateCurrent(BusinessProject p,LocalDate from,LocalDate to){
         List<Map<String,Object>> result=new ArrayList<>();
+        List<Map<String,Object>> roles=mapper.selectRolePeriods(p.getProjectId());
+        List<Map<String,Object>> pauses=mapper.selectCostPauses(p.getProjectId());
         List<Map<String,Object>> assignments=work.selectAssignments(p.getProjectId()),calendars=work.selectCalendars();
         List<Map<String,Object>> memberships=new ArrayList<>(work.selectMembers(p.getProjectId()));memberships.addAll(mapper.selectPastMemberships(p.getProjectId()));
-        Set<String> calculated=new HashSet<>();
+        Set<String> calculated=new HashSet<>();Map<String,Map<String,Object>> metadataCache=new HashMap<>();
         for(Map<String,Object> member:memberships) {
-            if("OBSERVER".equals(member.get("memberRole")))continue;
+
             Long userId=id(member.get("userId"));
             LocalDate joined=day(member.get("joinedDate")),left=day(member.get("leftDate"));
             if(!"0".equals(String.valueOf(member.get("status")))&&left==null)continue;
             List<Map<String,Object>> plans=new ArrayList<>();
-            for(Map<String,Object> a:assignments)if(userId.equals(id(a.get("userId")))&&(joined==null||day(a.get("effectiveTo"))==null||!day(a.get("effectiveTo")).isBefore(joined)))plans.add(a);
+            for(Map<String,Object> a:assignments)if(userId.equals(id(a.get("userId")))&&("FOLLOW_PROJECT".equals(a.get("participationMode"))||joined==null||day(a.get("effectiveTo"))==null||!day(a.get("effectiveTo")).isBefore(joined)))plans.add(a);
             List<Map<String,Object>> rates=work.selectBudgetRates(userId,from.toString(),to.toString());
             for(LocalDate date=from;!date.isAfter(to);date=date.plusDays(1)) {
-                if(projectStart(p)!=null&&date.isBefore(projectStart(p)))continue;
+                boolean released=false;
+                for(Map<String,Object> pause:pauses)if(!date.isBefore(day(pause.get("effectiveFrom")))&&(pause.get("effectiveTo")==null||date.isBefore(day(pause.get("effectiveTo"))))){released=true;break;}
+                if(released)continue;
+                if(projectStart(p)!=null&&date.isBefore(projectStart(p))||p.getActualEndDate()!=null&&date.isAfter(day(p.getActualEndDate())))continue;
                 if(joined!=null&&date.isBefore(joined)||left!=null&&date.isAfter(left))continue;
-                if(p.getPlanEndDate()!=null&&date.isAfter(day(p.getPlanEndDate())))continue;
+                String role=String.valueOf(member.get("memberRole"));
+                for(Map<String,Object> period:roles)if(userId.equals(id(period.get("userId")))&&!date.isBefore(day(period.get("effectiveFrom"))))role=String.valueOf(period.get("memberRole"));
+                if("OBSERVER".equals(role))continue;
                 Map<String,Object> plan=null;
-                for(Map<String,Object> a:plans)if(covers(a,"effectiveFrom","effectiveTo",date)&&("ACTIVE".equals(a.get("status"))||"RETIRED".equals(a.get("status"))&&day(a.get("retiredTime"))!=null&&date.isBefore(day(a.get("retiredTime"))))){plan=a;break;}
+                for(Map<String,Object> a:plans)if(participates(a,date)&&("ACTIVE".equals(a.get("status"))||"RETIRED".equals(a.get("status"))&&day(a.get("retiredTime"))!=null&&date.isBefore(day(a.get("retiredTime"))))){plan=a;break;}
                 if(!plans.isEmpty()&&plan==null)continue;
                 Map<String,Object> calendar=null;
                 if(plan!=null&&plan.get("calendarId")!=null){for(Map<String,Object> c:calendars)if(id(c.get("calendarId")).equals(id(plan.get("calendarId")))){calendar=c;break;}}
@@ -103,8 +132,14 @@ public class BusinessMemberDayCostService {
                     else {rate=matches.get(0);if(!p.getBaseCurrency().equals(rate.get("currency")))issue="成本币种与项目不一致";
                         else try{amount=dailyRate(rate);}catch(ServiceException ex){issue=ex.getMessage();}}
                 }
+                String metadataKey=userId+":"+(rate==null?"":rate.get("policyId"));
+                final Long metadataPolicy=rate==null?null:id(rate.get("policyId"));
+                Map<String,Object> metadata=metadataCache.computeIfAbsent(metadataKey,k->mapper.selectStaffMetadata(userId,metadataPolicy));
+                cost.put("companyName",member.get("companyName"));cost.put("companyDeptId",member.get("companyDeptId"));cost.put("countryRegion",member.get("countryRegion"));
+                cost.put("costMode",rate==null?null:rate.get("costMode"));cost.put("monthlyCost",rate!=null&&"MONTHLY".equals(rate.get("costMode"))?rate.get("unitCost"):null);cost.put("standardWorkDays",rate==null?null:rate.get("standardWorkDays"));
+                if(metadata!=null)cost.putAll(metadata);
                 cost.put("calendarId",calendar==null?null:calendar.get("calendarId"));cost.put("ratePolicyId",rate==null?null:rate.get("policyId"));cost.put("amount",amount);cost.put("issue",issue);cost.put("pricingStatus",issue==null?"PRICED":"PENDING");
-                Map<String,Object> basis=new LinkedHashMap<>();basis.put("costPolicyVersion",POLICY);basis.put("formula","工作日数 × 当日有效日成本");basis.put("workingDays",1);basis.put("bizDate",date.toString());basis.put("userName",member.get("userName"));basis.put("calendarId",cost.get("calendarId"));basis.put("calendarVersion",calendar==null?null:calendar.get("version"));basis.put("ratePolicyId",cost.get("ratePolicyId"));basis.put("rateVersion",rate==null?null:rate.get("version"));basis.put("dailyCost",amount);basis.put("currency",p.getBaseCurrency());basis.put("issue",issue);
+                Map<String,Object> basis=new LinkedHashMap<>();basis.put("costPolicyVersion",POLICY);basis.put("formula","工作日数 × 当日有效日成本");basis.put("workingDays",1);basis.put("bizDate",date.toString());basis.put("userName",member.get("userName"));basis.put("calendarId",cost.get("calendarId"));basis.put("calendarVersion",calendar==null?null:calendar.get("version"));basis.put("ratePolicyId",cost.get("ratePolicyId"));basis.put("rateVersion",rate==null?null:rate.get("version"));basis.put("dailyCost",amount);basis.put("currency",p.getBaseCurrency());basis.put("issue",issue);for(String field:Arrays.asList("companyName","companyDeptId","countryRegion","costMode","monthlyCost","standardWorkDays"))basis.put(field,cost.get(field));
                 try{cost.put("basisJson",json.writeValueAsString(basis));}catch(Exception ex){throw new ServiceException("工作日成本依据无法保存");}
                 if(calculated.add(userId+":"+date))result.add(cost);
             }
@@ -148,7 +183,11 @@ public class BusinessMemberDayCostService {
             else{BigDecimal amount=(BigDecimal)c.get("amount");total=total.add(amount);row.put("amount",((BigDecimal)row.get("amount")).add(amount));}
         }
         for(Map<String,Object> r:summary.values())if(!((Set<?>)r.get("issues")).isEmpty())r.put("amount",null);
-        Map<String,Object> result=new LinkedHashMap<>();result.put("rows",summary.values());result.put("totalAmount",pending==0?total:null);result.put("pendingCount",pending);result.put("currency",p.getBaseCurrency());result.put("dateFrom",from.toString());result.put("dateTo",to.toString());return result;
+        Map<String,Object> result=new LinkedHashMap<>();result.put("rows",summary.values());result.put("totalAmount",pending==0?total:null);result.put("pendingCount",pending);result.put("currency",p.getBaseCurrency());result.put("overdue",p.getPlanEndDate()!=null&&day(p.getPlanEndDate()).isBefore(LocalDate.now())&&p.getActualEndDate()==null);result.put("dateFrom",from.toString());result.put("dateTo",to.toString());return result;
+    }
+    private boolean participates(Map<String,Object> assignment,LocalDate date){
+        LocalDate from=day(assignment.get("effectiveFrom")),to=day(assignment.get("effectiveTo"));
+        return (from==null||!date.isBefore(from))&&("FOLLOW_PROJECT".equals(assignment.get("participationMode"))||to==null||!date.isAfter(to));
     }
     private boolean covers(Map<String,Object> row,String from,String to,LocalDate d){LocalDate a=day(row.get(from)),b=day(row.get(to));return (a==null||!d.isBefore(a))&&(b==null||!d.isAfter(b));}
     private static LocalDate projectStart(BusinessProject p){LocalDate planned=day(p.getPlanStartDate()),actual=day(p.getActualStartDate());return planned==null?actual:actual==null||planned.isAfter(actual)?planned:actual;}

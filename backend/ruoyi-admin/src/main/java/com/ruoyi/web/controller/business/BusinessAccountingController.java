@@ -62,10 +62,16 @@ public class BusinessAccountingController extends BaseController
     {return success(service.saveProjectFact(fact,SecurityUtils.getUserId(),getUsername(),SecurityUtils.isAdmin()));}
 
     @PreAuthorize("@ss.hasPermi('business:project:report')")
-    @Log(title="项目今日总花费",businessType=BusinessType.INSERT)
+    @Log(title="新增项目花费",businessType=BusinessType.INSERT)
     @PostMapping("/project-daily-spend")
     public AjaxResult saveProjectDailySpend(@RequestBody BusinessOperatingFact fact)
     {return success(service.saveProjectDailySpend(fact,SecurityUtils.getUserId(),getUsername(),SecurityUtils.isAdmin()));}
+
+    @PreAuthorize("@ss.hasPermi('business:project:report')")
+    @Log(title="冲销项目花费",businessType=BusinessType.UPDATE)
+    @PostMapping("/project-daily-spend/{factId}/reverse")
+    public AjaxResult reverseProjectDailySpend(@PathVariable Long factId,@RequestBody Map<String,Object> body)
+    {return success(service.reverseProjectDailySpend(factId,text(body.get("reason")),SecurityUtils.getUserId(),getUsername(),SecurityUtils.isAdmin()));}
 
     @PreAuthorize("@ss.hasPermi('business:accounting:confirm')")
     @Log(title="确认经营事实",businessType=BusinessType.UPDATE)

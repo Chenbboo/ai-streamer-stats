@@ -14,6 +14,9 @@ public class BusinessProjectMember extends BaseEntity
     private String accountName;
     private String memberRole;
     private String status;
+    @JsonFormat(pattern = "yyyy-MM-dd") private Date roleEffectiveDate;
+    public Date getRoleEffectiveDate(){return roleEffectiveDate;}
+    public void setRoleEffectiveDate(Date value){roleEffectiveDate=value;}
     @JsonFormat(pattern = "yyyy-MM-dd") private Date joinedDate;
     @JsonFormat(pattern = "yyyy-MM-dd") private Date leftDate;
 

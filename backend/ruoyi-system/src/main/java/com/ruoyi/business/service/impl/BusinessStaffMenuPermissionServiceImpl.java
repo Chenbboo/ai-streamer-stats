@@ -13,15 +13,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.business.domain.BusinessStaffMenuPermission;
-import com.ruoyi.business.domain.BusinessStaffProfile;
 import com.ruoyi.business.mapper.BusinessProjectMapper;
 import com.ruoyi.business.mapper.BusinessStaffMenuPermissionMapper;
-import com.ruoyi.business.mapper.BusinessStaffProfileMapper;
 import com.ruoyi.business.service.IBusinessStaffMenuPermissionService;
 import com.ruoyi.common.core.domain.entity.SysMenu;
 import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.exception.ServiceException;
-import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.system.service.ISysUserService;
 import com.ruoyi.system.service.OnlineUserPermissionService;
@@ -36,7 +33,6 @@ public class BusinessStaffMenuPermissionServiceImpl implements IBusinessStaffMen
 
     @Autowired private ISysUserService userService;
     @Autowired private BusinessProjectMapper projectMapper;
-    @Autowired private BusinessStaffProfileMapper profileMapper;
     @Autowired private BusinessStaffMenuPermissionMapper permissionMapper;
     @Autowired private PersonalMenuPermissionService permissionResolver;
     @Autowired private OnlineUserPermissionService onlineUserPermissionService;
@@ -48,12 +44,12 @@ public class BusinessStaffMenuPermissionServiceImpl implements IBusinessStaffMen
         List<SysMenu> allMenus = permissionResolver.selectAllActiveMenus();
         Set<Long> inheritedIds = permissionResolver.selectRoleMenuIds(userId);
         Set<Long> currentIds = permissionResolver.selectEffectiveMenuIds(userId, false);
-        Set<Long> ceilingIds = new HashSet<Long>(inheritedIds);
         Map<Long, List<SysMenu>> ownedActions = actionsByController(allMenus);
 
         Map<Long, String> inheritedLevels = navigationLevels(allMenus, inheritedIds, ownedActions);
         Map<Long, String> currentLevels = navigationLevels(allMenus, currentIds, ownedActions);
-        Map<Long, String> maximumLevels = navigationLevels(allMenus, ceilingIds, ownedActions);
+        Map<Long, String> maximumLevels = new HashMap<Long, String>();
+        for (SysMenu menu : allMenus) maximumLevels.put(menu.getMenuId(), MAINTAIN);
 
         Map<String, Object> result = new LinkedHashMap<String, Object>();
         result.put("userId", target.getUserId());
@@ -76,8 +72,6 @@ public class BusinessStaffMenuPermissionServiceImpl implements IBusinessStaffMen
         Map<Long, SysMenu> byId = byId(allMenus);
         Map<Long, List<SysMenu>> ownedActions = actionsByController(allMenus);
         Set<Long> currentIds = permissionResolver.selectEffectiveMenuIds(userId, false);
-        Set<Long> ceilingIds = permissionResolver.selectRoleMenuIds(userId);
-        Map<Long, String> maximumLevels = navigationLevels(allMenus, ceilingIds, ownedActions);
         Map<Long, String> currentLevels = navigationLevels(allMenus, currentIds, ownedActions);
         Map<Long, String> requested = parseRequestedLevels(permissions);
 
@@ -99,9 +93,6 @@ public class BusinessStaffMenuPermissionServiceImpl implements IBusinessStaffMen
             if (!"C".equals(menu.getMenuType())) continue;
             String level = isEditableNavigation(menu) ? requested.get(menu.getMenuId())
                 : currentLevels.getOrDefault(menu.getMenuId(), HIDDEN);
-            String maximum = maximumLevels.getOrDefault(menu.getMenuId(), HIDDEN);
-            if (rank(level) > rank(maximum))
-                throw new ServiceException("不能把“" + menu.getMenuName() + "”设置为超过本人权限的级别");
             navigation.put(menu.getMenuId(), level);
             if (rank(level) >= rank(READ)) itemLevels.put(menu.getMenuId(), level);
 
@@ -109,7 +100,6 @@ public class BusinessStaffMenuPermissionServiceImpl implements IBusinessStaffMen
             if (actions == null) continue;
             for (SysMenu action : actions)
             {
-                if (!ceilingIds.contains(action.getMenuId())) continue;
                 if (MAINTAIN.equals(level))
                     itemLevels.put(action.getMenuId(), isReadAction(action) ? READ : MAINTAIN);
                 else if (READ.equals(level) && isReadAction(action))
@@ -159,16 +149,10 @@ public class BusinessStaffMenuPermissionServiceImpl implements IBusinessStaffMen
         if (userId == null || operatorUserId == null) throw new ServiceException("人员ID不能为空");
         SysUser target = userService.selectUserById(userId);
         if (target == null || "2".equals(target.getDelFlag())) throw new ServiceException("人员不存在");
-        if (SecurityUtils.isAdmin(target.getUserId())
-            || projectMapper.countUserRoleByKey(target.getUserId(), "company_owner") > 0)
-            throw new ServiceException("系统管理员和老板账号为受保护账号，不能设置个人目录权限");
         if (!administrator)
         {
             if (projectMapper.countUserRoleByKey(operatorUserId, "company_owner") == 0)
                 throw new ServiceException("只有老板可以设置员工目录权限");
-            BusinessStaffProfile profile = profileMapper.selectByUserId(userId);
-            if (profile == null || !operatorUserId.equals(profile.getCompanyLeaderUserId()))
-                throw new ServiceException("只能设置本人负责公司的员工目录权限");
         }
         return target;
     }

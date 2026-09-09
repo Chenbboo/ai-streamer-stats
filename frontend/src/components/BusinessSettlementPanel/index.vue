@@ -3,28 +3,28 @@
     <div class="settlement-heading">
       <div><h3>{{ t('title') }}</h3><BusinessProjectState :project="displayProject" /></div>
       <div class="settlement-actions">
+        <el-button size="small" link type="primary" :aria-expanded="expanded" @click="expanded = !expanded">{{ expanded ? t('less') : t('details') }}</el-button>
         <el-button size="small" icon="Refresh" :disabled="loading || closing" @click="loadStatus">{{ t('refresh') }}</el-button>
         <el-button v-if="summary?.canClose" v-hasPermi="['business:accounting:close']" size="small" type="warning" :loading="closing" @click="closeAccounting">{{ t('close') }}</el-button>
       </div>
     </div>
-    <p>{{ policyHint }}</p>
+    <p v-if="expanded">{{ policyHint }}</p>
     <el-alert v-if="loadFailed" :title="t('loadFailed')" type="warning" :closable="false" show-icon />
     <template v-else-if="summary">
       <div v-if="summary.accountingState === 'OPEN'" class="settlement-counts">
-        <span>{{ t('pendingKpi') }} <b>{{ summary.pendingKpiCount || 0 }}</b></span>
-        <span>{{ t('pendingFact') }} <b>{{ summary.pendingFactCount || 0 }}</b></span>
-
-        <span>{{ t('pendingAward') }} <b>{{ summary.pendingAwardCount || 0 }}</b></span><span>{{ t('pendingCost') }} <b>{{ summary.pendingCostCount || 0 }}</b></span><span>{{ t('pendingLeave') }} <b>{{ summary.pendingLeaveCount || 0 }}</b></span>
+        <span v-for="item in pendingCounts" :key="item.key">{{ t(item.label) }} <b>{{ item.count }}</b></span>
+        <span v-if="!pendingCounts.length">{{ t('noPending') }}</span>
       </div>
-      <ul v-if="summary.blockers?.length" class="settlement-blockers">
+      <ul v-if="expanded && summary.blockers?.length" class="settlement-blockers">
         <li v-for="(blocker,index) in summary.blockers" :key="`${blocker.code}-${index}`">{{ blockerLabel(blocker) }}<template v-if="Number(blocker.count)>1"> · {{ blocker.count }}</template></li>
       </ul>
       <p v-else-if="summary.canClose" class="settlement-ready">{{ t('ready') }}</p>
-      <div v-if="summary.accountingState === 'OPEN'" class="settlement-links">
+      <div v-if="expanded && summary.accountingState === 'OPEN'" class="settlement-links">
         <el-button v-hasPermi="['business:kpi:list']" link type="primary" @click="openKpi">{{ t('kpiLink') }}</el-button>
         <el-button v-hasPermi="['business:accounting:list']" link type="primary" @click="openAccounting">{{ t('accountingLink') }}</el-button>
       </div>
     </template>
+    <BusinessClosedAdjustments v-if="projectAccountingState(displayProject)==='CLOSED'" :project="displayProject" @changed="emit('closed')" />
   </section>
 </template>
 
@@ -35,12 +35,18 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { closeBusinessProjectAccounting, getBusinessProjectSettlementStatus } from '@/api/business/project'
 import { isDeliveryEnded, isSeparatedDelivery, projectAccountingState } from '@/utils/businessProjectState'
+import BusinessClosedAdjustments from '@/components/BusinessClosedAdjustments/index.vue'
 import BusinessProjectState from '@/components/BusinessProjectState/index.vue'
 
 const props = defineProps({ project: { type: Object, required: true }, refreshKey: { type: [String, Number], default: '' } })
 const emit = defineEmits(['closed'])
 const router = useRouter()
 const loading = ref(false), closing = ref(false), loadFailed = ref(false), summary = ref(null)
+const expanded = ref(false)
+const pendingCounts = computed(() => [
+  ['pendingKpiCount','pendingKpi'], ['pendingFactCount','pendingFact'],
+  ['pendingAwardCount','pendingAward'], ['pendingCostCount','pendingCost'], ['pendingLeaveCount','pendingLeave']
+].map(([key,label]) => ({key,label,count:Number(summary.value?.[key] || 0)})).filter(item => item.count > 0))
 let requestSequence = 0
 const displayProject = computed(() => ({ ...props.project, ...(summary.value || {}) }))
 const policyHint = computed(() => {
@@ -50,7 +56,7 @@ const policyHint = computed(() => {
 })
 const { t, te } = useI18n({ useScope: 'local', messages: {
   'zh-CN': {
-    title: '交付与后续结算', refresh: '刷新状态', close: '关闭项目核算',
+    title: '交付与结算', refresh: '刷新', close: '关闭项目核算', details: '查看详情', less: '收起详情', noPending: '暂无结算待办',
     pendingAward: '奖金待处理', pendingCost: '人员成本待完善', pendingKpi: 'KPI待结算', pendingFact: '收支待处理', pendingEffort: '投入待确认', pendingLeave: '假勤待处理',
     loadFailed: '暂时无法读取结算待办，请刷新后核对；当前不能办理关账。',
     legacyHint: '本项目沿用原结项与核算规则，历史记录和金额不自动迁移。',
@@ -64,7 +70,7 @@ const { t, te } = useI18n({ useScope: 'local', messages: {
     blockers: { PENDING_AWARD: '奖金奖励单尚待处理或取消', PENDING_COST: '成员工作日缺少有效成本或日历', LEGACY_POLICY: '沿用原结项关账规则', DELIVERY_OPEN: '项目尚未完成交付或取消', ACCOUNTING_CLOSED: '项目核算已关闭', NOT_SPONSOR: '由项目归属责任人办理核算关闭', MISSING_END_DATE: '缺少实际结束日期，请核对', PENDING_KPI: '仍有未完成KPI结算，包括尚未到期的周期', PENDING_EFFORT: '仍有投入待确认', PENDING_LEAVE: '仍有假勤待处理', PENDING_FACT: '仍有收支待确认或退回修改' }
   },
   'vi-VN': {
-    title: 'Bàn giao và quyết toán tiếp theo', refresh: 'Làm mới', close: 'Đóng quyết toán dự án',
+    title: 'Bàn giao và quyết toán', refresh: 'Làm mới', close: 'Đóng quyết toán dự án', details: 'Xem chi tiết', less: 'Thu gọn', noPending: 'Không có quyết toán chờ xử lý',
     pendingAward: 'Thưởng chờ xử lý', pendingCost: 'Công việc chờ định giá', pendingKpi: 'KPI chưa quyết toán', pendingFact: 'Thu chi chờ xử lý', pendingEffort: 'Khối lượng chờ xác nhận', pendingLeave: 'Nghỉ phép chờ xử lý',
     loadFailed: 'Không thể tải công việc quyết toán. Hãy làm mới và kiểm tra; hiện không thể đóng quyết toán.',
     legacyHint: 'Dự án giữ quy trình kết thúc và quyết toán cũ. Lịch sử và số tiền không tự động chuyển đổi.',
@@ -124,6 +130,7 @@ async function closeAccounting() {
 function openKpi() { router.push({ path: '/projects/kpi-results', query: { projectId: props.project.projectId } }) }
 function openAccounting() { router.push({ path: '/business/accounting', query: { projectId: props.project.projectId } }) }
 watch(() => [props.project, props.refreshKey], loadStatus, { immediate: true })
+watch(() => props.project.projectId, () => { expanded.value = false })
 </script>
 
 <style scoped>

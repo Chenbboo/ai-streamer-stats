@@ -45,6 +45,7 @@ class BusinessProjectWorkMapperIntegrationTest
         {
             while(create.find())s.execute(create.group());
             s.execute("alter table biz_project_resource_assignment modify effective_to date null");
+            s.execute("alter table biz_project_resource_assignment add participation_mode varchar(24) default 'CUSTOM'");
             s.execute("create table sys_user(user_id bigint primary key,nick_name varchar(80),del_flag char(1))");
             s.execute("insert into sys_user values(30,'member','0')");
             s.execute("create table biz_project(project_id bigint primary key,actual_end_date date,objective varchar(1000),plan_start_date date,plan_end_date date,acceptance_criteria varchar(2000),budget_limit decimal(20,2),baseline_version int,version int,accounting_state varchar(16),status varchar(16),update_by varchar(64),update_time timestamp)");

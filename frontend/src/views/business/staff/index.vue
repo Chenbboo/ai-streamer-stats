@@ -74,7 +74,7 @@
           <el-col :span="12"><el-form-item label="直属负责人"><el-select v-model="form.managerUserId" filterable clearable :disabled="form.protectedAccount" placeholder="请选择" style="width:100%"><el-option v-for="person in managerOptions" :key="person.userId" :value="person.userId" :label="`${person.nickName} · ${person.deptName || person.companyName || '集团'}`" /></el-select></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="工作地点"><el-input v-model="form.workLocation" maxlength="100" placeholder="例如：上海、胡志明市" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="用工类型"><el-select v-model="form.employmentType" style="width:100%"><el-option v-for="item in employmentTypes" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="任职状态"><el-select v-model="form.employmentStatus" :disabled="form.protectedAccount" style="width:100%"><el-option v-for="item in employmentStatuses" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="任职状态"><el-select v-model="form.employmentStatus" :disabled="form.protectedAccount" style="width:100%"><el-option v-for="item in employmentStatuses" :key="item.value" :label="item.label" :value="item.value" :disabled="item.value==='LEFT'" /></el-select></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="入职日期"><el-date-picker v-model="form.hireDate" type="date" value-format="YYYY-MM-DD" placeholder="请选择" style="width:100%" /></el-form-item></el-col>
           <el-col :span="24"><el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item></el-col>
         </el-row>
@@ -114,6 +114,7 @@
         <section class="detail-section"><h3>系统账号</h3><div class="detail-grid">
           <div><span>账号状态</span><b>{{ selectedPerson.status==='0' ? '正常' : '停用' }}</b></div><div><span>最后登录</span><b>{{ formatDate(selectedPerson.loginDate) }}</b></div>
         </div></section>
+        <BusinessDeparturePanel v-if="detailOpen && canManagePeople && !selectedPerson.protectedAccount" :person="selectedPerson" @changed="loadAll" @navigate="detailOpen=false" />
         <div class="detail-actions"><el-button v-if="canManageDirectory(selectedPerson)" type="primary" plain @click="openMenuPermissions(selectedPerson);detailOpen=false">设置目录权限</el-button><el-button v-if="canManagePeople" type="primary" plain @click="openEdit(selectedPerson);detailOpen=false">编辑人员资料</el-button></div>
       </template>
     </el-drawer>
@@ -125,7 +126,7 @@
     </el-dialog>
 
     <el-dialog v-model="menuDialog" class="staff-menu-dialog" :title="`${menuPolicy.nickName || ''} · 目录权限`" width="min(920px, 96vw)" append-to-body :close-on-click-modal="false">
-      <el-alert title="默认继承员工现有角色权限。老板可以设置员工的全部目录权限，包括系统管理和系统监控。保存后会同时约束菜单显示和后端操作权限。" type="success" :closable="false" show-icon />
+      <el-alert title="默认继承账号现有角色权限。老板可以设置所有账号的全部目录权限，包括其他老板和 admin。个人设置优先于角色默认权限，保存后会同时约束菜单显示和后端操作权限。" type="success" :closable="false" show-icon />
       <div class="menu-toolbar">
         <span><b>{{ menuPolicy.inherited ? '当前：继承角色' : '当前：个人设置' }}</b><small>左侧导航中的全部目录均可授权</small></span>
         <div><el-button size="small" @click="setAllMenuLevels('HIDDEN')">全部不显示</el-button><el-button size="small" @click="setAllMenuLevels('READ')">全部仅查看</el-button><el-button size="small" @click="setAllMenuLevels('MAINTAIN')">全部可维护</el-button></div>
@@ -151,6 +152,7 @@
 
 <script setup name="BusinessStaff">
 import { ElMessage, ElMessageBox } from 'element-plus'
+import BusinessDeparturePanel from '@/components/BusinessDeparturePanel/index.vue'
 import { addBusinessStaff, changeBusinessStaffStatus, deleteBusinessStaffCostPolicy, getBusinessStaffCostPolicies, getBusinessStaffMenuPermissions, getBusinessStaffProjects, listBusinessDepartments, listBusinessStaff, listBusinessStaffOptions, resetBusinessStaffMenuPermissions, resetBusinessStaffPassword, saveBusinessStaffCostPolicy, saveBusinessStaffMenuPermissions, updateBusinessStaff, voidBusinessStaffCostPolicy } from '@/api/business/staff'
 import useUserStore from '@/store/modules/user'
 import StaffCostPolicies from '@/views/business/cost-policies/index.vue'
@@ -182,12 +184,12 @@ const costDateColors=[
 ]
 const activeCostPolicies=computed(()=>costPolicies.value.filter(policy=>policy.status==='ACTIVE'))
 const isAdmin=computed(()=>userStore.roles.includes('admin')||userStore.permissions.includes('*:*:*'))
-const canManagePeople=computed(()=>isAdmin.value||userStore.permissions.includes('business:staff:manage'))
+const canManagePeople=computed(()=>userStore.permissions.includes('*:*:*')||userStore.permissions.includes('business:staff:manage'))
 const canManageStaffCost=computed(()=>isAdmin.value||userStore.permissions.includes('business:staff:cost'))
 const costEligibleStaff=row=>row?.employmentStatus!=='LEFT'
 const canViewRowCost=row=>costEligibleStaff(row)&&(isAdmin.value||row?.canViewCost===true)
 const canManageRowCost=row=>costEligibleStaff(row)&&(isAdmin.value||row?.canManageCost===true)
-const canManageDirectory=row=>canManagePeople.value&&!row?.protectedAccount
+const canManageDirectory=row=>!!row?.userId&&canManagePeople.value&&(isAdmin.value||userStore.roles.includes('company_owner'))
 const canViewSelectedCost=computed(()=>canViewRowCost(selectedPerson.value))
 const canManageSelectedCost=computed(()=>canManageRowCost(selectedPerson.value))
 const query=reactive({pageNum:1,pageSize:10,userId:route.query.userId?Number(route.query.userId):null,nickName:'',deptId:null,status:''})

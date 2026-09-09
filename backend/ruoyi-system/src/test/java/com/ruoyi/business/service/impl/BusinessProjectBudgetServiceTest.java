@@ -96,6 +96,18 @@ class BusinessProjectBudgetServiceTest
         p.setDailyBudgetLimit(new BigDecimal("99"));assertEquals("PENDING",service.estimate(p).get("status"));
         p.setDailyBudgetLimit(new BigDecimal("100"));p.setStartupBudgetLimit(new BigDecimal("499"));assertEquals("PENDING",service.estimate(p).get("status"));
     }
+    @Test void totalBudgetIncludesOneTimeExpensesAndDiscardsStartupLimit()
+    {
+        p.setStaffingLines(Collections.emptyList());p.setBudgetMode("TOTAL");
+        p.setStartupBudgetLimit(new BigDecimal("100"));p.getBudget().put("startupLimit",100);
+        p.getBudget().put("businessAmount",20000);
+        p.setExpenseLines(Collections.singletonList(row("amount",15000,"occurrenceType","ONE_TIME")));
+        service.apply(p);
+        assertEquals("READY",p.getBudget().get("status"));
+        assertEquals(new BigDecimal("20000.00"),p.getBudgetLimit());
+        assertNull(p.getStartupBudgetLimit());assertNull(p.getBudget().get("startupLimit"));
+        assertFalse(p.getBudget().get("issues").toString().contains("启动预算"));
+    }
     @Test void fullCostDailyCapIncludesPersonnelButCashExpenseCapDoesNot()
     {
         p.setBudgetMode("DAILY");p.setDailyBudgetLimit(new BigDecimal("100"));p.setBudgetScope("FULL_COST");

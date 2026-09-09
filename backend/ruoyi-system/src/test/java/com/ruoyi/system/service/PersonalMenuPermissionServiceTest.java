@@ -59,7 +59,7 @@ class PersonalMenuPermissionServiceTest
     }
 
     @Test
-    void explicitSnapshotCannotGrantPermissionsOrRoutesBeyondRole()
+    void ownerAssignedSnapshotGrantsPermissionsAndRoutesBeyondRole()
     {
         List<BusinessStaffMenuPermission> policy = Arrays.asList(
             policy(10L, PersonalMenuPermissionService.READ),
@@ -77,9 +77,9 @@ class PersonalMenuPermissionServiceTest
             menu(10L, 0L, "M", ""), menu(11L, 10L, "C", "business:project:work:view")));
 
         assertTrue(permissions.contains("business:project:work:view"));
-        assertFalse(permissions.contains("business:kpi:list"));
-        assertEquals(2, routes.size());
-        assertFalse(routes.stream().anyMatch(menu -> Long.valueOf(21L).equals(menu.getMenuId())));
+        assertTrue(permissions.contains("business:kpi:list"));
+        assertEquals(4, routes.size());
+        assertTrue(routes.stream().anyMatch(menu -> Long.valueOf(21L).equals(menu.getMenuId())));
     }
 
     @Test
@@ -102,6 +102,24 @@ class PersonalMenuPermissionServiceTest
         item.setMenuId(menuId);
         item.setAccessLevel(level);
         return item;
+    }
+
+    @Test
+    void adminDefaultsToAllPermissionsButExplicitReadPolicyRemovesWildcardAndWrites()
+    {
+        when(permissionMapper.selectByUserId(1L)).thenReturn(Collections.emptyList());
+        assertTrue(service.applyPermissions(1L,Collections.emptyList()).contains("*:*:*"));
+        when(permissionMapper.selectByUserId(1L)).thenReturn(Arrays.asList(
+            policy(11L,PersonalMenuPermissionService.READ),policy(12L,PersonalMenuPermissionService.HIDDEN)));
+        when(menuMapper.selectActiveMenuList()).thenReturn(Arrays.asList(
+            menu(10L,0L,"M",""),menu(11L,10L,"C","system:user:list"),menu(12L,11L,"F","system:user:add")));
+        Set<String> permissions=service.applyPermissions(1L,Collections.singletonList("*:*:*"));
+        assertEquals(Collections.singleton("system:user:list"),permissions);
+        assertEquals(Collections.singleton(11L),service.selectEffectiveMenuIds(1L,true));
+        assertEquals(2,service.applyRoutes(1L,Collections.emptyList()).size());
+        when(permissionMapper.selectByUserId(1L)).thenReturn(Collections.singletonList(policy(11L,PersonalMenuPermissionService.HIDDEN)));
+        assertTrue(service.applyPermissions(1L,Collections.singletonList("*:*:*")).isEmpty());
+        assertTrue(service.applyRoutes(1L,Collections.emptyList()).isEmpty());
     }
 
     private SysMenu menu(Long id, Long parentId, String type, String permission)

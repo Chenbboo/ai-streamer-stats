@@ -138,6 +138,48 @@ class BusinessProjectKpiServiceImplTest
         assertEquals(Boolean.TRUE,selected.getSettlement().getResults().get(0).getAutomatic());
     }
 
+    @Test void workspacePreviewsEveryAutomaticSourceWithinThePublishedPeriod()
+    {
+        BusinessProjectKpiPlan currentPlan=plan();currentPlan.setPlanId(10L);currentPlan.setPlanVersion(1);
+        currentPlan.setRewardPolicyVersion("INDEPENDENT_V1");
+        BusinessProjectKpiSettlement draft=settlement("DRAFT",0);draft.setRewardPolicyVersion("INDEPENDENT_V1");
+        List<BusinessProjectKpiPlanItem> items=new java.util.ArrayList<BusinessProjectKpiPlanItem>();
+        String[] sources={"REVENUE","BUSINESS_COST","PERSONNEL_COST","PROFIT","ROUTINE","TASK","MILESTONE"};
+        for(int i=0;i<sources.length;i++)
+        {
+            BusinessProjectKpiPlanItem source=item();source.setItemId(101L+i);source.setSourceType(sources[i]);
+            if("ROUTINE".equals(sources[i]))source.setSourceRefId(301L);
+            if("TASK".equals(sources[i]))source.setSourceRefId(401L);
+            if("MILESTONE".equals(sources[i]))source.setSourceRefId(501L);
+            items.add(source);
+        }
+        Map<String,Object> summary=new java.util.LinkedHashMap<String,Object>();
+        summary.put("revenueAmount",new BigDecimal("500"));summary.put("businessCost",new BigDecimal("120"));
+        summary.put("personnelCost",new BigDecimal("80"));summary.put("profitAmount",new BigDecimal("300"));
+        Map<String,Object> dashboard=new java.util.LinkedHashMap<String,Object>();dashboard.put("summary",summary);
+        dashboard.put("costPolicyVersion","MEMBER_DAYS_V1");dashboard.put("pendingCostCount",0);
+        when(projectMapper.selectProjectById(1L)).thenReturn(project());
+        when(projectMapper.selectProjectKpis(1L)).thenReturn(Collections.emptyList());
+        when(mapper.selectLatestPlanId(1L)).thenReturn(10L);when(mapper.selectPlanById(10L)).thenReturn(currentPlan);
+        when(mapper.selectPlanItems(10L)).thenReturn(items);when(mapper.selectSettlementByPlanId(10L)).thenReturn(draft);
+        when(mapper.selectSettlementResults(20L)).thenReturn(Collections.emptyList());
+        when(accountingService.projectDashboard(eq(1L),any(),eq(9L),eq(true))).thenReturn(dashboard);
+        when(mapper.sumRoutineActual(1L,301L,draft.getPeriodStart(),draft.getPeriodEnd())).thenReturn(new BigDecimal("42"));
+        when(mapper.countCompletedTasks(1L,401L,draft.getPeriodStart(),draft.getPeriodEnd())).thenReturn(new BigDecimal("3"));
+        when(mapper.countCompletedMilestones(1L,501L,draft.getPeriodStart(),draft.getPeriodEnd())).thenReturn(new BigDecimal("2"));
+
+        Map<String,Object> workspace=service.workspace(1L,null,9L,false,false);
+        List<BusinessProjectKpiResult> results=((BusinessProjectKpiPlan)workspace.get("selectedPlan")).getSettlement().getResults();
+        BigDecimal[] expected={new BigDecimal("500"),new BigDecimal("120"),new BigDecimal("80"),
+            new BigDecimal("300"),new BigDecimal("42"),new BigDecimal("3"),new BigDecimal("2")};
+        assertEquals(sources.length,results.size());
+        for(int i=0;i<sources.length;i++)
+        {
+            assertEquals(sources[i],results.get(i).getSourceType());assertEquals(expected[i],results.get(i).getActualValue());
+            assertEquals(Boolean.TRUE,results.get(i).getAutomatic());assertEquals("READY",results.get(i).getDataStatus());
+        }
+    }
+
     @Test void automaticResultCannotBeOverwrittenManually()
     {
         BusinessProjectKpiSettlement draft=settlement("DRAFT",0);

@@ -324,7 +324,7 @@ class BusinessAccountingServiceImplTest
         verify(mapper).confirmFact(300L,9L,"owner9",0);
     }
 
-    @Test void projectOwnerDailyTotalSpendIsConfirmedImmediately()
+    @Test void projectOwnerExpenseItemIsConfirmedImmediately()
     {
         Map<String,Object> project=project(32L,8L);
         project.put("mainOwnerUserId",9L);project.put("status","ACTIVE");
@@ -336,10 +336,10 @@ class BusinessAccountingServiceImplTest
             .when(mapper).insertFact(any());
         BusinessOperatingFact draft=new BusinessOperatingFact();draft.setFactId(320L);draft.setStatus("DRAFT");
         draft.setProjectId(32L);draft.setBizDate(new Date());draft.setVersion(0);
-        draft.setSourceType("DAILY_TOTAL");draft.setCategoryCode("DIRECT_EXPENSE");
+        draft.setSourceType("DAILY_ITEM");draft.setCategoryCode("DIRECT_EXPENSE");
         BusinessOperatingFact confirmed=new BusinessOperatingFact();confirmed.setFactId(320L);confirmed.setStatus("CONFIRMED");
         confirmed.setProjectId(32L);confirmed.setBizDate(draft.getBizDate());confirmed.setVersion(1);
-        confirmed.setSourceType("DAILY_TOTAL");confirmed.setCategoryCode("DIRECT_EXPENSE");
+        confirmed.setSourceType("DAILY_ITEM");confirmed.setCategoryCode("DIRECT_EXPENSE");
         when(mapper.selectFactById(320L)).thenReturn(draft,confirmed);
         when(mapper.confirmFact(320L,9L,"owner9",0)).thenReturn(1);
         when(mapper.sumProjectFacts(eq(32L),any())).thenReturn(Collections.emptyMap());
@@ -350,7 +350,7 @@ class BusinessAccountingServiceImplTest
         BusinessOperatingFact saved=service.saveProjectDailySpend(spend,9L,"owner9",false);
 
         assertEquals("CONFIRMED",saved.getStatus());
-        assertEquals("DAILY_TOTAL",saved.getSourceType());
+        assertEquals("DAILY_ITEM",saved.getSourceType());
         assertEquals("DIRECT_EXPENSE",saved.getCategoryCode());
         verify(mapper).insertDailyResult(any());
         verify(mapper).confirmFact(320L,9L,"owner9",0);
@@ -476,7 +476,8 @@ class BusinessAccountingServiceImplTest
 
         service.saveProjectDailySpend(fact,9L,"owner9",false);
 
-        assertEquals("2026-07-19",fact.getSourceId());
+        assertEquals("DAILY_ITEM",fact.getSourceType());
+        assertNotNull(fact.getSourceId());
         verify(mapper).insertDailyResult(any());
     }
 

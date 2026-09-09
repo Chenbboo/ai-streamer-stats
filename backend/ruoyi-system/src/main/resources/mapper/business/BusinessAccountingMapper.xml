@@ -121,6 +121,19 @@
     from biz_operating_fact where project_id=#{projectId} and biz_date=#{bizDate}
       and source_type='DAILY_TOTAL' and status='CONFIRMED' order by fact_id desc limit 1
   </select>
+  <select id="selectProjectDailySpendItems" resultType="com.ruoyi.business.domain.BusinessOperatingFact">
+    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,
+      category_code categoryCode,category_name categoryName,fact_kind factKind,amount,quantity,currency,unit,
+      description,counterparty,attachment_urls attachmentUrls,source_domain sourceDomain,source_type sourceType,
+      source_id sourceId,source_line_key sourceLineKey,status,reversal_fact_id reversalFactId,idempotency_key idempotencyKey,
+      version,confirmed_user_id confirmedUserId,confirmed_user_name confirmedUserName,confirmed_time confirmedTime,
+      returned_user_id returnedUserId,returned_user_name returnedUserName,returned_time returnedTime,return_reason returnReason,
+      create_user_id createUserId,create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
+    from biz_operating_fact where project_id=#{projectId} and biz_date=#{bizDate}
+      and source_domain='PROJECT_DAILY' and source_type in('DAILY_TOTAL','DAILY_ITEM')
+      and status='CONFIRMED'
+    order by fact_id desc
+  </select>
   <select id="selectProjectRevenueSummary" resultType="map">
     select coalesce(sum(case when status in('CONFIRMED','REVERSED') then amount else 0 end),0) confirmedAmount,
       coalesce(sum(case when status='DRAFT' then amount else 0 end),0) draftAmount,
@@ -327,7 +340,23 @@
       calculation_detail calculationDetail from biz_project_daily_result_item where result_id=#{resultId} order by item_id
   </select>
   <select id="selectDailySummary" resultType="map">
-    select coalesce(sum(r.revenue_amount),0) revenueAmount,
+    select count(distinct p.base_currency) currencyCount,case when count(distinct p.base_currency)=1 then min(p.base_currency) end currency,case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.revenue_amount),0) end revenueAmount,
+      case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.cost_amount),0) end businessCost,
+      case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.personnel_cost),0) end personnelCost,
+      case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.bonus_cost),0) end bonusCost,
+      case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.cost_amount+r.personnel_cost+r.bonus_cost),0) end costAmount,
+      case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.adjustment_amount),0) end adjustmentAmount,case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.profit_amount),0) end profitAmount,
+      count(distinct r.project_id) projectCount,count(*) resultCount
+    from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+    where r.is_current='1'
+      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="projectId != null">and r.project_id=#{projectId}</if>
+      <if test="companyDeptId != null">and r.company_dept_id=#{companyDeptId}</if>
+      <if test="dateFrom != null and dateFrom != ''">and r.biz_date&gt;=#{dateFrom}</if>
+      <if test="dateTo != null and dateTo != ''">and r.biz_date&lt;=#{dateTo}</if>
+  </select>
+  <select id="selectDailySummaryByCurrency" resultType="map">
+    select p.base_currency currency,coalesce(sum(r.revenue_amount),0) revenueAmount,
       coalesce(sum(r.cost_amount),0) businessCost,
       coalesce(sum(r.personnel_cost),0) personnelCost,
       coalesce(sum(r.bonus_cost),0) bonusCost,
@@ -341,6 +370,7 @@
       <if test="companyDeptId != null">and r.company_dept_id=#{companyDeptId}</if>
       <if test="dateFrom != null and dateFrom != ''">and r.biz_date&gt;=#{dateFrom}</if>
       <if test="dateTo != null and dateTo != ''">and r.biz_date&lt;=#{dateTo}</if>
+    group by p.base_currency order by p.base_currency
   </select>
   <select id="countDraftFacts" resultType="int">
     select count(*) from biz_operating_fact f join biz_project p on p.project_id=f.project_id and p.del_flag='0'
@@ -417,7 +447,7 @@
     ) alerts order by sortOrder,projectName limit 20
   </select>
   <select id="selectProjectProfitRanking" resultType="map">
-    select r.project_id projectId,p.project_name projectName,p.company_dept_id companyDeptId,d.dept_name companyName,
+    select p.base_currency currency,r.project_id projectId,p.project_name projectName,p.company_dept_id companyDeptId,d.dept_name companyName,
       sum(r.revenue_amount) revenueAmount,sum(r.cost_amount) businessCost,sum(r.personnel_cost) personnelCost,
       sum(r.bonus_cost) bonusCost,sum(r.cost_amount+r.personnel_cost+r.bonus_cost) costAmount,
       sum(r.adjustment_amount) adjustmentAmount,sum(r.profit_amount) profitAmount,max(r.data_cutoff_time) dataCutoffTime
@@ -425,11 +455,11 @@
     left join sys_dept d on d.dept_id=p.company_dept_id
     where r.is_current='1' and r.biz_date between #{dateFrom} and #{dateTo}
     <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
-    group by r.project_id,p.project_name,p.company_dept_id,d.dept_name
-    order by profitAmount desc,r.project_id limit 10
+    group by r.project_id,p.project_name,p.company_dept_id,d.dept_name,p.base_currency
+    order by p.base_currency,profitAmount desc,r.project_id
   </select>
   <select id="selectCompanyAccountingSummary" resultType="map">
-    select r.company_dept_id companyDeptId,d.dept_name companyName,sum(r.revenue_amount) revenueAmount,
+    select p.base_currency currency,r.company_dept_id companyDeptId,d.dept_name companyName,sum(r.revenue_amount) revenueAmount,
       sum(r.cost_amount) businessCost,sum(r.personnel_cost) personnelCost,sum(r.bonus_cost) bonusCost,
       sum(r.cost_amount+r.personnel_cost+r.bonus_cost) costAmount,sum(r.adjustment_amount) adjustmentAmount,
       sum(r.profit_amount) profitAmount,count(distinct r.project_id) projectCount,max(r.data_cutoff_time) dataCutoffTime
@@ -437,7 +467,7 @@
     left join sys_dept d on d.dept_id=r.company_dept_id
     where r.is_current='1' and r.biz_date between #{dateFrom} and #{dateTo}
     <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
-    group by r.company_dept_id,d.dept_name order by r.company_dept_id
+    group by r.company_dept_id,d.dept_name,p.base_currency order by r.company_dept_id,p.base_currency
   </select>
   <select id="selectPersonnelCostOverview" resultType="map">
     select p.project_id projectId,p.project_name projectName,'PERCENTAGE_V1' costPolicyVersion,p.company_dept_id companyDeptId,

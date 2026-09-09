@@ -15,6 +15,7 @@ public interface IBusinessAccountingService
     BusinessOperatingFact saveFact(BusinessOperatingFact fact,Long userId,String userName,boolean viewAll);
     BusinessOperatingFact saveProjectFact(BusinessOperatingFact fact,Long userId,String userName,boolean viewAll);
     BusinessOperatingFact saveProjectDailySpend(BusinessOperatingFact fact,Long userId,String userName,boolean viewAll);
+    BusinessOperatingFact reverseProjectDailySpend(Long factId,String reason,Long userId,String userName,boolean viewAll);
     BusinessOperatingFact confirmFact(Long factId,Long userId,String userName,boolean viewAll);
     BusinessOperatingFact returnFact(Long factId,String reason,Long userId,String userName,boolean viewAll);
     BusinessOperatingFact reverseFact(Long factId,String reason,Long userId,String userName,boolean viewAll);

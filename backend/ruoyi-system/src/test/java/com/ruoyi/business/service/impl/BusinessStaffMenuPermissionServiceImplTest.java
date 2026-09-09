@@ -2,6 +2,10 @@ package com.ruoyi.business.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.any;
+import com.ruoyi.common.exception.ServiceException;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -18,10 +22,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import com.ruoyi.business.domain.BusinessStaffMenuPermission;
-import com.ruoyi.business.domain.BusinessStaffProfile;
 import com.ruoyi.business.mapper.BusinessProjectMapper;
 import com.ruoyi.business.mapper.BusinessStaffMenuPermissionMapper;
-import com.ruoyi.business.mapper.BusinessStaffProfileMapper;
 import com.ruoyi.common.core.domain.entity.SysMenu;
 import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.system.service.ISysUserService;
@@ -33,7 +35,6 @@ class BusinessStaffMenuPermissionServiceImplTest
 {
     @Mock private ISysUserService userService;
     @Mock private BusinessProjectMapper projectMapper;
-    @Mock private BusinessStaffProfileMapper profileMapper;
     @Mock private BusinessStaffMenuPermissionMapper permissionMapper;
     @Mock private PersonalMenuPermissionService permissionResolver;
     @Mock private OnlineUserPermissionService onlineUserPermissionService;
@@ -41,15 +42,13 @@ class BusinessStaffMenuPermissionServiceImplTest
 
     @SuppressWarnings("unchecked")
     @Test
-    void companyOwnerCannotDelegateModulesOutsideTargetRole()
+    void companyOwnerCanDelegateEveryModuleOutsideTargetRole()
     {
         SysUser target = new SysUser();
         target.setUserId(200L);
         target.setUserName("employee");
         target.setNickName("员工");
         target.setDelFlag("0");
-        BusinessStaffProfile profile = new BusinessStaffProfile();
-        profile.setCompanyLeaderUserId(120L);
         List<SysMenu> menus = Arrays.asList(
             menu(1L, 0L, "M", "system", ""),
             menu(100L, 1L, "C", "user", "system:user:list"),
@@ -63,9 +62,7 @@ class BusinessStaffMenuPermissionServiceImplTest
             menu(3003L, 3000L, "C", "erp", "jewelry:erp:view"));
 
         when(userService.selectUserById(200L)).thenReturn(target);
-        when(projectMapper.countUserRoleByKey(200L, "company_owner")).thenReturn(0);
         when(projectMapper.countUserRoleByKey(120L, "company_owner")).thenReturn(1);
-        when(profileMapper.selectByUserId(200L)).thenReturn(profile);
         when(permissionResolver.selectAllActiveMenus()).thenReturn(menus);
         when(permissionResolver.selectRoleMenuIds(200L)).thenReturn(Collections.emptySet());
         when(permissionResolver.selectEffectiveMenuIds(200L, false)).thenReturn(Collections.emptySet());
@@ -77,9 +74,9 @@ class BusinessStaffMenuPermissionServiceImplTest
         for (Map<String, Object> root : roots)
         {
             List<Map<String, Object>> children = (List<Map<String, Object>>) root.get("children");
-            assertEquals("HIDDEN", root.get("maxLevel"));
+            assertEquals("MAINTAIN", root.get("maxLevel"));
             for (Map<String, Object> child : children)
-                assertEquals("HIDDEN", child.get("maxLevel"));
+                assertEquals("MAINTAIN", child.get("maxLevel"));
         }
     }
 
@@ -98,15 +95,9 @@ class BusinessStaffMenuPermissionServiceImplTest
         pagePermission.put("menuId", 3001L);
         pagePermission.put("accessLevel", "READ");
 
-        BusinessStaffProfile profile = new BusinessStaffProfile();
-        profile.setCompanyLeaderUserId(120L);
         when(userService.selectUserById(200L)).thenReturn(target);
-        when(projectMapper.countUserRoleByKey(200L, "company_owner")).thenReturn(0);
         when(projectMapper.countUserRoleByKey(120L, "company_owner")).thenReturn(1);
-        when(profileMapper.selectByUserId(200L)).thenReturn(profile);
         when(permissionResolver.selectAllActiveMenus()).thenReturn(menus);
-        when(permissionResolver.selectRoleMenuIds(200L)).thenReturn(
-            new java.util.HashSet<Long>(Arrays.asList(3000L, 3001L)));
         when(permissionResolver.selectEffectiveMenuIds(200L, false)).thenReturn(Collections.emptySet());
 
         assertDoesNotThrow(() -> service.saveMenuPermissions(200L,
@@ -118,18 +109,13 @@ class BusinessStaffMenuPermissionServiceImplTest
     void hidingEveryChildAlsoHidesPreviouslyVisibleParentDirectory()
     {
         SysUser target = new SysUser();target.setUserId(200L);target.setUserName("employee");target.setDelFlag("0");
-        BusinessStaffProfile profile = new BusinessStaffProfile();profile.setCompanyLeaderUserId(120L);
         List<SysMenu> menus = Arrays.asList(
             menu(3000L, 0L, "M", "jewelry", ""),
             menu(3001L, 3000L, "C", "product", "jewelry:product:list"));
         Map<String,Object> hidden=new HashMap<String,Object>();hidden.put("menuId",3001L);hidden.put("accessLevel","HIDDEN");
         when(userService.selectUserById(200L)).thenReturn(target);
-        when(projectMapper.countUserRoleByKey(200L,"company_owner")).thenReturn(0);
         when(projectMapper.countUserRoleByKey(120L,"company_owner")).thenReturn(1);
-        when(profileMapper.selectByUserId(200L)).thenReturn(profile);
         when(permissionResolver.selectAllActiveMenus()).thenReturn(menus);
-        when(permissionResolver.selectRoleMenuIds(200L)).thenReturn(
-            new java.util.HashSet<Long>(Arrays.asList(3000L,3001L)));
         when(permissionResolver.selectEffectiveMenuIds(200L,false)).thenReturn(new java.util.HashSet<Long>(Arrays.asList(3000L,3001L)));
 
         service.saveMenuPermissions(200L,Collections.singletonList(hidden),120L,false,"owner");
@@ -137,6 +123,45 @@ class BusinessStaffMenuPermissionServiceImplTest
         ArgumentCaptor<List<BusinessStaffMenuPermission>> saved=ArgumentCaptor.forClass(List.class);
         verify(permissionMapper).insertBatch(saved.capture());
         for(BusinessStaffMenuPermission item:saved.getValue())assertEquals("HIDDEN",item.getAccessLevel());
+    }
+
+    @Test
+    void ownerCanGrantAdminAndOtherOwnersWritePermissionsWithoutCompanyProfile()
+    {
+        for(Long targetId:Arrays.asList(1L,120L,121L)){
+            SysUser target=new SysUser();target.setUserId(targetId);target.setDelFlag("0");
+            when(userService.selectUserById(targetId)).thenReturn(target);
+        }
+        when(projectMapper.countUserRoleByKey(120L,"company_owner")).thenReturn(1);
+        when(permissionResolver.selectAllActiveMenus()).thenReturn(Arrays.asList(
+            menu(1L,0L,"M","system",""),
+            menu(100L,1L,"C","user","system:user:list"),
+            menu(101L,100L,"F","#","system:user:add"),
+            menu(102L,100L,"F","#","system:user:query")));
+        Map<String,Object> setting=new HashMap<>();setting.put("menuId",100L);setting.put("accessLevel","MAINTAIN");
+        for(Long targetId:Arrays.asList(1L,120L,121L)){
+            service.saveMenuPermissions(targetId,Collections.singletonList(setting),120L,false,"owner");
+            verify(onlineUserPermissionService).forceReloginAfterCommit(targetId);
+        }
+        ArgumentCaptor<List<BusinessStaffMenuPermission>> saved=ArgumentCaptor.forClass(List.class);
+        verify(permissionMapper,org.mockito.Mockito.times(3)).insertBatch(saved.capture());
+        for(List<BusinessStaffMenuPermission> rows:saved.getAllValues()){
+            assertEquals("MAINTAIN",rows.stream().filter(row->row.getMenuId()==101L).findFirst().get().getAccessLevel());
+            assertEquals("READ",rows.stream().filter(row->row.getMenuId()==102L).findFirst().get().getAccessLevel());
+        }
+        service.resetMenuPermissions(1L,120L,false);
+        verify(permissionMapper,org.mockito.Mockito.times(2)).deleteByUserId(1L);
+    }
+
+    @Test
+    void nonOwnerCannotReadSaveOrResetAnyAccountPolicy()
+    {
+        SysUser target=new SysUser();target.setUserId(1L);target.setDelFlag("0");
+        when(userService.selectUserById(1L)).thenReturn(target);
+        assertThrows(ServiceException.class,()->service.getMenuPermissions(1L,200L,false));
+        assertThrows(ServiceException.class,()->service.saveMenuPermissions(1L,Collections.emptyList(),200L,false,"staff"));
+        assertThrows(ServiceException.class,()->service.resetMenuPermissions(1L,200L,false));
+        verify(permissionMapper,never()).deleteByUserId(any());
     }
 
     private SysMenu menu(Long id, Long parentId, String type, String path, String permission)

@@ -2,6 +2,9 @@ package com.ruoyi.business.service.impl;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.ArrayList;
+import java.util.TreeMap;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -33,6 +36,19 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     @Autowired private BusinessFileService businessFileService;
     @Autowired private BusinessProjectWorkMapper workMapper;
     @Autowired private BusinessMemberDayCostService memberDays;
+    @Autowired private com.ruoyi.business.mapper.BusinessFlowMapper flows;
+
+    @Transactional
+    public Map<String,Object> confirmNoSpend(Long projectId,Date date,Long actor,String name,boolean admin){
+        Map<String,Object> project=requireContributorProject(projectId,actor,admin);
+        ensureAccountingOpen(project);
+        if(date==null||!day(date).equals(day(new Date())))throw new ServiceException("只能确认今日无支出");
+        if(!Arrays.asList("ACTIVE","ACCEPTANCE").contains(project.get("status")))throw new ServiceException("只有执行中的项目可以确认今日无支出");
+        if(project.get("companyDeptId")==null)throw new ServiceException("请先设置归属公司");
+        if(!mapper.selectProjectDailySpendItems(projectId,date).isEmpty())throw new ServiceException("当日已有花费，请核对花费明细");
+        mapper.confirmNoSpend(projectId,date,actor,name);
+        return mapper.selectSpendConfirmation(projectId,date);
+    }
 
     @Override
     public Map<String,Object> dashboard(Map<String,Object> query,Long userId,boolean viewAll)
@@ -45,6 +61,8 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
                 memberDays.synchronize(longValue(p.get("projectId")));
         Map<String,Object> result=new LinkedHashMap<String,Object>();
         result.put("summary",mapper.selectDailySummary(scoped));
+        result.put("summaryByCurrency",mapper.selectDailySummaryByCurrency(scoped));
+        result.put("closedAdjustmentTotals",flows==null?Collections.emptyList():flows.adjustmentTotals(scoped));
         result.put("results",mapper.selectDailyResults(scoped));
         result.put("facts",mapper.selectFacts(scoped));
         result.put("companies",mapper.selectCompanies());
@@ -79,6 +97,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         result.put("bizDate",today);
         result.put("missingDailyResultCount",mapper.countProjectsMissingDailyResult(userId,viewAll,bizDate));
         result.put("today",mapper.selectDailySummary(todayQuery));
+        result.put("todayByCurrency",mapper.selectDailySummaryByCurrency(todayQuery));
         result.put("draftFactCount",mapper.countDraftFacts(todayQuery));
         result.put("alerts",mapper.selectAccountingAlerts(alertQuery));
         result.put("personnelReadiness",summarizePersonnelReadiness(personnelRows));
@@ -105,7 +124,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
                 rows.addAll(memberDays.overview(longValue(p.get("projectId")),bizDate));
         boolean rawCostVisible=viewAll;
         if(!rawCostVisible)try{rawCostVisible=com.ruoyi.common.utils.SecurityUtils.hasPermi("business:staff:cost");}catch(ServiceException ex){rawCostVisible=false;}
-        for(Map<String,Object> row:rows){row.put("rawCostVisible",rawCostVisible);if(!rawCostVisible)for(String field:Arrays.asList("monthlyCost","dailyCost","standardWorkDays","policyId"))row.remove(field);}
+        for(Map<String,Object> row:rows){row.put("rawCostVisible",rawCostVisible);if(!rawCostVisible)for(String field:Arrays.asList("monthlyCost","dailyCost","standardWorkDays","policyId","basisJson","calculationDetail"))row.remove(field);}
         int readyCount=0,issueCount=0,overAllocatedCount=0;
         BigDecimal personnelCost=BigDecimal.ZERO;
         if(rows!=null)for(Map<String,Object> row:rows)
@@ -119,7 +138,12 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         result.put("bizDate",bizDate);result.put("rows",rows);
         result.put("readyCount",readyCount);result.put("issueCount",issueCount);
         result.put("overAllocatedCount",overAllocatedCount);result.put("personnelCost",personnelCost);result.put("rawCostVisible",rawCostVisible);result.put("hasUnpricedOrMissingWork",rows.stream().anyMatch(row -> Arrays.asList("MISSING_ACTUAL","PENDING_COST").contains(row.get("costStatus"))));
+        Map<String,BigDecimal> currencyTotals=new TreeMap<>();
+        for(Map<String,Object> row:rows)currencyTotals.merge(String.valueOf(row.getOrDefault("currency","UNKNOWN")),decimal(row.get("personnelCost")),BigDecimal::add);
+        List<Map<String,Object>> totals=new ArrayList<>();for(Map.Entry<String,BigDecimal> e:currencyTotals.entrySet()){Map<String,Object> t=new LinkedHashMap<>();t.put("currency",e.getKey());t.put("amount",e.getValue());totals.add(t);}
+        result.put("amountsByCurrency",totals);if(currencyTotals.size()>1)result.put("personnelCost",null);
         result.put("readiness",summarizePersonnelReadiness(rows));
+        result.put("companyUniquePersonnelTotals",com.ruoyi.business.support.BusinessPersonnelTotals.summarize(rows));
         return result;
     }
 
@@ -202,6 +226,10 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         if(project==null)throw new ServiceException("项目不存在");
         if(!viewAll&&!String.valueOf(userId).equals(String.valueOf(project.get("mainOwnerUserId"))))
             throw new ServiceException("只有项目主负责人可以填写今日项目总花费");
+        if(fact.getBizDate()==null)fact.setBizDate(new Date());
+        String requestKey=submissionKey(fact,userId,"SPEND");
+        BusinessOperatingFact replay=replaySubmission(fact,requestKey);
+        if(replay!=null)return replay;
         ensureAccountingOpen(project);
         boolean lateSettlement=isPostDeliverySettlement(project);
         if(!lateSettlement&&!Arrays.asList("ACTIVE","ACCEPTANCE").contains(String.valueOf(project.get("status"))))
@@ -212,37 +240,61 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         String bizDate=new SimpleDateFormat("yyyy-MM-dd").format(fact.getBizDate());
         String today=new SimpleDateFormat("yyyy-MM-dd").format(new Date());
         if(!lateSettlement&&!today.equals(bizDate))throw new ServiceException("执行中的项目只能填写今日项目总花费");
-        if(fact.getAmount()==null||fact.getAmount().compareTo(BigDecimal.ZERO)<0)
-            throw new ServiceException("今日项目总花费不能为空或为负数");
+        if(fact.getAmount()==null||fact.getAmount().compareTo(BigDecimal.ZERO)<=0)
+            throw new ServiceException("本次花费必须大于0");
+        if(StringUtils.isBlank(fact.getDescription()))throw new ServiceException("请填写本次花费用途");
         businessFileService.validateReferences(fact.getAttachmentUrls(), fact.getProjectId(), userId, false, viewAll);
         Map<String,Object> category=mapper.selectCategoryByCode("DIRECT_EXPENSE");
         if(category==null)throw new ServiceException("项目直接费用类别尚未初始化");
 
-        BusinessOperatingFact previous=mapper.selectCurrentProjectDailySpend(fact.getProjectId(),fact.getBizDate());
+        BusinessOperatingFact previous=null;
+        if(fact.getFactId()!=null)
+        {
+            previous=mapper.selectFactByIdForUpdate(fact.getFactId());
+            if(previous==null||!fact.getProjectId().equals(previous.getProjectId())
+                ||previous.getBizDate()==null||!day(fact.getBizDate()).equals(day(previous.getBizDate()))
+                ||!"PROJECT_DAILY".equals(previous.getSourceDomain())
+                ||!Arrays.asList("DAILY_TOTAL","DAILY_ITEM").contains(previous.getSourceType()))
+                throw new ServiceException("只能修改本项目所选日期的花费明细");
+            if(!"CONFIRMED".equals(previous.getStatus()))throw new ServiceException("只有已计入的花费可以修改");
+        }
         fact.setCompanyDeptId(longValue(project.get("companyDeptId")));
         fact.setCategoryId(longValue(category.get("categoryId")));
         fact.setCategoryCode(String.valueOf(category.get("categoryCode")));
-        fact.setCategoryName("今日项目总花费");fact.setFactKind("COST");
+        fact.setCategoryName("项目花费");fact.setFactKind("COST");
         fact.setCurrency(String.valueOf(project.get("currency")));
-        if(StringUtils.isBlank(fact.getDescription()))fact.setDescription("今日项目总花费");
-        fact.setSourceDomain("PROJECT_DAILY");fact.setSourceType("DAILY_TOTAL");fact.setSourceId(bizDate);
+        fact.setDescription(fact.getDescription().trim());
+        fact.setSourceDomain("PROJECT_DAILY");fact.setSourceType("DAILY_ITEM");fact.setSourceId(IdUtils.fastSimpleUUID());
+        fact.setSourceLineKey("ITEM");
         fact.setStatus("DRAFT");
-        if(previous!=null&&Arrays.asList("DRAFT","RETURNED").contains(previous.getStatus()))
-        {
-            fact.setFactId(previous.getFactId());fact.setVersion(previous.getVersion());fact.setUpdateBy(userName);
-            if(mapper.updateDraftFact(fact)!=1)throw changed();
-        }
-        else
-        {
-            if(previous!=null&&"CONFIRMED".equals(previous.getStatus()))
-                createReversal(previous,"负责人更新今日项目总花费",userId,userName);
-            fact.setFactId(null);fact.setIdempotencyKey("PROJECT-DAILY-SPEND-"+fact.getProjectId()+"-"+bizDate+"-"+IdUtils.fastSimpleUUID());
-            fact.setCreateUserId(userId);fact.setCreateBy(userName);mapper.insertFact(fact);
-        }
+        if(previous!=null)createReversal(previous,"负责人修改项目花费明细",userId,userName);
+        fact.setFactId(null);fact.setIdempotencyKey(requestKey);
+        fact.setCreateUserId(userId);fact.setCreateBy(userName);mapper.insertFact(fact);
         BusinessOperatingFact draft=mapper.selectFactById(fact.getFactId());
         if(mapper.confirmFact(draft.getFactId(),userId,userName,draft.getVersion())!=1)throw changed();
         recalculateInternal(fact.getProjectId(),fact.getBizDate(),userName);
         return mapper.selectFactById(fact.getFactId());
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public BusinessOperatingFact reverseProjectDailySpend(Long factId,String reason,Long userId,String userName,boolean viewAll)
+    {
+        if(StringUtils.isBlank(reason))throw new ServiceException("请填写冲销原因");
+        BusinessOperatingFact original=mapper.selectFactByIdForUpdate(factId);
+        if(original==null)throw new ServiceException("花费明细不存在");
+        Map<String,Object> project=mapper.selectProjectForAccountingForUpdate(original.getProjectId());
+        if(project==null)throw new ServiceException("项目不存在");
+        if(!viewAll&&!String.valueOf(userId).equals(String.valueOf(project.get("mainOwnerUserId"))))
+            throw new ServiceException("只有项目主负责人可以冲销项目花费");
+        ensureAccountingOpen(project);
+        if(!"PROJECT_DAILY".equals(original.getSourceDomain())
+            ||!Arrays.asList("DAILY_TOTAL","DAILY_ITEM").contains(original.getSourceType()))
+            throw new ServiceException("只能冲销项目花费明细");
+        if(!"CONFIRMED".equals(original.getStatus()))throw new ServiceException("只有已计入的花费可以冲销");
+        BusinessOperatingFact reversal=createReversal(original,reason.trim(),userId,userName);
+        recalculateInternal(original.getProjectId(),original.getBizDate(),userName);
+        return reversal;
     }
 
     private BusinessOperatingFact saveFactInternal(BusinessOperatingFact fact,Long userId,String userName,
@@ -252,6 +304,8 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         Map<String,Object> project=projectContributor
             ?requireContributorProject(fact.getProjectId(),userId,viewAll)
             :requireProject(fact.getProjectId(),userId,viewAll);
+        String requestKey=submissionKey(fact,userId,projectContributor?"PROJECT":"MANUAL");
+        if(fact.getFactId()==null){BusinessOperatingFact replay=replaySubmission(fact,requestKey);if(replay!=null)return replay;}
         ensureAccountingOpen(project);
         if(project.get("companyDeptId")==null)throw new ServiceException("该项目尚未设置归属公司，请先编辑项目选择上海或越南公司");
         Map<String,Object> category=mapper.selectCategoryById(fact.getCategoryId());
@@ -295,7 +349,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         fact.setSourceDomain("MANUAL");fact.setSourceType("MANUAL");
         if(fact.getFactId()==null)
         {
-            fact.setStatus("DRAFT");fact.setIdempotencyKey("MANUAL-"+IdUtils.fastSimpleUUID());
+            fact.setStatus("DRAFT");fact.setIdempotencyKey(requestKey);
             fact.setCreateUserId(userId);fact.setCreateBy(userName);mapper.insertFact(fact);
         }
         else
@@ -372,6 +426,31 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         BusinessOperatingFact reversal=createReversal(original,reason,userId,userName);
         recalculateInternal(original.getProjectId(),original.getBizDate(),userName);
         return reversal;
+    }
+
+    private String submissionKey(BusinessOperatingFact fact,Long actor,String kind)
+    {
+        String request=fact.getRequestId();
+        // Old clients remain supported; updated forms keep this ID throughout a retry.
+        if(StringUtils.isBlank(request))request=IdUtils.fastSimpleUUID();
+        if(!request.matches("[A-Za-z0-9_-]{16,64}"))throw new ServiceException("提交编号无效，请重新打开表单");
+        return kind+"-"+fact.getProjectId()+"-"+actor+"-"+request;
+    }
+    private BusinessOperatingFact replaySubmission(BusinessOperatingFact input,String key)
+    {
+        BusinessOperatingFact saved=mapper.selectFactByIdempotencyKey(key);
+        if(saved==null)return null;
+        if(!java.util.Objects.equals(saved.getProjectId(),input.getProjectId())
+            ||!sameDay(saved.getBizDate(),input.getBizDate())
+            ||decimal(saved.getAmount()).compareTo(decimal(input.getAmount()))!=0
+            ||decimal(saved.getQuantity()).compareTo(decimal(input.getQuantity()))!=0
+            ||(!key.startsWith("SPEND-")&&!java.util.Objects.equals(saved.getCategoryId(),input.getCategoryId()))
+            ||(!StringUtils.isBlank(input.getCurrency())&&!input.getCurrency().trim().equalsIgnoreCase(saved.getCurrency()))
+            ||!StringUtils.defaultString(saved.getAttachmentUrls()).equals(StringUtils.defaultString(input.getAttachmentUrls()))
+            ||!StringUtils.defaultString(saved.getCounterparty()).equals(StringUtils.defaultString(input.getCounterparty()))
+            ||!java.util.Objects.equals(StringUtils.trim(saved.getDescription()),StringUtils.trim(input.getDescription())))
+            throw new ServiceException("本次提交已保存，内容发生变化，请刷新并使用修改或新增入口");
+        return saved;
     }
 
     private void requireAwardCostAuthority(BusinessOperatingFact fact, Map<String,Object> project, Long userId)

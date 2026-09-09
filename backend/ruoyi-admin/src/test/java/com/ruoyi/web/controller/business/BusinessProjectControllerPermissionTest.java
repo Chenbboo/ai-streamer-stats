@@ -47,6 +47,8 @@ class BusinessProjectControllerPermissionTest
         expected.put("bossProjectDirectory", "@ss.hasPermi('business:boss:view')");
         expected.put("myDashboard", "@ss.hasPermi('business:project:list')");
         expected.put("ownerDashboard", "@ss.hasPermi('business:project:owner:view')");
+        expected.put("submitTaskReport", "@ss.hasAnyPermi('business:project:report,business:work:report,business:project:work:view')");
+        expected.put("submitRoutineReport", "@ss.hasAnyPermi('business:project:report,business:work:report,business:project:work:view')");
         expected.put("saveKpi", "@ss.hasAnyPermi('business:project:manage,business:kpi:manage')");
         expected.put("retireKpi", "@ss.hasAnyPermi('business:project:manage,business:kpi:manage')");
         expected.put("staffCostOptions", "@ss.hasAnyPermi('business:staff:cost,business:staff:list')");

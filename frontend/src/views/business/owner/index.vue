@@ -1,18 +1,20 @@
 <template>
   <div class="app-container owner-page" v-loading="loading">
     <header class="owner-hero">
-      <div>
-        <span>PROJECT OWNER WORKBENCH</span>
-        <h1>项目负责人工作台</h1>
-        <p>负责人管理项目执行、收入、花费、人员成本和目标；提交后直接进入项目经营核算。</p>
+      <div class="owner-heading">
+        <h1>负责人工作台</h1>
+        <div class="owner-project-line">
+          <el-select v-model="selectedProjectId" filterable placeholder="选择负责项目" aria-label="选择负责项目" @change="switchProject">
+            <el-option v-for="item in projects" :key="item.projectId" :label="item.projectName" :value="item.projectId"><span>{{ item.projectName }}</span><small class="project-option-meta">{{ item.sponsorOwnerName || item.initiatorName || '未标注老板' }} · {{ projectStatusLabel(item) }}</small></el-option>
+          </el-select>
+          <el-tag v-if="project" :type="statusTone[project.status] || 'info'" effect="plain">{{ projectStatusLabel(project) }}</el-tag>
+          <span v-if="project" class="owner-name">{{ project.mainOwnerName || userStore.name }}负责</span>
+        </div>
       </div>
       <div class="hero-actions">
         <el-button v-hasPermi="['business:project:report']" type="primary" :disabled="!canReportFinance" @click="openRevenue">{{ isLateSettlement ? '补录收入' : '录入收入' }}</el-button>
-        <el-button v-hasPermi="['business:project:report']" type="success" plain :disabled="!canReportFinance" @click="openDailySpend">{{ isLateSettlement ? '补录花费' : '填写花费' }}</el-button>
-        <el-button v-hasPermi="['business:project:proposal:add']" type="primary" plain @click="openProposals">发起立项申请</el-button>
-        <el-select v-model="selectedProjectId" filterable placeholder="选择负责项目" @change="switchProject">
-          <el-option v-for="item in projects" :key="item.projectId" :label="`${item.projectName} · ${item.sponsorOwnerName || item.initiatorName || '未标注老板'} · ${projectStatusLabel(item)}`" :value="item.projectId" />
-        </el-select>
+        <el-button v-hasPermi="['business:project:report']" :disabled="!canReportFinance" @click="openDailySpend">{{ isLateSettlement ? '补录花费' : '填写花费' }}</el-button>
+        <el-button v-hasPermi="['business:project:proposal:add']" @click="openProposals">发起立项</el-button>
         <el-button icon="Refresh" :loading="loading" @click="load(selectedProjectId)">刷新</el-button>
       </div>
     </header>
@@ -25,42 +27,34 @@
     </div>
 
     <template v-if="project">
-      <BusinessSettlementPanel :project="project" @closed="load(selectedProjectId)" />
-      <el-alert class="governance-alert" :title="`${managementLabel[project.managementMode] || project.managementMode} · ${closeMethodLabel[project.closeMethod] || project.closeMethod}`" :description="governanceDescription" type="info" :closable="false" show-icon>
-        <template #default><el-button link type="primary" @click="openProject">查看治理要求与验收进度</el-button></template>
-      </el-alert>
-      <section class="metric-grid">
-        <article><span>昨日汇报总额</span><b>{{ xu(yesterdayReportedTotalXu) }} <em>Xu</em></b><small>{{ reportedSourceRoutineCount }} 人已提交 · {{ unreportedSourceRoutineCount }} 人未提交</small></article>
-        <article><span>持续工作</span><b>{{ todayRoutines.length }}</b><small>{{ sourceRoutineCount }} 项直播同步 · {{ unreportedRoutineCount }} 项未完成</small></article>
-        <article><span>未完成任务</span><b>{{ openTasks.length }}</b><small>{{ overdueTaskCount }} 项已逾期</small></article>
-        <article><span>项目目标</span><b>{{ project.goalMode==='NO_TOTAL' ? '持续经营' : `${projectProgress}%` }}</b><small>{{ project.goalMode==='NO_TOTAL' ? '按每日目标和成果跟踪' : (project.progressBizDate ? `${project.progressBizDate} 负责人填报` : '负责人尚未填报') }}</small></article>
+      <section class="owner-quick-stats" aria-label="项目简要数据">
+        <article><span>待办事项</span><b :class="{'stat-attention':ownerTodos.length}">{{ ownerTodos.length }}<small>项</small></b><p>{{ urgentTodoCount ? urgentTodoCount + ' 项优先处理' : '当前项目' }}</p></article>
+        <article><span>未完成任务</span><b>{{ openTasks.length }}<small>项</small></b><p :class="{'stat-attention':overdueTaskCount}">{{ overdueTaskCount ? overdueTaskCount + ' 项已逾期' : '按计划推进' }}</p></article>
+        <article><span>今日确认收入</span><b>{{ money(dailyRevenue.confirmedAmount || 0) }}<small>{{ project.baseCurrency || 'CNY' }}</small></b><p>{{ Number(dailyRevenue.draftCount || 0) ? dailyRevenue.draftCount + ' 笔待确认' : Number(dailyRevenue.confirmedCount || 0) ? '已计入项目核算' : '今日尚未填报' }}</p></article>
+        <article><span>今日花费</span><b>{{ accounting.dailySpend ? money(accounting.dailySpend.amount) : '未填报' }}<small v-if="accounting.dailySpend">{{ accounting.dailySpend.currency || project.baseCurrency || 'CNY' }}</small></b><p>共 {{ accounting.dailySpendItems?.length || 0 }} 笔，不含人员成本</p></article>
       </section>
-
-      <section v-if="usesActualWork" class="panel"><el-tabs><el-tab-pane label="人员工作日成本"><BusinessProjectWorkPanel :project-id="project.projectId"/></el-tab-pane><el-tab-pane label="计划基线与变更" lazy><BusinessProjectPlanPanel :project="project" @changed="load(project.projectId)"/></el-tab-pane></el-tabs></section>
-      <section class="workspace-grid">
-        <div class="main-column">
-          <article class="panel project-progress-panel">
-            <div v-if="project.goalMode!=='NO_TOTAL'" class="panel-head">
-              <div><h2>项目完成量</h2><p>由主负责人每日填报项目整体完成情况，保存后同步到老板工作台。</p></div>
-              <el-button v-hasPermi="['business:project:report']" type="primary" :plain="!!todayProjectProgress" :disabled="!canReportProgress" @click="openProjectProgressReport">{{ todayProjectProgress ? '修改今日填报' : '填报今日完成量' }}</el-button>
-            </div>
-            <el-alert v-if="project.goalMode==='NO_TOTAL'" title="该项目为持续经营模式，不需要填写项目总完成百分比；请通过下方每日目标、持续工作和一次性任务跟踪产出。" type="info" :closable="false" show-icon />
-            <el-alert v-else-if="!canReportProgress" :title="progressReportBlockReason" type="info" :closable="false" show-icon />
-            <div v-if="project.goalMode!=='NO_TOTAL'" class="project-progress-card">
-              <div class="project-progress-title"><span><b>{{ project.projectName }}</b><small>{{ project.mainOwnerName || '未指定负责人' }}负责</small></span><strong>{{ projectProgress }}%</strong></div>
-              <el-progress :percentage="projectProgress" :status="project.status==='CLOSED'?'success':undefined" :stroke-width="9" />
-              <template v-if="project.progressReportId">
-                <div class="project-progress-meta"><span>{{ project.progressBizDate }} · {{ project.progressReporterName || project.mainOwnerName }}填报</span><el-tag v-if="todayProjectProgress" size="small" type="success">今日已填报</el-tag></div>
-                <p class="project-progress-summary">实际完成情况：{{ project.progressSummary }}</p>
-                <el-button v-if="project.progressEvidenceUrls" size="small" type="primary" plain @click="openProjectProgressEvidence">查看成果凭证（{{ evidenceCount(project.progressEvidenceUrls) }}）</el-button>
-              </template>
-              <div v-else class="empty-block compact">负责人尚未填报项目整体进度</div>
-            </div>
-          </article>
-
-          <article class="panel">
+      <section class="panel owner-todos">
+        <div class="panel-head"><div><h2>我的待办 <el-tag size="small" :type="ownerTodos.length ? 'warning' : 'success'">{{ ownerTodos.length }} 项</el-tag></h2><p>{{ project.projectName }} · 优先处理异常，再完成今天的工作</p></div></div>
+        <el-alert v-if="todoLoadFailed" title="KPI 待办暂未加载，请刷新重试" type="warning" :closable="false" />
+        <div v-if="!ownerTodos.length && !loading" class="todo-empty">✓ 当前项目暂无需要你处理的事项</div>
+        <article v-for="item in visibleOwnerTodos" :key="item.key" class="owner-todo-row">
+          <span :class="['todo-dot', { urgent: item.urgent }]"></span>
+          <div class="todo-copy"><b>{{ item.title }}</b><small>{{ item.detail }}</small></div>
+          <el-tag v-if="item.urgent" type="danger" size="small" effect="plain">优先处理</el-tag>
+          <el-button size="small" type="primary" plain :disabled="loading || saving" @click="handleOwnerTodo(item)">{{ item.action==='effort' ? '确认' : item.action==='revenue' ? '去填写' : '去处理' }}</el-button>
+          <el-button v-if="item.action==='spend' && item.allowZero" size="small" :disabled="loading || saving" @click="confirmNoSpend">今日无支出</el-button>
+          <el-button v-if="item.action==='revenue' && item.allowZero" size="small" :disabled="loading || saving" @click="confirmNoRevenue">今日无收入</el-button>
+          <el-button v-if="item.action==='effort'" size="small" :disabled="loading || saving" @click="returnPendingEffort(item.item)">退回</el-button>
+        </article>
+        <el-button v-if="ownerTodos.length > 5" class="todo-expand" link type="primary" @click="todosExpanded = !todosExpanded">{{ todosExpanded ? '收起' : `查看全部 ${ownerTodos.length} 项` }}</el-button>
+      </section>
+      <el-alert v-if="settlementLoadFailed" class="owner-status-alert" title="结算待办暂未加载，请刷新重试；仍可在项目与结算中查看。" type="warning" :closable="false" show-icon />
+      <el-tabs ref="workspaceTabs" v-model="workspaceTab" class="owner-workspace-tabs">
+        <el-tab-pane label="工作执行" name="execution">
+          <div class="owner-section-intro"><span>处理日常工作，跟踪任务与项目进度</span><el-button link type="primary" @click="openProject">进入项目详情</el-button></div>
+          <div class="owner-execution-grid"><div class="owner-card-stack"><article class="panel">
             <div class="panel-head">
-              <div><h2>持续工作状态</h2><p>手工工作按当天填报；直播主播自动展示昨日的日报提交状态，无需在这里重复提交。</p></div>
+              <div><h2>持续工作状态</h2><p>填写今日完成量，直播数据自动同步。</p></div>
               <el-button link type="primary" @click="openProject">进入项目详情</el-button>
             </div>
             <div v-if="!todayRoutines.length" class="empty-block">当前没有持续工作计划，可在项目详情中新增</div>
@@ -85,11 +79,9 @@
                 <small v-else class="assignee-report-hint">{{ routine.sourceManaged ? '完成状态由直播数据管理自动回传' : (!routine.assigneeUserId ? '等待重新分配负责人' : (routineLeave(routine) ? '今日请假，无需填报' : `由 ${routine.assigneeName} 本人填报`)) }}</small>
               </div>
             </div>
-          </article>
-
-          <article class="panel">
+          </article><article class="panel">
             <div class="panel-head">
-              <div><h2>一次性任务</h2><p>只放有明确完成时点的事项；“每天做多少”请放到持续工作。</p></div>
+              <div><h2>一次性任务</h2><p>跟踪有明确截止日期的任务。</p></div>
               <el-button v-if="taskReports.length" link type="primary" @click="openTaskReports()">查看全部填报（{{ taskReports.length }}）</el-button>
             </div>
             <section class="task-group">
@@ -112,8 +104,8 @@
                 </div>
               </div>
             </section>
-            <section class="task-group completed-task-group">
-              <div class="task-group-head"><h3>已完成</h3><el-tag size="small" type="success" effect="plain">{{ completedTasksWithReports.length }}</el-tag></div>
+            <details class="task-group completed-task-group"><summary class="completed-task-toggle">已完成任务 <span>{{ completedTasksWithReports.length }} 项</span><span class="completed-task-hint">查看记录</span></summary>
+
               <div v-if="!completedTasksWithReports.length" class="empty-block compact">当前没有已完成任务</div>
               <div v-for="task in completedTasksWithReports" :key="task.taskId" class="task-card completed-task-card">
                 <i :class="`priority-${(task.priority || 'MEDIUM').toLowerCase()}`"></i>
@@ -131,25 +123,30 @@
                   <el-button v-if="task.reportCount" size="small" plain type="primary" @click="openTaskReports(task)">查看填报（{{ task.reportCount }}）</el-button>
                 </div>
               </div>
-            </section>
-          </article>
-
-          <article class="panel">
-            <div class="panel-head">
-              <div><h2>今日项目总花费</h2><p>{{ accounting.bizDate }} · 负责人确认后直接计入经营结果；不包含人员成本</p></div>
-              <el-button v-hasPermi="['business:project:report']" type="primary" :icon="accounting.dailySpend?'Edit':'Plus'" :disabled="!canReportFinance" @click="openDailySpend">{{ isLateSettlement ? '补录历史花费' : accounting.dailySpend ? '修改花费' : '填写花费' }}</el-button>
+            </details>
+          </article></div><div class="owner-card-stack"><article class="panel project-progress-panel">
+            <div v-if="project.goalMode!=='NO_TOTAL'" class="panel-head">
+              <div><h2>项目完成量</h2><p>填写今日项目进度，保存后同步。</p></div>
+              <el-button v-hasPermi="['business:project:report']" type="primary" :plain="!!todayProjectProgress" :disabled="!canReportProgress" @click="openProjectProgressReport">{{ todayProjectProgress ? '修改今日填报' : '填报今日完成量' }}</el-button>
             </div>
-            <el-alert v-if="!canReportFinance" :title="reportBlockReason" type="info" :closable="false" show-icon />
-            <div v-if="!accounting.dailySpend" class="empty-block">今日尚未填写项目总花费</div>
-            <div v-else class="daily-spend-row">
-              <span><small>今日填报花费</small><b>{{ money(accounting.dailySpend.amount) }} {{ accounting.dailySpend.currency || project.baseCurrency }}</b></span>
-              <span><small>说明</small><b>{{ accounting.dailySpend.description || '无' }}</b></span>
-              <el-tag :type="accounting.dailySpend.status==='RETURNED'?'danger':accounting.dailySpend.status==='DRAFT'?'warning':'success'">{{ accounting.dailySpend.status==='RETURNED'?'历史退回':accounting.dailySpend.status==='DRAFT'?'历史待确认':'已计入经营结果' }}</el-tag>
+            <el-alert v-if="project.goalMode==='NO_TOTAL'" title="该项目为持续经营模式，不需要填写项目总完成百分比；请通过下方每日目标、持续工作和一次性任务跟踪产出。" type="info" :closable="false" show-icon />
+            <el-alert v-else-if="!canReportProgress" :title="progressReportBlockReason" type="info" :closable="false" show-icon />
+            <div v-if="project.goalMode!=='NO_TOTAL'" class="project-progress-card">
+              <div class="project-progress-title"><span><b>{{ project.projectName }}</b><small>{{ project.mainOwnerName || '未指定负责人' }}负责</small></span><strong>{{ projectProgress }}%</strong></div>
+              <el-progress :percentage="projectProgress" :status="project.status==='CLOSED'?'success':undefined" :stroke-width="9" />
+              <template v-if="project.progressReportId">
+                <div class="project-progress-meta"><span>{{ project.progressBizDate }} · {{ project.progressReporterName || project.mainOwnerName }}填报</span><el-tag v-if="todayProjectProgress" size="small" type="success">今日已填报</el-tag></div>
+                <p class="project-progress-summary">实际完成情况：{{ project.progressSummary }}</p>
+                <el-button v-if="project.progressEvidenceUrls" size="small" type="primary" plain @click="openProjectProgressEvidence">查看成果凭证（{{ evidenceCount(project.progressEvidenceUrls) }}）</el-button>
+              </template>
+              <div v-else class="empty-block compact">负责人尚未填报项目整体进度</div>
             </div>
-            <el-alert v-if="accounting.dailySpend?.status==='RETURNED'" :title="`老板已退回：${accounting.dailySpend.returnReason||'请修改后重新提交'}`" type="warning" :closable="false" show-icon />
           </article>
-
-          <article class="panel revenue-summary-panel">
+          </div></div>
+        </el-tab-pane>
+        <el-tab-pane label="人员与收支" name="people">
+          <div class="owner-section-intro"><span>查看成员、人员成本和项目收支</span><el-button v-hasPermi="['business:staff:list']" link type="primary" @click="router.push('/hcm/staff')">人员管理与成本设置</el-button></div>
+          <div class="owner-finance-grid"><article class="panel revenue-summary-panel">
             <div class="panel-head">
               <div><h2>今日项目总收入</h2><p>{{ accounting.bizDate }} · 收入由负责人确认后直接计入经营结果</p></div>
               <el-button v-hasPermi="['business:project:report']" type="primary" plain :disabled="!canReportFinance" @click="openRevenue">{{ isLateSettlement ? '补录历史收入' : '录入收入' }}</el-button>
@@ -160,22 +157,21 @@
               <span><small>历史待确认</small><b class="pending-revenue">{{ money(dailyRevenue.draftAmount) }} {{ project.baseCurrency || 'CNY' }} · {{ Number(dailyRevenue.draftCount || 0) }} 笔</b></span>
               <el-tag :type="revenueStatusTone">{{ revenueStatusLabel }}</el-tag>
             </div>
-          </article>
-        </div>
-
-        <aside class="side-column">
-          <article class="panel project-summary">
-            <div class="project-title"><div><small>{{ project.projectNo }}</small><h2>{{ project.projectName }}</h2></div><el-tag :type="statusTone[project.status] || 'info'">{{ projectStatusLabel(project) }}</el-tag></div>
-            <p>{{ project.objective || '尚未填写项目目标' }}</p>
-      <dl><div><dt>归属老板</dt><dd>{{ project.sponsorOwnerName || project.initiatorName }}</dd></div><div><dt>归属公司</dt><dd>{{ project.companyName || '待设置' }}</dd></div><div><dt>计划周期</dt><dd>{{ project.planStartDate ? `${project.planStartDate} 至 ${project.planEndDate || '不限期'}` : '—' }}</dd></div><div><dt>目标模式</dt><dd>{{ project.goalMode==='NO_TOTAL'?'持续经营':`${projectProgress}%` }}</dd></div></dl>
-          </article>
-
-          <article class="panel">
-            <div class="panel-head"><div><h2>项目 KPI</h2><p>项目指标独立确认；奖金申请在人员系统的奖金激励办理。</p></div><el-button size="small" @click="openKpiBonus">管理项目指标</el-button></div>
-            <div v-if="!currentKpis.length" class="empty-block compact">尚未设置 KPI</div>
-            <div v-for="kpi in currentKpis" :key="kpi.kpiId" class="kpi-row"><span><b>{{ kpi.kpiName }}</b><small>项目目标 {{ kpi.targetValue }} {{ kpi.unit || '' }}</small></span><strong>{{ kpi.weight }}%</strong></div>
-          </article>
-
+          </article><article class="panel">
+            <div class="panel-head">
+              <div><h2>今日项目总花费</h2><p>{{ accounting.bizDate }} · 每次记录本次发生的花费，系统自动累加；不包含人员成本</p></div>
+              <el-button v-hasPermi="['business:project:report']" type="primary" icon="Plus" :disabled="!canReportFinance" @click="openDailySpend">{{ isLateSettlement ? '补录花费' : '新增花费' }}</el-button>
+            </div>
+            <el-alert v-if="!canReportFinance" :title="reportBlockReason" type="info" :closable="false" show-icon />
+            <div class="daily-spend-total"><span>今日累计</span><b>{{ money(accounting.dailySpend?.amount) }} {{ accounting.dailySpend?.currency || project.baseCurrency }}</b><small>{{ accounting.dailySpendItems?.length || 0 }} 笔</small></div>
+            <div v-if="!accounting.dailySpendItems?.length" class="empty-block compact">今日尚未记录项目花费</div>
+            <div v-for="item in accounting.dailySpendItems || []" :key="item.factId" class="daily-spend-item">
+              <span><b>{{ item.description }}</b><small>{{ item.createBy || item.confirmedUserName }} · {{ item.confirmedTime || item.createTime }}</small></span>
+              <strong>{{ money(item.amount) }} {{ item.currency || project.baseCurrency }}</strong>
+              <div class="daily-spend-actions"><el-button link type="primary" @click="editDailySpend(item)">修改</el-button><el-button link type="danger" @click="reverseDailySpend(item)">冲销</el-button></div>
+            </div>
+          </article></div>
+          <section v-if="usesActualWork" class="panel owner-cost-panel"><BusinessProjectWorkPanel :project-id="project.projectId"/></section>
           <article class="panel">
             <div class="panel-head"><div><h2>参项人员</h2><p>本项目共 {{ project.members?.length || 0 }} 人，考勤由飞书自动同步。</p></div></div>
             <div v-if="!project.members?.length" class="empty-block compact">尚未添加参项人员</div>
@@ -187,10 +183,25 @@
               </div>
             </div>
           </article>
-
-
-        </aside>
-      </section>
+        </el-tab-pane>
+        <el-tab-pane label="项目与结算" name="project" lazy>
+          <div class="owner-section-intro"><span>查看项目资料，办理 KPI、交付与后续结算</span><el-button link type="primary" @click="openProject">查看验收与里程碑</el-button></div>
+          <div class="owner-finance-grid"><article class="panel project-summary">
+            <div class="project-title"><div><small>{{ project.projectNo }}</small><h2>{{ project.projectName }}</h2></div><el-tag :type="statusTone[project.status] || 'info'">{{ projectStatusLabel(project) }}</el-tag></div>
+            <p>{{ project.objective || '尚未填写项目目标' }}</p>
+      <dl><div><dt>归属老板</dt><dd>{{ project.sponsorOwnerName || project.initiatorName }}</dd></div><div><dt>归属公司</dt><dd>{{ project.companyName || '待设置' }}</dd></div><div><dt>计划周期</dt><dd>{{ project.planStartDate ? `${project.planStartDate} 至 ${project.planEndDate || '不限期'}` : '—' }}</dd></div><div><dt>目标模式</dt><dd>{{ project.goalMode==='NO_TOTAL'?'持续经营':`${projectProgress}%` }}</dd></div></dl>
+          </article><article class="panel">
+            <div class="panel-head"><div><h2>项目 KPI</h2><p>项目指标独立确认；奖金申请在人员系统的奖金激励办理。</p></div><el-button size="small" @click="openKpiBonus">管理项目指标</el-button></div>
+            <div v-if="!currentKpis.length" class="empty-block compact">尚未设置 KPI</div>
+            <div v-for="kpi in currentKpis" :key="kpi.kpiId" class="kpi-row"><span><b>{{ kpi.kpiName }}</b><small>项目目标 {{ kpi.targetValue }} {{ kpi.unit || '' }}</small></span><strong>{{ kpi.weight }}%</strong></div>
+          </article></div>
+          <BusinessSettlementPanel :project="project" @closed="load(selectedProjectId)" />
+          <section v-if="usesActualWork" class="panel owner-plan-panel"><BusinessProjectPlanPanel :project="project" @changed="load(project.projectId)"/></section>
+          <details class="panel owner-governance"><summary>项目治理要求<span>查看说明</span></summary><el-alert class="governance-alert" :title="`${managementLabel[project.managementMode] || project.managementMode} · ${closeMethodLabel[project.closeMethod] || project.closeMethod}`" :description="governanceDescription" type="info" :closable="false" show-icon>
+        <template #default><el-button link type="primary" @click="openProject">查看治理要求与验收进度</el-button></template>
+      </el-alert></details>
+        </el-tab-pane>
+      </el-tabs>
     </template>
 
     <el-dialog v-model="revenueDialog" :title="isLateSettlement ? '补录执行期间收入' : '录入今日收入'" width="min(680px, 94vw)" append-to-body>
@@ -290,15 +301,14 @@
 
 
 
-    <el-dialog v-model="reportDialog" :title="isLateSettlement ? '补录执行期间每日总花费' : accounting.dailySpend ? '修改今日项目总花费' : '填写今日项目总花费'" width="min(620px, 94vw)" append-to-body>
-      <el-alert title="这里仅填写项目当天发生的业务花费，不含人员成本；负责人确认后直接计入经营结果，修改会保留原记录及冲正轨迹。" type="info" :closable="false" show-icon />
-      <el-alert v-if="reportForm.status==='RETURNED'" class="returned-spend-alert" :title="`退回原因：${reportForm.returnReason||'未填写'}`" type="warning" :closable="false" show-icon />
+    <el-dialog v-model="reportDialog" :title="reportForm.factId ? '修改花费明细' : isLateSettlement ? '补录花费' : '新增花费'" width="min(620px, 94vw)" append-to-body>
+      <el-alert title="填写本次发生的金额，系统会自动累加到当日总花费。修改或冲销均保留审计记录。" type="info" :closable="false" show-icon />
       <el-form v-loading="spendDateLoading" :model="reportForm" label-width="104px" class="report-form">
         <el-form-item label="归属项目"><el-input :model-value="project?.projectName" disabled /></el-form-item>
         <el-form-item label="业务日期" required><el-date-picker v-if="isLateSettlement" v-model="reportForm.bizDate" type="date" value-format="YYYY-MM-DD" :disabled-date="disabledFinancialDate" style="width:100%" @change="loadSpendDate" /><el-input v-else :model-value="reportForm.bizDate" disabled /></el-form-item>
-        <el-alert v-if="isLateSettlement" :title="spendDateLoaded ? '已核对所选日期。填写该日完整总额；有原记录时将保留更正轨迹。' : '请先选择业务日期并成功读取当日记录，避免覆盖未核对的历史总额。'" type="info" :closable="false" />
-        <el-form-item label="该日总花费" required><el-input-number v-model="reportForm.amount" :min="0" :precision="2" style="width:100%" /></el-form-item>
-        <el-form-item label="费用说明"><el-input v-model="reportForm.description" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="选填，例如：投流、采购、物流等合计" /></el-form-item>
+        <el-alert v-if="isLateSettlement" :title="spendDateLoaded ? `已读取所选日期，当前共 ${spendHistoryItems.length} 笔花费。` : '请先选择业务日期并成功读取当日记录。'" type="info" :closable="false" />
+        <el-form-item label="本次金额" required><el-input-number v-model="reportForm.amount" :min="0.01" :precision="2" style="width:100%" /></el-form-item>
+        <el-form-item label="花费用途" required><el-input v-model="reportForm.description" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="例如：广告投流、采购或物流" /></el-form-item>
         <el-form-item label="凭证附件"><business-file-upload v-model="reportForm.attachmentUrls" :project-id="reportForm.projectId" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="reportDialog=false">取消</el-button><el-button type="primary" :loading="saving" :disabled="!canReportFinance || spendDateLoading || (isLateSettlement && !spendDateLoaded)" @click="submitDailySpend">确认并计入项目成本</el-button></template>
@@ -307,18 +317,35 @@
 </template>
 
 <script setup name="BusinessOwnerWorkbench">
-import { getBusinessOwnerWorkbench, saveBusinessRoutineDailyTarget, submitBusinessProjectProgressReport, submitBusinessRoutineReport, confirmBusinessMemberEffort, returnBusinessMemberEffort } from '@/api/business/project'
-import { getBusinessProjectDashboard, saveBusinessProjectDailySpend, saveBusinessProjectFact } from '@/api/business/accounting'
+import { nextTick } from 'vue'
+import { getBusinessProjectSettlementStatus, getBusinessOwnerWorkbench, saveBusinessRoutineDailyTarget, submitBusinessProjectProgressReport, submitBusinessRoutineReport, confirmBusinessMemberEffort, returnBusinessMemberEffort } from '@/api/business/project'
+import { confirmProjectNoSpend } from '@/api/business/flow'
+import { newSubmissionId } from '@/utils/submission'
+import { getBusinessProjectDashboard, reverseBusinessProjectDailySpend, saveBusinessProjectDailySpend, saveBusinessProjectFact } from '@/api/business/accounting'
 import useUserStore from '@/store/modules/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 import BusinessProjectWorkPanel from '@/components/BusinessProjectWorkPanel/index.vue'
 import BusinessProjectPlanPanel from '@/components/BusinessProjectPlanPanel/index.vue'
 import BusinessSettlementPanel from '@/components/BusinessSettlementPanel/index.vue'
+import { getProjectKpiWorkspace } from '@/api/business/kpi'
+import { buildOwnerTodos } from '@/utils/ownerTodos'
 import { canContinueProjectSettlement, isSeparatedDelivery, isDeliveryEnded, projectAccountingState } from '@/utils/businessProjectState'
 
 const route=useRoute(),router=useRouter()
 const userStore=useUserStore()
+const todoKpi=ref({}),todoLoadFailed=ref(false),todosExpanded=ref(false)
+let ownerRequest=0
+const workspaceTab=ref('execution'),workspaceTabs=ref(null),settlementSummary=ref({}),settlementLoadFailed=ref(false)
+const ownerTodos=computed(()=>{
+  const rows=buildOwnerTodos({data:data.value,userId:userStore.id,today:today(),permissions:userStore.permissions,kpi:todoKpi.value})
+  if(Number(settlementSummary.value.pendingCostCount)>0)rows.push({key:'cost-setup',title:'完善人员成本',detail:'部分工作日缺少有效成本，请核对后补充',action:'people',urgent:true})
+  if(Number(settlementSummary.value.pendingFactCount)>0)rows.push({key:'settlement-facts',title:'处理待结算收支',detail:settlementSummary.value.pendingFactCount+' 笔收支需要处理',action:'settlement',urgent:true})
+  if(Number(settlementSummary.value.pendingAwardCount)>0)rows.push({key:'settlement-awards',title:'查看待处理奖金',detail:'奖金事项将在项目结算中列出',action:'settlement'})
+  return rows.sort((a,b)=>Number(!!b.urgent)-Number(!!a.urgent))
+})
+const urgentTodoCount=computed(()=>ownerTodos.value.filter(item=>item.urgent).length)
+const visibleOwnerTodos=computed(()=>todosExpanded.value?ownerTodos.value:ownerTodos.value.slice(0,5))
 const loading=ref(false),saving=ref(false),data=ref({}),selectedProjectId=ref(null),revenueDialog=ref(false),reportDialog=ref(false),projectProgressDialog=ref(false),routineReportDialog=ref(false),dailyTargetDialog=ref(false),effortReturnDialog=ref(false),taskReportDialog=ref(false),evidenceDialog=ref(false)
 const projects=computed(()=>data.value.projects||[]),project=computed(()=>data.value.project||null)
 const operating=computed(()=>data.value.operating||{}),accounting=computed(()=>data.value.accounting||{})
@@ -342,11 +369,6 @@ const visibleTaskReports=computed(()=>taskReportTaskId.value===null?taskReports.
 const taskReportDialogTitle=computed(()=>taskReportTaskId.value===null?`一次性任务填报记录 · 共 ${visibleTaskReports.value.length} 条`:`${taskName(taskReportTaskId.value)} · 填报记录`)
 const todayProjectProgress=computed(()=>data.value.todayProjectProgress||null)
 const todayRoutines=computed(()=>(data.value.todayRoutines||[]).filter(item=>(!item.startDate||item.startDate<=today())&&(!item.endDate||item.endDate>=today())))
-const sourceRoutines=computed(()=>todayRoutines.value.filter(item=>item.sourceManaged))
-const sourceRoutineCount=computed(()=>sourceRoutines.value.length)
-const reportedSourceRoutineCount=computed(()=>sourceRoutines.value.filter(item=>item.todayReportId).length)
-const unreportedSourceRoutineCount=computed(()=>sourceRoutineCount.value-reportedSourceRoutineCount.value)
-const yesterdayReportedTotalXu=computed(()=>sourceRoutines.value.reduce((sum,item)=>sum+Number(item.sourceReportedAmount||0),0))
 const currentKpis=computed(()=>(operating.value.kpis||[]).filter(item=>item.status==='CURRENT'))
 const usesActualWork=computed(()=>project.value?.costPolicyVersion==='MEMBER_DAYS_V1')
 const canReport=computed(()=>['ACTIVE','ACCEPTANCE'].includes(project.value?.status)&&!!project.value?.companyDeptId)
@@ -393,11 +415,12 @@ const memberRoleTone={OWNER:'primary',DEPUTY:'success',MEMBER:'info',OBSERVER:'w
 const effortStatusLabel={UNSUBMITTED:'按计划执行',SUBMITTED:'待确认',CONFIRMED:'已确认',RETURNED:'已退回',LEAVE:'今日请假'}
 const effortStatusTone={UNSUBMITTED:'info',SUBMITTED:'warning',CONFIRMED:'success',RETURNED:'danger',LEAVE:'info'}
 const revenueCurrencies=['CNY','VND','USD']
-const blankReport=()=>({projectId:null,bizDate:today(),amount:null,description:'',attachmentUrls:''})
+const blankReport=()=>({requestId:newSubmissionId(),factId:null,projectId:null,bizDate:today(),amount:null,description:'',attachmentUrls:''})
 const reportForm=ref(blankReport())
 const spendDateLoading=ref(false),spendDateLoaded=ref(false)
+const spendHistoryItems=ref([])
 let spendDateRequest=0
-const blankRevenue=()=>({projectId:null,bizDate:today(),categoryId:null,amount:null,currency:'CNY',description:'',counterparty:'',attachmentUrls:'',remark:''})
+const blankRevenue=()=>({requestId:newSubmissionId(),projectId:null,bizDate:today(),categoryId:null,amount:null,currency:'CNY',description:'',counterparty:'',attachmentUrls:'',remark:''})
 const revenueForm=ref(blankRevenue())
 const projectProgressForm=ref({})
 const routineReportForm=ref({})
@@ -436,7 +459,45 @@ function participantEffort(member){return todayEfforts.value.find(item=>Number(i
 function participantLeave(member){const stored=(data.value.todayLeaves||[]).find(item=>Number(item.userId)===Number(member.userId));if(stored)return stored;const effort=participantEffort(member);return effort?.reportStatus==='LEAVE'?{userId:member.userId,reason:effort.leaveReason||''}:null}
 function routineLeave(routine){return routine.sourceManaged?null:(data.value.todayLeaves||[]).find(item=>Number(item.userId)===Number(routine.assigneeUserId))}
 function participantName(member){return member.userNameSnapshot||member.userName||'项目成员'}
-async function load(projectId){loading.value=true;try{const{data:payload={}}=await getBusinessOwnerWorkbench(projectId||undefined);data.value=payload;selectedProjectId.value=payload.project?.projectId||null;if(selectedProjectId.value)router.replace({query:{...route.query,projectId:selectedProjectId.value}})}finally{loading.value=false}}
+async function load(projectId){
+  const request=++ownerRequest
+  loading.value=true;todoKpi.value={};todoLoadFailed.value=false;settlementSummary.value={};settlementLoadFailed.value=false
+  try{
+    const{data:payload={}}=await getBusinessOwnerWorkbench(projectId||undefined)
+    if(request!==ownerRequest)return
+    if(data.value.project?.projectId!==payload.project?.projectId){todosExpanded.value=false;workspaceTab.value='execution'}
+    data.value=payload;selectedProjectId.value=payload.project?.projectId||null
+    if(selectedProjectId.value){
+      router.replace({query:{...route.query,projectId:selectedProjectId.value}})
+      const currentProjectId=selectedProjectId.value
+      const statusRequest=getBusinessProjectSettlementStatus(currentProjectId)
+        .then(response=>{if(request===ownerRequest)settlementSummary.value=response.data||{}})
+        .catch(()=>{if(request===ownerRequest)settlementLoadFailed.value=true})
+      const kpiRequest=userStore.permissions.includes('*:*:*')||userStore.permissions.includes('business:kpi:list')
+        ? getProjectKpiWorkspace(currentProjectId).then(response=>{if(request===ownerRequest)todoKpi.value=response.data||{}}).catch(()=>{if(request===ownerRequest)todoLoadFailed.value=true})
+        : Promise.resolve()
+      await Promise.all([statusRequest,kpiRequest])
+    }
+  }finally{if(request===ownerRequest)loading.value=false}
+}
+function handleOwnerTodo(item){
+  if(item.action==='people')return goToWorkspace('people')
+  if(item.action==='settlement')return goToWorkspace('project')
+  if(item.action==='progress')return openProjectProgressReport()
+  if(item.action==='revenue')return openRevenue()
+  if(item.action==='spend')return openDailySpend()
+  if(item.action==='routine')return openRoutineReport(item.item)
+  if(item.action==='target')return openDailyTarget(item.item)
+  if(item.action==='effort')return confirmPendingEffort(item.item)
+  if(item.action==='task')return router.push({path:'/business/work-schedule',query:{projectId:project.value.projectId}})
+  if(item.action==='kpi')return router.push({path:'/projects/kpi-results',query:{projectId:project.value.projectId,planId:item.planId}})
+  return router.push({path:'/business/projects',query:{id:project.value.projectId,tab:item.tab||'overview'}})
+}
+async function goToWorkspace(tab){
+  workspaceTab.value=tab
+  await nextTick()
+  workspaceTabs.value?.$el?.querySelector(':scope > .el-tabs__header')?.scrollIntoView({block:'start'})
+}
 function switchProject(id){load(id)}
 function openProject(){router.push({path:'/business/projects',query:{id:project.value.projectId}})}
 function openProjectAllocation(item){router.push({path:'/business/projects',query:{id:item.projectId,tab:'operating'}})}
@@ -448,6 +509,34 @@ function openRevenue(){
   const projectCurrency=String(project.value.baseCurrency||'CNY').toUpperCase()
   revenueForm.value={...blankRevenue(),projectId:project.value.projectId,bizDate:defaultFinancialDate(),categoryId:revenueCategories.value[0].categoryId,currency:revenueCurrencies.includes(projectCurrency)?projectCurrency:'CNY'}
   revenueDialog.value=true
+}
+const noRevenueSubmissionIds=new Map()
+async function confirmNoRevenue(){
+  if(!canReportFinance.value)return ElMessage.warning(reportBlockReason.value)
+  if(!revenueCategories.value.length)return ElMessage.warning('收入类别尚未初始化，请联系管理员')
+  const bizDate=defaultFinancialDate()
+  const submissionScope=`${project.value.projectId}:${bizDate}`
+  if(!noRevenueSubmissionIds.has(submissionScope))noRevenueSubmissionIds.set(submissionScope,newSubmissionId())
+  await ElMessageBox.confirm(`确认“${project.value.projectName}”在 ${bizDate} 没有收入吗？系统将保存一笔 0 元收入记录，作为今日已确认依据。`,'确认今日无收入',{type:'info',confirmButtonText:'确认无收入',cancelButtonText:'取消'})
+  const projectCurrency=String(project.value.baseCurrency||'CNY').toUpperCase()
+  saving.value=true
+  try{
+    await saveBusinessProjectFact({
+      requestId:noRevenueSubmissionIds.get(submissionScope),
+      projectId:project.value.projectId,
+      bizDate,
+      categoryId:revenueCategories.value[0].categoryId,
+      amount:0,
+      currency:revenueCurrencies.includes(projectCurrency)?projectCurrency:'CNY',
+      description:'今日无收入',
+      counterparty:'',
+      attachmentUrls:'',
+      remark:'负责人确认当日无收入'
+    })
+    noRevenueSubmissionIds.delete(submissionScope)
+    ElMessage({type:'success',message:'今日无收入已确认，待办已完成',duration:3000,showClose:true})
+    await load(selectedProjectId.value)
+  }finally{saving.value=false}
 }
 async function submitRevenue(){
   const form=revenueForm.value
@@ -515,10 +604,17 @@ function openRoutineReport(routine){routineReportForm.value={reportId:routine.to
 async function submitRoutineReport(){const form=routineReportForm.value;if(form.targetMode!=='NONE'&&(form.actualValue===null||form.actualValue===undefined||Number(form.actualValue)<0))return ElMessage.warning('请填写实际完成量');if(!form.summary?.trim())return ElMessage.warning('请填写今日完成说明');if(routineReportNeedsReason.value&&!form.issueReason?.trim())return ElMessage.warning('未达到每日目标时请填写原因');if(form.evidenceRequired==='1'&&!form.evidenceUrls)return ElMessage.warning('该工作要求上传成果凭证');form.actualValue=form.targetMode==='NONE'?0:form.actualValue;form.issueReason=routineReportNeedsReason.value?form.issueReason.trim():null;saving.value=true;try{await submitBusinessRoutineReport(form);routineReportDialog.value=false;ElMessage.success('今日完成情况已保存');await load(selectedProjectId.value)}finally{saving.value=false}}
 function openDailyTarget(routine){Object.assign(dailyTargetForm,{routineId:routine.routineId,routineName:routine.routineName,assigneeName:routine.assigneeName,bizDate:accounting.value.bizDate||today(),todayTargetId:routine.todayTargetId||null,targetValue:routine.todayTargetId?Number(routine.todayTarget):null,unit:routine.unit,customerRequirement:routine.todayRequirement||'',changeReason:''});dailyTargetDialog.value=true}
 async function saveDailyTarget(){if(!(Number(dailyTargetForm.targetValue)>0))return ElMessage.warning('今日目标必须大于0');if(dailyTargetForm.todayTargetId&&!dailyTargetForm.changeReason?.trim())return ElMessage.warning('请填写修改原因');saving.value=true;try{await saveBusinessRoutineDailyTarget({...dailyTargetForm});dailyTargetDialog.value=false;ElMessage.success(dailyTargetForm.todayTargetId?'今日目标已修改并保留旧版本':'今日目标已下达');await load(selectedProjectId.value)}finally{saving.value=false}}
+async function confirmNoSpend(){
+  if(saving.value||!canReportFinance.value)return
+  await ElMessageBox.confirm('确认今日无支出？后续仍可新增实际发生的花费。','今日无支出')
+  saving.value=true
+  try{await confirmProjectNoSpend(project.value.projectId);await load(selectedProjectId.value);ElMessage.success('今日无支出已确认')}finally{saving.value=false}
+}
 async function openDailySpend(){
   if(!canReportFinance.value)return ElMessage.warning(reportBlockReason.value)
-  reportForm.value={...blankReport(),...(!isLateSettlement.value?accounting.value.dailySpend||{}:{}),projectId:project.value.projectId,bizDate:defaultFinancialDate()}
+  reportForm.value={...blankReport(),projectId:project.value.projectId,bizDate:defaultFinancialDate()}
   spendDateLoaded.value=!isLateSettlement.value
+  spendHistoryItems.value=[]
   reportDialog.value=true
   if(isLateSettlement.value)await loadSpendDate(reportForm.value.bizDate)
 }
@@ -531,8 +627,8 @@ async function loadSpendDate(bizDate){
   try{
     const {data:payload={}}=await getBusinessProjectDashboard(projectId,{dateFrom:bizDate,dateTo:bizDate})
     if(request!==spendDateRequest||projectId!==project.value?.projectId)return
-    const previous=(payload.facts||[]).find(fact=>fact.sourceDomain==='PROJECT_DAILY'&&fact.sourceType==='DAILY_TOTAL'&&fact.bizDate===bizDate&&['DRAFT','RETURNED','CONFIRMED'].includes(fact.status))
-    reportForm.value={...blankReport(),...(previous||{}),projectId,bizDate}
+    spendHistoryItems.value=(payload.facts||[]).filter(fact=>fact.sourceDomain==='PROJECT_DAILY'&&['DAILY_TOTAL','DAILY_ITEM'].includes(fact.sourceType)&&fact.bizDate===bizDate&&fact.status==='CONFIRMED')
+    reportForm.value={...blankReport(),projectId,bizDate}
     spendDateLoaded.value=true
   }catch{if(request===spendDateRequest)spendDateLoaded.value=false}finally{if(request===spendDateRequest)spendDateLoading.value=false}
 }
@@ -540,18 +636,30 @@ async function submitDailySpend(){
   if(!canReportFinance.value)return ElMessage.warning(reportBlockReason.value)
   if(!validFinancialDate(reportForm.value.bizDate))return ElMessage.warning('请选择执行期间已发生业务的日期')
   if(isLateSettlement.value&&!spendDateLoaded.value)return ElMessage.warning('请先读取并核对所选日期的花费记录')
-  if(reportForm.value.amount===null||reportForm.value.amount===undefined)return ElMessage.warning('请填写所选日期的项目总花费')
+  if(!(Number(reportForm.value.amount)>0))return ElMessage.warning('本次花费必须大于 0')
+  if(!reportForm.value.description?.trim())return ElMessage.warning('请填写本次花费用途')
   saving.value=true
-  try{await saveBusinessProjectDailySpend(reportForm.value);reportDialog.value=false;ElMessage({type:'success',message:'花费已由负责人确认并计入经营结果',duration:3500,showClose:true});await load(selectedProjectId.value)}finally{saving.value=false}
+  try{await saveBusinessProjectDailySpend(reportForm.value);reportDialog.value=false;ElMessage({type:'success',message:reportForm.value.factId?'花费已修改并重新计入':'本次花费已计入，今日总额已自动更新',duration:3500,showClose:true});await load(selectedProjectId.value)}finally{saving.value=false}
+}
+function editDailySpend(item){
+  reportForm.value={...blankReport(),...item,requestId:newSubmissionId(),projectId:project.value.projectId,bizDate:item.bizDate||accounting.value.bizDate}
+  spendDateLoaded.value=true;reportDialog.value=true
+}
+async function reverseDailySpend(item){
+  const {value}=await ElMessageBox.prompt(`冲销“${item.description}” ${money(item.amount)} ${item.currency||project.value.baseCurrency}，该笔金额将从当日总花费中扣除。`,'冲销花费',{confirmButtonText:'确认冲销',cancelButtonText:'取消',inputPlaceholder:'请填写冲销原因',inputValidator:value=>!!value?.trim()||'请填写冲销原因'})
+  saving.value=true
+  try{await reverseBusinessProjectDailySpend(item.factId,{reason:value.trim()});ElMessage.success('该笔花费已冲销，今日总额已更新');await load(selectedProjectId.value)}finally{saving.value=false}
 }
 load(route.query.projectId?Number(route.query.projectId):undefined)
 useBusinessRefreshOnReactivated(() => load(selectedProjectId.value || (route.query.projectId ? Number(route.query.projectId) : undefined)))
 </script>
 
+
 <style scoped>
+.owner-todos{margin-top:16px}.owner-todos h2{display:flex;align-items:center;gap:10px}.owner-todo-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid #edf0f3}.todo-dot{flex:0 0 8px;height:8px;border-radius:50%;background:#e6a23c}.todo-dot.urgent{background:#f56c6c}.todo-copy{flex:1;min-width:0}.todo-copy b,.todo-copy small{display:block}.todo-copy b{font-size:14px}.todo-copy small{margin-top:4px;color:#84919f;overflow-wrap:anywhere}.todo-empty{padding:14px 0;color:#238067}.todo-expand{margin-top:10px}@media(max-width:640px){.owner-todo-row{flex-wrap:wrap}.todo-copy{flex-basis:calc(100% - 24px)}.owner-todo-row>.el-button{margin-left:20px}}
 .owner-page{min-height:calc(100vh - 84px);padding:24px;background:#f3f6f8;color:#172335}.owner-hero{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:25px 28px;border-radius:16px;background:linear-gradient(120deg,#173b59,#1d6d70);color:#fff}.owner-hero span{font-size:11px;letter-spacing:.17em;color:#6de0da}.owner-hero h1{margin:5px 0;font-size:28px}.owner-hero p{margin:0;color:#c1d4de}.hero-actions{display:flex;align-items:center;gap:10px}.hero-actions .el-select{width:360px}.metric-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin:16px 0}.metric-grid article{min-width:0;padding:17px 19px;border:1px solid #dfe6eb;border-radius:12px;background:#fff}.metric-grid article.metric-warning{border-color:#efc36d;background:#fffaf0}.metric-grid article.metric-warning b{color:#b87513}.metric-grid span,.metric-grid small{display:block}.metric-grid span{color:#6f7d8c}.metric-grid b{display:block;margin:6px 0;font-size:26px;white-space:nowrap}.metric-grid b em{color:#697786;font-size:14px;font-style:normal;font-weight:500}.metric-grid small{color:#98a2ad}.amount-profit{color:#198069}.amount-loss,.danger{color:#cf4650}.allocation-alert-panel{margin-bottom:14px;border-color:#efcf93;background:#fffdf8}.allocation-alert-row{display:grid;grid-template-columns:minmax(220px,.8fr) minmax(220px,1.2fr) auto;align-items:center;gap:16px;padding:13px 4px;border-top:1px solid #f1e5ce}.allocation-alert-row>span{display:flex;min-width:0;flex-direction:column;gap:4px}.allocation-alert-row small{color:#8b7755}.allocation-alert-row p{margin:0;color:#7a633d;overflow-wrap:anywhere}.workspace-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,.65fr);gap:14px}.main-column,.side-column{display:flex;min-width:0;flex-direction:column;gap:14px}.panel{padding:18px;border:1px solid #dfe6eb;border-radius:13px;background:#fff}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.panel h2{margin:0;font-size:17px}.panel p{margin:4px 0;color:#84919f;font-size:12px}.routine-card{display:flex;align-items:center;gap:18px;padding:15px 4px;border-top:1px solid #edf0f2}.routine-main{display:flex;min-width:0;flex:1;flex-direction:column;gap:7px}.routine-title{display:flex;align-items:center;gap:8px}.routine-main>small{color:#8b97a4}.routine-main>p{margin:0}.routine-result{display:flex;min-width:128px;align-items:flex-end;flex-direction:column;gap:6px}.routine-result span{color:#7e8b99;font-size:12px}.routine-result b{font-size:18px}.routine-result .routine-xu{color:#198069}.assignee-report-hint{color:#8b97a4}.task-card{display:flex;align-items:center;gap:12px;padding:13px 4px;border-top:1px solid #edf0f2}.task-card>i{width:8px;height:8px;border-radius:50%;background:#8794a3}.task-card>i.priority-high{background:#d44951}.task-card>i.priority-medium{background:#d68b2a}.task-card>i.priority-low{background:#3f9178}.task-content{display:flex;min-width:0;flex:1;flex-direction:column;gap:5px}.task-content small,.kpi-row small,.risk-row small,.fact-row small,.effort-member-row small{color:#8b97a4}.leave-note{color:#7b6a91!important}.task-actions,.effort-actions{display:flex}.effort-member-row{display:grid;grid-template-columns:minmax(150px,1fr) auto auto auto auto;align-items:center;gap:16px;padding:13px 4px;border-top:1px solid #edf0f2}.effort-member-row>span:first-child{display:flex;min-width:0;flex-direction:column}.fact-row{display:flex;align-items:center;gap:10px;padding:13px 4px;border-top:1px solid #edf0f2}.fact-row>span:nth-child(2){display:flex;min-width:0;flex:1;flex-direction:column}.fact-row strong{white-space:nowrap}.project-title{display:flex;align-items:flex-start;justify-content:space-between}.project-title small{color:#81909e}.project-summary>p{margin:14px 0;line-height:1.7}.project-summary dl{margin:0}.project-summary dl>div{display:flex;justify-content:space-between;padding:9px 0;border-top:1px solid #edf0f2}.project-summary dt{color:#7b8997}.project-summary dd{margin:0;text-align:right}.kpi-row,.risk-row{display:flex;align-items:center;gap:9px;padding:11px 2px;border-top:1px solid #edf0f2}.kpi-row>span,.risk-row>span{display:flex;min-width:0;flex:1;flex-direction:column}.empty-block{padding:28px 0;text-align:center;color:#9aa5b0}.empty-block.compact{padding:15px 0}.no-project{margin-top:16px;padding:50px;border:1px solid #dfe6eb;border-radius:14px;background:#fff}.no-project p{color:#8c98a5}.report-form{margin-top:18px}.returned-spend-alert{margin-top:12px}@media(max-width:1300px){.metric-grid{grid-template-columns:repeat(3,1fr)}}@media(max-width:1050px){.metric-grid{grid-template-columns:repeat(2,1fr)}.workspace-grid{grid-template-columns:1fr}}@media(max-width:640px){.owner-page{padding:12px}.owner-hero{align-items:flex-start;flex-direction:column;padding:20px}.hero-actions{width:100%;align-items:stretch;flex-direction:column}.hero-actions .el-select,.hero-actions .el-button{width:100%}.metric-grid{gap:8px}.metric-grid article{padding:14px}.panel-head{align-items:flex-start}.effort-actions{align-items:stretch;flex-direction:column}.effort-member-row{grid-template-columns:1fr 1fr}.effort-member-row>span:first-child,.effort-member-row>.el-tag{grid-column:1/-1}.effort-member-row>.el-button{justify-self:start}.allocation-alert-row{grid-template-columns:1fr}.allocation-alert-row .el-button{width:100%}.routine-card,.task-card,.fact-row{align-items:flex-start;flex-wrap:wrap}.routine-result{width:100%;align-items:stretch}.routine-result b{font-size:17px}.task-actions{width:100%;justify-content:flex-end}.fact-row strong{margin-left:auto}}
 .hero-actions{justify-content:flex-end;flex-wrap:wrap}.hero-actions .el-button{margin:0}.hero-actions .el-select{width:320px}@media(max-width:1300px){.owner-hero{align-items:flex-start;flex-direction:column}.hero-actions{width:100%;justify-content:flex-start}.hero-actions .el-select{flex:1;min-width:280px}}@media(max-width:640px){.hero-actions .el-select{min-width:0}}
-.daily-spend-row{display:grid;grid-template-columns:180px minmax(0,1fr) auto;align-items:center;gap:18px;padding:18px;border-radius:10px;background:#f6faf9}.daily-spend-row>span{display:flex;min-width:0;flex-direction:column;gap:5px}.daily-spend-row small{color:#8793a1}.daily-spend-row b{overflow-wrap:anywhere}@media(max-width:640px){.daily-spend-row{grid-template-columns:1fr}.daily-spend-row .el-tag{justify-self:start}}
+.daily-spend-total{display:flex;align-items:baseline;gap:10px;padding:14px 16px;border-radius:10px;background:#f6faf9}.daily-spend-total span,.daily-spend-total small{color:#8793a1}.daily-spend-total b{font-size:20px}.daily-spend-item{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:14px;padding:12px 2px;border-bottom:1px solid #edf0f2}.daily-spend-item>span{display:flex;min-width:0;flex-direction:column;gap:4px}.daily-spend-item small{color:#8793a1}.daily-spend-item strong{white-space:nowrap}.daily-spend-actions{display:flex}@media(max-width:640px){.daily-spend-item{grid-template-columns:1fr auto}.daily-spend-actions{grid-column:1/-1;justify-content:flex-end}}
 .revenue-summary-panel{border-color:#cfe2df;background:linear-gradient(145deg,#fff,#f7fcfb)}.daily-revenue-row{display:grid;grid-template-columns:repeat(3,minmax(150px,1fr)) auto;align-items:center;gap:18px;padding:18px;border-radius:10px;background:#f3faf8}.daily-revenue-row>span{display:flex;min-width:0;flex-direction:column;gap:5px}.daily-revenue-row small{color:#8793a1}.daily-revenue-row b{overflow-wrap:anywhere;font-size:16px}.daily-revenue-row .pending-revenue{color:#b7791f}.daily-revenue-row .el-tag{justify-self:end}@media(max-width:760px){.daily-revenue-row{grid-template-columns:1fr 1fr}.daily-revenue-row .el-tag{justify-self:start}}@media(max-width:520px){.daily-revenue-row{grid-template-columns:1fr}}
 .effort-member-card{border-top:1px solid #edf0f2}.effort-member-card .effort-member-row{border-top:0}.effort-deviation-list{margin:0 4px 13px;padding:10px 12px;border-radius:9px;background:#fff7e8}.effort-deviation-row{display:grid;grid-template-columns:100px auto minmax(140px,1fr) auto;align-items:center;gap:12px;padding:7px 0;color:#735c34;font-size:13px}.effort-deviation-row+.effort-deviation-row{border-top:1px solid #f0dfbd}.effort-deviation-reason{min-width:0;overflow-wrap:anywhere;color:#8a6733}@media(max-width:640px){.effort-deviation-row{grid-template-columns:1fr auto}.effort-deviation-row>span{grid-column:1/-1}}
 .today-effort-card{margin-top:10px;padding:14px;border:1px solid #dfe6eb;border-radius:10px;background:#fbfcfd}.today-effort-head,.today-effort-values,.today-effort-actions{display:flex;align-items:center;justify-content:space-between;gap:12px}.today-effort-head>span:first-child{display:flex;min-width:0;flex-direction:column}.today-effort-head small,.week-effort-row small{color:#8b97a4}.today-effort-values{justify-content:flex-start;margin:13px 0}.today-effort-values span{min-width:150px;color:#73808e}.today-effort-reason{padding:10px 12px;border-radius:8px;background:#fff7e8!important;color:#795d2f!important}.today-effort-actions{justify-content:flex-end}.week-effort-summary{background:#fafcfd}.week-effort-row{display:grid;grid-template-columns:minmax(150px,1fr) auto auto auto;align-items:center;gap:16px;padding:12px 4px;border-top:1px solid #edf0f2}.week-effort-row>span:first-child{display:flex;flex-direction:column}@media(max-width:640px){.today-effort-head,.today-effort-values{align-items:flex-start;flex-direction:column}.today-effort-values span{min-width:0}.today-effort-actions{align-items:stretch;flex-direction:column}.today-effort-actions .el-button{width:100%;margin:0}.week-effort-row{grid-template-columns:1fr 1fr}.week-effort-row>span:first-child,.week-effort-row>.el-tag{grid-column:1/-1}}
@@ -563,3 +671,5 @@ useBusinessRefreshOnReactivated(() => load(selectedProjectId.value || (route.que
 .task-group+.task-group{margin-top:18px}.task-group-head{display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid #edf0f2}.task-group-head h3{margin:0;font-size:14px}.completed-task-group{padding-top:2px}.completed-task-card{background:#fbfdfc}.completed-task-actions{flex-wrap:wrap;justify-content:flex-end}@media(max-width:640px){.completed-task-actions{justify-content:flex-start}}
 .pending-effort-panel{margin-bottom:14px;border-color:#efcf93;background:#fffdf8}.pending-effort-row{display:grid;grid-template-columns:minmax(190px,.8fr) auto minmax(180px,1fr) auto;align-items:center;gap:16px;padding:13px 4px;border-top:1px solid #f1e5ce}.pending-effort-row>span{display:flex;min-width:0;flex-direction:column;gap:4px}.pending-effort-row small{color:#8b7755}.pending-effort-row>p{margin:0;color:#7a633d;overflow-wrap:anywhere}.pending-effort-change{display:flex;align-items:center;gap:8px;color:#72592f;white-space:nowrap}.pending-effort-change b{color:#d28b1f}.pending-effort-actions{display:flex;gap:6px}.pending-effort-actions .el-button{margin:0}@media(max-width:900px){.pending-effort-row{grid-template-columns:1fr auto}.pending-effort-row>p{grid-column:1/-1}.pending-effort-actions{grid-column:1/-1;justify-content:flex-end}}@media(max-width:520px){.pending-effort-row{grid-template-columns:1fr}.pending-effort-row>p,.pending-effort-actions{grid-column:auto}.pending-effort-actions{display:grid;grid-template-columns:repeat(3,1fr)}.pending-effort-actions .el-button{width:100%}}
 </style>
+
+<style scoped src="./workbench.css"></style>

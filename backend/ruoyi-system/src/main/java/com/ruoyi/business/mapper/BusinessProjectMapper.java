@@ -206,7 +206,11 @@ public interface BusinessProjectMapper
         @Param("boss") boolean boss);
     List<BusinessProject> selectDashboardProjectPage(@Param("userId") Long userId,
         @Param("viewAll") boolean viewAll, @Param("boss") boolean boss,
-        @Param("offset") int offset, @Param("pageSize") int pageSize);
+        @Param("offset") int offset, @Param("pageSize") int pageSize,
+        @Param("keyword") String keyword, @Param("status") String status);
+    long countDashboardProjects(@Param("userId") Long userId,
+        @Param("viewAll") boolean viewAll, @Param("boss") boolean boss,
+        @Param("keyword") String keyword, @Param("status") String status);
     List<BusinessProject> selectDashboardDecisionPage(@Param("userId") Long userId,
         @Param("viewAll") boolean viewAll, @Param("boss") boolean boss,
         @Param("offset") int offset, @Param("pageSize") int pageSize);

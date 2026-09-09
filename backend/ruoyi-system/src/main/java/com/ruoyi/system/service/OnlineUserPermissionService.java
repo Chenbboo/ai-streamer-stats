@@ -118,7 +118,7 @@ public class OnlineUserPermissionService
         Set<String> permissions = new HashSet<String>();
         if (user.isAdmin())
         {
-            permissions.add(Constants.ALL_PERMISSION);
+            permissions.addAll(menuService.selectMenuPermsByUserId(user.getUserId()));
             return permissions;
         }
         List<SysRole> roles = user.getRoles();

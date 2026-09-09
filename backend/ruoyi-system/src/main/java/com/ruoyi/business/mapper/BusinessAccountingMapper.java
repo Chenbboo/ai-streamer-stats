@@ -8,6 +8,10 @@ import com.ruoyi.business.domain.BusinessOperatingFact;
 
 public interface BusinessAccountingMapper
 {
+    @org.apache.ibatis.annotations.Select("select confirmed_user_name confirmedUserName,confirmed_at confirmedAt from biz_project_spend_confirmation where project_id=#{projectId} and biz_date=#{bizDate}")
+    Map<String,Object> selectSpendConfirmation(@Param("projectId") Long projectId,@Param("bizDate") Date date);
+    @org.apache.ibatis.annotations.Insert("insert into biz_project_spend_confirmation(project_id,biz_date,confirmed_user_id,confirmed_user_name,confirmed_at) values(#{projectId},#{bizDate},#{userId},#{userName},now()) on duplicate key update id=id")
+    int confirmNoSpend(@Param("projectId") Long projectId,@Param("bizDate") Date date,@Param("userId") Long userId,@Param("userName") String userName);
     List<Map<String,Object>> selectCompanies();
     List<Map<String,Object>> selectCategories();
     default List<Map<String,Object>> selectProjectOptions(Long userId,boolean viewAll)
@@ -22,6 +26,7 @@ public interface BusinessAccountingMapper
     Map<String,Object> selectCategoryByCode(String categoryCode);
     BusinessOperatingFact selectCurrentProjectDailySpend(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     BusinessOperatingFact selectConfirmedProjectDailySpend(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
+    List<BusinessOperatingFact> selectProjectDailySpendItems(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     Map<String,Object> selectProjectRevenueSummary(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     Map<String,Object> selectProjectForAccounting(Long projectId);
     Map<String,Object> selectProjectForAccountingForUpdate(Long projectId);
@@ -51,6 +56,7 @@ public interface BusinessAccountingMapper
     List<Map<String,Object>> selectDailyResults(Map<String,Object> query);
     List<Map<String,Object>> selectDailyResultItems(Long resultId);
     Map<String,Object> selectDailySummary(Map<String,Object> query);
+    List<Map<String,Object>> selectDailySummaryByCurrency(Map<String,Object> query);
     int countDraftFacts(Map<String,Object> query);
     List<Map<String,Object>> selectAccountingAlerts(Map<String,Object> query);
     List<Map<String,Object>> selectProjectProfitRanking(Map<String,Object> query);

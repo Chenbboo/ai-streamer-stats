@@ -142,8 +142,8 @@ public class SysMenuServiceImpl implements ISysMenuService
         else
         {
             menus = menuMapper.selectMenuTreeByUserId(userId);
-            menus = personalMenuPermissionService.applyRoutes(userId, menus);
         }
+        menus = personalMenuPermissionService.applyRoutes(userId, menus);
         return getChildPerms(menus, MENU_ROOT_ID);
     }
 

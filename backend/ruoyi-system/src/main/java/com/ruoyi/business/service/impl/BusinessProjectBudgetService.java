@@ -20,6 +20,17 @@ public class BusinessProjectBudgetService
     @Autowired private BusinessProjectWorkMapper mapper;
     @Autowired private BusinessProjectWorkService work;
 
+    public void ensureOwner(BusinessProjectProposal proposal){
+        if(proposal.getApplicantUserId()==null||proposal.getTemplateVersion()==null||"LEGACY_V1".equals(proposal.getTemplateVersion()))return;
+        List<Map<String,Object>> staff=new ArrayList<>(rows(proposal.getStaffingLines()));
+        if(staff.stream().anyMatch(r->String.valueOf(proposal.getApplicantUserId()).equals(String.valueOf(r.get("userId")))))return;
+        Map<String,Object> owner=new LinkedHashMap<>();owner.put("userId",proposal.getApplicantUserId());owner.put("userName",proposal.getApplicantName());owner.put("roleName","项目负责人");owner.put("participationMode","FOLLOW_PROJECT");
+        owner.put("planStartDate",proposal.getPlanStartDate());owner.put("planEndDate",proposal.getPlanEndDate());owner.put("inputUnit","PERCENTAGE");owner.put("inputQuantity",100);
+        List<Map<String,Object>> calendars=mapper.selectCalendars();
+        for(Map<String,Object> c:calendars)if((proposal.getPlanStartDate()==null||date(c.get("effectiveFrom"))==null||!date(c.get("effectiveFrom")).isAfter(date(proposal.getPlanStartDate())))&&(proposal.getPlanEndDate()==null||date(c.get("effectiveTo"))==null||!date(c.get("effectiveTo")).isBefore(date(proposal.getPlanEndDate())))){owner.put("calendarId",c.get("calendarId"));break;}
+        for(Map<String,Object> u:mapper.selectUnitPolicies())if(proposal.getPlanEndDate()==null||date(u.get("effectiveTo"))==null||!date(u.get("effectiveTo")).isBefore(date(proposal.getPlanEndDate()))){owner.put("unitPolicyId",u.get("unitPolicyId"));break;}
+        staff.add(0,owner);proposal.setStaffingLines(staff);
+    }
     public void apply(BusinessProjectProposal proposal)
     {
         Map<String,Object> budget=estimate(proposal);proposal.setBudget(budget);
@@ -41,6 +52,7 @@ public class BusinessProjectBudgetService
     }
 
     public Map<String,Object> estimate(BusinessProjectProposal proposal) {
+        ensureOwner(proposal);
         Map<String,Object> result=estimate(proposal,false);
         if(proposal.getPlanStartDate()!=null&&proposal.getPlanEndDate()==null){
             LocalDate first=date(proposal.getPlanStartDate()).withDayOfMonth(1);
@@ -72,7 +84,7 @@ public class BusinessProjectBudgetService
         Object startupInput=proposal.getStartupBudgetLimit()!=null?proposal.getStartupBudgetLimit():input.get("startupLimit");
         BigDecimal daily="DAILY".equals(mode)?money(dailyInput,"每日预算上限",issues):null;
         if(daily!=null&&daily.signum()<=0)throw new ServiceException("每日预算上限必须大于0");
-        BigDecimal startup="NONE".equals(mode)||startupInput==null?null:money(startupInput,"启动预算",issues);
+        BigDecimal startup="DAILY".equals(mode)&&startupInput!=null?money(startupInput,"启动预算",issues):null;
         String reason=proposal.getBudgetReason()!=null?proposal.getBudgetReason():(String)input.get("reason");
         if(reason!=null&&reason.length()>500)throw new ServiceException("预算说明不能超过500个字符");
         if("NONE".equals(mode)&&(reason==null||reason.trim().isEmpty()))issues.add("暂不设置预算时请填写原因");
@@ -206,7 +218,7 @@ public class BusinessProjectBudgetService
         BigDecimal plannedCost=missing?null:personnel.add(external).setScale(2,RoundingMode.HALF_UP);
         result.put("plannedTotalCost",plannedCost);result.put("profit",plannedCost==null?null:revenue.subtract(plannedCost));
         BigDecimal oneTime=external.subtract(plannedAmount(recurring(proposal.getExpenseLines()),"amount","occurDate",start,end,false,issues));
-        if(startup!=null&&oneTime.compareTo(startup)>0)issues.add("启动预算不能低于本期一次性支出 "+oneTime);
+        if("DAILY".equals(mode)&&startup!=null&&oneTime.compareTo(startup)>0)issues.add("启动预算不能低于本期一次性支出 "+oneTime);
         if("DAILY".equals(mode)&&oneTime.signum()>0&&startup==null)issues.add("每日预算模式下请单独设置一次性启动预算");
         if("DAILY".equals(mode)&&start!=null&&end!=null&&!end.isBefore(start)&&daily!=null){
             boolean complete=!missing||"CASH_EXPENSE".equals(scope);

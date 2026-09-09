@@ -36,7 +36,20 @@ class BusinessStaffServiceImplTest
     @Mock private ISysDeptService deptService;
     @Mock private BusinessProjectMapper projectMapper;
     @Mock private BusinessStaffProfileMapper profileMapper;
+    @Mock private com.ruoyi.system.service.OnlineUserPermissionService onlinePermissions;
     @InjectMocks private BusinessStaffServiceImpl service;
+
+    @Test
+    void actualCompanyOwnerCanListAllAccountsRegardlessOfDepartmentScope()
+    {
+        SysUser query=new SysUser();query.getParams().put("dataScope"," AND d.dept_id = 110");
+        when(projectMapper.countUserRoleByKey(120L,"company_owner")).thenReturn(1);
+        when(projectMapper.selectStaffDirectory(query,null)).thenReturn(java.util.Collections.emptyList());
+        service.listStaff(query,120L,false,true,false);
+        assertEquals("",query.getParams().get("dataScope"));
+        verify(projectMapper).selectStaffDirectory(query,null);
+        verify(projectMapper,never()).selectManagedProjectMemberUserIds(120L);
+    }
 
     @Test
     void staffDirectoryOnlyEnablesCostActionsForOwnedCompany()

@@ -535,6 +535,23 @@ class BusinessProjectProposalServiceImplTest
     }
 
     @Test
+    void totalBudgetDetailRemovesStoredDailyStartupWarning()
+    {
+        proposal.setStatus("DRAFT");proposal.setBudgetMode("TOTAL");
+        proposal.setStartupBudgetLimit(new BigDecimal("100"));
+        proposal.setBudget(BusinessProjectWorkServiceTest.row("mode","TOTAL","startupLimit",100,
+            "status","PENDING","issues",Collections.singletonList("启动预算不能低于本期一次性支出 15000.00")));
+        when(mapper.selectById(77L)).thenReturn(proposal);
+
+        BusinessProjectProposal result=service.get(77L,9L,false,false);
+
+        assertEquals(null,result.getStartupBudgetLimit());
+        assertEquals(null,result.getBudget().get("startupLimit"));
+        assertEquals("READY",result.getBudget().get("status"));
+        assertEquals(Collections.emptyList(),result.getBudget().get("issues"));
+    }
+
+    @Test
     void selectedBossApprovalCreatesOneActiveProject()
     {
         proposal.setStatus("PENDING");

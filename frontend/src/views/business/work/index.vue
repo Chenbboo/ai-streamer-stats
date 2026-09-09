@@ -99,7 +99,7 @@ import { getBusinessWorkDashboard, submitBusinessTaskReport, submitBusinessRouti
 import { ElMessage } from 'element-plus'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 
-const router=useRouter()
+const router=useRouter(),route=useRoute()
 const loading=ref(false),saving=ref(false),savingEffortId=ref(null),data=ref({}),period=ref('DAY'),anchorDate=ref(today()),selectedProjectId=ref(null),reportDialog=ref(false),reportForm=ref({}),taskReportDialog=ref(false),taskReportForm=ref({})
 const projectBonuses=computed(()=>data.value.projectBonuses||[])
 const projectOptions=computed(()=>projectBonuses.value)
@@ -129,7 +129,8 @@ const projectOptionLabel=project=>project.projectNo?`${project.projectName} · $
 function routineBelowTarget(routine){return routine.targetMode!=='NONE'&&!!routine.todayReportId&&Number(routine.todayActual)<Number(routine.todayTarget||0)}
 function routineTargetDescription(routine){if(routine.targetMode==='NONE')return '无量化目标：只需填写今日完成说明';if(isToday.value&&routine.targetMode==='DAILY_DYNAMIC'&&!routine.todayTargetId)return '今日目标：等待负责人下达';if(isToday.value)return `今日目标：${routine.todayTarget ?? 0} ${routine.unit}`;return `周期累计：${routine.periodActual || 0} ${routine.unit}`}
 function today(){return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Shanghai'})}
-async function load(){loading.value=true;try{const payload=(await getBusinessWorkDashboard({period:period.value,anchorDate:anchorDate.value})).data||{};payload.efforts=(payload.efforts||[]).map(item=>({...item,actualPercent:Number(item.actualPercent||0),editing:false,_savedActualPercent:Number(item.actualPercent||0),_savedDeviationReason:item.deviationReason||''}));data.value=payload;const projects=payload.projectBonuses||[];if(!projects.some(project=>String(project.projectId)===String(selectedProjectId.value)))selectedProjectId.value=projects[0]?.projectId??null}finally{loading.value=false}}
+async function load(){loading.value=true;try{const payload=(await getBusinessWorkDashboard({period:period.value,anchorDate:anchorDate.value})).data||{};payload.efforts=(payload.efforts||[]).map(item=>({...item,actualPercent:Number(item.actualPercent||0),editing:false,_savedActualPercent:Number(item.actualPercent||0),_savedDeviationReason:item.deviationReason||''}));data.value=payload;const projects=payload.projectBonuses||[];const requested=projects.find(project=>String(project.projectId)===String(route.query.projectId));if(requested)selectedProjectId.value=requested.projectId;else if(!projects.some(project=>String(project.projectId)===String(selectedProjectId.value)))selectedProjectId.value=projects[0]?.projectId??null}finally{loading.value=false}}
+watch(()=>route.query.projectId,value=>{const requested=projectOptions.value.find(project=>String(project.projectId)===String(value));if(requested)selectedProjectId.value=requested.projectId})
 function changePeriod(){load()}
 function goToday(){anchorDate.value=today();load()}
 function openRoutineReport(routine){reportForm.value={reportId:routine.todayReportId||null,routineId:routine.routineId,projectId:routine.projectId,bizDate:data.value.today,routineName:routine.routineName,frequency:routine.frequency,targetMode:routine.targetMode||'FIXED',todayTarget:routine.todayTarget,actualValue:routine.todayReportId?Number(routine.todayActual):null,unit:routine.unit,summary:routine.todaySummary||'',issueReason:routine.todayIssueReason||'',evidenceUrls:routine.todayEvidenceUrls||'',evidenceRequired:routine.evidenceRequired,version:null};reportDialog.value=true}

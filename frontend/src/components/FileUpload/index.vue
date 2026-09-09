@@ -127,6 +127,11 @@ const props = defineProps({
     type: Number,
     default: 0
   },
+  // 单次上传超时（毫秒），防止后端异常时全屏等待层永久不关闭
+  uploadTimeout: {
+    type: Number,
+    default: 120000
+  },
   // 文件类型, 例如['png', 'jpg', 'jpeg']
   fileType: {
     type: Array,
@@ -266,7 +271,8 @@ function handleExceed() {
 // 上传失败
 function handleUploadError(err, file) {
   try {
-    proxy.$modal.msgError("上传文件失败")
+    const timedOut = err?.code === 'ECONNABORTED' || String(err?.message || '').toLowerCase().includes('timeout')
+    proxy.$modal.msgError(timedOut ? "上传超时，请检查后端服务后重试" : "上传文件失败")
   } finally {
     finishUpload(file)
   }
@@ -367,6 +373,7 @@ async function performUpload(options) {
   form.append(options.filename || 'file', options.file)
   const response = await axios.post(options.action, form, {
     headers: { ...options.headers, 'Content-Type': 'multipart/form-data' },
+    timeout: Math.max(1000, Number(props.uploadTimeout) || 120000),
     onUploadProgress: event => {
       if (event.total && options.onProgress) {
         options.onProgress({ percent: Math.round(event.loaded * 100 / event.total) })

@@ -68,6 +68,9 @@
             <el-button size="small" type="primary" @click="openKpi(row)">{{ Number(row.targetCount) ? '发布KPI方案' : '设置KPI' }}</el-button>
             <el-button size="small" @click="openProject(row)">项目详情</el-button>
           </template>
+          <template v-else-if="row.category === 'INCENTIVE_REVIEW'">
+            <el-button v-hasPermi="['business:incentive:approve']" size="small" type="primary" @click="openIncentive(row)">去审核</el-button>
+          </template>
           <template v-else-if="row.category === 'KPI_REVIEW'">
             <el-button size="small" type="primary" @click="openKpi(row)">审核结算</el-button>
             <el-button size="small" @click="openProject(row)">项目详情</el-button>
@@ -106,9 +109,9 @@
         </div>
       </div>
       <div class="finance-grid">
-        <article><span>确认收入</span><strong>{{ money(accounting.today?.revenueAmount) }}</strong></article>
-        <article><span>总成本</span><strong>{{ money(accounting.today?.costAmount) }}</strong></article>
-        <article><span>经营结果</span><strong :class="amountTone(accounting.today?.profitAmount)">{{ signed(accounting.today?.profitAmount) }}</strong></article>
+        <article><span>确认收入</span><strong>{{ accountingTotal('revenueAmount') }}</strong></article>
+        <article><span>总成本</span><strong>{{ accountingTotal('costAmount') }}</strong></article>
+        <article><span>经营结果</span><strong :class="amountTone(accounting.today?.profitAmount)">{{ accountingTotal('profitAmount') }}</strong></article>
       </div>
       <div v-if="!accounting.alerts?.length" class="healthy-banner">✓ 今日无亏损、超预算或项目归属异常</div>
       <div v-else class="alert-section">
@@ -136,9 +139,15 @@
 
     <section class="panel project-panel">
       <div class="section-title section-title--between">
-        <h2>项目状态</h2>
-        <el-button link type="primary" @click="router.push('/business/projects')">查看全部项目</el-button>
+        <h2><button class="project-status-toggle" type="button" :aria-expanded="projectsExpanded" aria-controls="boss-project-status" @click="projectsExpanded = !projectsExpanded"><span aria-hidden="true">{{ projectsExpanded ? '▾' : '▸' }}</span> 项目状态 <small>{{ projectPage.total }} 个项目 · {{ projectsExpanded ? '收起' : '展开' }}</small></button></h2>
+        <div class="project-filters">
+          <el-input v-model="projectFilters.keyword" clearable placeholder="项目名称 / 编号 / 负责人" aria-label="筛选项目" @keyup.enter="applyProjectFilters" @clear="applyProjectFilters" />
+          <el-select v-model="projectFilters.status" clearable placeholder="全部状态" aria-label="项目状态筛选" @change="applyProjectFilters"><el-option v-for="(label,value) in projectStatusOptions" :key="value" :label="label" :value="value" /></el-select>
+          <el-button type="primary" @click="applyProjectFilters">查询</el-button>
+          <el-button link type="primary" @click="router.push('/business/projects')">查看全部项目</el-button>
+        </div>
       </div>
+      <div id="boss-project-status" v-show="projectsExpanded">
       <div v-loading="projectLoading" class="project-grid">
         <article v-for="row in projects" :key="row.projectId" class="project-card">
           <div class="project-card-head">
@@ -165,11 +174,12 @@
             </span>
           </div>
         </article>
-        <div v-if="!projects.length && !projectLoading" class="empty-state">尚未创建项目</div>
+        <div v-if="!projects.length && !projectLoading" class="empty-state">{{ appliedProjectFilters.projectKeyword || appliedProjectFilters.projectStatus ? '没有符合筛选条件的项目' : '尚未创建项目' }}</div>
       </div>
-      <div v-if="projectPage.total > projectPage.pageSize" class="project-pagination">
+      <div class="project-pagination">
         <span>第 {{ projectPage.pageNum }} 页，共 {{ projectPage.total }} 个项目</span>
-        <el-pagination v-model:current-page="projectPage.pageNum" :page-size="projectPage.pageSize" :total="projectPage.total" layout="prev, pager, next" background @current-change="loadProjectPage" />
+        <el-pagination v-model:current-page="projectPage.pageNum" v-model:page-size="projectPage.pageSize" :page-sizes="[4,8,12]" :pager-count="5" :total="projectPage.total" layout="sizes, prev, pager, next" background @current-change="loadProjectPage" @size-change="changeProjectPageSize" />
+      </div>
       </div>
     </section>
 
@@ -238,9 +248,15 @@ import { isDeliveryEnded } from '@/utils/businessProjectState'
 const router = useRouter()
 const loading = ref(false)
 const projectLoading = ref(false)
+const projectsExpanded = ref(true)
+const accountingTotal = key => (accounting.value.todayByCurrency?.length ? accounting.value.todayByCurrency : [accounting.value.today || {}]).map(row => money(row[key]) + (row.currency ? ' ' + row.currency : '')).join(' / ')
 const summary = ref({})
 const projects = ref([])
-const projectPage = reactive({ pageNum: 1, pageSize: 10, total: 0 })
+const projectPage = reactive({ pageNum: 1, pageSize: 4, total: 0 })
+const projectFilters = reactive({keyword:'',status:''})
+const appliedProjectFilters = reactive({projectKeyword:'',projectStatus:''})
+const projectStatusOptions = {DRAFT:'草稿',PLANNING:'规划中',ACTIVE:'执行中',PAUSED:'已暂停',ACCEPTANCE:'待验收',CLOSED:'已关闭',CANCELED:'已取消'}
+let projectRequestSequence = 0
 const kpiOverviews = ref([])
 const accounting = ref({ today: {}, alerts: [], draftFactCount: 0 })
 const pendingRows = ref([])
@@ -370,18 +386,22 @@ const isStagedClosePending = row => row.status === 'ACCEPTANCE' && row.descripti
 const decisionActions = row => row.status === 'DRAFT' ? [{ key: 'START_PLANNING', ...actionMeta.START_PLANNING }] : row.status === 'PLANNING' && row.baselineStatus === 'SUBMITTED' ? [{ key: 'CONFIRM_BASELINE', ...actionMeta.CONFIRM_BASELINE }, { key: 'RETURN_PLAN', ...actionMeta.RETURN_PLAN }] : row.status === 'PAUSED' ? [{ key: 'RESUME', ...actionMeta.RESUME }] : isStagedClosePending(row) ? [{ key: 'CLOSE', ...actionMeta.CLOSE }, { key: 'RETURN_ACTIVE', ...actionMeta.RETURN_ACTIVE }] : row.status === 'ACCEPTANCE' ? [{ key: 'REVIEW_ACCEPTANCE', ...actionMeta.REVIEW_ACCEPTANCE }] : []
 const decisionHint = row => row.status === 'DRAFT' ? '历史草稿等待确认进入规划' : row.status === 'PLANNING' ? '历史计划已提交，等待确认或退回' : row.status === 'PAUSED' ? '项目处于暂停状态，决定是否恢复执行' : isStagedClosePending(row) ? '所有里程碑和结项前置条件已完成，负责人申请确认结项' : row.status === 'ACCEPTANCE' ? '验收资料已提交，等待关闭或退回执行' : '需要老板处理'
 const accountingValue = row => row.factKind === 'VALUE' ? `${row.quantity ?? '—'} ${row.unit || ''}`.trim() : `${money(row.amount)} ${row.currency || ''}`.trim()
-const pendingLabel = row => row.category === 'PROPOSAL' ? '立项待审批' : row.category === 'ACCOUNTING' ? '收支待确认' : row.category === 'STAGE_ACCEPTANCE' ? '待阶段验收' : row.category === 'KPI_MISSING' ? (Number(row.targetCount) ? 'KPI 待发布' : 'KPI 待设置') : row.category === 'KPI_REVIEW' ? 'KPI 结算待确认' : isStagedClosePending(row) ? '项目待结项' : '项目状态待处理'
-const pendingDotClass = row => row.category === 'KPI_MISSING' ? 'dot-danger' : ['PERSONNEL_COST_GROUP', 'PROPOSAL', 'ACCOUNTING', 'STAGE_ACCEPTANCE', 'KPI_REVIEW'].includes(row.category) ? 'dot-warning' : 'dot-info'
-const pendingBadgeClass = row => row.category === 'KPI_MISSING' ? 'badge-danger' : ['PROPOSAL', 'ACCOUNTING', 'STAGE_ACCEPTANCE', 'KPI_REVIEW'].includes(row.category) ? 'badge-warning' : 'badge-info'
-const pendingDescription = row => row.category === 'PROPOSAL' ? (row.objective || '新的立项申请等待审批') : row.category === 'ACCOUNTING' ? `${row.categoryName || '项目收支'}：${row.description || '负责人提交的今日收支'}（${accountingValue(row)}）` : row.category === 'STAGE_ACCEPTANCE' ? `${row.resultSummary || '负责人已提交阶段成果'} · 交付成果：${row.deliverables || '—'}` : row.category === 'KPI_MISSING' ? (Number(row.targetCount) ? `已有 ${row.targetCount} 项 KPI 目标，但尚未发布考核与奖金方案` : '项目已进入执行流程，KPI 目标待设置') : row.category === 'KPI_REVIEW' ? '负责人已提交 KPI 结果，确认后项目奖金会立即计入成本' : decisionHint(row)
+const pendingLabel = row => row.category === 'INCENTIVE_REVIEW' ? '奖金待核准' : row.category === 'PROPOSAL' ? '立项待审批' : row.category === 'ACCOUNTING' ? '收支待确认' : row.category === 'STAGE_ACCEPTANCE' ? '待阶段验收' : row.category === 'KPI_MISSING' ? (Number(row.targetCount) ? 'KPI 待发布' : 'KPI 待设置') : row.category === 'KPI_REVIEW' ? 'KPI 结算待确认' : isStagedClosePending(row) ? '项目待结项' : '项目状态待处理'
+const pendingDotClass = row => row.category === 'KPI_MISSING' ? 'dot-danger' : ['PERSONNEL_COST_GROUP', 'PROPOSAL', 'ACCOUNTING', 'STAGE_ACCEPTANCE', 'KPI_REVIEW', 'INCENTIVE_REVIEW'].includes(row.category) ? 'dot-warning' : 'dot-info'
+const pendingBadgeClass = row => row.category === 'KPI_MISSING' ? 'badge-danger' : ['PROPOSAL', 'ACCOUNTING', 'STAGE_ACCEPTANCE', 'KPI_REVIEW', 'INCENTIVE_REVIEW'].includes(row.category) ? 'badge-warning' : 'badge-info'
+const pendingDescription = row => row.category === 'INCENTIVE_REVIEW' ? `${row.categoryName || '奖金申请'} #${row.awardId} · ${money(row.amount)} ${row.currency || ''} · ${row.description || '等待核准'}` : row.category === 'PROPOSAL' ? (row.objective || '新的立项申请等待审批') : row.category === 'ACCOUNTING' ? `${row.categoryName || '项目收支'}：${row.description || '负责人提交的今日收支'}（${accountingValue(row)}）` : row.category === 'STAGE_ACCEPTANCE' ? `${row.resultSummary || '负责人已提交阶段成果'} · 交付成果：${row.deliverables || '—'}` : row.category === 'KPI_MISSING' ? (Number(row.targetCount) ? `已有 ${row.targetCount} 项 KPI 目标，但尚未发布考核与奖金方案` : '项目已进入执行流程，KPI 目标待设置') : row.category === 'KPI_REVIEW' ? '负责人已提交 KPI 结果，确认后项目奖金会立即计入成本' : decisionHint(row)
 const pendingMeta = row => {
   if (row.category === 'PROPOSAL') return `${row.applicantName} 负责 · ${row.companyName || '未设置公司'} `
-  if (row.category === 'ACCOUNTING') return `${row.submitterName || '项目负责人'}提交 · ${row.bizDate || '—'} · ${row.companyName || '未设置公司'} `
+  if (['ACCOUNTING', 'INCENTIVE_REVIEW'].includes(row.category)) return `${row.submitterName || '项目负责人'}提交 · ${row.bizDate || '—'} · ${row.companyName || '未设置公司'} `
   if (row.category === 'STAGE_ACCEPTANCE') return `${row.submitterName || row.mainOwnerName || '项目负责人'}提交 · 里程碑“${row.milestoneName || '未命名'}” · ${row.submittedTime || '—'} `
   if (row.category === 'KPI_REVIEW') return `方案 v${row.planVersion} · 截止 ${row.cycleEnd || '—'} · 综合得分 ${row.totalScore ?? '—'} `
   return `${row.mainOwnerName || '未指定负责人'} 负责 `
 }
 const personnelMeta = row => `${row.companyName || '未设置所属公司'} · ${row.projectNameText || '尚未加入未结束项目'}`
+
+function openIncentive(row) {
+  router.push({ path: '/hcm/incentives', query: { projectId: row.projectId, tab: 'awards', awardId: row.awardId } })
+}
 
 function localToday() {
   const now = new Date()
@@ -445,56 +465,58 @@ async function loadAllPending() {
   }
   return { rows, total, counts: first.counts || {} }
 }
-async function loadVisibleProjectKpis() {
+async function loadVisibleProjectKpis(sequence = projectRequestSequence) {
   const projectIds = projects.value.map(row => row.projectId).filter(Boolean)
   if (!projectIds.length) { kpiOverviews.value = []; return }
   const result = await getProjectKpiOverview({ projectIds: projectIds.join(',') })
-  kpiOverviews.value = result.data || []
+  if (sequence === projectRequestSequence) kpiOverviews.value = result.data || []
 }
 async function load() {
   loading.value = true
   try {
-    const [dashboardResult, accountingResult, pending] = await Promise.all([
-      getBossBusinessDashboard({ projectPageNum: projectPage.pageNum, projectPageSize: projectPage.pageSize, decisionPageSize: 1 }),
+    const [, accountingResult, pending] = await Promise.all([
+      loadProjectPage(),
       getBusinessBossAccountingOverview(),
       loadAllPending()
     ])
-    const data = dashboardResult.data || {}
-    summary.value = data.summary || {}
-    const page = data.projectPage || {}
-    projects.value = page.rows || data.projects || []
-    projectPage.total = Number(page.total ?? summary.value.totalCount ?? projects.value.length)
-    projectPage.pageNum = Number(page.pageNum || projectPage.pageNum)
-    projectPage.pageSize = Number(page.pageSize || projectPage.pageSize)
     accounting.value = accountingResult.data || { today: {}, alerts: [] }
     pendingRows.value = pending.rows
     pendingTotal.value = pending.total
     pendingCounts.value = pending.counts
-    await loadVisibleProjectKpis()
   } finally {
     loading.value = false
   }
 }
+function applyProjectFilters() {
+  Object.assign(appliedProjectFilters, {projectKeyword:projectFilters.keyword.trim(),projectStatus:projectFilters.status || ''})
+  projectsExpanded.value = true
+  projectPage.pageNum = 1
+  loadProjectPage()
+}
+function changeProjectPageSize() {
+  projectPage.pageNum = 1
+  loadProjectPage()
+}
 async function loadProjectPage() {
+  const sequence = ++projectRequestSequence
   projectLoading.value = true
   try {
-    const result = await getBossBusinessDashboard({ projectPageNum: projectPage.pageNum, projectPageSize: projectPage.pageSize, decisionPageSize: 1 })
+    const result = await getBossBusinessDashboard({ projectPageNum: projectPage.pageNum, projectPageSize: projectPage.pageSize, decisionPageSize: 1, ...appliedProjectFilters })
+    if (sequence !== projectRequestSequence) return
     const data = result.data || {}
     const page = data.projectPage || {}
+    summary.value = data.summary || {}
     projects.value = page.rows || data.projects || []
-    projectPage.total = Number(page.total ?? projectPage.total)
-    await loadVisibleProjectKpis()
+    projectPage.total = Number(page.total ?? summary.value.totalCount ?? projects.value.length)
+    projectPage.pageNum = Number(page.pageNum || 1)
+    await loadVisibleProjectKpis(sequence)
   } finally {
-    projectLoading.value = false
+    if (sequence === projectRequestSequence) projectLoading.value = false
   }
 }
 async function refreshProjectProgress() {
   if (projectLoading.value || document.hidden) return
-  const result = await getBossBusinessDashboard({ projectPageNum: projectPage.pageNum, projectPageSize: projectPage.pageSize, decisionPageSize: 1 })
-  const data = result.data || {}
-  const page = data.projectPage || {}
-  projects.value = page.rows || data.projects || []
-  projectPage.total = Number(page.total ?? projectPage.total)
+  await loadProjectPage()
 }
 async function decideProposal(row, decision) {
   let comment = ''
@@ -549,6 +571,8 @@ onBeforeUnmount(() => window.clearInterval(progressRefreshTimer))
 </script>
 
 <style scoped>
+.project-filters{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px}.project-filters>.el-input{width:235px}.project-filters>.el-select{width:130px}.project-filters>.el-button{margin:0}.project-pagination :deep(.el-pagination){flex-wrap:wrap;gap:8px}@media(max-width:1100px){.project-panel>.section-title{flex-wrap:wrap;gap:14px}.project-filters{justify-content:flex-start}}
+.project-status-toggle{display:flex;align-items:center;flex-wrap:wrap;gap:8px;border:0;padding:0;background:none;color:inherit;font:inherit;cursor:pointer;text-align:left}.project-status-toggle small{font-size:12px;font-weight:400;color:#8492a3}.project-status-toggle:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:4px;border-radius:4px}
 .business-page{min-height:calc(100vh - 84px);padding:24px;background:#eef1f5;color:#12213a}.hero{display:flex;align-items:center;justify-content:space-between;min-height:134px;padding:26px 40px;border-radius:18px;background:#1d344f;color:#fff;box-shadow:0 12px 30px rgba(27,48,74,.13)}.eyebrow{font-size:12px;letter-spacing:.28em;color:#78ecd1}.hero h1{margin:15px 0 8px;font-size:30px;line-height:1}.hero p{margin:0;color:#d2deea;font-size:15px}.hero-actions,.panel-actions{display:flex;align-items:center;gap:10px}.hero-actions :deep(.el-button){height:42px;padding:0 20px;border-radius:11px;font-weight:700}.panel{margin-top:20px;padding:24px 26px;border:0;border-radius:17px;background:#fff;box-shadow:0 7px 20px rgba(29,50,75,.06)}.section-title{display:flex;align-items:baseline;gap:7px;margin-bottom:18px}.section-title h2{margin:0;font-size:19px}.section-title>span{color:#8493a7;font-size:13px}.section-title--between{align-items:center;justify-content:space-between}.empty-state{padding:30px;text-align:center;color:#93a0b1}.success-empty{border-radius:10px;background:#edf9f2;color:#18a856}.success-empty span{margin-right:8px;font-weight:800}.decision-row{display:flex;align-items:center;gap:16px;padding:19px 20px;border:1px solid #dfe6ef;border-radius:14px}.decision-row+.decision-row{margin-top:14px}.decision-dot{width:10px;height:10px;flex:none;border-radius:50%}.dot-danger{background:#ef323a}.dot-warning{background:#df7c00}.dot-info{background:#4a83d8}.decision-copy{min-width:0;flex:1}.decision-title{display:flex;align-items:center;gap:10px}.decision-title b{font-size:16px}.decision-count{color:#df7c00;font-weight:700}.badge-danger{color:#e04b00}.badge-warning{color:#df7c00}.badge-info{color:#3f75bd}.decision-copy>p{margin:7px 0 0;color:#8493a7;font-size:14px;line-height:1.55}.decision-actions{display:flex;flex:none;align-self:flex-start;flex-wrap:wrap;justify-content:flex-end;gap:8px}.decision-actions :deep(.el-button){margin:0;font-weight:650}.personnel-list{margin-top:14px;border-top:1px dashed #dce4ee}.personnel-item{display:grid;grid-template-columns:110px minmax(0,1fr) auto;align-items:center;gap:18px;padding:10px 2px;border-bottom:1px dashed #dce4ee}.personnel-item>b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.personnel-item>span{overflow:hidden;color:#8493a7;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.finance-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.finance-grid article{padding:20px;border:1px solid #dfe6ef;border-radius:13px;background:#fafbfd}.finance-grid span,.finance-grid strong{display:block}.finance-grid span{color:#8794a8;font-size:14px}.finance-grid strong{margin-top:12px;font-size:29px;line-height:1}.amount-profit{color:#11a957}.amount-loss{color:#d84e58}.healthy-banner{margin-top:15px;padding:11px 16px;border-radius:10px;background:#e7f7ed;color:#11a957;font-size:14px}.alert-section{margin-top:16px;padding:16px;border:1px solid #e5eaf0;border-radius:12px;background:#f8fafc}.subsection-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.subsection-head>div{display:flex;align-items:baseline;gap:10px}.subsection-head span{color:#8a95a2;font-size:12px}.alert-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.alert-card{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:11px;padding:14px;border:1px solid #e0e6ec;border-radius:11px;background:#fff;color:inherit;text-align:left;cursor:pointer}.alert-card:hover{border-color:#b9c7d5;box-shadow:0 7px 18px rgba(31,53,74,.09)}.alert-icon{display:flex;width:30px;height:30px;align-items:center;justify-content:center;border-radius:9px;background:#fff0f1;color:#d94e58;font-weight:800}.alert-card--over-budget .alert-icon{background:#fff5e6;color:#c8841c}.alert-card--missing-company .alert-icon{background:#eef4fb;color:#4f78a8}.alert-content{display:flex;min-width:0;flex-direction:column}.alert-content>b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.alert-content>span{margin-top:4px;color:#788695;font-size:12px}.alert-arrow{color:#a3adb8;font-size:24px}.alert-footer{display:flex;justify-content:flex-end;padding-top:8px}.project-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;min-height:60px}.project-card{padding:19px 20px;border:1px solid #dfe6ef;border-radius:14px}.project-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.project-link{min-width:0;overflow:hidden;padding:0;border:0;background:none;color:#13213a;font:inherit;font-size:16px;font-weight:700;text-align:left;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.project-link:hover{color:#3478ef}.progress-row{display:grid;grid-template-columns:auto minmax(80px,1fr) auto;align-items:center;gap:14px;margin-top:18px;color:#8493a7;font-size:13px}.progress-row :deep(.el-progress__text){display:none}.progress-row :deep(.el-progress){width:100%}.project-card-foot{display:flex;align-items:center;gap:10px;margin-top:14px;color:#8493a7;font-size:13px}.project-actions{display:flex;margin-left:auto;gap:8px}.project-actions :deep(.el-button){margin:0}.project-pagination{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:18px}.project-pagination>span{color:#7e8a98;font-size:12px}.cost-form{margin-top:18px}.cost-form :deep(.el-form-item){margin-bottom:20px}.form-help{margin-top:6px;color:#8490a0;font-size:12px;line-height:1.5}.cost-preview{display:grid;gap:5px;margin:-4px 0 18px 126px;padding:13px 15px;border:1px solid #cfe3df;border-radius:9px;background:#f0f8f6}.cost-preview span,.cost-preview small{color:#71828c;font-size:12px}.cost-preview b{color:#174f4f;font-size:15px}.cost-preview b:not(:first-of-type){margin-top:7px}
 .latest-progress-report{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;padding:11px 12px;border-radius:9px;background:#f0f8f6}.latest-progress-report>div{display:flex;min-width:0;flex-direction:column;gap:4px}.latest-progress-report span,.latest-progress-empty{color:#7c8a96;font-size:12px}.latest-progress-report b{overflow:hidden;color:#40545d;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.latest-progress-report .el-button{flex:none}.latest-progress-empty{margin-top:12px;padding:10px 12px;border-radius:8px;background:#f5f7f9}.evidence-dialog-summary{display:flex;align-items:center;gap:10px;margin-bottom:16px;color:#7a8794;font-size:13px}.evidence-dialog-summary span+span:before{margin-right:10px;color:#c3cbd3;content:'·'}.evidence-preview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.evidence-preview-item{min-width:0;padding:10px;border:1px solid #e0e7ec;border-radius:10px;background:#f7f9fa}.evidence-preview-item>.el-image,.evidence-preview-item>video{display:block;width:100%;height:300px;border-radius:7px;background:#eef1f3}.evidence-preview-item>small{display:block;margin-top:8px;overflow:hidden;color:#75818d;text-overflow:ellipsis;white-space:nowrap}.evidence-file-card{display:flex;min-height:150px;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:20px;text-align:center}.evidence-file-card>.el-icon{color:#7e8c98;font-size:38px}.evidence-file-card>span{max-width:100%;overflow-wrap:anywhere;color:#4d5965}
 @media(max-width:1100px){.alert-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.project-card-foot{align-items:flex-start;flex-wrap:wrap}.project-actions{width:100%;margin-left:0}}

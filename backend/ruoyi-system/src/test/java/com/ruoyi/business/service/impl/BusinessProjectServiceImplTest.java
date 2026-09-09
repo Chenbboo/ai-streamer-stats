@@ -66,6 +66,7 @@ class BusinessProjectServiceImplTest
 
     @Mock
     private BusinessAccountingMapper accountingMapper;
+    @Mock private BusinessMemberDayCostService memberDays;
     @Mock private com.ruoyi.business.mapper.BusinessProjectWorkMapper workMapper;
     @Mock private com.ruoyi.business.mapper.BusinessIncentiveMapper incentiveMapper;
     @Mock private com.ruoyi.business.attendance.BusinessFeishuService feishuService;
@@ -186,7 +187,7 @@ class BusinessProjectServiceImplTest
         BusinessProject project=project(91L,23L,"ACTIVE","APPROVED");
         BusinessProject decision=project(88L,23L,"PAUSED","APPROVED");
         when(mapper.selectDashboardSummary(23L,false,true)).thenReturn(summary);
-        when(mapper.selectDashboardProjectPage(23L,false,true,20,10))
+        when(mapper.selectDashboardProjectPage(23L,false,true,20,10,"",""))
             .thenReturn(Collections.singletonList(project));
         when(mapper.selectDashboardDecisionPage(23L,false,true,5,5))
             .thenReturn(Collections.singletonList(decision));
@@ -205,6 +206,46 @@ class BusinessProjectServiceImplTest
         assertEquals(2,decisionPage.get("pageNum"));
         assertEquals(Collections.singletonList(decision),result.get("decisions"));
         verify(mapper,never()).selectProjectList(any());
+    }
+
+    @Test
+    void bossDashboardFiltersWithinAuthorizedScopeAndClampsPage()
+    {
+        Map<String,Object> summary=new HashMap<String,Object>();
+        summary.put("totalCount",126L);
+        when(mapper.selectDashboardSummary(23L,false,true)).thenReturn(summary);
+        when(mapper.countDashboardProjects(23L,false,true,"美团","ACTIVE")).thenReturn(5L);
+        Map<String,Object> query=new HashMap<String,Object>();
+        query.put("projectPageNum",9);query.put("projectPageSize",4);
+        query.put("projectKeyword"," 美团 ");query.put("projectStatus","ACTIVE");
+        Map<String,Object> result=service.dashboard(query,23L,false,true);
+        @SuppressWarnings("unchecked") Map<String,Object> page=(Map<String,Object>)result.get("projectPage");
+        assertEquals(5L,page.get("total"));
+        assertEquals(2,page.get("pageNum"));
+        assertEquals(4,page.get("pageSize"));
+        assertEquals(summary,result.get("summary"));
+        verify(mapper).selectDashboardProjectPage(23L,false,true,4,4,"美团","ACTIVE");
+        when(mapper.countDashboardProjects(23L,false,true,"美团","ACTIVE")).thenReturn(0L);
+        @SuppressWarnings("unchecked") Map<String,Object> emptyPage=(Map<String,Object>)service.dashboard(query,23L,false,true).get("projectPage");
+        assertEquals(0L,emptyPage.get("total"));
+        assertEquals(1,emptyPage.get("pageNum"));
+        verify(mapper).selectDashboardProjectPage(23L,false,true,0,4,"美团","ACTIVE");
+    }
+
+    @Test
+    void bossPendingIncludesAwardCountAndAcceptsAwardCategory()
+    {
+        Map<String,Object> counts=new HashMap<String,Object>();
+        counts.put("incentiveReviewCount",2L);counts.put("accountingCount",1L);
+        when(mapper.selectBossPendingCounts(eq(23L),eq(false),any(Date.class))).thenReturn(counts);
+        Map<String,Object> all=service.bossPending(Collections.emptyMap(),23L,false);
+        assertEquals(3L,all.get("total"));
+        assertEquals(3L,((Map<?,?>)all.get("counts")).get("totalCount"));
+        Map<String,Object> query=new HashMap<String,Object>();query.put("category","incentive_review");
+        query.put("pageNum",2);query.put("pageSize",1);
+        Map<String,Object> awards=service.bossPending(query,23L,false);
+        assertEquals(2L,awards.get("total"));assertEquals("INCENTIVE_REVIEW",awards.get("category"));
+        verify(mapper).selectBossPendingPage(eq(23L),eq(false),any(Date.class),eq("INCENTIVE_REVIEW"),eq(1),eq(1));
     }
 
     @Test
@@ -1859,15 +1900,27 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
-    void standardProjectStartsAtTheSameBaselineVersionAsItsFirstSnapshot()
+    void standardProjectStartsWithPlanSnapshotAndNoAutomaticTask()
     {
         BusinessProjectProposal proposal=new BusinessProjectProposal();proposal.setProposalId(66L);proposal.setProjectName("基础交付项目");proposal.setTemplateVersion("LIGHT_V1");proposal.setApplicantUserId(9L);proposal.setSponsorOwnerUserId(23L);proposal.setManagementMode("LIGHT");proposal.setAcceptanceCriteria("交付文件");
         when(mapper.selectActiveUserById(9L)).thenReturn(Collections.singletonMap("nickName","负责人"));when(mapper.selectActiveUserById(23L)).thenReturn(Collections.singletonMap("nickName","归属老板"));
         final BusinessProject[] stored=new BusinessProject[1];doAnswer(call->{stored[0]=call.getArgument(0);stored[0].setProjectId(88L);return 1;}).when(mapper).insertProject(any());when(mapper.selectProjectById(88L)).thenAnswer(call->stored[0]);
-        doAnswer(call->{((BusinessProjectTask)call.getArgument(0)).setTaskId(123L);return 1;}).when(mapper).insertTask(any());
         BusinessProject created=service.createApprovedProject(proposal,9L,"owner");ArgumentCaptor<Map<String,Object>> baseline=mapCaptor();verify(workMapper).insertBaseline(baseline.capture());
         assertEquals(Integer.valueOf(1),created.getBaselineVersion());assertEquals(created.getBaselineVersion(),baseline.getValue().get("baselineVersion"));assertEquals("MEMBER_DAYS_V1",created.getCostPolicyVersion());
-        ArgumentCaptor<BusinessProjectWorkPeriod> initialPeriod=ArgumentCaptor.forClass(BusinessProjectWorkPeriod.class);verify(mapper).insertWorkPeriod(initialPeriod.capture());assertEquals(123L,initialPeriod.getValue().getWorkId());assertEquals("TASK",initialPeriod.getValue().getWorkType());
+        verify(mapper,never()).insertTask(any());
+        verify(mapper,never()).insertWorkPeriod(any());
+    }
+
+    @Test
+    void standardProjectMemberKeepsDateObjectAsRoleEffectiveDate()
+    {
+        BusinessProjectProposal proposal=new BusinessProjectProposal();
+        Date start=java.sql.Date.valueOf("2026-09-08");proposal.setPlanStartDate(start);
+        Map<String,Object> staffing=Collections.<String,Object>singletonMap("planStartDate",start);
+
+        Date joined=org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"memberJoinedDate",proposal,staffing);
+
+        assertEquals(start,joined);
     }
 
     @Test

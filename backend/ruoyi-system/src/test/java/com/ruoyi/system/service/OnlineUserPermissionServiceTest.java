@@ -96,4 +96,18 @@ class OnlineUserPermissionServiceTest
         role.setStatus("0");
         return role;
     }
+
+    @Test
+    void adminSessionRefreshKeepsExplicitPolicyInsteadOfRestoringWildcard()
+    {
+        SysUser admin=new SysUser(1L);
+        LoginUser cached=new LoginUser(1L,100L,admin,Collections.singleton("*:*:*"));
+        when(userService.selectUserById(1L)).thenReturn(admin);
+        when(menuService.selectMenuPermsByUserId(1L)).thenReturn(Collections.singleton("system:user:list"));
+        when(redisCache.keys("login_tokens:*")).thenReturn(Collections.singleton("login_tokens:admin"));
+        when(redisCache.getCacheObject("login_tokens:admin")).thenReturn(cached);
+        when(redisCache.getExpire("login_tokens:admin")).thenReturn(900L);
+        service.refreshOnlineSessions(1L);
+        assertEquals(Collections.singleton("system:user:list"),cached.getPermissions());
+    }
 }

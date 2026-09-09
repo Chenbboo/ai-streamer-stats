@@ -1174,6 +1174,19 @@
       order by field(p.status,'PLANNING','ACTIVE','PAUSED','ACCEPTANCE','DRAFT','CLOSED','CANCELED'),
         p.priority='HIGH' desc,p.update_time desc,p.project_id desc
     </sql>
+    <sql id="dashboardProjectFilter">
+      <if test="keyword != null and keyword != ''">
+        and (p.project_name like concat('%',#{keyword},'%')
+          or p.project_no like concat('%',#{keyword},'%')
+          or p.main_owner_name like concat('%',#{keyword},'%'))
+      </if>
+      <if test="status != null and status != ''">and p.status=#{status}</if>
+    </sql>
+    <select id="countDashboardProjects" resultType="long">
+      select count(*) from biz_project p where p.del_flag='0'
+      <include refid="dashboardScope"/>
+      <include refid="dashboardProjectFilter"/>
+    </select>
     <select id="selectDashboardProjectPage" resultMap="ProjectResult">
       select <include refid="projectColumns"/>
       from biz_project p
@@ -1182,6 +1195,7 @@
       <include refid="projectProgressJoin"/>
       where p.del_flag='0'
       <include refid="dashboardScope"/>
+      <include refid="dashboardProjectFilter"/>
       <include refid="dashboardOrder"/>
       limit #{offset},#{pageSize}
     </select>
@@ -1209,7 +1223,7 @@
         null factId,null bizDate,null categoryName,null factKind,null amount,null quantity,null currency,null unit,
         null description,null submitterName,
         null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
-        null attachmentUrls,null submittedTime
+        null attachmentUrls,null submittedTime,null awardId
       from biz_project_proposal proposal
       left join sys_dept company on company.dept_id=proposal.company_dept_id and company.del_flag='0'
       where proposal.del_flag='0' and proposal.status='PENDING'
@@ -1226,7 +1240,7 @@
         fact.fact_id factId,fact.biz_date bizDate,fact.category_name categoryName,fact.fact_kind factKind,
         fact.amount,fact.quantity,fact.currency,fact.unit,fact.description,fact.create_by submitterName,
         null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
-        null attachmentUrls,null submittedTime
+        null attachmentUrls,null submittedTime,null awardId
       from biz_operating_fact fact
       join biz_project p on p.project_id=fact.project_id and p.del_flag='0'
       left join sys_dept company on company.dept_id=fact.company_dept_id and company.del_flag='0'
@@ -1244,7 +1258,7 @@
         null factId,null bizDate,null categoryName,null factKind,null amount,null quantity,null currency,null unit,
         null description,null submitterName,
         null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
-        null attachmentUrls,null submittedTime
+        null attachmentUrls,null submittedTime,null awardId
       from biz_project p
       left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
       left join biz_project_kpi_plan plan on plan.plan_id=(select latest.plan_id from biz_project_kpi_plan latest
@@ -1266,7 +1280,7 @@
         null factId,null bizDate,null categoryName,null factKind,null amount,null quantity,null currency,null unit,
         null description,null submitterName,
         null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
-        null attachmentUrls,null submittedTime
+        null attachmentUrls,null submittedTime,null awardId
       from biz_project p
       left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
       join biz_project_kpi_plan plan on plan.plan_id=(select latest.plan_id from biz_project_kpi_plan latest
@@ -1294,7 +1308,7 @@
         null factId,null bizDate,null categoryName,null factKind,null amount,null quantity,null currency,null unit,
         null description,null submitterName,
         null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
-        null attachmentUrls,null submittedTime
+        null attachmentUrls,null submittedTime,null awardId
       from sys_user u
       join sys_dept staff_dept on staff_dept.dept_id=u.dept_id and staff_dept.del_flag='0'
       join sys_dept company on company.parent_id=100 and company.del_flag='0' and company.status='0'
@@ -1325,7 +1339,7 @@
         null factId,null bizDate,null categoryName,null factKind,null amount,null quantity,null currency,null unit,
         p.close_method description,null submitterName,
         null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
-        null attachmentUrls,null submittedTime
+        null attachmentUrls,null submittedTime,null awardId
       from biz_project p
       left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
       where p.del_flag='0' and (p.status='DRAFT'
@@ -1345,7 +1359,7 @@
         null description,acceptance.submitted_user_name submitterName,
         acceptance.stage_acceptance_id stageAcceptanceId,acceptance.milestone_id milestoneId,
         milestone.milestone_name milestoneName,acceptance.result_summary resultSummary,
-        acceptance.deliverables,acceptance.attachment_urls attachmentUrls,acceptance.submitted_time submittedTime
+        acceptance.deliverables,acceptance.attachment_urls attachmentUrls,acceptance.submitted_time submittedTime,null awardId
       from biz_project_stage_acceptance acceptance
       join biz_project p on p.project_id=acceptance.project_id and p.del_flag='0'
       join biz_project_milestone milestone on milestone.milestone_id=acceptance.milestone_id
@@ -1354,8 +1368,35 @@
       where acceptance.review_status='PENDING'
       <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
     </sql>
+    <!-- Match incentive canReview: actual sponsor, no self-approval, accounting open. -->
+    <sql id="bossPendingIncentiveScope">
+      from biz_incentive_award award
+      join biz_project p on p.project_id=award.project_id and p.del_flag='0'
+      where award.status='SUBMITTED'
+        and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}
+        and award.applicant_user_id&lt;&gt;#{userId}
+        and ((p.delivery_policy_version='SEPARATED_V1' and p.accounting_state='OPEN')
+          or ((p.delivery_policy_version is null or p.delivery_policy_version='LEGACY_V1')
+            and p.status not in ('CLOSED','CANCELED') and coalesce(p.accounting_state,'OPEN')='OPEN'))
+    </sql>
+    <sql id="bossPendingIncentiveReview">
+      select 'INCENTIVE_REVIEW' category,2 categoryOrder,concat('incentive-',award.award_id) itemKey,
+        null proposalId,p.project_id projectId,award.applicant_user_id userId,p.project_name projectName,
+        null userName,null objective,award.applicant_user_name applicantName,
+        (select dept.dept_name from sys_dept dept where dept.dept_id=award.company_dept_id and dept.del_flag='0') companyName,
+        null planStartDate,null planEndDate,p.main_owner_name mainOwnerName,award.status,null baselineStatus,
+        null targetCount,null planId,null planVersion,null cycleEnd,null totalScore,null bonusAmount,
+        null costStatus,null countryRegion,null projectCount,null projectNameText,
+        coalesce(award.update_time,award.create_time) sortTime,
+        null factId,award.biz_date bizDate,award.rule_name categoryName,null factKind,
+        award.amount,null quantity,award.currency,null unit,award.reason description,award.applicant_user_name submitterName,
+        null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
+        null attachmentUrls,null submittedTime,award.award_id awardId
+      <include refid="bossPendingIncentiveScope"/>
+    </sql>
     <select id="selectBossPendingCounts" resultType="map">
       select
+        (select count(*) <include refid="bossPendingIncentiveScope"/>) incentiveReviewCount,
         (select count(*) from biz_project_proposal proposal where proposal.del_flag='0' and proposal.status='PENDING'
           <if test="viewAll == false">and proposal.sponsor_owner_user_id=#{userId}</if>) proposalCount,
         (select count(*) from biz_operating_fact fact
@@ -1407,6 +1448,7 @@
       select pending.* from (
         <choose>
           <when test="category == 'PROPOSAL'"><include refid="bossPendingProposal"/></when>
+          <when test="category == 'INCENTIVE_REVIEW'"><include refid="bossPendingIncentiveReview"/></when>
           <when test="category == 'ACCOUNTING'"><include refid="bossPendingAccounting"/></when>
           <when test="category == 'STAGE_ACCEPTANCE'"><include refid="bossPendingStageAcceptance"/></when>
           <when test="category == 'KPI_MISSING'"><include refid="bossPendingKpiMissing"/></when>
@@ -1415,6 +1457,7 @@
           <when test="category == 'PROJECT'"><include refid="bossPendingProject"/></when>
           <otherwise>
             <include refid="bossPendingProposal"/> union all
+            <include refid="bossPendingIncentiveReview"/> union all
             <include refid="bossPendingAccounting"/> union all
             <include refid="bossPendingStageAcceptance"/> union all
             <include refid="bossPendingKpiMissing"/> union all
