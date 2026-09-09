@@ -349,7 +349,8 @@ const openKpi = row => {
   if (!idKey(projectId)) return ElMessage.warning('未识别到当前项目，请刷新后重试')
   const overview = kpiOverviewMap.value.get(idKey(projectId))
   const planId = row.planId || overview?.planId
-  router.push({ path: '/business/kpi-bonus', query: { projectId, ...(planId ? { planId } : {}) } })
+  const path = row.category === 'KPI_MISSING' || !planId ? '/business/kpi-bonus' : '/projects/kpi-results'
+  router.push({ path, query: { projectId, ...(planId ? { planId } : {}) } })
 }
 const money = value => Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const costMoney = value => value === null || value === undefined ? '—' : Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 4 })

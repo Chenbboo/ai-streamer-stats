@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.business.mapper.BusinessBonusDistributionMapper">
+ <sql id="companyScope">exists(select 1 from sys_user u join sys_dept d on d.dept_id=u.dept_id
+   where u.user_id=#{userId} and u.status='0' and u.del_flag='0' and d.status='0' and d.del_flag='0'
+   and (d.dept_id=p.company_dept_id or find_in_set(p.company_dept_id,d.ancestors)))</sql>
+ <select id="companyAccess" resultType="int">select count(*) from biz_project p where p.project_id=#{projectId} and p.del_flag='0' and <include refid="companyScope"/></select>
+ <select id="projects" resultType="map">
+  select p.project_id projectId,p.project_name projectName from biz_project p where p.del_flag='0'
+  <if test="!admin">and (p.main_owner_user_id=#{userId} or coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}
+   <if test="finance">or <include refid="companyScope"/></if>
+   or exists(select 1 from biz_bonus_allocation b join biz_bonus_allocation_line l on l.allocation_id=b.allocation_id
+      where b.project_id=p.project_id and b.status='APPROVED' and l.user_id=#{userId}))
+  </if> order by p.project_id desc
+ </select>
+ <select id="recipients" resultType="map">
+  select u.user_id userId,coalesce((select nullif(m.user_name_snapshot,'') from biz_project_member m
+   where m.project_id=#{projectId} and m.user_id=u.user_id limit 1),nullif(u.nick_name,''),u.user_name) userName
+  from sys_user u where u.del_flag='0' and
+  (exists(select 1 from biz_project_member m where m.project_id=#{projectId} and m.user_id=u.user_id)
+   or exists(select 1 from biz_project p where p.project_id=#{projectId} and p.main_owner_user_id=u.user_id))
+  order by u.user_id
+ </select>
+ <sql id="batchCols">allocation_id allocationId,award_id awardId,project_id projectId,status,mode,reason,request_key requestKey,amount,
+ created_user_id createdUserId,created_user_name createdUserName,approved_user_id approvedUserId,
+ approved_user_name approvedUserName,approved_time approvedTime,version</sql>
+ <select id="allocations" resultType="com.ruoyi.business.domain.BusinessBonusAllocation">select <include refid="batchCols"/> from biz_bonus_allocation where project_id=#{projectId} order by allocation_id desc</select>
+ <select id="allocation" resultType="com.ruoyi.business.domain.BusinessBonusAllocation" flushCache="true" useCache="false">select <include refid="batchCols"/> from biz_bonus_allocation where allocation_id=#{allocationId}</select>
+ <select id="byRequest" resultType="com.ruoyi.business.domain.BusinessBonusAllocation">select <include refid="batchCols"/> from biz_bonus_allocation where project_id=#{projectId} and request_key=#{requestKey}</select>
+ <sql id="lineCols">l.line_id lineId,l.allocation_id allocationId,l.user_id userId,l.user_name userName,l.amount,l.percentage,l.reason,
+ coalesce((select sum(p.amount) from biz_bonus_payment p where p.line_id=l.line_id and p.status='RECORDED'),0) paidAmount</sql>
+ <select id="lines" resultType="com.ruoyi.business.domain.BusinessBonusAllocationLine">select <include refid="lineCols"/> from biz_bonus_allocation_line l where l.allocation_id=#{allocationId} order by l.line_id</select>
+ <select id="line" resultType="com.ruoyi.business.domain.BusinessBonusAllocationLine" flushCache="true" useCache="false">select <include refid="lineCols"/> from biz_bonus_allocation_line l where l.line_id=#{lineId}</select>
+ <select id="reserved" resultType="java.math.BigDecimal">select coalesce(sum(amount),0) from biz_bonus_allocation where award_id=#{awardId} and status&lt;&gt;'CANCELED' <if test="excludeId != null">and allocation_id&lt;&gt;#{excludeId}</if></select>
+ <select id="countAllocations" resultType="int">select count(*) from biz_bonus_allocation where award_id=#{awardId} and status&lt;&gt;'CANCELED'</select>
+ <insert id="insertAllocation" useGeneratedKeys="true" keyProperty="allocationId">insert into biz_bonus_allocation(award_id,project_id,status,mode,reason,request_key,amount,created_user_id,created_user_name,version)
+ values(#{awardId},#{projectId},'DRAFT',#{mode},#{reason},#{requestKey},#{amount},#{createdUserId},#{createdUserName},0)</insert>
+ <update id="updateAllocation">update biz_bonus_allocation set mode=#{mode},reason=#{reason},amount=#{amount},version=version+1 where allocation_id=#{allocationId} and version=#{version} and status in('DRAFT','RETURNED')</update>
+ <delete id="deleteLines">delete from biz_bonus_allocation_line where allocation_id=#{allocationId}</delete>
+ <insert id="insertLine" useGeneratedKeys="true" keyProperty="lineId">insert into biz_bonus_allocation_line(allocation_id,user_id,user_name,amount,percentage,reason) values(#{allocationId},#{userId},#{userName},#{amount},#{percentage},#{reason})</insert>
+ <update id="transition">update biz_bonus_allocation set status=#{status},version=version+1
+ <if test="status == 'APPROVED'">,approved_user_id=#{userId},approved_user_name=#{userName},approved_time=sysdate()</if>
+ where allocation_id=#{id} and version=#{version}</update>
+ <sql id="paymentCols">p.payment_id paymentId,p.project_id projectId,p.line_id lineId,p.amount,p.paid_date paidDate,p.method,
+ p.reference_no referenceNo,p.voucher,p.reason,p.request_key requestKey,p.status,p.recorded_user_id recordedUserId,p.recorded_user_name recordedUserName</sql>
+ <select id="payments" resultType="com.ruoyi.business.domain.BusinessBonusPayment">select <include refid="paymentCols"/> from biz_bonus_payment p join biz_bonus_allocation_line l on l.line_id=p.line_id where l.allocation_id=#{allocationId} order by p.payment_id desc</select>
+ <select id="paymentRequest" resultType="com.ruoyi.business.domain.BusinessBonusPayment">select <include refid="paymentCols"/> from biz_bonus_payment p where p.project_id=#{projectId} and p.request_key=#{requestKey}</select>
+ <select id="paymentReference" resultType="com.ruoyi.business.domain.BusinessBonusPayment">select <include refid="paymentCols"/> from biz_bonus_payment p where p.line_id=#{lineId} and p.reference_no=#{referenceNo}</select>
+ <insert id="insertPayment" useGeneratedKeys="true" keyProperty="paymentId">insert into biz_bonus_payment(project_id,line_id,amount,paid_date,method,reference_no,voucher,reason,request_key,status,recorded_user_id,recorded_user_name)
+ values(#{projectId},#{lineId},#{amount},#{paidDate},#{method},#{referenceNo},#{voucher},#{reason},#{requestKey},'RECORDED',#{recordedUserId},#{recordedUserName})</insert>
+ <insert id="event">insert into biz_bonus_event(project_id,allocation_id,event_type,operator_user_id,operator_name,reason,snapshot)
+ values(#{projectId},#{allocationId},#{eventType},#{userId},#{userName},#{reason},#{snapshot})</insert>
+ <select id="events" resultType="map">select event_id eventId,event_type eventType,operator_name operatorName,reason,snapshot,create_time createTime from biz_bonus_event where allocation_id=#{allocationId} order by event_id desc</select>
+</mapper>

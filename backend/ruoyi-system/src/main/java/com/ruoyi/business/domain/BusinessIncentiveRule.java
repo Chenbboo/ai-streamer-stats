@@ -2,6 +2,7 @@ package com.ruoyi.business.domain;
 
 import java.math.BigDecimal;
 import java.util.Date;
+import java.util.List;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.ruoyi.common.core.domain.BaseEntity;
 
@@ -20,6 +21,13 @@ public class BusinessIncentiveRule extends BaseEntity
     private Long createdUserId;
     private String createdUserName;
     private String reason;
+    private Long kpiPlanId;
+    private List<BusinessIncentiveTier> tiers;
+
+    public Long getKpiPlanId() { return kpiPlanId; }
+    public void setKpiPlanId(Long value) { kpiPlanId = value; }
+    public List<BusinessIncentiveTier> getTiers() { return tiers; }
+    public void setTiers(List<BusinessIncentiveTier> value) { tiers = value; }
 
     public Long getRuleId() { return ruleId; }
     public void setRuleId(Long value) { ruleId = value; }

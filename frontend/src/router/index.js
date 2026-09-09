@@ -102,6 +102,21 @@ export const constantRoutes = [
 // 动态路由，基于用户权限动态去加载
 export const dynamicRoutes = [
   {
+    path: '/projects/kpi-results',
+    component: Layout,
+    hidden: true,
+    permissions: ['business:kpi:list'],
+    children: [
+      {
+        path: '',
+        component: () => import('@/views/business/kpi/index.vue'),
+        props: { resultsOnly: true },
+        name: 'BusinessProjectKpiResults',
+        meta: { title: '项目 KPI 结果', activeMenu: '/business/kpi-bonus', noCache: true }
+      }
+    ]
+  },
+  {
     path: '/system/user-auth',
     component: Layout,
     hidden: true,

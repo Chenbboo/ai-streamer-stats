@@ -5,14 +5,20 @@ import java.util.Map;
 import org.apache.ibatis.annotations.Param;
 import com.ruoyi.business.domain.BusinessIncentiveAward;
 import com.ruoyi.business.domain.BusinessIncentiveRule;
+import com.ruoyi.business.domain.BusinessIncentiveTier;
 
 public interface BusinessIncentiveMapper
 {
+    int countDistributionReservations(Long awardId);
     List<Map<String,Object>> selectProjects(@Param("userId") Long userId, @Param("viewAll") boolean viewAll);
     List<BusinessIncentiveRule> selectRules(Long projectId);
     BusinessIncentiveRule selectRule(Long ruleId);
     Integer nextRuleVersion(Long projectId);
     int insertRule(BusinessIncentiveRule rule);
+    List<BusinessIncentiveTier> selectRuleTiers(Long ruleId);
+    int insertTier(BusinessIncentiveTier tier);
+    int retirePlanRules(@Param("projectId") Long projectId, @Param("kpiPlanId") Long kpiPlanId, @Param("userName") String userName);
+    int countExistingScoreAward(@Param("projectId") Long projectId, @Param("settlementId") Long settlementId);
     int retireRule(@Param("ruleId") Long ruleId, @Param("userName") String userName);
     List<BusinessIncentiveAward> selectAwards(Long projectId);
     BusinessIncentiveAward selectAward(Long awardId);

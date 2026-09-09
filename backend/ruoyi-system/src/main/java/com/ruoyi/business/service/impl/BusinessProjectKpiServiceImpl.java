@@ -110,6 +110,13 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         requireManage(project, userId, viewAll, boss);
         BusinessProjectLifecycle.requireAccountingOpen(project);
         ensureProjectAllowsPlan(project);
+        if ("PROJECT".equals(plan.getCycleType()))
+        {
+            if (project.getPlanStartDate() == null || project.getPlanEndDate() == null)
+                throw new ServiceException("请先在项目中完善计划起止日期，再发布项目周期方案");
+            plan.setCycleStart(project.getPlanStartDate());
+            plan.setCycleEnd(project.getPlanEndDate());
+        }
         validatePlanPeriod(plan);
         if (mapper.countOverlappingPlans(plan.getProjectId(), plan.getCycleStart(), plan.getCycleEnd()) > 0)
             throw new ServiceException("该项目已有日期重叠的KPI方案");

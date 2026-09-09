@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 import java.math.BigDecimal;
 import java.sql.Date;
 import java.util.Collections;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,6 +27,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import com.ruoyi.business.domain.BusinessIncentiveAward;
 import com.ruoyi.business.domain.BusinessIncentiveRule;
+import com.ruoyi.business.domain.BusinessIncentiveTier;
+import com.ruoyi.business.domain.BusinessProjectKpiPlan;
 import com.ruoyi.business.domain.BusinessOperatingFact;
 import com.ruoyi.business.domain.BusinessProject;
 import com.ruoyi.business.domain.BusinessProjectKpiSettlement;
@@ -82,10 +85,9 @@ class BusinessIncentiveServiceImplTest
         assertTrue(error.getMessage().contains("本人"));
     }
 
-    @Test void projectSponsorCreatesImmutableRuleVersionAndOwnerCannot()
+    @Test void projectSponsorCreatesImmutableRuleVersion()
     {
         BusinessIncentiveRule input=rule();input.setRuleId(999L);input.setPolicyVersion("OVERRIDE");input.setRuleVersion(999);
-        assertThrows(ServiceException.class,()->service.publishRule(input,9L,"owner",false));
         when(mapper.nextRuleVersion(1L)).thenReturn(3);
         doAnswer(call->{((BusinessIncentiveRule)call.getArgument(0)).setRuleId(11L);return 1;}).when(mapper).insertRule(any());
         when(mapper.selectRule(11L)).thenReturn(rule());
@@ -94,6 +96,57 @@ class BusinessIncentiveServiceImplTest
         verify(mapper).insertRule(captured.capture());
         assertEquals("FIXED_V1",captured.getValue().getPolicyVersion());
         assertEquals(Integer.valueOf(3),captured.getValue().getRuleVersion());
+    }
+
+    @Test void ownerSponsorAndAdministratorCanConfigureRulesButOrdinaryCreatorCannot()
+    {
+        for (Long userId : Arrays.asList(9L,8L,1L))
+        {
+            Map<String,Object> workspace=service.workspace(1L,userId,userId==1L);
+            assertEquals(true,workspace.get("canManageRules"));
+            assertEquals(true,workspace.get("canRetireRules"));
+        }
+        project.setInitiatorUserId(10L);
+        for (Long userId : Arrays.asList(10L,88L))
+            assertThrows(ServiceException.class,()->service.publishRule(scoreRule(),userId,"other",false));
+        verify(mapper,never()).insertRule(any());
+    }
+
+    @Test void ownerCanPublishAndRetireScoreRuleForOwnProjectOnly()
+    {
+        mockPlan();BusinessIncentiveRule input=scoreRule();
+        when(mapper.nextRuleVersion(1L)).thenReturn(1);
+        doAnswer(call->{((BusinessIncentiveRule)call.getArgument(0)).setRuleId(11L);return 1;}).when(mapper).insertRule(any());
+        when(mapper.selectRule(11L)).thenReturn(input);
+        service.publishRule(input,9L,"owner",false);
+        when(mapper.retireRule(11L,"owner")).thenReturn(1);
+        service.retireRule(11L,"调整目标",9L,"owner",false);
+        verify(mapper).insertRule(any());verify(mapper).retireRule(11L,"owner");
+        assertThrows(ServiceException.class,()->service.retireRule(11L,"other project",19L,"other",false));
+    }
+
+    @Test void administratorCanPublishScoreRulesWithoutBecomingRewardApprover()
+    {
+        mockPlan();when(mapper.nextRuleVersion(1L)).thenReturn(1);
+        doAnswer(call->{((BusinessIncentiveRule)call.getArgument(0)).setRuleId(11L);return 1;}).when(mapper).insertRule(any());
+        when(mapper.selectRule(11L)).thenReturn(scoreRule());
+        service.publishRule(scoreRule(),1L,"admin",true);
+        verify(mapper).insertRule(any());
+        mockAward(award("SUBMITTED"));
+        assertThrows(ServiceException.class,()->service.review(21L,0,"APPROVED","确认",1L,"admin"));
+        verify(accountingMapper,never()).insertFact(any());
+    }
+
+    @Test void ownerRuleMaintenanceStillRequiresActiveProjectAndOpenAccounting()
+    {
+        project.setStatus("CLOSED");
+        assertEquals(false,service.workspace(1L,9L,false).get("canManageRules"));
+        assertThrows(ServiceException.class,()->service.publishRule(scoreRule(),9L,"owner",false));
+        project.setStatus("ACTIVE");project.setAccountingState("CLOSED");
+        Map<String,Object> workspace=service.workspace(1L,9L,false);
+        assertEquals(false,workspace.get("canManageRules"));assertEquals(false,workspace.get("canRetireRules"));
+        assertThrows(ServiceException.class,()->service.publishRule(scoreRule(),9L,"owner",false));
+        verify(mapper,never()).insertRule(any());
     }
 
     @Test void estimateHasNoAccountingSideEffectsAndKpiIsOptional()
@@ -252,6 +305,134 @@ class BusinessIncentiveServiceImplTest
         when(mapper.transitionAward(eq(21L),eq("RETURNED"),eq("SUBMITTED"),eq(0),eq(9L),eq("owner"),eq("已补说明"),isNull())).thenReturn(1);
         service.submit(21L,0,"已补说明",9L,"owner");
         verify(mapper,never()).insertAward(any());verify(accountingMapper,never()).insertFact(any());
+    }
+
+    @Test void scoreRuleBindsPublishedKpiAndStoresServerControlledTierVersion()
+    {
+        BusinessIncentiveRule input=scoreRule();mockPlan();
+        input.getTiers().get(0).setRuleId(999L);input.getTiers().get(0).setSortOrder(999);
+        when(mapper.nextRuleVersion(1L)).thenReturn(2);
+        doAnswer(call->{((BusinessIncentiveRule)call.getArgument(0)).setRuleId(12L);return 1;}).when(mapper).insertRule(any());
+        when(mapper.selectRule(12L)).thenReturn(input);
+        service.publishRule(input,8L,"boss",false);
+        ArgumentCaptor<BusinessIncentiveRule> rule=ArgumentCaptor.forClass(BusinessIncentiveRule.class);
+        verify(mapper).insertRule(rule.capture());
+        assertEquals("SCORE_TIERS_V1",rule.getValue().getPolicyVersion());
+        assertEquals(Long.valueOf(10),rule.getValue().getKpiPlanId());
+        assertEquals(new BigDecimal("2000.00"),rule.getValue().getAmount());
+        verify(mapper).retirePlanRules(1L,10L,"boss");
+        ArgumentCaptor<BusinessIncentiveTier> tiers=ArgumentCaptor.forClass(BusinessIncentiveTier.class);
+        verify(mapper,org.mockito.Mockito.times(3)).insertTier(tiers.capture());
+        assertEquals(Long.valueOf(12),tiers.getAllValues().get(0).getRuleId());
+        assertEquals(Integer.valueOf(1),tiers.getAllValues().get(0).getSortOrder());
+    }
+
+    @Test void cannotBindMissingCrossProjectLegacyOrVoidedKpiPlan()
+    {
+        BusinessIncentiveRule input=scoreRule();
+        assertThrows(ServiceException.class,()->service.publishRule(input,8L,"boss",false));
+        BusinessProjectKpiPlan plan=mockPlan();plan.setProjectId(2L);
+        assertThrows(ServiceException.class,()->service.publishRule(input,8L,"boss",false));
+        plan.setProjectId(1L);plan.setRewardPolicyVersion("LEGACY_LINKED");
+        assertThrows(ServiceException.class,()->service.publishRule(input,8L,"boss",false));
+        plan.setRewardPolicyVersion("INDEPENDENT_V1");plan.setStatus("VOIDED");
+        assertThrows(ServiceException.class,()->service.publishRule(input,8L,"boss",false));
+        verify(mapper,never()).insertRule(any());verify(mapper,never()).retirePlanRules(any(),any(),any());
+    }
+
+    @Test void scoreRulesRejectGapsOverlapMissingFinalBoundNegativeAndOverprecisionAmounts()
+    {
+        mockPlan();
+        for (int scenario=0;scenario<7;scenario++)
+        {
+            BusinessIncentiveRule input=scoreRule();
+            switch(scenario)
+            {
+                case 0: input.getTiers().get(0).setMinScore(BigDecimal.ONE);break;
+                case 1: input.getTiers().get(1).setMinScore(new BigDecimal("81"));break;
+                case 2: input.getTiers().get(1).setMinScore(new BigDecimal("79"));break;
+                case 3: input.getTiers().get(2).setMaxScore(new BigDecimal("120"));break;
+                case 4: input.getTiers().get(1).setAmount(new BigDecimal("-1"));break;
+                case 5: input.getTiers().get(1).setAmount(new BigDecimal("1.001"));break;
+                default: input.getTiers().forEach(tier->tier.setAmount(BigDecimal.ZERO));break;
+            }
+            assertThrows(ServiceException.class,()->service.publishRule(input,8L,"boss",false));
+        }
+        verify(mapper,never()).insertRule(any());verify(mapper,never()).retirePlanRules(any(),any(),any());
+    }
+
+    @Test void scoreEstimatesSelectExactlyOneTierIncludingBoundariesAndHaveNoWrites()
+    {
+        mockPlan();when(mapper.selectRule(11L)).thenReturn(scoreRule());
+        BusinessProjectKpiSettlement evidence=evidence("INDEPENDENT_V1");evidence.setPlanId(10L);
+        when(kpiMapper.selectSettlementById(20L)).thenReturn(evidence);
+        String[][] cases={{"0","0.00"},{"79.99","0.00"},{"80","1000.00"},{"99.99","1000.00"},{"100","2000.00"},{"120","2000.00"}};
+        for(String[] row:cases){evidence.setTotalScore(new BigDecimal(row[0]));assertEquals(new BigDecimal(row[1]),service.estimate(1L,11L,20L,9L,false).get("amount"));}
+        verify(mapper,never()).insertAward(any());verify(accountingMapper,never()).insertFact(any());
+    }
+
+    @Test void scoreRuleRequiresItsOwnConfirmedPlanResult()
+    {
+        mockPlan();when(mapper.selectRule(11L)).thenReturn(scoreRule());
+        assertThrows(ServiceException.class,()->service.estimate(1L,11L,null,9L,false));
+        BusinessProjectKpiSettlement evidence=evidence("INDEPENDENT_V1");evidence.setPlanId(12L);
+        when(kpiMapper.selectSettlementById(20L)).thenReturn(evidence);
+        assertThrows(ServiceException.class,()->service.estimate(1L,11L,20L,9L,false));
+        evidence.setPlanId(10L);evidence.setStatus("DRAFT");
+        assertThrows(ServiceException.class,()->service.estimate(1L,11L,20L,9L,false));
+        evidence.setStatus("CONFIRMED");evidence.setTotalScore(null);
+        assertThrows(ServiceException.class,()->service.estimate(1L,11L,20L,9L,false));
+    }
+
+    @Test void scoreAwardFreezesMatchedAmountAndRejectsZeroOrRepeatAcrossVersions()
+    {
+        mockPlan();when(mapper.selectRule(11L)).thenReturn(scoreRule());
+        BusinessProjectKpiSettlement evidence=evidence("INDEPENDENT_V1");evidence.setPlanId(10L);evidence.setTotalScore(new BigDecimal("79"));
+        when(kpiMapper.selectSettlementById(20L)).thenReturn(evidence);
+        BusinessIncentiveAward input=award("DRAFT");input.setSettlementId(20L);input.setAmount(new BigDecimal("9999"));
+        assertThrows(ServiceException.class,()->service.createAward(input,9L,"owner"));
+        evidence.setTotalScore(new BigDecimal("100"));when(mapper.countExistingScoreAward(1L,20L)).thenReturn(1);
+        assertThrows(ServiceException.class,()->service.createAward(input,9L,"owner"));
+        when(mapper.countExistingScoreAward(1L,20L)).thenReturn(0);
+        doAnswer(call->{((BusinessIncentiveAward)call.getArgument(0)).setAwardId(21L);return 1;}).when(mapper).insertAward(any());
+        when(mapper.selectAward(21L)).thenReturn(input);
+        service.createAward(input,9L,"owner");
+        ArgumentCaptor<BusinessIncentiveAward> saved=ArgumentCaptor.forClass(BusinessIncentiveAward.class);
+        verify(mapper).insertAward(saved.capture());assertEquals(new BigDecimal("2000.00"),saved.getValue().getAmount());
+        assertEquals(new BigDecimal("100"),saved.getValue().getScoreSnapshot());
+    }
+
+    @Test void tierAwardApprovalKeepsRetiredRuleSnapshotAndRejectsWrongAmount()
+    {
+        mockPlan();BusinessIncentiveRule rule=scoreRule();rule.setStatus("RETIRED");when(mapper.selectRule(11L)).thenReturn(rule);
+        BusinessProjectKpiSettlement evidence=evidence("INDEPENDENT_V1");evidence.setPlanId(10L);
+        when(kpiMapper.selectSettlementById(20L)).thenReturn(evidence);
+        BusinessIncentiveAward award=award("SUBMITTED");award.setPolicyVersion("SCORE_TIERS_V1");award.setSettlementId(20L);award.setScoreSnapshot(new BigDecimal("100"));mockAward(award);
+        assertThrows(ServiceException.class,()->service.review(21L,0,"APPROVED","同意",8L,"boss"));
+        award.setAmount(new BigDecimal("2000.00"));
+        Map<String,Object> category=new LinkedHashMap<String,Object>();category.put("categoryId",17L);category.put("categoryName","项目奖金");
+        when(accountingMapper.selectCategoryByCode("PROJECT_BONUS_COST")).thenReturn(category);
+        doAnswer(call->{((BusinessOperatingFact)call.getArgument(0)).setFactId(71L);return 1;}).when(accountingMapper).insertFact(any());
+        when(mapper.transitionAward(21L,"SUBMITTED","APPROVED",0,8L,"boss","同意",71L)).thenReturn(1);
+        service.review(21L,0,"APPROVED","同意",8L,"boss");
+        ArgumentCaptor<BusinessOperatingFact> cost=ArgumentCaptor.forClass(BusinessOperatingFact.class);
+        verify(accountingMapper).insertFact(cost.capture());assertEquals(new BigDecimal("2000.00"),cost.getValue().getAmount());
+        assertEquals("DRAFT",cost.getValue().getStatus());
+    }
+
+    private BusinessProjectKpiPlan mockPlan()
+    {
+        BusinessProjectKpiPlan plan=new BusinessProjectKpiPlan();plan.setPlanId(10L);plan.setProjectId(1L);plan.setStatus("PUBLISHED");plan.setRewardPolicyVersion("INDEPENDENT_V1");
+        when(kpiMapper.selectPlanById(10L)).thenReturn(plan);return plan;
+    }
+    private BusinessIncentiveRule scoreRule()
+    {
+        BusinessIncentiveRule r=rule();r.setPolicyVersion("SCORE_TIERS_V1");r.setKpiPlanId(10L);
+        r.setTiers(Arrays.asList(tier("0","80","0.00"),tier("80","100","1000.00"),tier("100",null,"2000.00")));return r;
+    }
+    private BusinessIncentiveTier tier(String min,String max,String amount)
+    {
+        BusinessIncentiveTier t=new BusinessIncentiveTier();t.setMinScore(new BigDecimal(min));t.setMaxScore(max==null?null:new BigDecimal(max));t.setAmount(new BigDecimal(amount));return t;
     }
 
     private void mockAward(BusinessIncentiveAward award)

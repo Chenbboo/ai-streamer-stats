@@ -121,7 +121,7 @@ async function closeAccounting() {
     closing.value = false
   }
 }
-function openKpi() { router.push({ path: '/business/kpi-bonus', query: { projectId: props.project.projectId } }) }
+function openKpi() { router.push({ path: '/projects/kpi-results', query: { projectId: props.project.projectId } }) }
 function openAccounting() { router.push({ path: '/business/accounting', query: { projectId: props.project.projectId } }) }
 watch(() => [props.project, props.refreshKey], loadStatus, { immediate: true })
 </script>

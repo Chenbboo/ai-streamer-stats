@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.ruoyi.business.mapper.BusinessIncentiveMapper">
+  <select id="countDistributionReservations" resultType="int">select count(*) from biz_bonus_allocation where award_id=#{awardId} and status&lt;&gt;'CANCELED'</select>
+  <resultMap id="ruleWithTiers" type="com.ruoyi.business.domain.BusinessIncentiveRule" autoMapping="true">
+    <id property="ruleId" column="ruleId"/>
+    <collection property="tiers" column="ruleId" select="selectRuleTiers"/>
+  </resultMap>
   <select id="selectProjects" resultType="map">
     select project_id projectId,project_no projectNo,project_name projectName,status,
       company_dept_id companyDeptId,base_currency currency,accounting_state accountingState
@@ -10,24 +15,36 @@
   </select>
   <sql id="ruleColumns">
     rule_id ruleId,project_id projectId,rule_version ruleVersion,rule_name ruleName,policy_version policyVersion,
-    amount,currency,min_score minScore,status,created_user_id createdUserId,created_user_name createdUserName,
+    amount,currency,min_score minScore,kpi_plan_id kpiPlanId,status,created_user_id createdUserId,created_user_name createdUserName,
     reason,create_by createBy,create_time createTime,update_by updateBy,update_time updateTime
   </sql>
-  <select id="selectRules" resultType="com.ruoyi.business.domain.BusinessIncentiveRule">
+  <select id="selectRules" resultMap="ruleWithTiers">
     select <include refid="ruleColumns"/> from biz_incentive_rule where project_id=#{projectId} order by rule_version desc
   </select>
-  <select id="selectRule" resultType="com.ruoyi.business.domain.BusinessIncentiveRule">
+  <select id="selectRule" resultMap="ruleWithTiers">
     select <include refid="ruleColumns"/> from biz_incentive_rule where rule_id=#{ruleId}
   </select>
   <select id="nextRuleVersion" resultType="int">
     select coalesce(max(rule_version),0)+1 from biz_incentive_rule where project_id=#{projectId}
   </select>
   <insert id="insertRule" parameterType="com.ruoyi.business.domain.BusinessIncentiveRule" useGeneratedKeys="true" keyProperty="ruleId">
-    insert into biz_incentive_rule(project_id,rule_version,rule_name,policy_version,amount,currency,min_score,status,
+    insert into biz_incentive_rule(project_id,rule_version,rule_name,policy_version,amount,currency,min_score,kpi_plan_id,status,
       created_user_id,created_user_name,reason,create_by,create_time)
-    values(#{projectId},#{ruleVersion},#{ruleName},#{policyVersion},#{amount},#{currency},#{minScore},#{status},
+    values(#{projectId},#{ruleVersion},#{ruleName},#{policyVersion},#{amount},#{currency},#{minScore},#{kpiPlanId},#{status},
       #{createdUserId},#{createdUserName},#{reason},#{createBy},sysdate())
   </insert>
+  <select id="selectRuleTiers" resultType="com.ruoyi.business.domain.BusinessIncentiveTier">
+    select rule_id ruleId,sort_order sortOrder,min_score minScore,max_score maxScore,amount
+    from biz_incentive_tier where rule_id=#{ruleId} order by sort_order
+  </select>
+  <insert id="insertTier" parameterType="com.ruoyi.business.domain.BusinessIncentiveTier">
+    insert into biz_incentive_tier(rule_id,sort_order,min_score,max_score,amount)
+    values(#{ruleId},#{sortOrder},#{minScore},#{maxScore},#{amount})
+  </insert>
+  <update id="retirePlanRules">
+    update biz_incentive_rule set status='RETIRED',update_by=#{userName},update_time=sysdate()
+    where project_id=#{projectId} and kpi_plan_id=#{kpiPlanId} and policy_version='SCORE_TIERS_V1' and status='ACTIVE'
+  </update>
   <update id="retireRule">
     update biz_incentive_rule set status='RETIRED',update_by=#{userName},update_time=sysdate()
     where rule_id=#{ruleId} and status='ACTIVE'
@@ -80,6 +97,10 @@
   <select id="countExistingEvidenceAward" resultType="int">
     select count(*) from biz_incentive_award where project_id=#{projectId} and rule_id=#{ruleId}
       and settlement_id=#{settlementId} and status&lt;&gt;'CANCELED'
+  </select>
+  <select id="countExistingScoreAward" resultType="int">
+    select count(*) from biz_incentive_award where project_id=#{projectId} and settlement_id=#{settlementId}
+      and policy_version='SCORE_TIERS_V1' and status&lt;&gt;'CANCELED'
   </select>
   <select id="selectConfirmedKpis" resultType="map">
     select s.settlement_id settlementId,s.plan_id planId,p.plan_version planVersion,s.period_start periodStart,

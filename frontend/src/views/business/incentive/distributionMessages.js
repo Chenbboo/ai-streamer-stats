@@ -1,0 +1,40 @@
+export default {
+ 'zh-CN': {
+  title:'奖金分配与发放', personal:'我的奖金', intro:'负责人分配 → 老板核准并发放 → 登记实付。分配与发放不重复计入项目成本。',
+  newBatch:'新建分配', empty:'暂无分配记录', noAwards:'尚无已核准奖金，请先完成奖励申请与核准。',
+  total:'核准奖金', reserved:'已占用分配额度', remaining:'可分配余额', reservedHint:'草稿、待核准、退回及已核准分配均占用额度；撤销后释放。',
+  award:'奖金来源', batch:'分配单', name:'奖金方案', score:'KPI 得分', amount:'分配金额', paid:'已发放', unpaid:'未发放', state:'状态', actions:'操作',
+  edit:'编辑', submit:'提交核准', approve:'核准', return:'退回', cancelBatch:'撤销分配', details:'分配明细', pay:'登记发放',
+  mode:'分配方式', AMOUNT:'按金额', PERCENT:'按比例', percentHint:'比例以本笔核准奖金总额为基数，金额四舍五入到分；可保留未分配余额。',
+  person:'领取人', percentage:'比例（%）', reason:'说明', add:'添加领取人', remove:'删除', sum:'本次合计', capacity:'本次可分配',
+  save:'保存草稿', cancel:'取消', required:'请完整填写领取人、正数金额／比例和说明', invalid:'领取人不可重复，分配总额和比例不能超限。',
+  saved:'已保存', prompt:'请填写本次操作说明', confirm:'确认操作', paymentTitle:'登记实际发放', payHint:'仅登记已完成的付款，不会发起转账。奖金成本须先确认入账。',
+  paidAmount:'本次实付', date:'实付日期', method:'付款方式', reference:'流水或收据编号', voucher:'付款凭证', payReason:'发放说明', record:'确认登记',
+  BANK:'银行转账', WECHAT:'微信', ALIPAY:'支付宝', CASH:'现金', OTHER:'其他',
+  DRAFT:'草稿', SUBMITTED:'待核准', RETURNED:'已退回', APPROVED:'已核准', CANCELED:'已撤销',
+  UNPAID:'待发放', PARTIAL:'部分发放', PAID:'已发放', RECORDED:'已登记',
+  records:'发放记录', events:'操作记录', operator:'操作人', time:'时间', SAVE:'保存分配', PAYMENT:'登记发放',
+  noPayment:'暂无发放记录', costPending:'奖金成本尚未确认入账，暂不能登记发放。', ownHint:'仅显示本人已核准奖金及发放记录。',
+  allocationNote:'离开项目的历史成员也可领取其参与期间的奖金。', upload:'上传凭证', uploadOk:'凭证已上传', fileError:'请上传不超过 10 MB 的图片或 PDF。',
+  payInvalid:'请填写有效实付金额、日期、方式、流水号、凭证和说明。', allocationStatus:'分配状态', cost:'成本状态', CONFIRMED:'已入账', NOT_CREATED:'未生成'
+ },
+ 'vi-VN': {
+  title:'Phân bổ và chi thưởng', personal:'Tiền thưởng của tôi', intro:'Phụ trách phân bổ → Người quản lý phê duyệt và chi thưởng → Ghi nhận thực chi. Không ghi chi phí dự án lần nữa.',
+  newBatch:'Tạo phân bổ', empty:'Chưa có phân bổ', noAwards:'Chưa có thưởng được duyệt. Hãy hoàn tất đề nghị và phê duyệt trước.',
+  total:'Thưởng đã duyệt', reserved:'Hạn mức đã dành', remaining:'Còn được phân bổ', reservedHint:'Bản nháp, chờ duyệt, trả lại và đã duyệt đều giữ hạn mức; hủy để giải phóng.',
+  award:'Nguồn thưởng', batch:'Phiếu phân bổ', name:'Phương án thưởng', score:'Điểm KPI', amount:'Số tiền phân bổ', paid:'Đã chi', unpaid:'Chưa chi', state:'Trạng thái', actions:'Thao tác',
+  edit:'Sửa', submit:'Gửi duyệt', approve:'Phê duyệt', return:'Trả lại', cancelBatch:'Hủy phân bổ', details:'Chi tiết phân bổ', pay:'Ghi nhận chi',
+  mode:'Cách phân bổ', AMOUNT:'Theo số tiền', PERCENT:'Theo tỷ lệ', percentHint:'Tỷ lệ dựa trên tổng thưởng đã duyệt, làm tròn đến hai chữ số thập phân; có thể giữ lại phần chưa phân bổ.',
+  person:'Người nhận', percentage:'Tỷ lệ (%)', reason:'Lý do', add:'Thêm người nhận', remove:'Xóa', sum:'Tổng lần này', capacity:'Hạn mức lần này',
+  save:'Lưu nháp', cancel:'Hủy', required:'Điền người nhận, số tiền/tỷ lệ dương và lý do', invalid:'Không trùng người nhận hoặc vượt hạn mức số tiền và tỷ lệ.',
+  saved:'Đã lưu', prompt:'Nhập lý do thao tác', confirm:'Xác nhận', paymentTitle:'Ghi nhận thực chi', payHint:'Chỉ ghi nhận khoản đã thanh toán, không chuyển tiền. Chi phí thưởng phải được xác nhận trước.',
+  paidAmount:'Thực chi lần này', date:'Ngày chi', method:'Phương thức', reference:'Mã giao dịch hoặc biên nhận', voucher:'Chứng từ', payReason:'Lý do chi', record:'Xác nhận ghi nhận',
+  BANK:'Chuyển khoản', WECHAT:'WeChat', ALIPAY:'Alipay', CASH:'Tiền mặt', OTHER:'Khác',
+  DRAFT:'Bản nháp', SUBMITTED:'Chờ duyệt', RETURNED:'Đã trả lại', APPROVED:'Đã duyệt', CANCELED:'Đã hủy',
+  UNPAID:'Chưa chi', PARTIAL:'Chi một phần', PAID:'Đã chi đủ', RECORDED:'Đã ghi nhận',
+  records:'Lịch sử chi', events:'Lịch sử thao tác', operator:'Người thực hiện', time:'Thời gian', SAVE:'Lưu phân bổ', PAYMENT:'Ghi nhận chi',
+  noPayment:'Chưa có lịch sử chi', costPending:'Chi phí thưởng chưa được xác nhận, chưa thể ghi nhận chi.', ownHint:'Chỉ hiển thị thưởng đã duyệt và lịch sử chi của bạn.',
+  allocationNote:'Thành viên cũ cũng có thể nhận thưởng cho thời gian tham gia dự án.', upload:'Tải chứng từ', uploadOk:'Đã tải chứng từ', fileError:'Tải ảnh hoặc PDF tối đa 10 MB.',
+  payInvalid:'Điền số tiền, ngày, phương thức, mã giao dịch, chứng từ và lý do hợp lệ.', allocationStatus:'Trạng thái phân bổ', cost:'Trạng thái chi phí', CONFIRMED:'Đã ghi chi phí', NOT_CREATED:'Chưa tạo'
+ }
+}

@@ -31,13 +31,13 @@ public class BusinessIncentiveController extends BaseController
     public AjaxResult workspace(@RequestParam(required = false) Long projectId)
     { return success(service.workspace(projectId, SecurityUtils.getUserId(), SecurityUtils.isAdmin())); }
 
-    @PreAuthorize("@ss.hasPermi('business:incentive:rule')")
+    @PreAuthorize("@ss.hasAnyPermi('business:incentive:rule,business:kpi:manage')")
     @Log(title = "发布独立奖金规则", businessType = BusinessType.INSERT)
     @PostMapping("/rule")
     public AjaxResult publishRule(@RequestBody BusinessIncentiveRule rule)
     { return success(service.publishRule(rule, SecurityUtils.getUserId(), SecurityUtils.getUsername(), SecurityUtils.isAdmin())); }
 
-    @PreAuthorize("@ss.hasPermi('business:incentive:rule')")
+    @PreAuthorize("@ss.hasAnyPermi('business:incentive:rule,business:kpi:manage')")
     @Log(title = "停用奖金规则", businessType = BusinessType.UPDATE)
     @PostMapping("/rule/{ruleId}/retire")
     public AjaxResult retireRule(@PathVariable Long ruleId, @RequestBody Map<String,Object> body)

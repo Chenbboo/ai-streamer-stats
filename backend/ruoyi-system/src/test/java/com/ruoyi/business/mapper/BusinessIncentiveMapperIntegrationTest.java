@@ -1,4 +1,5 @@
 package com.ruoyi.business.mapper;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -31,6 +32,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import com.ruoyi.business.domain.BusinessIncentiveAward;
 import com.ruoyi.business.domain.BusinessIncentiveRule;
+import com.ruoyi.business.domain.BusinessIncentiveTier;
+import com.ruoyi.business.domain.BusinessBonusAllocation;
+import com.ruoyi.business.domain.BusinessBonusAllocationLine;
+import com.ruoyi.business.domain.BusinessBonusPayment;
 
 /** Runs the production table DDL and mapper SQL; these tests do not replace MySQL migration rehearsal. */
 class BusinessIncentiveMapperIntegrationTest
@@ -55,14 +60,29 @@ class BusinessIncentiveMapperIntegrationTest
         int count=0;
         while(tables.find()) { execute(tables.group()); execute(tables.group()); count++; }
         assertEquals(3,count,"P3 production migration tables must remain covered");
+        String scoreDdl=new String(Files.readAllBytes(migration().resolveSibling("V076__kpi_score_incentive_tiers.sql")),StandardCharsets.UTF_8);
+        Matcher column=Pattern.compile("alter table biz_incentive_rule add column kpi_plan_id bigint default null").matcher(scoreDdl);
+        if (!column.find()) throw new AssertionError("Missing KPI plan column migration");
+        execute(column.group());
+        Matcher scoreTable=Pattern.compile("(?s)create table if not exists biz_incentive_tier.*?\\) engine=InnoDB default charset=utf8mb4 comment='[^']*';").matcher(scoreDdl);
+        if (!scoreTable.find()) throw new AssertionError("Missing score tier migration");
+        execute(scoreTable.group());execute(scoreTable.group());
         execute("insert into biz_project values(1,'P1','Project 1','ACTIVE',110,'CNY','OPEN',9,8,8,'0',current_timestamp),"
             +"(2,'P2','Project 2','ACTIVE',120,'VND','OPEN',19,18,18,'0',current_timestamp),"
             +"(3,'P3','Deleted','ACTIVE',110,'CNY','OPEN',9,8,8,'2',current_timestamp)");
+        String distributionDdl=new String(Files.readAllBytes(migration().resolveSibling("V077__bonus_allocation_payment.sql")),StandardCharsets.UTF_8);
+        Matcher distributionTables=Pattern.compile("(?s)create table if not exists biz_bonus_.*?\\) engine=InnoDB default charset=utf8mb4 comment='[^']*';").matcher(distributionDdl);
+        int distributionCount=0;
+        while(distributionTables.find()){execute(distributionTables.group());execute(distributionTables.group());distributionCount++;}
+        assertEquals(4,distributionCount);
         Configuration config=new Configuration(new Environment("test",new JdbcTransactionFactory(),dataSource));
         config.setMapUnderscoreToCamelCase(true);
         String resource="mapper/business/BusinessIncentiveMapper.xml";
         try(InputStream input=Resources.getResourceAsStream(resource))
         { new XMLMapperBuilder(input,config,resource,config.getSqlFragments()).parse(); }
+        String distributionResource="mapper/business/BusinessBonusDistributionMapper.xml";
+        try(InputStream input=Resources.getResourceAsStream(distributionResource))
+        {new XMLMapperBuilder(input,config,distributionResource,config.getSqlFragments()).parse();}
         factory=new SqlSessionFactoryBuilder().build(config);
     }
 
@@ -116,6 +136,34 @@ class BusinessIncentiveMapperIntegrationTest
         }
     }
 
+    @Test void scoreTiersAndPlanBindingSurviveRuleRevisionAndPreventRepeatAwards()
+    {
+        try(SqlSession session=factory.openSession(false))
+        {
+            BusinessIncentiveMapper mapper=session.getMapper(BusinessIncentiveMapper.class);
+            BusinessIncentiveRule rule=rule();rule.setPolicyVersion("SCORE_TIERS_V1");rule.setKpiPlanId(10L);
+            mapper.insertRule(rule);
+            for (int i=0;i<2;i++)
+            {
+                BusinessIncentiveTier tier=new BusinessIncentiveTier();tier.setRuleId(rule.getRuleId());tier.setSortOrder(i+1);
+                tier.setMinScore(new BigDecimal(i==0?"0":"80"));tier.setMaxScore(i==0?new BigDecimal("80"):null);
+                tier.setAmount(new BigDecimal(i==0?"0.00":"800.00"));mapper.insertTier(tier);
+            }
+            BusinessIncentiveRule stored=mapper.selectRule(rule.getRuleId());
+            assertEquals(Long.valueOf(10L),stored.getKpiPlanId());assertEquals(2,stored.getTiers().size());
+            assertEquals(new BigDecimal("800.00"),stored.getTiers().get(1).getAmount());
+            assertEquals(2,mapper.selectRules(1L).get(0).getTiers().size());
+            assertEquals(0,mapper.retirePlanRules(2L,10L,"boss"));
+            assertEquals(1,mapper.retirePlanRules(1L,10L,"boss"));
+            assertEquals(2,mapper.selectRule(rule.getRuleId()).getTiers().size());
+            BusinessIncentiveAward award=award(rule.getRuleId());award.setPolicyVersion("SCORE_TIERS_V1");award.setSettlementId(20L);
+            mapper.insertAward(award);
+            assertEquals(1,mapper.countExistingScoreAward(1L,20L));assertEquals(0,mapper.countExistingScoreAward(2L,20L));
+            mapper.transitionAward(award.getAwardId(),"DRAFT","CANCELED",0,9L,"owner","cancel",null);
+            assertEquals(0,mapper.countExistingScoreAward(1L,20L));
+        }
+    }
+
     @Test void uniqueRequestAndCostAssociationAreEnforcedByDatabase()
     {
         try(SqlSession session=factory.openSession(false))
@@ -154,6 +202,37 @@ class BusinessIncentiveMapperIntegrationTest
             Map<String,Object> legacy=mapper.selectLegacyBonuses(1L).get(0);
             assertEquals("NOT_RECORDED",value(legacy,"paymentStatus"));assertEquals("NOT_RECORDED",value(legacy,"allocationStatus"));
         }
+    }
+
+    @Test void allocationPaymentAndPersonalDirectoryUseRealMapperAndRollback() throws Exception
+    {
+        try(SqlSession session=factory.openSession(false))
+        {
+            BusinessBonusDistributionMapper m=session.getMapper(BusinessBonusDistributionMapper.class);
+            BusinessBonusAllocation b=new BusinessBonusAllocation();b.setAwardId(99L);b.setProjectId(1L);b.setMode("AMOUNT");
+            b.setAmount(new BigDecimal("100.00"));b.setReason("allocate");b.setRequestKey("batch1");b.setCreatedUserId(9L);b.setCreatedUserName("owner");
+            assertEquals(1,m.insertAllocation(b));
+            BusinessBonusAllocationLine l=new BusinessBonusAllocationLine();l.setAllocationId(b.getAllocationId());l.setUserId(30L);l.setUserName("Alice");l.setAmount(new BigDecimal("100.00"));l.setReason("delivery");
+            m.insertLine(l);
+            assertEquals(new BigDecimal("100.00"),m.reserved(99L,null));assertEquals(1,m.countAllocations(99L));
+            assertEquals(1,session.getMapper(BusinessIncentiveMapper.class).countDistributionReservations(99L));
+            assertTrue(m.projects(30L,false,false).isEmpty(),"Unapproved allocation must not expose project");
+            assertEquals(1,m.transition(b.getAllocationId(),0,"SUBMITTED",9L,"owner"));
+            assertEquals(0,m.transition(b.getAllocationId(),0,"APPROVED",8L,"boss"),"stale transition rejected");
+            assertEquals(1,m.transition(b.getAllocationId(),1,"APPROVED",8L,"boss"));
+            BusinessBonusAllocation stored=m.allocation(b.getAllocationId());assertEquals(2,stored.getVersion());assertEquals(8L,stored.getApprovedUserId());assertNotNull(stored.getApprovedTime());
+            assertEquals(1,m.projects(30L,false,false).size());assertTrue(m.projects(31L,false,false).isEmpty());
+            assertEquals(2,m.projects(1L,true,false).size(),"deleted project excluded");
+            BusinessBonusPayment p=new BusinessBonusPayment();p.setProjectId(1L);p.setLineId(l.getLineId());p.setAmount(new BigDecimal("40.00"));p.setPaidDate(new java.util.Date());
+            p.setMethod("BANK");p.setReferenceNo("bank-1");p.setVoucher("/profile/upload/proof.pdf");p.setReason("first");p.setRequestKey("payment-1");p.setRecordedUserId(50L);p.setRecordedUserName("finance");
+            m.insertPayment(p);assertEquals(new BigDecimal("40.00"),m.line(l.getLineId()).getPaidAmount());
+            assertEquals(p.getPaymentId(),m.paymentRequest(1L,"payment-1").getPaymentId());assertEquals(p.getPaymentId(),m.paymentReference(l.getLineId(),"bank-1").getPaymentId());assertEquals(1,m.payments(b.getAllocationId()).size());
+            assertEquals(new BigDecimal("0"),m.reserved(99L,b.getAllocationId()).stripTrailingZeros());
+            Map<String,Object> event=new java.util.HashMap<>();event.put("projectId",1L);event.put("allocationId",b.getAllocationId());event.put("eventType","PAYMENT");event.put("userId",50L);event.put("userName","finance");event.put("reason","first");event.put("snapshot","{}");m.event(event);
+            assertEquals(1,m.events(b.getAllocationId()).size());
+            session.rollback();
+        }
+        try(SqlSession session=factory.openSession()){assertTrue(session.getMapper(BusinessBonusDistributionMapper.class).allocations(1L).isEmpty());}
     }
 
     private Path migration()

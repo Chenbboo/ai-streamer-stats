@@ -428,6 +428,61 @@ class BusinessProjectKpiServiceImplTest
         verify(mapper,never()).insertBonusTier(any());
     }
 
+    @Test void projectCycleUsesProjectDatesForOverlapCheckPlanAndSettlement()
+    {
+        BusinessProject project=project();
+        project.setPlanStartDate(java.sql.Date.valueOf("2026-07-15"));
+        project.setPlanEndDate(java.sql.Date.valueOf("2026-09-30"));
+        when(projectMapper.selectProjectById(1L)).thenReturn(project);
+        when(projectMapper.selectProjectKpis(1L)).thenReturn(Collections.singletonList(target(1L,new BigDecimal("100"))));
+        when(mapper.selectLatestPlanId(1L)).thenReturn(null);
+        BusinessProjectKpiPlan plan=plan();plan.setCycleType("PROJECT");
+
+        service.publishPlan(plan,9L,"owner9",false,false);
+
+        verify(mapper).countOverlappingPlans(1L,project.getPlanStartDate(),project.getPlanEndDate());
+        ArgumentCaptor<BusinessProjectKpiPlan> published=ArgumentCaptor.forClass(BusinessProjectKpiPlan.class);
+        verify(mapper).insertPlan(published.capture());
+        assertEquals(project.getPlanStartDate(),published.getValue().getCycleStart());
+        assertEquals(project.getPlanEndDate(),published.getValue().getCycleEnd());
+        ArgumentCaptor<BusinessProjectKpiSettlement> draft=ArgumentCaptor.forClass(BusinessProjectKpiSettlement.class);
+        verify(mapper).insertSettlement(draft.capture());
+        assertEquals(project.getPlanStartDate(),draft.getValue().getPeriodStart());
+        assertEquals(project.getPlanEndDate(),draft.getValue().getPeriodEnd());
+    }
+
+    @Test void projectCycleCannotUseClientDatesWhenProjectDatesAreMissing()
+    {
+        BusinessProject project=project();
+        when(projectMapper.selectProjectById(1L)).thenReturn(project);
+        BusinessProjectKpiPlan plan=plan();plan.setCycleType("PROJECT");
+        for (boolean missingStart : new boolean[]{true,false})
+        {
+            project.setPlanStartDate(missingStart?null:java.sql.Date.valueOf("2026-07-15"));
+            project.setPlanEndDate(missingStart?java.sql.Date.valueOf("2026-09-30"):null);
+            ServiceException error=assertThrows(ServiceException.class,
+                ()->service.publishPlan(plan,9L,"owner9",false,false));
+            assertTrue(error.getMessage().contains("完善计划起止日期"));
+        }
+        verify(mapper,never()).insertPlan(any());
+        verify(mapper,never()).insertSettlement(any());
+    }
+
+    @Test void projectCycleRejectsReversedProjectDates()
+    {
+        BusinessProject project=project();
+        project.setPlanStartDate(java.sql.Date.valueOf("2026-09-30"));
+        project.setPlanEndDate(java.sql.Date.valueOf("2026-07-15"));
+        when(projectMapper.selectProjectById(1L)).thenReturn(project);
+        BusinessProjectKpiPlan plan=plan();plan.setCycleType("PROJECT");
+
+        ServiceException error=assertThrows(ServiceException.class,
+            ()->service.publishPlan(plan,9L,"owner9",false,false));
+
+        assertTrue(error.getMessage().contains("结束日期不能早于开始日期"));
+        verify(mapper,never()).insertPlan(any());
+    }
+
     @Test void independentPlanCannotEnterLegacyBossBonusReview()
     {
         BusinessProjectKpiSettlement submitted=settlement("SUBMITTED",1);submitted.setRewardPolicyVersion("INDEPENDENT_V1");
