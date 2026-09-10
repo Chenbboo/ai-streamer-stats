@@ -1,4 +1,13 @@
 export const parseSource = (value, fallback) => { try { return JSON.parse(value || 'null') || fallback } catch { return fallback } }
+export const attendanceCodes = day => [...new Set(day.punches.flatMap(p => [p.checkInResult, p.checkOutResult]))]
+// Use explicit source results only: Todo, missing data and stale snapshots are not absence findings.
+export function matchesAttendanceStatus(day, status) {
+  if (status === 'ALL') return true
+  const codes = attendanceCodes(day)
+  return status === 'ABNORMAL'
+    ? codes.some(code => ['Late', 'Early', 'Lack'].includes(code))
+    : codes.includes(status)
+}
 export function dailyAttendance(records) {
   const days = new Map()
   for (const source of records) {

@@ -7,6 +7,7 @@
         <p>负责人处理日常经营；这里只呈现经营异常、跨项目风险和需要老板干预的事项。</p>
       </div>
       <div class="hero-actions">
+        <el-button v-hasPermi="['business:attendance:read']" icon="Calendar" @click="router.push('/hcm/attendance')">员工考勤</el-button>
         <el-button icon="Refresh" :loading="loading" @click="load">刷新</el-button>
         <el-button type="primary" icon="DocumentChecked" @click="openProposals">立项申请</el-button>
       </div>

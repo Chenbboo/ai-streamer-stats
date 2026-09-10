@@ -90,9 +90,18 @@ public class BusinessFeishuService
     public List<Map<String, Object>> people(Long connectionId) { return mapper.people(id(connection(connectionId),"companyDeptId")); }
     public Map<String,Object> queryOptions(Long actor,boolean organizationReader)
     {
-        List<Map<String,Object>> companies=new ArrayList<>();
-        if(organizationReader) for(Map<String,Object> c:mapper.companies()) if(canReadCompany(id(c,"companyDeptId"),actor)) companies.add(c);
-        return map("companies",companies,"currentUserId",actor);
+        List<Map<String,Object>> companies=new ArrayList<>(),people=new ArrayList<>();
+        if(organizationReader) for(Map<String,Object> c:mapper.companies())
+        {
+            Long companyId=id(c,"companyDeptId");
+            if(!canReadCompany(companyId,actor)) continue;
+            companies.add(c);
+            // Directory access follows the same business scope as the records, not integration permissions.
+            for(Map<String,Object> person:mapper.people(companyId))
+                people.add(map("companyDeptId",companyId,"userId",person.get("userId"),
+                    "userName",person.get("userName"),"departmentName",person.get("departmentName")));
+        }
+        return map("companies",companies,"people",people,"currentUserId",actor);
     }
 
     @Transactional

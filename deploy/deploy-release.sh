@@ -2,9 +2,14 @@
 # Keep this file LF-only so release bundles remain executable on Linux.
 set -Eeuo pipefail
 
-release="${1:?usage: deploy-release.sh <git-release-id>}"
+release="${1:?usage: deploy-release.sh <git-release-id> [first-migration-version]}"
+first_migration="${2:-10}"
 if [[ ! "$release" =~ ^[0-9a-f]{7,40}$ ]]; then
   echo "invalid release id: $release" >&2
+  exit 1
+fi
+if [[ ! "$first_migration" =~ ^[1-9][0-9]*$ ]] || (( first_migration < 10 || first_migration > 83 )); then
+  echo "first migration version must be between 10 and 83" >&2
   exit 1
 fi
 
@@ -37,7 +42,7 @@ required=(
   migrations/verify_business_schema.sql migrations/verify_continuous_operations.sql migrations/release_gate.sql
 )
 for file in "${required[@]}"; do test -s "$stage_dir/$file"; done
-for version in $(seq -w 10 82); do
+for version in $(seq -w 10 83); do
   matches=("$stage_dir/migrations/V0${version}"__*.sql)
   test "${#matches[@]}" = 1
   test -s "${matches[0]}"
@@ -96,12 +101,6 @@ cp -a "$app_root/ruoyi-admin.jar" "$backup_dir/ruoyi-admin.jar"
 cp -a "$app_root/frontend" "$backup_dir/frontend"
 cp -a "$config" "$backup_dir/application-prod.yml"
 if [[ -f "$dropin_file" ]]; then cp -a "$dropin_file" "$backup_dir/10-business-ai.conf"; fi
-MYSQL_PWD="$db_pass" mysqldump --single-transaction --quick --skip-lock-tables \
-  --routines --triggers --events --hex-blob --set-gtid-purged=OFF \
-  -h "$db_host" -P "$db_port" -u "$db_user" "$db_name" > "$backup_dir/database.sql"
-test -s "$backup_dir/database.sql"
-backup_complete=1
-
 mysql_query < "$stage_dir/migrations/preflight_business_upgrade.sql" | tee "$backup_dir/preflight-before.tsv"
 identity_before="$(sed -n '1p' "$backup_dir/preflight-before.tsv" | cut -f3)"
 role_before="$(sed -n '2p' "$backup_dir/preflight-before.tsv" | cut -f2)"
@@ -147,7 +146,17 @@ trap rollback ERR INT TERM HUP
 systemctl stop ai-streamer.service
 service_stopped=1
 
+# Capture the rollback snapshot after application writes have stopped.
+MYSQL_PWD="$db_pass" mysqldump --single-transaction --quick --skip-lock-tables \
+  --routines --triggers --events --hex-blob --set-gtid-purged=OFF \
+  -h "$db_host" -P "$db_port" -u "$db_user" "$db_name" > "$backup_dir/database.sql"
+test -s "$backup_dir/database.sql"
+backup_complete=1
+
 for migration in "$stage_dir"/migrations/V*.sql; do
+  name="$(basename "$migration")"
+  version="${name:1:3}"
+  if (( 10#$version < first_migration )); then continue; fi
   echo "applying $(basename "$migration")"
   mysql_query < "$migration"
 done

@@ -87,6 +87,53 @@ class BusinessFeishuServiceTest
         when(mapper.readerAllowed(110L,7L)).thenReturn(1);when(mapper.records(anyMap())).thenReturn(new ArrayList<>());
         service.records(query,7L,true);verify(mapper).records(anyMap());
     }
+    @Test void ownerDirectoryContainsOnlyAuthorizedCompaniesAndSafeEmployeeFields()
+    {
+        Map<String,Object> owned=map("companyDeptId",110L,"companyName","公司A");
+        when(mapper.companies()).thenReturn(Arrays.asList(owned,map("companyDeptId",111L,"companyName","公司B")));
+        when(mapper.company(110L)).thenReturn(map("leaderUserId",9L));
+        when(mapper.company(111L)).thenReturn(map("leaderUserId",8L));
+        when(mapper.people(110L)).thenReturn(Arrays.asList(map("userId",7L,"userName","员工A","departmentName","运营","loginName","private-login")));
+        Map<String,Object> options=service.queryOptions(9L,true);
+        assertEquals(Arrays.asList(owned),options.get("companies"));
+        assertEquals(Arrays.asList(map("companyDeptId",110L,"userId",7L,"userName","员工A","departmentName","运营")),options.get("people"));
+        verify(mapper,never()).people(111L);
+    }
+    @Test void selfOnlyEmployeeCannotEnumerateCoworkersEvenWhenCompanyLeader()
+    {
+        Map<String,Object> options=service.queryOptions(9L,false);
+        assertEquals(Collections.emptyList(),options.get("companies"));
+        assertEquals(Collections.emptyList(),options.get("people"));
+        assertEquals(9L,options.get("currentUserId"));
+        verifyNoInteractions(mapper);
+    }
+    @Test void administratorNeedsBusinessCompanyScopeToEnumerateEmployees()
+    {
+        when(mapper.companies()).thenReturn(Arrays.asList(map("companyDeptId",110L)));
+        when(mapper.company(110L)).thenReturn(map("leaderUserId",9L));
+        assertEquals(Collections.emptyList(),service.queryOptions(1L,true).get("people"));
+        verify(mapper,never()).people(anyLong());
+        when(mapper.readerAllowed(110L,1L)).thenReturn(1);
+        when(mapper.people(110L)).thenReturn(Arrays.asList(map("userId",7L,"userName","员工A")));
+        assertEquals(1,((List<?>)service.queryOptions(1L,true).get("people")).size());
+    }
+    @Test void ownerCanSelectAllEmployeesOrOneEmployeeButCannotCrossCompany()
+    {
+        when(mapper.company(110L)).thenReturn(map("leaderUserId",9L));
+        when(mapper.company(111L)).thenReturn(map("leaderUserId",8L));
+        Map<String,Object> query=map("companyDeptId",110L,"dateFrom","2026-09-01","dateTo","2026-09-07");
+        service.records(query,9L,true);
+        query.put("userId",7L);service.records(query,9L,true);
+        ArgumentCaptor<Map<String,Object>> captured=ArgumentCaptor.forClass(Map.class);
+        verify(mapper,times(2)).records(captured.capture());
+        assertNull(captured.getAllValues().get(0).get("userId"));
+        assertEquals(7L,captured.getAllValues().get(1).get("userId"));
+        for(Map<String,Object> filter:captured.getAllValues()) assertEquals(110L,filter.get("companyDeptId"));
+        query.put("companyDeptId",111L);
+        assertThrows(ServiceException.class,()->service.records(query,9L,true));
+        query.remove("companyDeptId");
+        assertThrows(ServiceException.class,()->service.records(query,9L,true));
+    }
     @Test void technicalAdministratorCannotSignCompanyAcceptanceOrCutover()
     {
         when(mapper.connection(1L)).thenReturn(connection()); when(mapper.lockConnection(1L)).thenReturn(connection());
