@@ -4,10 +4,11 @@ export function milestoneTasksReady(tasks = [], milestoneId) {
 }
 
 // Owner actions for the selected project. Approval queues belong to their reviewers.
-export function buildOwnerTodos({ data = {}, userId, today, permissions = [], kpi = {} }) {
+export function buildOwnerTodos({ data = {}, userId, today, permissions = [], kpi = null }) {
   const p = data.project
   if (!p) return []
   const rows = [], same = (a, b) => a != null && b != null && String(a) === String(b)
+  const kpiWorkspace = kpi || {}
   const can = key => permissions.includes('*:*:*') || permissions.includes(key)
   const active = p.status === 'ACTIVE'
   const executing = ['ACTIVE', 'ACCEPTANCE'].includes(p.status)
@@ -16,6 +17,15 @@ export function buildOwnerTodos({ data = {}, userId, today, permissions = [], kp
   const manage = can('business:project:task')
   const day = value => String(value || '').slice(0, 10)
   const add = (key, title, detail, action, extra = {}) => rows.push({ key, title, detail, action, ...extra })
+  for (const item of data.pendingAllocationRequests || []) {
+    if (same(item.projectId, p.projectId))
+      add(`allocation-${item.requestId}`, '确认跨项目人员投入', `${item.userName} · ${item.applicantName}发起 · ${item.effectiveDate}生效`, 'allocation-review', { item, urgent: true })
+  }
+  if (active && kpi && kpiWorkspace.canManage && can('business:kpi:manage')) {
+    const hasPublishedPlan = (kpiWorkspace.plans || []).some(plan => plan.status !== 'VOIDED')
+    if (!hasPublishedPlan)
+      add('kpi-setup', '设置项目 KPI', '项目已启动，请设置指标并发布考核方案', 'kpi-settings', { urgent: true })
+  }
   if (active && report && p.goalMode !== 'NO_TOTAL' && !data.todayProjectProgress)
     add('progress', '填报今日项目进度', today, 'progress')
   const dailyRevenue = data.accounting?.dailyRevenue
@@ -61,7 +71,7 @@ export function buildOwnerTodos({ data = {}, userId, today, permissions = [], kp
     if (Number(p.progressPercent) >= 100)
       add('close', '办理项目结项', '项目进度已达 100%', 'project', { tab: p.closeMethod === 'RESULT_ACCEPTANCE' ? 'acceptance' : 'overview' })
   }
-  if (accountingOpen && kpi.canSettle && can('business:kpi:settle')) for (const plan of kpi.plans || []) {
+  if (accountingOpen && kpiWorkspace.canSettle && can('business:kpi:settle')) for (const plan of kpiWorkspace.plans || []) {
     if (plan.status !== 'VOIDED' && ['DRAFT','RETURNED'].includes(plan.settlementStatus) && day(plan.cycleEnd) && day(plan.cycleEnd) < today)
       add(`kpi-${plan.planId}`, '确认 KPI 结算结果', `第 ${plan.planVersion} 版 · 截至 ${day(plan.cycleEnd)}`, 'kpi', { planId: plan.planId })
   }

@@ -33,6 +33,38 @@
       <div v-if="isToday"><span>今日已处理</span><b>{{ summary.reportedRoutineCount || 0 }} / {{ summary.routineCount || 0 }}</b></div>
     </section>
 
+    <section v-if="period==='DAY'" class="panel effort-panel">
+      <div class="panel-head"><div><h2>我的项目投入</h2><p>查看负责人确定的投入分配，无需每天重复填报；需要调整时请联系项目负责人。</p></div><strong>计划合计 {{ summary.plannedEffortPercent || 0 }}%</strong></div>
+      <el-empty v-if="!efforts.length" description="负责人尚未为你设置该日期的项目投入权重" />
+      <div v-else class="effort-grid">
+        <article v-for="item in efforts" :key="item.allocationId" class="effort-card">
+          <div class="card-top"><div><el-tag size="small" effect="plain">{{ item.projectName }}</el-tag><span>{{ item.initiatorName }}立项</span></div><el-tag size="small" :type="effortTone[item.reportStatus]">{{ effortStatusLabel[item.reportStatus] }}</el-tag></div>
+          <div class="effort-values"><span>负责人设置 <b>{{ item.plannedPercent }}%</b></span><span v-if="item.costPolicyVersion!=='MEMBER_DAYS_V1'">当天实际 <b>{{ item.actualPercent }}%</b></span><span v-else>{{ item.ownerName }}负责</span></div>
+          <el-alert v-if="item.costPolicyVersion==='MEMBER_DAYS_V1'" :title="item.confirmationStatus==='PENDING' ? '人员投入待确认，请联系项目负责人协商分配' : '按已确定的投入比例计算，无需重复填报'" :type="item.confirmationStatus==='PENDING'?'warning':'info'" :closable="false" />
+          <el-alert v-else-if="item.reportStatus==='LEAVE'" :title="`考勤显示当天无需计算投入${item.leaveReason ? `：${item.leaveReason}` : ''}`" type="info" :closable="false" show-icon />
+          <div v-else-if="item.reportStatus==='UNSUBMITTED' && !item.editing" class="effort-default">
+            <span>默认按 {{ item.plannedPercent }}% 计算，无需重复填报</span>
+            <el-button type="primary" plain @click="beginEffortAdjustment(item)">实际投入有变化</el-button>
+          </div>
+          <div v-else-if="item.reportStatus==='CONFIRMED'" class="effort-result">
+            <p v-if="Number(item.actualPercent)!==Number(item.plannedPercent)">偏差原因：{{ item.deviationReason || '未填写' }}</p>
+            <span>负责人已确认，当天投入已锁定</span>
+          </div>
+          <div v-else-if="!item.editing" class="effort-result">
+            <p v-if="item.reportStatus==='RETURNED'" class="effort-returned">退回原因：{{ item.reviewComment || '请修改后重新提交' }}</p>
+            <p v-if="Number(item.actualPercent)!==Number(item.plannedPercent)">偏差原因：{{ item.deviationReason || '未填写' }}</p>
+            <span v-if="item.reportStatus==='SUBMITTED'">已提交，等待负责人确认</span>
+            <el-button type="primary" plain @click="beginEffortAdjustment(item)">{{ item.reportStatus==='RETURNED' ? '修改后重新提交' : '修改偏差申报' }}</el-button>
+          </div>
+          <div v-else class="effort-editor">
+            <div class="effort-editor-value"><span>当天实际投入</span><el-input-number v-model="item.actualPercent" :min="0" :max="100" :precision="1" /></div>
+            <el-input v-if="Number(item.actualPercent)!==Number(item.plannedPercent)" v-model="item.deviationReason" type="textarea" :rows="2" maxlength="500" show-word-limit placeholder="请说明实际投入与负责人计划不同的原因" />
+            <div class="effort-editor-actions"><el-button @click="cancelEffortAdjustment(item)">取消</el-button><el-button type="primary" :loading="savingEffortId===item.projectId" @click="saveEffort(item)">提交负责人确认</el-button></div>
+          </div>
+        </article>
+      </div>
+    </section>
+
     <section class="work-grid">
       <article class="panel">
         <div class="panel-head"><div><h2>持续工作</h2><p>{{ isToday ? '完成后填写今天的实际数量。' : '查看该周期内持续执行的工作和累计完成量。' }}</p></div></div>
@@ -135,7 +167,7 @@ const needsReason=computed(()=>reportForm.value.targetMode!=='NONE'&&reportForm.
 const routineTargetModeLabel={FIXED:'固定每日目标',AUTO_TOTAL:'自动分配',DAILY_DYNAMIC:'动态日目标',NONE:'无量化'}
 const taskStatusLabel={TODO:'待开始',DOING:'进行中',BLOCKED:'受阻',DONE:'已完成'}
 const taskTone={TODO:'info',DOING:'primary',BLOCKED:'danger',DONE:'success'}
-const effortStatusLabel={UNSUBMITTED:'按计划执行',SUBMITTED:'待负责人确认',CONFIRMED:'已确认',RETURNED:'已退回',LEAVE:'今日请假'}
+const effortStatusLabel={UNSUBMITTED:'按计划执行',SUBMITTED:'待负责人确认',CONFIRMED:'已确认',RETURNED:'已退回',LEAVE:'考勤不计费'}
 const effortTone={UNSUBMITTED:'info',SUBMITTED:'warning',CONFIRMED:'success',RETURNED:'danger',LEAVE:'info'}
 const money=value=>Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})
 const projectOptionLabel=project=>project.projectNo?`${project.projectName} · ${project.projectNo}`:project.projectName
@@ -182,7 +214,7 @@ function keepTaskProgress(value){const minimum=Number(taskReportForm.value.minim
 async function submitTask(){const form=taskReportForm.value;if(!form.completionSummary?.trim())return ElMessage.warning('请填写实际完成情况');if(form.progress===null||form.progress===undefined||Number(form.progress)<Number(form.minimumProgress||0)||Number(form.progress)>100)return ElMessage.warning(`任务进度只能增加，不能低于 ${form.minimumProgress||0}%`);if(!form.evidenceUrls)return ElMessage.warning('请上传成果凭证');saving.value=true;try{await submitBusinessTaskReport(form);taskReportDialog.value=false;await load();ElMessage.success('今日任务完成量已保存')}finally{saving.value=false}}
 function beginEffortAdjustment(item){item._savedActualPercent=Number(item.actualPercent||0);item._savedDeviationReason=item.deviationReason||'';item.editing=true}
 function cancelEffortAdjustment(item){item.actualPercent=item._savedActualPercent;item.deviationReason=item._savedDeviationReason;item.editing=false}
-async function saveEffort(item){if(item.reportStatus==='LEAVE')return ElMessage.info('今日已登记请假，无需填报投入');if(item.reportStatus==='UNSUBMITTED'&&Number(item.actualPercent)===Number(item.plannedPercent)){item.editing=false;return ElMessage.info('实际投入与计划一致，无需申报')}if(Number(item.actualPercent)!==Number(item.plannedPercent)&&!item.deviationReason?.trim())return ElMessage.warning('实际投入与计划不一致时请填写偏差原因');savingEffortId.value=item.projectId;try{await saveBusinessWorkEffort({projectId:item.projectId,bizDate:anchorDate.value,actualPercent:item.actualPercent,deviationReason:Number(item.actualPercent)===Number(item.plannedPercent)?'':item.deviationReason||''});ElMessage.success('投入偏差已提交负责人确认');await load()}finally{savingEffortId.value=null}}
+async function saveEffort(item){const actual=Number(item.actualPercent);if(item.reportStatus==='LEAVE')return ElMessage.info('考勤显示当天不计人员投入，无需填报');if(!Number.isFinite(actual)||actual<0||actual>100)return ElMessage.warning('当天实际投入必须在0%到100%之间');if(item.reportStatus==='UNSUBMITTED'&&actual===Number(item.plannedPercent)){item.editing=false;return ElMessage.info('实际投入与计划一致，无需申报')}if(actual!==Number(item.plannedPercent)&&!item.deviationReason?.trim())return ElMessage.warning('实际投入与计划不一致时请填写偏差原因');savingEffortId.value=item.projectId;try{await saveBusinessWorkEffort({projectId:item.projectId,bizDate:anchorDate.value,actualPercent:actual,deviationReason:actual===Number(item.plannedPercent)?'':item.deviationReason||''});ElMessage.success('投入偏差已提交负责人确认');await load()}finally{savingEffortId.value=null}}
 load()
 useBusinessRefreshOnReactivated(load)
 </script>

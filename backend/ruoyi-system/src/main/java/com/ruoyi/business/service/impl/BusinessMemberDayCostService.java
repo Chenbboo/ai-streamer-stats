@@ -16,7 +16,7 @@ import com.ruoyi.business.support.BusinessProjectLifecycle;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
 
-/** One full daily rate per eligible member and working date; no workload input. */
+/** Splits each eligible member's daily rate across projects by effective project weights; no timesheet input. */
 @Service
 public class BusinessMemberDayCostService {
     public static final String POLICY="MEMBER_DAYS_V1";
@@ -50,7 +50,7 @@ public class BusinessMemberDayCostService {
         LocalDate d=day(date),start=projectStart(p);
         if(start==null||d.isBefore(start)||d.isAfter(LocalDate.now())||p.getActualEndDate()!=null&&d.isAfter(day(p.getActualEndDate())))return Collections.emptyList();
         List<Map<String,Object>> rows=BusinessProjectLifecycle.isAccountingClosed(p)?mapper.selectDayCosts(projectId,java.sql.Date.valueOf(d)):calculate(p,d,d);
-        for(Map<String,Object> row:rows){Map<String,Object> metadata=mapper.selectStaffMetadata(id(row.get("userId")),id(row.get("ratePolicyId")));if(metadata!=null)row.putAll(metadata);if(row.get("basisJson")!=null)try{Map<String,Object> basis=json.readValue(String.valueOf(row.get("basisJson")),new TypeReference<Map<String,Object>>(){});for(String field:Arrays.asList("companyName","companyDeptId","countryRegion","costMode","monthlyCost","standardWorkDays"))if(basis.get(field)!=null)row.put(field,basis.get(field));}catch(Exception ignored){}row.put("projectName",p.getProjectName());row.put("costPolicyVersion",POLICY);row.put("personnelCost",row.get("amount"));row.put("dailyCost",row.get("amount"));row.put("workingDays",1);row.put("costStatus","PRICED".equals(row.get("pricingStatus"))?"READY":"PENDING_COST");}
+        for(Map<String,Object> row:rows){Map<String,Object> metadata=mapper.selectStaffMetadata(id(row.get("userId")),id(row.get("ratePolicyId")));if(metadata!=null)row.putAll(metadata);if(row.get("basisJson")!=null)try{Map<String,Object> basis=json.readValue(String.valueOf(row.get("basisJson")),new TypeReference<Map<String,Object>>(){});for(String field:Arrays.asList("companyName","companyDeptId","countryRegion","costMode","monthlyCost","standardWorkDays","allocationPercent","fullDailyCost"))if(basis.get(field)!=null)row.put(field,basis.get(field));}catch(Exception ignored){}row.put("projectName",p.getProjectName());row.put("costPolicyVersion",POLICY);row.put("personnelCost",row.get("amount"));row.put("dailyCost",row.get("amount"));row.put("workingDays",1);row.put("costStatus","PRICED".equals(row.get("pricingStatus"))?"READY":"PENDING_COST");}
         return rows;
     }
 
@@ -96,12 +96,15 @@ public class BusinessMemberDayCostService {
         List<Map<String,Object>> result=new ArrayList<>();
         List<Map<String,Object>> roles=mapper.selectRolePeriods(p.getProjectId());
         List<Map<String,Object>> pauses=mapper.selectCostPauses(p.getProjectId());
+        List<Map<String,Object>> allocations=mapper.selectAllocationPeriods(p.getProjectId());
         List<Map<String,Object>> assignments=work.selectAssignments(p.getProjectId()),calendars=work.selectCalendars();
         List<Map<String,Object>> memberships=new ArrayList<>(work.selectMembers(p.getProjectId()));memberships.addAll(mapper.selectPastMemberships(p.getProjectId()));
         Set<String> calculated=new HashSet<>();Map<String,Map<String,Object>> metadataCache=new HashMap<>();
         for(Map<String,Object> member:memberships) {
 
             Long userId=id(member.get("userId"));
+            List<Map<String,Object>> userAllocations=new ArrayList<>();
+            for(Map<String,Object> allocation:allocations)if(userId.equals(id(allocation.get("userId"))))userAllocations.add(allocation);
             LocalDate joined=day(member.get("joinedDate")),left=day(member.get("leftDate"));
             if(!"0".equals(String.valueOf(member.get("status")))&&left==null)continue;
             List<Map<String,Object>> plans=new ArrayList<>();
@@ -123,14 +126,20 @@ public class BusinessMemberDayCostService {
                 if(plan!=null&&plan.get("calendarId")!=null){for(Map<String,Object> c:calendars)if(id(c.get("calendarId")).equals(id(plan.get("calendarId")))){calendar=c;break;}}
                 else for(Map<String,Object> c:calendars)if(covers(c,"effectiveFrom","effectiveTo",date)&&(calendar==null||id(c.get("calendarId"))<id(calendar.get("calendarId"))))calendar=c;
                 Map<String,Object> cost=new LinkedHashMap<>();cost.put("projectId",p.getProjectId());cost.put("userId",userId);cost.put("userName",member.get("userName"));cost.put("bizDate",date.toString());cost.put("currency",p.getBaseCurrency());
-                String issue=null;BigDecimal amount=null;Map<String,Object> rate=null;
+                Map<String,Object> allocation=null;
+                for(Map<String,Object> candidate:userAllocations)if(covers(candidate,"effectiveFrom","effectiveTo",date)){allocation=candidate;break;}
+                BigDecimal allocationPercent=userAllocations.isEmpty()?new BigDecimal("100"):
+                    allocation==null?null:new BigDecimal(String.valueOf(allocation.get("allocationValue")));
+                String issue=allocationPercent==null?"缺少该日期有效的项目投入权重":null;BigDecimal amount=null;BigDecimal fullDailyCost=null;Map<String,Object> rate=null;
+                if(allocation!=null&&"PENDING".equals(allocation.get("confirmationStatus")))issue="人员投入待确认，请由相关项目负责人确认分配";
+                if(issue==null&&(allocationPercent.signum()<0||allocationPercent.compareTo(new BigDecimal("100"))>0))issue="项目投入权重必须在0%至100%之间";
                 if(calendar==null||!covers(calendar,"effectiveFrom","effectiveTo",date))issue="缺少该日期有效的工作日历";
                 else if(!workingDay(calendar,date))continue;
                 if(issue==null){
                     List<Map<String,Object>> matches=new ArrayList<>();for(Map<String,Object> r:rates)if(covers(r,"effectiveFrom","effectiveTo",date))matches.add(r);
                     if(matches.size()!=1)issue=matches.isEmpty()?"缺少有效用人成本":"成本生效日期重叠";
                     else {rate=matches.get(0);if(!p.getBaseCurrency().equals(rate.get("currency")))issue="成本币种与项目不一致";
-                        else try{amount=dailyRate(rate);}catch(ServiceException ex){issue=ex.getMessage();}}
+                        else try{fullDailyCost=dailyRate(rate);amount=fullDailyCost.multiply(allocationPercent).divide(new BigDecimal("100"),2,RoundingMode.HALF_UP);}catch(ServiceException ex){issue=ex.getMessage();}}
                 }
                 String metadataKey=userId+":"+(rate==null?"":rate.get("policyId"));
                 final Long metadataPolicy=rate==null?null:id(rate.get("policyId"));
@@ -139,13 +148,31 @@ public class BusinessMemberDayCostService {
                 cost.put("costMode",rate==null?null:rate.get("costMode"));cost.put("monthlyCost",rate!=null&&"MONTHLY".equals(rate.get("costMode"))?rate.get("unitCost"):null);cost.put("standardWorkDays",rate==null?null:rate.get("standardWorkDays"));
                 if(metadata!=null)cost.putAll(metadata);
                 cost.put("calendarId",calendar==null?null:calendar.get("calendarId"));cost.put("ratePolicyId",rate==null?null:rate.get("policyId"));cost.put("amount",amount);cost.put("issue",issue);cost.put("pricingStatus",issue==null?"PRICED":"PENDING");
-                Map<String,Object> basis=new LinkedHashMap<>();basis.put("costPolicyVersion",POLICY);basis.put("formula","工作日数 × 当日有效日成本");basis.put("workingDays",1);basis.put("bizDate",date.toString());basis.put("userName",member.get("userName"));basis.put("calendarId",cost.get("calendarId"));basis.put("calendarVersion",calendar==null?null:calendar.get("version"));basis.put("ratePolicyId",cost.get("ratePolicyId"));basis.put("rateVersion",rate==null?null:rate.get("version"));basis.put("dailyCost",amount);basis.put("currency",p.getBaseCurrency());basis.put("issue",issue);for(String field:Arrays.asList("companyName","companyDeptId","countryRegion","costMode","monthlyCost","standardWorkDays"))basis.put(field,cost.get(field));
+                Map<String,Object> basis=new LinkedHashMap<>();basis.put("costPolicyVersion",POLICY);basis.put("formula","工作日数 × 当日有效日成本 × 项目投入权重");basis.put("workingDays",1);basis.put("bizDate",date.toString());basis.put("userName",member.get("userName"));basis.put("calendarId",cost.get("calendarId"));basis.put("calendarVersion",calendar==null?null:calendar.get("version"));basis.put("ratePolicyId",cost.get("ratePolicyId"));basis.put("rateVersion",rate==null?null:rate.get("version"));basis.put("allocationId",allocation==null?null:allocation.get("allocationId"));basis.put("allocationVersion",allocation==null?null:allocation.get("version"));basis.put("allocationPercent",allocationPercent);basis.put("fullDailyCost",fullDailyCost);basis.put("dailyCost",amount);basis.put("currency",p.getBaseCurrency());basis.put("issue",issue);for(String field:Arrays.asList("companyName","companyDeptId","countryRegion","costMode","monthlyCost","standardWorkDays"))basis.put(field,cost.get(field));
                 try{cost.put("basisJson",json.writeValueAsString(basis));}catch(Exception ex){throw new ServiceException("工作日成本依据无法保存");}
                 if(calculated.add(userId+":"+date))result.add(cost);
             }
         }
         result.sort(Comparator.comparing(c->String.valueOf(c.get("bizDate"))));
         return result;
+    }
+    @Transactional
+    public void synchronizeAllocationChange(Long projectId,Date effectiveDate,String operator){
+        BusinessProject p=projects.selectProjectByIdForUpdate(projectId);
+        if(!enabled(p)||BusinessProjectLifecycle.isAccountingClosed(p))return;
+        LocalDate from=day(effectiveDate),start=projectStart(p),to=LocalDate.now();
+        if(start!=null&&start.isAfter(from))from=start;
+        if(p.getActualEndDate()!=null&&day(p.getActualEndDate()).isBefore(to))to=day(p.getActualEndDate());
+        if(from.isAfter(to))return;
+        Map<String,List<Map<String,Object>>> before=group(mapper.selectCosts(projectId));
+        Map<String,List<Map<String,Object>>> after=group(calculateCurrent(p,from,to));
+        for(LocalDate date=from;!date.isAfter(to);date=date.plusDays(1)){
+            String key=date.toString();
+            if(signature(before.getOrDefault(key,Collections.emptyList())).equals(signature(after.getOrDefault(key,Collections.emptyList()))))continue;
+            mapper.deleteDay(projectId,key);
+            for(Map<String,Object> cost:after.getOrDefault(key,Collections.emptyList()))mapper.insertCost(cost);
+            accounting.recalculatePersonnelCost(projectId,java.sql.Date.valueOf(date),operator);
+        }
     }
     public boolean workingDay(Map<String,Object> calendar,LocalDate date){
         Object raw=calendar.get("exceptionsJson");

@@ -128,7 +128,7 @@
             </div>
           </el-tab-pane>
           <el-tab-pane v-if="usesActualWork" label="项目计划与变更" name="plan"><BusinessProjectPlanPanel :project="detail" @changed="refreshDetail"/></el-tab-pane>
-          <el-tab-pane v-if="usesActualWork" label="人员工作日成本" name="resources"><BusinessProjectWorkPanel :project-id="detail.projectId" @changed="loadCockpit"/></el-tab-pane>
+          <el-tab-pane v-if="usesActualWork" label="人员工作日成本" name="resources"><BusinessProjectWorkPanel ref="projectWorkPanel" :project-id="detail.projectId" :members="detail.members || []" :can-manage="canManageAllocation" @changed="loadCockpit"/></el-tab-pane>
           <el-tab-pane v-if="!usesActualWork" label="历史经营配置" name="operating">
             <div class="operating-grid">
               <section class="operating-card budget-card"><div class="operating-head"><div><small>{{ projectBudgetTitle }}</small><strong>{{ projectBudgetText }}</strong></div><el-button v-if="!detail.budget && !isDeliveryEnded(detail) && (isBoss||myRole==='OWNER')" size="small" type="primary" @click="openBudgetDialog">调整预算</el-button></div><p v-if="detail.budget">预算期间：{{ detail.budget.startDate }} 至 {{ detail.budget.endDate }}；人员预算 {{ money(detail.budget.personnelAmount) }} ＋ 业务预算 {{ money(detail.budget.businessAmount) }}。需调整或续编时，请使用“项目计划与变更”。</p><p v-else>负责人可按经营变化调整预算；每次金额、原因、操作人和版本都会保留，老板可随时查看和修正。</p></section>
@@ -293,7 +293,7 @@
 </template>
 
 <script setup name="BusinessProject">
-import { h } from 'vue'
+import { h, nextTick } from 'vue'
 import ProjectHierarchyTable from './ProjectHierarchyTable.vue'
 import { getBusinessProjectCompanies } from '@/api/business/project'
 import { useResizeObserver } from '@vueuse/core'
@@ -323,6 +323,7 @@ const hierarchyTable = ref(null), appliedQuery = ref({}), projectBaseline = ref(
 const projectFormFrozen = computed(() => ['MEMBER_DAYS_V1','ACTUAL_WORK_V1'].includes(projectBaseline.value?.costPolicyVersion))
 const detailVisible = ref(false), detail = ref(null), activeTab = ref('overview')
 const detailTabs = ref(null)
+const projectWorkPanel = ref(null)
 // Keep enough space below the tab strip so a shorter pane cannot clamp the drawer's scrollTop.
 useResizeObserver(() => detailTabs.value?.$el?.closest('.el-drawer__body'), ([entry]) => {
   const tabs = detailTabs.value?.$el
@@ -378,7 +379,7 @@ const eventLabel = {
   MILESTONE_SAVE:'维护项目里程碑',RISK_SAVE:'维护风险台账',BUDGET_CHANGE:'调整项目预算',
   KPI_CHANGE:'调整KPI',KPI_RETIRE:'停用KPI',KPI_PLAN_PUBLISHED:'发布KPI与奖金方案',KPI_PLAN_VOIDED:'作废KPI与奖金方案',
   KPI_SETTLEMENT_SUBMITTED:'提交KPI结算',KPI_SETTLEMENT_RETURNED:'退回KPI结算',KPI_SETTLEMENT_CONFIRMED:'确认KPI结算',
-  COST_ALLOCATION:'调整成员计划投入',COST_ALLOCATION_VOID:'停用成员计划投入',
+  COST_ALLOCATION:'调整项目投入权重',COST_ALLOCATION_VOID:'停用项目投入权重',
   EFFORT_WEEK_CONFIRMED:'确认周投入',EFFORT_DAY_CONFIRMED:'确认当日投入',EFFORT_DAY_RETURNED:'退回当日投入',
   STAFF_LEAVE_REQUESTED:'提交成员请假',STAFF_LEAVE_APPROVED:'成员请假已批准',STAFF_LEAVE_RETURNED:'成员请假已退回',
   STAFF_LEAVE_CANCEL_REQUESTED:'申请撤销成员请假',STAFF_LEAVE_CANCELED:'成员请假已撤销'
@@ -625,7 +626,7 @@ async function saveStageAcceptance(){if(!stageForm.resultSummary?.trim())return 
 function openStageReview(decision,record){Object.assign(stageReviewForm,{milestoneId:record.milestoneId,decision,comment:''});stageReviewDialog.value=true;activeTab.value='stageAcceptance'}
 async function saveStageReview(){if(stageReviewForm.decision==='RETURNED'&&!stageReviewForm.comment?.trim())return ElMessage.warning('请填写退回原因');saving.value=true;try{await reviewBusinessProjectStageAcceptance(detail.value.projectId,stageReviewForm.milestoneId,stageReviewForm);stageReviewDialog.value=false;activeTab.value='stageAcceptance';await refreshDetail();ElMessage.success(stageReviewForm.decision==='APPROVED'?'阶段验收已通过':'阶段成果已退回')}finally{saving.value=false}}
 async function openItem(kind,row={}){ await ensureUsers(); itemKind.value=kind; const defaults={ member:{companyKey:null,userId:null,memberRole:'MEMBER'}, task:{status:'TODO',progress:0,priority:'MEDIUM'}, milestone:{status:'PENDING'}, risk:{riskType:'GENERAL',severity:'MEDIUM',probability:'MEDIUM',status:'OPEN'} }; itemForm.value={...defaults[kind],...row,projectId:detail.value.projectId}; itemDialog.value=true }
-async function saveItem(){ if(saving.value)return;if(itemKind.value==='member'&&!itemForm.value.memberId&&!itemForm.value.companyKey)return ElMessage.warning('请先选择公司');if(itemKind.value==='member'&&!itemForm.value.userId)return ElMessage.warning('请选择人员'); const api={member:saveBusinessProjectMember,task:saveBusinessTask,milestone:saveBusinessMilestone,risk:saveBusinessRisk}[itemKind.value]; const payload={...itemForm.value}; if(itemKind.value==='member')delete payload.companyKey;if(itemKind.value==='milestone')delete payload.weight; saving.value=true; try{ await api(payload); itemDialog.value=false; ElMessage.success('保存成功'); await refreshDetail() }finally{ saving.value=false } }
+async function saveItem(){ if(saving.value)return;if(itemKind.value==='member'&&!itemForm.value.memberId&&!itemForm.value.companyKey)return ElMessage.warning('请先选择公司');if(itemKind.value==='member'&&!itemForm.value.userId)return ElMessage.warning('请选择人员'); const api={member:saveBusinessProjectMember,task:saveBusinessTask,milestone:saveBusinessMilestone,risk:saveBusinessRisk}[itemKind.value]; const payload={...itemForm.value}; if(itemKind.value==='member')delete payload.companyKey;if(itemKind.value==='milestone')delete payload.weight; const addedMember=itemKind.value==='member'&&!itemForm.value.memberId&&itemForm.value.memberRole!=='OBSERVER';const addedUserId=itemForm.value.userId;saving.value=true; try{ await api(payload); itemDialog.value=false; await refreshDetail();if(addedMember&&usesActualWork.value){activeTab.value='resources';await nextTick();await projectWorkPanel.value?.openAllocation(addedUserId);ElMessage.success('成员已加入，请确认其全部项目的投入权重')}else ElMessage.success('保存成功') }finally{ saving.value=false } }
 const removalItemNames=items=>{
   const names=items.map(item=>item.taskName||item.routineName).filter(Boolean)
   if(!names.length)return ''
@@ -740,7 +741,8 @@ function workPeriods(row){if(row.executionPeriods?.length)return row.executionPe
 function executionPeriodText(period){return `${period.assigneeName?`${period.assigneeName} · `:''}${period.startDate} 至 ${period.endDate||todayText()}`}
 watch(()=>route.query.create,value=>{if(value)router.replace('/business/project-proposals')},{immediate:true})
 watch(()=>route.query.id,async value=>{if(!value||Number(value)===Number(detail.value?.projectId))return;try{await openDetail({projectId:Number(value)})}catch{const nextQuery={...route.query};delete nextQuery.id;router.replace({query:nextQuery})}},{immediate:true})
-watch(()=>route.query.tab,value=>{if(['overview','operating','routines','tasks','members','milestones','risks','acceptance','stageAcceptance','ownerHistory','events'].includes(value))activeTab.value=value},{immediate:true})
+watch(()=>route.query.tab,value=>{if(['overview','operating','resources','routines','tasks','members','milestones','risks','acceptance','stageAcceptance','ownerHistory','events'].includes(value))activeTab.value=value},{immediate:true})
+watch([()=>route.query.allocationUserId,()=>detail.value?.projectId,()=>projectWorkPanel.value],async([userId,projectId,panel])=>{if(userId&&panel&&Number(projectId)===Number(route.query.id)){activeTab.value='resources';await nextTick();await panel.openAllocation(Number(userId));const query={...route.query};delete query.allocationUserId;router.replace({query})}},{flush:'post'})
 onMounted(load)
 useBusinessRefreshOnReactivated(async () => {
   if(pendingChildParentId){

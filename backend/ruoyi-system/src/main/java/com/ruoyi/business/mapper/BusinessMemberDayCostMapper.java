@@ -16,4 +16,5 @@ public interface BusinessMemberDayCostMapper {
     List<String> selectLegacyResultDates(@Param("projectId") Long projectId);
     int archiveMembership(@Param("projectId") Long projectId,@Param("userId") Long userId);
     List<Map<String,Object>> selectPastMemberships(@Param("projectId") Long projectId);
+    List<Map<String,Object>> selectAllocationPeriods(@Param("projectId") Long projectId);
 }

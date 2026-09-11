@@ -600,9 +600,9 @@
             useGeneratedKeys="true" keyProperty="allocationId">
         insert into biz_project_staff_allocation(project_id,user_id,user_name,allocation_mode,allocation_value,
           effective_from,effective_to,cost_policy_id,exception_allowed,exception_reason,status,version,
-          create_by,create_time,remark)
+          create_by,create_time,remark,confirmation_status)
         values(#{projectId},#{userId},#{userName},#{allocationMode},#{allocationValue},#{effectiveFrom},#{effectiveTo},
-          #{costPolicyId},#{exceptionAllowed},#{exceptionReason},'ACTIVE',0,#{createBy},sysdate(),#{remark})
+          #{costPolicyId},#{exceptionAllowed},#{exceptionReason},'ACTIVE',0,#{createBy},sysdate(),#{remark},coalesce(#{confirmationStatus},'CONFIRMED'))
     </insert>
     <update id="updateProjectStaffAllocation" parameterType="com.ruoyi.business.domain.BusinessProjectStaffAllocation">
         update biz_project_staff_allocation set allocation_mode=#{allocationMode},allocation_value=#{allocationValue},
@@ -614,6 +614,52 @@
     <update id="voidProjectStaffAllocation">
         update biz_project_staff_allocation set status='VOID',update_by=#{userName},update_time=sysdate(),version=version+1
         where allocation_id=#{allocationId} and project_id=#{projectId} and status='ACTIVE'
+    </update>
+    <select id="selectUserAllocationWorkspace" resultType="map">
+        select p.project_id projectId,p.project_no projectNo,p.project_name projectName,p.main_owner_user_id ownerUserId,
+          p.main_owner_name ownerName,m.user_id userId,m.user_name_snapshot userName,m.member_role memberRole,
+          coalesce(a.allocation_value,0) allocationValue,a.allocation_id allocationId,a.version allocationVersion,
+          a.confirmation_status confirmationStatus,
+          (select concat(count(*),':',coalesce(max(h.allocation_id),0),':',coalesce(sum(h.version),0))
+             from biz_project_staff_allocation h where h.user_id=m.user_id) allocationHistoryToken,
+          a.effective_from allocationEffectiveFrom,a.effective_to allocationEffectiveTo
+        from biz_project_member m
+        join biz_project p on p.project_id=m.project_id and p.del_flag='0'
+          and p.status in ('PLANNING','ACTIVE','PAUSED','ACCEPTANCE')
+          and coalesce(p.accounting_state,'OPEN')&lt;&gt;'CLOSED'
+        left join biz_project_staff_allocation a on a.project_id=m.project_id and a.user_id=m.user_id
+          and a.status='ACTIVE' and a.allocation_mode='PERCENTAGE'
+          and a.effective_from&lt;=#{effectiveDate}
+          and (a.effective_to is null or a.effective_to&gt;=#{effectiveDate})
+        where m.user_id=#{userId} and m.status='0' and m.member_role in ('OWNER','DEPUTY','MEMBER')
+          and (m.joined_date is null or m.joined_date&lt;=#{effectiveDate})
+          and (m.left_date is null or m.left_date&gt;=#{effectiveDate})
+        order by p.project_id
+    </select>
+    <select id="sumAllocationPercentAtDate" resultType="java.math.BigDecimal">
+        select coalesce(sum(a.allocation_value),0)
+        from biz_project_staff_allocation a
+        join biz_project p on p.project_id=a.project_id and p.del_flag='0'
+          and p.status in ('PLANNING','ACTIVE','PAUSED','ACCEPTANCE')
+          and coalesce(p.accounting_state,'OPEN')&lt;&gt;'CLOSED'
+        join biz_project_member m on m.project_id=a.project_id and m.user_id=a.user_id
+          and m.status='0' and m.member_role in ('OWNER','DEPUTY','MEMBER')
+        where a.user_id=#{userId} and a.status='ACTIVE' and a.allocation_mode='PERCENTAGE'
+          and a.effective_from&lt;=#{effectiveDate}
+          and (a.effective_to is null or a.effective_to&gt;=#{effectiveDate})
+    </select>
+    <update id="closeAllocationPeriodsBefore">
+        update biz_project_staff_allocation
+        set effective_to=date_sub(#{effectiveDate},interval 1 day),update_by=#{userName},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and user_id=#{userId} and status='ACTIVE'
+          and allocation_mode='PERCENTAGE' and effective_from&lt;#{effectiveDate}
+          and (effective_to is null or effective_to&gt;=#{effectiveDate})
+    </update>
+    <update id="voidAllocationPeriodsFrom">
+        update biz_project_staff_allocation
+        set status='VOID',update_by=#{userName},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and user_id=#{userId} and status='ACTIVE'
+          and allocation_mode='PERCENTAGE' and effective_from&gt;=#{effectiveDate}
     </update>
 
     <update id="updateProjectStatus">
@@ -1299,7 +1345,7 @@
         null factId,null bizDate,null categoryName,null factKind,null amount,null quantity,null currency,null unit,
         null description,null submitterName,
         null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
-        null attachmentUrls,null submittedTime,null awardId
+        null attachmentUrls,null submittedTime,null awardId,null allocationId
       from biz_project_proposal proposal
       left join sys_dept company on company.dept_id=proposal.company_dept_id and company.del_flag='0'
       where proposal.del_flag='0' and proposal.status='PENDING'
@@ -1316,7 +1362,7 @@
         fact.fact_id factId,fact.biz_date bizDate,fact.category_name categoryName,fact.fact_kind factKind,
         fact.amount,fact.quantity,fact.currency,fact.unit,fact.description,fact.create_by submitterName,
         null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
-        null attachmentUrls,null submittedTime,null awardId
+        null attachmentUrls,null submittedTime,null awardId,null allocationId
       from biz_operating_fact fact
       join biz_project p on p.project_id=fact.project_id and p.del_flag='0'
       left join sys_dept company on company.dept_id=fact.company_dept_id and company.del_flag='0'
@@ -1342,7 +1388,7 @@
         null factId,null bizDate,'项目管理费' categoryName,null factKind,null amount,null quantity,p.base_currency currency,null unit,
         '负责人已达到3个在管项目，可以按本项目单独设置管理费' description,null submitterName,
         null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
-        null attachmentUrls,null submittedTime,null awardId
+        null attachmentUrls,null submittedTime,null awardId,null allocationId
       from biz_project p
       left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
       left join biz_project_management_fee fee on fee.project_id=p.project_id and fee.recipient_user_id=p.main_owner_user_id
@@ -1365,7 +1411,7 @@
         null factId,null bizDate,null categoryName,null factKind,null amount,null quantity,null currency,null unit,
         null description,null submitterName,
         null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
-        null attachmentUrls,null submittedTime,null awardId
+        null attachmentUrls,null submittedTime,null awardId,null allocationId
       from biz_project p
       left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
       left join biz_project_kpi_plan plan on plan.plan_id=(select latest.plan_id from biz_project_kpi_plan latest
@@ -1387,7 +1433,7 @@
         null factId,null bizDate,null categoryName,null factKind,null amount,null quantity,null currency,null unit,
         null description,null submitterName,
         null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
-        null attachmentUrls,null submittedTime,null awardId
+        null attachmentUrls,null submittedTime,null awardId,null allocationId
       from biz_project p
       left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
       join biz_project_kpi_plan plan on plan.plan_id=(select latest.plan_id from biz_project_kpi_plan latest
@@ -1415,7 +1461,7 @@
         null factId,null bizDate,null categoryName,null factKind,null amount,null quantity,null currency,null unit,
         null description,null submitterName,
         null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
-        null attachmentUrls,null submittedTime,null awardId
+        null attachmentUrls,null submittedTime,null awardId,null allocationId
       from sys_user u
       join sys_dept staff_dept on staff_dept.dept_id=u.dept_id and staff_dept.del_flag='0'
       join sys_dept company on company.parent_id=100 and company.del_flag='0' and company.status='0'
@@ -1446,7 +1492,7 @@
         null factId,null bizDate,null categoryName,null factKind,null amount,null quantity,null currency,null unit,
         p.close_method description,null submitterName,
         null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
-        null attachmentUrls,null submittedTime,null awardId
+        null attachmentUrls,null submittedTime,null awardId,null allocationId
       from biz_project p
       left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
       where p.del_flag='0' and (p.status='DRAFT'
@@ -1466,7 +1512,7 @@
         null description,acceptance.submitted_user_name submitterName,
         acceptance.stage_acceptance_id stageAcceptanceId,acceptance.milestone_id milestoneId,
         milestone.milestone_name milestoneName,acceptance.result_summary resultSummary,
-        acceptance.deliverables,acceptance.attachment_urls attachmentUrls,acceptance.submitted_time submittedTime,null awardId
+        acceptance.deliverables,acceptance.attachment_urls attachmentUrls,acceptance.submitted_time submittedTime,null awardId,null allocationId
       from biz_project_stage_acceptance acceptance
       join biz_project p on p.project_id=acceptance.project_id and p.del_flag='0'
       join biz_project_milestone milestone on milestone.milestone_id=acceptance.milestone_id
@@ -1498,12 +1544,44 @@
         null factId,award.biz_date bizDate,award.rule_name categoryName,null factKind,
         award.amount,null quantity,award.currency,null unit,award.reason description,award.applicant_user_name submitterName,
         null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
-        null attachmentUrls,null submittedTime,award.award_id awardId
+        null attachmentUrls,null submittedTime,award.award_id awardId,null allocationId
       <include refid="bossPendingIncentiveScope"/>
+    </sql>
+    <sql id="bossPendingBonusPaymentScope">
+      from biz_bonus_allocation allocation
+      join biz_project p on p.project_id=allocation.project_id and p.del_flag='0'
+      join biz_incentive_award award on award.award_id=allocation.award_id and award.status='APPROVED'
+      join biz_operating_fact cost on cost.fact_id=award.accounting_fact_id and cost.status='CONFIRMED'
+      join (select line.allocation_id,
+          sum(line.amount-coalesce(paid.amount,0)) unpaidAmount,count(*) unpaidPeople
+        from biz_bonus_allocation_line line
+        left join (select line_id,sum(amount) amount from biz_bonus_payment
+          where status='RECORDED' group by line_id) paid on paid.line_id=line.line_id
+        where line.amount&gt;coalesce(paid.amount,0)
+        group by line.allocation_id) unpaid on unpaid.allocation_id=allocation.allocation_id
+      where allocation.status='APPROVED'
+        and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}
+    </sql>
+    <sql id="bossPendingBonusPayment">
+      select 'BONUS_PAYMENT' category,2 categoryOrder,concat('bonus-payment-',allocation.allocation_id) itemKey,
+        null proposalId,p.project_id projectId,null userId,p.project_name projectName,
+        null userName,null objective,null applicantName,
+        (select dept.dept_name from sys_dept dept where dept.dept_id=p.company_dept_id and dept.del_flag='0') companyName,
+        null planStartDate,null planEndDate,p.main_owner_name mainOwnerName,allocation.status,null baselineStatus,
+        null targetCount,null planId,null planVersion,null cycleEnd,null totalScore,null bonusAmount,
+        null costStatus,null countryRegion,null projectCount,null projectNameText,
+        coalesce(allocation.approved_time,allocation.create_time) sortTime,
+        null factId,null bizDate,award.rule_name categoryName,null factKind,
+        unpaid.unpaidAmount amount,unpaid.unpaidPeople quantity,award.currency,null unit,
+        null description,allocation.created_user_name submitterName,
+        null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
+        null attachmentUrls,null submittedTime,award.award_id awardId,allocation.allocation_id allocationId
+      <include refid="bossPendingBonusPaymentScope"/>
     </sql>
     <select id="selectBossPendingCounts" resultType="map">
       select
         (select count(*) <include refid="bossPendingIncentiveScope"/>) incentiveReviewCount,
+        (select count(*) <include refid="bossPendingBonusPaymentScope"/>) bonusPaymentCount,
         (select count(*) from biz_project_proposal proposal where proposal.del_flag='0' and proposal.status='PENDING'
           <if test="viewAll == false">and proposal.sponsor_owner_user_id=#{userId}</if>) proposalCount,
         (select count(*) from biz_project p left join biz_project_management_fee fee
@@ -1565,6 +1643,7 @@
         <choose>
           <when test="category == 'PROPOSAL'"><include refid="bossPendingProposal"/></when>
           <when test="category == 'MANAGEMENT_FEE'"><include refid="bossPendingManagementFee"/></when>
+          <when test="category == 'BONUS_PAYMENT'"><include refid="bossPendingBonusPayment"/></when>
           <when test="category == 'INCENTIVE_REVIEW'"><include refid="bossPendingIncentiveReview"/></when>
           <when test="category == 'ACCOUNTING'"><include refid="bossPendingAccounting"/></when>
           <when test="category == 'STAGE_ACCEPTANCE'"><include refid="bossPendingStageAcceptance"/></when>
@@ -1576,6 +1655,7 @@
             <include refid="bossPendingProposal"/> union all
             <include refid="bossPendingManagementFee"/> union all
             <include refid="bossPendingIncentiveReview"/> union all
+            <include refid="bossPendingBonusPayment"/> union all
             <include refid="bossPendingAccounting"/> union all
             <include refid="bossPendingStageAcceptance"/> union all
             <include refid="bossPendingKpiMissing"/> union all
@@ -1666,7 +1746,8 @@
     </select>
     <select id="selectMyEfforts" resultType="map">
         select a.allocation_id allocationId,a.project_id projectId,p.project_name projectName,
-          p.initiator_name initiatorName,a.allocation_value plannedPercent,
+          p.initiator_name initiatorName,a.allocation_value plannedPercent,p.cost_policy_version costPolicyVersion,
+          a.confirmation_status confirmationStatus,p.main_owner_name ownerName,
           case when leave_record.leave_id is not null then 0 else coalesce(e.actual_percent,a.allocation_value) end actualPercent,
           e.effort_id effortId,
           case when leave_record.leave_id is not null then 'LEAVE' else coalesce(e.report_status,'UNSUBMITTED') end reportStatus,

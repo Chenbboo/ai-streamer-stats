@@ -11,7 +11,7 @@
    </el-table>
    <p class="muted">{{ t('reservedHint') }}</p>
   </template>
-  <el-table :data="data.allocations||[]" :empty-text="t('empty')" row-key="allocationId">
+  <el-table ref="allocationTable" :expand-row-keys="requestedAllocationKeys" :row-class-name="({row}) => String(row.allocationId) === String(requestedAllocationId) ? 'requested-allocation-row' : ''" :data="data.allocations||[]" :empty-text="t('empty')" row-key="allocationId">
    <el-table-column type="expand"><template #default="{row}">
     <div class="batch-details">
      <p v-if="row.reason">{{ row.reason }}</p>
@@ -87,13 +87,23 @@
  </section>
 </template>
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '@/utils/request'
 import { saveBonusAllocation, actBonusAllocation, recordBonusPayment } from '@/api/business/incentive'
 import messages from './distributionMessages'
-const props=defineProps({data:{type:Object,default:()=>({})}})
+const props=defineProps({data:{type:Object,default:()=>({})},requestedAllocationId:{type:[String,Number],default:null}})
+const allocationTable=ref(null)
+const requestedAllocationKeys=computed(()=>(props.data.allocations||[])
+ .filter(row=>String(row.allocationId)===String(props.requestedAllocationId)).map(row=>row.allocationId))
+watch(()=>[props.data.allocations,props.requestedAllocationId],async()=>{
+ await nextTick()
+ const row=(props.data.allocations||[]).find(row=>String(row.allocationId)===String(props.requestedAllocationId))
+ if(!row)return
+ await nextTick()
+ allocationTable.value?.$el.querySelector('.requested-allocation-row')?.scrollIntoView({block:'center'})
+},{immediate:true,flush:'post'})
 const emit=defineEmits(['refresh'])
 const {t}=useI18n({useScope:'local',messages})
 const editOpen=ref(false),paymentOpen=ref(false),busy=ref(false),uploading=ref(false),form=reactive({lines:[]}),payment=reactive({})

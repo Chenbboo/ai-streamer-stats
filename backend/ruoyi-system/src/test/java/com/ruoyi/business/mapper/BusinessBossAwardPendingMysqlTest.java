@@ -79,6 +79,49 @@ class BusinessBossAwardPendingMysqlTest {
         sql("update biz_project set del_flag='2' where project_id="+PROJECT);
         assertEquals(0,count(OTHER,false));
     }
+    void paymentFixture()throws Exception{
+        sql("insert into biz_operating_fact(fact_id,project_id,company_dept_id,biz_date,category_id,category_code,category_name,fact_kind,amount,currency,description,status,idempotency_key,create_user_id) values(-810020,"+PROJECT+",100,current_date(),1,'BONUS','Bonus','COST',200,'CNY','Fixture','CONFIRMED','bonus_pending_fixture',"+OWNER+")");
+        sql("update biz_incentive_award set accounting_fact_id=-810020 where award_id=-810014");
+        sql("insert into biz_bonus_allocation(allocation_id,award_id,project_id,status,mode,reason,request_key,amount,created_user_id,created_user_name) values(-810021,-810014,"+PROJECT+",'APPROVED','AMOUNT','Fixture','bonus_pending_fixture',200,"+OWNER+",'Owner')");
+        sql("insert into biz_bonus_allocation_line(line_id,allocation_id,user_id,user_name,amount,reason) values(-810022,-810021,"+OWNER+",'Owner',150,'Fixture'),(-810023,-810021,"+OTHER+",'Member',50,'Fixture')");
+    }
+    void payment(long id,long line,int amount,String status)throws Exception{
+        sql("insert into biz_bonus_payment(payment_id,project_id,line_id,amount,paid_date,method,reference_no,voucher,reason,request_key,status,recorded_user_id,recorded_user_name) values("+id+","+PROJECT+","+line+","+amount+",current_date(),'BANK','fixture"+id+"','fixture','Fixture','fixture"+id+"','"+status+"',"+BOSS+",'Boss')");
+    }
+    void assertPayment(long amount,long people){
+        List<Map<String,Object>> pending=rows(BOSS,false,"BONUS_PAYMENT",0,50);
+        assertEquals(amount==0?0:1,pending.size());
+        assertEquals(amount==0?0:1,((Number)mapper.selectBossPendingCounts(BOSS,false,new java.util.Date()).get("bonusPaymentCount")).intValue());
+        if(amount>0){
+            assertEquals(-810021L,((Number)pending.get(0).get("allocationId")).longValue());
+            assertEquals(0,new java.math.BigDecimal(amount).compareTo((java.math.BigDecimal)pending.get(0).get("amount")));
+            assertEquals(people,((Number)pending.get(0).get("quantity")).longValue());
+        }
+    }
+    @Test void bonusPaymentTracksPartialPaymentsAndDisappearsOnlyWhenFullyPaid()throws Exception{
+        paymentFixture();assertPayment(200,2);
+        assertEquals(1,rows(BOSS,false,"ALL",0,50).stream().filter(r->"BONUS_PAYMENT".equals(r.get("category"))).count());
+        assertTrue(rows(BOSS,false,"BONUS_PAYMENT",1,1).isEmpty());
+        payment(-810024,-810022,60,"RECORDED");assertPayment(140,2);
+        payment(-810025,-810022,90,"RECORDED");assertPayment(50,1);
+        payment(-810026,-810023,50,"VOIDED");assertPayment(50,1);
+        payment(-810027,-810023,50,"RECORDED");assertPayment(0,0);
+    }
+    @Test void bonusPaymentRequiresApprovedConfirmedAwardAndActualSponsorButSurvivesClosure()throws Exception{
+        paymentFixture();assertPayment(200,2);
+        assertTrue(rows(OTHER,true,"BONUS_PAYMENT",0,50).isEmpty());
+        assertTrue(rows(OWNER,false,"BONUS_PAYMENT",0,50).isEmpty());
+        sql("update biz_project set status='CLOSED',accounting_state='CLOSED' where project_id="+PROJECT);assertPayment(200,2);
+        for(String status:new String[]{"DRAFT","SUBMITTED","RETURNED","CANCELED"}){
+            sql("update biz_bonus_allocation set status='"+status+"' where allocation_id=-810021");assertPayment(0,0);
+        }
+        sql("update biz_bonus_allocation set status='APPROVED' where allocation_id=-810021");
+        sql("update biz_incentive_award set status='CANCELED' where award_id=-810014");assertPayment(0,0);
+        sql("update biz_incentive_award set status='APPROVED' where award_id=-810014");
+        sql("update biz_operating_fact set status='DRAFT' where fact_id=-810020");assertPayment(0,0);
+        sql("update biz_operating_fact set status='CONFIRMED' where fact_id=-810020");assertPayment(200,2);
+        sql("update biz_project set del_flag='2' where project_id="+PROJECT);assertPayment(0,0);
+    }
     @Test void accountingLifecycleMatchesReviewEligibility()throws Exception{
         sql("update biz_project set status='CLOSED' where project_id="+PROJECT);
         assertEquals(2,count(BOSS,false));

@@ -73,6 +73,9 @@
             <el-button size="small" type="primary" @click="openProject(row, 'settlement')">设置管理费</el-button>
             <el-button size="small" @click="openProject(row)">项目详情</el-button>
           </template>
+          <template v-else-if="row.category === 'BONUS_PAYMENT'">
+            <el-button v-hasPermi="['business:incentive:pay']" size="small" type="primary" @click="openBonusPayment(row)">登记发放</el-button>
+          </template>
           <template v-else-if="row.category === 'INCENTIVE_REVIEW'">
             <el-button v-hasPermi="['business:incentive:approve']" size="small" type="primary" @click="openIncentive(row)">去审核</el-button>
           </template>
@@ -448,10 +451,10 @@ const isStagedClosePending = row => row.status === 'ACCEPTANCE' && row.descripti
 const decisionActions = row => row.status === 'DRAFT' ? [{ key: 'START_PLANNING', ...actionMeta.START_PLANNING }] : row.status === 'PLANNING' && row.baselineStatus === 'SUBMITTED' ? [{ key: 'CONFIRM_BASELINE', ...actionMeta.CONFIRM_BASELINE }, { key: 'RETURN_PLAN', ...actionMeta.RETURN_PLAN }] : row.status === 'PAUSED' ? [{ key: 'RESUME', ...actionMeta.RESUME }] : isStagedClosePending(row) ? [{ key: 'CLOSE', ...actionMeta.CLOSE }, { key: 'RETURN_ACTIVE', ...actionMeta.RETURN_ACTIVE }] : row.status === 'ACCEPTANCE' ? [{ key: 'REVIEW_ACCEPTANCE', ...actionMeta.REVIEW_ACCEPTANCE }] : []
 const decisionHint = row => row.status === 'DRAFT' ? '历史草稿等待确认进入规划' : row.status === 'PLANNING' ? '历史计划已提交，等待确认或退回' : row.status === 'PAUSED' ? '项目处于暂停状态，决定是否恢复执行' : isStagedClosePending(row) ? '所有里程碑和结项前置条件已完成，负责人申请确认结项' : row.status === 'ACCEPTANCE' ? '验收资料已提交，等待关闭或退回执行' : '需要老板处理'
 const accountingValue = row => row.factKind === 'VALUE' ? `${row.quantity ?? '—'} ${row.unit || ''}`.trim() : `${money(row.amount)} ${row.currency || ''}`.trim()
-const pendingLabel = row => row.category === 'MANAGEMENT_FEE' ? '管理费待设置' : row.category === 'INCENTIVE_REVIEW' ? '奖金待核准' : row.category === 'PROPOSAL' ? '历史立项待处理' : row.category === 'ACCOUNTING' ? '收支待确认' : row.category === 'STAGE_ACCEPTANCE' ? '待阶段验收' : row.category === 'KPI_MISSING' ? (Number(row.targetCount) ? 'KPI 待发布' : 'KPI 待设置') : row.category === 'KPI_REVIEW' ? 'KPI 结算待确认' : isStagedClosePending(row) ? '项目待结项' : '项目状态待处理'
-const pendingDotClass = row => ['KPI_MISSING','MANAGEMENT_FEE'].includes(row.category) ? 'dot-danger' : ['PERSONNEL_COST_GROUP', 'PROPOSAL', 'ACCOUNTING', 'STAGE_ACCEPTANCE', 'KPI_REVIEW', 'INCENTIVE_REVIEW'].includes(row.category) ? 'dot-warning' : 'dot-info'
-const pendingBadgeClass = row => ['KPI_MISSING','MANAGEMENT_FEE'].includes(row.category) ? 'badge-danger' : ['PROPOSAL', 'ACCOUNTING', 'STAGE_ACCEPTANCE', 'KPI_REVIEW', 'INCENTIVE_REVIEW'].includes(row.category) ? 'badge-warning' : 'badge-info'
-const pendingDescription = row => row.category === 'MANAGEMENT_FEE' ? row.description : row.category === 'INCENTIVE_REVIEW' ? `${row.categoryName || '奖金申请'} #${row.awardId} · ${money(row.amount)} ${row.currency || ''} · ${row.description || '等待核准'}` : row.category === 'PROPOSAL' ? (row.objective || '历史立项申请待处理') : row.category === 'ACCOUNTING' ? `${row.categoryName || '项目收支'}：${row.description || '负责人提交的今日收支'}（${accountingValue(row)}）` : row.category === 'STAGE_ACCEPTANCE' ? `${row.resultSummary || '负责人已提交阶段成果'} · 交付成果：${row.deliverables || '—'}` : row.category === 'KPI_MISSING' ? (Number(row.targetCount) ? `已有 ${row.targetCount} 项 KPI 目标，但尚未发布考核与奖金方案` : '项目已进入执行流程，KPI 目标待设置') : row.category === 'KPI_REVIEW' ? '负责人已提交 KPI 结果，确认后项目奖金会立即计入成本' : decisionHint(row)
+const pendingLabel = row => row.category === 'BONUS_PAYMENT' ? '奖金待发放' : row.category === 'MANAGEMENT_FEE' ? '管理费待设置' : row.category === 'INCENTIVE_REVIEW' ? '奖金待核准' : row.category === 'PROPOSAL' ? '历史立项待处理' : row.category === 'ACCOUNTING' ? '收支待确认' : row.category === 'STAGE_ACCEPTANCE' ? '待阶段验收' : row.category === 'KPI_MISSING' ? (Number(row.targetCount) ? 'KPI 待发布' : 'KPI 待设置') : row.category === 'KPI_REVIEW' ? 'KPI 结算待确认' : isStagedClosePending(row) ? '项目待结项' : '项目状态待处理'
+const pendingDotClass = row => ['KPI_MISSING','MANAGEMENT_FEE'].includes(row.category) ? 'dot-danger' : ['PERSONNEL_COST_GROUP', 'PROPOSAL', 'ACCOUNTING', 'STAGE_ACCEPTANCE', 'KPI_REVIEW', 'INCENTIVE_REVIEW', 'BONUS_PAYMENT'].includes(row.category) ? 'dot-warning' : 'dot-info'
+const pendingBadgeClass = row => ['KPI_MISSING','MANAGEMENT_FEE'].includes(row.category) ? 'badge-danger' : ['PROPOSAL', 'ACCOUNTING', 'STAGE_ACCEPTANCE', 'KPI_REVIEW', 'INCENTIVE_REVIEW', 'BONUS_PAYMENT'].includes(row.category) ? 'badge-warning' : 'badge-info'
+const pendingDescription = row => row.category === 'BONUS_PAYMENT' ? `${row.categoryName || '项目奖金'} · 分配单 #${row.allocationId} · ${row.quantity} 人待发放 · 待发 ${money(row.amount)} ${row.currency || ''}` : row.category === 'MANAGEMENT_FEE' ? row.description : row.category === 'INCENTIVE_REVIEW' ? `${row.categoryName || '奖金申请'} #${row.awardId} · ${money(row.amount)} ${row.currency || ''} · ${row.description || '等待核准'}` : row.category === 'PROPOSAL' ? (row.objective || '历史立项申请待处理') : row.category === 'ACCOUNTING' ? `${row.categoryName || '项目收支'}：${row.description || '负责人提交的今日收支'}（${accountingValue(row)}）` : row.category === 'STAGE_ACCEPTANCE' ? `${row.resultSummary || '负责人已提交阶段成果'} · 交付成果：${row.deliverables || '—'}` : row.category === 'KPI_MISSING' ? (Number(row.targetCount) ? `已有 ${row.targetCount} 项 KPI 目标，但尚未发布考核与奖金方案` : '项目已进入执行流程，KPI 目标待设置') : row.category === 'KPI_REVIEW' ? '负责人已提交 KPI 结果，确认后项目奖金会立即计入成本' : decisionHint(row)
 const pendingMeta = row => {
   if (row.category === 'PROPOSAL') return `${row.applicantName} 负责 · ${row.companyName || '未设置公司'} `
   if (['ACCOUNTING', 'INCENTIVE_REVIEW'].includes(row.category)) return `${row.submitterName || '项目负责人'}提交 · ${row.bizDate || '—'} · ${row.companyName || '未设置公司'} `
@@ -461,6 +464,10 @@ const pendingMeta = row => {
   return `${row.mainOwnerName || '未指定负责人'} 负责 `
 }
 const personnelMeta = row => `${row.companyName || '未设置所属公司'} · ${row.projectNameText || '尚未加入未结束项目'}`
+
+function openBonusPayment(row) {
+  router.push({ path: '/hcm/incentives', query: { projectId: row.projectId, tab: 'distribution', allocationId: row.allocationId } })
+}
 
 function openIncentive(row) {
   router.push({ path: '/hcm/incentives', query: { projectId: row.projectId, tab: 'awards', awardId: row.awardId } })

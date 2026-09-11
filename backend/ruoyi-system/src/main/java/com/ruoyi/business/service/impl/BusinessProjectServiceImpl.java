@@ -79,6 +79,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     @Autowired
     private BusinessProjectMapper mapper;
 
+    @Autowired private com.ruoyi.business.mapper.BusinessAllocationRequestMapper allocationRequests;
+    private final com.fasterxml.jackson.databind.ObjectMapper allocationJson = new com.fasterxml.jackson.databind.ObjectMapper();
+
     @Autowired
     private BusinessProjectKpiMapper kpiMapper;
 
@@ -480,6 +483,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         ownerMember.setJoinedDate(standardTemplate ? proposal.getPlanStartDate() : new Date());
         ownerMember.setCreateBy(reviewerUserName);
         mapper.upsertMember(ownerMember);
+        ensureDefaultProjectWeight(project, ownerMember, reviewerUserName);
         memberDays.saveRole(project.getProjectId(),ownerMember.getUserId(),ownerMember.getJoinedDate(),"OWNER",reviewerUserName);
         grantProjectUser(project.getMainOwnerUserId(), true);
 
@@ -504,6 +508,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             selectedMember.setCreateBy(reviewerUserName);
             selectedMember.setRemark("立项申请选择");
             mapper.upsertMember(selectedMember);
+            ensureDefaultProjectWeight(project, selectedMember, reviewerUserName);
             memberDays.saveRole(project.getProjectId(),selectedMember.getUserId(),selectedMember.getJoinedDate(),"MEMBER",reviewerUserName);
             grantProjectUser(selectedUserId, false);
         }
@@ -814,6 +819,24 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (kpi.getWeight() == null) kpi.setWeight(BigDecimal.ZERO);
         if (kpi.getWeight().compareTo(BigDecimal.ZERO) < 0 || kpi.getWeight().compareTo(new BigDecimal("100")) > 0)
             throw new ServiceException("KPI权重必须在0到100之间");
+        BigDecimal otherWeight = BigDecimal.ZERO;
+        List<BusinessProjectKpi> currentKpis = mapper.selectProjectKpis(project.getProjectId());
+        if (currentKpis != null)
+        {
+            for (BusinessProjectKpi current : currentKpis)
+            {
+                if (!"CURRENT".equals(current.getStatus())) continue;
+                if (previous != null && previous.getKpiId().equals(current.getKpiId())) continue;
+                if (current.getWeight() != null) otherWeight = otherWeight.add(current.getWeight());
+            }
+        }
+        BigDecimal totalWeight = otherWeight.add(kpi.getWeight());
+        if (totalWeight.compareTo(new BigDecimal("100")) > 0)
+        {
+            BigDecimal remainingWeight = new BigDecimal("100").subtract(otherWeight).max(BigDecimal.ZERO);
+            throw new ServiceException("KPI权重合计不能超过100%；其他KPI已占"
+                + formatWeight(otherWeight) + "%，本项最多可填" + formatWeight(remainingWeight) + "%");
+        }
         // 第一阶段KPI只考核项目，不设置个人考核对象或个人奖金领取人。
         kpi.setOwnerUserId(null);
         kpi.setOwnerName(null);
@@ -837,6 +860,11 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         addEvent(project.getProjectId(), "KPI_CHANGE", project.getStatus(), project.getStatus(), userId, userName,
             kpi.getKpiName() + " v" + kpi.getTargetVersion());
         return kpi;
+    }
+
+    private String formatWeight(BigDecimal weight)
+    {
+        return weight.stripTrailingZeros().toPlainString();
     }
 
     private void validateKpiSource(Long projectId, BusinessProjectKpi kpi)
@@ -1115,6 +1143,297 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     }
 
     @Override
+    public Map<String, Object> staffAllocationWorkspace(Long staffUserId, Date effectiveDate,
+        Long userId, boolean boss)
+    {
+        if (staffUserId == null) throw new ServiceException("请选择人员");
+        Date date = normalizeLeaveDate(effectiveDate == null ? DateUtils.getNowDate() : effectiveDate, "生效日期不正确");
+        Map<String, Object> staff = requireActiveUser(staffUserId);
+        List<Map<String, Object>> projects = mapper.selectUserAllocationWorkspace(staffUserId, date);
+        boolean authorized = SecurityUtils.isAdmin(userId) || boss;
+        Set<Long> projectIds = new HashSet<Long>();
+        BigDecimal total = BigDecimal.ZERO;
+        for (Map<String, Object> row : projects)
+        {
+            Long projectId = Long.valueOf(String.valueOf(row.get("projectId")));
+            if (!projectIds.add(projectId)) throw new ServiceException("该人员存在重叠的投入权重版本，请先联系管理员处理");
+            Object ownerUserId = row.get("ownerUserId");
+            if (ownerUserId != null && userId.equals(Long.valueOf(String.valueOf(ownerUserId)))) authorized = true;
+            total = total.add(decimal(row.get("allocationValue")));
+        }
+        if (!authorized) throw new ServiceException("只有该人员参与项目的负责人或老板可以调整投入权重");
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put("userId", staffUserId);
+        result.put("userName", displayName(staff));
+        result.put("effectiveDate", new SimpleDateFormat("yyyy-MM-dd").format(date));
+        result.put("projects", projects);
+        result.put("totalPercent", total);
+        result.put("versionToken", allocationVersionToken(projects));
+        Map<String,Object> pending = allocationRequests.selectPending(staffUserId);
+        result.put("pendingRequest", allocationRequestView(pending, userId));
+        List<Map<String,Object>> history = new ArrayList<>();
+        for (Map<String,Object> request : allocationRequests.selectHistory(staffUserId))
+            history.add(allocationRequestView(request, userId));
+        result.put("history", history);
+        return result;
+    }
+
+    @Override
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> saveStaffAllocationWorkspace(Map<String, Object> body,
+        Long userId, String userName, boolean boss)
+    {
+        return saveStaffAllocationDistribution(body, userId, userName, boss, false);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> saveStaffAllocationDistribution(Map<String, Object> body,
+        Long userId, String userName, boolean boss, boolean confirmed)
+    {
+        if (body == null || body.get("userId") == null) throw new ServiceException("请选择人员");
+        Long staffUserId = Long.valueOf(String.valueOf(body.get("userId")));
+        allocationRequests.lockEmployee(staffUserId);
+        if (!confirmed && allocationRequests.selectPending(staffUserId) != null)
+            throw new ServiceException("该员工已有待确认的投入调整，请先处理或由发起人撤回");
+        Date effectiveDate = DateUtils.parseDate(String.valueOf(body.get("effectiveDate")));
+        if (effectiveDate == null) throw new ServiceException("请选择生效日期");
+        String reason = body.get("reason") == null ? null : String.valueOf(body.get("reason")).trim();
+        if (StringUtils.isBlank(reason)) throw new ServiceException("请填写调整原因");
+        if (reason.length() > 500) throw new ServiceException("调整原因不能超过500字");
+        Map<String, Object> current = staffAllocationWorkspace(staffUserId, effectiveDate, userId, boss);
+        String expectedToken = body.get("versionToken") == null ? "" : String.valueOf(body.get("versionToken"));
+        if (!expectedToken.equals(String.valueOf(current.get("versionToken"))))
+            throw new ServiceException("投入权重已被其他人修改，请刷新后重新调整");
+        Object raw = body.get("allocations");
+        if (!(raw instanceof List)) throw new ServiceException("请填写全部项目的投入权重");
+        Map<Long, BigDecimal> submitted = new LinkedHashMap<Long, BigDecimal>();
+        BigDecimal total = BigDecimal.ZERO;
+        for (Object item : (List<?>) raw)
+        {
+            if (!(item instanceof Map)) throw new ServiceException("投入权重格式不正确");
+            Map<String, Object> row = (Map<String, Object>) item;
+            Long projectId = row.get("projectId") == null ? null : Long.valueOf(String.valueOf(row.get("projectId")));
+            BigDecimal value = row.get("allocationValue") == null ? null : decimal(row.get("allocationValue"));
+            if (projectId == null || value == null || value.signum() < 0 || value.compareTo(new BigDecimal("100")) > 0)
+                throw new ServiceException("每个项目的投入权重必须在0%至100%之间");
+            if (value.stripTrailingZeros().scale() > 2) throw new ServiceException("投入权重最多保留两位小数");
+            if (submitted.put(projectId, value) != null) throw new ServiceException("同一项目不能重复填写投入权重");
+            total = total.add(value);
+        }
+        List<Map<String, Object>> projects = (List<Map<String, Object>>) current.get("projects");
+        Set<Long> required = new HashSet<Long>();
+        for (Map<String, Object> row : projects) required.add(Long.valueOf(String.valueOf(row.get("projectId"))));
+        if (!required.equals(submitted.keySet())) throw new ServiceException("必须填写该人员当前参与的全部项目");
+        if (total.compareTo(new BigDecimal("100")) != 0)
+            throw new ServiceException("所有项目投入权重合计必须等于100%，当前为" + total.stripTrailingZeros().toPlainString() + "%");
+        List<Long> ordered = new ArrayList<Long>(required);
+        Collections.sort(ordered);
+        for (Long projectId : ordered)
+        {
+            BusinessProject project = requireProjectForUpdate(projectId);
+            ensureMutable(project);
+            if (!BusinessMemberDayCostService.enabled(project))
+                throw new ServiceException("历史成本项目不能使用项目投入权重调整");
+        }
+        List<Map<String, Object>> lockedRows = mapper.selectUserAllocationWorkspace(staffUserId, effectiveDate);
+        if (!expectedToken.equals(allocationVersionToken(lockedRows)))
+            throw new ServiceException("投入权重已被其他人修改，请刷新后重新调整");
+        String staffName = String.valueOf(current.get("userName"));
+        Map<Long,Map<String,Object>> affectedOwners = new LinkedHashMap<>();
+        Set<Long> affectedProjects = new HashSet<>();
+        boolean applicantOwnsProject = false;
+        for (Map<String,Object> row : projects)
+        {
+            Long ownerId = Long.valueOf(String.valueOf(row.get("ownerUserId")));
+            if (ownerId.equals(userId)) applicantOwnsProject = true;
+            Long projectId = Long.valueOf(String.valueOf(row.get("projectId")));
+            if (decimal(row.get("allocationValue")).compareTo(submitted.get(projectId)) != 0
+                || "PENDING".equals(row.get("confirmationStatus"))) {
+                affectedOwners.putIfAbsent(ownerId, row); affectedProjects.add(projectId);
+            }
+        }
+        boolean needsConfirmation = affectedOwners.keySet().stream().anyMatch(ownerId -> !ownerId.equals(userId));
+        if (!confirmed && needsConfirmation)
+        {
+            if (!applicantOwnsProject) throw new ServiceException("跨负责人投入调整必须由该员工参与项目的负责人发起");
+            Map<String,Object> snapshot = new LinkedHashMap<>(body);
+            List<Map<String,Object>> changes = new ArrayList<>();
+            for (Map<String,Object> row : projects)
+            {
+                Map<String,Object> change = new LinkedHashMap<>(row);
+                change.put("requestedValue", submitted.get(Long.valueOf(String.valueOf(row.get("projectId")))));
+                changes.add(change);
+            }
+            snapshot.put("projects", changes);
+            Map<String,Object> request = new LinkedHashMap<>();
+            request.put("userId", staffUserId); request.put("userName", staffName);
+            request.put("applicantId", userId); request.put("applicantName", displayName(requireActiveUser(userId)));
+            request.put("effectiveDate", effectiveDate); request.put("reason", reason);
+            try { request.put("snapshotJson", allocationJson.writeValueAsString(snapshot)); }
+            catch (Exception ex) { throw new ServiceException("无法保存投入调整申请"); }
+            allocationRequests.insertRequest(request);
+            for (Map.Entry<Long,Map<String,Object>> entry : affectedOwners.entrySet())
+            {
+                Map<String,Object> review = new LinkedHashMap<>();
+                review.put("requestId", request.get("requestId")); review.put("ownerUserId", entry.getKey());
+                review.put("ownerName", entry.getValue().get("ownerName")); review.put("projectId", entry.getValue().get("projectId"));
+                review.put("status", entry.getKey().equals(userId) ? "APPROVED" : "PENDING");
+                allocationRequests.insertReview(review);
+            }
+            Map<String,Object> result = staffAllocationWorkspace(staffUserId, effectiveDate, userId, boss);
+            result.put("outcome", "PENDING");
+            return result;
+        }
+        for (Long projectId : ordered)
+        {
+            if (!affectedProjects.contains(projectId)) continue;
+            mapper.closeAllocationPeriodsBefore(projectId, staffUserId, effectiveDate, userName);
+            mapper.voidAllocationPeriodsFrom(projectId, staffUserId, effectiveDate, userName);
+            BusinessProjectStaffAllocation allocation = new BusinessProjectStaffAllocation();
+            allocation.setProjectId(projectId);
+            allocation.setUserId(staffUserId);
+            allocation.setUserName(staffName);
+            allocation.setAllocationMode("PERCENTAGE");
+            allocation.setAllocationValue(submitted.get(projectId));
+            allocation.setEffectiveFrom(effectiveDate);
+            BusinessStaffCostPolicy policy = mapper.selectEffectiveStaffCostPolicy(staffUserId, effectiveDate);
+            allocation.setCostPolicyId(policy == null ? null : policy.getPolicyId());
+            allocation.setExceptionAllowed("0");
+            allocation.setStatus("ACTIVE");
+            allocation.setVersion(0);
+            allocation.setCreateBy(userName);
+            allocation.setRemark(reason);
+            mapper.insertProjectStaffAllocation(allocation);
+            BusinessProject project = mapper.selectProjectById(projectId);
+            addEvent(projectId, "COST_ALLOCATION", project == null ? null : project.getStatus(),
+                project == null ? null : project.getStatus(), userId, userName,
+                staffName + " / 项目投入权重 / " + submitted.get(projectId).stripTrailingZeros().toPlainString() + "% / " + reason);
+        }
+        for (Long projectId : ordered) if (affectedProjects.contains(projectId)) memberDays.synchronizeAllocationChange(projectId, effectiveDate, userName);
+        Map<String,Object> result = staffAllocationWorkspace(staffUserId, effectiveDate, userId, boss);
+        result.put("outcome", "APPLIED");
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String,Object> allocationSnapshot(Map<String,Object> request)
+    {
+        try { return allocationJson.readValue(String.valueOf(request.get("snapshotJson")), Map.class); }
+        catch (Exception ex) { throw new ServiceException("投入调整记录无法读取"); }
+    }
+
+    private Map<String,Object> allocationRequestView(Map<String,Object> request, Long userId)
+    {
+        if (request == null) return null;
+        Map<String,Object> view = new LinkedHashMap<>(request);
+        view.remove("snapshotJson");
+        view.put("projects", allocationSnapshot(request).get("projects"));
+        List<Map<String,Object>> reviews = allocationRequests.selectReviews(Long.valueOf(String.valueOf(request.get("requestId"))));
+        view.put("reviews", reviews);
+        boolean pending = "PENDING".equals(request.get("status"));
+        view.put("canWithdraw", pending && sameLong(request.get("applicantId"), userId));
+        view.put("canReview", pending && reviews.stream().anyMatch(row -> sameLong(row.get("ownerUserId"), userId) && "PENDING".equals(row.get("status"))));
+        return view;
+    }
+
+    @Override
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+    @SuppressWarnings("unchecked")
+    public Map<String,Object> reviewStaffAllocationRequest(Long requestId, String decision, String comment,
+        Long userId, String userName)
+    {
+        Map<String,Object> request = allocationRequests.selectRequest(requestId);
+        if (request == null) throw new ServiceException("投入调整申请不存在");
+        Long staffId = Long.valueOf(String.valueOf(request.get("userId")));
+        allocationRequests.lockEmployee(staffId);
+        request = allocationRequests.selectRequest(requestId);
+        if (!"PENDING".equals(request.get("status"))) throw new ServiceException("该申请已处理，请刷新页面");
+        if (!Arrays.asList("APPROVED", "REJECTED", "WITHDRAWN").contains(decision)) throw new ServiceException("请选择确认、退回或撤回");
+        if (comment != null && comment.length() > 500) throw new ServiceException("处理说明不能超过500字");
+        Map<String,Object> view = allocationRequestView(request, userId);
+        if ("WITHDRAWN".equals(decision))
+        {
+            if (!Boolean.TRUE.equals(view.get("canWithdraw"))) throw new ServiceException("只有发起人可以撤回申请");
+            allocationRequests.finish(requestId, "WITHDRAWN", comment);
+        }
+        else
+        {
+            if (!Boolean.TRUE.equals(view.get("canReview"))) throw new ServiceException("只有本次待确认的项目负责人可以处理");
+            Map<String,Object> snapshot = allocationSnapshot(request);
+            Date effective = DateUtils.parseDate(String.valueOf(snapshot.get("effectiveDate")));
+            List<Map<String,Object>> snapshotRows = (List<Map<String,Object>>) snapshot.get("projects");
+            List<Long> projectIds = new ArrayList<>();
+            for (Map<String,Object> row : snapshotRows) projectIds.add(Long.valueOf(String.valueOf(row.get("projectId"))));
+            Collections.sort(projectIds);
+            for (Long projectId : projectIds) requireProjectForUpdate(projectId);
+            if (!String.valueOf(snapshot.get("versionToken")).equals(allocationVersionToken(mapper.selectUserAllocationWorkspace(staffId, effective))))
+            {
+                allocationRequests.finish(requestId, "INVALIDATED", "项目成员、负责人或投入分配已变化，请重新发起");
+            }
+            else if ("REJECTED".equals(decision))
+            {
+                if (StringUtils.isBlank(comment)) throw new ServiceException("退回时请填写原因");
+                allocationRequests.review(requestId, userId, decision, comment);
+                allocationRequests.finish(requestId, "REJECTED", comment);
+            }
+            else
+            {
+                allocationRequests.review(requestId, userId, "APPROVED", comment);
+                boolean allConfirmed = allocationRequests.selectReviews(requestId).stream().noneMatch(row -> "PENDING".equals(row.get("status")));
+                if (allConfirmed)
+                {
+                    saveStaffAllocationDistribution(snapshot, userId, userName, false, true);
+                    allocationRequests.finish(requestId, "APPLIED", "相关负责人已全部确认");
+                }
+            }
+        }
+        return allocationRequestView(allocationRequests.selectRequest(requestId), userId);
+    }
+
+    private String allocationVersionToken(List<Map<String, Object>> rows)
+    {
+        StringBuilder value = new StringBuilder();
+        for (Map<String, Object> row : rows)
+            value.append(row.get("projectId")).append(':').append(row.get("allocationId")).append(':')
+                .append(row.get("allocationVersion")).append(':').append(row.get("ownerUserId"))
+                .append(':').append(row.get("allocationValue")).append(':').append(row.get("confirmationStatus"))
+                .append(':').append(row.get("allocationHistoryToken")).append(';');
+        return value.toString();
+    }
+
+    private void ensureDefaultProjectWeight(BusinessProject project, BusinessProjectMember member, String userName)
+    {
+        if (!BusinessMemberDayCostService.enabled(project) || "OBSERVER".equals(member.getMemberRole())) return;
+        allocationRequests.lockEmployee(member.getUserId());
+        Date today = normalizeLeaveDate(DateUtils.getNowDate(), "日期不正确");
+        Date effectiveDate = member.getJoinedDate() != null && member.getJoinedDate().after(today)
+            ? member.getJoinedDate() : today;
+        for (Map<String, Object> row : mapper.selectUserAllocationWorkspace(member.getUserId(), effectiveDate))
+            if (project.getProjectId().equals(Long.valueOf(String.valueOf(row.get("projectId"))))
+                && row.get("allocationId") != null) return;
+        BigDecimal used = decimal(mapper.sumAllocationPercentAtDate(member.getUserId(), effectiveDate));
+        BigDecimal available = new BigDecimal("100").subtract(used).max(BigDecimal.ZERO);
+        BusinessStaffCostPolicy policy = mapper.selectEffectiveStaffCostPolicy(member.getUserId(), effectiveDate);
+        BusinessProjectStaffAllocation allocation = new BusinessProjectStaffAllocation();
+        allocation.setProjectId(project.getProjectId());
+        allocation.setUserId(member.getUserId());
+        allocation.setUserName(member.getUserNameSnapshot());
+        allocation.setAllocationMode("PERCENTAGE");
+        allocation.setAllocationValue(available);
+        allocation.setConfirmationStatus(used.signum() > 0 ? "PENDING" : "CONFIRMED");
+        allocation.setEffectiveFrom(effectiveDate);
+        allocation.setCostPolicyId(policy == null ? null : policy.getPolicyId());
+        allocation.setExceptionAllowed("0");
+        allocation.setStatus("ACTIVE");
+        allocation.setVersion(0);
+        allocation.setCreateBy(userName);
+        allocation.setRemark(available.compareTo(new BigDecimal("100")) == 0
+            ? "首次参与项目，系统默认投入权重100%" : "新增参与项目，待负责人重新分配投入权重");
+        mapper.insertProjectStaffAllocation(allocation);
+    }
+
+    @Override
     @Transactional
     public void removeStaffAllocation(Long projectId, Long allocationId, Long userId, String userName, boolean boss)
     {
@@ -1168,6 +1487,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         ownerMember.setJoinedDate(new Date());
         ownerMember.setCreateBy(userName);
         mapper.upsertMember(ownerMember);
+        ensureDefaultProjectWeight(project, ownerMember, userName);
         grantProjectUser(newOwnerUserId, true);
         if ("DEPUTY".equals(newOwnerPreviousRole)) syncProjectDeputyRole(newOwnerUserId);
 
@@ -1482,6 +1802,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             memberDays.saveRole(project.getProjectId(),member.getUserId(),currentRole==null?member.getJoinedDate():roleDate,member.getMemberRole(),userName);
         }
         mapper.upsertMember(member);
+        if (BusinessMemberDayCostService.enabled(project) && !"OBSERVER".equals(member.getMemberRole()))
+            ensureDefaultProjectWeight(project, member, userName);
         grantProjectUser(member.getUserId(), false);
         if ("DEPUTY".equals(currentRole) || "DEPUTY".equals(member.getMemberRole()))
             syncProjectDeputyRole(member.getUserId());
@@ -2322,7 +2644,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         int pageSize = positiveInt(query, "pageSize", 5, 50);
         String category = query == null || query.get("category") == null
             ? "ALL" : String.valueOf(query.get("category")).trim().toUpperCase();
-        if (!Arrays.asList("ALL", "PROPOSAL", "MANAGEMENT_FEE", "ACCOUNTING", "INCENTIVE_REVIEW", "STAGE_ACCEPTANCE", "KPI_MISSING", "KPI_REVIEW", "PERSONNEL_COST", "PROJECT")
+        if (!Arrays.asList("ALL", "PROPOSAL", "MANAGEMENT_FEE", "ACCOUNTING", "INCENTIVE_REVIEW", "BONUS_PAYMENT", "STAGE_ACCEPTANCE", "KPI_MISSING", "KPI_REVIEW", "PERSONNEL_COST", "PROJECT")
             .contains(category)) category = "ALL";
         Date bizDate = new Date();
         Map<String, Object> counts = mapper.selectBossPendingCounts(userId, viewAll, bizDate);
@@ -2347,6 +2669,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         keys.put("MANAGEMENT_FEE", "managementFeeCount");
         keys.put("ACCOUNTING", "accountingCount");
         keys.put("INCENTIVE_REVIEW", "incentiveReviewCount");
+        keys.put("BONUS_PAYMENT", "bonusPaymentCount");
         keys.put("STAGE_ACCEPTANCE", "stageAcceptanceCount");
         keys.put("KPI_MISSING", "kpiMissingCount");
         keys.put("KPI_REVIEW", "kpiReviewCount");
@@ -2396,6 +2719,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         List<Map<String, Object>> pendingEffortRequests = mapper.selectOwnerPendingEffortRequests(userId, viewAll);
         result.put("pendingEffortRequests", pendingEffortRequests == null
             ? Collections.<Map<String, Object>>emptyList() : pendingEffortRequests);
+        result.put("pendingAllocationRequests", allocationRequests.selectOwnerPending(userId));
         if (projects.isEmpty()) return result;
 
         Long selectedId = projectId == null ? projects.get(0).getProjectId() : projectId;

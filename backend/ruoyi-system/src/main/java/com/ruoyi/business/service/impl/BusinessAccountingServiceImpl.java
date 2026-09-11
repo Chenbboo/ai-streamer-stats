@@ -672,7 +672,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         refreshLaterBudgetSnapshots(projectId,bizDate);
         addItem(result,"REVENUE","确认收入",revenue,"已确认收入经营事实合计");
         addItem(result,"BUSINESS_COST","业务成本",cost,"已确认成本经营事实合计");
-        addItem(result,"PERSONNEL_COST","内部人员成本",personnel,automaticDays?"成员参与期间有效工作日 × 当日有效日成本；无需填报投入。待完善："+pendingPersonnel:actualWork
+        addItem(result,"PERSONNEL_COST","内部人员成本",personnel,automaticDays?"成员参与期间有效工作日 × 当日有效日成本 × 项目投入权重；无需填报工时。待完善："+pendingPersonnel:actualWork
             ? "仅汇总已确认且已计价工作；计划不代替实际。待计价记录："+pendingPersonnel
             : "按当日生效的成本政策和项目投入计算；已确认实际投入优先，否则使用计划投入");
         List<Map<String,Object>> personnelItems=actualWork||automaticDays?actualItems:mapper.selectProjectPersonnelCostDetails(projectId,bizDate);

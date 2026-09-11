@@ -50,6 +50,12 @@ public interface IBusinessProjectService
     void voidStaffCostPolicy(Long policyId, String reason, Long userId, String userName, boolean staffCostManager);
     BusinessProjectStaffAllocation saveStaffAllocation(BusinessProjectStaffAllocation allocation,
         Long userId, String userName, boolean boss);
+    Map<String, Object> staffAllocationWorkspace(Long staffUserId, java.util.Date effectiveDate,
+        Long userId, boolean boss);
+    Map<String, Object> saveStaffAllocationWorkspace(Map<String, Object> body,
+        Long userId, String userName, boolean boss);
+    Map<String,Object> reviewStaffAllocationRequest(Long requestId, String decision, String comment,
+        Long userId, String userName);
     void removeStaffAllocation(Long projectId, Long allocationId, Long userId, String userName, boolean boss);
     BusinessProject changeOwner(Long projectId, Long newOwnerUserId, String reason,
         Long userId, String userName, boolean boss);

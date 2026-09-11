@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.business.mapper.BusinessAllocationRequestMapper">
+  <sql id="columns">request_id requestId,user_id userId,user_name userName,applicant_id applicantId,applicant_name applicantName,date_format(effective_date,'%Y-%m-%d') effectiveDate,reason,snapshot_json snapshotJson,status,close_reason closeReason,created_at createdAt</sql>
+  <select id="lockEmployee" resultType="long">select user_id from sys_user where user_id=#{userId} for update</select>
+  <select id="selectRequest" resultType="map">select <include refid="columns"/> from biz_staff_allocation_request where request_id=#{requestId}</select>
+  <select id="selectPending" resultType="map">select <include refid="columns"/> from biz_staff_allocation_request where pending_user_id=#{userId}</select>
+  <select id="selectHistory" resultType="map">select <include refid="columns"/> from biz_staff_allocation_request where user_id=#{userId} order by request_id desc limit 10</select>
+  <select id="selectReviews" resultType="map">select owner_user_id ownerUserId,owner_name ownerName,project_id projectId,status,comment,reviewed_at reviewedAt from biz_staff_allocation_review where request_id=#{requestId} order by owner_user_id</select>
+  <select id="selectOwnerPending" resultType="map">
+    select r.request_id requestId,r.user_id userId,r.user_name userName,r.applicant_name applicantName,
+      date_format(r.effective_date,'%Y-%m-%d') effectiveDate,v.project_id projectId
+    from biz_staff_allocation_review v join biz_staff_allocation_request r on r.request_id=v.request_id
+    where v.owner_user_id=#{ownerUserId} and v.status='PENDING' and r.status='PENDING'
+    order by r.request_id
+  </select>
+  <insert id="insertRequest" useGeneratedKeys="true" keyProperty="requestId">
+    insert into biz_staff_allocation_request(user_id,user_name,applicant_id,applicant_name,effective_date,reason,snapshot_json,status,pending_user_id)
+    values(#{userId},#{userName},#{applicantId},#{applicantName},#{effectiveDate},#{reason},#{snapshotJson},'PENDING',#{userId})
+  </insert>
+  <insert id="insertReview">
+    insert into biz_staff_allocation_review(request_id,owner_user_id,owner_name,project_id,status,reviewed_at)
+    values(#{requestId},#{ownerUserId},#{ownerName},#{projectId},#{status},case when #{status}='APPROVED' then now() else null end)
+  </insert>
+  <update id="review">update biz_staff_allocation_review set status=#{status},comment=#{comment},reviewed_at=now() where request_id=#{requestId} and owner_user_id=#{ownerId} and status='PENDING'</update>
+  <update id="finish">update biz_staff_allocation_request set status=#{status},close_reason=#{reason},pending_user_id=null,updated_at=now() where request_id=#{requestId} and status='PENDING'</update>
+</mapper>

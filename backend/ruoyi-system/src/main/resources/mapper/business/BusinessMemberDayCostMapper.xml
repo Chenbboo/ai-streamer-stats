@@ -6,6 +6,13 @@
   <insert id="saveRolePeriod">insert into biz_project_member_role_period(project_id,user_id,effective_from,member_role,operator_name,created_at) values(#{projectId},#{userId},#{effectiveFrom},#{role},#{operator},now()) on duplicate key update member_role=values(member_role),operator_name=values(operator_name),created_at=now()</insert>
   <insert id="archiveMembership">insert ignore into biz_project_member_cost_period(project_id,user_id,user_name,member_role,joined_date,left_date) select project_id,user_id,user_name_snapshot,member_role,joined_date,left_date from biz_project_member where project_id=#{projectId} and user_id=#{userId} and status='1' and joined_date is not null and left_date is not null</insert>
   <select id="selectPastMemberships" resultType="map">select user_id userId,user_name userName,member_role memberRole,joined_date joinedDate,left_date leftDate,'1' status from biz_project_member_cost_period where project_id=#{projectId}</select>
+  <select id="selectAllocationPeriods" resultType="map">
+    select allocation_id allocationId,user_id userId,allocation_value allocationValue,
+      effective_from effectiveFrom,effective_to effectiveTo,version,confirmation_status confirmationStatus
+    from biz_project_staff_allocation
+    where project_id=#{projectId} and status='ACTIVE' and allocation_mode='PERCENTAGE'
+    order by user_id,effective_from,allocation_id
+  </select>
   <select id="selectOpenProjects" resultType="long">select project_id from biz_project where del_flag='0' and cost_policy_version='MEMBER_DAYS_V1' and coalesce(accounting_state,'OPEN')&lt;&gt;'CLOSED' and coalesce(actual_start_date,plan_start_date)&lt;=current_date()</select>
   <sql id="columns">project_id projectId,user_id userId,user_name userName,biz_date bizDate,amount,currency,pricing_status pricingStatus,issue,rate_policy_id ratePolicyId,calendar_id calendarId,basis_json basisJson,concat(user_name,' · 工作日成本') componentName,basis_json calculationDetail</sql>
   <select id="selectCosts" resultType="map">select <include refid="columns"/> from biz_project_member_day_cost where project_id=#{projectId} order by biz_date,user_id</select>

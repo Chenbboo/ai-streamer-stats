@@ -8,8 +8,8 @@ if [[ ! "$release" =~ ^[0-9a-f]{7,40}$ ]]; then
   echo "invalid release id: $release" >&2
   exit 1
 fi
-if [[ ! "$first_migration" =~ ^[1-9][0-9]*$ ]] || (( first_migration < 10 || first_migration > 83 )); then
-  echo "first migration version must be between 10 and 83" >&2
+if [[ ! "$first_migration" =~ ^[1-9][0-9]*$ ]] || (( first_migration < 10 || first_migration > 93 )); then
+  echo "first migration version must be between 10 and 93" >&2
   exit 1
 fi
 
@@ -42,7 +42,7 @@ required=(
   migrations/verify_business_schema.sql migrations/verify_continuous_operations.sql migrations/release_gate.sql
 )
 for file in "${required[@]}"; do test -s "$stage_dir/$file"; done
-for version in $(seq -w 10 83); do
+for version in $(seq -w 10 93); do
   matches=("$stage_dir/migrations/V0${version}"__*.sql)
   test "${#matches[@]}" = 1
   test -s "${matches[0]}"

@@ -35,8 +35,10 @@ import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.DateUtils;
+import com.ruoyi.common.utils.StringUtils;
 
 /**
  * 公司经营项目中心。
@@ -247,12 +249,38 @@ public class BusinessProjectController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('business:project:allocation')")
+    @GetMapping("/project/staff-allocation/workspace")
+    public AjaxResult staffAllocationWorkspace(@RequestParam Long userId,
+        @RequestParam(required = false) String effectiveDate)
+    {
+        java.util.Date date = StringUtils.isBlank(effectiveDate) ? DateUtils.getNowDate() : DateUtils.parseDate(effectiveDate);
+        if (date == null) throw new ServiceException("生效日期格式不正确");
+        return success(projectService.staffAllocationWorkspace(userId, date, currentUserId(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:allocation')")
+    @Log(title = "项目投入权重", businessType = BusinessType.UPDATE)
+    @PostMapping("/project/staff-allocation/workspace")
+    public AjaxResult saveStaffAllocationWorkspace(@RequestBody Map<String, Object> body)
+    {
+        return success(projectService.saveStaffAllocationWorkspace(body, currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:allocation')")
     @Log(title = "项目人员成本分摊", businessType = BusinessType.DELETE)
     @DeleteMapping("/project/{projectId}/staff-allocation/{allocationId}")
     public AjaxResult removeStaffAllocation(@PathVariable Long projectId, @PathVariable Long allocationId)
     {
         projectService.removeStaffAllocation(projectId, allocationId, currentUserId(), currentUserName(), isBoss());
         return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:allocation')")
+    @Log(title = "人员投入调配确认", businessType = BusinessType.UPDATE)
+    @PostMapping("/project/staff-allocation/request/{requestId}/review")
+    public AjaxResult reviewStaffAllocationRequest(@PathVariable Long requestId, @RequestBody Map<String,Object> body)
+    {
+        return success(projectService.reviewStaffAllocationRequest(requestId, text(body, "decision"), text(body, "comment"), currentUserId(), currentUserName()));
     }
 
     @PreAuthorize("@ss.hasPermi('business:project:manage')")

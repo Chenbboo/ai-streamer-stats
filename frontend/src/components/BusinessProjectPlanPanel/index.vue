@@ -38,4 +38,12 @@ async function review(row,decision){try{const {value}=await ElMessageBox.prompt(
 function view(row){try{snapshot.value=typeof row.snapshotJson==='string'?JSON.parse(row.snapshotJson):row.snapshotJson||{};snapshotOpen.value=true}catch{ElMessage.error(tx('无法读取计划快照','Không thể đọc bản chụp'))}}
 watch(()=>[props.project.projectId,props.project.version],load,{immediate:true})
 </script>
-<style scoped>.plan-panel{padding:0}.plan-panel h3{margin-top:24px}</style>
+<style scoped>
+.plan-panel{padding:0}
+.plan-panel h3{margin-top:24px}
+.plan-panel .product-head{flex-wrap:wrap;gap:12px}
+.plan-panel .product-head>div:first-child{flex:1 1 300px;min-width:0}
+.plan-panel .product-head .row-actions{flex:0 0 auto;flex-wrap:nowrap;gap:8px}
+.plan-panel .product-head .row-actions :deep(.el-button){height:32px;padding:0 12px;margin:0;font-size:14px;white-space:nowrap}
+@media(max-width:760px){.plan-panel .product-head>div:first-child{flex-basis:auto}}
+</style>

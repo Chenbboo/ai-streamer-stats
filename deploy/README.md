@@ -41,10 +41,10 @@ ssh -t -o ProxyCommand=none root@129.226.146.30 "/opt/ai-streamer/releases/<提�
 
 部署脚本会依次执行：制品校验、账号与环境配置门禁、JAR/前端/配置备份、升级前身份校验、停止应用写入并完整备份数据库、指定范围迁移、完整结构校验、机器门禁、身份校验和比对、上传目录准备、后端与前端切换、服务和接口健康检查。备份完成后的部署失败会恢复数据库、JAR、前端和 systemd 配置，并保留持久化上传文件。
 
-发布包包含 V010–V083。默认从 V010 执行；已核实运行 V082 的环境，本次只应用考勤权限 V083：
+发布包包含 V010–V093。默认从 V010 执行；已核实运行 V092 的环境，本次应用跨负责人投入确认流程 V093（新增申请、确认记录及投入待确认状态）：
 
 ```powershell
-ssh -o ProxyCommand=none root@129.226.146.30 "bash /opt/ai-streamer/releases/<提交哈希>/deploy-release.sh <提交哈希> 83"
+ssh -o ProxyCommand=none root@129.226.146.30 "bash /opt/ai-streamer/releases/<提交哈希>/deploy-release.sh <提交哈希> 93"
 ```
 
 只有核实目标库和前一发布版本的迁移记录后才能指定起始版本，不能以跳过迁移代替处理结构缺失。

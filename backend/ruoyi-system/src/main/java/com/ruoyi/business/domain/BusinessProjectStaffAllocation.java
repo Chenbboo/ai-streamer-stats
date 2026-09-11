@@ -21,6 +21,9 @@ public class BusinessProjectStaffAllocation extends BaseEntity
     private String exceptionReason;
     private String status;
     private Integer version;
+    private String confirmationStatus;
+    public String getConfirmationStatus() { return confirmationStatus; }
+    public void setConfirmationStatus(String confirmationStatus) { this.confirmationStatus = confirmationStatus; }
 
     public Long getAllocationId() { return allocationId; }
     public void setAllocationId(Long allocationId) { this.allocationId = allocationId; }

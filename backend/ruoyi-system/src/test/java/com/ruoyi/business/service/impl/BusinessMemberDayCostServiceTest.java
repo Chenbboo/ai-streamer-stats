@@ -60,6 +60,29 @@ class BusinessMemberDayCostServiceTest {
         when(work.selectBudgetRates(eq(7L),anyString(),anyString())).thenReturn(Arrays.asList(rate,next));
         assertEquals(new BigDecimal("1000.00"),week().get(2).get("amount"));assertEquals(new BigDecimal("2000.00"),week().get(3).get("amount"));
     }
+    @Test void projectWeightSplitsTheFullDailyCost(){
+        when(costs.selectAllocationPeriods(1L)).thenReturn(Collections.singletonList(
+            row("allocationId",31L,"userId",7L,"allocationValue",40,"effectiveFrom","2026-08-31","version",2)));
+        List<Map<String,Object>> rows=week();
+        assertEquals(5,rows.size());
+        assertTrue(rows.stream().allMatch(c->new BigDecimal("400.00").equals(c.get("amount"))));
+        assertTrue(rows.stream().allMatch(c->String.valueOf(c.get("basisJson")).contains("\"allocationPercent\":40")));
+    }
+    @Test void missingEffectiveProjectWeightStaysPending(){
+        when(costs.selectAllocationPeriods(1L)).thenReturn(Collections.singletonList(
+            row("allocationId",31L,"userId",7L,"allocationValue",40,"effectiveFrom","2026-09-03","version",2)));
+        List<Map<String,Object>> rows=week();
+        assertNull(rows.get(0).get("amount"));
+        assertEquals("PENDING",rows.get(0).get("pricingStatus"));
+        assertEquals("缺少该日期有效的项目投入权重",rows.get(0).get("issue"));
+        assertEquals(new BigDecimal("400.00"),rows.get(3).get("amount"));
+    }
+    @Test void unconfirmedNewProjectDoesNotPretendPersonnelCostIsZero(){
+        when(costs.selectAllocationPeriods(1L)).thenReturn(Collections.singletonList(
+            row("allocationId",31L,"userId",7L,"allocationValue",0,"effectiveFrom","2026-08-31","confirmationStatus","PENDING")));
+        assertTrue(week().stream().allMatch(c->c.get("amount")==null && "PENDING".equals(c.get("pricingStatus"))));
+        assertTrue(String.valueOf(week().get(0).get("issue")).contains("人员投入待确认"));
+    }
     @Test void missingOrOverlappingRatesStayPendingInsteadOfZero(){
         when(work.selectBudgetRates(eq(7L),anyString(),anyString())).thenReturn(Collections.emptyList());
         assertNull(week().get(0).get("amount"));assertEquals("PENDING",week().get(0).get("pricingStatus"));

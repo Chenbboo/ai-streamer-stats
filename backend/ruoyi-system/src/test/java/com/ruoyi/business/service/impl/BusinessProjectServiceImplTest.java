@@ -18,6 +18,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashMap;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Date;
@@ -60,6 +61,7 @@ class BusinessProjectServiceImplTest
 {
     @Mock
     private BusinessProjectMapper mapper;
+    @Mock private com.ruoyi.business.mapper.BusinessAllocationRequestMapper allocationRequests;
 
     @Mock
     private BusinessProjectKpiMapper kpiMapper;
@@ -86,6 +88,7 @@ class BusinessProjectServiceImplTest
     @BeforeEach
     void currentProjectLockUsesTestFixture()
     {
+        lenient().when(allocationRequests.selectPending(anyLong())).thenReturn(null);
         lenient().when(mapper.selectRoutineByIdForUpdate(anyLong())).thenAnswer(call->mapper.selectRoutineById(call.getArgument(0)));
         lenient().when(feishuService.getAuthority(any(),any())).thenReturn(Collections.emptyMap());
         lenient().when(mapper.selectProjectByIdForUpdate(anyLong()))
@@ -124,8 +127,15 @@ class BusinessProjectServiceImplTest
         previous.setProjectId(15L);
         previous.setKpiCode("KPI_P15_A1B2C3D4E5F6");
         previous.setStatus("CURRENT");
+        previous.setWeight(new BigDecimal("60"));
+        BusinessProjectKpi another = new BusinessProjectKpi();
+        another.setKpiId(71L);
+        another.setProjectId(15L);
+        another.setStatus("CURRENT");
+        another.setWeight(new BigDecimal("40"));
         when(mapper.selectProjectById(15L)).thenReturn(project);
         when(mapper.selectProjectKpiById(70L)).thenReturn(previous);
+        when(mapper.selectProjectKpis(15L)).thenReturn(Arrays.asList(previous, another));
         when(mapper.retireProjectKpi(70L, "boss8")).thenReturn(1);
         when(mapper.selectNextKpiVersion(15L, "KPI_P15_A1B2C3D4E5F6")).thenReturn(2);
         BusinessProjectKpi input = new BusinessProjectKpi();
@@ -134,6 +144,7 @@ class BusinessProjectServiceImplTest
         input.setKpiCode("ATTEMPT_CHANGE");
         input.setKpiName("有效播放量");
         input.setTargetValue(new BigDecimal("600000"));
+        input.setWeight(new BigDecimal("50"));
 
         BusinessProjectKpi saved = service.saveKpi(input, 8L, "boss8", true);
 
@@ -160,6 +171,32 @@ class BusinessProjectServiceImplTest
         assertEquals("ROUTINE", saved.getSourceType());
         assertEquals(301L, saved.getSourceRefId());
         verify(mapper).insertProjectKpi(input);
+    }
+
+    @Test
+    void kpiSaveRejectsProjectWeightAboveOneHundred()
+    {
+        BusinessProject project = project(15L, 9L, "ACTIVE", "APPROVED");
+        project.setSponsorOwnerUserId(8L);
+        BusinessProjectKpi current = new BusinessProjectKpi();
+        current.setKpiId(70L);
+        current.setProjectId(15L);
+        current.setStatus("CURRENT");
+        current.setWeight(new BigDecimal("60"));
+        when(mapper.selectProjectById(15L)).thenReturn(project);
+        when(mapper.selectProjectKpis(15L)).thenReturn(Collections.singletonList(current));
+        BusinessProjectKpi input = new BusinessProjectKpi();
+        input.setProjectId(15L);
+        input.setKpiName("新增收入");
+        input.setTargetValue(new BigDecimal("20000"));
+        input.setWeight(new BigDecimal("50"));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveKpi(input, 8L, "boss8", true));
+
+        assertTrue(error.getMessage().contains("KPI权重合计不能超过100%"));
+        assertTrue(error.getMessage().contains("本项最多可填40%"));
+        verify(mapper, never()).insertProjectKpi(any());
     }
 
     @Test
@@ -230,6 +267,20 @@ class BusinessProjectServiceImplTest
         assertEquals(0L,emptyPage.get("total"));
         assertEquals(1,emptyPage.get("pageNum"));
         verify(mapper).selectDashboardProjectPage(23L,false,true,0,4,"美团","ACTIVE");
+    }
+
+    @Test
+    void bossPendingIncludesBonusPaymentsAndAcceptsPaymentCategory()
+    {
+        Map<String,Object> counts=new HashMap<String,Object>();
+        counts.put("bonusPaymentCount",3L);counts.put("incentiveReviewCount",2L);
+        when(mapper.selectBossPendingCounts(eq(23L),eq(false),any(Date.class))).thenReturn(counts);
+        assertEquals(5L,service.bossPending(Collections.emptyMap(),23L,false).get("total"));
+        Map<String,Object> query=new HashMap<String,Object>();
+        query.put("category","bonus_payment");query.put("pageNum",2);query.put("pageSize",1);
+        Map<String,Object> result=service.bossPending(query,23L,false);
+        assertEquals(3L,result.get("total"));assertEquals("BONUS_PAYMENT",result.get("category"));
+        verify(mapper).selectBossPendingPage(eq(23L),eq(false),any(Date.class),eq("BONUS_PAYMENT"),eq(1),eq(1));
     }
 
     @Test
@@ -2571,6 +2622,49 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
+    void globalProjectWeightsMustTotalExactlyOneHundredPercent()
+    {
+        Map<String,Object> staff=new HashMap<String,Object>();staff.put("nickName","成员十一");
+        Map<String,Object> first=new HashMap<String,Object>();first.put("projectId",91L);first.put("projectName","项目甲");first.put("ownerUserId",9L);first.put("allocationId",1L);first.put("allocationVersion",0);first.put("allocationValue",new BigDecimal("60"));
+        Map<String,Object> second=new HashMap<String,Object>();second.put("projectId",92L);second.put("projectName","项目乙");second.put("ownerUserId",12L);second.put("allocationId",2L);second.put("allocationVersion",0);second.put("allocationValue",new BigDecimal("40"));
+        when(mapper.selectActiveUserById(11L)).thenReturn(staff);
+        when(mapper.selectUserAllocationWorkspace(eq(11L),any(Date.class))).thenReturn(Arrays.asList(first,second));
+        Map<String,Object> current=service.staffAllocationWorkspace(11L,java.sql.Date.valueOf("2026-09-11"),9L,false);
+        Map<String,Object> body=new LinkedHashMap<String,Object>();body.put("userId",11L);body.put("effectiveDate","2026-09-11");body.put("reason","调整并行项目投入");body.put("versionToken",current.get("versionToken"));
+        body.put("allocations",Arrays.asList(row("projectId",91L,"allocationValue",60),row("projectId",92L,"allocationValue",30)));
+
+        ServiceException error=assertThrows(ServiceException.class,()->service.saveStaffAllocationWorkspace(body,9L,"owner9",false));
+
+        assertTrue(error.getMessage().contains("合计必须等于100%"));
+        verify(mapper,never()).insertProjectStaffAllocation(any());
+    }
+
+    @Test
+    void ownerCanSaveACompleteGlobalWeightDistributionAndRepriceBothProjects()
+    {
+        Map<String,Object> staff=new HashMap<String,Object>();staff.put("nickName","成员十一");
+        Map<String,Object> first=new HashMap<String,Object>();first.put("projectId",93L);first.put("projectName","项目甲");first.put("ownerUserId",9L);first.put("allocationId",1L);first.put("allocationVersion",0);first.put("allocationValue",new BigDecimal("100"));
+        Map<String,Object> second=new HashMap<String,Object>();second.put("projectId",94L);second.put("projectName","项目乙");second.put("ownerUserId",12L);second.put("allocationId",2L);second.put("allocationVersion",0);second.put("allocationValue",BigDecimal.ZERO);
+        BusinessProject projectA=project(93L,9L,"ACTIVE","APPROVED");projectA.setCostPolicyVersion(BusinessMemberDayCostService.POLICY);
+        second.put("ownerUserId",9L);
+        BusinessProject projectB=project(94L,9L,"ACTIVE","APPROVED");projectB.setCostPolicyVersion(BusinessMemberDayCostService.POLICY);
+        when(mapper.selectActiveUserById(11L)).thenReturn(staff);
+        when(mapper.selectUserAllocationWorkspace(eq(11L),any(Date.class))).thenReturn(Arrays.asList(first,second));
+        when(mapper.selectProjectById(93L)).thenReturn(projectA);when(mapper.selectProjectById(94L)).thenReturn(projectB);
+        Map<String,Object> current=service.staffAllocationWorkspace(11L,java.sql.Date.valueOf("2026-09-11"),9L,false);
+        Map<String,Object> body=new LinkedHashMap<String,Object>();body.put("userId",11L);body.put("effectiveDate","2026-09-11");body.put("reason","调整并行项目投入");body.put("versionToken",current.get("versionToken"));
+        body.put("allocations",Arrays.asList(row("projectId",93L,"allocationValue",60),row("projectId",94L,"allocationValue",40)));
+
+        service.saveStaffAllocationWorkspace(body,9L,"owner9",false);
+
+        ArgumentCaptor<BusinessProjectStaffAllocation> saved=ArgumentCaptor.forClass(BusinessProjectStaffAllocation.class);
+        verify(mapper,times(2)).insertProjectStaffAllocation(saved.capture());
+        assertEquals(Arrays.asList(new BigDecimal("60"),new BigDecimal("40")),Arrays.asList(saved.getAllValues().get(0).getAllocationValue(),saved.getAllValues().get(1).getAllocationValue()));
+        verify(memberDays).synchronizeAllocationChange(93L,java.sql.Date.valueOf("2026-09-11"),"owner9");
+        verify(memberDays).synchronizeAllocationChange(94L,java.sql.Date.valueOf("2026-09-11"),"owner9");
+    }
+
+    @Test
     void separatedProjectSettlementPreviewAndConfirmationUseOneStepClose()
     {
         BusinessProject p = project(910L, 9L, "ACTIVE", "APPROVED");
@@ -2793,6 +2887,13 @@ class BusinessProjectServiceImplTest
         p.setSponsorOwnerUserId(8L); p.setDeliveryPolicyVersion("SEPARATED_V1"); p.setAccountingState("OPEN");
         p.setActualEndDate(java.sql.Date.valueOf("2026-09-01"));
         return p;
+    }
+
+    private Map<String,Object> row(Object... values)
+    {
+        Map<String,Object> result=new LinkedHashMap<String,Object>();
+        for(int i=0;i<values.length;i+=2)result.put(String.valueOf(values[i]),values[i+1]);
+        return result;
     }
 
     private BusinessProject project(Long id, Long ownerId, String status, String baselineStatus)

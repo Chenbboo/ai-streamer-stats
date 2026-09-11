@@ -5,28 +5,95 @@
         <h1>负责人工作台</h1>
         <div class="owner-project-line">
           <el-select v-model="selectedProjectId" filterable placeholder="选择负责项目" aria-label="选择负责项目" @change="switchProject">
+            <el-option v-if="projects.length" label="全部项目" :value="ALL_PROJECTS"><span>全部项目</span><small class="project-option-meta">同步查看 {{ projects.length }} 个负责项目</small></el-option>
             <el-option v-for="item in projects" :key="item.projectId" :label="item.projectName" :value="item.projectId"><span>{{ item.projectName }}</span><small class="project-option-meta">{{ item.sponsorOwnerName || item.initiatorName || '未标注老板' }} · {{ projectStatusLabel(item) }}</small></el-option>
           </el-select>
+          <el-tag v-if="allProjectsMode" type="primary" effect="plain">共 {{ projects.length }} 个项目</el-tag>
           <el-tag v-if="project" :type="statusTone[project.status] || 'info'" effect="plain">{{ projectStatusLabel(project) }}</el-tag>
           <span v-if="project" class="owner-name">{{ project.mainOwnerName || userStore.name }}负责</span>
         </div>
       </div>
       <div class="hero-actions">
-        <el-button v-hasPermi="['business:project:report']" type="primary" :disabled="!canReportFinance" @click="openRevenue">{{ isLateSettlement ? '补录收入' : '录入收入' }}</el-button>
-        <el-button v-hasPermi="['business:project:report']" :disabled="!canReportFinance" @click="openDailySpend">{{ isLateSettlement ? '补录花费' : '填写花费' }}</el-button>
+        <el-button v-hasPermi="['business:project:report']" type="primary" :disabled="allProjectsMode || !canReportFinance" @click="openRevenue">{{ isLateSettlement ? '补录收入' : '录入收入' }}</el-button>
+        <el-button v-hasPermi="['business:project:report']" :disabled="allProjectsMode || !canReportFinance" @click="openDailySpend">{{ isLateSettlement ? '补录花费' : '填写花费' }}</el-button>
         <el-button v-hasPermi="['business:project:proposal:add']" @click="openProposals">发起立项</el-button>
         <el-button icon="Refresh" :loading="loading" @click="load(selectedProjectId)">刷新</el-button>
       </div>
     </header>
 
-    <div v-if="!project && !loading" class="no-project">
+    <div v-if="!loading && !project && !(allProjectsMode && projects.length)" class="no-project">
       <el-empty description="你目前还不是任何项目的主负责人">
         <p>你可以先发起立项申请；确认测算并自主启动后，你负责的正式项目会自动出现在这里。</p>
         <el-button v-hasPermi="['business:project:proposal:add']" type="primary" @click="openProposals">发起立项申请</el-button>
       </el-empty>
     </div>
 
-    <template v-if="project">
+    <template v-if="allProjectsMode && allProjectWorkspaces.length">
+      <section class="owner-quick-stats all-project-stats" aria-label="全部项目简要数据">
+        <article><span>负责项目</span><b>{{ allProjectWorkspaces.length }}<small>个</small></b><p>{{ allActiveProjectCount }} 个执行中</p></article>
+        <article><span>全部待办</span><b :class="{'stat-attention':allOwnerTodos.length}">{{ allOwnerTodos.length }}<small>项</small></b><p>{{ allUrgentTodoCount ? allUrgentTodoCount + ' 项优先处理' : '暂无紧急事项' }}</p></article>
+        <article><span>未完成任务</span><b>{{ allOpenTaskCount }}<small>项</small></b><p :class="{'stat-attention':allOverdueTaskCount}">{{ allOverdueTaskCount ? allOverdueTaskCount + ' 项已逾期' : '全部按计划推进' }}</p></article>
+        <article><span>今日确认收入</span><b class="all-currency-total">{{ allRevenueTotal }}</b><p>汇总全部负责项目</p></article>
+        <article><span>今日花费</span><b class="all-currency-total">{{ allSpendTotal }}</b><p>共 {{ allSpendItemCount }} 笔，不含人员成本</p></article>
+      </section>
+
+      <section class="panel owner-todos">
+        <div class="panel-head"><div><h2>全部项目待办 <el-tag size="small" :type="allOwnerTodos.length ? 'warning' : 'success'">{{ allOwnerTodos.length }} 项</el-tag></h2><p>按项目汇总，点击处理会自动进入对应项目</p></div></div>
+        <el-alert v-if="allProjectsLoadWarning" title="部分项目的 KPI 或结算状态暂未加载，其他数据已正常显示，可刷新重试。" type="warning" :closable="false" />
+        <div v-if="!allOwnerTodos.length && !loading" class="todo-empty">✓ 所有项目当前暂无需要处理的事项</div>
+        <article v-for="item in visibleAllOwnerTodos" :key="item.key" class="owner-todo-row">
+          <span :class="['todo-dot', { urgent: item.urgent }]"></span>
+          <div class="todo-copy"><b>{{ item.title }}</b><small>{{ item.projectName }} · {{ item.detail }}</small></div>
+          <el-tag v-if="item.urgent" type="danger" size="small" effect="plain">优先处理</el-tag>
+          <el-button size="small" type="primary" plain :disabled="loading || saving" @click="handleAllOwnerTodo(item)">去处理</el-button>
+        </article>
+        <el-button v-if="allOwnerTodos.length > 5" class="todo-expand" link type="primary" @click="allTodosExpanded = !allTodosExpanded">{{ allTodosExpanded ? '收起' : `查看全部 ${allOwnerTodos.length} 项` }}</el-button>
+      </section>
+
+      <el-tabs v-model="workspaceTab" class="owner-workspace-tabs all-project-tabs">
+        <el-tab-pane label="工作执行" name="execution">
+          <div class="owner-section-intro"><span>同步查看所有项目的进度、持续工作、任务和风险</span></div>
+          <section class="panel all-project-table-panel">
+            <el-table :data="allProjectWorkspaces" row-key="project.projectId">
+              <el-table-column label="项目" min-width="210" fixed="left"><template #default="{row}"><div class="all-project-name"><b>{{ row.project.projectName }}</b><small>{{ projectStatusLabel(row.project) }} · {{ row.project.mainOwnerName || userStore.name }}负责</small></div></template></el-table-column>
+              <el-table-column label="项目进度" min-width="150"><template #default="{row}"><span v-if="row.project.goalMode==='NO_TOTAL'">持续经营</span><el-progress v-else :percentage="projectEntryProgress(row)" :stroke-width="7" /></template></el-table-column>
+              <el-table-column label="持续工作" min-width="155"><template #default="{row}"><b>{{ entryTodayRoutines(row).length }} 项</b><small class="table-subtext">{{ entryUnreportedRoutines(row) }} 项今日未报</small></template></el-table-column>
+              <el-table-column label="一次性任务" min-width="165"><template #default="{row}"><b>{{ entryOpenTasks(row).length }} 项未完成</b><small class="table-subtext">{{ entryOverdueTasks(row) }} 项已逾期</small></template></el-table-column>
+              <el-table-column label="风险" min-width="115"><template #default="{row}">{{ entryOpenRisks(row) }} 项待处理</template></el-table-column>
+              <el-table-column label="操作" width="105" fixed="right"><template #default="{row}"><el-button link type="primary" @click="selectProject(row.project.projectId)">查看项目</el-button></template></el-table-column>
+            </el-table>
+          </section>
+        </el-tab-pane>
+        <el-tab-pane label="人员与收支" name="people">
+          <div class="owner-section-intro"><span>同步查看所有项目的成员、今日收入和今日花费</span></div>
+          <section class="panel all-project-table-panel">
+            <el-table :data="allProjectWorkspaces" row-key="project.projectId">
+              <el-table-column label="项目" min-width="210" fixed="left"><template #default="{row}"><div class="all-project-name"><b>{{ row.project.projectName }}</b><small>{{ row.project.companyName || '归属公司待设置' }}</small></div></template></el-table-column>
+              <el-table-column label="参项人员" min-width="115"><template #default="{row}">{{ row.project.members?.length || 0 }} 人</template></el-table-column>
+              <el-table-column label="今日确认收入" min-width="170"><template #default="{row}"><b class="amount-profit">{{ money(row.accounting?.dailyRevenue?.confirmedAmount) }} {{ row.project.baseCurrency || 'CNY' }}</b><small class="table-subtext">{{ row.accounting?.dailyRevenue?.draftCount || 0 }} 笔待确认</small></template></el-table-column>
+              <el-table-column label="今日花费" min-width="170"><template #default="{row}"><b>{{ money(row.accounting?.dailySpend?.amount) }} {{ row.accounting?.dailySpend?.currency || row.project.baseCurrency || 'CNY' }}</b><small class="table-subtext">{{ row.accounting?.dailySpendItems?.length || 0 }} 笔</small></template></el-table-column>
+              <el-table-column label="人员成本配置" min-width="155"><template #default="{row}"><el-tag :type="entryPersonnelIssueCount(row)?'warning':'success'" effect="plain">{{ entryPersonnelIssueCount(row) ? entryPersonnelIssueCount(row)+' 项待完善' : '正常' }}</el-tag></template></el-table-column>
+              <el-table-column label="操作" width="105" fixed="right"><template #default="{row}"><el-button link type="primary" @click="selectProject(row.project.projectId,'people')">查看明细</el-button></template></el-table-column>
+            </el-table>
+          </section>
+        </el-tab-pane>
+        <el-tab-pane label="项目与结算" name="project">
+          <div class="owner-section-intro"><span>同步查看所有项目的周期、KPI 和结算状态</span></div>
+          <section class="panel all-project-table-panel">
+            <el-table :data="allProjectWorkspaces" row-key="project.projectId">
+              <el-table-column label="项目" min-width="210" fixed="left"><template #default="{row}"><div class="all-project-name"><b>{{ row.project.projectName }}</b><small>{{ row.project.projectNo }}</small></div></template></el-table-column>
+              <el-table-column label="治理方式" min-width="165"><template #default="{row}"><b>{{ managementLabel[row.project.managementMode] || row.project.managementMode }}</b><small class="table-subtext">{{ closeMethodLabel[row.project.closeMethod] || row.project.closeMethod }}</small></template></el-table-column>
+              <el-table-column label="计划周期" min-width="210"><template #default="{row}">{{ row.project.planStartDate || '—' }} 至 {{ row.project.planEndDate || '不限期' }}</template></el-table-column>
+              <el-table-column label="项目KPI" min-width="145"><template #default="{row}"><b>{{ entryCurrentKpis(row).length }} 项</b><small class="table-subtext">{{ entryPublishedPlans(row) }} 个已发布方案</small></template></el-table-column>
+              <el-table-column label="结算待处理" min-width="140"><template #default="{row}"><el-tag :type="entrySettlementPending(row)?'warning':'success'" effect="plain">{{ entrySettlementPending(row) ? entrySettlementPending(row)+' 项' : '无' }}</el-tag></template></el-table-column>
+              <el-table-column label="操作" width="105" fixed="right"><template #default="{row}"><el-button link type="primary" @click="selectProject(row.project.projectId,'project')">查看结算</el-button></template></el-table-column>
+            </el-table>
+          </section>
+        </el-tab-pane>
+      </el-tabs>
+    </template>
+
+    <template v-if="project && !allProjectsMode">
       <section class="owner-quick-stats" aria-label="项目简要数据">
         <article><span>待办事项</span><b :class="{'stat-attention':ownerTodos.length}">{{ ownerTodos.length }}<small>项</small></b><p>{{ urgentTodoCount ? urgentTodoCount + ' 项优先处理' : '当前项目' }}</p></article>
         <article><span>未完成任务</span><b>{{ openTasks.length }}<small>项</small></b><p :class="{'stat-attention':overdueTaskCount}">{{ overdueTaskCount ? overdueTaskCount + ' 项已逾期' : '按计划推进' }}</p></article>
@@ -41,7 +108,7 @@
           <span :class="['todo-dot', { urgent: item.urgent }]"></span>
           <div class="todo-copy"><b>{{ item.title }}</b><small>{{ item.detail }}</small></div>
           <el-tag v-if="item.urgent" type="danger" size="small" effect="plain">优先处理</el-tag>
-          <el-button size="small" type="primary" plain :disabled="loading || saving" @click="handleOwnerTodo(item)">{{ item.action==='effort' ? '确认' : item.action==='revenue' ? '去填写' : '去处理' }}</el-button>
+          <el-button size="small" type="primary" plain :disabled="loading || saving" @click="handleOwnerTodo(item)">{{ item.action==='effort' ? '确认' : item.action==='revenue' ? '去填写' : item.action==='kpi-settings' ? '去设置' : '去处理' }}</el-button>
           <el-button v-if="item.action==='spend' && item.allowZero" size="small" :disabled="loading || saving" @click="confirmNoSpend">今日无支出</el-button>
           <el-button v-if="item.action==='revenue' && item.allowZero" size="small" :disabled="loading || saving" @click="confirmNoRevenue">今日无收入</el-button>
           <el-button v-if="item.action==='effort'" size="small" :disabled="loading || saving" @click="returnPendingEffort(item.item)">退回</el-button>
@@ -171,7 +238,7 @@
               <div class="daily-spend-actions"><el-button link type="primary" @click="editDailySpend(item)">修改</el-button><el-button link type="danger" @click="reverseDailySpend(item)">冲销</el-button></div>
             </div>
           </article></div>
-          <section v-if="usesActualWork" class="panel owner-cost-panel"><BusinessProjectWorkPanel :project-id="project.projectId"/></section>
+          <section v-if="usesActualWork" class="panel owner-cost-panel"><BusinessProjectWorkPanel :project-id="project.projectId" :members="project.members || []" :can-manage="canManageAllocation" @changed="load(project.projectId)"/></section>
           <article class="panel">
             <div class="panel-head"><div><h2>参项人员</h2><p>本项目共 {{ project.members?.length || 0 }} 人，考勤由飞书自动同步。</p></div></div>
             <div v-if="!project.members?.length" class="empty-block compact">尚未添加参项人员</div>
@@ -338,7 +405,9 @@ import { canContinueProjectSettlement, isSeparatedDelivery, isDeliveryEnded, pro
 
 const route=useRoute(),router=useRouter()
 const userStore=useUserStore()
-const todoKpi=ref({}),todoLoadFailed=ref(false),todosExpanded=ref(false)
+const ALL_PROJECTS='ALL'
+const todoKpi=ref(null),todoLoadFailed=ref(false),todosExpanded=ref(false),allTodosExpanded=ref(false)
+const allProjectWorkspaces=ref([]),allProjectsLoadWarning=ref(false)
 let ownerRequest=0
 const workspaceTab=ref('execution'),workspaceTabs=ref(null),settlementSummary=ref({}),settlementLoadFailed=ref(false)
 const ownerTodos=computed(()=>{
@@ -352,6 +421,23 @@ const urgentTodoCount=computed(()=>ownerTodos.value.filter(item=>item.urgent).le
 const visibleOwnerTodos=computed(()=>todosExpanded.value?ownerTodos.value:ownerTodos.value.slice(0,5))
 const loading=ref(false),saving=ref(false),data=ref({}),selectedProjectId=ref(null),revenueDialog=ref(false),reportDialog=ref(false),projectProgressDialog=ref(false),routineReportDialog=ref(false),dailyTargetDialog=ref(false),effortReturnDialog=ref(false),taskReportDialog=ref(false),evidenceDialog=ref(false)
 const projects=computed(()=>data.value.projects||[]),project=computed(()=>data.value.project||null)
+const allProjectsMode=computed(()=>selectedProjectId.value===ALL_PROJECTS)
+const allOwnerTodos=computed(()=>allProjectWorkspaces.value.flatMap(entry=>{
+  const rows=buildOwnerTodos({data:entry,userId:userStore.id,today:today(),permissions:userStore.permissions,kpi:entry.kpi})
+  const settlement=entry.settlement||{}
+  if(Number(settlement.pendingCostCount)>0)rows.push({key:'cost-setup',title:'完善人员成本',detail:'部分工作日缺少有效成本，请核对后补充',action:'people',urgent:true})
+  if(Number(settlement.pendingFactCount)>0)rows.push({key:'settlement-facts',title:'处理待结算收支',detail:settlement.pendingFactCount+' 笔收支需要处理',action:'settlement',urgent:true})
+  if(Number(settlement.pendingAwardCount)>0)rows.push({key:'settlement-awards',title:'查看待处理奖金',detail:'奖金事项将在项目结算中列出',action:'settlement'})
+  return rows.map(item=>({...item,key:`${entry.project.projectId}-${item.key}`,projectId:entry.project.projectId,projectName:entry.project.projectName}))
+}).sort((a,b)=>Number(!!b.urgent)-Number(!!a.urgent)))
+const visibleAllOwnerTodos=computed(()=>allTodosExpanded.value?allOwnerTodos.value:allOwnerTodos.value.slice(0,5))
+const allUrgentTodoCount=computed(()=>allOwnerTodos.value.filter(item=>item.urgent).length)
+const allActiveProjectCount=computed(()=>allProjectWorkspaces.value.filter(item=>item.project.status==='ACTIVE').length)
+const allOpenTaskCount=computed(()=>allProjectWorkspaces.value.reduce((sum,item)=>sum+entryOpenTasks(item).length,0))
+const allOverdueTaskCount=computed(()=>allProjectWorkspaces.value.reduce((sum,item)=>sum+entryOverdueTasks(item),0))
+const allSpendItemCount=computed(()=>allProjectWorkspaces.value.reduce((sum,item)=>sum+(item.accounting?.dailySpendItems?.length||0),0))
+const allRevenueTotal=computed(()=>currencyTotal(allProjectWorkspaces.value,item=>item.accounting?.dailyRevenue?.confirmedAmount))
+const allSpendTotal=computed(()=>currencyTotal(allProjectWorkspaces.value,item=>item.accounting?.dailySpend?.amount))
 const operating=computed(()=>data.value.operating||{}),accounting=computed(()=>data.value.accounting||{})
 const revenueCategories=computed(()=>accounting.value.revenueCategories||[])
 const expenseCategories=computed(()=>accounting.value.expenseCategories||[])
@@ -381,6 +467,7 @@ const isLateSettlement=computed(()=>isSeparatedDelivery(project.value)&&isDelive
 const canReportFinance=computed(()=>canContinueProjectSettlement(project.value)&&!!project.value?.companyDeptId&&(!isLateSettlement.value||!!project.value?.actualEndDate))
 const canReportProgress=computed(()=>project.value?.status==='ACTIVE'&&project.value?.goalMode!=='NO_TOTAL')
 const canSetDailyTarget=computed(()=>project.value?.status==='ACTIVE'&&(Number(project.value?.mainOwnerUserId)===Number(userStore.id)||userStore.roles.includes('admin')||userStore.permissions.includes('*:*:*')||userStore.permissions.includes('business:boss:view')))
+const canManageAllocation=computed(()=>!isDeliveryEnded(project.value)&&(Number(project.value?.mainOwnerUserId)===Number(userStore.id)||userStore.roles.includes('admin')||userStore.permissions.includes('*:*:*')||userStore.permissions.includes('business:boss:view')))
 const unreportedRoutineCount=computed(()=>todayRoutines.value.filter(item=>!item.todayReportId&&!routineLeave(item)).length)
 const routineReportNeedsReason=computed(()=>routineReportForm.value.targetMode!=='NONE'&&routineReportForm.value.actualValue!==null&&routineReportForm.value.actualValue!==undefined&&Number(routineReportForm.value.actualValue)<Number(routineReportForm.value.todayTarget||0))
 const reportBlockReason=computed(()=>projectAccountingState(project.value)==='CLOSED'?'项目核算已关闭，不能继续录入或更正收支':!project.value?.companyDeptId?'项目尚未设置归属公司，请联系归属老板完善后再填报':isLateSettlement.value?'实际结束日期缺失，请联系项目归属责任人核对':'项目进入执行中后才能提交经营数据')
@@ -450,6 +537,22 @@ function isTaskCompletedLate(task){const finishDate=taskFinishDate(task);return 
 function openTaskReports(task){taskReportTaskId.value=task?.taskId??null;taskReportDialog.value=true}
 function openTaskReportEvidence(report){openEvidenceFiles(taskName(report.taskId),report.submittedUserName,report.bizDate,report.evidenceUrls)}
 function money(value){return Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function currencyTotal(entries,amount){
+  const totals=new Map()
+  for(const entry of entries){const currency=entry.project?.baseCurrency||'CNY';totals.set(currency,(totals.get(currency)||0)+Number(amount(entry)||0))}
+  return [...totals.entries()].map(([currency,value])=>`${money(value)} ${currency}`).join(' / ')||'0.00 CNY'
+}
+function entryTodayRoutines(entry){return (entry.todayRoutines||[]).filter(item=>(!item.startDate||item.startDate<=today())&&(!item.endDate||item.endDate>=today()))}
+function entryUnreportedRoutines(entry){return entryTodayRoutines(entry).filter(item=>!item.todayReportId&&!entryRoutineLeave(entry,item)).length}
+function entryRoutineLeave(entry,routine){return routine.sourceManaged?null:(entry.todayLeaves||[]).find(item=>Number(item.userId)===Number(routine.assigneeUserId))}
+function entryOpenTasks(entry){return entry.openTasks||[]}
+function entryOverdueTasks(entry){return entryOpenTasks(entry).filter(task=>task.dueDate&&String(task.dueDate).slice(0,10)<today()).length}
+function entryOpenRisks(entry){return (entry.project?.risks||[]).filter(item=>item.status==='OPEN').length}
+function entryCurrentKpis(entry){return (entry.operating?.kpis||[]).filter(item=>item.status==='CURRENT')}
+function entryPublishedPlans(entry){return (entry.kpi?.plans||[]).filter(item=>item.status==='PUBLISHED').length}
+function entrySettlementPending(entry){const value=entry.settlement||{};return Number(value.pendingCostCount||0)+Number(value.pendingFactCount||0)+Number(value.pendingAwardCount||0)}
+function entryPersonnelIssueCount(entry){const alert=(entry.allocationAlerts||[]).find(item=>Number(item.projectId)===Number(entry.project.projectId));return Number(alert?.missingAllocationCount||0)+Number(alert?.missingRegionCount||0)+Number(alert?.missingCostCount||0)}
+function projectEntryProgress(entry){return Math.min(100,Math.max(0,Math.round(Number(entry.project?.progressPercent||0))))}
 function xu(value){return Number(value||0).toLocaleString('zh-CN',{maximumFractionDigits:2})}
 function signed(value){const n=Number(value||0);return `${n>0?'+':''}${money(n)}`}
 function amountTone(value){return Number(value||0)<0?'amount-loss':'amount-profit'}
@@ -466,8 +569,36 @@ function routineLeave(routine){return routine.sourceManaged?null:(data.value.tod
 function participantName(member){return member.userNameSnapshot||member.userName||'项目成员'}
 async function load(projectId){
   const request=++ownerRequest
-  loading.value=true;todoKpi.value={};todoLoadFailed.value=false;settlementSummary.value={};settlementLoadFailed.value=false
+  loading.value=true;todoKpi.value=null;todoLoadFailed.value=false;settlementSummary.value={};settlementLoadFailed.value=false
   try{
+    if(projectId===ALL_PROJECTS){
+      allProjectsLoadWarning.value=false;allTodosExpanded.value=false
+      const{data:seed={}}=await getBusinessOwnerWorkbench()
+      if(request!==ownerRequest)return
+      const projectRows=seed.projects||[]
+      const workspaceResults=await Promise.allSettled(projectRows.map(item=>Number(item.projectId)===Number(seed.project?.projectId)?Promise.resolve(seed):getBusinessOwnerWorkbench(item.projectId).then(response=>response.data||{})))
+      if(request!==ownerRequest)return
+      const workspaces=workspaceResults.flatMap(result=>result.status==='fulfilled'&&result.value?.project?[result.value]:[])
+      if(workspaces.length!==projectRows.length)allProjectsLoadWarning.value=true
+      const canLoadKpi=userStore.permissions.includes('*:*:*')||userStore.permissions.includes('business:kpi:list')
+      const enriched=await Promise.all(workspaces.map(async entry=>{
+        const projectId=entry.project.projectId
+        const [settlementResult,kpiResult]=await Promise.allSettled([
+          getBusinessProjectSettlementStatus(projectId),
+          canLoadKpi?getProjectKpiWorkspace(projectId):Promise.resolve({data:null})
+        ])
+        if(settlementResult.status==='rejected'||kpiResult.status==='rejected')allProjectsLoadWarning.value=true
+        return {...entry,settlement:settlementResult.status==='fulfilled'?(settlementResult.value.data||{}):{},kpi:kpiResult.status==='fulfilled'?kpiResult.value.data:null}
+      }))
+      if(request!==ownerRequest)return
+      data.value={...seed,project:null,projects:projectRows}
+      allProjectWorkspaces.value=enriched
+      selectedProjectId.value=ALL_PROJECTS
+      workspaceTab.value='execution'
+      await router.replace({query:{...route.query,projectId:'all'}})
+      return
+    }
+    allProjectWorkspaces.value=[];allProjectsLoadWarning.value=false
     const{data:payload={}}=await getBusinessOwnerWorkbench(projectId||undefined)
     if(request!==ownerRequest)return
     if(data.value.project?.projectId!==payload.project?.projectId){todosExpanded.value=false;workspaceTab.value='execution'}
@@ -486,6 +617,7 @@ async function load(projectId){
   }finally{if(request===ownerRequest)loading.value=false}
 }
 function handleOwnerTodo(item){
+  if(item.action==='allocation-review')return router.push({path:'/business/projects',query:{id:item.item.projectId,tab:'resources',allocationUserId:item.item.userId}})
   if(item.action==='people')return goToWorkspace('people')
   if(item.action==='settlement')return goToWorkspace('project')
   if(item.action==='progress')return openProjectProgressReport()
@@ -495,6 +627,7 @@ function handleOwnerTodo(item){
   if(item.action==='target')return openDailyTarget(item.item)
   if(item.action==='effort')return confirmPendingEffort(item.item)
   if(item.action==='task')return router.push({path:'/business/work-schedule',query:{projectId:project.value.projectId}})
+  if(item.action==='kpi-settings')return router.push({path:'/business/kpi-bonus',query:{projectId:project.value.projectId}})
   if(item.action==='kpi')return router.push({path:'/projects/kpi-results',query:{projectId:project.value.projectId,planId:item.planId}})
   return router.push({path:'/business/projects',query:{id:project.value.projectId,tab:item.tab||'overview'}})
 }
@@ -504,6 +637,8 @@ async function goToWorkspace(tab){
   workspaceTabs.value?.$el?.querySelector(':scope > .el-tabs__header')?.scrollIntoView({block:'start'})
 }
 function switchProject(id){load(id)}
+async function selectProject(projectId,tab){await load(projectId);if(tab)await goToWorkspace(tab)}
+async function handleAllOwnerTodo(item){await load(item.projectId);await nextTick();return handleOwnerTodo(item)}
 function openProject(){router.push({path:'/business/projects',query:{id:project.value.projectId}})}
 function openProjectAllocation(item){router.push({path:'/business/projects',query:{id:item.projectId,tab:'operating'}})}
 function openKpiBonus(){router.push({path:'/business/kpi-bonus',query:{projectId:project.value.projectId}})}
@@ -660,8 +795,9 @@ async function reverseDailySpend(item){
   saving.value=true
   try{await reverseBusinessProjectDailySpend(item.factId,{reason:value.trim()});ElMessage.success('该笔花费已冲销，今日总额已更新');await load(selectedProjectId.value)}finally{saving.value=false}
 }
-load(route.query.projectId?Number(route.query.projectId):undefined)
-useBusinessRefreshOnReactivated(() => load(selectedProjectId.value || (route.query.projectId ? Number(route.query.projectId) : undefined)))
+const initialProject=String(route.query.projectId||'').toLowerCase()==='all'?ALL_PROJECTS:(route.query.projectId?Number(route.query.projectId):undefined)
+load(initialProject)
+useBusinessRefreshOnReactivated(() => load(selectedProjectId.value || initialProject))
 </script>
 
 
