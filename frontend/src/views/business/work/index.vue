@@ -3,8 +3,8 @@
     <header class="work-hero">
       <div><span>MY WORK SCHEDULE</span><h1>我的安排</h1><p>只显示分配给你的工作，按今日、本周和本月查看。</p></div>
       <div class="work-hero-actions">
-        <el-select v-model="selectedProjectId" class="work-project-select" filterable :disabled="!projectOptions.length" placeholder="暂无参与项目" aria-label="选择项目范围">
-          <el-option :label="`全部项目（${projectOptions.length}）`" :value="ALL_PROJECTS" />
+        <el-select v-model="selectedProjectId" class="work-project-select" filterable placeholder="所有任务" aria-label="选择项目范围">
+          <el-option label="所有任务" :value="ALL_PROJECTS" />
           <el-option v-for="project in projectOptions" :key="project.projectId" :label="projectOptionLabel(project)" :value="project.projectId" />
         </el-select>
         <el-button icon="Refresh" :loading="loading" @click="load">刷新</el-button>
@@ -102,7 +102,7 @@ import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 
 const router=useRouter(),route=useRoute()
 const ALL_PROJECTS='ALL_PROJECTS'
-const loading=ref(false),saving=ref(false),savingEffortId=ref(null),data=ref({}),period=ref('DAY'),anchorDate=ref(today()),selectedProjectId=ref(ALL_PROJECTS),reportDialog=ref(false),reportForm=ref({}),taskReportDialog=ref(false),taskReportForm=ref({})
+const loading=ref(false),saving=ref(false),savingEffortId=ref(null),data=ref({}),period=ref('DAY'),anchorDate=ref(today()),selectedProjectId=ref(route.query.projectId??ALL_PROJECTS),reportDialog=ref(false),reportForm=ref({}),taskReportDialog=ref(false),taskReportForm=ref({})
 const projectBonuses=computed(()=>data.value.projectBonuses||[])
 const projectOptions=computed(()=>projectBonuses.value)
 const projectMatches=item=>selectedProjectId.value===ALL_PROJECTS||String(item.projectId)===String(selectedProjectId.value)
@@ -142,7 +142,7 @@ const projectOptionLabel=project=>project.projectNo?`${project.projectName} · $
 function routineBelowTarget(routine){return routine.targetMode!=='NONE'&&!!routine.todayReportId&&Number(routine.todayActual)<Number(routine.todayTarget||0)}
 function routineTargetDescription(routine){if(routine.targetMode==='NONE')return '无量化目标：只需填写今日完成说明';if(isToday.value&&routine.targetMode==='DAILY_DYNAMIC'&&!routine.todayTargetId)return '今日目标：等待负责人下达';if(isToday.value)return `今日目标：${routine.todayTarget ?? 0} ${routine.unit}`;return `周期累计：${routine.periodActual || 0} ${routine.unit}`}
 function today(){return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Shanghai'})}
-async function load(){loading.value=true;try{const payload=(await getBusinessWorkDashboard({period:period.value,anchorDate:anchorDate.value})).data||{};payload.efforts=(payload.efforts||[]).map(item=>({...item,actualPercent:Number(item.actualPercent||0),editing:false,_savedActualPercent:Number(item.actualPercent||0),_savedDeviationReason:item.deviationReason||''}));data.value=payload;const projects=payload.projectBonuses||[];const requested=projects.find(project=>String(project.projectId)===String(route.query.projectId));if(requested)selectedProjectId.value=requested.projectId;else if(selectedProjectId.value!==ALL_PROJECTS&&!projects.some(project=>String(project.projectId)===String(selectedProjectId.value)))selectedProjectId.value=ALL_PROJECTS}finally{loading.value=false}}
+async function load(){loading.value=true;try{const payload=(await getBusinessWorkDashboard({period:period.value,anchorDate:anchorDate.value})).data||{};payload.efforts=(payload.efforts||[]).map(item=>({...item,actualPercent:Number(item.actualPercent||0),editing:false,_savedActualPercent:Number(item.actualPercent||0),_savedDeviationReason:item.deviationReason||''}));data.value=payload;const projects=payload.projectBonuses||[];const selected=projects.find(project=>String(project.projectId)===String(selectedProjectId.value));selectedProjectId.value=selected?.projectId??ALL_PROJECTS}finally{loading.value=false}}
 watch(()=>route.query.projectId,value=>{const requested=projectOptions.value.find(project=>String(project.projectId)===String(value));selectedProjectId.value=requested?.projectId??ALL_PROJECTS})
 function changePeriod(){load()}
 function goToday(){anchorDate.value=today();load()}
