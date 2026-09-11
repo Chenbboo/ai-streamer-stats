@@ -91,6 +91,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     @Autowired
     private BusinessProjectManagementFeeService managementFeeService;
 
+    @Autowired private com.ruoyi.business.mapper.BusinessProjectProgressMapper progressMapper;
     @Autowired private BusinessProjectWorkMapper workMapper;
     @Autowired private BusinessMemberDayCostService memberDays;
     @Autowired private BusinessProjectWorkService workService;
@@ -161,6 +162,78 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     public BusinessProject createProject(BusinessProject project, Long userId, String userName)
     {
         throw new ServiceException("正式项目不能从此入口创建，请先完成项目测算并由负责人启动");
+    }
+
+    @Override
+    public List<BusinessProject> projectHierarchy(Map<String, Object> query, Long userId, boolean viewAll, boolean boss)
+    {
+        Map<String, Object> scoped = query == null ? new HashMap<>() : new HashMap<>(query);
+        scoped.put("userId", userId);
+        scoped.put("viewAll", viewAll);
+        scoped.put("boss", boss);
+        List<BusinessProject> rows = mapper.selectProjectRoots(scoped);
+        // Preserve PageHelper's Page instance and its root-only total when masking context rows.
+        for (int index = 0; index < rows.size(); index++)
+        {
+            BusinessProject project = rows.get(index);
+            if (project.isContextOnly())
+            {
+                BusinessProject context = new BusinessProject();
+                context.setProjectId(project.getProjectId());
+                context.setProjectName("主项目（仅展示层级）");
+                context.setContextOnly(true);
+                context.setMatchedChildId(project.getMatchedChildId());
+                rows.set(index, context);
+            }
+            else decorateHierarchyProject(project, userId, boss);
+        }
+        return rows;
+    }
+
+    @Override
+    public List<BusinessProject> projectChildren(Long parentId, Long userId, boolean viewAll, boolean boss)
+    {
+        BusinessProject parent = requireProject(parentId);
+        if (parent.getParentId() != null) throw new ServiceException("仅支持主项目与子项目两级结构");
+        Map<String, Object> query = new HashMap<>();
+        query.put("parentId", parentId);
+        List<BusinessProject> rows = listProjects(query, userId, viewAll, boss);
+        for (BusinessProject project : rows) decorateHierarchyProject(project, userId, boss);
+        return rows;
+    }
+
+    private void decorateHierarchyProject(BusinessProject project, Long userId, boolean boss)
+    {
+        String role = mapper.selectMemberRole(project.getProjectId(), userId);
+        project.setManageable(SecurityUtils.isAdmin(userId)
+            || (boss ? userId.equals(projectSponsorUserId(project)) : Arrays.asList("OWNER", "DEPUTY").contains(role)));
+    }
+
+    @Override
+    public List<Map<String, Object>> projectCompanyOptions()
+    {
+        return mapper.selectProjectCompanyOptions();
+    }
+
+    @Override
+    public void validateSubprojectParent(Long parentId, Long sponsorId, Long applicantId)
+    {
+        BusinessProject parent = requireProjectForUpdate(parentId);
+        requireManage(parent, applicantId, applicantId.equals(projectSponsorUserId(parent)));
+        ensureMutable(parent);
+        validateParent(parentId, null, sponsorId);
+    }
+
+    @Override
+    @Transactional
+    public void deleteProject(Long projectId, Long userId, String userName, boolean boss)
+    {
+        BusinessProject project = requireProjectForUpdate(projectId);
+        requireManage(project, userId, boss);
+        if (mapper.countSubprojects(projectId) > 0)
+            throw new ServiceException("该项目包含子项目，请先删除所有子项目，再删除主项目");
+        if (mapper.softDeleteProject(projectId, project.getVersion(), userName) != 1) throw changed();
+        addEvent(projectId, "DELETE", project.getStatus(), project.getStatus(), userId, userName, "删除项目，保留历史记录");
     }
 
     @Override
@@ -335,7 +408,11 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     public BusinessProject createApprovedProject(BusinessProjectProposal proposal, Long reviewerUserId, String reviewerUserName)
     {
         if (proposal == null || proposal.getProposalId() == null) throw new ServiceException("立项申请不能为空");
-        Map<String, Object> owner = requireActiveUser(proposal.getApplicantUserId());
+        if (proposal.getParentProjectId() != null) {
+            validateSubprojectParent(proposal.getParentProjectId(), proposal.getSponsorOwnerUserId(), proposal.getApplicantUserId());
+            if (proposal.getAssignedOwnerUserId() == null) throw new ServiceException("请选择子项目负责人");
+        }
+        Map<String, Object> owner = requireActiveUser(proposal.getEffectiveOwnerUserId());
         Map<String, Object> sponsor = requireActiveUser(proposal.getSponsorOwnerUserId());
         if (!reviewerUserId.equals(proposal.getApplicantUserId())
             && !reviewerUserId.equals(proposal.getSponsorOwnerUserId()))
@@ -368,7 +445,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         project.setBudgetReason(proposal.getBudgetReason());
         project.setExecutionSource(proposal.getExecutionSource());
         project.setRemark(proposal.getApplicationReason());
-        project.setMainOwnerUserId(proposal.getApplicantUserId());
+        project.setMainOwnerUserId(proposal.getEffectiveOwnerUserId());
         validateProject(project);
         validateParent(project.getParentId(), null, proposal.getSponsorOwnerUserId());
 
@@ -376,7 +453,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             + IdUtils.fastSimpleUUID().substring(0, 4).toUpperCase());
         project.setMainOwnerName(displayName(owner));
         project.setApplicantUserId(proposal.getApplicantUserId());
-        project.setApplicantName(displayName(owner));
+        project.setApplicantName(proposal.getParentProjectId() == null ? displayName(owner) : proposal.getApplicantName());
         project.setSponsorOwnerUserId(proposal.getSponsorOwnerUserId());
         project.setSponsorOwnerName(displayName(sponsor));
         // 兼容旧字段；新权限和页面语义以 sponsorOwner 为准。
@@ -442,7 +519,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             for(Map<String,Object> line:proposal.getStaffingLines()==null?Collections.<Map<String,Object>>emptyList():proposal.getStaffingLines())
             {
                 Map<String,Object> assignment=new LinkedHashMap<String,Object>(line);assignment.put("effectiveFrom",line.get("planStartDate"));assignment.put("effectiveTo",line.get("planEndDate"));assignment.put("reason",line.get("note"));assignment.put("participationOnly",true);
-                workService.saveAssignment(project.getProjectId(),assignment,reviewerUserId,reviewerUserName);
+                if (project.getParentId() == null) workService.saveAssignment(project.getProjectId(),assignment,reviewerUserId,reviewerUserName);
+                else workService.saveInitialAssignment(project,assignment,reviewerUserId,reviewerUserName);
             }
         }
 
@@ -544,6 +622,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         BusinessProject current = requireProjectForUpdate(input.getProjectId());
         requireManage(current, userId, boss);
         ensureMutable(current);
+        if (!java.util.Objects.equals(input.getParentId(), current.getParentId()))
+            throw new ServiceException("归属主项目不可修改");
         input.setBaseCurrency(current.getBaseCurrency());
         input.setBudgetLimit(current.getBudgetLimit());
         if (StringUtils.isBlank(input.getManagementMode())) input.setManagementMode(current.getManagementMode());
@@ -1652,39 +1732,149 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     {
         if (report == null || report.getProjectId() == null) throw new ServiceException("请选择项目");
         BusinessProject project = requireProjectForUpdate(report.getProjectId());
-        if (!viewAll && !userId.equals(project.getMainOwnerUserId()))
-            throw new ServiceException("只能由项目主负责人本人填报项目进度");
-        if (!"ACTIVE".equals(project.getStatus())) throw new ServiceException("项目执行中才能填报项目完成情况");
-        if ("NO_TOTAL".equals(effectiveGoalMode(project)))
-            throw new ServiceException("不计入总目标的持续经营项目无需填写项目完成百分比，请通过每日目标和任务完成情况跟踪进展");
-
-        Date today = DateUtils.getNowDate();
-        if (report.getBizDate() == null) report.setBizDate(today);
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
-        if (!dateFormat.format(today).equals(dateFormat.format(report.getBizDate())))
-            throw new ServiceException("只能填报今日项目完成情况");
+        if (!Objects.equals(userId, project.getMainOwnerUserId()))
+            throw new ServiceException("只能由项目主负责人本人汇报进度");
+        if (!"ACTIVE".equals(project.getStatus()) && !"PAUSED".equals(project.getStatus()))
+            throw new ServiceException("项目执行中或暂停时才能汇报进度");
+        if (project.getParentId() == null && mapper.countSubprojects(project.getProjectId()) > 0)
+            throw new ServiceException("总项目进度由子项目自动汇总，请在子项目汇报");
+        if (project.getParentId() == null && "NO_TOTAL".equals(effectiveGoalMode(project)))
+            throw new ServiceException("不计入总目标的持续经营项目无需填写项目完成百分比");
         if (report.getProgress() == null || report.getProgress() < 0 || report.getProgress() > 100)
             throw new ServiceException("项目进度必须在0到100之间");
-        BusinessProjectProgressReport latest = mapper.selectLatestProjectProgressReport(project.getProjectId());
-        int currentProgress = latest == null || latest.getProgress() == null ? 0 : latest.getProgress();
-        if (report.getProgress() < currentProgress)
-            throw new ServiceException("项目进度只能增加，不能低于当前进度");
-        if (StringUtils.isBlank(report.getCompletionSummary())) throw new ServiceException("请填写实际完成情况");
-        if (StringUtils.isBlank(report.getEvidenceUrls())) throw new ServiceException("请上传成果凭证");
-        if (report.getCompletionSummary().length() > 2000) throw new ServiceException("实际完成情况不能超过2000字");
+        validateProgressText(report.getCompletionSummary(), "阶段成果", true);
+        validateProgressText(report.getIssuesRisks(), "问题风险", project.getParentId() != null);
+        validateProgressText(report.getNextPlan(), "下一步计划", project.getParentId() != null);
+        if (report.getEvidenceUrls() == null) report.setEvidenceUrls("");
         if (report.getEvidenceUrls().length() > 4000) throw new ServiceException("成果凭证文件过多");
-        businessFileService.validateReferences(report.getEvidenceUrls(), project.getProjectId(), userId, false, SecurityUtils.isAdmin(userId));
-
+        if (!report.getEvidenceUrls().isEmpty()) businessFileService.validateReferences(report.getEvidenceUrls(), project.getProjectId(), userId, false, SecurityUtils.isAdmin(userId));
+        BusinessProjectProgressReport latest = mapper.selectLatestProjectProgressReport(project.getProjectId());
+        Date now = DateUtils.getNowDate();
+        report.setReportId(null);
+        report.setBizDate(now);
+        report.setCreateTime(now);
+        report.setUpdateTime(null);
+        report.setUpdateBy(null);
+        report.setVersion(latest == null ? 1 : (latest.getVersion() == null ? 0 : latest.getVersion()) + 1);
         report.setCompletionSummary(report.getCompletionSummary().trim());
         report.setSubmittedUserId(userId);
         report.setSubmittedUserName(displayName(requireActiveUser(userId)));
         report.setCreateBy(userName);
-        mapper.upsertProjectProgressReport(report);
-        String eventSummary = report.getCompletionSummary().length() > 900
-            ? report.getCompletionSummary().substring(0, 900) : report.getCompletionSummary();
-        addEvent(project.getProjectId(), "PROJECT_PROGRESS", project.getStatus(), project.getStatus(), userId, userName,
-            report.getProgress() + "% / " + eventSummary);
-        return mapper.selectProjectProgressReport(project.getProjectId(), report.getBizDate());
+        report.setParentProjectId(project.getParentId());
+        report.setProjectNameSnapshot(project.getProjectName());
+        report.setSyncTasks(Boolean.TRUE.equals(report.getSyncTasks()));
+        report.setSyncRoutines(Boolean.TRUE.equals(report.getSyncRoutines()));
+        // Capture authoritative data at submission; never trust a snapshot supplied by the client.
+        report.setSnapshotJson(com.alibaba.fastjson2.JSON.toJSONString(progressSnapshot(project, now)));
+        mapper.insertProjectProgressReport(report);
+        String comment = "汇报 v" + report.getVersion() + " / " + report.getProgress() + "% / "
+            + report.getCompletionSummary().substring(0, Math.min(700, report.getCompletionSummary().length()));
+        addEvent(project.getProjectId(), "PROJECT_PROGRESS", project.getStatus(), project.getStatus(), userId, report.getSubmittedUserName(), "[子项目:" + project.getProjectId() + "][汇报:" + report.getReportId() + "] " + comment);
+        if (project.getParentId() != null) {
+            BusinessProject parent = requireProject(project.getParentId());
+            addEvent(parent.getProjectId(), "SUBPROJECT_PROGRESS", parent.getStatus(), parent.getStatus(), userId,
+                report.getSubmittedUserName(), "[子项目:" + project.getProjectId() + "][汇报:" + report.getReportId() + "] " + project.getProjectName() + " / " + comment);
+            progressMapper.notifyOwner(report.getReportId(), parent.getMainOwnerUserId());
+        }
+        return report;
+    }
+
+    private void validateProgressText(String value, String label, boolean required) {
+        if (required && StringUtils.isBlank(value)) throw new ServiceException("请填写" + label + "（无内容可填写“无”）");
+        if (value != null && value.length() > 2000) throw new ServiceException(label + "不能超过2000字");
+    }
+
+    @Override
+    @Transactional
+    public void setProgressWeight(Long parentId, Long projectId, BigDecimal weight, Long userId, String userName) {
+        BusinessProject parent = requireProjectForUpdate(parentId);
+        if (parent.getParentId() != null || !Objects.equals(userId,parent.getMainOwnerUserId()))
+            throw new ServiceException("仅总项目负责人可配置子项目权重");
+        ensureMutable(parent);
+        if (weight != null && (weight.signum() <= 0 || weight.compareTo(new BigDecimal("99999999")) > 0 || weight.scale() > 4))
+            throw new ServiceException("权重必须大于0、不超过99999999，最多4位小数；留空按1计算");
+        if (progressMapper.setWeight(projectId,parentId,weight,userName) != 1) throw new ServiceException("子项目不存在或不属于该总项目");
+        addEvent(parentId,"PROGRESS_WEIGHT",parent.getStatus(),parent.getStatus(),userId,userName,
+            "子项目 " + projectId + " 的进度权重调整为 " + (weight == null ? "默认等权1" : weight.toPlainString()));
+    }
+
+    private Map<String,Object> progressSnapshot(BusinessProject project, Date now) {
+        Map<String,Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("capturedAt", now);
+        snapshot.put("projectId", project.getProjectId());
+        snapshot.put("projectName", project.getProjectName());
+        snapshot.put("parentProjectId", project.getParentId());
+        snapshot.put("progressWeight", project.getProgressWeight());
+        snapshot.put("tasks", mapper.selectTasks(project.getProjectId()));
+        snapshot.put("taskReports", progressMapper.taskReports(project.getProjectId()));
+        List<BusinessProjectRoutine> routines = new ArrayList<>(mapper.selectRoutines(project.getProjectId(), now));
+        Map<String,Object> relation = mapper.selectActiveExecutionRelation(project.getProjectId());
+        if (relation != null && "LIVE".equals(relation.get("sourceDomain"))) {
+            List<BusinessProjectRoutine> linked = mapper.selectLiveStreamerRoutines(relation);
+            if (linked != null) routines.addAll(linked);
+        }
+        snapshot.put("routines", routines);
+        snapshot.put("executionPeriods", mapper.selectWorkPeriods(project.getProjectId()));
+        return snapshot;
+    }
+
+    @Override
+    public Map<String,Object> progressWorkspace(Long projectId, Long userId, boolean viewAll, boolean boss) {
+        BusinessProject project = mapper.selectProjectById(projectId);
+        if (project == null) project = progressMapper.archiveProject(projectId);
+        if (project == null) throw new ServiceException("项目不存在");
+        boolean parentOwner = false;
+        if (project.getParentId() != null) {
+            BusinessProject parent = progressMapper.archiveProject(project.getParentId());
+            parentOwner = parent != null && Objects.equals(parent.getMainOwnerUserId(), userId);
+        }
+        if (!parentOwner) {
+            try { requireAccess(project,userId,viewAll,boss); }
+            catch (ServiceException denied) {
+                // Former parent owners retain only the versions addressed to them, never future or live data.
+                List<BusinessProjectProgressReport> received = progressMapper.recipientHistory(projectId,userId);
+                if (received.isEmpty()) throw denied;
+                Map<String,Object> archive = new LinkedHashMap<>();
+                archive.put("projectId",projectId);archive.put("parentId",project.getParentId());
+                archive.put("projectName",received.get(0).getProjectNameSnapshot());
+                archive.put("progressPercent",received.get(0).getProgress());archive.put("reports",received);
+                archive.put("canSubmit",false);archive.put("canConfigureWeights",false);
+                return archive;
+            }
+        }
+        Map<String,Object> result = new LinkedHashMap<>();
+        result.put("projectId", projectId); result.put("projectName", project.getProjectName());
+        result.put("parentId", project.getParentId()); result.put("progressPercent", project.getProgressPercent());
+        result.put("canConfigureWeights", project.getParentId() == null && Objects.equals(userId,project.getMainOwnerUserId())
+            && !"2".equals(project.getDelFlag()) && !Arrays.asList("CLOSED","CANCELED").contains(project.getStatus()));
+        result.put("canSubmit", !"2".equals(project.getDelFlag()) && Objects.equals(userId,project.getMainOwnerUserId()) && ("ACTIVE".equals(project.getStatus()) || "PAUSED".equals(project.getStatus())) && (project.getParentId() != null || mapper.countSubprojects(projectId) == 0));
+        result.put("reporterName", Objects.equals(userId,project.getMainOwnerUserId()) ? displayName(requireActiveUser(userId)) : null);
+        result.put("serverTime", DateUtils.getNowDate());
+        result.put("snapshot", progressSnapshot(project, DateUtils.getNowDate()));
+        result.put("reports", progressMapper.history(projectId));
+        if (project.getParentId() == null) {
+            boolean full = viewAll || Objects.equals(userId, project.getMainOwnerUserId())
+                || (boss && Objects.equals(userId, projectSponsorUserId(project)));
+            Map<String,Object> query = new HashMap<>();
+            query.put("parentId",projectId); query.put("viewAll",full); query.put("boss",boss); query.put("userId",userId);
+            List<BusinessProject> children = mapper.selectProjectList(query);
+            List<Map<String,Object>> summaries = new ArrayList<>();
+            Set<Long> visibleIds = new HashSet<>();
+            for (BusinessProject child : children) {
+                visibleIds.add(child.getProjectId());
+                Map<String,Object> summary = new LinkedHashMap<>();
+                summary.put("projectId",child.getProjectId()); summary.put("projectName",child.getProjectName());
+                summary.put("progressPercent",child.getProgressPercent()); summary.put("progressWeight",child.getProgressWeight());
+                summary.put("progressSummary",child.getProgressSummary()); summary.put("progressReportTime",child.getProgressReportTime());
+                summaries.add(summary);
+            }
+            result.put("children",summaries);
+            List<BusinessProjectProgressReport> childReports = new ArrayList<>();
+            for (BusinessProjectProgressReport item : progressMapper.childHistory(projectId))
+                if (full || visibleIds.contains(item.getProjectId())) childReports.add(item);
+            result.put("childReports",childReports);
+        }
+        return result;
     }
 
     @Override
@@ -2574,6 +2764,11 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     private void requireAccess(BusinessProject project, Long userId, boolean viewAll, boolean boss)
     {
         if (viewAll) return;
+        if (project.getParentId() != null && userId.equals(project.getApplicantUserId())) {
+            BusinessProject parent = mapper.selectProjectById(project.getParentId());
+            if (parent != null && (userId.equals(parent.getMainOwnerUserId())
+                || Arrays.asList("OWNER", "DEPUTY").contains(mapper.selectMemberRole(parent.getProjectId(), userId)))) return;
+        }
         if (boss)
         {
             if (userId.equals(projectSponsorUserId(project))) return;
@@ -2954,6 +3149,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     {
         if (project == null || StringUtils.isBlank(project.getProjectName())) throw new ServiceException("项目名称不能为空");
         if (project.getProjectName().length() > 160) throw new ServiceException("项目名称不能超过160个字符");
+        if (project.getObjective() != null && project.getObjective().length() > 1000)
+            throw new ServiceException("项目目标不能超过1000个字符");
         if (project.getMainOwnerUserId() == null) throw new ServiceException("请选择项目主负责人");
         if (StringUtils.isBlank(project.getProjectType())) project.setProjectType("GENERAL");
         if (StringUtils.isNotBlank(project.getExecutionSource()) && !"LIVE".equals(project.getExecutionSource()))
@@ -3055,16 +3252,10 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     {
         if (parentId == null) return;
         if (parentId.equals(currentProjectId)) throw new ServiceException("项目不能成为自己的父项目");
-        BusinessProject cursor = requireProject(parentId);
+        BusinessProject cursor = requireProjectForUpdate(parentId);
         if (!sponsorOwnerUserId.equals(projectSponsorUserId(cursor)))
             throw new ServiceException("上级项目必须属于同一位归属老板");
-        int depth = 1;
-        while (cursor.getParentId() != null)
-        {
-            if (cursor.getParentId().equals(currentProjectId)) throw new ServiceException("父子项目关系不能形成循环");
-            if (++depth > 5) throw new ServiceException("项目层级最多支持5层");
-            cursor = requireProject(cursor.getParentId());
-        }
+        if (cursor.getParentId() != null) throw new ServiceException("仅支持主项目与子项目两级结构，子项目不能再创建下级项目");
     }
 
     private Map<String, Object> requireActiveUser(Long userId)

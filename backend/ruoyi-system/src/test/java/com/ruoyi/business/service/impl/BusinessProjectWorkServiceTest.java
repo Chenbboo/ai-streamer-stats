@@ -43,6 +43,15 @@ class BusinessProjectWorkServiceTest
         lenient().doAnswer(call->{Map<String,Object> v=call.getArgument(0);entry.put("status",v.get("toStatus"));entry.put("isCurrent",v.get("isCurrent"));entry.put("logicalEntryId",101L);entry.put("version",((Number)entry.get("version")).intValue()+1);return 1;}).when(mapper).transitionEntry(anyMap());
     }
 
+    @Test void initialChildPlanKeepsActualOperatorWithoutGrantingOngoingManagement() {
+        project.setParentId(2L);project.setSourceProposalId(3L);project.setApplicantUserId(9L);
+        Map<String,Object> body=row("userId",10L,"effectiveFrom","2026-03-02","effectiveTo","2026-03-03","inputUnit","DAY","inputQuantity","0.5","calendarId",1L,"unitPolicyId",1L,"participationOnly",true);
+        Map<String,Object> saved=service.saveInitialAssignment(project,body,9L,"总负责人");
+        assertEquals(10L,saved.get("userId"));assertEquals("总负责人",saved.get("userName"));
+        assertThrows(ServiceException.class,()->service.saveAssignment(1L,body,9L,"总负责人"));
+        assertThrows(ServiceException.class,()->service.saveInitialAssignment(project,body,99L,"无关人员"));
+    }
+
     @Test void workUnitUsesItsOwnSnapshotInsteadOfCalendarCapacity()
     {
         Map<String,Object> result=service.saveEntry(1L,input("0.5"),30L,"member");

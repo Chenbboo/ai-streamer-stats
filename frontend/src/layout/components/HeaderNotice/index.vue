@@ -23,11 +23,15 @@
         </div>
       </div>
 
+<div class="notice-header"><span class="notice-title">子项目进度汇报</span><span>{{ progressNotices.filter(n=>!n.readTime).length }} 条未读</span></div>
+      <div v-if="progressError" class="notice-empty">汇报通知加载失败 <el-button link @click="loadProgress">重试</el-button></div>
+      <div v-else-if="!progressNotices.length" class="notice-empty">暂无进度汇报通知</div>
+      <div class="progress-notices"><button v-for="item in progressNotices" :key="item.notificationId" class="notice-item progress-notice" :class="{'is-read':item.readTime}" @click="openProgress(item)"><span class="notice-item-title">{{ item.projectName }} · {{ item.progress }}%<small>{{ item.reporterName }} · {{ parseTime(item.createTime) }}</small></span><el-tag v-if="!item.readTime" size="small">未读</el-tag></button></div>
       <!-- 触发器 -->
       <template #reference>
         <div class="right-menu-item hover-effect notice-trigger">
           <svg-icon icon-class="bell" />
-          <span v-if="unreadCount > 0" class="notice-badge">{{ unreadCount }}</span>
+          <span v-if="unreadCount + progressNotices.filter(n=>!n.readTime).length > 0" class="notice-badge">{{ unreadCount + progressNotices.filter(n=>!n.readTime).length }}</span>
         </div>
       </template>
     </el-popover>
@@ -38,9 +42,18 @@
 </template>
 
 <script setup>
+import { getProgressNotifications, readProgressNotification } from '@/api/business/project'
+import { parseTime } from '@/utils/ruoyi'
+import { useRouter } from 'vue-router'
 import NoticeDetailView from './DetailView'
 import { listNoticeTop, markNoticeRead, markNoticeReadAll } from '@/api/system/notice'
 
+const router = useRouter(), progressNotices = ref([]), progressError = ref(false)
+let progressTimer
+async function loadProgress(){try{const res=await getProgressNotifications();progressNotices.value=res.data||[];progressError.value=false}catch{progressError.value=true}}
+async function openProgress(item){noticeVisible.value=false;await router.push({path:'/business/projects',query:{progressProjectId:item.projectId,reportId:item.reportId}});if(!item.readTime){try{await readProgressNotification(item.notificationId);item.readTime=new Date().toISOString()}catch{/* Keep unread state when acknowledgement fails. */}}}
+onMounted(()=>{loadProgress();progressTimer=setInterval(loadProgress,60000)})
+onBeforeUnmount(()=>clearInterval(progressTimer))
 const noticePopover = ref(null)
 const noticeList = ref([])
 const unreadCount = ref(0)
@@ -60,6 +73,7 @@ function loadNoticeTop() {
 }
 
 onMounted(() => loadNoticeTop())
+watch(noticeVisible, shown => { if(shown)loadProgress() })
 
 // 预览公告详情
 function previewNotice(item) {
@@ -83,6 +97,7 @@ function markAllRead() {
 </script>
 
 <style lang="scss" scoped>
+.progress-notices{max-height:320px;overflow:auto}.progress-notice{width:100%;background:transparent;border:0;text-align:left}.progress-notice small{display:block;margin-top:5px;color:#8793a1}
 .notice-trigger {
   position: relative;
   transform: translateX(-6px);

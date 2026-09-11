@@ -1533,7 +1533,7 @@ class BusinessProjectServiceImplTest
             () -> service.submitProjectProgressReport(report, 9L, "owner9", false));
 
         assertTrue(error.getMessage().contains("无需填写项目完成百分比"));
-        verify(mapper, never()).upsertProjectProgressReport(any());
+        verify(mapper, never()).insertProjectProgressReport(any());
     }
 
     @Test
@@ -1926,14 +1926,28 @@ class BusinessProjectServiceImplTest
         verify(mapper).insertStaffCostPolicy(saved);
     }
 
-    @Test
-    void standardProjectStartsWithPlanSnapshotAndNoAutomaticTask()
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void standardProjectStartsWithPlanSnapshotAndNoAutomaticTask(boolean subproject)
     {
         BusinessProjectProposal proposal=new BusinessProjectProposal();proposal.setProposalId(66L);proposal.setProjectName("基础交付项目");proposal.setTemplateVersion("LIGHT_V1");proposal.setApplicantUserId(9L);proposal.setSponsorOwnerUserId(23L);proposal.setManagementMode("LIGHT");proposal.setAcceptanceCriteria("交付文件");
-        when(mapper.selectActiveUserById(9L)).thenReturn(Collections.singletonMap("nickName","负责人"));when(mapper.selectActiveUserById(23L)).thenReturn(Collections.singletonMap("nickName","归属老板"));
+        if (!subproject) when(mapper.selectActiveUserById(9L)).thenReturn(Collections.singletonMap("nickName","负责人"));when(mapper.selectActiveUserById(23L)).thenReturn(Collections.singletonMap("nickName","归属老板"));
         final BusinessProject[] stored=new BusinessProject[1];doAnswer(call->{stored[0]=call.getArgument(0);stored[0].setProjectId(88L);return 1;}).when(mapper).insertProject(any());when(mapper.selectProjectById(88L)).thenAnswer(call->stored[0]);
+        if (subproject) {
+            BusinessProject parent=project(15L,9L,"ACTIVE","APPROVED");parent.setSponsorOwnerUserId(23L);
+            when(mapper.selectProjectById(15L)).thenReturn(parent);proposal.setParentProjectId(15L);proposal.setAssignedOwnerUserId(10L);proposal.setApplicantName("主负责人");
+            when(mapper.selectMemberRole(15L,9L)).thenReturn("OWNER");
+            when(mapper.selectActiveUserById(10L)).thenReturn(Collections.singletonMap("nickName","子负责人"));
+        }
         BusinessProject created=service.createApprovedProject(proposal,9L,"owner");ArgumentCaptor<Map<String,Object>> baseline=mapCaptor();verify(workMapper).insertBaseline(baseline.capture());
         assertEquals(Integer.valueOf(1),created.getBaselineVersion());assertEquals(created.getBaselineVersion(),baseline.getValue().get("baselineVersion"));assertEquals("MEMBER_DAYS_V1",created.getCostPolicyVersion());
+        assertEquals(subproject ? Long.valueOf(15) : null,created.getParentId());
+        assertEquals(88L,baseline.getValue().get("projectId"));
+        assertEquals(subproject?10L:9L,created.getMainOwnerUserId());assertEquals(9L,created.getApplicantUserId());
+        assertEquals(23L,created.getSponsorOwnerUserId());
+        ArgumentCaptor<BusinessProjectMember> member=ArgumentCaptor.forClass(BusinessProjectMember.class);
+        verify(mapper).upsertMember(member.capture());assertEquals(created.getMainOwnerUserId(),member.getValue().getUserId());assertEquals("OWNER",member.getValue().getMemberRole());
+        verify(mapper,never()).updateProject(any());
         verify(mapper,never()).insertTask(any());
         verify(mapper,never()).insertWorkPeriod(any());
     }
@@ -2682,6 +2696,95 @@ class BusinessProjectServiceImplTest
         assertEquals(true,status.get("canClose"));
         assertEquals(false,status.containsKey("pendingLeaveCount"));
         assertTrue(((List<?>)status.get("blockers")).isEmpty());
+    }
+
+    @Test
+    void deletingParentChecksChildrenEvenWhenTheyAreNotVisibleToOperator()
+    {
+        BusinessProject parent = project(15L, 9L, "ACTIVE", "APPROVED");
+        parent.setSponsorOwnerUserId(8L);
+        when(mapper.selectProjectById(15L)).thenReturn(parent);
+        when(mapper.countSubprojects(15L)).thenReturn(2);
+        assertEquals("该项目包含子项目，请先删除所有子项目，再删除主项目",
+            assertThrows(ServiceException.class, () -> service.deleteProject(15L, 8L, "boss8", true)).getMessage());
+        verify(mapper, never()).softDeleteProject(anyLong(), any(), any());
+    }
+
+    @Test
+    void deletingChildOnlySoftDeletesRequestedProjectAndChecksVersion()
+    {
+        BusinessProject child = project(16L, 9L, "DRAFT", "DRAFT");
+        child.setParentId(15L); child.setSponsorOwnerUserId(8L);
+        when(mapper.selectProjectById(16L)).thenReturn(child);
+        when(mapper.softDeleteProject(16L, 0, "boss8")).thenReturn(1);
+        service.deleteProject(16L, 8L, "boss8", true);
+        verify(mapper).softDeleteProject(16L, 0, "boss8");
+        verify(mapper, never()).softDeleteProject(eq(15L), any(), any());
+    }
+
+    @Test
+    void unrelatedBossCannotCreateOrDeleteProjects()
+    {
+        BusinessProject parent = project(15L, 9L, "ACTIVE", "APPROVED");
+        parent.setSponsorOwnerUserId(8L);
+        when(mapper.selectProjectById(15L)).thenReturn(parent);
+        assertThrows(ServiceException.class, () -> service.validateSubprojectParent(15L, 8L, 7L));
+        assertThrows(ServiceException.class, () -> service.deleteProject(15L, 7L, "other", true));
+        verify(mapper, never()).insertProject(any());
+        verify(mapper, never()).softDeleteProject(anyLong(), any(), any());
+    }
+
+    @Test
+    void subprojectRequiresExistingMainProjectAndCannotBeNestedAgain()
+    {
+        assertThrows(ServiceException.class, () -> service.validateSubprojectParent(null, 8L, 8L));
+        BusinessProject child = project(16L, 9L, "ACTIVE", "APPROVED");
+        child.setParentId(15L); child.setSponsorOwnerUserId(8L);
+        when(mapper.selectProjectById(16L)).thenReturn(child);
+        assertThrows(ServiceException.class, () -> service.validateSubprojectParent(16L, 8L, 8L));
+        verify(mapper, never()).insertProject(any());
+    }
+
+    @Test
+    void editingChildCannotDetachItFromParent()
+    {
+        BusinessProject child = project(16L, 9L, "DRAFT", "DRAFT");
+        child.setParentId(15L); child.setSponsorOwnerUserId(8L);
+        when(mapper.selectProjectById(16L)).thenReturn(child);
+        BusinessProject input = project(16L, 9L, "DRAFT", "DRAFT");
+        assertEquals("归属主项目不可修改", assertThrows(ServiceException.class,
+            () -> service.updateProject(input, 8L, "boss8", true)).getMessage());
+        verify(mapper, never()).updateProject(any());
+    }
+
+    @Test
+    void rootPageMasksParentWithoutFetchingChildrenAndRetainsPaginationMetadata()
+    {
+        BusinessProject parent = project(15L, 9L, "ACTIVE", "APPROVED");
+        parent.setObjective("confidential objective"); parent.setContextOnly(true); parent.setMatchedChildId(16L);
+        com.github.pagehelper.Page<BusinessProject> page = new com.github.pagehelper.Page<>(2, 10);
+        page.setTotal(25); page.add(parent);
+        when(mapper.selectProjectRoots(any())).thenReturn(page);
+        List<BusinessProject> hierarchy = service.projectHierarchy(Collections.emptyMap(), 10L, false, false);
+        BusinessProject context = hierarchy.get(0);
+        assertTrue(context.isContextOnly()); assertEquals(null, context.getObjective());
+        assertEquals(null, context.getMainOwnerUserId()); assertEquals(16L, context.getMatchedChildId());
+        assertTrue(hierarchy == page); assertEquals(25, page.getTotal());
+        verify(mapper, never()).selectProjectList(any());
+        verify(mapper, never()).selectProjectById(anyLong());
+    }
+
+    @Test
+    void expandingParentLoadsOnlyItsScopedChildren()
+    {
+        BusinessProject parent = project(15L, 9L, "ACTIVE", "APPROVED");
+        when(mapper.selectProjectById(15L)).thenReturn(parent);
+        when(mapper.selectProjectList(any())).thenReturn(Collections.emptyList());
+        service.projectChildren(15L, 10L, false, false);
+        ArgumentCaptor<Map<String, Object>> query = mapCaptor();
+        verify(mapper).selectProjectList(query.capture());
+        assertEquals(15L, query.getValue().get("parentId")); assertEquals(10L, query.getValue().get("userId"));
+        assertEquals(false, query.getValue().get("viewAll")); verify(mapper, never()).selectProjectRoots(any());
     }
 
     private BusinessProject separatedClosedProject()

@@ -62,6 +62,37 @@ public class BusinessProjectController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('business:project:list')")
+    @GetMapping("/project/hierarchy")
+    public TableDataInfo hierarchy(@RequestParam Map<String, Object> query)
+    {
+        startPage();
+        return getDataTable(projectService.projectHierarchy(query, currentUserId(), isAdministrator(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:list')")
+    @GetMapping("/project/{parentId}/children")
+    public AjaxResult children(@PathVariable Long parentId)
+    {
+        return success(projectService.projectChildren(parentId, currentUserId(), isAdministrator(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:edit')")
+    @GetMapping("/project/company-options")
+    public AjaxResult projectCompanyOptions()
+    {
+        return success(projectService.projectCompanyOptions());
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:edit')")
+    @Log(title = "删除项目", businessType = BusinessType.DELETE)
+    @DeleteMapping("/project/{projectId}")
+    public AjaxResult removeProject(@PathVariable Long projectId)
+    {
+        projectService.deleteProject(projectId, currentUserId(), currentUserName(), isBoss());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:list')")
     @GetMapping("/project/{projectId}")
     public AjaxResult detail(@PathVariable Long projectId)
     {
@@ -111,7 +142,7 @@ public class BusinessProjectController extends BaseController
         return success(managementFeeService.pay(projectId, body, currentUserId(), currentUserName()));
     }
 
-    @PreAuthorize("@ss.hasAnyPermi('business:project:add,business:project:member,business:project:task')")
+    @PreAuthorize("@ss.hasAnyPermi('business:project:add,business:project:edit,business:project:member,business:project:task')")
     @GetMapping("/project/user-options")
     public AjaxResult userOptions(@RequestParam(required = false) String keyword)
     {

@@ -16,20 +16,7 @@
     </el-card>
 
     <el-card shadow="never" class="table-card">
-      <el-table :data="rows" v-loading="loading" @row-click="openDetail" class="click-table">
-        <el-table-column label="项目" min-width="240"><template #default="{ row }"><b>{{ row.projectName }}</b><small class="subline">{{ row.projectNo }}<template v-if="row.parentName"> · 上级：{{ row.parentName }}</template></small></template></el-table-column>
-        <el-table-column prop="companyName" label="归属公司" min-width="150" />
-        <el-table-column prop="sponsorOwnerName" label="归属老板" min-width="110"><template #default="{row}">{{ row.sponsorOwnerName || row.initiatorName }}</template></el-table-column>
-        <el-table-column prop="mainOwnerName" label="负责人" min-width="110" />
-        <el-table-column label="治理方式" min-width="160"><template #default="{row}"><b>{{ managementModeLabel[row.managementMode] || row.managementMode }}</b><small class="subline">{{ closeMethodLabel[row.closeMethod] || row.closeMethod }}</small></template></el-table-column>
-        <el-table-column label="类型" width="100"><template #default="{ row }">{{ typeLabel[row.projectType] || row.projectType }}</template></el-table-column>
-        <el-table-column label="交付 / 核算" min-width="170"><template #default="{ row }"><BusinessProjectState :project="row" /></template></el-table-column>
-          <el-table-column label="计划周期" min-width="185"><template #default="{ row }">{{ row.planStartDate ? `${row.planStartDate} 至 ${row.planEndDate || '不限期'}` : '—' }}</template></el-table-column>
-        <el-table-column label="项目目标" width="150"><template #default="{ row }"><el-tag v-if="row.goalMode==='NO_TOTAL'" type="info" effect="plain">持续经营</el-tag><el-progress v-else :percentage="projectProgress(row)" :stroke-width="8" /></template></el-table-column>
-        <el-table-column label="成员 / 风险" width="120" align="center"><template #default="{ row }">{{ row.memberCount || 0 }} / <span :class="{ danger: row.openRiskCount }">{{ row.openRiskCount || 0 }}</span></template></el-table-column>
-        <el-table-column label="操作" width="90" fixed="right"><template #default="{ row }"><el-button link type="primary" @click.stop="openDetail(row)">打开</el-button></template></el-table-column>
-      </el-table>
-      <pagination v-show="total > 0" :total="total" v-model:page="query.pageNum" v-model:limit="query.pageSize" @pagination="load" />
+      <ProjectHierarchyTable ref="hierarchyTable" :query="appliedQuery" @create="openSubprojectForm" @edit="openProjectForm" @detail="openDetail" @deleted="handleProjectDeleted" @report="row => progressPanel.open(row, 'submit')" @progress="row => progressPanel.open(row)" />
     </el-card>
 
     <el-drawer v-model="detailVisible" size="min(920px, 96vw)" destroy-on-close @closed="detail = null">
@@ -52,6 +39,8 @@
           <p>这里只返回数字，不显示主播名单和日报内容；主播仍只在直播数据管理中提交。</p>
         </section>
         <div class="action-bar">
+          <el-button v-if="canReportProgress(detail,userStore.id)" v-hasPermi="['business:project:report']" type="primary" @click="progressPanel.open(detail,'submit')">汇报进度</el-button>
+          <el-button @click="progressPanel.open(detail)">进度汇报历史</el-button>
           <el-button v-if="canManage && !usesActualWork" icon="Edit" @click="openProjectForm(detail)">编辑资料</el-button>
           <el-button v-if="isBoss && projectAccountingState(detail)==='OPEN'" type="success" icon="Plus" @click="openProjectAccountingEntry('revenue')">录入收入</el-button>
           <el-button v-if="isBoss && projectAccountingState(detail)==='OPEN'" type="primary" icon="Plus" @click="openProjectAccountingEntry('spend')">录入支出</el-button>
@@ -93,7 +82,7 @@
         <el-tabs ref="detailTabs" v-model="activeTab" class="project-detail-tabs">
           <el-tab-pane label="项目总览" name="overview">
             <section class="cockpit-hero">
-              <div v-if="detail.goalMode!=='NO_TOTAL'"><span>项目整体完成率</span><strong>{{ projectProgress(detail) }}%</strong><el-progress :percentage="projectProgress(detail)" :stroke-width="9" /></div>
+              <div v-if="detail.parentId || detail.subprojectCount || detail.goalMode!=='NO_TOTAL'"><span>{{ detail.subprojectCount ? '子项目加权汇总进度' : '项目整体完成率' }}</span><el-button class="progress-link" link type="primary" @click="progressPanel.open(detail)"><strong>{{ projectProgress(detail) }}%</strong></el-button><small v-if="detail.subprojectCount">点击展开各子项目进度与最新汇报</small><el-progress :percentage="projectProgress(detail)" :stroke-width="9" /></div>
               <div v-else><span>项目目标模式</span><strong>持续经营</strong><small>不填写虚假的总完成百分比，以每日目标和任务成果持续跟踪。</small></div>
               <div><span>计划时间进度</span><strong>{{ scheduleProgress }}%</strong><el-progress :percentage="scheduleProgress" :status="scheduleProgress>projectProgress(detail)?'warning':undefined" :stroke-width="9" /></div>
               <div><span>剩余时间</span><strong>{{ remainingDaysText }}</strong><small>{{ scheduleStatusText }}</small></div>
@@ -212,9 +201,11 @@
                         <span>记录时间：<time>{{ formatEventTime(event.createTime) || '未记录' }}</time></span>
                       </div>
                     </div>
-                    <el-tag size="small" effect="plain" :type="eventTone(event)">{{ eventLabel[event.eventType] || '其他操作' }}</el-tag>
+                    <el-tag size="small" effect="plain" :type="eventTone(event)">{{ (event.eventType==='SUBPROJECT_PROGRESS' ? '子项目进度汇报' : eventLabel[event.eventType]) || '其他操作' }}</el-tag>
                   </div>
                   <p v-if="formatEventComment(event)"><span class="event-detail-label">操作内容：</span>{{ formatEventComment(event) }}</p>
+                  <el-button v-if="progressEventTarget(event)" link type="primary" @click="progressPanel.open(progressEventTarget(event))">{{ event.eventType === 'SUBPROJECT_PROGRESS' ? '跳转子项目 · 查看本次汇报' : '查看本次汇报' }}</el-button>
+                  <el-button v-else-if="event.eventType==='PROJECT_PROGRESS'" link type="primary" @click="progressPanel.open(detail)">查看汇报历史</el-button>
                   <small v-if="eventStatusChange(event)" class="event-status">项目状态：{{ eventStatusChange(event) }}</small>
                 </article>
               </el-timeline-item>
@@ -224,23 +215,26 @@
       </template>
     </el-drawer>
 
-    <el-dialog v-model="projectDialog" title="编辑项目资料" width="min(680px, 94vw)" destroy-on-close>
-      <el-form ref="projectFormRef" :model="projectForm" :rules="projectRules" label-width="100px">
+    <BusinessProjectProgress ref="progressPanel" @submitted="handleProgressSubmitted" @closed="clearProgressQuery" />
+    <el-dialog v-model="projectDialog" top="5vh" :title="projectForm.projectId ? (projectForm.parentId ? '编辑子项目' : '编辑主项目') : '新增子项目'" width="min(680px, 94vw)" destroy-on-close>
+      <el-alert v-if="projectFormFrozen" title="范围、计划周期和验收基线请通过项目详情的“项目计划与变更”调整。" type="info" :closable="false" show-icon style="margin-bottom:16px" />
+      <el-form class="project-edit-form" ref="projectFormRef" :model="projectForm" :rules="projectRules" label-width="100px">
         <el-row :gutter="16"><el-col :sm="16" :xs="24"><el-form-item label="项目名称" prop="projectName"><el-input v-model="projectForm.projectName" maxlength="160" /></el-form-item></el-col><el-col :sm="8" :xs="24"><el-form-item label="优先级"><el-select v-model="projectForm.priority"><el-option label="低" value="LOW"/><el-option label="中" value="MEDIUM"/><el-option label="高" value="HIGH"/></el-select></el-form-item></el-col></el-row>
-        <el-row :gutter="16"><el-col :sm="12" :xs="24"><el-form-item label="项目类型"><el-select v-model="projectForm.projectType"><el-option v-for="(label,key) in typeLabel" :key="key" :label="label" :value="key" /></el-select></el-form-item></el-col><el-col :sm="12" :xs="24"><el-form-item label="核算方式"><el-select v-model="projectForm.accountingMode"><el-option v-for="(label,key) in accountingLabel" :key="key" :label="label" :value="key" /></el-select></el-form-item></el-col></el-row>
-        <el-form-item label="管理模式"><el-select v-model="projectForm.managementMode" style="width:100%"><el-option label="轻量 · 核心执行，异常驱动" value="LIGHT"/><el-option label="标准 · 周度跟踪、里程碑、风险" value="STANDARD"/><el-option label="重点监管 · 强化预警和变更管控" value="KEY_CONTROL"/></el-select><small class="form-tip">管理模式决定过程管控强度，不再代替结项方式。</small></el-form-item>
-        <el-form-item label="结项方式"><el-select v-model="projectForm.closeMethod" style="width:100%"><el-option label="直接结项" value="DIRECT"/><el-option label="成果验收" value="RESULT_ACCEPTANCE"/><el-option label="阶段验收" value="STAGED_ACCEPTANCE"/></el-select><small class="form-tip">结项方式独立决定最终成果如何确认。</small></el-form-item>
+        <el-row :gutter="16"><el-col :sm="12" :xs="24"><el-form-item label="项目类型"><el-select v-model="projectForm.projectType" :disabled="!!projectForm.projectId && !isBoss"><el-option v-for="(label,key) in typeLabel" :key="key" :label="label" :value="key" /></el-select></el-form-item></el-col><el-col :sm="12" :xs="24"><el-form-item label="核算方式"><el-select v-model="projectForm.accountingMode" :disabled="!!projectForm.projectId && !isBoss"><el-option v-for="(label,key) in accountingLabel" :key="key" :label="label" :value="key" /></el-select></el-form-item></el-col></el-row>
+        <el-form-item label="管理模式"><el-select :disabled="projectFormFrozen" v-model="projectForm.managementMode" style="width:100%"><el-option label="轻量 · 核心执行，异常驱动" value="LIGHT"/><el-option label="标准 · 周度跟踪、里程碑、风险" value="STANDARD"/><el-option label="重点监管 · 强化预警和变更管控" value="KEY_CONTROL"/></el-select><small class="form-tip">管理模式决定过程管控强度，不再代替结项方式。</small></el-form-item>
+        <el-form-item label="结项方式"><el-select :disabled="projectFormFrozen" v-model="projectForm.closeMethod" style="width:100%"><el-option label="直接结项" value="DIRECT"/><el-option label="成果验收" value="RESULT_ACCEPTANCE"/><el-option label="阶段验收" value="STAGED_ACCEPTANCE"/></el-select><small class="form-tip">结项方式独立决定最终成果如何确认。</small></el-form-item>
         <el-form-item label="目标模式"><el-select v-model="projectForm.goalMode" style="width:100%"><el-option label="有项目总目标" value="TOTAL"/><el-option label="不计入公司总目标（持续经营）" value="NO_TOTAL"/></el-select><small class="form-tip">持续经营项目不要求负责人填写项目完成百分比，仍保留每日目标、任务、收入、成本和KPI。</small></el-form-item>
         <el-form-item v-if="projectForm.managementMode==='KEY_CONTROL'" label="监管原因" required><el-input v-model="projectForm.managementReason" type="textarea" :rows="3" maxlength="1000" show-word-limit /></el-form-item>
-        <el-form-item v-if="projectForm.closeMethod!=='DIRECT'" label="验收标准" required><el-input v-model="projectForm.acceptanceCriteria" type="textarea" :rows="3" maxlength="2000" show-word-limit /></el-form-item>
+        <el-form-item v-if="projectForm.closeMethod!=='DIRECT'" label="验收标准" required><el-input :disabled="projectFormFrozen" v-model="projectForm.acceptanceCriteria" type="textarea" :rows="3" maxlength="2000" show-word-limit /></el-form-item>
         <el-form-item v-if="governanceChanged" label="变更原因" required><el-input v-model="projectForm.governanceChangeReason" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="说明为何调整管理模式或结项方式" /></el-form-item>
         <el-form-item v-if="goalModeChanged" label="目标变更原因" required><el-input v-model="projectForm.goalModeChangeReason" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="说明为何调整项目目标模式" /></el-form-item>
-        <el-form-item label="主负责人"><el-input :model-value="projectForm.mainOwnerName" disabled /><small class="form-tip">负责人变更请使用项目详情中的“更换主负责人”。</small></el-form-item>
-        <el-form-item label="归属公司" prop="companyDeptId"><el-select v-if="isBoss" v-model="projectForm.companyDeptId" placeholder="选择上海或越南公司" style="width:100%"><el-option v-for="c in companies" :key="c.companyDeptId" :label="c.companyName" :value="c.companyDeptId" /></el-select><el-input v-else :model-value="projectForm.companyName || '待老板设置'" disabled /></el-form-item>
-        <el-form-item v-if="isBoss" label="执行系统"><el-checkbox v-model="projectForm.executionSource" true-label="LIVE" false-label="">关联直播数据管理</el-checkbox><small class="form-tip">只读取已确认的汇总结果，不开放直播原始明细或审核权限。</small></el-form-item>
-        <el-form-item label="上级项目"><el-select v-model="projectForm.parentId" clearable filterable style="width:100%"><el-option v-for="p in parentOptions" :key="p.projectId" :label="p.projectName" :value="p.projectId" /></el-select></el-form-item>
-        <el-form-item label="项目目标" prop="objective"><el-input v-model="projectForm.objective" type="textarea" :rows="3" placeholder="定义可验收的业务目标" /></el-form-item>
-        <el-form-item label="计划周期" required><div class="project-period-line"><el-date-picker v-model="projectForm.planStartDate" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" style="width:100%" /><span>至</span><el-date-picker v-model="projectForm.planEndDate" type="date" value-format="YYYY-MM-DD" :disabled="projectOpenEnded" :disabled-date="disableProjectEndDate" :placeholder="projectOpenEnded ? '不限期' : '结束日期'" style="width:100%" /><el-checkbox v-model="projectOpenEnded" @change="handleProjectOpenEndedChange">不限期</el-checkbox></div></el-form-item>
+        <el-form-item label="负责人" prop="mainOwnerUserId"><el-select v-if="!projectForm.projectId" v-model="projectForm.mainOwnerUserId" filterable style="width:100%"><el-option v-for="u in users" :key="u.userId" :label="u.nickName || u.userName" :value="u.userId" /></el-select><template v-else><el-input :model-value="projectForm.mainOwnerName" disabled/><small class="form-tip">负责人变更请使用项目详情中的“更换主负责人”。</small></template></el-form-item>
+        <el-form-item label="归属老板"><el-input :model-value="projectForm.sponsorOwnerName || projectForm.initiatorName" disabled/><small class="form-tip">主子项目沿用同一归属老板，遵循现有数据权限。</small></el-form-item>
+        <el-form-item label="归属公司" prop="companyDeptId"><el-select v-if="isBoss || !projectForm.projectId" v-model="projectForm.companyDeptId" placeholder="选择归属公司" style="width:100%"><el-option v-for="c in companies" :key="c.companyDeptId" :label="c.companyName" :value="c.companyDeptId" /></el-select><el-input v-else :model-value="projectForm.companyName || '待老板设置'" disabled /></el-form-item>
+        <el-form-item v-if="isBoss && projectForm.projectId" label="执行系统"><el-checkbox v-model="projectForm.executionSource" true-label="LIVE" false-label="">关联直播数据管理</el-checkbox><small class="form-tip">只读取已确认的汇总结果，不开放直播原始明细或审核权限。</small></el-form-item>
+        <el-form-item v-if="projectForm.parentId" label="归属主项目"><el-input :model-value="projectForm.parentName" disabled /></el-form-item>
+        <el-form-item label="项目目标" prop="objective"><el-input :disabled="projectFormFrozen" v-model="projectForm.objective" maxlength="1000" show-word-limit type="textarea" :rows="3" placeholder="定义可验收的业务目标" /></el-form-item>
+        <el-form-item label="计划周期" required><div class="project-period-line"><el-date-picker :disabled="projectFormFrozen" v-model="projectForm.planStartDate" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" style="width:100%" /><span>至</span><el-date-picker v-model="projectForm.planEndDate" type="date" value-format="YYYY-MM-DD" :disabled="projectFormFrozen || projectOpenEnded" :disabled-date="disableProjectEndDate" :placeholder="projectOpenEnded ? '不限期' : '结束日期'" style="width:100%" /><el-checkbox :disabled="projectFormFrozen" v-model="projectOpenEnded" @change="handleProjectOpenEndedChange">不限期</el-checkbox></div></el-form-item>
         <el-row :gutter="16"><el-col :sm="12" :xs="24"><el-form-item label="预算上限"><el-input-number v-model="projectForm.budgetLimit" :disabled="!!projectForm.projectId" :min="0" :precision="2" style="width:100%" /><small v-if="projectForm.projectId" class="form-tip">请在“经营配置”中调整并填写原因</small></el-form-item></el-col><el-col :sm="12" :xs="24"><el-form-item label="币种"><el-input v-model="projectForm.baseCurrency" :disabled="!!projectForm.projectId" maxlength="3" /></el-form-item></el-col></el-row>
         <el-form-item label="备注"><el-input v-model="projectForm.remark" type="textarea" :rows="2" /></el-form-item>
       </el-form>
@@ -300,6 +294,8 @@
 
 <script setup name="BusinessProject">
 import { h } from 'vue'
+import ProjectHierarchyTable from './ProjectHierarchyTable.vue'
+import { getBusinessProjectCompanies } from '@/api/business/project'
 import { useResizeObserver } from '@vueuse/core'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
@@ -308,16 +304,23 @@ import BusinessProjectWorkPanel from '@/components/BusinessProjectWorkPanel/inde
 import BusinessProjectPlanPanel from '@/components/BusinessProjectPlanPanel/index.vue'
 import BusinessSettlementPanel from '@/components/BusinessSettlementPanel/index.vue'
 import { isSeparatedDelivery, isDeliveryEnded, projectAccountingState } from '@/utils/businessProjectState'
+import BusinessProjectProgress from '@/components/BusinessProjectProgress/index.vue'
+import { canReportProgress, progressEventTarget } from '@/utils/projectProgress'
 import useUserStore from '@/store/modules/user'
-import { getBusinessAccountingDashboard } from '@/api/business/accounting'
 import { getProjectKpiWorkspace } from '@/api/business/kpi'
 import { getBusinessProjectDashboard } from '@/api/business/accounting'
-import { changeBusinessProjectOwner, enableBusinessRoutine, enableBusinessTask, getBusinessOperatingConfig, getBusinessProject, listBusinessProjects, listBusinessUsers, removeBusinessMilestone, removeBusinessProjectMember, removeBusinessRisk, removeBusinessRoutine, removeBusinessStaffAllocation, removeBusinessTask, retireBusinessProjectKpi, reviewBusinessProjectAcceptance, reviewBusinessProjectStageAcceptance, saveBusinessMilestone, saveBusinessProjectKpi, saveBusinessProjectMember, saveBusinessRisk, saveBusinessRoutine, saveBusinessStaffAllocation, saveBusinessTask, submitBusinessProjectAcceptance, submitBusinessProjectStageAcceptance, transitionBusinessProject, updateBusinessProject, updateBusinessProjectBudget } from '@/api/business/project'
+import { changeBusinessProjectOwner, enableBusinessRoutine, enableBusinessTask, getBusinessOperatingConfig, getBusinessProject, listBusinessUsers, removeBusinessMilestone, removeBusinessProjectMember, removeBusinessRisk, removeBusinessRoutine, removeBusinessStaffAllocation, removeBusinessTask, retireBusinessProjectKpi, reviewBusinessProjectAcceptance, reviewBusinessProjectStageAcceptance, saveBusinessMilestone, saveBusinessProjectKpi, saveBusinessProjectMember, saveBusinessRisk, saveBusinessRoutine, saveBusinessStaffAllocation, saveBusinessTask, submitBusinessProjectAcceptance, submitBusinessProjectStageAcceptance, transitionBusinessProject, updateBusinessProject, updateBusinessProjectBudget } from '@/api/business/project'
 import { todayLocal } from '@/utils/businessDate'
 import { milestoneTasksReady } from '@/utils/ownerTodos'
 
 const route = useRoute(), router = useRouter(), userStore = useUserStore()
-const loading = ref(false), saving = ref(false), total = ref(0), rows = ref([]), users = ref([]), companies=ref([])
+const progressPanel = ref(null)
+async function handleProgressSubmitted() { await (detail.value ? refreshDetail() : load()) }
+function clearProgressQuery(){const query={...route.query};delete query.progressProjectId;delete query.reportId;router.replace({query})}
+watch(() => [route.query.progressProjectId, route.query.reportId], async ([id, reportId]) => { if(id){ await nextTick();progressPanel.value?.open({projectId:Number(id),reportId}) } }, {immediate:true})
+const saving = ref(false), users = ref([]), companies=ref([])
+const hierarchyTable = ref(null), appliedQuery = ref({}), projectBaseline = ref(null)
+const projectFormFrozen = computed(() => ['MEMBER_DAYS_V1','ACTUAL_WORK_V1'].includes(projectBaseline.value?.costPolicyVersion))
 const detailVisible = ref(false), detail = ref(null), activeTab = ref('overview')
 const detailTabs = ref(null)
 // Keep enough space below the tab strip so a shorter pane cannot clamp the drawer's scrollTop.
@@ -363,6 +366,7 @@ const riskStatusLabel = { OPEN:'待处理', MITIGATED:'已缓解', CLOSED:'已�
 const acceptanceLabel={PENDING:'待老板验收',APPROVED:'老板已通过',RETURNED:'老板已退回'}
 const acceptanceTone={PENDING:'warning',APPROVED:'success',RETURNED:'danger'}
 const eventLabel = {
+  SUBPROJECT_PROGRESS:'子项目进度汇报',PROGRESS_WEIGHT:'调整子项目进度权重',
   CREATE:'创建项目',CREATE_FROM_PROPOSAL:'立项批准并创建项目',EDIT:'更新项目资料',GOVERNANCE_CHANGE:'调整治理方式',GOAL_MODE_CHANGE:'调整目标模式',
   SOURCE_LINK:'关联执行系统',SOURCE_UNLINK:'解除执行系统',OWNER_CHANGE:'更换主负责人',STATUS_CHANGE:'变更项目状态',
   START_PLANNING:'进入规划',SUBMIT_BASELINE:'提交项目计划',RETURN_PLAN:'退回项目计划',CONFIRM_BASELINE:'确认计划并启动',
@@ -393,15 +397,15 @@ const canManageAllocation = computed(() => !isDeliveryEnded(detail.value) && (is
 const canSubmitAcceptance=computed(()=>detail.value?.closeMethod==='RESULT_ACCEPTANCE'&&detail.value?.status==='ACTIVE'&&(isBoss.value||myRole.value==='OWNER'))
 const showRisks=computed(()=>detail.value?.governanceProfile?.riskRequired??['STANDARD','KEY_CONTROL','DELIVERY'].includes(detail.value?.managementMode))
 const showMilestones=computed(()=>Boolean(detail.value?.milestones?.length)||(detail.value?.governanceProfile?.enabledModules?.includes('MILESTONE')??(detail.value?.managementMode!=='LIGHT')))
-const governanceChanged=computed(()=>detail.value&&projectForm.value&&((projectForm.value.managementMode||'STANDARD')!==(detail.value.managementMode||'STANDARD')||(projectForm.value.closeMethod||'DIRECT')!==(detail.value.closeMethod||'DIRECT')))
-const goalModeChanged=computed(()=>detail.value&&projectForm.value&&(projectForm.value.goalMode||'TOTAL')!==(detail.value.goalMode||'TOTAL'))
+const governanceChanged=computed(()=>projectBaseline.value&&((projectForm.value.managementMode||'STANDARD')!==(projectBaseline.value.managementMode||'STANDARD')||(projectForm.value.closeMethod||'DIRECT')!==(projectBaseline.value.closeMethod||'DIRECT')))
+const goalModeChanged=computed(()=>projectBaseline.value&&(projectForm.value.goalMode||'TOTAL')!==(projectBaseline.value.goalMode||'TOTAL'))
 const governanceTitle=computed(()=>`${managementModeLabel[detail.value?.managementMode] || detail.value?.managementMode} · ${closeMethodLabel[detail.value?.closeMethod] || detail.value?.closeMethod}`)
 const governanceDescription=computed(()=>{const mode={LIGHT:'保留任务、成本和KPI，风险按异常处理。',STANDARD:'执行周度跟踪、里程碑、风险台账和预算预警。',KEY_CONTROL:'执行强化里程碑、风险、预算分级预警和治理变更管控。'}[detail.value?.managementMode]||'';const close={DIRECT:'老板核对前置条件后直接关闭。',RESULT_ACCEPTANCE:'负责人提交整体验收资料，老板通过后关闭。',STAGED_ACCEPTANCE:'逐里程碑验收，全部通过后方可关闭。'}[detail.value?.closeMethod]||'';return `${mode}${close}${detail.value?.acceptanceCriteria?` 验收标准：${detail.value.acceptanceCriteria}`:''}`})
 const ownerCandidates=computed(()=>users.value.filter(user=>Number(user.userId)!==Number(detail.value?.mainOwnerUserId)))
 const userCompanyKey=user=>user.companyDeptId?`id:${user.companyDeptId}`:user.companyName?`name:${user.companyName}`:''
 const memberCompanyOptions=computed(()=>{const unique=new Map();for(const user of users.value){const key=userCompanyKey(user);if(key&&!unique.has(key))unique.set(key,{key,companyName:user.companyName||'未命名公司'})}return [...unique.values()].sort((a,b)=>a.companyName.localeCompare(b.companyName,'zh-CN'))})
 const memberUserOptions=computed(()=>{const memberIds=new Set((detail.value?.members||[]).map(member=>Number(member.userId)));return users.value.filter(user=>userCompanyKey(user)===itemForm.value.companyKey&&!memberIds.has(Number(user.userId)))})
-const parentOptions = computed(() => rows.value.filter(p => p.projectId !== projectForm.value.projectId))
+
 const currentKpis = computed(() => (operating.value.kpis || []).filter(row=>row.status==='CURRENT'))
 const retiredKpis = computed(() => (operating.value.kpis || []).filter(row=>row.status==='RETIRED'))
 const yesterdayExpected=computed(()=>Number(operating.value.executionSummary?.expectedStreamerCount||0))
@@ -467,8 +471,6 @@ const stageClosureState=computed(()=>{
   return {...base,tone:'success',label:'可以申请',title:'所有里程碑已完成，结项申请条件已满足',description:myRole.value==='OWNER'?'提交后由归属老板检验，通过后项目才会结项。':'等待项目负责人提交结项申请。',canRequest:myRole.value==='OWNER'}
 })
 const projectProgress = row => {
-  if (row.status === 'CLOSED') return 100
-  if (row.status === 'CANCELED') return 0
   const value = Number(row.progressPercent)
   if (Number.isFinite(value)) return Math.min(100, Math.max(0, Math.round(value)))
   return row.taskCount ? Math.round((row.completedTaskCount || 0) * 100 / row.taskCount) : 0
@@ -487,6 +489,7 @@ const eventTone=event=>{
 }
 const formatEventComment=event=>{
   const value=String(event?.comment||'').trim()
+  if(progressEventTarget(event))return value.replace(/^\[子项目:\d+\]\[汇报:\d+\]\s*/, '')
   if(event?.eventType==='MEMBER_SAVE'&&/^.+?\s*\/\s*(OWNER|DEPUTY|MEMBER|OBSERVER)\s*$/.test(value))return ''
   if(event?.eventType==='MEMBER_REMOVE')return value.replace(/^移除账号ID\s*\d+\s*[；;]?\s*/, '')
   const slashParts=value.split(/\s*\/\s*/)
@@ -537,7 +540,7 @@ const eventWorkAssignee=event=>{
   if(!name)return '未记录'
   return event?.subjectAccount&&event.subjectAccount!==name?`${name}（账号：${event.subjectAccount}）`:name
 }
-const projectRules = { projectName:[{ required:true,message:'请输入项目名称',trigger:'blur' }],companyDeptId:[{required:true,message:'请选择归属公司',trigger:'change'}] }
+const projectRules = { mainOwnerUserId:[{required:true,message:'请选择负责人',trigger:'change'}], projectName:[{ required:true,message:'请输入项目名称',trigger:'blur' }],companyDeptId:[{required:true,message:'请选择归属公司',trigger:'change'}] }
 const settlementPanelRef=ref(null)
 const itemTitle = computed(() => ({ member:'添加项目成员', task:'维护任务', milestone:'维护里程碑', risk:'维护风险' }[itemKind.value]))
 const availableActions = computed(() => {
@@ -556,8 +559,8 @@ const availableActions = computed(() => {
   return actions
 })
 
-async function load() { loading.value=true; try { const res=await listBusinessProjects(query); rows.value=res.rows||[]; total.value=res.total||0 } finally { loading.value=false } }
-function search(){ query.pageNum=1; load() }
+async function load() { await hierarchyTable.value?.refresh() }
+function search(){ appliedQuery.value={...query} }
 function resetQuery(){ query.keyword=''; query.status=''; query.managementMode='';query.closeMethod='';search() }
 async function openDetail(row){ const res=await getBusinessProject(row.projectId); detail.value=res.data;activeTab.value=route.query.tab||'overview'; detailVisible.value=true; router.replace({query:{...route.query,id:row.projectId}}); await Promise.all([loadOperatingConfig(),loadKpiClosureState(),loadCockpit()]) }
 function openProjectAccountingEntry(action){if(!detail.value?.projectId)return;router.push({path:'/business/accounting',query:{action,projectId:detail.value.projectId}})}
@@ -567,9 +570,44 @@ async function loadCockpit(){if(!detail.value)return;const request=++cockpitRequ
 async function loadKpiClosureState(){kpiWorkspace.value={plans:[]};kpiWorkspaceError.value=false;if(!detail.value)return;kpiWorkspaceLoading.value=true;try{kpiWorkspace.value=(await getProjectKpiWorkspace(detail.value.projectId)).data||{plans:[]}}catch{kpiWorkspaceError.value=true}finally{kpiWorkspaceLoading.value=false}}
 function openKpiWorkspace(){const planId=kpiClosureState.value.planId;router.push({path:planId?'/projects/kpi-results':'/business/kpi-bonus',query:{projectId:detail.value.projectId,...(planId?{planId}:{})}})}
 async function ensureUsers(){ if(!users.value.length) users.value=(await listBusinessUsers()).data||[] }
-async function ensureCompanies(){if(isBoss.value&&!companies.value.length)companies.value=(await getBusinessAccountingDashboard({dateFrom:todayText(),dateTo:todayText()})).data?.companies||[]}
-async function openProjectForm(row){ if(!row?.projectId)return router.push('/business/project-proposals'); await Promise.all([ensureUsers(),ensureCompanies()]); const legacyMode=row.managementMode==='SIMPLE'?'LIGHT':row.managementMode==='DELIVERY'?'STANDARD':row.managementMode; const base={managementMode:'STANDARD',closeMethod:row.managementMode==='DELIVERY'?'RESULT_ACCEPTANCE':'DIRECT',goalMode:'TOTAL',governanceChangeReason:'',goalModeChangeReason:'',...row,managementMode:legacyMode,closeMethod:row.closeMethod||(row.managementMode==='DELIVERY'?'RESULT_ACCEPTANCE':'DIRECT'),goalMode:row.goalMode||'TOTAL'}; projectForm.value=base; projectOpenEnded.value=!!base.planStartDate&&!base.planEndDate; projectDialog.value=true }
-async function saveProject(){ if(saving.value)return; await projectFormRef.value.validate(); if(!projectForm.value.planStartDate)return ElMessage.warning('请选择计划开始日期');if(!projectOpenEnded.value&&!projectForm.value.planEndDate)return ElMessage.warning('请选择计划结束日期或勾选不限期');if(projectForm.value.planEndDate&&projectForm.value.planStartDate>projectForm.value.planEndDate)return ElMessage.warning('计划结束日期不能早于开始日期');if(projectForm.value.managementMode==='KEY_CONTROL'&&!projectForm.value.managementReason?.trim())return ElMessage.warning('重点监管项目请填写监管原因');if(projectForm.value.closeMethod!=='DIRECT'&&!projectForm.value.acceptanceCriteria?.trim())return ElMessage.warning('请填写验收标准');if(governanceChanged.value&&!projectForm.value.governanceChangeReason?.trim())return ElMessage.warning('请填写治理方式变更原因');if(goalModeChanged.value&&!projectForm.value.goalModeChangeReason?.trim())return ElMessage.warning('请填写目标模式变更原因'); const data={...projectForm.value,planEndDate:projectOpenEnded.value?null:projectForm.value.planEndDate}; saving.value=true; try { const res=await updateBusinessProject(data); projectDialog.value=false; ElMessage.success('项目资料已保存'); await load(); if(res.data?.projectId) await openDetail(res.data) } finally { saving.value=false } }
+async function ensureCompanies(){if(!companies.value.length)companies.value=(await getBusinessProjectCompanies()).data||[]}
+async function openProjectForm(row){
+  if(!row?.projectId)return
+  const [response] = await Promise.all([getBusinessProject(row.projectId),ensureUsers(),ensureCompanies()])
+  const current=response.data
+  const normalized={...current,managementMode:current.managementMode==='SIMPLE'?'LIGHT':current.managementMode==='DELIVERY'?'STANDARD':current.managementMode,closeMethod:current.closeMethod||(current.managementMode==='DELIVERY'?'RESULT_ACCEPTANCE':'DIRECT'),goalMode:current.goalMode||'TOTAL'}
+  projectBaseline.value={...normalized}
+  projectForm.value={...normalized,governanceChangeReason:'',goalModeChangeReason:''}
+  projectOpenEnded.value=!!current.planStartDate&&!current.planEndDate
+  projectDialog.value=true
+}
+let pendingChildParentId=null
+function openSubprojectForm(parent){
+  pendingChildParentId=parent.projectId
+  router.push({path:'/business/project-proposals',query:{create:'1',parentProjectId:parent.projectId}})
+}
+async function saveProject(){
+  if(saving.value)return
+  if(!await projectFormRef.value.validate().catch(()=>false))return
+  const form=projectForm.value
+  if(!form.planStartDate)return ElMessage.warning('请选择计划开始日期')
+  if(!projectOpenEnded.value&&!form.planEndDate)return ElMessage.warning('请选择计划结束日期或勾选不限期')
+  if(form.planEndDate&&form.planStartDate>form.planEndDate)return ElMessage.warning('计划结束日期不能早于开始日期')
+  if(form.managementMode==='KEY_CONTROL'&&!form.managementReason?.trim())return ElMessage.warning('重点监管项目请填写监管原因')
+  if(form.closeMethod!=='DIRECT'&&!form.acceptanceCriteria?.trim())return ElMessage.warning('请填写验收标准')
+  if(governanceChanged.value&&!form.governanceChangeReason?.trim())return ElMessage.warning('请填写治理方式变更原因')
+  if(goalModeChanged.value&&!form.goalModeChangeReason?.trim())return ElMessage.warning('请填写目标模式变更原因')
+  const data={...form,planEndDate:projectOpenEnded.value?null:form.planEndDate}
+  saving.value=true
+  try {
+    const result=await updateBusinessProject(data)
+    projectDialog.value=false
+    ElMessage.success('项目资料已保存')
+    try { await hierarchyTable.value?.updated(result.data) } catch { ElMessage.warning('保存已成功，列表刷新失败，请重新查询') }
+    if(detail.value?.projectId===result.data?.projectId)detail.value=result.data
+  } finally { saving.value=false }
+}
+function handleProjectDeleted(row){if(detail.value?.projectId===row.projectId){detailVisible.value=false;detail.value=null;const {id,tab,...rest}=route.query;router.replace({query:rest})}}
 function handleProjectOpenEndedChange(value){if(value)projectForm.value.planEndDate=null}
 function disableProjectEndDate(date){return !!projectForm.value.planStartDate&&date.getTime()<new Date(`${projectForm.value.planStartDate}T00:00:00`).getTime()}
 async function runTransition(action){ if(action.key==='SUBMIT_ACCEPTANCE')return openAcceptanceSubmit();if(action.key==='OPEN_ACCEPTANCE'){activeTab.value='acceptance';return}if(action.key==='CLOSE')return settlementPanelRef.value?.openClose();let comment='',pauseCostMode='KEEP'; if(action.key==='PAUSE'){try{await ElMessageBox.confirm('暂停期间是否继续保留人员占用？释放后从明天起停止新增工作日成本，已计价记录保留。','暂停期间人员安排',{confirmButtonText:'保留人员，继续计费',cancelButtonText:'释放人员，停止计费',distinguishCancelAndClose:true})}catch(choice){if(choice==='cancel')pauseCostMode='RELEASE';else return}} if(['RETURN_PLAN','RETURN_ACTIVE','PAUSE','CLOSE','CANCEL','REQUEST_CLOSE'].includes(action.key)){ const r=await ElMessageBox.prompt(action.key==='CLOSE'?'请填写老板结项确认说明。确认后系统将完成最终核算并冻结项目数据。':action.key==='REQUEST_CLOSE'?'请填写结项申请说明':`请输入“${action.label}”原因`,'状态确认',{inputValidator:v=>!!v||'必须填写说明'}); comment=r.value } else await ElMessageBox.confirm(`确定执行“${action.label}”吗？`,'状态确认',{type:'warning'}); await transitionBusinessProject(detail.value.projectId,{action:action.key,comment,pauseCostMode}); ElMessage.success(action.key==='REQUEST_CLOSE'?'结项申请已提交，等待老板检验':action.key==='CLOSE'?'项目已结项，核算已确认并冻结':'状态已更新'); await refreshDetail() }
@@ -704,10 +742,21 @@ watch(()=>route.query.create,value=>{if(value)router.replace('/business/project-
 watch(()=>route.query.id,async value=>{if(!value||Number(value)===Number(detail.value?.projectId))return;try{await openDetail({projectId:Number(value)})}catch{const nextQuery={...route.query};delete nextQuery.id;router.replace({query:nextQuery})}},{immediate:true})
 watch(()=>route.query.tab,value=>{if(['overview','operating','routines','tasks','members','milestones','risks','acceptance','stageAcceptance','ownerHistory','events'].includes(value))activeTab.value=value},{immediate:true})
 onMounted(load)
-useBusinessRefreshOnReactivated(() => detail.value ? refreshDetail() : load())
+useBusinessRefreshOnReactivated(async () => {
+  if(pendingChildParentId){
+    const parentId=pendingChildParentId
+    pendingChildParentId=null
+    await hierarchyTable.value?.refreshChildren(parentId)
+    return
+  }
+  await (detail.value ? refreshDetail() : load())
+})
 </script>
 
 <style scoped>
+.project-edit-form{max-height:calc(85vh - 120px);overflow-y:auto;padding:4px 12px 0 0}
+.initial-risk{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}.initial-risk>.el-input{flex:1}.initial-risk>.el-textarea{width:100%}
+
 .project-detail-tabs{overflow-anchor:none}
 .project-detail-tabs :deep(> .el-tabs__content){min-height:var(--project-tab-content-height,0px)}
 .kpi-close-guard{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:14px;margin:-4px 0 16px;padding:14px 16px;border:1px solid #e6cf91;border-left:4px solid #d59a23;border-radius:10px;background:#fffaf0}.kpi-close-guard.in-tab{margin:0 0 12px}.kpi-close-guard.is-success{border-color:#bcded2;border-left-color:#2a8b6e;background:#f3faf7}.kpi-close-guard.is-danger{border-color:#efc5c8;border-left-color:#d74b55;background:#fff6f6}.kpi-close-guard.is-info{border-color:#cbdceb;border-left-color:#4d83b5;background:#f5f9fd}.kpi-close-mark{display:flex;width:42px;height:42px;align-items:center;justify-content:center;border-radius:12px;background:#fff;color:#a56c08;font-size:12px;font-weight:800;letter-spacing:.05em;box-shadow:0 2px 8px rgba(80,61,22,.08)}.is-success .kpi-close-mark{color:#23745f}.is-danger .kpi-close-mark{color:#c43d47}.is-info .kpi-close-mark{color:#3d709e}.kpi-close-copy{min-width:0}.kpi-close-title{display:flex;align-items:center;gap:8px;margin-bottom:5px}.kpi-close-title>span{color:#7b8795;font-size:12px}.kpi-close-copy>b{display:block;color:#24354a;font-size:15px}.kpi-close-copy>p{margin:4px 0 0;color:#687789;font-size:12px;line-height:1.55}.kpi-close-progress{display:grid;grid-template-columns:auto minmax(90px,180px);align-items:center;gap:10px;margin-top:9px;color:#7f8b98;font-size:12px}

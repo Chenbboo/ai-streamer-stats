@@ -11,6 +11,12 @@ import com.ruoyi.common.core.domain.BaseEntity;
 public class BusinessProject extends BaseEntity
 {
     private static final long serialVersionUID = 1L;
+    private BigDecimal progressWeight;
+    public BigDecimal getProgressWeight() { return progressWeight; }
+    public void setProgressWeight(BigDecimal value) { progressWeight = value; }
+    private Integer subprojectCount;
+    public Integer getSubprojectCount() { return subprojectCount; }
+    public void setSubprojectCount(Integer value) { subprojectCount = value; }
 
     private Long projectId;
     private String projectNo;
@@ -76,6 +82,15 @@ public class BusinessProject extends BaseEntity
     private String progressReporterName;
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss") private Date progressReportTime;
     private Integer openRiskCount;
+    private Long matchedChildId;
+    public Long getMatchedChildId() { return matchedChildId; }
+    public void setMatchedChildId(Long value) { matchedChildId = value; }
+    private boolean contextOnly;
+    private boolean manageable;
+    public boolean isContextOnly() { return contextOnly; }
+    public void setContextOnly(boolean value) { contextOnly = value; }
+    public boolean isManageable() { return manageable; }
+    public void setManageable(boolean value) { manageable = value; }
     /** 关联的执行数据源；当前一期仅支持 LIVE。 */
     private String executionSource;
     private List<BusinessProjectMember> members;

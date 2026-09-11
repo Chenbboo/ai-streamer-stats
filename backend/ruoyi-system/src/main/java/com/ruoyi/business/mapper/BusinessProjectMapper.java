@@ -27,6 +27,7 @@ public interface BusinessProjectMapper
     Long lockStaffCostPerson(Long userId);
     List<Map<String,Object>> selectStaffCostOptions(Map<String,Object> query);
     List<BusinessProject> selectProjectList(Map<String, Object> query);
+    List<BusinessProject> selectProjectRoots(Map<String, Object> query);
     BusinessProject selectProjectById(Long projectId);
     BusinessProject selectProjectByIdForUpdate(Long projectId);
     int closeAccounting(@Param("projectId") Long projectId, @Param("version") Integer version,
@@ -34,6 +35,10 @@ public interface BusinessProjectMapper
     int countPendingProjectKpi(@Param("projectId") Long projectId);
     int insertProject(BusinessProject project);
     int updateProject(BusinessProject project);
+    int countSubprojects(Long projectId);
+    List<Map<String, Object>> selectProjectCompanyOptions();
+    int softDeleteProject(@Param("projectId") Long projectId, @Param("version") Integer version,
+        @Param("userName") String userName);
     int updateProjectBudget(@Param("projectId") Long projectId, @Param("budgetLimit") java.math.BigDecimal budgetLimit,
         @Param("baseCurrency") String baseCurrency, @Param("userName") String userName,
         @Param("version") Integer version);
@@ -162,7 +167,7 @@ public interface BusinessProjectMapper
     BusinessProjectTaskReport selectTaskReport(@Param("taskId") Long taskId,
         @Param("bizDate") java.util.Date bizDate);
     List<BusinessProjectTaskReport> selectTaskReports(Long projectId);
-    int upsertProjectProgressReport(BusinessProjectProgressReport report);
+    int insertProjectProgressReport(BusinessProjectProgressReport report);
     BusinessProjectProgressReport selectProjectProgressReport(@Param("projectId") Long projectId,
         @Param("bizDate") java.util.Date bizDate);
     BusinessProjectProgressReport selectLatestProjectProgressReport(@Param("projectId") Long projectId);

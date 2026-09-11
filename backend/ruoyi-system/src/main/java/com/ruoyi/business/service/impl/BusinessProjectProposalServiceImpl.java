@@ -158,6 +158,8 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         BusinessProjectProposal current = require(input == null ? null : input.getProposalId());
         requireApplicant(current, userId);
         requireEditable(current);
+        if (!java.util.Objects.equals(input.getParentProjectId(), current.getParentProjectId()))
+            throw new ServiceException("归属主项目不可修改");
         input.setApplicantUserId(userId);
         input.setApplicantName(current.getApplicantName());
         if (input.getVersion() == null || !input.getVersion().equals(current.getVersion())) throw changed();
@@ -261,6 +263,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         result.put("bosses", mapper.selectBossOptions(null));
         result.put("companies", mapper.selectCompanyOptions());
         result.put("applicantUserId", userId);
+        result.put("owners", projectService.userOptions(null));
         List<Map<String,Object>> templates=new ArrayList<Map<String,Object>>();
         for(String version:Arrays.asList("LIGHT_V1","CONTROLLED_V1","SERVICE_V1")) { Map<String,Object> template=workMapper.selectTemplate(version);if(template!=null)templates.add(template); }
         result.put("templates",templates);
@@ -276,11 +279,29 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         if(proposal.getProposalId()!=null)
         {
             BusinessProjectProposal current=require(proposal.getProposalId());requireApplicant(current,userId);requireEditable(current);
+            if (!java.util.Objects.equals(proposal.getParentProjectId(), current.getParentProjectId())) throw new ServiceException("归属主项目不可修改");
             proposal.setTemplateVersion(current.getTemplateVersion());
         }
         else proposal.setTemplateVersion("LIGHT_V1");
         proposal.setApplicantUserId(userId);
+        bindSubprojectOwner(proposal, false);
         return budgetService.estimate(proposal);
+    }
+
+    private void bindSubprojectOwner(BusinessProjectProposal proposal, boolean required)
+    {
+        if (proposal.getParentProjectId() == null) {
+            proposal.setAssignedOwnerUserId(null); proposal.setAssignedOwnerName(null); return;
+        }
+        Map<String, Object> parent = mapper.selectParentProject(proposal.getParentProjectId());
+        if (parent == null) throw new ServiceException("主项目不存在或已经结束");
+        if (parent.get("parentId") != null) throw new ServiceException("仅支持主项目与子项目两级结构");
+        proposal.setSponsorOwnerUserId(Long.valueOf(String.valueOf(parent.get("sponsorOwnerUserId"))));
+        projectService.validateSubprojectParent(proposal.getParentProjectId(), proposal.getSponsorOwnerUserId(), proposal.getApplicantUserId());
+        if (proposal.getAssignedOwnerUserId() == null) {
+            proposal.setAssignedOwnerName(null);
+            if (required) throw new ServiceException("请选择子项目负责人");
+        } else proposal.setAssignedOwnerName(displayName(requireActiveUser(proposal.getAssignedOwnerUserId())));
     }
 
     private void normalizeAndValidate(BusinessProjectProposal proposal)
@@ -303,6 +324,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         requireActiveUser(proposal.getApplicantUserId());
         if (proposal.getCompanyDeptId() == null || mapper.selectCompany(proposal.getCompanyDeptId()) == null)
             throw new ServiceException("请选择有效归属公司");
+        bindSubprojectOwner(proposal, true);
         if (proposal.getSponsorOwnerUserId() == null) throw new ServiceException("请选择项目观察老板");
         Map<String, Object> selectedBoss = requireActiveBoss(proposal.getSponsorOwnerUserId());
         proposal.setSponsorOwnerName(displayName(selectedBoss));
@@ -365,13 +387,6 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             throw new ServiceException("预算不能为负数");
         if (StringUtils.isNotBlank(proposal.getExecutionSource()) && !"LIVE".equals(proposal.getExecutionSource()))
             throw new ServiceException("项目执行系统类型不正确");
-        if (proposal.getParentProjectId() != null)
-        {
-            Map<String, Object> parent = mapper.selectParentProject(proposal.getParentProjectId());
-            if (parent == null) throw new ServiceException("上级项目不存在或已经结束");
-            if (!String.valueOf(proposal.getSponsorOwnerUserId()).equals(String.valueOf(parent.get("sponsorOwnerUserId"))))
-                throw new ServiceException("上级项目必须属于同一位归属老板");
-        }
         normalizeBusinessPlan(proposal);
         if(isNewTemplate(proposal)||proposal.getBudget()!=null)budgetService.apply(proposal);
         if (isNewTemplate(proposal)||proposal.getBudget()!=null) updateGovernanceSnapshot(proposal, false);

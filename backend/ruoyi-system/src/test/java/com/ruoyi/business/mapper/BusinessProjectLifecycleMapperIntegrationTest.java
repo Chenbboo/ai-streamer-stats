@@ -60,6 +60,24 @@ class BusinessProjectLifecycleMapperIntegrationTest
         sessionFactory = new SqlSessionFactoryBuilder().build(configuration);
     }
 
+    @Test void deletingAChildPreservesParentAndHistoryAndRejectsStaleVersion() throws Exception
+    {
+        insertProject(1, "LEGACY_V1", "DRAFT", "OPEN", 7, "0");
+        insertProject(2, "LEGACY_V1", "DRAFT", "OPEN", 7, "0");
+        execute("update biz_project set parent_id=1 where project_id=2");
+        try (SqlSession session = sessionFactory.openSession(false))
+        {
+            BusinessProjectMapper mapper = session.getMapper(BusinessProjectMapper.class);
+            assertEquals(1, mapper.countSubprojects(1L));
+            assertEquals(0, mapper.softDeleteProject(2L, 6, "boss"));
+            assertEquals(1, mapper.softDeleteProject(2L, 7, "boss"));
+            assertEquals(0, mapper.countSubprojects(1L));
+            assertNull(mapper.selectProjectByIdForUpdate(2L));
+            assertEquals(7, mapper.selectProjectByIdForUpdate(1L).getVersion());
+            assertEquals(0, mapper.softDeleteProject(2L, 7, "boss"));
+        }
+    }
+
     @Test void lockingProjectReadsCarryPoliciesAccountingStateAndDeliveryDate() throws Exception
     {
         insertProject(1, "SEPARATED_V1", "CLOSED", "OPEN", 7, "0");
@@ -235,7 +253,7 @@ class BusinessProjectLifecycleMapperIntegrationTest
 
     private void createSchema() throws Exception
     {
-        execute("create table biz_project(project_id bigint primary key,project_name varchar(100),company_dept_id bigint,"
+        execute("create table biz_project(project_id bigint primary key,parent_id bigint,project_name varchar(100),company_dept_id bigint,"
             + "accounting_mode varchar(30),base_currency varchar(3),budget_limit decimal(18,2),"
             + "sponsor_owner_user_id bigint,sponsor_owner_name varchar(100),initiator_user_id bigint,initiator_name varchar(100),"
             + "main_owner_user_id bigint,main_owner_name varchar(100),status varchar(30),delivery_policy_version varchar(40),"

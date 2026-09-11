@@ -4,10 +4,31 @@ import java.util.Date;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.ruoyi.common.core.domain.BaseEntity;
 
-/** 项目负责人按日填报的项目整体完成情况。 */
+/** 项目负责人提交的不可覆盖进度版本；关联数据由服务器归档。 */
 public class BusinessProjectProgressReport extends BaseEntity
 {
     private static final long serialVersionUID = 1L;
+    private String issuesRisks;
+    public String getIssuesRisks() { return issuesRisks; }
+    public void setIssuesRisks(String value) { issuesRisks = value; }
+    private String nextPlan;
+    public String getNextPlan() { return nextPlan; }
+    public void setNextPlan(String value) { nextPlan = value; }
+    private Boolean syncTasks;
+    public Boolean getSyncTasks() { return syncTasks; }
+    public void setSyncTasks(Boolean value) { syncTasks = value; }
+    private Boolean syncRoutines;
+    public Boolean getSyncRoutines() { return syncRoutines; }
+    public void setSyncRoutines(Boolean value) { syncRoutines = value; }
+    private String snapshotJson;
+    public String getSnapshotJson() { return snapshotJson; }
+    public void setSnapshotJson(String value) { snapshotJson = value; }
+    private Long parentProjectId;
+    public Long getParentProjectId() { return parentProjectId; }
+    public void setParentProjectId(Long value) { parentProjectId = value; }
+    private String projectNameSnapshot;
+    public String getProjectNameSnapshot() { return projectNameSnapshot; }
+    public void setProjectNameSnapshot(String value) { projectNameSnapshot = value; }
     private Long reportId;
     private Long projectId;
     @JsonFormat(pattern = "yyyy-MM-dd") private Date bizDate;

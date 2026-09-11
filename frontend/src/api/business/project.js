@@ -1,6 +1,10 @@
 import request from '@/utils/request'
 
 export const listBusinessProjects = params => request({ url: '/business/project/list', method: 'get', params })
+export const getBusinessProjectHierarchy = params => request({ url: '/business/project/hierarchy', method: 'get', params })
+export const getBusinessProjectChildren = parentId => request({ url: `/business/project/${parentId}/children`, method: 'get' })
+export const deleteBusinessProject = id => request({ url: `/business/project/${id}`, method: 'delete' })
+export const getBusinessProjectCompanies = () => request({ url: '/business/project/company-options', method: 'get' })
 export const getBusinessProject = id => request({ url: `/business/project/${id}`, method: 'get' })
 export const getBusinessProjectSettlementStatus = id => request({ url: `/business/project/${id}/settlement-status`, method: 'get' })
 export const closeBusinessProjectAccounting = (id, data) => request({ url: `/business/project/${id}/accounting-close`, method: 'post', data })
@@ -48,3 +52,8 @@ export const saveBusinessWorkEffort = data => request({ url: '/business/work/eff
 export const confirmBusinessEffortWeek = (projectId, anchorDate) => request({ url: `/business/owner/${projectId}/effort-week/confirm`, method: 'post', params: { anchorDate } })
 export const confirmBusinessMemberEffort = (projectId, memberUserId, data) => request({ url: `/business/owner/${projectId}/member/${memberUserId}/effort/confirm`, method: 'post', data })
 export const returnBusinessMemberEffort = (projectId, memberUserId, data) => request({ url: `/business/owner/${projectId}/member/${memberUserId}/effort/return`, method: 'post', data })
+
+export const getProjectProgress = id => request({ url: '/business/project/progress/' + id, method: 'get' })
+export const setProjectProgressWeight = (parentId,projectId,weight) => request({ url: `/business/project/progress/${parentId}/weights/${projectId}`, method: 'put', data: {weight} })
+export const getProgressNotifications = () => request({ url: '/business/project/progress/notifications', method: 'get' })
+export const readProgressNotification = id => request({ url: '/business/project/progress/notifications/' + id + '/read', method: 'put' })

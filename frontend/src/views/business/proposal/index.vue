@@ -36,9 +36,11 @@
       <el-form ref="formRef" class="proposal-form" :model="form" :rules="rules" label-width="112px" require-asterisk-position="left" scroll-to-error :scroll-into-view-options="{block:'center',behavior:'smooth'}">
         <p class="required-hint"><span>*</span> 为必填项；明细区可选，添加明细后请填写带星号的列。</p>
         <el-alert v-if="!isNewTemplate" title="历史申请保留原成本核算规则，由申请人直接启动。" type="warning" :closable="false" show-icon />
+        <el-form-item v-if="form.parentProjectId" label="主项目"><el-input :model-value="form.parentProjectName || `项目 #${form.parentProjectId}`" disabled /></el-form-item>
         <el-row :gutter="16">
-          <el-col :span="12"><el-form-item label="申请人/负责人" required><el-input :model-value="userStore.nickName || userStore.name" disabled /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="归属老板" prop="sponsorOwnerUserId"><el-select v-model="form.sponsorOwnerUserId" style="width:100%" placeholder="选择项目归属老板"><el-option v-for="item in options.bosses" :key="item.userId" :label="bossOptionLabel(item)" :value="item.userId" /></el-select><small class="field-help">用于归属、异常提醒、治理及后续结算责任，不参与立项审批。</small></el-form-item></el-col>
+          <el-col v-if="!form.parentProjectId" :span="12"><el-form-item label="申请人/负责人" required><el-input :model-value="userStore.nickName || userStore.name" disabled /></el-form-item></el-col>
+          <el-col v-if="form.parentProjectId" :span="12"><el-form-item label="子项目负责人" prop="assignedOwnerUserId"><el-select v-model="form.assignedOwnerUserId" filterable placeholder="选择子项目负责人" style="width:100%" @change="changeAssignedOwner"><el-option v-for="u in options.owners || []" :key="u.userId" :label="bossOptionLabel(u)" :value="u.userId" /></el-select></el-form-item></el-col>
+          <el-col v-else :span="12"><el-form-item label="归属老板" prop="sponsorOwnerUserId"><el-select v-model="form.sponsorOwnerUserId" style="width:100%" placeholder="选择项目归属老板"><el-option v-for="item in options.bosses" :key="item.userId" :label="bossOptionLabel(item)" :value="item.userId" /></el-select><small class="field-help">用于归属、异常提醒、治理及后续结算责任，不参与立项审批。</small></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="项目名称" prop="projectName"><el-input v-model="form.projectName" maxlength="160" show-word-limit /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="归属公司" prop="companyDeptId"><el-select v-model="form.companyDeptId" style="width:100%" placeholder="请选择归属公司" @change="refreshStaffOptions"><el-option v-for="item in options.companies" :key="item.deptId" :label="item.deptName" :value="item.deptId" /></el-select></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="项目类型" prop="projectType" required><el-select v-model="form.projectType" style="width:100%"><el-option v-for="(label,value) in typeLabel" :key="value" :label="label" :value="value" /></el-select></el-form-item></el-col>
@@ -98,7 +100,7 @@
 
     <el-drawer v-model="detailVisible" size="min(720px,94vw)" append-to-body>
       <template #header><div><span class="eyebrow">{{ detail.proposalNo }}</span><h2>{{ detail.projectName }}</h2></div></template>
-      <div class="detail-grid"><div><span>项目负责人</span><b>{{ detail.applicantName }}</b></div><div><span>归属老板</span><b>{{ detail.sponsorOwnerName }}</b></div><div><span>管理模式</span><b>{{ managementLabel[detail.managementMode] || detail.managementMode }}</b></div><div><span>结项方式</span><b>{{ closeMethodLabel[detail.closeMethod] || detail.closeMethod }}</b></div><div><span>计划周期</span><b>{{ planPeriod(detail) }}</b></div><div><span>预算控制</span><b>{{ detail.budgetMode==='NONE'?'不设上限':detail.budgetMode==='DAILY'?money(detail.dailyBudgetLimit,detail.baseCurrency)+' / 日':money(detail.budgetLimit,detail.baseCurrency) }}</b></div></div>
+      <div class="detail-grid"><div><span>{{ detail.parentProjectId ? '子项目负责人' : '项目负责人' }}</span><b>{{ detail.parentProjectId ? detail.assignedOwnerName : detail.applicantName }}</b></div><div><span>归属老板</span><b>{{ detail.sponsorOwnerName }}</b></div><div><span>管理模式</span><b>{{ managementLabel[detail.managementMode] || detail.managementMode }}</b></div><div><span>结项方式</span><b>{{ closeMethodLabel[detail.closeMethod] || detail.closeMethod }}</b></div><div><span>计划周期</span><b>{{ planPeriod(detail) }}</b></div><div><span>预算控制</span><b>{{ detail.budgetMode==='NONE'?'不设上限':detail.budgetMode==='DAILY'?money(detail.dailyBudgetLimit,detail.baseCurrency)+' / 日':money(detail.budgetLimit,detail.baseCurrency) }}</b></div></div>
       <section v-if="detail.budget" class="detail-section budget-composition">
         <div class="budget-composition-head"><div><h3>预算构成</h3><p>本预算期间的计划成本组成</p></div><span class="budget-cycle-tag">{{ {PROJECT:'整个项目',WEEK:'周度',MONTH:'月度',QUARTER:'季度',YEAR:'年度（历史）'}[detail.budget.cycle] }}</span></div>
         <div class="budget-total-card"><div><span>本期计划预算</span><small>人员预算 + 业务预算</small></div><strong>{{ money(detail.budget.totalAmount,detail.baseCurrency) }}</strong></div>
@@ -127,6 +129,7 @@
 </template>
 
 <script setup name="BusinessProjectProposals">
+import { getBusinessProject } from '@/api/business/project'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import useUserStore from '@/store/modules/user'
 import { listProjectProposals, listProposalDirectory, getProjectProposal, getProjectProposalOptions, getProjectProposalStaffOptions, estimateProjectProposalBudget, addProjectProposal, updateProjectProposal, submitProjectProposal, withdrawProjectProposal } from '@/api/business/proposal'
@@ -158,7 +161,7 @@ const eventLabel={SELF_AUTHORIZED:'负责人自主启动',CREATE:'创建草稿',
 const requiredRule=(message,trigger='change')=>[{required:true,message,trigger,...(trigger==='blur'?{type:'string',whitespace:true}:{})}]
 const amountRule=(message,min=0)=>[{required:true,type:'number',min,max:99999999999999.99,message,trigger:'change'}]
 const rules=computed(()=>({
-  projectName:requiredRule('请输入项目名称','blur'),sponsorOwnerUserId:requiredRule('请选择归属老板'),companyDeptId:requiredRule('请选择归属公司'),
+  projectName:requiredRule('请输入项目名称','blur'),assignedOwnerUserId:form.value.parentProjectId?requiredRule('请选择子项目负责人'):[],sponsorOwnerUserId:form.value.parentProjectId?[]:requiredRule('请选择归属老板'),companyDeptId:requiredRule('请选择归属公司'),
   goalMode:requiredRule('请选择目标模式'),
   projectType:requiredRule('请选择项目类型'),accountingMode:requiredRule('请选择核算方式'),managementMode:requiredRule('请选择管理模式'),closeMethod:requiredRule('请选择结项方式'),
   objective:requiredRule('请填写项目目标','blur'),applicationReason:requiredRule('请填写立项理由','blur'),planStartDate:requiredRule('请选择计划开始日期'),
@@ -173,10 +176,18 @@ const rules=computed(()=>({
   'budget.businessAmount':form.value.budget?.mode==='TOTAL'?amountRule('请填写有效业务预算，无支出填0'):[],'budget.cycle':openEnded.value?requiredRule('请选择预算周期'):[],'budget.anchorDate':openEnded.value?requiredRule(`请选择${budgetPeriodFieldLabel.value}`):[],riskSummary:!isNewTemplate.value?requiredRule('请填写主要风险','blur'):[]
 }))
 
-const isOwnerStaff=row=>Number(row.userId)===Number(form.value.applicantUserId||userStore.id)
-function ensureOwnerStaff(){if(!isNewTemplate.value)return;const id=Number(form.value.applicantUserId||userStore.id);if(!id||form.value.staffingLines.some(row=>Number(row.userId)===id))return;form.value.staffingLines.unshift({...emptyStaffing(),userId:id,userName:userStore.nickName||userStore.name,roleName:'项目负责人'})}
+const isOwnerStaff=row=>Number(row.userId)===Number(form.value.parentProjectId?form.value.assignedOwnerUserId:(form.value.applicantUserId||userStore.id))
+let previousAssignedOwnerId=null
+function changeAssignedOwner(){
+  form.value.staffingLines=form.value.staffingLines.filter(row=>Number(row.userId)!==Number(previousAssignedOwnerId))
+  previousAssignedOwnerId=form.value.assignedOwnerUserId
+  const selected=(options.owners||[]).find(u=>u.userId===form.value.assignedOwnerUserId)
+  form.value.assignedOwnerName=selected?.nickName||selected?.userName||''
+  ensureOwnerStaff();refreshStaffOptions()
+}
+function ensureOwnerStaff(){if(!isNewTemplate.value)return;const id=Number(form.value.parentProjectId?form.value.assignedOwnerUserId:(form.value.applicantUserId||userStore.id));if(!id||form.value.staffingLines.some(row=>Number(row.userId)===id))return;form.value.staffingLines.unshift({...emptyStaffing(),userId:id,userName:form.value.parentProjectId?form.value.assignedOwnerName:(userStore.nickName||userStore.name),roleName:'项目负责人'})}
 const emptyStaffing=()=>({participationMode:'FOLLOW_PROJECT',planStartDate:form.value.planStartDate||null,planEndDate:openEnded.value?null:form.value.planEndDate||null,inputUnit:'PERCENTAGE',inputQuantity:100,calendarId:defaultCalendar(),unitPolicyId:defaultUnitPolicy(),userId:null,userName:'',roleName:'',costPolicyId:null,costPolicyVersion:null,monthlyCostSnapshot:null,standardWorkDaysSnapshot:null,dailyCostSnapshot:null,costCurrency:null,estimatedCost:null,note:''})
-const freshForm=()=>({projectName:'',templateVersion:'LIGHT_V1',sponsorOwnerUserId:null,companyDeptId:null,projectType:'GENERAL',accountingMode:'COST',managementMode:'LIGHT',closeMethod:'DIRECT',managementReason:'',acceptanceCriteria:'',objective:'',applicationReason:'',planStartDate:null,planEndDate:null,priority:'MEDIUM',baseCurrency:'CNY',budgetLimit:null,noBudget:'0',goalMode:'TOTAL',budget:{mode:'TOTAL',scope:'FULL_COST',dailyLimit:null,startupLimit:null,reason:'',cycle:'MONTH',anchorDate:null,businessAmount:0},revenueModel:'',peakCashNeed:null,riskSummary:'',revenueLines:[],expenseLines:[],staffingLines:[],targetLines:[]})
+const freshForm=()=>({assignedOwnerUserId:null,assignedOwnerName:'',parentProjectId:null,parentProjectName:'',projectName:'',templateVersion:'LIGHT_V1',sponsorOwnerUserId:null,companyDeptId:null,projectType:'GENERAL',accountingMode:'COST',managementMode:'LIGHT',closeMethod:'DIRECT',managementReason:'',acceptanceCriteria:'',objective:'',applicationReason:'',planStartDate:null,planEndDate:null,priority:'MEDIUM',baseCurrency:'CNY',budgetLimit:null,noBudget:'0',goalMode:'TOTAL',budget:{mode:'TOTAL',scope:'FULL_COST',dailyLimit:null,startupLimit:null,reason:'',cycle:'MONTH',anchorDate:null,businessAmount:0},revenueModel:'',peakCashNeed:null,riskSummary:'',revenueLines:[],expenseLines:[],staffingLines:[],targetLines:[]})
 const isNewTemplate=computed(()=>!!form.value.templateVersion&&form.value.templateVersion!=='LEGACY_V1')
 const newTemplate=item=>!!item?.templateVersion&&item.templateVersion!=='LEGACY_V1'
 const defaultCalendar=()=>options.calendars.find(c=>coversWindow(c,form.value.planStartDate,form.value.planEndDate))?.calendarId??null
@@ -221,7 +232,7 @@ const budgetDisplay=key=>budgetError.value?'测算未更新':budgetLoading.value
 // Watch only fields consumed by budget calculation and date validation.
 // Editing descriptions must not trigger requests or disturb the form layout.
 const budgetCalculationInput=computed(()=>[
-  budgetRetry.value,formVisible.value,openEnded.value,form.value.companyDeptId,form.value.planStartDate,form.value.planEndDate,form.value.baseCurrency,
+  budgetRetry.value,formVisible.value,openEnded.value,form.value.assignedOwnerUserId,form.value.companyDeptId,form.value.planStartDate,form.value.planEndDate,form.value.baseCurrency,
   ['mode','scope','dailyLimit','startupLimit','reason','cycle','anchorDate','businessAmount'].map(key=>form.value.budget?.[key]),
   (form.value.staffingLines||[]).map(row=>[row.userId,row.participationMode,row.planStartDate,row.planEndDate,row.calendarId]),
   (form.value.expenseLines||[]).map(row=>[row.amount,row.occurrenceType,row.expenseType,row.occurDate]),
@@ -292,7 +303,7 @@ async function loadMine(){const res=await listProjectProposals({pageNum:1,pageSi
 async function loadDirectory(){if(!canViewDirectory.value)return;const res=await listProposalDirectory({pageNum:1,pageSize:100});directoryRows.value=res.rows||[]}
 async function loadActive(){loading.value=true;try{if(activeTab.value==='mine')await loadMine();else await loadDirectory()}finally{loading.value=false}}
 async function refreshAll(){await loadMine();if(activeTab.value==='directory')await loadDirectory()}
-async function openForm(row){forecastPanels.value=[];await ensureOptions();const source=row?.proposalId?(await getProjectProposal(row.proposalId)).data:freshForm();const legacyMode=source.managementMode==='SIMPLE'?'LIGHT':source.managementMode==='DELIVERY'?'STANDARD':source.managementMode;const legacyClose=source.closeMethod||(source.managementMode==='DELIVERY'?'RESULT_ACCEPTANCE':'DIRECT');openEnded.value=!!row?.proposalId&&!!source.planStartDate&&!source.planEndDate;form.value={...freshForm(),...source,templateVersion:source.templateVersion||(row?.proposalId?'LEGACY_V1':'LIGHT_V1'),managementMode:legacyMode,closeMethod:legacyClose,revenueLines:source.revenueLines||[],expenseLines:source.expenseLines||[],staffingLines:(source.staffingLines||[]).map(item=>{const from=shortDate(item.planStartDate)||null,to=shortDate(item.planEndDate)||null;const mode=item.participationMode||(from===shortDate(source.planStartDate)&&(to||null)===(shortDate(source.planEndDate)||null)?'FOLLOW_PROJECT':!to?'UNLIMITED':'CUSTOM');return{...item,participationMode:mode,planStartDate:from,planEndDate:to,inputUnit:'PERCENTAGE',inputQuantity:100,unitPolicyId:item.unitPolicyId||options.unitPolicies[0]?.unitPolicyId||null}}),targetLines:(source.targetLines||[]).map(item=>({...item,targetType:({RESULT:'QUANTITY',VALUE:'OTHER'})[item.targetType]||item.targetType}))};form.value.budget={mode:source.budgetMode||'TOTAL',scope:source.budgetScope||'FULL_COST',dailyLimit:source.dailyBudgetLimit,startupLimit:source.startupBudgetLimit,reason:source.budgetReason||'',cycle:openEnded.value?'MONTH':'PROJECT',anchorDate:source.planStartDate?shortDate(source.planStartDate).slice(0,7)+'-01':null,businessAmount:Number(source.estimatedExternalCost)||0,...source.budget};if(openEnded.value&&!['WEEK','MONTH','QUARTER'].includes(form.value.budget.cycle))form.value.budget.cycle='MONTH';budgetEstimate.value={};budgetError.value='';ensureOwnerStaff();await refreshStaffOptions();formVisible.value=true;nextTick(()=>formRef.value?.clearValidate())}
+async function openForm(row,parent){forecastPanels.value=[];await ensureOptions();const source=row?.proposalId?(await getProjectProposal(row.proposalId)).data:{...freshForm(),...(parent?{parentProjectId:parent.projectId,parentProjectName:parent.projectName,companyDeptId:parent.companyDeptId,sponsorOwnerUserId:parent.sponsorOwnerUserId||parent.initiatorUserId}:{})};const legacyMode=source.managementMode==='SIMPLE'?'LIGHT':source.managementMode==='DELIVERY'?'STANDARD':source.managementMode;const legacyClose=source.closeMethod||(source.managementMode==='DELIVERY'?'RESULT_ACCEPTANCE':'DIRECT');openEnded.value=!!row?.proposalId&&!!source.planStartDate&&!source.planEndDate;form.value={...freshForm(),...source,templateVersion:source.templateVersion||(row?.proposalId?'LEGACY_V1':'LIGHT_V1'),managementMode:legacyMode,closeMethod:legacyClose,revenueLines:source.revenueLines||[],expenseLines:source.expenseLines||[],staffingLines:(source.staffingLines||[]).map(item=>{const from=shortDate(item.planStartDate)||null,to=shortDate(item.planEndDate)||null;const mode=item.participationMode||(from===shortDate(source.planStartDate)&&(to||null)===(shortDate(source.planEndDate)||null)?'FOLLOW_PROJECT':!to?'UNLIMITED':'CUSTOM');return{...item,participationMode:mode,planStartDate:from,planEndDate:to,inputUnit:'PERCENTAGE',inputQuantity:100,unitPolicyId:item.unitPolicyId||options.unitPolicies[0]?.unitPolicyId||null}}),targetLines:(source.targetLines||[]).map(item=>({...item,targetType:({RESULT:'QUANTITY',VALUE:'OTHER'})[item.targetType]||item.targetType}))};form.value.budget={mode:source.budgetMode||'TOTAL',scope:source.budgetScope||'FULL_COST',dailyLimit:source.dailyBudgetLimit,startupLimit:source.startupBudgetLimit,reason:source.budgetReason||'',cycle:openEnded.value?'MONTH':'PROJECT',anchorDate:source.planStartDate?shortDate(source.planStartDate).slice(0,7)+'-01':null,businessAmount:Number(source.estimatedExternalCost)||0,...source.budget};if(openEnded.value&&!['WEEK','MONTH','QUARTER'].includes(form.value.budget.cycle))form.value.budget.cycle='MONTH';budgetEstimate.value={};budgetError.value='';previousAssignedOwnerId=form.value.assignedOwnerUserId;ensureOwnerStaff();await refreshStaffOptions();formVisible.value=true;nextTick(()=>formRef.value?.clearValidate())}
 function validateDetailLines(){
   const groups=[['收入测算',form.value.revenueLines,[['scenario','场景'],['revenueType','收入方式'],['itemName','收入项目'],['expectedAmount','预计金额'],['occurrenceType','发生方式']]],
     ['支出计划',form.value.expenseLines,[['expenseCategory','类别'],['itemName','支出项目'],['purpose','具体用途'],['amount','金额'],['occurrenceType','发生方式']]],
@@ -337,7 +348,28 @@ function handleBudgetCycleChange(){
   nextTick(()=>formRef.value?.clearValidate('budget.anchorDate'))
 }
 function disablePlanEndDate(date){return !!form.value.planStartDate&&date.getTime()<new Date(`${form.value.planStartDate}T00:00:00`).getTime()}
-onMounted(async()=>{activeTab.value=route.query.tab==='directory'&&canViewDirectory.value?'directory':'mine';await ensureOptions();await refreshAll();if(route.query.id)await openDetail({proposalId:Number(route.query.id)})})
+let openingFromRoute=false
+async function openRequestedForm(){
+  if(route.path!=='/business/project-proposals'||!route.query.create||openingFromRoute)return
+  openingFromRoute=true
+  try{
+    let parent=null
+    if(route.query.parentProjectId){
+      const id=Number(route.query.parentProjectId)
+      if(!Number.isSafeInteger(id)||id<=0)return ElMessage.warning('主项目参数无效')
+      parent=(await getBusinessProject(id)).data
+      if(!parent||parent.parentId)return ElMessage.warning('仅支持在主项目下新增子项目')
+      if(['CLOSED','CANCELED'].includes(parent.status))return ElMessage.warning('已结束的主项目不能新增子项目')
+    }
+    await openForm(undefined,parent)
+  }finally{
+    const {create,parentProjectId,...rest}=route.query
+    await router.replace({path:route.path,query:rest})
+    openingFromRoute=false
+  }
+}
+watch(()=>[route.path,route.query.create,route.query.parentProjectId],openRequestedForm)
+onMounted(async()=>{activeTab.value=route.query.tab==='directory'&&canViewDirectory.value?'directory':'mine';await ensureOptions();await refreshAll();if(route.query.id)await openDetail({proposalId:Number(route.query.id)});await openRequestedForm()})
 useBusinessRefreshOnReactivated(refreshAll)
 </script>
 

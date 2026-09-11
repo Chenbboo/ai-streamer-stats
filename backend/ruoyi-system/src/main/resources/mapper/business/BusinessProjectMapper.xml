@@ -8,6 +8,8 @@
         <result property="sourceProposalId" column="source_proposal_id"/>
         <result property="parentId" column="parent_id"/>
         <result property="parentName" column="parent_name"/>
+        <result property="contextOnly" column="context_only"/>
+        <result property="matchedChildId" column="matched_child_id"/>
         <result property="companyDeptId" column="company_dept_id"/>
         <result property="companyName" column="company_name"/>
         <result property="projectName" column="project_name"/>
@@ -59,6 +61,8 @@
         <result property="taskCount" column="task_count"/>
         <result property="completedTaskCount" column="completed_task_count"/>
         <result property="progressPercent" column="progress_percent"/>
+        <result property="progressWeight" column="progress_weight"/>
+        <result property="subprojectCount" column="subproject_count"/>
         <result property="progressReportId" column="progress_report_id"/>
         <result property="progressBizDate" column="progress_biz_date"/>
         <result property="progressSummary" column="progress_summary"/>
@@ -125,11 +129,15 @@
         p.plan_start_date,p.plan_end_date,p.actual_start_date,p.actual_end_date,p.priority,p.base_currency,
         p.budget_limit,p.budget_mode,p.daily_budget_limit,p.budget_scope,p.startup_budget_limit,p.budget_reason,
         p.baseline_version,p.version,p.del_flag,p.create_by,p.create_time,p.update_by,
-        p.update_time,p.remark,
+        p.update_time,p.remark,p.progress_weight,
+        (select count(*) from biz_project c where c.parent_id=p.project_id and c.del_flag='0') subproject_count,
         (select count(*) from biz_project_member m where m.project_id=p.project_id and m.status='0') member_count,
         (select count(*) from biz_project_task t where t.project_id=p.project_id and t.active_status='ACTIVE') task_count,
         (select count(*) from biz_project_task t where t.project_id=p.project_id and t.active_status='ACTIVE' and t.status='DONE') completed_task_count,
         case
+          when exists(select 1 from biz_project c where c.parent_id=p.project_id and c.del_flag='0') then
+            (select round(sum(coalesce(c.progress_weight,1) * case when c.status='CLOSED' then 100 when c.status='CANCELED' then 0 else coalesce((select cr.progress from biz_project_progress_report cr where cr.project_id=c.project_id order by cr.report_id desc limit 1),0) end) / nullif(sum(coalesce(c.progress_weight,1)),0))
+             from biz_project c where c.parent_id=p.project_id and c.del_flag='0')
           when p.status='CLOSED' then 100
           when p.status='CANCELED' then 0
           else coalesce(latest_progress.progress,0)
@@ -145,7 +153,7 @@
         left join biz_project_progress_report latest_progress on latest_progress.report_id=(
           select progress_report.report_id from biz_project_progress_report progress_report
           where progress_report.project_id=p.project_id
-          order by progress_report.biz_date desc,progress_report.report_id desc limit 1)
+          order by progress_report.report_id desc limit 1)
     </sql>
 
     <select id="selectProjectList" resultMap="ProjectResult">
@@ -161,10 +169,10 @@
                 </when>
                 <when test="viewAll == true"/>
                 <when test="boss == true">
-                    and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}
+                    and (coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId} or (p.applicant_user_id=#{userId} and (parent.main_owner_user_id=#{userId} or exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=parent.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY')))))
                 </when>
                 <otherwise>
-                    and (p.main_owner_user_id=#{userId} or exists(
+                    and (p.main_owner_user_id=#{userId} or (p.applicant_user_id=#{userId} and (parent.main_owner_user_id=#{userId} or exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=parent.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY')))) or exists(
                         select 1 from biz_project_member scope_member
                         where scope_member.project_id=p.project_id and scope_member.user_id=#{userId}
                           and scope_member.status='0'))
@@ -184,6 +192,52 @@
         </where>
         order by field(p.status,'PLANNING','ACTIVE','PAUSED','ACCEPTANCE','DRAFT','CLOSED','CANCELED'),
                  p.priority='HIGH' desc,p.update_time desc,p.project_id desc
+    </select>
+
+    <!-- alias is a static include property, never supplied by request parameters. -->
+    <sql id="hierarchyAccess">
+        <choose>
+            <when test="viewAll == true">1=1</when>
+            <when test="boss == true">(coalesce(${alias}.sponsor_owner_user_id,${alias}.initiator_user_id)=#{userId} or (${alias}.applicant_user_id=#{userId} and exists(select 1 from biz_project hp where hp.project_id=${alias}.parent_id and hp.del_flag='0' and (hp.main_owner_user_id=#{userId} or exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=hp.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY'))))))</when>
+            <otherwise>(${alias}.main_owner_user_id=#{userId} or (${alias}.applicant_user_id=#{userId} and exists(select 1 from biz_project hp where hp.project_id=${alias}.parent_id and hp.del_flag='0' and (hp.main_owner_user_id=#{userId} or exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=hp.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY'))))) or exists(
+                select 1 from biz_project_member hm where hm.project_id=${alias}.project_id
+                and hm.user_id=#{userId} and hm.status='0'))</otherwise>
+        </choose>
+    </sql>
+
+    <sql id="hierarchyFilters">
+        <if test="keyword != null and keyword != ''">
+            and (${alias}.project_name like concat('%',#{keyword},'%')
+                or ${alias}.project_no like concat('%',#{keyword},'%')
+                or ${alias}.main_owner_name like concat('%',#{keyword},'%'))
+        </if>
+        <if test="status != null and status != ''">and ${alias}.status=#{status}</if>
+        <if test="managementMode != null and managementMode != ''">and ${alias}.management_mode=#{managementMode}</if>
+        <if test="closeMethod != null and closeMethod != ''">and ${alias}.close_method=#{closeMethod}</if>
+    </sql>
+
+    <select id="selectProjectRoots" resultMap="ProjectResult">
+        select <include refid="projectColumns"/>,
+          case when (<include refid="hierarchyAccess"><property name="alias" value="p"/></include>) then 0 else 1 end context_only,
+          <choose>
+            <when test="(keyword != null and keyword != '') or (status != null and status != '') or (managementMode != null and managementMode != '') or (closeMethod != null and closeMethod != '')">
+                (select min(c.project_id) from biz_project c where c.parent_id=p.project_id and c.del_flag='0'
+                  and (<include refid="hierarchyAccess"><property name="alias" value="c"/></include>)
+                  <include refid="hierarchyFilters"><property name="alias" value="c"/></include>)
+            </when>
+            <otherwise>null</otherwise>
+          </choose> matched_child_id
+        from biz_project p left join biz_project parent on parent.project_id=p.parent_id and parent.del_flag='0'
+        left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+        <include refid="projectProgressJoin"/>
+        where p.del_flag='0' and p.parent_id is null and (
+          ((<include refid="hierarchyAccess"><property name="alias" value="p"/></include>)
+            <include refid="hierarchyFilters"><property name="alias" value="p"/></include>)
+          or exists(select 1 from biz_project c where c.parent_id=p.project_id and c.del_flag='0'
+            and (<include refid="hierarchyAccess"><property name="alias" value="c"/></include>)
+            <include refid="hierarchyFilters"><property name="alias" value="c"/></include>))
+        order by field(p.status,'PLANNING','ACTIVE','PAUSED','ACCEPTANCE','DRAFT','CLOSED','CANCELED'),
+            p.priority='HIGH' desc,p.update_time desc,p.project_id desc
     </select>
 
     <select id="selectProjectById" resultMap="ProjectResult">
@@ -241,6 +295,20 @@
           management_reason=#{managementReason},acceptance_criteria=#{acceptanceCriteria},goal_mode=#{goalMode},objective=#{objective},plan_start_date=#{planStartDate},
           plan_end_date=#{planEndDate},priority=#{priority},base_currency=#{baseCurrency},
           budget_limit=#{budgetLimit},remark=#{remark},update_by=#{updateBy},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and del_flag='0' and version=#{version}
+    </update>
+
+    <select id="countSubprojects" resultType="int" flushCache="true" useCache="false">
+        select count(*) from biz_project where parent_id=#{projectId} and del_flag='0'
+    </select>
+
+    <select id="selectProjectCompanyOptions" resultType="map">
+        select dept_id companyDeptId,dept_name companyName from sys_dept
+        where parent_id=100 and del_flag='0' and status='0' order by order_num,dept_id
+    </select>
+
+    <update id="softDeleteProject">
+        update biz_project set del_flag='2',version=version+1,update_by=#{userName},update_time=sysdate()
         where project_id=#{projectId} and del_flag='0' and version=#{version}
     </update>
 
@@ -894,23 +962,20 @@
         where project_id=#{projectId}
         order by biz_date desc,report_id desc
     </select>
-    <insert id="upsertProjectProgressReport" parameterType="com.ruoyi.business.domain.BusinessProjectProgressReport"
-            useGeneratedKeys="true" keyProperty="reportId">
+    <insert id="insertProjectProgressReport" parameterType="com.ruoyi.business.domain.BusinessProjectProgressReport" useGeneratedKeys="true" keyProperty="reportId">
         insert into biz_project_progress_report(project_id,biz_date,progress,completion_summary,evidence_urls,
-          submitted_user_id,submitted_user_name,version,create_by,create_time)
+          submitted_user_id,submitted_user_name,version,create_by,create_time,issues_risks,next_plan,
+          sync_tasks,sync_routines,snapshot_json,parent_project_id,project_name_snapshot)
         values(#{projectId},#{bizDate},#{progress},#{completionSummary},#{evidenceUrls},
-          #{submittedUserId},#{submittedUserName},0,#{createBy},sysdate())
-        on duplicate key update progress=values(progress),completion_summary=values(completion_summary),
-          evidence_urls=values(evidence_urls),submitted_user_id=values(submitted_user_id),
-          submitted_user_name=values(submitted_user_name),update_by=values(create_by),update_time=sysdate(),
-          version=version+1,report_id=last_insert_id(report_id)
+          #{submittedUserId},#{submittedUserName},#{version},#{createBy},#{createTime},#{issuesRisks},#{nextPlan},
+          #{syncTasks},#{syncRoutines},#{snapshotJson},#{parentProjectId},#{projectNameSnapshot})
     </insert>
     <select id="selectProjectProgressReport" resultType="com.ruoyi.business.domain.BusinessProjectProgressReport">
         select report_id reportId,project_id projectId,biz_date bizDate,progress,
           completion_summary completionSummary,evidence_urls evidenceUrls,submitted_user_id submittedUserId,
           submitted_user_name submittedUserName,version,create_by createBy,create_time createTime,
           update_by updateBy,update_time updateTime
-        from biz_project_progress_report where project_id=#{projectId} and biz_date=#{bizDate} limit 1
+        from biz_project_progress_report where project_id=#{projectId} and biz_date=#{bizDate} order by report_id desc limit 1
     </select>
     <select id="selectLatestProjectProgressReport" resultType="com.ruoyi.business.domain.BusinessProjectProgressReport">
         select report_id reportId,project_id projectId,biz_date bizDate,progress,
@@ -918,7 +983,7 @@
           submitted_user_name submittedUserName,version,create_by createBy,create_time createTime,
           update_by updateBy,update_time updateTime
         from biz_project_progress_report where project_id=#{projectId}
-        order by biz_date desc,report_id desc limit 1
+        order by report_id desc limit 1
     </select>
     <insert id="insertTask" parameterType="com.ruoyi.business.domain.BusinessProjectTask"
             useGeneratedKeys="true" keyProperty="taskId">
@@ -1856,7 +1921,7 @@
           union all select project_id from biz_project_acceptance where find_in_set(#{attachmentUrl},replace(replace(coalesce(attachment_urls,''),' ',''),char(92),'/'))&gt;0
           union all select project_id from biz_project_stage_acceptance where find_in_set(#{attachmentUrl},replace(replace(coalesce(attachment_urls,''),' ',''),char(92),'/'))&gt;0
           union all select project_id from biz_project_task_report where find_in_set(#{attachmentUrl},replace(replace(coalesce(evidence_urls,''),' ',''),char(92),'/'))&gt;0
-          union all select project_id from biz_project_progress_report where find_in_set(#{attachmentUrl},replace(replace(coalesce(evidence_urls,''),' ',''),char(92),'/'))&gt;0
+          union all select project_id from biz_project_progress_report where instr(coalesce(snapshot_json,''),#{attachmentUrl})&gt;0 or find_in_set(#{attachmentUrl},replace(replace(coalesce(evidence_urls,''),' ',''),char(92),'/'))&gt;0
           union all select project_id from biz_project_routine_report where find_in_set(#{attachmentUrl},replace(replace(coalesce(evidence_urls,''),' ',''),char(92),'/'))&gt;0
           union all select settlement.project_id from biz_project_kpi_result result
             join biz_project_kpi_settlement settlement on settlement.settlement_id=result.settlement_id

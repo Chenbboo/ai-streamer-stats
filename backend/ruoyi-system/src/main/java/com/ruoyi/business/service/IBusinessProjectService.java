@@ -29,6 +29,11 @@ public interface IBusinessProjectService
     Map<String, Object> closeAccounting(Long projectId, Integer version, String reason,
         Long userId, String userName, boolean boss);
     BusinessProject createProject(BusinessProject project, Long userId, String userName);
+    List<BusinessProject> projectHierarchy(Map<String, Object> query, Long userId, boolean viewAll, boolean boss);
+    List<BusinessProject> projectChildren(Long parentId, Long userId, boolean viewAll, boolean boss);
+    List<Map<String, Object>> projectCompanyOptions();
+    void validateSubprojectParent(Long parentId, Long sponsorId, Long applicantId);
+    void deleteProject(Long projectId, Long userId, String userName, boolean boss);
     BusinessProject createApprovedProject(BusinessProjectProposal proposal, Long reviewerUserId, String reviewerUserName);
     BusinessProject updateProject(BusinessProject project, Long userId, String userName, boolean boss);
     Map<String, Object> operatingConfig(Long projectId, Long userId, boolean viewAll, boolean boss);
@@ -68,6 +73,8 @@ public interface IBusinessProjectService
     BusinessProjectTask saveTask(BusinessProjectTask task, Long userId, String userName, boolean boss);
     BusinessProjectTaskReport submitTaskReport(BusinessProjectTaskReport report,
         Long userId, String userName);
+    Map<String,Object> progressWorkspace(Long projectId, Long userId, boolean viewAll, boolean boss);
+    void setProgressWeight(Long parentId, Long projectId, java.math.BigDecimal weight, Long userId, String userName);
     BusinessProjectProgressReport submitProjectProgressReport(BusinessProjectProgressReport report,
         Long userId, String userName, boolean viewAll);
     void deleteTask(Long projectId, Long taskId, Long userId, String userName, boolean boss);

@@ -75,6 +75,21 @@ public class BusinessProjectWorkService
     {
         BusinessProject p=lockProject(projectId);requireOpen(p);
         if(!isManager(p,actorId))throw new ServiceException("只有项目负责人或归属老板可以安排资源");
+        return persistAssignment(p, body, userName);
+    }
+
+    // Used only by formal project creation after parent-owner authorization, within its transaction.
+    Map<String,Object> saveInitialAssignment(BusinessProject project, Map<String,Object> body, Long actorId, String userName)
+    {
+        if (project.getSourceProposalId() == null || project.getParentId() == null
+            || !(actorId.equals(project.getApplicantUserId()) || actorId.equals(sponsor(project))))
+            throw new ServiceException("无权初始化立项人员计划");
+        return persistAssignment(project, body, userName);
+    }
+
+    private Map<String,Object> persistAssignment(BusinessProject p, Map<String,Object> body, String userName)
+    {
+        Long projectId=p.getProjectId();
         if(BusinessProjectLifecycle.isTerminal(p.getStatus()))throw new ServiceException("交付结束后不能新增资源计划");
         Map<String,Object> row=copy(body);Long userId=id(row.get("userId"));
         String participationMode=String.valueOf(row.getOrDefault("participationMode","CUSTOM"));

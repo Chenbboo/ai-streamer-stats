@@ -210,6 +210,65 @@ class BusinessProjectProposalServiceImplTest
     }
 
     @Test
+    void childProposalUsesNormalCreateValidationAndPersistsParentBinding()
+    {
+        proposal.setProposalId(null); proposal.setParentProjectId(15L);proposal.setAssignedOwnerUserId(10L);
+        proposal.setSponsorOwnerUserId(999L);
+        when(mapper.selectParentProject(15L)).thenReturn(childParent(9L));
+        when(mapper.selectActiveUser(10L)).thenReturn(user(10L,"owner10","子负责人十"));
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
+        when(mapper.selectCompany(111L)).thenReturn(Collections.singletonMap("deptId",111L));
+        when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","审批老板"));
+        doAnswer(call -> { BusinessProjectProposal input=call.getArgument(0);input.setProposalId(77L);input.setStatus("DRAFT");return 1; })
+            .when(mapper).insertProposal(any());
+        when(mapper.selectById(77L)).thenReturn(proposal);
+        BusinessProjectProposal saved=service.create(proposal,9L,"applicant9");
+        assertEquals(15L,saved.getParentProjectId());
+        assertEquals(10L,saved.getAssignedOwnerUserId());assertEquals("子负责人十",saved.getAssignedOwnerName());
+        assertEquals(9L,saved.getApplicantUserId());assertEquals(23L,saved.getSponsorOwnerUserId());
+        verify(projectService).validateSubprojectParent(15L,23L,9L);
+        verify(projectService,never()).createApprovedProject(any(),any(),any());
+        verify(budgetService).apply(proposal);
+    }
+
+    private Map<String,Object> childParent(Long owner) {
+        Map<String,Object> row=new java.util.HashMap<>();row.put("mainOwnerUserId",owner);row.put("sponsorOwnerUserId",23L);return row;
+    }
+
+    @Test void childOwnerIsRequiredAndExistingParentPermissionIsEnforced() {
+        proposal.setProposalId(null);proposal.setParentProjectId(15L);
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"owner","负责人"));
+        when(mapper.selectParentProject(15L)).thenReturn(childParent(8L));
+        org.mockito.Mockito.doThrow(new ServiceException("无权管理主项目")).when(projectService).validateSubprojectParent(15L,23L,9L);
+        assertEquals("无权管理主项目",assertThrows(ServiceException.class,()->service.estimateBudget(proposal,9L)).getMessage());
+        org.mockito.Mockito.doNothing().when(projectService).validateSubprojectParent(15L,23L,9L);
+        proposal.setProposalId(null);
+        when(mapper.selectCompany(111L)).thenReturn(Collections.singletonMap("deptId",111L));
+        assertEquals("请选择子项目负责人",assertThrows(ServiceException.class,()->service.create(proposal,9L,"owner")).getMessage());
+        proposal.setAssignedOwnerUserId(999L);
+        assertThrows(ServiceException.class,()->service.create(proposal,9L,"owner"));
+        verify(mapper,never()).insertProposal(any());
+    }
+
+    @Test void mainProposalBudgetIgnoresForgedChildOwner() {
+        proposal.setProposalId(null);proposal.setAssignedOwnerUserId(10L);proposal.setAssignedOwnerName("伪造姓名");
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"owner","负责人"));
+        service.estimateBudget(proposal,9L);
+        assertEquals(9L,proposal.getEffectiveOwnerUserId());assertEquals(null,proposal.getAssignedOwnerUserId());
+        verify(mapper,never()).selectParentProject(any());
+    }
+
+    @Test
+    void editingProposalCannotDetachOrReassignParent()
+    {
+        proposal.setStatus("DRAFT");proposal.setParentProjectId(15L);
+        when(mapper.selectById(77L)).thenReturn(proposal);
+        BusinessProjectProposal input=new BusinessProjectProposal();input.setProposalId(77L);
+        assertEquals("归属主项目不可修改",assertThrows(ServiceException.class,()->service.update(input,9L,"applicant9")).getMessage());
+        verify(mapper,never()).updateDraft(any());
+    }
+
+    @Test
     void createRequiresSelectedBoss()
     {
         proposal.setProposalId(null);

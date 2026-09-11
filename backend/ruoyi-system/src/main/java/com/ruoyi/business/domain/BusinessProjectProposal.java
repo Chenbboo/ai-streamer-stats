@@ -24,6 +24,8 @@ public class BusinessProjectProposal extends BaseEntity
     private String sponsorOwnerName;
     private Long companyDeptId;
     private String companyName;
+    private Long assignedOwnerUserId;
+    private String assignedOwnerName;
     private Long parentProjectId;
     private String parentProjectName;
     private String projectType;
@@ -113,6 +115,14 @@ public class BusinessProjectProposal extends BaseEntity
     public void setCompanyDeptId(Long companyDeptId) { this.companyDeptId = companyDeptId; }
     public String getCompanyName() { return companyName; }
     public void setCompanyName(String companyName) { this.companyName = companyName; }
+    public Long getAssignedOwnerUserId() { return assignedOwnerUserId; }
+    public void setAssignedOwnerUserId(Long value) { assignedOwnerUserId=value; }
+    public String getAssignedOwnerName() { return assignedOwnerName; }
+    public void setAssignedOwnerName(String value) { assignedOwnerName=value; }
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public Long getEffectiveOwnerUserId() { return parentProjectId==null?applicantUserId:assignedOwnerUserId; }
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public String getEffectiveOwnerName() { return parentProjectId==null?applicantName:assignedOwnerName; }
     public Long getParentProjectId() { return parentProjectId; }
     public void setParentProjectId(Long parentProjectId) { this.parentProjectId = parentProjectId; }
     public String getParentProjectName() { return parentProjectName; }

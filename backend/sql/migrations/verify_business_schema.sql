@@ -953,3 +953,19 @@ from sys_menu where menu_type='C' and status='0' and component in('business/reso
 union all select 'missing_independent_product_roles',5-count(*)
 from sys_role where del_flag='0' and role_key in('finance_cost_manager','hcm_incentive_operator',
   'hcm_incentive_approver','attendance_reader','feishu_integrator');
+
+-- V089 子项目立项负责人
+select 2-count(*) as missing_subproject_owner_fields from information_schema.columns
+where table_schema=database() and table_name='biz_project_proposal'
+  and column_name in('assigned_owner_user_id','assigned_owner_name');
+
+-- V090 进度汇报必须追加版本，不能恢复按日覆盖的唯一约束。
+select 7-count(*) as missing_progress_report_fields from information_schema.columns
+where table_schema=database() and table_name='biz_project_progress_report'
+  and column_name in('issues_risks','next_plan','sync_tasks','sync_routines','snapshot_json','parent_project_id','project_name_snapshot');
+select count(*) as obsolete_daily_report_unique_index from information_schema.statistics
+where table_schema=database() and table_name='biz_project_progress_report' and index_name='uk_biz_project_progress_day';
+select 1-count(*) as missing_progress_weight from information_schema.columns
+where table_schema=database() and table_name='biz_project' and column_name='progress_weight';
+select 1-count(*) as missing_progress_notifications from information_schema.tables
+where table_schema=database() and table_name='biz_project_progress_notification';

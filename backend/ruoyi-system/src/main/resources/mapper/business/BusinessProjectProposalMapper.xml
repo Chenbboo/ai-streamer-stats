@@ -15,6 +15,8 @@
         <result property="sponsorOwnerName" column="sponsor_owner_name"/>
         <result property="companyDeptId" column="company_dept_id"/>
         <result property="companyName" column="company_name"/>
+        <result property="assignedOwnerUserId" column="assigned_owner_user_id"/>
+        <result property="assignedOwnerName" column="assigned_owner_name"/>
         <result property="parentProjectId" column="parent_project_id"/>
         <result property="parentProjectName" column="parent_project_name"/>
         <result property="projectType" column="project_type"/>
@@ -79,7 +81,7 @@
 
     <sql id="proposalColumns">
         p.proposal_id,p.proposal_no,p.submission_version,p.project_name,p.template_version,p.template_snapshot_json,
-        p.applicant_user_id,p.applicant_name,p.sponsor_owner_user_id,p.sponsor_owner_name,
+        p.applicant_user_id,p.applicant_name,p.sponsor_owner_user_id,p.sponsor_owner_name,p.assigned_owner_user_id,p.assigned_owner_name,
         p.company_dept_id,company.dept_name company_name,p.parent_project_id,parent.project_name parent_project_name,
         p.project_type,p.accounting_mode,p.management_mode,p.close_method,p.management_reason,p.acceptance_criteria,p.goal_mode,
         p.objective,p.application_reason,
@@ -144,7 +146,7 @@
     <insert id="insertProposal" parameterType="com.ruoyi.business.domain.BusinessProjectProposal"
             useGeneratedKeys="true" keyProperty="proposalId">
         insert into biz_project_proposal(proposal_no,submission_version,project_name,template_version,template_snapshot_json,applicant_user_id,applicant_name,
-          sponsor_owner_user_id,sponsor_owner_name,company_dept_id,parent_project_id,project_type,accounting_mode,
+          sponsor_owner_user_id,sponsor_owner_name,company_dept_id,parent_project_id,assigned_owner_user_id,assigned_owner_name,project_type,accounting_mode,
           management_mode,close_method,management_reason,acceptance_criteria,goal_mode,objective,application_reason,
           plan_start_date,plan_end_date,priority,base_currency,
           budget_limit,no_budget,budget_mode,daily_budget_limit,budget_scope,startup_budget_limit,budget_reason,
@@ -155,7 +157,7 @@
           peak_cash_need,planned_headcount,funding_plan,key_assumptions,
           risk_summary,stop_loss_rule,execution_source,status,version,del_flag,create_by,create_time,update_by,update_time,remark)
         values(#{proposalNo},0,#{projectName},#{templateVersion},#{templateSnapshotJson},#{applicantUserId},#{applicantName},#{sponsorOwnerUserId},#{sponsorOwnerName},
-          #{companyDeptId},#{parentProjectId},#{projectType},#{accountingMode},#{managementMode},#{closeMethod},
+          #{companyDeptId},#{parentProjectId},#{assignedOwnerUserId},#{assignedOwnerName},#{projectType},#{accountingMode},#{managementMode},#{closeMethod},
           #{managementReason},#{acceptanceCriteria},#{goalMode},#{objective},#{applicationReason},#{planStartDate},#{planEndDate},
           #{priority},#{baseCurrency},#{budgetLimit},#{noBudget},#{budgetMode},#{dailyBudgetLimit},#{budgetScope},
           #{startupBudgetLimit},#{budgetReason},#{forecastPeriod},#{forecastDays},#{revenueModel},#{estimatedRevenue},
@@ -169,7 +171,7 @@
 
     <update id="updateDraft" parameterType="com.ruoyi.business.domain.BusinessProjectProposal">
         update biz_project_proposal set template_version=#{templateVersion},template_snapshot_json=#{templateSnapshotJson},project_name=#{projectName},sponsor_owner_user_id=#{sponsorOwnerUserId},
-          sponsor_owner_name=#{sponsorOwnerName},company_dept_id=#{companyDeptId},parent_project_id=#{parentProjectId},
+          sponsor_owner_name=#{sponsorOwnerName},company_dept_id=#{companyDeptId},parent_project_id=#{parentProjectId},assigned_owner_user_id=#{assignedOwnerUserId},assigned_owner_name=#{assignedOwnerName},
           project_type=#{projectType},accounting_mode=#{accountingMode},management_mode=#{managementMode},
           close_method=#{closeMethod},management_reason=#{managementReason},acceptance_criteria=#{acceptanceCriteria},goal_mode=#{goalMode},
           objective=#{objective},application_reason=#{applicationReason},plan_start_date=#{planStartDate},
@@ -339,7 +341,7 @@
 
     <select id="selectParentProject" resultType="map">
         select project_id projectId,project_name projectName,
-          coalesce(sponsor_owner_user_id,initiator_user_id) sponsorOwnerUserId
+          main_owner_user_id mainOwnerUserId,parent_id parentId,coalesce(sponsor_owner_user_id,initiator_user_id) sponsorOwnerUserId
         from biz_project where project_id=#{projectId} and del_flag='0'
           and status not in ('CLOSED','CANCELED') limit 1
     </select>

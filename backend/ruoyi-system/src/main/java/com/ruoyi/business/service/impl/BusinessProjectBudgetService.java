@@ -21,10 +21,10 @@ public class BusinessProjectBudgetService
     @Autowired private BusinessProjectWorkService work;
 
     public void ensureOwner(BusinessProjectProposal proposal){
-        if(proposal.getApplicantUserId()==null||proposal.getTemplateVersion()==null||"LEGACY_V1".equals(proposal.getTemplateVersion()))return;
+        if(proposal.getEffectiveOwnerUserId()==null||proposal.getTemplateVersion()==null||"LEGACY_V1".equals(proposal.getTemplateVersion()))return;
         List<Map<String,Object>> staff=new ArrayList<>(rows(proposal.getStaffingLines()));
-        if(staff.stream().anyMatch(r->String.valueOf(proposal.getApplicantUserId()).equals(String.valueOf(r.get("userId")))))return;
-        Map<String,Object> owner=new LinkedHashMap<>();owner.put("userId",proposal.getApplicantUserId());owner.put("userName",proposal.getApplicantName());owner.put("roleName","项目负责人");owner.put("participationMode","FOLLOW_PROJECT");
+        if(staff.stream().anyMatch(r->String.valueOf(proposal.getEffectiveOwnerUserId()).equals(String.valueOf(r.get("userId")))))return;
+        Map<String,Object> owner=new LinkedHashMap<>();owner.put("userId",proposal.getEffectiveOwnerUserId());owner.put("userName",proposal.getEffectiveOwnerName());owner.put("roleName","项目负责人");owner.put("participationMode","FOLLOW_PROJECT");
         owner.put("planStartDate",proposal.getPlanStartDate());owner.put("planEndDate",proposal.getPlanEndDate());owner.put("inputUnit","PERCENTAGE");owner.put("inputQuantity",100);
         List<Map<String,Object>> calendars=mapper.selectCalendars();
         for(Map<String,Object> c:calendars)if((proposal.getPlanStartDate()==null||date(c.get("effectiveFrom"))==null||!date(c.get("effectiveFrom")).isAfter(date(proposal.getPlanStartDate())))&&(proposal.getPlanEndDate()==null||date(c.get("effectiveTo"))==null||!date(c.get("effectiveTo")).isBefore(date(proposal.getPlanEndDate())))){owner.put("calendarId",c.get("calendarId"));break;}
