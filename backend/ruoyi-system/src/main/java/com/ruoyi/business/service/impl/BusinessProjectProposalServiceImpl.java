@@ -38,7 +38,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     private static final List<String> CLOSE_METHODS = Arrays.asList("DIRECT", "RESULT_ACCEPTANCE", "STAGED_ACCEPTANCE");
     private static final List<String> PRIORITIES = Arrays.asList("LOW", "MEDIUM", "HIGH");
     private static final List<String> TARGET_TYPES = Arrays.asList("FINANCIAL", "QUANTITY", "SCHEDULE", "QUALITY",
-        "EFFICIENCY", "GROWTH", "CUSTOMER", "COMPLIANCE", "OTHER");
+        "EFFICIENCY", "GROWTH", "CUSTOMER", "COMPLIANCE", "OTHER", "DELIVERY");
 
     @Autowired private BusinessProjectProposalMapper mapper;
     @Autowired private IBusinessProjectService projectService;
@@ -414,7 +414,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         List<Map<String, Object>> revenues = cleanLines(proposal.getRevenueLines(), "itemName");
         List<Map<String, Object>> expenses = cleanLines(proposal.getExpenseLines(), "itemName");
         List<Map<String, Object>> staffing = cleanStaffingLines(proposal.getStaffingLines());
-        List<Map<String, Object>> targets = "TOTAL".equals(proposal.getGoalMode())
+        List<Map<String, Object>> targets = usesTargetLines(proposal)
             ? cleanLines(proposal.getTargetLines(), "targetName")
             : new ArrayList<Map<String, Object>>();
         proposal.setRevenueLines(revenues); proposal.setExpenseLines(expenses);
@@ -576,6 +576,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
 
     private void validateBusinessPlanForLaunch(BusinessProjectProposal proposal)
     {
+        if (isNewTemplate(proposal)) validateAccountingRequirements(proposal);
         if(proposal.getBudget()!=null&&!"READY".equals(proposal.getBudget().get("status")))throw new ServiceException("预算尚未计算完整，请处理预算提示后再启动项目："+proposal.getBudget().get("issues"));
         if(isNewTemplate(proposal))
         {
@@ -642,12 +643,35 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         return type;
     }
 
+    void validateAccountingRequirements(BusinessProjectProposal proposal)
+    {
+        String mode = proposal.getAccountingMode();
+        if (Arrays.asList("PROFIT", "HYBRID").contains(mode)
+            && (proposal.getEstimatedRevenue() == null || proposal.getEstimatedRevenue().signum() <= 0))
+            throw new ServiceException("盈利型、混合型项目启动前须填写正常场景预计收入，合计须大于0；可先保存草稿");
+        if (Arrays.asList("VALUE", "HYBRID").contains(mode)
+            && (proposal.getTargetLines() == null || proposal.getTargetLines().isEmpty()))
+            throw new ServiceException("价值型、混合型项目启动前须填写至少一项可验收目标；可先保存草稿");
+    }
+
+    private boolean usesTargetLines(BusinessProjectProposal proposal)
+    {
+        return !"NO_TOTAL".equals(proposal.getGoalMode())
+            || Arrays.asList("VALUE", "HYBRID").contains(proposal.getAccountingMode());
+    }
+
     private void validatePlanDetails(BusinessProjectProposal proposal)
     {
         validateLines(proposal,proposal.getRevenueLines(),"收入测算",new String[]{"scenario","revenueType","itemName"},new int[]{16,32,160},"expectedDate");
         validateLines(proposal,proposal.getExpenseLines(),"支出计划",new String[]{"expenseCategory","itemName","purpose"},new int[]{32,160,500},"occurDate");
-        if (!"NO_TOTAL".equals(proposal.getGoalMode()))
+        if (usesTargetLines(proposal))
         {
+            if (proposal.getTargetLines() != null) for (Map<String,Object> line : proposal.getTargetLines())
+                if (line != null && "DELIVERY".equals(line.get("targetType")))
+                {
+                    line.put("targetValue", BigDecimal.ONE);
+                    line.put("unit", "项");
+                }
             validateLines(proposal,proposal.getTargetLines(),"量化目标",new String[]{"targetType","targetName","unit","acceptanceEvidence"},new int[]{24,160,32,500},"dueDate");
             if(proposal.getTargetLines()!=null)for(Map<String,Object> line:proposal.getTargetLines())
                 if(!TARGET_TYPES.contains(normalizeTargetType(line.get("targetType"))))throw new ServiceException("量化目标类型不正确");

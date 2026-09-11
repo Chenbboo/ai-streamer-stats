@@ -48,6 +48,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
     @Autowired private BusinessProjectMapper projectMapper;
     @Autowired private IBusinessAccountingService accountingService;
     @Autowired private BusinessFileService businessFileService;
+    @Autowired private com.ruoyi.business.mapper.BusinessProjectProposalMapper proposalMapper;
 
     @Override
     public List<Map<String, Object>> overview(Long userId, boolean viewAll, boolean boss)
@@ -86,6 +87,13 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         sourceOptions.put("tasks", safe(projectMapper.selectTasks(projectId)));
         sourceOptions.put("milestones", safe(projectMapper.selectMilestones(projectId)));
         result.put("sourceOptions", sourceOptions);
+        result.put("proposalTargets", project.getSourceProposalId() == null ? Collections.emptyList()
+            : safe(proposalMapper.selectTargetLines(project.getSourceProposalId())));
+        if (project.getSourceProposalId() != null)
+        {
+            com.ruoyi.business.domain.BusinessProjectProposal proposal = proposalMapper.selectById(project.getSourceProposalId());
+            if (proposal != null) result.put("proposalEstimatedRevenue", proposal.getEstimatedRevenue());
+        }
         boolean accountingOpen = !BusinessProjectLifecycle.isAccountingClosed(project);
         result.put("canManage", canManage(project, userId, viewAll, boss) && accountingOpen
             && "ACTIVE".equals(project.getStatus()));

@@ -44,6 +44,7 @@ class BusinessProjectKpiServiceImplTest
     @Mock BusinessProjectMapper projectMapper;
     @Mock IBusinessAccountingService accountingService;
     @Mock BusinessFileService businessFileService;
+    @Mock private com.ruoyi.business.mapper.BusinessProjectProposalMapper proposalMapper;
     @InjectMocks BusinessProjectKpiServiceImpl service;
 
     @BeforeEach void provideLockedReads()
@@ -61,6 +62,23 @@ class BusinessProjectKpiServiceImplTest
 
         assertEquals(rows,service.overview(8L,false,true));
         verify(mapper).selectProjectOverviews(8L,false,true,null);
+    }
+
+    @Test void proposalGoalsAreAvailableOnlyInsideAuthorizedProjectWorkspace()
+    {
+        BusinessProject project=project();project.setSourceProposalId(77L);
+        when(projectMapper.selectProjectById(1L)).thenReturn(project);
+        assertThrows(ServiceException.class,()->service.workspace(1L,null,99L,false,false));
+        verify(proposalMapper,never()).selectTargetLines(any());
+        when(mapper.selectLatestPlanId(1L)).thenReturn(null);
+        List<Map<String,Object>> targets=Collections.singletonList(BusinessProjectWorkServiceTest.row(
+            "targetName","完成上线","targetValue",BigDecimal.ONE,"unit","项","acceptanceEvidence","验收通过"));
+        when(proposalMapper.selectTargetLines(77L)).thenReturn(targets);
+        com.ruoyi.business.domain.BusinessProjectProposal proposal=new com.ruoyi.business.domain.BusinessProjectProposal();
+        proposal.setEstimatedRevenue(new BigDecimal("5000"));when(proposalMapper.selectById(77L)).thenReturn(proposal);
+        Map<String,Object> workspace=service.workspace(1L,null,9L,false,false);
+        assertEquals(targets,workspace.get("proposalTargets"));
+        assertEquals(new BigDecimal("5000"),workspace.get("proposalEstimatedRevenue"));
     }
 
     @Test void bossCannotPublishWhenProjectWeightsDoNotEqualOneHundred()
