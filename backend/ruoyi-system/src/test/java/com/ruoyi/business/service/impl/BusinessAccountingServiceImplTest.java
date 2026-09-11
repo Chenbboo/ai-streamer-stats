@@ -296,6 +296,70 @@ class BusinessAccountingServiceImplTest
         assertEquals(2,issues.get(0).get("projectCount"));
     }
 
+    @Test void bossRevenueIsPostedAndIncludedInDailyResultImmediately()
+    { assertBossEntryPosts("REVENUE", false); }
+
+    @Test void bossExpenseIsPostedAndIncludedInDailyResultImmediately()
+    { assertBossEntryPosts("COST", false); }
+
+    @Test void returnedExpenseIsPostedWhenResubmitted()
+    { assertBossEntryPosts("COST", true); }
+
+    private void assertBossEntryPosts(String kind, boolean returned)
+    {
+        Date date=new Date();
+        when(mapper.selectProjectForAccounting(30L)).thenReturn(project(30L,8L));
+        Map<String,Object> category=new HashMap<>();category.put("categoryCode",kind);
+        category.put("categoryName",kind);category.put("factKind",kind);
+        when(mapper.selectCategoryById(1L)).thenReturn(category);
+        BusinessOperatingFact input=new BusinessOperatingFact();input.setProjectId(30L);
+        input.setCategoryId(1L);input.setBizDate(date);input.setAmount(new BigDecimal("1200"));
+        input.setDescription("收支记录");input.setCreateBy("forged-account");input.setCreateUserId(999L);
+        BusinessOperatingFact draft=new BusinessOperatingFact();draft.setFactId(300L);draft.setProjectId(30L);
+        draft.setBizDate(date);draft.setStatus("DRAFT");draft.setVersion(1);
+        BusinessOperatingFact confirmed=new BusinessOperatingFact();confirmed.setFactId(300L);
+        confirmed.setStatus("CONFIRMED");
+        when(mapper.selectFactById(300L)).thenReturn(draft,confirmed);
+        if(returned)
+        {
+            input.setFactId(300L);
+            BusinessOperatingFact previous=new BusinessOperatingFact();previous.setFactId(300L);
+            previous.setProjectId(30L);previous.setStatus("RETURNED");previous.setVersion(0);
+            when(mapper.selectFactById(300L)).thenReturn(previous,draft,confirmed);
+            when(mapper.selectFactByIdForUpdate(300L)).thenReturn(previous);
+            when(mapper.updateDraftFact(input)).thenReturn(1);
+        }
+        else doAnswer(call->{call.<BusinessOperatingFact>getArgument(0).setFactId(300L);return 1;})
+            .when(mapper).insertFact(any());
+        when(mapper.confirmFact(300L,8L,"boss8",1)).thenReturn(1);
+        when(mapper.sumProjectFacts(30L,date)).thenReturn(Collections.singletonMap(
+            "REVENUE".equals(kind)?"revenueAmount":"costAmount",new BigDecimal("1200")));
+
+        assertEquals("CONFIRMED",service.saveFact(input,8L,"boss8",false).getStatus());
+
+        org.mockito.InOrder order=inOrder(mapper);
+        order.verify(mapper).confirmFact(300L,8L,"boss8",1);
+        order.verify(mapper).sumProjectFacts(30L,date);
+        ArgumentCaptor<Map<String,Object>> result=ArgumentCaptor.forClass(Map.class);
+        verify(mapper).insertDailyResult(result.capture());
+        assertEquals(new BigDecimal("REVENUE".equals(kind)?"1200":"-1200"),result.getValue().get("profitAmount"));
+        if(!returned){assertEquals(8L,input.getCreateUserId());assertEquals("boss8",input.getCreateBy());}
+    }
+
+    @Test void retryOfPostedBossEntryDoesNotPostOrCalculateAgain()
+    {
+        when(mapper.selectProjectForAccounting(30L)).thenReturn(project(30L,8L));
+        BusinessOperatingFact input=new BusinessOperatingFact();input.setProjectId(30L);
+        input.setRequestId("retry-revenue-001");input.setBizDate(new Date());input.setAmount(BigDecimal.TEN);
+        BusinessOperatingFact saved=new BusinessOperatingFact();saved.setProjectId(30L);
+        saved.setBizDate(input.getBizDate());saved.setAmount(BigDecimal.TEN);saved.setStatus("CONFIRMED");
+        when(mapper.selectFactByIdempotencyKey("MANUAL-30-8-retry-revenue-001")).thenReturn(saved);
+        assertSame(saved,service.saveFact(input,8L,"boss8",false));
+        verify(mapper,never()).insertFact(any());
+        verify(mapper,never()).confirmFact(any(),any(),any(),any());
+        verify(mapper,never()).insertDailyResult(any());
+    }
+
     @Test void projectOwnerRevenueIsConfirmedAndCalculatedImmediately()
     {
         Map<String,Object> project=project(30L,8L);
@@ -328,32 +392,58 @@ class BusinessAccountingServiceImplTest
     {
         Map<String,Object> project=project(32L,8L);
         project.put("mainOwnerUserId",9L);project.put("status","ACTIVE");
-        Map<String,Object> category=new HashMap<String,Object>();category.put("categoryId",5L);
-        category.put("categoryCode","DIRECT_EXPENSE");
+        Map<String,Object> category=new HashMap<String,Object>();category.put("categoryId",3L);
+        category.put("categoryCode","MARKETING_COST");category.put("categoryName","投流与营销费用");category.put("factKind","COST");
         when(mapper.selectProjectForAccounting(32L)).thenReturn(project);
-        when(mapper.selectCategoryByCode("DIRECT_EXPENSE")).thenReturn(category);
+        when(mapper.selectCategoryById(3L)).thenReturn(category);
         doAnswer(invocation->{((BusinessOperatingFact)invocation.getArgument(0)).setFactId(320L);return 1;})
             .when(mapper).insertFact(any());
         BusinessOperatingFact draft=new BusinessOperatingFact();draft.setFactId(320L);draft.setStatus("DRAFT");
         draft.setProjectId(32L);draft.setBizDate(new Date());draft.setVersion(0);
-        draft.setSourceType("DAILY_ITEM");draft.setCategoryCode("DIRECT_EXPENSE");
+        draft.setSourceType("DAILY_ITEM");draft.setCategoryCode("MARKETING_COST");
         BusinessOperatingFact confirmed=new BusinessOperatingFact();confirmed.setFactId(320L);confirmed.setStatus("CONFIRMED");
         confirmed.setProjectId(32L);confirmed.setBizDate(draft.getBizDate());confirmed.setVersion(1);
-        confirmed.setSourceType("DAILY_ITEM");confirmed.setCategoryCode("DIRECT_EXPENSE");
+        confirmed.setSourceType("DAILY_ITEM");confirmed.setCategoryCode("MARKETING_COST");
         when(mapper.selectFactById(320L)).thenReturn(draft,confirmed);
         when(mapper.confirmFact(320L,9L,"owner9",0)).thenReturn(1);
         when(mapper.sumProjectFacts(eq(32L),any())).thenReturn(Collections.emptyMap());
         when(mapper.selectNextResultVersion(eq(32L),any())).thenReturn(1);
         BusinessOperatingFact spend=new BusinessOperatingFact();spend.setProjectId(32L);
-        spend.setBizDate(new Date());spend.setAmount(new BigDecimal("500"));spend.setDescription("投流与物流合计");
+        spend.setBizDate(new Date());spend.setCategoryId(3L);spend.setAmount(new BigDecimal("500"));spend.setCurrency("cny");
+        spend.setDescription("投流与物流合计");spend.setCounterparty("渠道公司");spend.setRemark("九月推广");
 
         BusinessOperatingFact saved=service.saveProjectDailySpend(spend,9L,"owner9",false);
 
         assertEquals("CONFIRMED",saved.getStatus());
         assertEquals("DAILY_ITEM",saved.getSourceType());
-        assertEquals("DIRECT_EXPENSE",saved.getCategoryCode());
+        assertEquals("MARKETING_COST",saved.getCategoryCode());
+        ArgumentCaptor<BusinessOperatingFact> inserted=ArgumentCaptor.forClass(BusinessOperatingFact.class);
+        verify(mapper).insertFact(inserted.capture());
+        assertEquals("MARKETING_COST",inserted.getValue().getCategoryCode());
+        assertEquals("投流与营销费用",inserted.getValue().getCategoryName());
+        assertEquals("CNY",inserted.getValue().getCurrency());
+        assertEquals("渠道公司",inserted.getValue().getCounterparty());
+        assertEquals("九月推广",inserted.getValue().getRemark());
         verify(mapper).insertDailyResult(any());
         verify(mapper).confirmFact(320L,9L,"owner9",0);
+    }
+
+    @Test void projectOwnerCannotUseSystemGeneratedBonusAsExpenseCategory()
+    {
+        Map<String,Object> project=project(32L,8L);
+        project.put("mainOwnerUserId",9L);project.put("status","ACTIVE");
+        when(mapper.selectProjectForAccounting(32L)).thenReturn(project);
+        Map<String,Object> category=new HashMap<String,Object>();category.put("categoryId",99L);
+        category.put("categoryCode","PROJECT_BONUS_COST");category.put("categoryName","项目奖金");category.put("factKind","COST");
+        when(mapper.selectCategoryById(99L)).thenReturn(category);
+        BusinessOperatingFact spend=new BusinessOperatingFact();spend.setProjectId(32L);spend.setBizDate(new Date());
+        spend.setCategoryId(99L);spend.setAmount(BigDecimal.TEN);spend.setCurrency("CNY");spend.setDescription("手工奖金");
+
+        ServiceException error=assertThrows(ServiceException.class,
+            ()->service.saveProjectDailySpend(spend,9L,"owner9",false));
+
+        assertTrue(error.getMessage().contains("有效的支出类别"));
+        verify(mapper,never()).insertFact(any());
     }
 
     @Test void bossConfirmationReplacesPreviousDailySpendAndThenRecalculates()
@@ -466,8 +556,9 @@ class BusinessAccountingServiceImplTest
     @Test void canceledProjectAcceptsHistoricalDailySpendWhileAccountingIsOpen()
     {
         when(mapper.selectProjectForAccounting(41L)).thenReturn(separatedProject("CANCELED","OPEN"));
-        Map<String,Object> category=new HashMap<String,Object>();category.put("categoryId",5L);category.put("categoryCode","DIRECT_EXPENSE");
-        when(mapper.selectCategoryByCode("DIRECT_EXPENSE")).thenReturn(category);
+        Map<String,Object> category=new HashMap<String,Object>();category.put("categoryId",5L);category.put("categoryCode","OTHER_EXPENSE");
+        category.put("categoryName","其他费用");category.put("factKind","COST");
+        when(mapper.selectCategoryByCode("OTHER_EXPENSE")).thenReturn(category);
         BusinessOperatingFact fact=lateFact();fact.setVersion(0);
         doAnswer(call->{call.<BusinessOperatingFact>getArgument(0).setFactId(410L);return 1;}).when(mapper).insertFact(any());
         when(mapper.selectFactById(410L)).thenReturn(fact);

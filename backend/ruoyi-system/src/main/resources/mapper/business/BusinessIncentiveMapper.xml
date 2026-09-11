@@ -53,13 +53,25 @@
     a.award_id awardId,a.project_id projectId,a.company_dept_id companyDeptId,a.rule_id ruleId,a.rule_version ruleVersion,
     a.rule_name ruleName,a.policy_version policyVersion,a.settlement_id settlementId,a.score_snapshot scoreSnapshot,
     a.amount,a.currency,a.biz_date bizDate,a.reason,a.request_key requestKey,a.status,
-    a.applicant_user_id applicantUserId,a.applicant_user_name applicantUserName,
-    a.approved_user_id approvedUserId,a.approved_user_name approvedUserName,a.approved_time approvedTime,
+    a.applicant_user_id applicantUserId,
+    case when nullif(trim(applicant_user.nick_name),'') is not null and nullif(trim(applicant_user.user_name),'') is not null
+      then concat(trim(applicant_user.nick_name),'（',trim(applicant_user.user_name),'）')
+      else coalesce(nullif(trim(applicant_user.nick_name),''),nullif(trim(applicant_user.user_name),''),a.applicant_user_name) end applicantUserName,
+    a.approved_user_id approvedUserId,
+    case when nullif(trim(approved_user.nick_name),'') is not null and nullif(trim(approved_user.user_name),'') is not null
+      then concat(trim(approved_user.nick_name),'（',trim(approved_user.user_name),'）')
+      else coalesce(nullif(trim(approved_user.nick_name),''),nullif(trim(approved_user.user_name),''),a.approved_user_name) end approvedUserName,
+    a.approved_time approvedTime,
     a.accounting_fact_id accountingFactId,a.review_comment reviewComment,a.version,
     a.create_by createBy,a.create_time createTime,a.update_by updateBy,a.update_time updateTime,
     coalesce(f.status,'NOT_CREATED') costStatus
   </sql>
-  <sql id="awardFrom">from biz_incentive_award a left join biz_operating_fact f on f.fact_id=a.accounting_fact_id</sql>
+  <sql id="awardFrom">
+    from biz_incentive_award a
+    left join biz_operating_fact f on f.fact_id=a.accounting_fact_id
+    left join sys_user applicant_user on applicant_user.user_id=a.applicant_user_id and applicant_user.del_flag='0'
+    left join sys_user approved_user on approved_user.user_id=a.approved_user_id and approved_user.del_flag='0'
+  </sql>
   <select id="selectAwards" resultType="com.ruoyi.business.domain.BusinessIncentiveAward">
     select <include refid="awardColumns"/> <include refid="awardFrom"/>
     where a.project_id=#{projectId} order by a.award_id desc
@@ -120,9 +132,15 @@
     order by s.period_end desc,s.settlement_id desc
   </select>
   <select id="selectEvents" resultType="map">
-    select event_id eventId,project_id projectId,award_id awardId,event_type eventType,from_status fromStatus,
-      to_status toStatus,operator_user_id operatorUserId,operator_name operatorName,reason,create_time createTime
-    from biz_incentive_event where project_id=#{projectId} order by event_id desc
+    select event.event_id eventId,event.project_id projectId,event.award_id awardId,event.event_type eventType,event.from_status fromStatus,
+      event.to_status toStatus,event.operator_user_id operatorUserId,
+      case when nullif(trim(operator_user.nick_name),'') is not null and nullif(trim(operator_user.user_name),'') is not null
+        then concat(trim(operator_user.nick_name),'（',trim(operator_user.user_name),'）')
+        else coalesce(nullif(trim(operator_user.nick_name),''),nullif(trim(operator_user.user_name),''),event.operator_name) end operatorName,
+      event.reason,event.create_time createTime
+    from biz_incentive_event event
+    left join sys_user operator_user on operator_user.user_id=event.operator_user_id and operator_user.del_flag='0'
+    where event.project_id=#{projectId} order by event.event_id desc
   </select>
   <insert id="insertEvent" parameterType="map">
     insert into biz_incentive_event(project_id,award_id,event_type,from_status,to_status,operator_user_id,operator_name,reason,create_time)

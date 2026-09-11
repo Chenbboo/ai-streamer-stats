@@ -31,7 +31,7 @@
       <el-table-column prop="paidDate" :label="t('date')" />
       <el-table-column :label="t('method')"><template #default="{row:p}">{{ t(p.method) }}</template></el-table-column>
       <el-table-column prop="referenceNo" :label="t('reference')" min-width="150" />
-      <el-table-column :label="t('voucher')"><template #default="{row:p}"><a :href="voucherUrl(p.voucher)" target="_blank" rel="noopener noreferrer">{{ t('voucher') }}</a></template></el-table-column>
+      <el-table-column :label="t('voucher')"><template #default="{row:p}"><el-popover trigger="click" placement="left" :width="190"><template #reference><el-button link type="primary">{{ t('voucher') }}</el-button></template><el-image v-if="isImageVoucher(p.voucher)" class="voucher-thumbnail" :src="voucherUrl(p.voucher)" :preview-src-list="[voucherUrl(p.voucher)]" fit="cover" preview-teleported /><a v-else class="voucher-file" :href="voucherUrl(p.voucher)" target="_blank" rel="noopener noreferrer">{{ t('voucher') }}</a></el-popover></template></el-table-column>
       <el-table-column prop="recordedUserName" :label="t('operator')" />
      </el-table>
      <el-collapse v-if="row.events?.length"><el-collapse-item :title="t('events')" name="events">
@@ -116,9 +116,10 @@ function openPayment(batch,line){Object.assign(payment,{lineId:line.lineId,amoun
 async function upload({file}){if(!/\.(png|jpe?g|webp|pdf)$/i.test(file.name)||file.size>10*1024*1024){ElMessage.warning(t('fileError'));throw new Error(t('fileError'))}uploading.value=true;try{const data=new FormData();data.append('file',file);const res=await request({url:'/common/upload',method:'post',headers:{'Content-Type':'multipart/form-data',repeatSubmit:false},data});payment.voucher=res.fileName}finally{uploading.value=false}}
 async function pay(){if(!payment.amount||payment.amount>paymentLimit.value||!payment.paidDate||!payment.method||!payment.referenceNo?.trim()||!payment.voucher||!payment.reason?.trim())return ElMessage.warning(t('payInvalid'));busy.value=true;try{await recordBonusPayment(payment);paymentOpen.value=false;emit('refresh');ElMessage.success(t('saved'))}finally{busy.value=false}}
 function voucherUrl(path){return typeof path==='string'&&path.startsWith('/profile/upload/')&&!path.includes('..')?import.meta.env.VITE_APP_BASE_API+path:'#'}
+function isImageVoucher(path){return typeof path==='string'&&/\.(png|jpe?g|webp)(?:\?.*)?$/i.test(path)}
 function eventLines(e){try{return JSON.parse(e.snapshot)?.lines||[]}catch{return []}}
 watch(()=>props.data.project?.projectId,()=>{editOpen.value=false;paymentOpen.value=false})
 </script>
 <style scoped>
-.distribution{padding:18px;background:white;border:1px solid #e4e9ef;border-radius:8px}.batch-details{padding:12px 24px}.allocation-line{display:grid;grid-template-columns:1fr 180px 1.4fr 50px;gap:12px;margin-bottom:12px}.allocation-line .el-input-number{width:100%}.allocation-line small{grid-column:2}.muted{font-size:12px;color:#718096}.el-collapse{margin-top:18px}@media(max-width:650px){.allocation-line{grid-template-columns:1fr 1fr}.batch-details{padding:8px}.distribution{padding:12px}}
+.distribution{padding:18px;background:white;border:1px solid #e4e9ef;border-radius:8px}.batch-details{padding:12px 24px}.allocation-line{display:grid;grid-template-columns:1fr 180px 1.4fr 50px;gap:12px;margin-bottom:12px}.allocation-line .el-input-number{width:100%}.allocation-line small{grid-column:2}.muted{font-size:12px;color:#718096}.el-collapse{margin-top:18px}.voucher-thumbnail{display:block;width:160px;height:110px;border-radius:6px;cursor:zoom-in}.voucher-file{display:flex;min-height:72px;align-items:center;justify-content:center}@media(max-width:650px){.allocation-line{grid-template-columns:1fr 1fr}.batch-details{padding:8px}.distribution{padding:12px}}
 </style>

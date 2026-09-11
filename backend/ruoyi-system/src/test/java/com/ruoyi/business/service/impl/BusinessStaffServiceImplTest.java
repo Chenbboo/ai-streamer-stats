@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Arrays;
 import com.github.pagehelper.Page;
+import com.github.pagehelper.PageHelper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -49,6 +50,32 @@ class BusinessStaffServiceImplTest
         assertEquals("",query.getParams().get("dataScope"));
         verify(projectMapper).selectStaffDirectory(query,null);
         verify(projectMapper,never()).selectManagedProjectMemberUserIds(120L);
+    }
+
+    @Test
+    void paginationIsAppliedToStaffDirectoryAfterOwnerRoleLookup()
+    {
+        PageHelper.startPage(2, 10);
+        try
+        {
+            when(projectMapper.countUserRoleByKey(120L, "company_owner")).thenAnswer(invocation -> {
+                assertEquals(null, PageHelper.getLocalPage());
+                return 1;
+            });
+            when(projectMapper.selectStaffDirectory(any(), nullable(Long.class))).thenAnswer(invocation -> {
+                Page<?> page = PageHelper.getLocalPage();
+                assertEquals(2, page.getPageNum());
+                assertEquals(10, page.getPageSize());
+                PageHelper.clearPage();
+                return java.util.Collections.emptyList();
+            });
+
+            service.listStaff(new SysUser(), 120L, false, true, false);
+        }
+        finally
+        {
+            PageHelper.clearPage();
+        }
     }
 
     @Test

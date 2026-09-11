@@ -253,11 +253,18 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         ensureProjectAllowsSettlement(project);
         if (!Arrays.asList("DRAFT", "RETURNED").contains(settlement.getStatus()))
             throw new ServiceException("当前结算状态不能提交");
-        if (!settlement.getPeriodEnd().before(today())) throw new ServiceException("考核周期尚未结束，截止日期次日才能提交结算");
         List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
         persistAutomaticResults(settlement, items, userId, userName);
         List<BusinessProjectKpiResult> results = mapper.selectSettlementResults(settlementId);
         requireComplete(items, results);
+        Date currentDate = today();
+        boolean targetsMet = allTargetsMet(items, results);
+        boolean periodEnded = settlement.getPeriodEnd().before(currentDate);
+        if (!periodEnded && !targetsMet)
+            throw new ServiceException("KPI尚未全部达标且考核周期尚未结束；全部达标可提前确认，否则请在截止日期次日结算");
+        // The period already ends today, so there is no date to shorten. Treating this as an
+        // early close makes the guarded UPDATE affect zero rows and produces a false conflict.
+        if (targetsMet && settlement.getPeriodEnd().after(currentDate)) endPeriodEarly(settlement, userName);
         BigDecimal total = totalScore(items, results);
         boolean independent = independent(settlement);
         BigDecimal bonus = independent ? null : matchBonus(mapper.selectBonusTiers(settlement.getPlanId()), total);
@@ -306,10 +313,11 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
             return detail(settlementId);
         }
 
-        if (!settlement.getPeriodEnd().before(today())) throw new ServiceException("考核周期尚未结束，截止日期次日才能确认结算");
         List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
         List<BusinessProjectKpiResult> results = mapper.selectSettlementResults(settlementId);
         requireComplete(items, results);
+        if (!settlement.getPeriodEnd().before(today()) && !allTargetsMet(items, results))
+            throw new ServiceException("KPI尚未全部达标且考核周期尚未结束，暂不能确认结算");
         BigDecimal total = totalScore(items, results);
         BigDecimal bonus = matchBonus(mapper.selectBonusTiers(settlement.getPlanId()), total);
         BusinessOperatingFact fact = accountingService.recordProjectBonus(project.getProjectId(), settlement.getPeriodEnd(),
@@ -345,6 +353,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
                     : live.size() == items.size() ? matchBonus(tiers, score) : null);
             }
             else settlement.setResults(stored);
+            settlement.setAllTargetsMet(allTargetsMet(items, settlement.getResults()));
         }
         plan.setSettlement(settlement);
     }
@@ -352,7 +361,9 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
     private BusinessProjectKpiSettlement detail(Long settlementId)
     {
         BusinessProjectKpiSettlement settlement = requireSettlement(settlementId);
+        List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
         settlement.setResults(mapper.selectSettlementResults(settlementId));
+        settlement.setAllTargetsMet(allTargetsMet(items, settlement.getResults()));
         return settlement;
     }
 
@@ -371,9 +382,11 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
                 if (item != null) { result.setSourceType(item.getSourceType()); result.setAutomatic(isAutomatic(item)); }
             }
             settlement.setResults(stored);
+            settlement.setAllTargetsMet(allTargetsMet(items, stored));
             return settlement;
         }
         settlement.setResults(mergeAutomaticResults(settlement, items, stored, userId, userName));
+        settlement.setAllTargetsMet(allTargetsMet(items, settlement.getResults()));
         return settlement;
     }
 
@@ -608,6 +621,29 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
             total = total.add(weightedScore(rate, item.getWeight()));
         }
         return total.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private boolean allTargetsMet(List<BusinessProjectKpiPlanItem> items, List<BusinessProjectKpiResult> results)
+    {
+        if (items == null || items.isEmpty() || results == null || results.size() != items.size()) return false;
+        Map<Long, BusinessProjectKpiResult> resultsByItem = new HashMap<Long, BusinessProjectKpiResult>();
+        for (BusinessProjectKpiResult result : results) resultsByItem.put(result.getPlanItemId(), result);
+        for (BusinessProjectKpiPlanItem item : items)
+        {
+            BusinessProjectKpiResult result = resultsByItem.get(item.getItemId());
+            if (result == null || result.getActualValue() == null
+                || completionRate(item, result.getActualValue()).compareTo(ONE_HUNDRED) < 0) return false;
+        }
+        return true;
+    }
+
+    private void endPeriodEarly(BusinessProjectKpiSettlement settlement, String userName)
+    {
+        Date endDate = today();
+        if (mapper.endPlanPeriodEarly(settlement.getPlanId(), endDate) != 1
+            || mapper.endSettlementPeriodEarly(settlement.getSettlementId(), endDate, userName, settlement.getVersion()) != 1)
+            throw changed();
+        settlement.setPeriodEnd(endDate);
     }
 
     private BigDecimal matchBonus(List<BusinessProjectBonusTier> tiers, BigDecimal score)

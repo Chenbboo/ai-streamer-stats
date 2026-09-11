@@ -108,8 +108,8 @@ public class TransitionProjectCapability implements AiConfirmableCapability
     private String closeEffect(BusinessProject project)
     {
         return BusinessProjectLifecycle.isSeparated(project)
-            ? "仅关闭项目交付，核算状态保持不变，后续结算按原有权限继续办理"
-            : "沿用旧流程，项目结项同时关闭核算";
+            ? "全部KPI完成确认后仅关闭项目交付，费用核算仍可单独收口"
+            : "项目结项同时关闭核算";
     }
     private String label(String action)
     {

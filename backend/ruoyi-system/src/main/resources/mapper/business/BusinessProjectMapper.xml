@@ -1212,6 +1212,17 @@
       <include refid="dashboardOrder"/>
       limit #{offset},#{pageSize}
     </select>
+    <select id="selectBossOwnerActiveProjects" resultType="map">
+      select p.project_id projectId,p.project_no projectNo,p.project_name projectName,p.status,
+        p.main_owner_user_id ownerUserId,p.main_owner_name ownerName,p.company_dept_id companyDeptId,
+        company.dept_name companyName,coalesce(p.sponsor_owner_user_id,p.initiator_user_id) sponsorUserId
+      from biz_project p
+      left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+      where p.del_flag='0' and p.status in('PLANNING','ACTIVE','PAUSED','ACCEPTANCE')
+      <if test="ownerUserId != null">and p.main_owner_user_id=#{ownerUserId}</if>
+      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      order by p.main_owner_name,p.plan_start_date,p.project_id
+    </select>
     <sql id="bossPendingProposal">
       select 'PROPOSAL' category,1 categoryOrder,concat('proposal-',proposal.proposal_id) itemKey,
         proposal.proposal_id proposalId,null projectId,null userId,proposal.project_name projectName,
@@ -1245,6 +1256,37 @@
       join biz_project p on p.project_id=fact.project_id and p.del_flag='0'
       left join sys_dept company on company.dept_id=fact.company_dept_id and company.del_flag='0'
       where fact.status='DRAFT'
+      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+    </sql>
+    <sql id="bossPendingManagementFee">
+      select 'MANAGEMENT_FEE' category,1 categoryOrder,concat('management-fee-',p.project_id) itemKey,
+        null proposalId,p.project_id projectId,null userId,p.project_name projectName,
+        null userName,null objective,null applicantName,company.dept_name companyName,
+        p.plan_start_date planStartDate,p.plan_end_date planEndDate,p.main_owner_name mainOwnerName,
+        p.status,null baselineStatus,null targetCount,null planId,null planVersion,null cycleEnd,
+        null totalScore,null bonusAmount,null costStatus,null countryRegion,
+        (select count(*) from biz_project workload where workload.del_flag='0'
+          and workload.main_owner_user_id=p.main_owner_user_id
+          and workload.status in('PLANNING','ACTIVE','PAUSED','ACCEPTANCE')
+          and coalesce(workload.sponsor_owner_user_id,workload.initiator_user_id)=coalesce(p.sponsor_owner_user_id,p.initiator_user_id)) projectCount,
+        (select group_concat(workload.project_name order by workload.plan_start_date,workload.project_id separator '、')
+          from biz_project workload where workload.del_flag='0' and workload.main_owner_user_id=p.main_owner_user_id
+          and workload.status in('PLANNING','ACTIVE','PAUSED','ACCEPTANCE')
+          and coalesce(workload.sponsor_owner_user_id,workload.initiator_user_id)=coalesce(p.sponsor_owner_user_id,p.initiator_user_id)) projectNameText,
+        coalesce(p.update_time,p.create_time) sortTime,
+        null factId,null bizDate,'项目管理费' categoryName,null factKind,null amount,null quantity,p.base_currency currency,null unit,
+        '负责人已达到3个在管项目，可以按本项目单独设置管理费' description,null submitterName,
+        null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
+        null attachmentUrls,null submittedTime,null awardId
+      from biz_project p
+      left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+      left join biz_project_management_fee fee on fee.project_id=p.project_id and fee.recipient_user_id=p.main_owner_user_id
+      where p.del_flag='0' and coalesce(p.accounting_state,'OPEN')='OPEN'
+        and p.status in('ACTIVE','PAUSED','ACCEPTANCE','CLOSED','CANCELED') and fee.fee_id is null
+        and (select count(*) from biz_project workload where workload.del_flag='0'
+          and workload.main_owner_user_id=p.main_owner_user_id
+          and workload.status in('PLANNING','ACTIVE','PAUSED','ACCEPTANCE')
+          and coalesce(workload.sponsor_owner_user_id,workload.initiator_user_id)=coalesce(p.sponsor_owner_user_id,p.initiator_user_id))&gt;=3
       <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
     </sql>
     <sql id="bossPendingKpiMissing">
@@ -1399,6 +1441,15 @@
         (select count(*) <include refid="bossPendingIncentiveScope"/>) incentiveReviewCount,
         (select count(*) from biz_project_proposal proposal where proposal.del_flag='0' and proposal.status='PENDING'
           <if test="viewAll == false">and proposal.sponsor_owner_user_id=#{userId}</if>) proposalCount,
+        (select count(*) from biz_project p left join biz_project_management_fee fee
+          on fee.project_id=p.project_id and fee.recipient_user_id=p.main_owner_user_id
+          where p.del_flag='0' and coalesce(p.accounting_state,'OPEN')='OPEN'
+            and p.status in('ACTIVE','PAUSED','ACCEPTANCE','CLOSED','CANCELED') and fee.fee_id is null
+            and (select count(*) from biz_project workload where workload.del_flag='0'
+              and workload.main_owner_user_id=p.main_owner_user_id
+              and workload.status in('PLANNING','ACTIVE','PAUSED','ACCEPTANCE')
+              and coalesce(workload.sponsor_owner_user_id,workload.initiator_user_id)=coalesce(p.sponsor_owner_user_id,p.initiator_user_id))&gt;=3
+          <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>) managementFeeCount,
         (select count(*) from biz_operating_fact fact
           join biz_project p on p.project_id=fact.project_id and p.del_flag='0'
           where fact.status='DRAFT'
@@ -1448,6 +1499,7 @@
       select pending.* from (
         <choose>
           <when test="category == 'PROPOSAL'"><include refid="bossPendingProposal"/></when>
+          <when test="category == 'MANAGEMENT_FEE'"><include refid="bossPendingManagementFee"/></when>
           <when test="category == 'INCENTIVE_REVIEW'"><include refid="bossPendingIncentiveReview"/></when>
           <when test="category == 'ACCOUNTING'"><include refid="bossPendingAccounting"/></when>
           <when test="category == 'STAGE_ACCEPTANCE'"><include refid="bossPendingStageAcceptance"/></when>
@@ -1457,6 +1509,7 @@
           <when test="category == 'PROJECT'"><include refid="bossPendingProject"/></when>
           <otherwise>
             <include refid="bossPendingProposal"/> union all
+            <include refid="bossPendingManagementFee"/> union all
             <include refid="bossPendingIncentiveReview"/> union all
             <include refid="bossPendingAccounting"/> union all
             <include refid="bossPendingStageAcceptance"/> union all

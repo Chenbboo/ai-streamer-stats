@@ -228,6 +228,15 @@
       reviewed_time=sysdate(),review_comment=#{comment},update_by=#{userName},update_time=sysdate(),version=version+1
     where settlement_id=#{settlementId} and status='SUBMITTED' and version=#{version}
   </update>
+  <update id="endPlanPeriodEarly">
+    update biz_project_kpi_plan set cycle_end=#{endDate}
+    where plan_id=#{planId} and status='PUBLISHED' and cycle_start&lt;=#{endDate} and cycle_end&gt;#{endDate}
+  </update>
+  <update id="endSettlementPeriodEarly">
+    update biz_project_kpi_settlement set period_end=#{endDate},update_by=#{userName},update_time=sysdate()
+    where settlement_id=#{settlementId} and status in('DRAFT','RETURNED') and version=#{version}
+      and period_start&lt;=#{endDate} and period_end&gt;#{endDate}
+  </update>
   <update id="closePlan">
     update biz_project_kpi_plan set status='CLOSED',closed_time=sysdate() where plan_id=#{planId} and status='PUBLISHED'
   </update>

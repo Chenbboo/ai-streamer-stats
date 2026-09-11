@@ -62,5 +62,9 @@ public interface BusinessProjectKpiMapper
         @Param("accountingFactId") Long accountingFactId,
         @Param("comment") String comment, @Param("userId") Long userId,
         @Param("userName") String userName, @Param("version") Integer version);
+    int endPlanPeriodEarly(@Param("planId") Long planId, @Param("endDate") Date endDate);
+    int endSettlementPeriodEarly(@Param("settlementId") Long settlementId,
+        @Param("endDate") Date endDate, @Param("userName") String userName,
+        @Param("version") Integer version);
     int closePlan(@Param("planId") Long planId);
 }

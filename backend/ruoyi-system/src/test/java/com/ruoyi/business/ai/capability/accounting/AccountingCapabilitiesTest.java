@@ -32,10 +32,10 @@ class AccountingCapabilitiesTest
 {
     @Mock private IBusinessAccountingService service;
 
-    @Test void createsDraftUsingExistingProjectAndCategoryContract()
+    @Test void createsPostedFactUsingExistingProjectAndCategoryContract()
     {
         BusinessOperatingFact saved = new BusinessOperatingFact();
-        saved.setFactId(90L); saved.setStatus("DRAFT"); saved.setAmount(new BigDecimal("88.50"));
+        saved.setFactId(90L); saved.setStatus("CONFIRMED"); saved.setAmount(new BigDecimal("88.50"));
         saved.setCurrency("CNY"); saved.setDescription("样品采购");
         when(service.saveFact(any(BusinessOperatingFact.class), eq(1L), eq("boss"), eq(true))).thenReturn(saved);
         Map<String,Object> input = new LinkedHashMap<String,Object>();
@@ -53,6 +53,8 @@ class AccountingCapabilitiesTest
         assertNull(fact.getValue().getCompanyDeptId());
         assertEquals("CNY", fact.getValue().getCurrency());
         assertEquals(90L, result.get("factId"));
+        assertEquals("CONFIRMED", result.get("status"));
+        assertTrue(capability.confirmationSummary(invocation(), input).contains("直接入账"));
     }
 
     @Test void directoryReturnsOnlyLookupCollections()

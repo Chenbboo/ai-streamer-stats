@@ -38,7 +38,7 @@
         <section class="project-summary">
         <div><span>归属公司</span><b>{{ detail.companyName || '待设置' }}</b></div><div><span>归属老板</span><b>{{ detail.sponsorOwnerName || detail.initiatorName }}</b></div><div><span>申请人</span><b>{{ detail.applicantName || detail.mainOwnerName }}</b></div><div><span>主负责人</span><b>{{ detail.mainOwnerName }}</b></div><div><span>管理模式</span><b>{{ managementModeLabel[detail.managementMode] || detail.managementMode }}</b></div><div><span>结项方式</span><b>{{ closeMethodLabel[detail.closeMethod] || detail.closeMethod }}</b></div><div><span>核算方式</span><b>{{ accountingLabel[detail.accountingMode] || detail.accountingMode }}</b></div><div><span>目标模式</span><b>{{ goalModeLabel[detail.goalMode || 'TOTAL'] }}</b></div><div><span>计划周期</span><b>{{ detail.planStartDate ? `${detail.planStartDate} 至 ${detail.planEndDate || '不限期'}` : '—' }}</b></div>
         </section>
-        <BusinessSettlementPanel :project="detail" @closed="refreshDetail" />
+        <BusinessSettlementPanel ref="settlementPanelRef" :project="detail" @closed="refreshDetail" />
         <div class="objective"><span>项目目标</span><p>{{ detail.objective || '尚未填写项目目标' }}</p></div>
         <el-alert class="governance-banner" :title="governanceTitle" :description="governanceDescription" type="info" :closable="false" show-icon />
         <section v-if="operating.executionSummary" class="execution-summary">
@@ -53,6 +53,8 @@
         </section>
         <div class="action-bar">
           <el-button v-if="canManage && !usesActualWork" icon="Edit" @click="openProjectForm(detail)">编辑资料</el-button>
+          <el-button v-if="isBoss && projectAccountingState(detail)==='OPEN'" type="success" icon="Plus" @click="openProjectAccountingEntry('revenue')">录入收入</el-button>
+          <el-button v-if="isBoss && projectAccountingState(detail)==='OPEN'" type="primary" icon="Plus" @click="openProjectAccountingEntry('spend')">录入支出</el-button>
           <el-button v-if="isBoss && !isDeliveryEnded(detail)" icon="User" @click="openOwnerDialog">更换主负责人</el-button>
           <el-button v-for="action in availableActions" :key="action.key" :type="action.type" :disabled="isKpiBlockedCloseAction(action)" :title="isKpiBlockedCloseAction(action)?'请先完成并确认全部KPI结算':''" @click="runTransition(action)">{{ action.label }}</el-button>
         </div>
@@ -76,7 +78,7 @@
           </div>
           <div class="stage-close-actions">
             <el-button v-if="stageClosureState.canRequest" type="success" @click="runTransition({key:'REQUEST_CLOSE',label:'申请结项',type:'success'})">提交老板检验</el-button>
-            <template v-if="stageClosureState.canReview"><el-button type="success" @click="runTransition({key:'CLOSE',label:'确认结项',type:'success'})">确认结项</el-button><el-button type="warning" plain @click="runTransition({key:'RETURN_ACTIVE',label:'退回补充'})">退回补充</el-button></template>
+            <template v-if="stageClosureState.canReview"><el-button type="success" @click="runTransition({key:'CLOSE',label:'确认结项并冻结',type:'success'})">确认结项并冻结</el-button><el-button type="warning" plain @click="runTransition({key:'RETURN_ACTIVE',label:'退回补充'})">退回补充</el-button></template>
           </div>
         </section>
         <section v-if="showDirectClosureGuard" class="kpi-close-guard is-warning">
@@ -86,7 +88,7 @@
             <b>负责人已提交直接结项申请</b>
             <p>{{ isBoss ? '请核对项目成果和结项前置条件，通过后项目才会正式关闭。' : '正在等待归属老板检验；负责人无权自行通过或关闭项目。' }}</p>
           </div>
-          <div v-if="isBoss" class="stage-close-actions"><el-button type="success" @click="runTransition({key:'CLOSE',label:'检验通过并结项',type:'success'})">检验通过并结项</el-button><el-button type="warning" plain @click="runTransition({key:'RETURN_ACTIVE',label:'退回补充'})">退回补充</el-button></div>
+          <div v-if="isBoss" class="stage-close-actions"><el-button type="success" @click="runTransition({key:'CLOSE',label:'检验通过、结项并冻结',type:'success'})">检验通过、结项并冻结</el-button><el-button type="warning" plain @click="runTransition({key:'RETURN_ACTIVE',label:'退回补充'})">退回补充</el-button></div>
         </section>
         <el-tabs ref="detailTabs" v-model="activeTab" class="project-detail-tabs">
           <el-tab-pane label="项目总览" name="overview">
@@ -164,7 +166,7 @@
           <el-tab-pane label="成员" name="members"><div class="tab-tools"><b>项目成员</b><el-button v-if="canManage" size="small" type="primary" @click="openItem('member')">添加成员</el-button></div><el-table :data="detail.members" size="small"><el-table-column prop="userNameSnapshot" label="姓名" /><el-table-column label="项目角色"><template #default="{row}">{{ memberRoleLabel[row.memberRole] }}</template></el-table-column><el-table-column prop="joinedDate" label="加入日期" /><el-table-column v-if="canManage" label="操作" width="145"><template #default="{row}"><el-button v-if="row.memberRole !== 'OWNER' && (row.memberRole !== 'DEPUTY' || canManageDeputies)" link type="primary" @click="openItem('member',row)">调整角色</el-button><el-button v-if="row.memberRole !== 'OWNER' && (row.memberRole !== 'DEPUTY' || canManageDeputies)" link type="danger" @click="removeItem('member',row)">移除</el-button></template></el-table-column></el-table></el-tab-pane>
       <el-tab-pane v-if="showMilestones" label="里程碑" name="milestones"><div class="tab-tools"><b>关键里程碑</b><el-button v-if="canManage" size="small" type="primary" @click="openItem('milestone')">新增里程碑</el-button></div><el-table :data="detail.milestones" size="small"><el-table-column prop="milestoneName" label="里程碑" /><el-table-column prop="planDate" label="计划日期" width="115" /><el-table-column label="状态" width="100"><template #default="{row}">{{ milestoneStatusLabel[row.status] || row.status }}</template></el-table-column><el-table-column v-if="canManage" label="操作" width="110"><template #default="{row}"><template v-if="!['REVIEWING','DONE'].includes(row.status)"><el-button link @click="openItem('milestone',row)">编辑</el-button><el-button link type="danger" @click="removeItem('milestone',row)">删除</el-button></template><el-tag v-else type="info" effect="plain">验收锁定</el-tag></template></el-table-column></el-table></el-tab-pane>
           <el-tab-pane v-if="showRisks" label="风险" name="risks"><div class="tab-tools"><b>风险台账</b><el-button v-if="canManage" size="small" type="primary" @click="openItem('risk')">登记风险</el-button></div><el-table :data="detail.risks" size="small"><el-table-column prop="riskTitle" label="风险" min-width="180" /><el-table-column label="等级" width="90"><template #default="{row}"><el-tag :type="['HIGH','CRITICAL'].includes(row.severity)?'danger':'warning'">{{ severityLabel[row.severity] }}</el-tag></template></el-table-column><el-table-column prop="ownerName" label="负责人" width="110" /><el-table-column prop="dueDate" label="处理期限" width="115" /><el-table-column label="状态" width="90"><template #default="{row}">{{ riskStatusLabel[row.status] }}</template></el-table-column><el-table-column v-if="canManage" label="操作" width="110"><template #default="{row}"><el-button link @click="openItem('risk',row)">编辑</el-button><el-button link type="danger" @click="removeItem('risk',row)">删除</el-button></template></el-table-column></el-table></el-tab-pane>
-          <el-tab-pane v-if="detail.closeMethod==='RESULT_ACCEPTANCE'" label="成果验收" name="acceptance"><div class="tab-tools"><b>验收资料与老板意见</b><el-button v-if="canSubmitAcceptance" size="small" type="success" @click="openAcceptanceSubmit">提交验收</el-button></div>
+          <el-tab-pane v-if="detail.closeMethod==='RESULT_ACCEPTANCE'" label="成果验收" name="acceptance"><div class="tab-tools"><b>验收资料与老板意见</b><el-button v-if="canSubmitAcceptance" size="small" type="success" :disabled="kpiClosureState.ready===false" :title="kpiClosureState.ready===false?'请先完成并确认全部KPI结算':''" @click="openAcceptanceSubmit">提交验收</el-button></div>
             <section v-if="showKpiClosureGuard" :class="['kpi-close-guard', 'in-tab', `is-${kpiClosureState.tone}`]">
               <div class="kpi-close-mark">KPI</div>
               <div class="kpi-close-copy">
@@ -182,7 +184,7 @@
               <h4>结果摘要</h4><p>{{ record.resultSummary }}</p><h4>交付成果</h4><p>{{ record.deliverables }}</p>
               <business-file-upload v-if="record.attachmentUrls" v-model="record.attachmentUrls" :project-id="detail.projectId" disabled :is-show-tip="false" />
               <div v-if="record.reviewStatus!=='PENDING'" class="review-result"><b>{{ record.reviewedUserName }}的验收意见</b><p>{{ record.reviewComment || (record.reviewStatus==='APPROVED'?'验收通过':'已退回') }}</p><small>{{ record.reviewedTime }}</small></div>
-              <div v-if="record.reviewStatus==='PENDING' && isBoss && detail.status==='ACCEPTANCE'" class="review-actions"><el-button type="success" :disabled="kpiClosureState.ready===false" :title="kpiClosureState.ready===false?'请先完成并确认全部KPI结算':''" @click="openAcceptanceReview('APPROVED',record)">验收通过并关闭</el-button><el-button type="warning" plain @click="openAcceptanceReview('RETURNED',record)">退回执行</el-button></div>
+              <div v-if="record.reviewStatus==='PENDING' && isBoss && detail.status==='ACCEPTANCE'" class="review-actions"><el-button type="success" :disabled="kpiClosureState.ready===false" :title="kpiClosureState.ready===false?'请先完成并确认全部KPI结算':''" @click="openAcceptanceReview('APPROVED',record)">验收通过、结项并冻结</el-button><el-button type="warning" plain @click="openAcceptanceReview('RETURNED',record)">退回执行</el-button></div>
             </article>
           </el-tab-pane>
           <el-tab-pane v-if="showMilestones" label="里程碑验收" name="stageAcceptance">
@@ -256,7 +258,7 @@
         <el-form-item label="工作内容" required><el-input v-model="routineForm.routineName" maxlength="200" placeholder="例如：短视频剪辑发布" /></el-form-item>
         <el-form-item label="目标方式" required><el-select v-model="routineForm.targetMode" style="width:100%" @change="handleRoutineTargetModeChange"><el-option label="固定每日目标" value="FIXED"/><el-option v-if="detail?.goalMode!=='NO_TOTAL'" label="总目标自动分配到每日" value="AUTO_TOTAL"/><el-option label="客户动态日目标（负责人每日下达）" value="DAILY_DYNAMIC"/><el-option label="无量化目标（只填完成说明）" value="NONE"/></el-select></el-form-item>
         <el-row :gutter="12"><el-col :sm="12" :xs="24"><el-form-item label="目标频率" required><el-select v-model="routineForm.frequency" disabled style="width:100%"><el-option label="每日" value="DAILY" /></el-select><small class="form-tip">目标按天重复；执行区间只决定从哪天到哪天生效。</small></el-form-item></el-col><el-col :sm="12" :xs="24"><el-form-item label="负责人" required><el-select v-model="routineForm.assigneeUserId" filterable style="width:100%"><el-option v-for="m in detail?.members || []" :key="m.userId" :label="memberOptionLabel(m)" :value="m.userId" /></el-select></el-form-item></el-col></el-row>
-        <el-row :gutter="12"><el-col v-if="['FIXED','AUTO_TOTAL'].includes(routineForm.targetMode)" :sm="12" :xs="24"><el-form-item :label="routineForm.targetMode==='AUTO_TOTAL'?'总目标':'每日目标'" required><el-input-number v-model="routineForm.targetValue" :min="0.0001" :precision="4" style="width:100%" /></el-form-item></el-col><el-col :sm="12" :xs="24"><el-form-item label="单位" :required="routineForm.targetMode!=='NONE'"><el-input v-model="routineForm.unit" maxlength="30" placeholder="条、个、场等" /></el-form-item></el-col></el-row>
+        <el-row :gutter="12"><el-col v-if="['FIXED','AUTO_TOTAL'].includes(routineForm.targetMode)" :sm="12" :xs="24"><el-form-item :label="routineForm.targetMode==='AUTO_TOTAL'?'总目标':'每日目标'" required><el-input-number v-model="routineForm.targetValue" :min="0.0001" :precision="4" style="width:100%" /></el-form-item></el-col><el-col :sm="12" :xs="24"><el-form-item label="单位" :required="routineForm.targetMode!=='NONE'"><el-select v-model="routineForm.unit" filterable allow-create default-first-option placeholder="选择或输入单位" style="width:100%"><el-option v-if="routineForm.unit && !commonKpiUnits.includes(routineForm.unit)" :label="routineForm.unit" :value="routineForm.unit"/><el-option v-for="unit in commonKpiUnits" :key="unit" :label="unit" :value="unit" /></el-select></el-form-item></el-col></el-row>
         <el-form-item label="执行区间" required><div class="routine-period-line"><el-date-picker v-model="routineForm.startDate" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" style="width:100%" /><span>至</span><el-date-picker v-model="routineForm.endDate" type="date" value-format="YYYY-MM-DD" :disabled="routineLongTerm" :disabled-date="disableRoutineEndDate" :placeholder="routineLongTerm ? '长期' : '结束日期'" style="width:100%" /><el-checkbox v-model="routineLongTerm" :disabled="routineForm.targetMode==='AUTO_TOTAL'" @change="handleRoutineLongTermChange">长期</el-checkbox></div></el-form-item>
         <el-form-item><el-checkbox v-model="routineForm.evidenceRequired" true-label="1" false-label="0">每日填报必须上传凭证</el-checkbox></el-form-item>
         <el-form-item label="说明"><el-input v-model="routineForm.remark" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="说明口径、质量要求或交付位置" /></el-form-item>
@@ -275,8 +277,8 @@
       <template #footer><el-button @click="acceptanceDialog=false">取消</el-button><el-button type="success" :loading="saving" @click="saveAcceptance">提交老板验收</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="reviewDialog" :title="reviewForm.decision==='APPROVED'?'验收通过并关闭项目':'退回项目继续执行'" width="min(560px, 94vw)" append-to-body>
-      <el-alert :title="reviewForm.decision==='APPROVED'?'确认后项目将正式关闭并只读保存。':'退回后项目恢复执行，负责人可修改后再次提交。'" :type="reviewForm.decision==='APPROVED'?'success':'warning'" :closable="false" show-icon />
+    <el-dialog v-model="reviewDialog" :title="reviewForm.decision==='APPROVED'?'验收通过、结项并冻结':'退回项目继续执行'" width="min(560px, 94vw)" append-to-body>
+      <el-alert :title="reviewForm.decision==='APPROVED'?'系统将同时确认最终核算、结项并冻结项目数据；付款凭证和受控调账仍可登记。':'退回后项目恢复执行，负责人可修改后再次提交。'" :type="reviewForm.decision==='APPROVED'?'success':'warning'" :closable="false" show-icon />
       <el-form :model="reviewForm" label-width="90px" class="decision-form"><el-form-item label="验收意见" :required="reviewForm.decision==='RETURNED'"><el-input v-model="reviewForm.comment" type="textarea" :rows="5" maxlength="2000" show-word-limit :placeholder="reviewForm.decision==='APPROVED'?'可填写验收结论':'必须说明退回原因和需要补充的内容'" /></el-form-item></el-form>
       <template #footer><el-button @click="reviewDialog=false">取消</el-button><el-button :type="reviewForm.decision==='APPROVED'?'success':'warning'" :loading="saving" @click="saveAcceptanceReview">确认</el-button></template>
     </el-dialog>
@@ -305,7 +307,7 @@ import BusinessProjectState from '@/components/BusinessProjectState/index.vue'
 import BusinessProjectWorkPanel from '@/components/BusinessProjectWorkPanel/index.vue'
 import BusinessProjectPlanPanel from '@/components/BusinessProjectPlanPanel/index.vue'
 import BusinessSettlementPanel from '@/components/BusinessSettlementPanel/index.vue'
-import { isSeparatedDelivery, isDeliveryEnded } from '@/utils/businessProjectState'
+import { isSeparatedDelivery, isDeliveryEnded, projectAccountingState } from '@/utils/businessProjectState'
 import useUserStore from '@/store/modules/user'
 import { getBusinessAccountingDashboard } from '@/api/business/accounting'
 import { getProjectKpiWorkspace } from '@/api/business/kpi'
@@ -366,7 +368,7 @@ const eventLabel = {
   START_PLANNING:'进入规划',SUBMIT_BASELINE:'提交项目计划',RETURN_PLAN:'退回项目计划',CONFIRM_BASELINE:'确认计划并启动',
   PAUSE:'暂停项目',RESUME:'恢复项目',REQUEST_ACCEPTANCE:'提交成果验收',REQUEST_CLOSE:'发起项目结项',
   REQUEST_STAGE_ACCEPTANCE:'提交阶段验收',APPROVE_STAGE:'阶段验收通过',RETURN_STAGE:'退回阶段成果',RETURN_ACTIVE:'退回执行',
-  CLOSE:'项目交付关闭',ACCOUNTING_CLOSE:'项目核算关闭',CANCEL:'取消项目',MEMBER_SAVE:'维护项目成员',MEMBER_REMOVE:'移除项目成员',
+  CLOSE:'项目交付关闭',CLOSE_AND_FREEZE:'结项、核算并冻结',ACCOUNTING_CLOSE:'项目核算关闭',CANCEL:'取消项目',MEMBER_SAVE:'维护项目成员',MEMBER_REMOVE:'移除项目成员',
   TASK_SAVE:'安排/调整一次性任务',TASK_PROGRESS:'更新任务进度',TASK_VOID:'停用一次性任务',TASK_ENABLE:'启用一次性任务',PROJECT_PROGRESS:'填报项目进度',
   ROUTINE_SAVE:'安排/调整持续工作',ROUTINE_VOID:'停用持续工作',ROUTINE_ENABLE:'启用持续工作',ROUTINE_REPORT:'填报持续工作成果',ROUTINE_TARGET_SAVE:'下达/修改今日目标',
   MILESTONE_SAVE:'维护项目里程碑',RISK_SAVE:'维护风险台账',BUDGET_CHANGE:'调整项目预算',
@@ -433,9 +435,8 @@ const cockpitSettlement=computed(()=>cockpitPlan.value?.settlement||null)
 const cockpitKpis=computed(()=>{const plan=cockpitPlan.value;if(!plan?.items?.length)return currentKpis.value;const results=plan.settlement?.results||[];return plan.items.map(item=>{const result=results.find(result=>Number(result.planItemId)===Number(item.itemId));return {...item,actualValue:result?.actualValue,dataStatus:result?.dataStatus,automatic:result?.automatic,resultNote:result?.resultNote}})})
 const settlementStatusText=computed(()=>({DRAFT:'填报中',SUBMITTED:'待确认',RETURNED:'已退回',CONFIRMED:'已确认'}[cockpitSettlement.value?.status]||cockpitSettlement.value?.status||'未结算'))
 const matchedTier=computed(()=>{const score=Number(cockpitSettlement.value?.totalScore);if(!Number.isFinite(score))return null;return (cockpitPlan.value?.tiers||[]).find(tier=>score>=Number(tier.minScore||0)&&(tier.maxScore===null||tier.maxScore===undefined||score<Number(tier.maxScore)))||null})
-const showKpiClosureGuard=computed(()=>detail.value&&!isSeparatedDelivery(detail.value)&&['ACTIVE','ACCEPTANCE'].includes(detail.value.status)&&(isBoss.value||myRole.value==='OWNER'))
+const showKpiClosureGuard=computed(()=>detail.value&&['ACTIVE','ACCEPTANCE','CLOSED'].includes(detail.value.status)&&(isBoss.value||myRole.value==='OWNER'))
 const kpiClosureState=computed(()=>{
-  if(isSeparatedDelivery(detail.value))return {ready:true,tone:'info',label:'独立结算',title:'交付与核算分别办理',description:'KPI、奖金和费用按原流程继续结算，不阻止项目成果验收。',actionLabel:'查看KPI结算',actionType:'primary',planCount:0,confirmedCount:0,percentage:0,planId:null}
   if(kpiWorkspaceLoading.value)return {ready:null,tone:'info',label:'检查中',title:'正在检查KPI结算状态',description:'系统正在核对该项目所有已发布方案，请稍候。',actionLabel:'进入KPI工作区',actionType:'primary',planCount:0,confirmedCount:0,percentage:0,planId:null}
   if(kpiWorkspaceError.value)return {ready:null,tone:'warning',label:'请核对',title:'暂时未能读取KPI结算状态',description:'请进入KPI工作区确认全部方案均已结算；最终结项仍由系统后台校验。',actionLabel:'进入KPI工作区',actionType:'warning',planCount:0,confirmedCount:0,percentage:0,planId:null}
   const plans=kpiWorkspace.value?.plans||[],confirmed=plans.filter(plan=>plan.settlementStatus==='CONFIRMED'),pending=plans.filter(plan=>plan.settlementStatus!=='CONFIRMED')
@@ -447,7 +448,7 @@ const kpiClosureState=computed(()=>{
   const meta={
     SUBMITTED:{tone:'warning',label:'历史待确认',title:'升级前KPI结算待处理',description:`${period} 是旧流程遗留记录，可由归属老板处理。`,actionLabel:isBoss.value?'处理历史结算':'查看结算',actionType:'warning'},
     RETURNED:{tone:'danger',label:'历史已退回',title:'KPI结算需要负责人修改',description:`${period} 是旧流程退回记录；负责人修正并重新提交后将直接确认。`,actionLabel:myRole.value==='OWNER'?'修改并确认':'查看退回内容',actionType:'danger'},
-    DRAFT:cycleNotEnded?{tone:'info',label:'考核中',title:'KPI考核周期尚未结束',description:`${period} 正在执行，周期结束并完成结果填报与确认后，才能办理结项。`,actionLabel:'查看KPI进度',actionType:'primary'}:{tone:'warning',label:'待填报',title:'KPI结果尚未完成结算',description:`${period} 仍在填报中；负责人提交结果后系统立即确认并计入项目核算。`,actionLabel:myRole.value==='OWNER'?'填报并确认KPI':'查看填报进度',actionType:'warning'}
+    DRAFT:cycleNotEnded?{tone:'info',label:'考核中',title:'KPI尚未全部达标，周期仍在进行',description:`${period} 全部指标提前达标可立即确认并办理结项；否则需等周期结束。`,actionLabel:'查看KPI进度',actionType:'primary'}:{tone:'warning',label:'待填报',title:'KPI结果尚未完成结算',description:`${period} 仍在填报中；负责人提交结果后系统立即确认并计入项目核算。`,actionLabel:myRole.value==='OWNER'?'填报并确认KPI':'查看填报进度',actionType:'warning'}
   }[focus.settlementStatus]||{tone:'warning',label:'未完成',title:'仍有KPI方案尚未结算',description:`${period} 尚未完成确认，处理完毕后才能办理结项。`,actionLabel:'进入KPI工作区',actionType:'warning'}
   return {ready:false,...meta,planCount:plans.length,confirmedCount:confirmed.length,percentage:Math.round(confirmed.length*100/plans.length),planId:focus.planId}
 })
@@ -472,7 +473,7 @@ const projectProgress = row => {
   if (Number.isFinite(value)) return Math.min(100, Math.max(0, Math.round(value)))
   return row.taskCount ? Math.round((row.completedTaskCount || 0) * 100 / row.taskCount) : 0
 }
-const isKpiBlockedCloseAction=action=>action.key==='CLOSE'&&kpiClosureState.value.ready===false
+const isKpiBlockedCloseAction=action=>['CLOSE','REQUEST_CLOSE','SUBMIT_ACCEPTANCE'].includes(action.key)&&kpiClosureState.value.ready===false
 const userOptionLabel = user => `${user.nickName || user.userName} · ${user.userName} · ${user.companyName || '集团'}${user.deptName && user.deptName !== user.companyName ? ` / ${user.deptName}` : ''}`
 const memberOptionLabel = member => `${member.userNameSnapshot}${member.accountName ? ` · ${member.accountName}` : ` · ID ${member.userId}`}`
 const formatEventTime=value=>value?String(value).replace('T',' ').replace(/\.\d+$/,''):''
@@ -537,6 +538,7 @@ const eventWorkAssignee=event=>{
   return event?.subjectAccount&&event.subjectAccount!==name?`${name}（账号：${event.subjectAccount}）`:name
 }
 const projectRules = { projectName:[{ required:true,message:'请输入项目名称',trigger:'blur' }],companyDeptId:[{required:true,message:'请选择归属公司',trigger:'change'}] }
+const settlementPanelRef=ref(null)
 const itemTitle = computed(() => ({ member:'添加项目成员', task:'维护任务', milestone:'维护里程碑', risk:'维护风险' }[itemKind.value]))
 const availableActions = computed(() => {
   if (!detail.value) return []
@@ -545,7 +547,7 @@ const availableActions = computed(() => {
   if ((isBoss.value || myRole.value === 'OWNER') && d.status === 'PLANNING' && d.baselineStatus !== 'SUBMITTED') actions.push({key:'SUBMIT_BASELINE',label:'提交计划',type:'warning'})
   if (isBoss.value && d.status === 'PLANNING' && d.baselineStatus === 'SUBMITTED') actions.push({key:'CONFIRM_BASELINE',label:'确认并启动',type:'success'},{key:'RETURN_PLAN',label:'退回计划'})
   if ((isBoss.value || myRole.value === 'OWNER') && d.status === 'ACTIVE') actions.push({key:'PAUSE',label:'暂停项目'})
-  if (isBoss.value && d.status === 'ACTIVE' && d.closeMethod === 'DIRECT') actions.push({key:'CLOSE',label:'检验并直接结项',type:'success'})
+  if (isBoss.value && d.status === 'ACTIVE' && d.closeMethod === 'DIRECT') actions.push({key:'CLOSE',label:'确认结项并冻结',type:'success'})
   if (myRole.value === 'OWNER' && d.status === 'ACTIVE' && d.closeMethod === 'DIRECT') actions.push({key:'REQUEST_CLOSE',label:'申请直接结项',type:'success'})
   if ((isBoss.value || myRole.value === 'OWNER') && d.status === 'ACTIVE' && d.closeMethod === 'RESULT_ACCEPTANCE') actions.push({key:'SUBMIT_ACCEPTANCE',label:'提交成果验收',type:'success'})
   if ((isBoss.value || myRole.value === 'OWNER') && d.status === 'PAUSED') actions.push({key:'RESUME',label:'恢复执行',type:'primary'})
@@ -558,6 +560,7 @@ async function load() { loading.value=true; try { const res=await listBusinessPr
 function search(){ query.pageNum=1; load() }
 function resetQuery(){ query.keyword=''; query.status=''; query.managementMode='';query.closeMethod='';search() }
 async function openDetail(row){ const res=await getBusinessProject(row.projectId); detail.value=res.data;activeTab.value=route.query.tab||'overview'; detailVisible.value=true; router.replace({query:{...route.query,id:row.projectId}}); await Promise.all([loadOperatingConfig(),loadKpiClosureState(),loadCockpit()]) }
+function openProjectAccountingEntry(action){if(!detail.value?.projectId)return;router.push({path:'/business/accounting',query:{action,projectId:detail.value.projectId}})}
 async function refreshDetail(){ if(!detail.value)return; detail.value=(await getBusinessProject(detail.value.projectId)).data; await Promise.all([load(),loadOperatingConfig(),loadKpiClosureState(),loadCockpit()]) }
 async function loadOperatingConfig(){if(!detail.value)return;operating.value=(await getBusinessOperatingConfig(detail.value.projectId)).data||{kpis:[],budgetHistory:[],staffAllocations:[]}}
 async function loadCockpit(){if(!detail.value)return;const request=++cockpitRequest,projectId=detail.value.projectId;cockpitLoading.value=true;cockpitError.value=false;cockpit.value={summary:{},results:[]};try{const response=await getBusinessProjectDashboard(projectId,{dateFrom:detail.value.planStartDate||'2000-01-01',dateTo:todayText()});if(request===cockpitRequest&&projectId===detail.value?.projectId)cockpit.value=response.data||{summary:{},results:[]}}catch{if(request===cockpitRequest){cockpit.value={summary:{},results:[]};cockpitError.value=true}}finally{if(request===cockpitRequest)cockpitLoading.value=false}}
@@ -569,13 +572,13 @@ async function openProjectForm(row){ if(!row?.projectId)return router.push('/bus
 async function saveProject(){ if(saving.value)return; await projectFormRef.value.validate(); if(!projectForm.value.planStartDate)return ElMessage.warning('请选择计划开始日期');if(!projectOpenEnded.value&&!projectForm.value.planEndDate)return ElMessage.warning('请选择计划结束日期或勾选不限期');if(projectForm.value.planEndDate&&projectForm.value.planStartDate>projectForm.value.planEndDate)return ElMessage.warning('计划结束日期不能早于开始日期');if(projectForm.value.managementMode==='KEY_CONTROL'&&!projectForm.value.managementReason?.trim())return ElMessage.warning('重点监管项目请填写监管原因');if(projectForm.value.closeMethod!=='DIRECT'&&!projectForm.value.acceptanceCriteria?.trim())return ElMessage.warning('请填写验收标准');if(governanceChanged.value&&!projectForm.value.governanceChangeReason?.trim())return ElMessage.warning('请填写治理方式变更原因');if(goalModeChanged.value&&!projectForm.value.goalModeChangeReason?.trim())return ElMessage.warning('请填写目标模式变更原因'); const data={...projectForm.value,planEndDate:projectOpenEnded.value?null:projectForm.value.planEndDate}; saving.value=true; try { const res=await updateBusinessProject(data); projectDialog.value=false; ElMessage.success('项目资料已保存'); await load(); if(res.data?.projectId) await openDetail(res.data) } finally { saving.value=false } }
 function handleProjectOpenEndedChange(value){if(value)projectForm.value.planEndDate=null}
 function disableProjectEndDate(date){return !!projectForm.value.planStartDate&&date.getTime()<new Date(`${projectForm.value.planStartDate}T00:00:00`).getTime()}
-async function runTransition(action){ if(action.key==='SUBMIT_ACCEPTANCE')return openAcceptanceSubmit();if(action.key==='OPEN_ACCEPTANCE'){activeTab.value='acceptance';return}let comment='',pauseCostMode='KEEP'; if(action.key==='PAUSE'){try{await ElMessageBox.confirm('暂停期间是否继续保留人员占用？释放后从明天起停止新增工作日成本，已计价记录保留。','暂停期间人员安排',{confirmButtonText:'保留人员，继续计费',cancelButtonText:'释放人员，停止计费',distinguishCancelAndClose:true})}catch(choice){if(choice==='cancel')pauseCostMode='RELEASE';else return}} if(['RETURN_PLAN','RETURN_ACTIVE','PAUSE','CLOSE','CANCEL','REQUEST_CLOSE'].includes(action.key)){ const r=await ElMessageBox.prompt(action.key==='CLOSE'?'请填写老板检验结论':action.key==='REQUEST_CLOSE'?'请填写结项申请说明':`请输入“${action.label}”原因`,'状态确认',{inputValidator:v=>!!v||'必须填写说明'}); comment=r.value } else await ElMessageBox.confirm(`确定执行“${action.label}”吗？`,'状态确认',{type:'warning'}); await transitionBusinessProject(detail.value.projectId,{action:action.key,comment,pauseCostMode}); ElMessage.success(action.key==='REQUEST_CLOSE'?'结项申请已提交，等待老板检验':'状态已更新'); await refreshDetail() }
+async function runTransition(action){ if(action.key==='SUBMIT_ACCEPTANCE')return openAcceptanceSubmit();if(action.key==='OPEN_ACCEPTANCE'){activeTab.value='acceptance';return}if(action.key==='CLOSE')return settlementPanelRef.value?.openClose();let comment='',pauseCostMode='KEEP'; if(action.key==='PAUSE'){try{await ElMessageBox.confirm('暂停期间是否继续保留人员占用？释放后从明天起停止新增工作日成本，已计价记录保留。','暂停期间人员安排',{confirmButtonText:'保留人员，继续计费',cancelButtonText:'释放人员，停止计费',distinguishCancelAndClose:true})}catch(choice){if(choice==='cancel')pauseCostMode='RELEASE';else return}} if(['RETURN_PLAN','RETURN_ACTIVE','PAUSE','CLOSE','CANCEL','REQUEST_CLOSE'].includes(action.key)){ const r=await ElMessageBox.prompt(action.key==='CLOSE'?'请填写老板结项确认说明。确认后系统将完成最终核算并冻结项目数据。':action.key==='REQUEST_CLOSE'?'请填写结项申请说明':`请输入“${action.label}”原因`,'状态确认',{inputValidator:v=>!!v||'必须填写说明'}); comment=r.value } else await ElMessageBox.confirm(`确定执行“${action.label}”吗？`,'状态确认',{type:'warning'}); await transitionBusinessProject(detail.value.projectId,{action:action.key,comment,pauseCostMode}); ElMessage.success(action.key==='REQUEST_CLOSE'?'结项申请已提交，等待老板检验':action.key==='CLOSE'?'项目已结项，核算已确认并冻结':'状态已更新'); await refreshDetail() }
 async function openOwnerDialog(){await ensureUsers();Object.assign(ownerForm,{ownerUserId:null,reason:'',exitOldOwner:false});ownerDialog.value=true}
 async function saveOwner(){if(!ownerForm.ownerUserId)return ElMessage.warning('请选择新负责人');if(!ownerForm.reason?.trim())return ElMessage.warning('请填写变更原因');saving.value=true;try{detail.value=(await changeBusinessProjectOwner(detail.value.projectId,ownerForm)).data;ownerDialog.value=false;ElMessage.success('主负责人已更换，交接历史已记录');await load()}finally{saving.value=false}}
 function openAcceptanceSubmit(){Object.assign(acceptanceForm,{resultSummary:'',deliverables:'',attachmentUrls:''});acceptanceDialog.value=true;activeTab.value='acceptance'}
 async function saveAcceptance(){if(!acceptanceForm.resultSummary?.trim())return ElMessage.warning('请填写结果摘要');if(!acceptanceForm.deliverables?.trim())return ElMessage.warning('请填写交付成果');await ElMessageBox.confirm('确认提交成果验收资料给老板检验吗？老板通过后项目才会结项。','提交成果验收',{type:'warning'});saving.value=true;try{detail.value=(await submitBusinessProjectAcceptance(detail.value.projectId,acceptanceForm)).data;acceptanceDialog.value=false;activeTab.value='acceptance';ElMessage.success('成果验收已提交，等待老板检验');await load()}finally{saving.value=false}}
 function openAcceptanceReview(decision,record){Object.assign(reviewForm,{decision,comment:'',acceptanceId:record.acceptanceId});reviewDialog.value=true;activeTab.value='acceptance'}
-async function saveAcceptanceReview(){if(reviewForm.decision==='RETURNED'&&!reviewForm.comment?.trim())return ElMessage.warning('请填写退回原因');saving.value=true;try{detail.value=(await reviewBusinessProjectAcceptance(detail.value.projectId,reviewForm)).data;reviewDialog.value=false;activeTab.value='acceptance';ElMessage.success(reviewForm.decision==='APPROVED'?'项目已验收关闭':'项目已退回执行');await load()}finally{saving.value=false}}
+async function saveAcceptanceReview(){if(reviewForm.decision==='RETURNED'&&!reviewForm.comment?.trim())return ElMessage.warning('请填写退回原因');saving.value=true;try{detail.value=(await reviewBusinessProjectAcceptance(detail.value.projectId,reviewForm)).data;reviewDialog.value=false;activeTab.value='acceptance';ElMessage.success(reviewForm.decision==='APPROVED'?'项目已验收结项，核算已确认并冻结':'项目已退回执行');await load()}finally{saving.value=false}}
 const stageRecords=milestoneId=>(detail.value?.stageAcceptances||[]).filter(row=>Number(row.milestoneId)===Number(milestoneId))
 const milestoneName=milestoneId=>(detail.value?.milestones||[]).find(row=>Number(row.milestoneId)===Number(milestoneId))?.milestoneName||'未关联'
 const canSubmitStage=milestone=>detail.value?.status==='ACTIVE'&&(isBoss.value||myRole.value==='OWNER')&&!['DONE','REVIEWING'].includes(milestone.status)&&milestoneTasksReady(detail.value?.tasks,milestone.milestoneId)

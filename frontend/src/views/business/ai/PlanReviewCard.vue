@@ -50,7 +50,7 @@
       </section>
 
       <section>
-        <div class="section-title"><h4>项目 KPI</h4><span>老板批准后用来判断结果</span></div>
+        <div class="section-title"><h4>项目 KPI</h4><span>负责人自主启动后用来判断结果</span></div>
         <div v-if="review.kpis?.length" class="detail-list">
           <div v-for="item in review.kpis" :key="item.kpiId" class="detail-row">
             <div><b>{{ item.kpiName }}</b><small>{{ item.ownerName || '未指定负责人' }} · {{ periodLabel[item.periodType] || item.periodType || '项目周期' }}</small></div>

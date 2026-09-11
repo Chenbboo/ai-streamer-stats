@@ -2988,8 +2988,8 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         result.put("attachmentList", splitAttachments(acceptance.getAttachmentUrls()));
         result.put("canApprove", canApprove); result.put("checks", checks); result.put("warnings", warnings);
         result.put("closureEffect", BusinessProjectLifecycle.isSeparated(detail)
-            ? "仅关闭项目交付，核算状态保持不变；既有周期KPI及合法历史费用按权限继续处理，核算需单独关闭"
-            : "沿用旧流程，项目结项同时关闭核算");
+            ? "全部KPI完成确认后仅关闭项目交付，费用核算仍可单独收口"
+            : "项目结项同时关闭核算");
         result.put("recommendation", canApprove ? "系统前置条件已通过，请老板核对成果内容与凭证后决定是否验收"
             : "当前不满足验收通过条件，可以退回负责人补充或完成剩余事项");
         return result;

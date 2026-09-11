@@ -23,7 +23,7 @@
       </div>
 
       <article
-        v-for="row in groupedPendingRows"
+        v-for="row in visiblePendingRows"
         :key="row.itemKey"
         :class="['decision-row', { 'personnel-row': row.category === 'PERSONNEL_COST_GROUP' }]"
       >
@@ -69,6 +69,10 @@
             <el-button size="small" type="primary" @click="openKpi(row)">{{ Number(row.targetCount) ? '发布KPI方案' : '设置KPI' }}</el-button>
             <el-button size="small" @click="openProject(row)">项目详情</el-button>
           </template>
+          <template v-else-if="row.category === 'MANAGEMENT_FEE'">
+            <el-button size="small" type="primary" @click="openProject(row, 'settlement')">设置管理费</el-button>
+            <el-button size="small" @click="openProject(row)">项目详情</el-button>
+          </template>
           <template v-else-if="row.category === 'INCENTIVE_REVIEW'">
             <el-button v-hasPermi="['business:incentive:approve']" size="small" type="primary" @click="openIncentive(row)">去审核</el-button>
           </template>
@@ -98,6 +102,12 @@
           </template>
         </div>
       </article>
+      <div v-if="groupedPendingRows.length > 2" class="pending-toggle">
+        <el-button link type="primary" @click="pendingExpanded = !pendingExpanded">
+          {{ pendingExpanded ? '收起待办' : `展开全部 ${groupedPendingRows.length} 条待办` }}
+          <span :class="['pending-toggle-arrow', { 'is-expanded': pendingExpanded }]">⌄</span>
+        </el-button>
+      </div>
     </section>
 
     <section class="panel accounting-overview">
@@ -106,7 +116,9 @@
         <div class="panel-actions">
           <el-tag v-if="accounting.missingDailyResultCount" type="warning">{{ accounting.missingDailyResultCount }} 个项目尚未生成今日经营结果</el-tag>
           <el-tag v-if="accounting.draftFactCount" type="warning">{{ accounting.draftFactCount }} 条草稿</el-tag>
-          <el-button link type="primary" @click="openAccounting()">进入每日收支</el-button>
+          <el-button type="success" icon="Plus" @click="openAccountingEntry('revenue')">录入收入</el-button>
+          <el-button type="primary" icon="Plus" @click="openAccountingEntry('spend')">录入支出</el-button>
+          <el-button link type="primary" @click="openAccounting()">查看全部收支</el-button>
         </div>
       </div>
       <div class="finance-grid">
@@ -136,6 +148,33 @@
           <el-button link type="primary" @click="openAccounting()">查看全部异常</el-button>
         </div>
       </div>
+    </section>
+
+    <section class="panel owner-load-panel">
+      <div class="section-title section-title--between">
+        <div><h2>负责人项目负荷</h2><span>查看每位负责人当前承担的项目和管理费资格</span></div>
+        <el-tag type="success" effect="plain">{{ eligibleOwnerCount }} 人达到条件</el-tag>
+      </div>
+      <div v-if="ownerLoads.length" class="owner-load-grid">
+        <article v-for="owner in ownerLoads" :key="owner.ownerUserId" class="owner-load-card">
+          <div class="owner-load-head">
+            <span class="owner-avatar">{{ String(owner.ownerName||'负').slice(0,1) }}</span>
+            <div><b>{{ owner.ownerName || '未指定负责人' }}</b><small>当前主负责项目</small></div>
+            <strong>{{ owner.projectCount }}<small>个</small></strong>
+          </div>
+          <div :class="['owner-eligibility', owner.managementFeeEligible?'is-eligible':'is-pending']">
+            <span>{{ owner.managementFeeEligible?'已达到管理费条件':`还差 ${Math.max(0,3-Number(owner.projectCount||0))} 个项目` }}</span>
+            <b>{{ owner.projectCount }}/3</b>
+          </div>
+          <div class="owner-project-preview">
+            <button v-for="project in (owner.projects||[]).slice(0,3)" :key="project.projectId" @click="openProject(project)">
+              <span>{{ project.projectName }}</span><small>{{ projectStatusLabel(project) }}</small>
+            </button>
+          </div>
+          <el-button class="owner-load-more" link type="primary" @click="openOwnerLoad(owner)">查看全部项目</el-button>
+        </article>
+      </div>
+      <div v-else-if="!projectLoading" class="empty-state">当前没有负责人在管项目</div>
     </section>
 
     <section class="panel project-panel">
@@ -221,6 +260,20 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="ownerLoadDialog" :title="`${selectedOwnerLoad?.ownerName||'负责人'}的在管项目`" width="min(760px, 94vw)" append-to-body destroy-on-close>
+      <div v-if="selectedOwnerLoad" class="owner-dialog-summary">
+        <span>当前在管 <b>{{ selectedOwnerLoad.projectCount }}</b> 个项目</span>
+        <el-tag :type="selectedOwnerLoad.managementFeeEligible?'success':'info'" effect="light">{{ selectedOwnerLoad.managementFeeEligible?'已达到管理费条件':`未达到管理费条件（${selectedOwnerLoad.projectCount}/3）` }}</el-tag>
+      </div>
+      <el-table :data="selectedOwnerLoad?.projects||[]" stripe>
+        <el-table-column prop="projectName" label="项目" min-width="210"><template #default="{row}"><b>{{ row.projectName }}</b><small class="owner-project-no">{{ row.projectNo }}</small></template></el-table-column>
+        <el-table-column prop="companyName" label="归属公司" min-width="150" />
+        <el-table-column label="状态" width="110"><template #default="{row}"><el-tag size="small" effect="plain">{{ projectStatusLabel(row) }}</el-tag></template></el-table-column>
+        <el-table-column label="操作" width="90"><template #default="{row}"><el-button link type="primary" @click="ownerLoadDialog=false;openProject(row)">详情</el-button></template></el-table-column>
+      </el-table>
+      <template #footer><el-button type="primary" @click="ownerLoadDialog=false">关闭</el-button></template>
+    </el-dialog>
+
     <el-dialog v-model="evidenceDialog" :title="`${evidencePreview.title || ''} · ${evidencePreview.label || '项目成果凭证'}`" width="min(840px, 96vw)" append-to-body destroy-on-close>
       <div class="evidence-dialog-summary"><span>{{ evidencePreview.submitter || '项目负责人' }}提交</span><span>{{ evidencePreview.date }}</span><span>共 {{ evidencePreview.files.length }} 个文件</span></div>
       <business-file-upload
@@ -253,6 +306,9 @@ const projectsExpanded = ref(true)
 const accountingTotal = key => (accounting.value.todayByCurrency?.length ? accounting.value.todayByCurrency : [accounting.value.today || {}]).map(row => money(row[key]) + (row.currency ? ' ' + row.currency : '')).join(' / ')
 const summary = ref({})
 const projects = ref([])
+const ownerLoads = ref([])
+const ownerLoadDialog = ref(false)
+const selectedOwnerLoad = ref(null)
 const projectPage = reactive({ pageNum: 1, pageSize: 4, total: 0 })
 const projectFilters = reactive({keyword:'',status:''})
 const appliedProjectFilters = reactive({projectKeyword:'',projectStatus:''})
@@ -263,6 +319,7 @@ const accounting = ref({ today: {}, alerts: [], draftFactCount: 0 })
 const pendingRows = ref([])
 const pendingCounts = ref({})
 const pendingTotal = ref(0)
+const pendingExpanded = ref(false)
 const personnelExpanded = ref(false)
 const costDialogOpen = ref(false)
 const costDialogMode = ref('single')
@@ -276,12 +333,13 @@ const statusLabel = { DRAFT: '草稿', PLANNING: '规划中', ACTIVE: '执行中
 const statusTone = { DRAFT: 'info', PLANNING: 'warning', ACTIVE: 'primary', PAUSED: 'info', ACCEPTANCE: 'success', CLOSED: 'success', CANCELED: 'danger' }
 const managementLabel={LIGHT:'轻量',STANDARD:'标准',KEY_CONTROL:'重点监管',SIMPLE:'轻量',DELIVERY:'标准'}
 const closeMethodLabel={DIRECT:'直接结项',RESULT_ACCEPTANCE:'成果验收',STAGED_ACCEPTANCE:'阶段验收'}
-const actionMeta = { START_PLANNING: { label: '进入规划', type: 'primary' }, CONFIRM_BASELINE: { label: '确认并启动', type: 'success' }, RETURN_PLAN: { label: '退回计划', type: 'warning', plain: true }, RESUME: { label: '恢复执行', type: 'primary' }, REVIEW_ACCEPTANCE: { label: '查看验收资料', type: 'success' }, CLOSE: { label: '确认结项', type: 'success' }, RETURN_ACTIVE: { label: '退回补充', type: 'warning', plain: true } }
+const actionMeta = { START_PLANNING: { label: '进入规划', type: 'primary' }, CONFIRM_BASELINE: { label: '确认并启动', type: 'success' }, RETURN_PLAN: { label: '退回计划', type: 'warning', plain: true }, RESUME: { label: '恢复执行', type: 'primary' }, REVIEW_ACCEPTANCE: { label: '查看验收资料', type: 'success' }, CLOSE: { label: '确认结项并冻结', type: 'success' }, RETURN_ACTIVE: { label: '退回补充', type: 'warning', plain: true } }
 const projectStatusLabel = row => row?.status === 'ACCEPTANCE' && row?.closeMethod === 'STAGED_ACCEPTANCE' ? '待结项' : statusLabel[row?.status] || row?.status
 
 const idKey = value => value === null || value === undefined ? '' : String(value)
 const kpiOverviewMap = computed(() => new Map(kpiOverviews.value.map(item => [idKey(item.projectId), item])))
 const totalPendingCount = computed(() => pendingTotal.value)
+const eligibleOwnerCount = computed(() => ownerLoads.value.filter(owner => owner.managementFeeEligible).length)
 const personnelRows = computed(() => pendingRows.value.filter(row => row.category === 'PERSONNEL_COST'))
 const batchEligibleRows = computed(() => personnelRows.value.filter(row => row.costStatus !== 'MISSING_REGION'))
 const batchUnavailableCount = computed(() => personnelRows.value.length - batchEligibleRows.value.length)
@@ -297,6 +355,7 @@ const groupedPendingRows = computed(() => {
   })
   return result
 })
+const visiblePendingRows = computed(() => pendingExpanded.value ? groupedPendingRows.value : groupedPendingRows.value.slice(0, 2))
 const personnelPreview = computed(() => {
   const names = personnelRows.value.slice(0, 4).map(row => row.userName).join('、')
   return `${names}${personnelRows.value.length > 4 ? ` 等 ${personnelRows.value.length} 人` : ''} `
@@ -360,6 +419,8 @@ const openProject = (row, tab) => {
 const openProposals = () => router.push({ path: '/business/project-proposals', query: { tab: 'review' } })
 const openProposal = row => router.push({ path: '/business/project-proposals', query: { tab: 'review', id: row.proposalId } })
 const openAccounting = (query = {}) => router.push({ path: '/business/accounting', query })
+const openAccountingEntry = action => openAccounting({ action })
+function openOwnerLoad(owner) { selectedOwnerLoad.value = owner; ownerLoadDialog.value = true }
 const openPendingAccounting = row => openAccounting({ projectId: row.projectId, dateFrom: row.bizDate, dateTo: row.bizDate })
 const openKpi = row => {
   const projectId = projectIdFromRow(row)
@@ -387,15 +448,16 @@ const isStagedClosePending = row => row.status === 'ACCEPTANCE' && row.descripti
 const decisionActions = row => row.status === 'DRAFT' ? [{ key: 'START_PLANNING', ...actionMeta.START_PLANNING }] : row.status === 'PLANNING' && row.baselineStatus === 'SUBMITTED' ? [{ key: 'CONFIRM_BASELINE', ...actionMeta.CONFIRM_BASELINE }, { key: 'RETURN_PLAN', ...actionMeta.RETURN_PLAN }] : row.status === 'PAUSED' ? [{ key: 'RESUME', ...actionMeta.RESUME }] : isStagedClosePending(row) ? [{ key: 'CLOSE', ...actionMeta.CLOSE }, { key: 'RETURN_ACTIVE', ...actionMeta.RETURN_ACTIVE }] : row.status === 'ACCEPTANCE' ? [{ key: 'REVIEW_ACCEPTANCE', ...actionMeta.REVIEW_ACCEPTANCE }] : []
 const decisionHint = row => row.status === 'DRAFT' ? '历史草稿等待确认进入规划' : row.status === 'PLANNING' ? '历史计划已提交，等待确认或退回' : row.status === 'PAUSED' ? '项目处于暂停状态，决定是否恢复执行' : isStagedClosePending(row) ? '所有里程碑和结项前置条件已完成，负责人申请确认结项' : row.status === 'ACCEPTANCE' ? '验收资料已提交，等待关闭或退回执行' : '需要老板处理'
 const accountingValue = row => row.factKind === 'VALUE' ? `${row.quantity ?? '—'} ${row.unit || ''}`.trim() : `${money(row.amount)} ${row.currency || ''}`.trim()
-const pendingLabel = row => row.category === 'INCENTIVE_REVIEW' ? '奖金待核准' : row.category === 'PROPOSAL' ? '立项待审批' : row.category === 'ACCOUNTING' ? '收支待确认' : row.category === 'STAGE_ACCEPTANCE' ? '待阶段验收' : row.category === 'KPI_MISSING' ? (Number(row.targetCount) ? 'KPI 待发布' : 'KPI 待设置') : row.category === 'KPI_REVIEW' ? 'KPI 结算待确认' : isStagedClosePending(row) ? '项目待结项' : '项目状态待处理'
-const pendingDotClass = row => row.category === 'KPI_MISSING' ? 'dot-danger' : ['PERSONNEL_COST_GROUP', 'PROPOSAL', 'ACCOUNTING', 'STAGE_ACCEPTANCE', 'KPI_REVIEW', 'INCENTIVE_REVIEW'].includes(row.category) ? 'dot-warning' : 'dot-info'
-const pendingBadgeClass = row => row.category === 'KPI_MISSING' ? 'badge-danger' : ['PROPOSAL', 'ACCOUNTING', 'STAGE_ACCEPTANCE', 'KPI_REVIEW', 'INCENTIVE_REVIEW'].includes(row.category) ? 'badge-warning' : 'badge-info'
-const pendingDescription = row => row.category === 'INCENTIVE_REVIEW' ? `${row.categoryName || '奖金申请'} #${row.awardId} · ${money(row.amount)} ${row.currency || ''} · ${row.description || '等待核准'}` : row.category === 'PROPOSAL' ? (row.objective || '新的立项申请等待审批') : row.category === 'ACCOUNTING' ? `${row.categoryName || '项目收支'}：${row.description || '负责人提交的今日收支'}（${accountingValue(row)}）` : row.category === 'STAGE_ACCEPTANCE' ? `${row.resultSummary || '负责人已提交阶段成果'} · 交付成果：${row.deliverables || '—'}` : row.category === 'KPI_MISSING' ? (Number(row.targetCount) ? `已有 ${row.targetCount} 项 KPI 目标，但尚未发布考核与奖金方案` : '项目已进入执行流程，KPI 目标待设置') : row.category === 'KPI_REVIEW' ? '负责人已提交 KPI 结果，确认后项目奖金会立即计入成本' : decisionHint(row)
+const pendingLabel = row => row.category === 'MANAGEMENT_FEE' ? '管理费待设置' : row.category === 'INCENTIVE_REVIEW' ? '奖金待核准' : row.category === 'PROPOSAL' ? '历史立项待处理' : row.category === 'ACCOUNTING' ? '收支待确认' : row.category === 'STAGE_ACCEPTANCE' ? '待阶段验收' : row.category === 'KPI_MISSING' ? (Number(row.targetCount) ? 'KPI 待发布' : 'KPI 待设置') : row.category === 'KPI_REVIEW' ? 'KPI 结算待确认' : isStagedClosePending(row) ? '项目待结项' : '项目状态待处理'
+const pendingDotClass = row => ['KPI_MISSING','MANAGEMENT_FEE'].includes(row.category) ? 'dot-danger' : ['PERSONNEL_COST_GROUP', 'PROPOSAL', 'ACCOUNTING', 'STAGE_ACCEPTANCE', 'KPI_REVIEW', 'INCENTIVE_REVIEW'].includes(row.category) ? 'dot-warning' : 'dot-info'
+const pendingBadgeClass = row => ['KPI_MISSING','MANAGEMENT_FEE'].includes(row.category) ? 'badge-danger' : ['PROPOSAL', 'ACCOUNTING', 'STAGE_ACCEPTANCE', 'KPI_REVIEW', 'INCENTIVE_REVIEW'].includes(row.category) ? 'badge-warning' : 'badge-info'
+const pendingDescription = row => row.category === 'MANAGEMENT_FEE' ? row.description : row.category === 'INCENTIVE_REVIEW' ? `${row.categoryName || '奖金申请'} #${row.awardId} · ${money(row.amount)} ${row.currency || ''} · ${row.description || '等待核准'}` : row.category === 'PROPOSAL' ? (row.objective || '历史立项申请待处理') : row.category === 'ACCOUNTING' ? `${row.categoryName || '项目收支'}：${row.description || '负责人提交的今日收支'}（${accountingValue(row)}）` : row.category === 'STAGE_ACCEPTANCE' ? `${row.resultSummary || '负责人已提交阶段成果'} · 交付成果：${row.deliverables || '—'}` : row.category === 'KPI_MISSING' ? (Number(row.targetCount) ? `已有 ${row.targetCount} 项 KPI 目标，但尚未发布考核与奖金方案` : '项目已进入执行流程，KPI 目标待设置') : row.category === 'KPI_REVIEW' ? '负责人已提交 KPI 结果，确认后项目奖金会立即计入成本' : decisionHint(row)
 const pendingMeta = row => {
   if (row.category === 'PROPOSAL') return `${row.applicantName} 负责 · ${row.companyName || '未设置公司'} `
   if (['ACCOUNTING', 'INCENTIVE_REVIEW'].includes(row.category)) return `${row.submitterName || '项目负责人'}提交 · ${row.bizDate || '—'} · ${row.companyName || '未设置公司'} `
   if (row.category === 'STAGE_ACCEPTANCE') return `${row.submitterName || row.mainOwnerName || '项目负责人'}提交 · 里程碑“${row.milestoneName || '未命名'}” · ${row.submittedTime || '—'} `
   if (row.category === 'KPI_REVIEW') return `方案 v${row.planVersion} · 截止 ${row.cycleEnd || '—'} · 综合得分 ${row.totalScore ?? '—'} `
+  if (row.category === 'MANAGEMENT_FEE') return `${row.mainOwnerName || '未指定负责人'}负责 · 当前在管 ${row.projectCount || 0} 个项目 `
   return `${row.mainOwnerName || '未指定负责人'} 负责 `
 }
 const personnelMeta = row => `${row.companyName || '未设置所属公司'} · ${row.projectNameText || '尚未加入未结束项目'}`
@@ -507,6 +569,7 @@ async function loadProjectPage() {
     const data = result.data || {}
     const page = data.projectPage || {}
     summary.value = data.summary || {}
+    ownerLoads.value = data.ownerLoads || []
     projects.value = page.rows || data.projects || []
     projectPage.total = Number(page.total ?? summary.value.totalCount ?? projects.value.length)
     projectPage.pageNum = Number(page.pageNum || 1)
@@ -552,7 +615,7 @@ async function doTransition(row, action) {
   const meta = actionMeta[action] || { label: '执行操作' }
   let comment = ''
   if (['RETURN_PLAN', 'RETURN_ACTIVE', 'CLOSE'].includes(action)) {
-    const result = await ElMessageBox.prompt(action === 'CLOSE' ? '请填写项目完成结论' : `请输入“${meta.label}”的原因，负责人将在项目动态中看到`, '老板决策', { inputValidator: value => !!value?.trim() || '必须填写说明' })
+    const result = await ElMessageBox.prompt(action === 'CLOSE' ? '请填写项目完成结论。确认后系统将完成最终核算并冻结项目数据。' : `请输入“${meta.label}”的原因，负责人将在项目动态中看到`, '老板决策', { inputValidator: value => !!value?.trim() || '必须填写说明' })
     comment = result.value
   } else {
     await ElMessageBox.confirm(`确定对“${row.projectName}”执行“${meta.label}”吗？`, '老板确认', { type: 'warning' })
@@ -574,9 +637,10 @@ onBeforeUnmount(() => window.clearInterval(progressRefreshTimer))
 <style scoped>
 .project-filters{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px}.project-filters>.el-input{width:235px}.project-filters>.el-select{width:130px}.project-filters>.el-button{margin:0}.project-pagination :deep(.el-pagination){flex-wrap:wrap;gap:8px}@media(max-width:1100px){.project-panel>.section-title{flex-wrap:wrap;gap:14px}.project-filters{justify-content:flex-start}}
 .project-status-toggle{display:flex;align-items:center;flex-wrap:wrap;gap:8px;border:0;padding:0;background:none;color:inherit;font:inherit;cursor:pointer;text-align:left}.project-status-toggle small{font-size:12px;font-weight:400;color:#8492a3}.project-status-toggle:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:4px;border-radius:4px}
-.business-page{min-height:calc(100vh - 84px);padding:24px;background:#eef1f5;color:#12213a}.hero{display:flex;align-items:center;justify-content:space-between;min-height:134px;padding:26px 40px;border-radius:18px;background:#1d344f;color:#fff;box-shadow:0 12px 30px rgba(27,48,74,.13)}.eyebrow{font-size:12px;letter-spacing:.28em;color:#78ecd1}.hero h1{margin:15px 0 8px;font-size:30px;line-height:1}.hero p{margin:0;color:#d2deea;font-size:15px}.hero-actions,.panel-actions{display:flex;align-items:center;gap:10px}.hero-actions :deep(.el-button){height:42px;padding:0 20px;border-radius:11px;font-weight:700}.panel{margin-top:20px;padding:24px 26px;border:0;border-radius:17px;background:#fff;box-shadow:0 7px 20px rgba(29,50,75,.06)}.section-title{display:flex;align-items:baseline;gap:7px;margin-bottom:18px}.section-title h2{margin:0;font-size:19px}.section-title>span{color:#8493a7;font-size:13px}.section-title--between{align-items:center;justify-content:space-between}.empty-state{padding:30px;text-align:center;color:#93a0b1}.success-empty{border-radius:10px;background:#edf9f2;color:#18a856}.success-empty span{margin-right:8px;font-weight:800}.decision-row{display:flex;align-items:center;gap:16px;padding:19px 20px;border:1px solid #dfe6ef;border-radius:14px}.decision-row+.decision-row{margin-top:14px}.decision-dot{width:10px;height:10px;flex:none;border-radius:50%}.dot-danger{background:#ef323a}.dot-warning{background:#df7c00}.dot-info{background:#4a83d8}.decision-copy{min-width:0;flex:1}.decision-title{display:flex;align-items:center;gap:10px}.decision-title b{font-size:16px}.decision-count{color:#df7c00;font-weight:700}.badge-danger{color:#e04b00}.badge-warning{color:#df7c00}.badge-info{color:#3f75bd}.decision-copy>p{margin:7px 0 0;color:#8493a7;font-size:14px;line-height:1.55}.decision-actions{display:flex;flex:none;align-self:flex-start;flex-wrap:wrap;justify-content:flex-end;gap:8px}.decision-actions :deep(.el-button){margin:0;font-weight:650}.personnel-list{margin-top:14px;border-top:1px dashed #dce4ee}.personnel-item{display:grid;grid-template-columns:110px minmax(0,1fr) auto;align-items:center;gap:18px;padding:10px 2px;border-bottom:1px dashed #dce4ee}.personnel-item>b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.personnel-item>span{overflow:hidden;color:#8493a7;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.finance-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.finance-grid article{padding:20px;border:1px solid #dfe6ef;border-radius:13px;background:#fafbfd}.finance-grid span,.finance-grid strong{display:block}.finance-grid span{color:#8794a8;font-size:14px}.finance-grid strong{margin-top:12px;font-size:29px;line-height:1}.amount-profit{color:#11a957}.amount-loss{color:#d84e58}.healthy-banner{margin-top:15px;padding:11px 16px;border-radius:10px;background:#e7f7ed;color:#11a957;font-size:14px}.alert-section{margin-top:16px;padding:16px;border:1px solid #e5eaf0;border-radius:12px;background:#f8fafc}.subsection-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.subsection-head>div{display:flex;align-items:baseline;gap:10px}.subsection-head span{color:#8a95a2;font-size:12px}.alert-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.alert-card{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:11px;padding:14px;border:1px solid #e0e6ec;border-radius:11px;background:#fff;color:inherit;text-align:left;cursor:pointer}.alert-card:hover{border-color:#b9c7d5;box-shadow:0 7px 18px rgba(31,53,74,.09)}.alert-icon{display:flex;width:30px;height:30px;align-items:center;justify-content:center;border-radius:9px;background:#fff0f1;color:#d94e58;font-weight:800}.alert-card--over-budget .alert-icon{background:#fff5e6;color:#c8841c}.alert-card--missing-company .alert-icon{background:#eef4fb;color:#4f78a8}.alert-content{display:flex;min-width:0;flex-direction:column}.alert-content>b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.alert-content>span{margin-top:4px;color:#788695;font-size:12px}.alert-arrow{color:#a3adb8;font-size:24px}.alert-footer{display:flex;justify-content:flex-end;padding-top:8px}.project-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;min-height:60px}.project-card{padding:19px 20px;border:1px solid #dfe6ef;border-radius:14px}.project-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.project-link{min-width:0;overflow:hidden;padding:0;border:0;background:none;color:#13213a;font:inherit;font-size:16px;font-weight:700;text-align:left;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.project-link:hover{color:#3478ef}.progress-row{display:grid;grid-template-columns:auto minmax(80px,1fr) auto;align-items:center;gap:14px;margin-top:18px;color:#8493a7;font-size:13px}.progress-row :deep(.el-progress__text){display:none}.progress-row :deep(.el-progress){width:100%}.project-card-foot{display:flex;align-items:center;gap:10px;margin-top:14px;color:#8493a7;font-size:13px}.project-actions{display:flex;margin-left:auto;gap:8px}.project-actions :deep(.el-button){margin:0}.project-pagination{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:18px}.project-pagination>span{color:#7e8a98;font-size:12px}.cost-form{margin-top:18px}.cost-form :deep(.el-form-item){margin-bottom:20px}.form-help{margin-top:6px;color:#8490a0;font-size:12px;line-height:1.5}.cost-preview{display:grid;gap:5px;margin:-4px 0 18px 126px;padding:13px 15px;border:1px solid #cfe3df;border-radius:9px;background:#f0f8f6}.cost-preview span,.cost-preview small{color:#71828c;font-size:12px}.cost-preview b{color:#174f4f;font-size:15px}.cost-preview b:not(:first-of-type){margin-top:7px}
+.business-page{min-height:calc(100vh - 84px);padding:24px;background:#eef1f5;color:#12213a}.hero{display:flex;align-items:center;justify-content:space-between;min-height:134px;padding:26px 40px;border-radius:18px;background:#1d344f;color:#fff;box-shadow:0 12px 30px rgba(27,48,74,.13)}.eyebrow{font-size:12px;letter-spacing:.28em;color:#78ecd1}.hero h1{margin:15px 0 8px;font-size:30px;line-height:1}.hero p{margin:0;color:#d2deea;font-size:15px}.hero-actions,.panel-actions{display:flex;align-items:center;gap:10px}.hero-actions :deep(.el-button){height:42px;padding:0 20px;border-radius:11px;font-weight:700}.panel{margin-top:20px;padding:24px 26px;border:0;border-radius:17px;background:#fff;box-shadow:0 7px 20px rgba(29,50,75,.06)}.section-title{display:flex;align-items:baseline;gap:7px;margin-bottom:18px}.section-title h2{margin:0;font-size:19px}.section-title>span{color:#8493a7;font-size:13px}.section-title--between{align-items:center;justify-content:space-between}.empty-state{padding:30px;text-align:center;color:#93a0b1}.success-empty{border-radius:10px;background:#edf9f2;color:#18a856}.success-empty span{margin-right:8px;font-weight:800}.decision-row{display:flex;align-items:center;gap:16px;padding:19px 20px;border:1px solid #dfe6ef;border-radius:14px}.decision-row+.decision-row{margin-top:14px}.decision-dot{width:10px;height:10px;flex:none;border-radius:50%}.dot-danger{background:#ef323a}.dot-warning{background:#df7c00}.dot-info{background:#4a83d8}.decision-copy{min-width:0;flex:1}.decision-title{display:flex;align-items:center;gap:10px}.decision-title b{font-size:16px}.decision-count{color:#df7c00;font-weight:700}.badge-danger{color:#e04b00}.badge-warning{color:#df7c00}.badge-info{color:#3f75bd}.decision-copy>p{margin:7px 0 0;color:#8493a7;font-size:14px;line-height:1.55}.decision-actions{display:flex;flex:none;align-self:flex-start;flex-wrap:wrap;justify-content:flex-end;gap:8px}.decision-actions :deep(.el-button){margin:0;font-weight:650}.pending-toggle{display:flex;justify-content:center;padding-top:15px}.pending-toggle :deep(.el-button){font-weight:650}.pending-toggle-arrow{display:inline-block;margin-left:5px;font-size:16px;transition:transform .2s ease}.pending-toggle-arrow.is-expanded{transform:rotate(180deg)}.personnel-list{margin-top:14px;border-top:1px dashed #dce4ee}.personnel-item{display:grid;grid-template-columns:110px minmax(0,1fr) auto;align-items:center;gap:18px;padding:10px 2px;border-bottom:1px dashed #dce4ee}.personnel-item>b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.personnel-item>span{overflow:hidden;color:#8493a7;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.finance-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.finance-grid article{padding:20px;border:1px solid #dfe6ef;border-radius:13px;background:#fafbfd}.finance-grid span,.finance-grid strong{display:block}.finance-grid span{color:#8794a8;font-size:14px}.finance-grid strong{margin-top:12px;font-size:29px;line-height:1}.amount-profit{color:#11a957}.amount-loss{color:#d84e58}.healthy-banner{margin-top:15px;padding:11px 16px;border-radius:10px;background:#e7f7ed;color:#11a957;font-size:14px}.alert-section{margin-top:16px;padding:16px;border:1px solid #e5eaf0;border-radius:12px;background:#f8fafc}.subsection-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.subsection-head>div{display:flex;align-items:baseline;gap:10px}.subsection-head span{color:#8a95a2;font-size:12px}.alert-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.alert-card{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:11px;padding:14px;border:1px solid #e0e6ec;border-radius:11px;background:#fff;color:inherit;text-align:left;cursor:pointer}.alert-card:hover{border-color:#b9c7d5;box-shadow:0 7px 18px rgba(31,53,74,.09)}.alert-icon{display:flex;width:30px;height:30px;align-items:center;justify-content:center;border-radius:9px;background:#fff0f1;color:#d94e58;font-weight:800}.alert-card--over-budget .alert-icon{background:#fff5e6;color:#c8841c}.alert-card--missing-company .alert-icon{background:#eef4fb;color:#4f78a8}.alert-content{display:flex;min-width:0;flex-direction:column}.alert-content>b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.alert-content>span{margin-top:4px;color:#788695;font-size:12px}.alert-arrow{color:#a3adb8;font-size:24px}.alert-footer{display:flex;justify-content:flex-end;padding-top:8px}.project-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;min-height:60px}.project-card{padding:19px 20px;border:1px solid #dfe6ef;border-radius:14px}.project-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.project-link{min-width:0;overflow:hidden;padding:0;border:0;background:none;color:#13213a;font:inherit;font-size:16px;font-weight:700;text-align:left;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.project-link:hover{color:#3478ef}.progress-row{display:grid;grid-template-columns:auto minmax(80px,1fr) auto;align-items:center;gap:14px;margin-top:18px;color:#8493a7;font-size:13px}.progress-row :deep(.el-progress__text){display:none}.progress-row :deep(.el-progress){width:100%}.project-card-foot{display:flex;align-items:center;gap:10px;margin-top:14px;color:#8493a7;font-size:13px}.project-actions{display:flex;margin-left:auto;gap:8px}.project-actions :deep(.el-button){margin:0}.project-pagination{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:18px}.project-pagination>span{color:#7e8a98;font-size:12px}.cost-form{margin-top:18px}.cost-form :deep(.el-form-item){margin-bottom:20px}.form-help{margin-top:6px;color:#8490a0;font-size:12px;line-height:1.5}.cost-preview{display:grid;gap:5px;margin:-4px 0 18px 126px;padding:13px 15px;border:1px solid #cfe3df;border-radius:9px;background:#f0f8f6}.cost-preview span,.cost-preview small{color:#71828c;font-size:12px}.cost-preview b{color:#174f4f;font-size:15px}.cost-preview b:not(:first-of-type){margin-top:7px}
+.owner-load-panel .section-title>div{display:flex;align-items:baseline;gap:9px}.owner-load-panel .section-title>div>span{color:#8493a7;font-size:13px}.owner-load-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.owner-load-card{min-width:0;padding:17px;border:1px solid #dfe6ef;border-radius:13px;background:#fbfcfd}.owner-load-head{display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:center;gap:11px}.owner-avatar{display:grid;width:38px;height:38px;place-items:center;border-radius:11px;background:#e8f2ff;color:#3576bd;font-weight:700}.owner-load-head>div{display:flex;min-width:0;flex-direction:column;gap:3px}.owner-load-head>div>b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.owner-load-head small{color:#8a97a6;font-size:11px;font-weight:400}.owner-load-head>strong{color:#1f344b;font-size:26px}.owner-load-head>strong small{margin-left:2px}.owner-eligibility{display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding:8px 10px;border-radius:8px;font-size:12px}.owner-eligibility.is-eligible{background:#eaf8f1;color:#21825f}.owner-eligibility.is-pending{background:#f1f4f7;color:#718096}.owner-project-preview{display:grid;gap:6px;margin-top:11px}.owner-project-preview button{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 9px;border:0;border-radius:7px;background:#fff;color:#465568;text-align:left;cursor:pointer}.owner-project-preview button:hover{background:#edf4fc;color:#2f72bb}.owner-project-preview button>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.owner-project-preview small{flex:none;color:#95a0ac}.owner-load-more{margin-top:8px}.owner-dialog-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:15px;padding:12px 14px;border-radius:9px;background:#f5f8fa;color:#64748b}.owner-dialog-summary b{color:#1f344b;font-size:18px}.owner-project-no{display:block;margin-top:3px;color:#95a0ac}
 .latest-progress-report{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;padding:11px 12px;border-radius:9px;background:#f0f8f6}.latest-progress-report>div{display:flex;min-width:0;flex-direction:column;gap:4px}.latest-progress-report span,.latest-progress-empty{color:#7c8a96;font-size:12px}.latest-progress-report b{overflow:hidden;color:#40545d;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.latest-progress-report .el-button{flex:none}.latest-progress-empty{margin-top:12px;padding:10px 12px;border-radius:8px;background:#f5f7f9}.evidence-dialog-summary{display:flex;align-items:center;gap:10px;margin-bottom:16px;color:#7a8794;font-size:13px}.evidence-dialog-summary span+span:before{margin-right:10px;color:#c3cbd3;content:'·'}.evidence-preview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.evidence-preview-item{min-width:0;padding:10px;border:1px solid #e0e7ec;border-radius:10px;background:#f7f9fa}.evidence-preview-item>.el-image,.evidence-preview-item>video{display:block;width:100%;height:300px;border-radius:7px;background:#eef1f3}.evidence-preview-item>small{display:block;margin-top:8px;overflow:hidden;color:#75818d;text-overflow:ellipsis;white-space:nowrap}.evidence-file-card{display:flex;min-height:150px;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:20px;text-align:center}.evidence-file-card>.el-icon{color:#7e8c98;font-size:38px}.evidence-file-card>span{max-width:100%;overflow-wrap:anywhere;color:#4d5965}
-@media(max-width:1100px){.alert-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.project-card-foot{align-items:flex-start;flex-wrap:wrap}.project-actions{width:100%;margin-left:0}}
+@media(max-width:1100px){.alert-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.owner-load-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.project-card-foot{align-items:flex-start;flex-wrap:wrap}.project-actions{width:100%;margin-left:0}}
 @media(max-width:860px){.finance-grid,.project-grid{grid-template-columns:1fr}.section-title--between{align-items:flex-start}.panel-actions{align-items:flex-end;flex-direction:column}}
-@media(max-width:760px){.business-page{padding:14px}.hero{align-items:flex-start;flex-direction:column;gap:20px;min-height:0;padding:24px}.hero-actions{width:100%}.hero-actions :deep(.el-button){flex:1;margin:0}.panel{padding:18px 14px}.decision-row{align-items:flex-start;flex-wrap:wrap;padding:16px 14px}.decision-copy{width:calc(100% - 26px)}.decision-actions{width:100%;padding-left:26px;justify-content:flex-start}.decision-actions :deep(.el-button){flex:1}.personnel-item{grid-template-columns:1fr auto;gap:4px 10px}.personnel-item>span{grid-column:1/2;white-space:normal}.personnel-item :deep(.el-button){grid-column:2;grid-row:1/3}.panel-actions{align-items:flex-end}.alert-grid{grid-template-columns:1fr}.project-card{padding:16px 14px}.project-card-foot{align-items:flex-start}.project-actions{display:grid;grid-template-columns:1fr 1fr}.project-actions :deep(.el-button){width:100%}.project-pagination{align-items:flex-end;flex-direction:column}.cost-preview{margin-left:0}.latest-progress-report{align-items:flex-start;flex-direction:column}.evidence-dialog-summary{align-items:flex-start;flex-direction:column;gap:4px}.evidence-dialog-summary span+span:before{content:none}.evidence-preview-grid{grid-template-columns:1fr}.evidence-preview-item>.el-image,.evidence-preview-item>video{height:240px}:global(.el-dialog .cost-form .el-form-item){display:block}:global(.el-dialog .cost-form .el-form-item__label){width:auto!important;height:auto;margin-bottom:6px;padding:0}:global(.el-dialog .cost-form .el-form-item__content){margin-left:0!important}}
+@media(max-width:760px){.business-page{padding:14px}.hero{align-items:flex-start;flex-direction:column;gap:20px;min-height:0;padding:24px}.hero-actions{width:100%}.hero-actions :deep(.el-button){flex:1;margin:0}.panel{padding:18px 14px}.decision-row{align-items:flex-start;flex-wrap:wrap;padding:16px 14px}.decision-copy{width:calc(100% - 26px)}.decision-actions{width:100%;padding-left:26px;justify-content:flex-start}.decision-actions :deep(.el-button){flex:1}.personnel-item{grid-template-columns:1fr auto;gap:4px 10px}.personnel-item>span{grid-column:1/2;white-space:normal}.personnel-item :deep(.el-button){grid-column:2;grid-row:1/3}.panel-actions{align-items:flex-end}.alert-grid,.owner-load-grid{grid-template-columns:1fr}.owner-load-panel .section-title>div{align-items:flex-start;flex-direction:column}.owner-dialog-summary{align-items:flex-start;flex-direction:column}.project-card{padding:16px 14px}.project-card-foot{align-items:flex-start}.project-actions{display:grid;grid-template-columns:1fr 1fr}.project-actions :deep(.el-button){width:100%}.project-pagination{align-items:flex-end;flex-direction:column}.cost-preview{margin-left:0}.latest-progress-report{align-items:flex-start;flex-direction:column}.evidence-dialog-summary{align-items:flex-start;flex-direction:column;gap:4px}.evidence-dialog-summary span+span:before{content:none}.evidence-preview-grid{grid-template-columns:1fr}.evidence-preview-item>.el-image,.evidence-preview-item>video{height:240px}:global(.el-dialog .cost-form .el-form-item){display:block}:global(.el-dialog .cost-form .el-form-item__label){width:auto!important;height:auto;margin-bottom:6px;padding:0}:global(.el-dialog .cost-form .el-form-item__content){margin-left:0!important}}
 </style>

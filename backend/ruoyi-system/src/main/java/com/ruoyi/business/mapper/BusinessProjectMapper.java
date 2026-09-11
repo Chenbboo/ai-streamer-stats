@@ -214,6 +214,8 @@ public interface BusinessProjectMapper
     List<BusinessProject> selectDashboardDecisionPage(@Param("userId") Long userId,
         @Param("viewAll") boolean viewAll, @Param("boss") boolean boss,
         @Param("offset") int offset, @Param("pageSize") int pageSize);
+    List<Map<String, Object>> selectBossOwnerActiveProjects(@Param("userId") Long userId,
+        @Param("viewAll") boolean viewAll, @Param("ownerUserId") Long ownerUserId);
     Map<String, Object> selectBossPendingCounts(@Param("userId") Long userId,
         @Param("viewAll") boolean viewAll, @Param("bizDate") java.util.Date bizDate);
     List<Map<String, Object>> selectBossPendingPage(@Param("userId") Long userId,

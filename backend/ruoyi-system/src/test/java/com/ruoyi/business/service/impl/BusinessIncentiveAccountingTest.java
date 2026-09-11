@@ -179,10 +179,16 @@ class BusinessIncentiveAccountingTest
         category.put("categoryName", "其他成本");
         when(mapper.selectCategoryById(17L)).thenReturn(category);
         BusinessOperatingFact forged = fact(); forged.setFactId(null);
+        doAnswer(call -> {call.<BusinessOperatingFact>getArgument(0).setFactId(FACT);return 1;})
+            .when(mapper).insertFact(any());
+        when(mapper.confirmFact(FACT, SPONSOR, "sponsor", 2)).thenReturn(1);
+        when(mapper.sumProjectFacts(PROJECT, DAY)).thenReturn(Collections.emptyMap());
         service.saveFact(forged, SPONSOR, "sponsor", false);
         assertEquals("MANUAL", forged.getSourceDomain()); assertEquals("MANUAL", forged.getSourceType());
         assertTrue(forged.getIdempotencyKey().startsWith("MANUAL-"));
         assertEquals("DRAFT", forged.getStatus());
+        verify(mapper).confirmFact(FACT, SPONSOR, "sponsor", 2);
+        verify(mapper).insertDailyResult(any());
         verify(mapper).insertFact(forged); verifyNoInteractions(incentiveMapper);
     }
 

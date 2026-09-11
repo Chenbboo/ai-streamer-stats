@@ -3,7 +3,8 @@
     <header class="work-hero">
       <div><span>MY WORK SCHEDULE</span><h1>我的安排</h1><p>只显示分配给你的工作，按今日、本周和本月查看。</p></div>
       <div class="work-hero-actions">
-        <el-select v-model="selectedProjectId" class="work-project-select" filterable :disabled="!projectOptions.length" placeholder="暂无参与项目" aria-label="选择当前项目">
+        <el-select v-model="selectedProjectId" class="work-project-select" filterable :disabled="!projectOptions.length" placeholder="暂无参与项目" aria-label="选择项目范围">
+          <el-option :label="`全部项目（${projectOptions.length}）`" :value="ALL_PROJECTS" />
           <el-option v-for="project in projectOptions" :key="project.projectId" :label="projectOptionLabel(project)" :value="project.projectId" />
         </el-select>
         <el-button icon="Refresh" :loading="loading" @click="load">刷新</el-button>
@@ -23,8 +24,8 @@
       <div><span>{{ periodTitle }}</span><b>{{ data.dateFrom }}<template v-if="data.dateTo!==data.dateFrom"> 至 {{ data.dateTo }}</template></b></div>
       <div class="project-bonus-card">
         <span>项目总奖金</span>
-        <b>{{ money(selectedProjectBonus?.totalBonus) }} {{ selectedProjectBonus?.currency || 'CNY' }}</b><small v-if="selectedProjectBonus?.currency!=='CNY' && Number(selectedProjectBonus?.legacyBonus)>0">另有历史奖金 {{ money(selectedProjectBonus.legacyBonus) }} CNY</small>
-        <small v-if="selectedProjectBonus">{{ selectedProjectBonus.projectName }} · 已核准 / 已确认累计，非个人实发</small>
+        <div v-if="selectedBonusTotals.length" class="bonus-values"><b v-for="item in selectedBonusTotals" :key="item.currency">{{ money(item.amount) }} {{ item.currency }}</b></div>
+        <small v-if="selectedBonusTotals.length">{{ selectedProjectLabel }} · 已核准 / 已确认累计，非个人实发</small>
         <small v-else>暂无参与项目</small>
       </div>
       <div><span>持续工作</span><b>{{ summary.routineCount || 0 }}</b></div>
@@ -100,10 +101,11 @@ import { ElMessage } from 'element-plus'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 
 const router=useRouter(),route=useRoute()
-const loading=ref(false),saving=ref(false),savingEffortId=ref(null),data=ref({}),period=ref('DAY'),anchorDate=ref(today()),selectedProjectId=ref(null),reportDialog=ref(false),reportForm=ref({}),taskReportDialog=ref(false),taskReportForm=ref({})
+const ALL_PROJECTS='ALL_PROJECTS'
+const loading=ref(false),saving=ref(false),savingEffortId=ref(null),data=ref({}),period=ref('DAY'),anchorDate=ref(today()),selectedProjectId=ref(ALL_PROJECTS),reportDialog=ref(false),reportForm=ref({}),taskReportDialog=ref(false),taskReportForm=ref({})
 const projectBonuses=computed(()=>data.value.projectBonuses||[])
 const projectOptions=computed(()=>projectBonuses.value)
-const projectMatches=item=>selectedProjectId.value!==null&&String(item.projectId)===String(selectedProjectId.value)
+const projectMatches=item=>selectedProjectId.value===ALL_PROJECTS||String(item.projectId)===String(selectedProjectId.value)
 const tasks=computed(()=>(data.value.tasks||[]).filter(projectMatches))
 const routines=computed(()=>(data.value.routines||[]).filter(projectMatches))
 const efforts=computed(()=>(data.value.efforts||[]).filter(projectMatches))
@@ -115,7 +117,18 @@ const summary=computed(()=>({
   actualEffortPercent:efforts.value.reduce((sum,item)=>sum+Number(item.actualPercent||0),0),
   submittedEffortCount:efforts.value.filter(item=>item.reportStatus!=='UNSUBMITTED').length
 }))
-const selectedProjectBonus=computed(()=>projectBonuses.value.find(project=>projectMatches(project))||null)
+const selectedProjects=computed(()=>projectBonuses.value.filter(projectMatches))
+const selectedBonusTotals=computed(()=>{
+  const totals=new Map()
+  const add=(currency,amount)=>totals.set(currency,(totals.get(currency)||0)+Number(amount||0))
+  selectedProjects.value.forEach(project=>{
+    const currency=project.currency||'CNY'
+    add(currency,project.totalBonus)
+    if(currency!=='CNY'&&Number(project.legacyBonus||0)!==0)add('CNY',project.legacyBonus)
+  })
+  return [...totals.entries()].sort(([left],[right])=>left==='CNY'?-1:right==='CNY'?1:left.localeCompare(right)).map(([currency,amount])=>({currency,amount}))
+})
+const selectedProjectLabel=computed(()=>selectedProjectId.value===ALL_PROJECTS?`全部 ${selectedProjects.value.length} 个项目`:selectedProjects.value[0]?.projectName||'暂无参与项目')
 const isToday=computed(()=>period.value==='DAY'&&data.value.dateFrom===data.value.today)
 const periodTitle=computed(()=>({DAY:'今日',WEEK:'本周',MONTH:'本月'}[period.value]))
 const needsReason=computed(()=>reportForm.value.targetMode!=='NONE'&&reportForm.value.actualValue!==null&&reportForm.value.actualValue!==undefined&&Number(reportForm.value.actualValue)<Number(reportForm.value.todayTarget||0))
@@ -129,8 +142,8 @@ const projectOptionLabel=project=>project.projectNo?`${project.projectName} · $
 function routineBelowTarget(routine){return routine.targetMode!=='NONE'&&!!routine.todayReportId&&Number(routine.todayActual)<Number(routine.todayTarget||0)}
 function routineTargetDescription(routine){if(routine.targetMode==='NONE')return '无量化目标：只需填写今日完成说明';if(isToday.value&&routine.targetMode==='DAILY_DYNAMIC'&&!routine.todayTargetId)return '今日目标：等待负责人下达';if(isToday.value)return `今日目标：${routine.todayTarget ?? 0} ${routine.unit}`;return `周期累计：${routine.periodActual || 0} ${routine.unit}`}
 function today(){return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Shanghai'})}
-async function load(){loading.value=true;try{const payload=(await getBusinessWorkDashboard({period:period.value,anchorDate:anchorDate.value})).data||{};payload.efforts=(payload.efforts||[]).map(item=>({...item,actualPercent:Number(item.actualPercent||0),editing:false,_savedActualPercent:Number(item.actualPercent||0),_savedDeviationReason:item.deviationReason||''}));data.value=payload;const projects=payload.projectBonuses||[];const requested=projects.find(project=>String(project.projectId)===String(route.query.projectId));if(requested)selectedProjectId.value=requested.projectId;else if(!projects.some(project=>String(project.projectId)===String(selectedProjectId.value)))selectedProjectId.value=projects[0]?.projectId??null}finally{loading.value=false}}
-watch(()=>route.query.projectId,value=>{const requested=projectOptions.value.find(project=>String(project.projectId)===String(value));if(requested)selectedProjectId.value=requested.projectId})
+async function load(){loading.value=true;try{const payload=(await getBusinessWorkDashboard({period:period.value,anchorDate:anchorDate.value})).data||{};payload.efforts=(payload.efforts||[]).map(item=>({...item,actualPercent:Number(item.actualPercent||0),editing:false,_savedActualPercent:Number(item.actualPercent||0),_savedDeviationReason:item.deviationReason||''}));data.value=payload;const projects=payload.projectBonuses||[];const requested=projects.find(project=>String(project.projectId)===String(route.query.projectId));if(requested)selectedProjectId.value=requested.projectId;else if(selectedProjectId.value!==ALL_PROJECTS&&!projects.some(project=>String(project.projectId)===String(selectedProjectId.value)))selectedProjectId.value=ALL_PROJECTS}finally{loading.value=false}}
+watch(()=>route.query.projectId,value=>{const requested=projectOptions.value.find(project=>String(project.projectId)===String(value));selectedProjectId.value=requested?.projectId??ALL_PROJECTS})
 function changePeriod(){load()}
 function goToday(){anchorDate.value=today();load()}
 function openRoutineReport(routine){reportForm.value={reportId:routine.todayReportId||null,routineId:routine.routineId,projectId:routine.projectId,bizDate:data.value.today,routineName:routine.routineName,frequency:routine.frequency,targetMode:routine.targetMode||'FIXED',todayTarget:routine.todayTarget,actualValue:routine.todayReportId?Number(routine.todayActual):null,unit:routine.unit,summary:routine.todaySummary||'',issueReason:routine.todayIssueReason||'',evidenceUrls:routine.todayEvidenceUrls||'',evidenceRequired:routine.evidenceRequired,version:null};reportDialog.value=true}
@@ -181,4 +194,5 @@ useBusinessRefreshOnReactivated(load)
 .task-report-form :deep(.el-slider){padding:0 12px}
 .task-report-form :deep(.el-slider__runway.show-input){margin-right:88px}
 .progress-tip{display:block;width:100%;margin-top:6px;color:#909399;font-size:12px}
+.bonus-values{display:flex;flex-wrap:wrap;gap:0 12px}
 </style>

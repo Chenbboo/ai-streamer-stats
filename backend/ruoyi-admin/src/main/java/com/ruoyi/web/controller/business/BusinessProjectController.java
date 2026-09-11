@@ -50,6 +50,7 @@ public class BusinessProjectController extends BaseController
     @Autowired
     private IBusinessProjectService projectService;
     @Autowired private com.ruoyi.business.service.impl.BusinessFlowService flowService;
+    @Autowired private com.ruoyi.business.service.impl.BusinessProjectManagementFeeService managementFeeService;
 
     @PreAuthorize("@ss.hasPermi('business:project:list')")
     @GetMapping("/project/list")
@@ -84,6 +85,30 @@ public class BusinessProjectController extends BaseController
         catch (NumberFormatException ex) { return error("项目版本不正确，请刷新后重试"); }
         return success(projectService.closeAccounting(projectId, version, text(body, "reason"),
             currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:project:list,business:accounting:list,business:kpi:list')")
+    @GetMapping("/project/{projectId}/management-fee")
+    public AjaxResult managementFee(@PathVariable Long projectId)
+    {
+        return success(managementFeeService.workspace(projectId, currentUserId(), isAdministrator(),
+            SecurityUtils.hasPermi("business:incentive:pay")));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:accounting:close')")
+    @Log(title = "设置项目管理费", businessType = BusinessType.UPDATE)
+    @PutMapping("/project/{projectId}/management-fee")
+    public AjaxResult saveManagementFee(@PathVariable Long projectId, @RequestBody Map<String, Object> body)
+    {
+        return success(managementFeeService.configure(projectId, body, currentUserId(), currentUserName()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:incentive:pay')")
+    @Log(title = "登记项目管理费付款", businessType = BusinessType.INSERT)
+    @PostMapping("/project/{projectId}/management-fee/payment")
+    public AjaxResult payManagementFee(@PathVariable Long projectId, @RequestBody Map<String, Object> body)
+    {
+        return success(managementFeeService.pay(projectId, body, currentUserId(), currentUserName()));
     }
 
     @PreAuthorize("@ss.hasAnyPermi('business:project:add,business:project:member,business:project:task')")

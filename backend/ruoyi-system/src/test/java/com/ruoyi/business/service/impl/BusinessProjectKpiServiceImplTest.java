@@ -198,18 +198,75 @@ class BusinessProjectKpiServiceImplTest
         verify(mapper,never()).upsertSettlementResult(any());
     }
 
-    @Test void settlementCannotBeConfirmedOnItsEndDate()
+    @Test void unmetKpiCannotBeConfirmedBeforeItsPeriodEnds()
     {
         BusinessProjectKpiSettlement draft=settlement("DRAFT",0);
         draft.setPeriodEnd(java.sql.Date.valueOf(new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date())));
+        BusinessProjectKpiResult result=new BusinessProjectKpiResult();result.setPlanItemId(101L);
+        result.setActualValue(new BigDecimal("99"));result.setResultNote("尚未达标");
         when(mapper.selectSettlementById(20L)).thenReturn(draft);
         when(projectMapper.selectProjectById(1L)).thenReturn(project());
+        when(mapper.selectPlanItems(10L)).thenReturn(Collections.singletonList(item()));
+        when(mapper.selectSettlementResults(20L)).thenReturn(Collections.singletonList(result));
 
         ServiceException error=assertThrows(ServiceException.class,
             ()->service.submit(20L,9L,"owner9",false));
 
-        assertTrue(error.getMessage().contains("截止日期次日"));
+        assertTrue(error.getMessage().contains("尚未全部达标"));
         verify(mapper,never()).submitSettlement(any(),any(),any(),any(),any(),any());
+    }
+
+    @Test void allKpisMetCanEndAndConfirmThePeriodEarly()
+    {
+        BusinessProjectKpiSettlement draft=settlement("DRAFT",0);draft.setRewardPolicyVersion("INDEPENDENT_V1");
+        draft.setPeriodEnd(java.sql.Date.valueOf(java.time.LocalDate.now().plusDays(1)));
+        BusinessProjectKpiSettlement submitted=settlement("SUBMITTED",1);submitted.setRewardPolicyVersion("INDEPENDENT_V1");
+        submitted.setPeriodEnd(draft.getPeriodEnd());
+        BusinessProjectKpiSettlement confirmed=settlement("CONFIRMED",2);confirmed.setRewardPolicyVersion("INDEPENDENT_V1");
+        confirmed.setPeriodEnd(draft.getPeriodEnd());
+        BusinessProjectKpiResult result=new BusinessProjectKpiResult();result.setPlanItemId(101L);
+        result.setActualValue(new BigDecimal("100"));result.setResultNote("全部达标");
+        when(mapper.selectSettlementById(20L)).thenReturn(draft,submitted,confirmed);
+        doReturn(draft).when(mapper).selectSettlementByIdForUpdate(20L);
+        when(projectMapper.selectProjectById(1L)).thenReturn(project());
+        when(mapper.selectPlanItems(10L)).thenReturn(Collections.singletonList(item()));
+        when(mapper.selectSettlementResults(20L)).thenReturn(Collections.singletonList(result));
+        when(mapper.endPlanPeriodEarly(eq(10L),any())).thenReturn(1);
+        when(mapper.endSettlementPeriodEarly(eq(20L),any(),eq("owner9"),eq(0))).thenReturn(1);
+        when(mapper.submitSettlement(eq(20L),eq(new BigDecimal("100.00")),isNull(),eq(9L),eq("owner9"),eq(0))).thenReturn(1);
+        when(mapper.confirmSettlement(eq(20L),eq(new BigDecimal("100.00")),isNull(),isNull(),any(),eq(9L),eq("owner9"),eq(1))).thenReturn(1);
+        when(mapper.closePlan(10L)).thenReturn(1);
+
+        BusinessProjectKpiSettlement saved=service.submit(20L,9L,"owner9",false);
+
+        assertEquals("CONFIRMED",saved.getStatus());
+        verify(mapper).endPlanPeriodEarly(eq(10L),any());
+        verify(mapper).endSettlementPeriodEarly(eq(20L),any(),eq("owner9"),eq(0));
+    }
+
+    @Test void allKpisMetOnPeriodEndDateConfirmWithoutFalseVersionConflict()
+    {
+        BusinessProjectKpiSettlement draft=settlement("DRAFT",0);draft.setRewardPolicyVersion("INDEPENDENT_V1");
+        draft.setPeriodEnd(java.sql.Date.valueOf(java.time.LocalDate.now()));
+        BusinessProjectKpiSettlement submitted=settlement("SUBMITTED",1);submitted.setRewardPolicyVersion("INDEPENDENT_V1");
+        submitted.setPeriodEnd(draft.getPeriodEnd());
+        BusinessProjectKpiSettlement confirmed=settlement("CONFIRMED",2);confirmed.setRewardPolicyVersion("INDEPENDENT_V1");
+        confirmed.setPeriodEnd(draft.getPeriodEnd());
+        BusinessProjectKpiResult result=new BusinessProjectKpiResult();result.setPlanItemId(101L);
+        result.setActualValue(new BigDecimal("100"));result.setResultNote("截止日当天达标");
+        when(mapper.selectSettlementById(20L)).thenReturn(draft,submitted,confirmed);
+        doReturn(draft).when(mapper).selectSettlementByIdForUpdate(20L);
+        when(projectMapper.selectProjectById(1L)).thenReturn(project());
+        when(mapper.selectPlanItems(10L)).thenReturn(Collections.singletonList(item()));
+        when(mapper.selectSettlementResults(20L)).thenReturn(Collections.singletonList(result));
+        when(mapper.submitSettlement(eq(20L),eq(new BigDecimal("100.00")),isNull(),eq(9L),eq("owner9"),eq(0))).thenReturn(1);
+        when(mapper.confirmSettlement(eq(20L),eq(new BigDecimal("100.00")),isNull(),isNull(),any(),eq(9L),eq("owner9"),eq(1))).thenReturn(1);
+        when(mapper.closePlan(10L)).thenReturn(1);
+
+        assertEquals("CONFIRMED",service.submit(20L,9L,"owner9",false).getStatus());
+
+        verify(mapper,never()).endPlanPeriodEarly(any(),any());
+        verify(mapper,never()).endSettlementPeriodEarly(any(),any(),any(),any());
     }
 
     @Test void ordinaryMemberCannotSubmitProjectSettlement()

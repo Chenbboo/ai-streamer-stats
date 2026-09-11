@@ -346,10 +346,14 @@ class BusinessProjectServiceImplTest
         when(mapper.selectOwnerPendingEffortRequests(23L,false))
             .thenReturn(Collections.singletonList(pendingEffort));
         Map<String,Object> revenueCategory = new HashMap<String,Object>();
-        revenueCategory.put("categoryId",1L);revenueCategory.put("factKind","REVENUE");
+        revenueCategory.put("categoryId",1L);revenueCategory.put("factKind","REVENUE");revenueCategory.put("categoryCode","SALES_REVENUE");
         Map<String,Object> costCategory = new HashMap<String,Object>();
-        costCategory.put("categoryId",2L);costCategory.put("factKind","COST");
-        when(accountingMapper.selectCategories()).thenReturn(Arrays.asList(revenueCategory,costCategory));
+        costCategory.put("categoryId",2L);costCategory.put("factKind","COST");costCategory.put("categoryCode","OTHER_EXPENSE");
+        Map<String,Object> legacyDirectCategory = new HashMap<String,Object>();
+        legacyDirectCategory.put("categoryId",4L);legacyDirectCategory.put("factKind","COST");legacyDirectCategory.put("categoryCode","DIRECT_EXPENSE");
+        Map<String,Object> bonusCategory = new HashMap<String,Object>();
+        bonusCategory.put("categoryId",3L);bonusCategory.put("factKind","COST");bonusCategory.put("categoryCode","PROJECT_BONUS_COST");
+        when(accountingMapper.selectCategories()).thenReturn(Arrays.asList(revenueCategory,costCategory,legacyDirectCategory,bonusCategory));
         Map<String,Object> dailyRevenue = new HashMap<String,Object>();
         dailyRevenue.put("confirmedAmount",new BigDecimal("120.00"));
         dailyRevenue.put("draftAmount",new BigDecimal("30.00"));
@@ -365,6 +369,7 @@ class BusinessProjectServiceImplTest
         assertEquals(Collections.singletonList(pendingEffort),result.get("pendingEffortRequests"));
         Map<?,?> accounting=(Map<?,?>)result.get("accounting");
         assertEquals(Collections.singletonList(revenueCategory),accounting.get("revenueCategories"));
+        assertEquals(Collections.singletonList(costCategory),accounting.get("expenseCategories"));
         assertEquals(dailyRevenue,accounting.get("dailyRevenue"));
         assertEquals(Collections.singletonList(taskReport),result.get("taskReports"));
     }
@@ -1718,10 +1723,12 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
-    void unfinishedFutureKpiPeriodCannotClose()
+    void unfinishedFutureKpiPeriodBlocksSeparatedDeliveryClose()
     {
         BusinessProject project = project(80L, 9L, "ACTIVE", "APPROVED");
         project.setInitiatorUserId(8L);
+        project.setDeliveryPolicyVersion("SEPARATED_V1");
+        project.setAccountingState("OPEN");
         Map<String, Object> futurePlan = publishedKpiPlan("DRAFT");
         futurePlan.put("cycleEnd", new Date(System.currentTimeMillis() + 172800000L));
         when(mapper.selectProjectById(80L)).thenReturn(project);
@@ -1733,6 +1740,26 @@ class BusinessProjectServiceImplTest
         assertTrue(error.getMessage().contains("KPI考核周期未结束"));
         verify(mapper, never()).updateProjectStatus(any(), any(), any(), any(),
             org.mockito.ArgumentMatchers.anyBoolean(), any(), any());
+    }
+
+    @Test
+    void confirmedEarlyKpiAllowsSeparatedDeliveryClose()
+    {
+        BusinessProject project = project(801L, 9L, "ACTIVE", "APPROVED");
+        project.setInitiatorUserId(8L);project.setDeliveryPolicyVersion("SEPARATED_V1");project.setAccountingState("OPEN");
+        Map<String, Object> confirmedPlan = publishedKpiPlan("CONFIRMED");
+        confirmedPlan.put("cycleEnd", new Date(System.currentTimeMillis() + 172800000L));
+        when(mapper.selectProjectById(801L)).thenReturn(project);
+        when(mapper.selectTasks(801L)).thenReturn(Collections.singletonList(completedTask("项目交付")));
+        when(kpiMapper.selectPlanSummaries(801L)).thenReturn(Collections.singletonList(confirmedPlan));
+        when(mapper.updateProjectStatus(801L, "ACTIVE", "CLOSED", null, false, "boss8", 0)).thenReturn(1);
+        when(mapper.closeAccounting(801L, 1, "boss8")).thenReturn(1);
+
+        service.transition(801L, "CLOSE", "KPI已提前达标", 8L, "boss8", true);
+
+        verify(mapper).updateProjectStatus(801L, "ACTIVE", "CLOSED", null, false, "boss8", 0);
+        verify(accountingService).closeProjectAccounting(eq(801L), any(Date.class), eq("boss8"));
+        verify(mapper).closeAccounting(801L, 1, "boss8");
     }
 
     @Test
@@ -2509,20 +2536,71 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
-    void separatedDeliveryDoesNotWaitForKpiOrFreezeAccounting()
+    void separatedDeliveryClosesAccountingAndFreezesInTheSameTransaction()
     {
         BusinessProject p = project(900L, 9L, "ACTIVE", "APPROVED");
         p.setSponsorOwnerUserId(8L);
         p.setDeliveryPolicyVersion("SEPARATED_V1"); p.setAccountingState("OPEN");
         when(mapper.selectProjectById(900L)).thenReturn(p);
         when(mapper.selectTasks(900L)).thenReturn(Collections.singletonList(completedTask("交付")));
+        when(kpiMapper.selectPlanSummaries(900L))
+            .thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
         when(mapper.updateProjectStatus(900L, "ACTIVE", "CLOSED", null, false, "boss8", 0)).thenReturn(1);
-        service.transition(900L, "CLOSE", "完成交付，结算续办", 8L, "boss8", true);
-        verify(kpiMapper, never()).selectPlanSummaries(900L);
+        when(mapper.closeAccounting(900L, 1, "boss8")).thenReturn(1);
+        service.transition(900L, "CLOSE", "完成交付并冻结", 8L, "boss8", true);
+        verify(kpiMapper).selectPlanSummaries(900L);
         verify(accountingService, never()).ensureProjectCanClose(900L);
-        verify(accountingService, never()).closeProjectAccounting(anyLong(), any(Date.class), any(String.class));
+        verify(accountingService).closeProjectAccounting(eq(900L), any(Date.class), eq("boss8"));
+        verify(mapper).closeAccounting(900L, 1, "boss8");
         verify(mapper).closeProjectAllocations(eq(900L), any(Date.class), eq("boss8"));
         verify(mapper).selectProjectByIdForUpdate(900L);
+    }
+
+    @Test
+    void separatedProjectSettlementPreviewAndConfirmationUseOneStepClose()
+    {
+        BusinessProject p = project(910L, 9L, "ACTIVE", "APPROVED");
+        p.setSponsorOwnerUserId(8L); p.setDeliveryPolicyVersion("SEPARATED_V1"); p.setAccountingState("OPEN");
+        when(mapper.selectProjectById(910L)).thenReturn(p);
+        when(mapper.selectTasks(910L)).thenReturn(Collections.singletonList(completedTask("最终交付")));
+        when(kpiMapper.selectPlanSummaries(910L))
+            .thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
+        when(mapper.updateProjectStatus(910L, "ACTIVE", "CLOSED", null, false, "boss8", 0)).thenReturn(1);
+        when(mapper.closeAccounting(910L, 1, "boss8")).thenReturn(1);
+
+        assertEquals(true, service.settlementStatus(910L, 8L, false, true).get("canClose"));
+        Map<String,Object> result = service.closeAccounting(910L, 0, "确认最终金额", 8L, "boss8", true);
+
+        assertEquals("CLOSED", result.get("status"));
+        assertEquals("CLOSED", result.get("accountingState"));
+        assertEquals(2, result.get("version"));
+        verify(accountingService).closeProjectAccounting(eq(910L), any(Date.class), eq("boss8"));
+        verify(mapper).closeAccounting(910L, 1, "boss8");
+    }
+
+    @Test
+    void separatedResultAcceptanceApprovalAlsoFinalizesAccounting()
+    {
+        BusinessProject p = project(911L, 9L, "ACCEPTANCE", "APPROVED");
+        p.setCloseMethod("RESULT_ACCEPTANCE"); p.setSponsorOwnerUserId(8L);
+        p.setDeliveryPolicyVersion("SEPARATED_V1"); p.setAccountingState("OPEN");
+        BusinessProjectAcceptance pending = new BusinessProjectAcceptance(); pending.setAcceptanceId(9110L);
+        Map<String,Object> boss = new HashMap<String,Object>(); boss.put("nickName", "老板八");
+        when(mapper.selectProjectById(911L)).thenReturn(p);
+        when(mapper.selectLatestPendingAcceptance(911L)).thenReturn(pending);
+        when(mapper.selectTasks(911L)).thenReturn(Collections.singletonList(completedTask("成果交付")));
+        when(kpiMapper.selectPlanSummaries(911L))
+            .thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
+        when(mapper.selectActiveUserById(8L)).thenReturn(boss);
+        when(mapper.reviewAcceptance(9110L, "APPROVED", 8L, "老板八", "验收通过", "boss8")).thenReturn(1);
+        when(mapper.updateProjectStatus(911L, "ACCEPTANCE", "CLOSED", null, false, "boss8", 0)).thenReturn(1);
+        when(mapper.closeAccounting(911L, 1, "boss8")).thenReturn(1);
+
+        BusinessProject result = service.reviewAcceptance(911L, "APPROVED", "验收通过", 8L, "boss8", true);
+
+        assertEquals("CLOSED", result.getStatus()); assertEquals("CLOSED", result.getAccountingState());
+        verify(accountingService).closeProjectAccounting(eq(911L), any(Date.class), eq("boss8"));
+        verify(mapper).closeAccounting(911L, 1, "boss8");
     }
 
     @Test

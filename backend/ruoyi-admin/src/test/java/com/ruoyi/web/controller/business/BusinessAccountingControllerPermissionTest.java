@@ -40,6 +40,7 @@ class BusinessAccountingControllerPermissionTest
     @Test
     void projectRevenueAndSpendAreSubmitOnlyAndAccountingActionsRemainBossOnly()
     {
+        assertPermission("save","@ss.hasAnyPermi('business:accounting:add,business:boss:view')");
         assertPermission("saveProjectFact","@ss.hasPermi('business:project:report')");
         assertPermission("saveProjectDailySpend","@ss.hasPermi('business:project:report')");
         assertPermission("confirm","@ss.hasPermi('business:accounting:confirm')");

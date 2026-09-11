@@ -49,8 +49,8 @@ public class BusinessAccountingController extends BaseController
     public AjaxResult personnelCostOverview(@RequestParam Map<String,Object> query)
     {return success(service.personnelCostOverview(query,SecurityUtils.getUserId(),SecurityUtils.isAdmin()));}
 
-    @PreAuthorize("@ss.hasPermi('business:accounting:add')")
-    @Log(title="每日收支草稿",businessType=BusinessType.INSERT)
+    @PreAuthorize("@ss.hasAnyPermi('business:accounting:add,business:boss:view')")
+    @Log(title="录入收支并入账",businessType=BusinessType.INSERT)
     @PostMapping("/fact")
     public AjaxResult save(@RequestBody BusinessOperatingFact fact)
     {return success(service.saveFact(fact,SecurityUtils.getUserId(),getUsername(),SecurityUtils.isAdmin()));}

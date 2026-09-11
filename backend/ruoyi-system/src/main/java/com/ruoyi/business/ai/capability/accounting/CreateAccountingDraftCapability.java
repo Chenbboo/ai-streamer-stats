@@ -21,7 +21,7 @@ public class CreateAccountingDraftCapability implements AiConfirmableCapability
     @Autowired public CreateAccountingDraftCapability(IBusinessAccountingService service) { this.service = service; }
     @Override public String code() { return "accounting.fact.draft.create"; }
     @Override public String description()
-    { return "为一个项目录入每日收支草稿。先查询经营收支目录取得项目ID和分类ID，再提供日期、金额、币种和说明；老板确认后才写入草稿。交付已关闭且核算开放的分离策略项目，可补录执行期间的合法历史收支；不得把新发生的执行事项倒填为历史费用。已关账项目不能直接录入。"; }
+    { return "为一个项目录入收支并直接入账，自动更新项目日结果。先查询经营收支目录取得项目ID和分类ID，再提供日期、金额、币种和说明；用户确认本次操作后直接执行，无需另外审批入账。交付已关闭且核算开放的分离策略项目，可补录执行期间的合法历史收支；不得把新发生的执行事项倒填为历史费用。已关账项目不能直接录入。"; }
     @Override public String requiredPermission() { return "business:accounting:add"; }
     @Override public Map<String, Object> inputSchema()
     {
@@ -38,7 +38,7 @@ public class CreateAccountingDraftCapability implements AiConfirmableCapability
     @Override public String confirmationSummary(AiCapabilityInvocation invocation, Map<String, Object> input)
     {
         validate(input); return "为项目 " + number(input.get("projectId")) + " 录入 " + text(input.get("bizDate"))
-            + " 的“" + categoryLabel(input) + "”草稿 " + amount(input).toPlainString()
+            + " 的“" + categoryLabel(input) + "”并直接入账 " + amount(input).toPlainString()
             + " " + text(input.get("currency")).toUpperCase() + "，说明：" + text(input.get("description"));
     }
     @Override public Map<String, Object> executeConfirmed(AiCapabilityInvocation invocation, Map<String, Object> input)

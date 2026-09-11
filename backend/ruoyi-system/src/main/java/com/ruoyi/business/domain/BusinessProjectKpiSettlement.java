@@ -17,6 +17,7 @@ public class BusinessProjectKpiSettlement extends BaseEntity
     private String status;
     private String rewardPolicyVersion;
     private String dataStatus;
+    private Boolean allTargetsMet;
     private BigDecimal totalScore;
     private BigDecimal bonusAmount;
     private String currency;
@@ -49,6 +50,8 @@ public class BusinessProjectKpiSettlement extends BaseEntity
     public void setRewardPolicyVersion(String value) { rewardPolicyVersion = value; }
     public String getDataStatus() { return dataStatus; }
     public void setDataStatus(String value) { dataStatus = value; }
+    public Boolean getAllTargetsMet() { return allTargetsMet; }
+    public void setAllTargetsMet(Boolean value) { allTargetsMet = value; }
     public void setStatus(String status) { this.status = status; }
     public BigDecimal getTotalScore() { return totalScore; }
     public void setTotalScore(BigDecimal totalScore) { this.totalScore = totalScore; }

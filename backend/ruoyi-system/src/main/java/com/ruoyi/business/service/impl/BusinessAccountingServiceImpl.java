@@ -31,6 +31,8 @@ import com.ruoyi.common.utils.uuid.IdUtils;
 @Service
 public class BusinessAccountingServiceImpl implements IBusinessAccountingService
 {
+    private static final List<String> MANUAL_EXPENSE_CATEGORY_CODES = Arrays.asList("PURCHASE_COST", "PLATFORM_FEE",
+        "MARKETING_COST", "LOGISTICS_COST", "ADMIN_ALLOCATION", "OTHER_EXPENSE");
     @Autowired private BusinessAccountingMapper mapper;
     @Autowired private BusinessIncentiveMapper incentiveMapper;
     @Autowired private BusinessFileService businessFileService;
@@ -244,8 +246,17 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             throw new ServiceException("本次花费必须大于0");
         if(StringUtils.isBlank(fact.getDescription()))throw new ServiceException("请填写本次花费用途");
         businessFileService.validateReferences(fact.getAttachmentUrls(), fact.getProjectId(), userId, false, viewAll);
-        Map<String,Object> category=mapper.selectCategoryByCode("DIRECT_EXPENSE");
-        if(category==null)throw new ServiceException("项目直接费用类别尚未初始化");
+        Map<String,Object> category=fact.getCategoryId()==null
+            ?mapper.selectCategoryByCode("OTHER_EXPENSE")
+            :mapper.selectCategoryById(fact.getCategoryId());
+        if(category==null||!MANUAL_EXPENSE_CATEGORY_CODES.contains(String.valueOf(category.get("categoryCode")))
+            ||(category.get("factKind")!=null&&!"COST".equals(String.valueOf(category.get("factKind")))))
+            throw new ServiceException("请选择有效的支出类别");
+        if(StringUtils.isBlank(fact.getCurrency()))fact.setCurrency(String.valueOf(project.get("currency")));
+        fact.setCurrency(fact.getCurrency().trim().toUpperCase());
+        if(!fact.getCurrency().matches("^[A-Z]{3}$"))throw new ServiceException("币种必须是 ISO 4217 的3位大写英文代码");
+        if(!fact.getCurrency().equals(String.valueOf(project.get("currency")).toUpperCase()))
+            throw new ServiceException("支出币种必须与项目本位币一致，当前为 "+project.get("currency"));
 
         BusinessOperatingFact previous=null;
         if(fact.getFactId()!=null)
@@ -261,8 +272,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         fact.setCompanyDeptId(longValue(project.get("companyDeptId")));
         fact.setCategoryId(longValue(category.get("categoryId")));
         fact.setCategoryCode(String.valueOf(category.get("categoryCode")));
-        fact.setCategoryName("项目花费");fact.setFactKind("COST");
-        fact.setCurrency(String.valueOf(project.get("currency")));
+        fact.setCategoryName(String.valueOf(category.get("categoryName")));fact.setFactKind("COST");
         fact.setDescription(fact.getDescription().trim());
         fact.setSourceDomain("PROJECT_DAILY");fact.setSourceType("DAILY_ITEM");fact.setSourceId(IdUtils.fastSimpleUUID());
         fact.setSourceLineKey("ITEM");
@@ -310,6 +320,8 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         if(project.get("companyDeptId")==null)throw new ServiceException("该项目尚未设置归属公司，请先编辑项目选择上海或越南公司");
         Map<String,Object> category=mapper.selectCategoryById(fact.getCategoryId());
         if(category==null)throw new ServiceException("请选择有效的收支类别");
+        if("PROJECT_MANAGEMENT_FEE".equals(String.valueOf(category.get("categoryCode"))))
+            throw new ServiceException("项目管理费只能在关闭项目核算时由系统确认，不能手工录入");
         if(fact.getBizDate()==null)throw new ServiceException("请选择业务日期");
         ensureBusinessDate(project,fact.getBizDate(),false);
         if(StringUtils.isBlank(fact.getDescription()))throw new ServiceException("请填写收支说明");
@@ -366,13 +378,10 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             if(mapper.updateDraftFact(fact)!=1)throw changed();
         }
         BusinessOperatingFact stored=mapper.selectFactById(fact.getFactId());
-        if(projectContributor)
-        {
-            if(mapper.confirmFact(stored.getFactId(),userId,userName,stored.getVersion())!=1)throw changed();
-            recalculateInternal(stored.getProjectId(),stored.getBizDate(),userName);
-            stored=mapper.selectFactById(stored.getFactId());
-        }
-        return stored;
+        // Both accounting and project entry post atomically with the daily result.
+        if(mapper.confirmFact(stored.getFactId(),userId,userName,stored.getVersion())!=1)throw changed();
+        recalculateInternal(stored.getProjectId(),stored.getBizDate(),userName);
+        return mapper.selectFactById(stored.getFactId());
     }
 
     @Override

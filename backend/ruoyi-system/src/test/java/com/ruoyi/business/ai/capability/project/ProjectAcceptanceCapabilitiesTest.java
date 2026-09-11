@@ -117,7 +117,7 @@ class ProjectAcceptanceCapabilitiesTest
     }
 
     @Test
-    void separatedDeliveryCanBeApprovedWithoutAKpiPlan()
+    void separatedDeliveryCannotBeApprovedWithoutAKpiPlan()
     {
         BusinessProject detail = separatedProject();
         when(service.getProject(17L, 23L, true, true)).thenReturn(detail);
@@ -125,34 +125,28 @@ class ProjectAcceptanceCapabilitiesTest
 
         Map<String, Object> review = support.review(invocation, 17L);
 
-        assertTrue(Boolean.TRUE.equals(review.get("canApprove")));
-        assertEquals(false, review.get("kpiRequiredForDelivery"));
+        assertFalse(Boolean.TRUE.equals(review.get("canApprove")));
+        assertEquals(true, review.get("kpiRequiredForDelivery"));
         assertEquals(0, review.get("pendingKpiSettlementCount"));
         assertEquals("OPEN", map(review.get("project")).get("accountingState"));
-        assertTrue(String.valueOf(review.get("closureEffect")).contains("仅关闭项目交付"));
+        assertTrue(String.valueOf(review.get("warnings")).contains("尚未发布KPI"));
     }
 
     @Test
-    void separatedDeliveryKeepsUnsettledKpiAsAFollowUp()
+    void separatedDeliveryCannotCloseWithUnsettledKpi()
     {
         BusinessProject detail = separatedProject();
-        BusinessProject closed = separatedProject(); closed.setStatus("CLOSED");
         when(service.getProject(17L, 23L, true, true)).thenReturn(detail);
         when(kpiService.workspace(17L, null, 23L, true, true)).thenReturn(kpiWorkspace("SUBMITTED"));
-        when(service.reviewAcceptance(17L, "APPROVED", "验收通过", 23L, "jianglan", true)).thenReturn(closed);
         DecideProjectAcceptanceCapability capability = new DecideProjectAcceptanceCapability(support);
         Map<String, Object> input = input("APPROVED", "验收通过");
 
         Map<String, Object> review = support.review(invocation, 17L);
-        assertEquals(true, review.get("canApprove"));
+        assertEquals(false, review.get("canApprove"));
         assertEquals(1, review.get("pendingKpiSettlementCount"));
-        assertTrue(String.valueOf(review.get("warnings")).contains("不阻断交付验收"));
-        assertTrue(capability.confirmationSummary(invocation, input).contains("核算需单独关闭"));
-
-        Map<String, Object> result = capability.executeConfirmed(invocation, capability.persistedInput(invocation, input));
-        assertEquals("CLOSED", result.get("status"));
-        assertEquals("OPEN", result.get("accountingState"));
-        verify(service).reviewAcceptance(17L, "APPROVED", "验收通过", 23L, "jianglan", true);
+        assertTrue(String.valueOf(review.get("warnings")).contains("暂不能验收结项"));
+        assertThrows(ServiceException.class, () -> capability.confirmationSummary(invocation, input));
+        verify(service, never()).reviewAcceptance(17L, "APPROVED", "验收通过", 23L, "jianglan", true);
     }
 
     @Test

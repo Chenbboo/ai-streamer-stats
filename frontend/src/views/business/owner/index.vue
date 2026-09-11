@@ -21,7 +21,7 @@
 
     <div v-if="!project && !loading" class="no-project">
       <el-empty description="你目前还不是任何项目的主负责人">
-        <p>你可以先发起立项申请；老板批准后，你负责的正式项目会自动出现在这里。</p>
+        <p>你可以先发起立项申请；确认测算并自主启动后，你负责的正式项目会自动出现在这里。</p>
         <el-button v-hasPermi="['business:project:proposal:add']" type="primary" @click="openProposals">发起立项申请</el-button>
       </el-empty>
     </div>
@@ -301,15 +301,19 @@
 
 
 
-    <el-dialog v-model="reportDialog" :title="reportForm.factId ? '修改花费明细' : isLateSettlement ? '补录花费' : '新增花费'" width="min(620px, 94vw)" append-to-body>
+    <el-dialog v-model="reportDialog" :title="reportForm.factId ? '修改支出明细' : isLateSettlement ? '补录支出' : '录入支出'" width="min(680px, 94vw)" append-to-body>
       <el-alert title="填写本次发生的金额，系统会自动累加到当日总花费。修改或冲销均保留审计记录。" type="info" :closable="false" show-icon />
-      <el-form v-loading="spendDateLoading" :model="reportForm" label-width="104px" class="report-form">
+      <el-form v-loading="spendDateLoading" :model="reportForm" label-width="92px" class="report-form">
         <el-form-item label="归属项目"><el-input :model-value="project?.projectName" disabled /></el-form-item>
         <el-form-item label="业务日期" required><el-date-picker v-if="isLateSettlement" v-model="reportForm.bizDate" type="date" value-format="YYYY-MM-DD" :disabled-date="disabledFinancialDate" style="width:100%" @change="loadSpendDate" /><el-input v-else :model-value="reportForm.bizDate" disabled /></el-form-item>
         <el-alert v-if="isLateSettlement" :title="spendDateLoaded ? `已读取所选日期，当前共 ${spendHistoryItems.length} 笔花费。` : '请先选择业务日期并成功读取当日记录。'" type="info" :closable="false" />
-        <el-form-item label="本次金额" required><el-input-number v-model="reportForm.amount" :min="0.01" :precision="2" style="width:100%" /></el-form-item>
-        <el-form-item label="花费用途" required><el-input v-model="reportForm.description" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="例如：广告投流、采购或物流" /></el-form-item>
+        <el-form-item label="支出类别" required><el-select v-model="reportForm.categoryId" placeholder="请选择支出类别" style="width:100%"><el-option v-for="item in expenseCategories" :key="item.categoryId" :label="item.categoryName" :value="item.categoryId" /></el-select></el-form-item>
+        <el-form-item label="支出金额" required><el-input-number v-model="reportForm.amount" :min="0.01" :precision="2" style="width:100%" /></el-form-item>
+        <el-form-item label="币种" required><el-select v-model="reportForm.currency" placeholder="请选择币种" style="width:100%"><el-option v-for="currency in revenueCurrencies" :key="currency" :label="currency" :value="currency" /></el-select></el-form-item>
+        <el-form-item label="支出说明" required><el-input v-model="reportForm.description" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="请说明支出用途或对应业务" /></el-form-item>
+        <el-form-item label="收款单位"><el-input v-model="reportForm.counterparty" maxlength="200" /></el-form-item>
         <el-form-item label="凭证附件"><business-file-upload v-model="reportForm.attachmentUrls" :project-id="reportForm.projectId" /></el-form-item>
+        <el-form-item label="备注"><el-input v-model="reportForm.remark" type="textarea" :rows="2" maxlength="500" show-word-limit /></el-form-item>
       </el-form>
       <template #footer><el-button @click="reportDialog=false">取消</el-button><el-button type="primary" :loading="saving" :disabled="!canReportFinance || spendDateLoading || (isLateSettlement && !spendDateLoaded)" @click="submitDailySpend">确认并计入项目成本</el-button></template>
     </el-dialog>
@@ -350,6 +354,7 @@ const loading=ref(false),saving=ref(false),data=ref({}),selectedProjectId=ref(nu
 const projects=computed(()=>data.value.projects||[]),project=computed(()=>data.value.project||null)
 const operating=computed(()=>data.value.operating||{}),accounting=computed(()=>data.value.accounting||{})
 const revenueCategories=computed(()=>accounting.value.revenueCategories||[])
+const expenseCategories=computed(()=>accounting.value.expenseCategories||[])
 const dailyRevenue=computed(()=>accounting.value.dailyRevenue||{})
 const revenueSubmittedAmount=computed(()=>Number(dailyRevenue.value.confirmedAmount||0)+Number(dailyRevenue.value.draftAmount||0))
 const revenueStatusTone=computed(()=>Number(dailyRevenue.value.draftCount||0)>0?'warning':Number(dailyRevenue.value.confirmedCount||0)>0?'success':'info')
@@ -415,7 +420,7 @@ const memberRoleTone={OWNER:'primary',DEPUTY:'success',MEMBER:'info',OBSERVER:'w
 const effortStatusLabel={UNSUBMITTED:'按计划执行',SUBMITTED:'待确认',CONFIRMED:'已确认',RETURNED:'已退回',LEAVE:'今日请假'}
 const effortStatusTone={UNSUBMITTED:'info',SUBMITTED:'warning',CONFIRMED:'success',RETURNED:'danger',LEAVE:'info'}
 const revenueCurrencies=['CNY','VND','USD']
-const blankReport=()=>({requestId:newSubmissionId(),factId:null,projectId:null,bizDate:today(),amount:null,description:'',attachmentUrls:''})
+const blankReport=()=>({requestId:newSubmissionId(),factId:null,projectId:null,bizDate:today(),categoryId:null,amount:null,currency:'CNY',description:'',counterparty:'',attachmentUrls:'',remark:''})
 const reportForm=ref(blankReport())
 const spendDateLoading=ref(false),spendDateLoaded=ref(false)
 const spendHistoryItems=ref([])
@@ -612,7 +617,9 @@ async function confirmNoSpend(){
 }
 async function openDailySpend(){
   if(!canReportFinance.value)return ElMessage.warning(reportBlockReason.value)
-  reportForm.value={...blankReport(),projectId:project.value.projectId,bizDate:defaultFinancialDate()}
+  if(!expenseCategories.value.length)return ElMessage.warning('支出类别尚未初始化，请联系管理员')
+  const projectCurrency=String(project.value.baseCurrency||'CNY').toUpperCase()
+  reportForm.value={...blankReport(),projectId:project.value.projectId,bizDate:defaultFinancialDate(),categoryId:expenseCategories.value[0].categoryId,currency:revenueCurrencies.includes(projectCurrency)?projectCurrency:'CNY'}
   spendDateLoaded.value=!isLateSettlement.value
   spendHistoryItems.value=[]
   reportDialog.value=true
@@ -621,14 +628,15 @@ async function openDailySpend(){
 async function loadSpendDate(bizDate){
   const request=++spendDateRequest,projectId=project.value.projectId
   spendDateLoaded.value=false
-  reportForm.value={...blankReport(),projectId,bizDate}
+  const projectCurrency=String(project.value.baseCurrency||'CNY').toUpperCase(),categoryId=expenseCategories.value[0]?.categoryId||null,currency=revenueCurrencies.includes(projectCurrency)?projectCurrency:'CNY'
+  reportForm.value={...blankReport(),projectId,bizDate,categoryId,currency}
   if(!validFinancialDate(bizDate))return
   spendDateLoading.value=true
   try{
     const {data:payload={}}=await getBusinessProjectDashboard(projectId,{dateFrom:bizDate,dateTo:bizDate})
     if(request!==spendDateRequest||projectId!==project.value?.projectId)return
     spendHistoryItems.value=(payload.facts||[]).filter(fact=>fact.sourceDomain==='PROJECT_DAILY'&&['DAILY_TOTAL','DAILY_ITEM'].includes(fact.sourceType)&&fact.bizDate===bizDate&&fact.status==='CONFIRMED')
-    reportForm.value={...blankReport(),projectId,bizDate}
+    reportForm.value={...blankReport(),projectId,bizDate,categoryId,currency}
     spendDateLoaded.value=true
   }catch{if(request===spendDateRequest)spendDateLoaded.value=false}finally{if(request===spendDateRequest)spendDateLoading.value=false}
 }
@@ -636,10 +644,12 @@ async function submitDailySpend(){
   if(!canReportFinance.value)return ElMessage.warning(reportBlockReason.value)
   if(!validFinancialDate(reportForm.value.bizDate))return ElMessage.warning('请选择执行期间已发生业务的日期')
   if(isLateSettlement.value&&!spendDateLoaded.value)return ElMessage.warning('请先读取并核对所选日期的花费记录')
+  if(!reportForm.value.categoryId)return ElMessage.warning('请选择支出类别')
   if(!(Number(reportForm.value.amount)>0))return ElMessage.warning('本次花费必须大于 0')
-  if(!reportForm.value.description?.trim())return ElMessage.warning('请填写本次花费用途')
+  if(!revenueCurrencies.includes(reportForm.value.currency))return ElMessage.warning('请选择 CNY、VND 或 USD')
+  if(!reportForm.value.description?.trim())return ElMessage.warning('请填写支出说明')
   saving.value=true
-  try{await saveBusinessProjectDailySpend(reportForm.value);reportDialog.value=false;ElMessage({type:'success',message:reportForm.value.factId?'花费已修改并重新计入':'本次花费已计入，今日总额已自动更新',duration:3500,showClose:true});await load(selectedProjectId.value)}finally{saving.value=false}
+  try{await saveBusinessProjectDailySpend({...reportForm.value,description:reportForm.value.description.trim(),counterparty:reportForm.value.counterparty?.trim(),currency:reportForm.value.currency.trim().toUpperCase()});reportDialog.value=false;ElMessage({type:'success',message:reportForm.value.factId?'支出已修改并重新计入':'本次支出已计入，今日总额已自动更新',duration:3500,showClose:true});await load(selectedProjectId.value)}finally{saving.value=false}
 }
 function editDailySpend(item){
   reportForm.value={...blankReport(),...item,requestId:newSubmissionId(),projectId:project.value.projectId,bizDate:item.bizDate||accounting.value.bizDate}

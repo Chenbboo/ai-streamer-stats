@@ -48,10 +48,14 @@
       f.confirmed_user_name confirmedUserName,f.confirmed_time confirmedTime,f.create_user_id createUserId,
       f.returned_user_name returnedUserName,f.returned_time returnedTime,f.return_reason returnReason,
       f.create_by createBy,f.create_time createTime,
+      coalesce(nullif(operator.nick_name,''),nullif(f.create_by,''),'未知人员') operatorName,
+      coalesce(nullif(f.create_by,''),operator.user_name) operatorAccount,
+      date_format(f.create_time,'%Y-%m-%d %H:%i:%s') recordedTime,
       p.initiator_name initiatorName,p.status projectStatus,
       p.delivery_policy_version deliveryPolicyVersion,p.accounting_state accountingState,p.actual_end_date actualEndDate
     from biz_operating_fact f join biz_project p on p.project_id=f.project_id and p.del_flag='0'
     left join sys_dept d on d.dept_id=f.company_dept_id
+    left join sys_user operator on operator.user_id=f.create_user_id
     <where>
       <if test="viewAll == false">coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
       <if test="projectId != null">and f.project_id=#{projectId}</if>

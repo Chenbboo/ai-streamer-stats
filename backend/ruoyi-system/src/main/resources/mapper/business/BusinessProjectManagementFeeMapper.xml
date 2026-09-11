@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.business.mapper.BusinessProjectManagementFeeMapper">
+  <sql id="feeColumns">
+    select fee_id feeId,project_id projectId,recipient_user_id recipientUserId,recipient_user_name recipientUserName,
+      calculation_mode calculationMode,fixed_amount fixedAmount,profit_rate profitRate,
+      currency,status,config_reason configReason,configured_user_id configuredUserId,
+      configured_user_name configuredUserName,configured_time configuredTime,
+      eligibility_project_count eligibilityProjectCount,eligibility_project_ids eligibilityProjectIds,
+      eligibility_project_names eligibilityProjectNames,eligibility_checked_time eligibilityCheckedTime,
+      basis_revenue basisRevenue,
+      basis_business_cost basisBusinessCost,basis_personnel_cost basisPersonnelCost,basis_bonus_cost basisBonusCost,
+      basis_adjustment basisAdjustment,pre_fee_profit preFeeProfit,settled_amount settledAmount,
+      accounting_fact_id accountingFactId,settled_user_id settledUserId,settled_user_name settledUserName,
+      settled_time settledTime,version,create_time createTime,update_time updateTime
+    from biz_project_management_fee where project_id=#{projectId}
+  </sql>
+  <select id="selectFee" resultType="map"><include refid="feeColumns"/></select>
+  <select id="selectFeeForUpdate" resultType="map" flushCache="true" useCache="false"><include refid="feeColumns"/> for update</select>
+  <select id="selectLifetimeBasis" resultType="map">
+    select
+      coalesce(sum(case when f.fact_kind='REVENUE' then f.amount else 0 end),0) basisRevenue,
+      coalesce(sum(case when f.fact_kind='COST' and f.category_code not in('PROJECT_BONUS_COST','PROJECT_MANAGEMENT_FEE') then f.amount else 0 end),0) basisBusinessCost,
+      coalesce(sum(case when f.fact_kind='COST' and f.category_code='PROJECT_BONUS_COST' then f.amount else 0 end),0) basisBonusCost,
+      coalesce(sum(case when f.fact_kind='ADJUSTMENT' then f.amount else 0 end),0) basisAdjustment,
+      coalesce((select sum(r.personnel_cost) from biz_project_daily_result r
+        where r.project_id=#{projectId} and r.is_current='1'),0) basisPersonnelCost
+    from biz_operating_fact f
+    where f.project_id=#{projectId} and f.status in('CONFIRMED','REVERSED')
+  </select>
+  <insert id="saveConfiguration" parameterType="map">
+    insert into biz_project_management_fee(project_id,recipient_user_id,recipient_user_name,calculation_mode,
+      fixed_amount,profit_rate,minimum_profit,cap_amount,currency,status,config_reason,configured_user_id,
+      configured_user_name,configured_time,eligibility_project_count,eligibility_project_ids,
+      eligibility_project_names,eligibility_checked_time,version,create_time,update_time)
+    values(#{projectId},#{recipientUserId},#{recipientUserName},#{calculationMode},#{fixedAmount},#{profitRate},
+      0,null,#{currency},#{status},#{configReason},#{userId},#{userName},sysdate(),
+      #{eligibilityProjectCount},#{eligibilityProjectIds},#{eligibilityProjectNames},sysdate(),0,sysdate(),sysdate())
+    on duplicate key update recipient_user_id=values(recipient_user_id),recipient_user_name=values(recipient_user_name),
+      calculation_mode=values(calculation_mode),fixed_amount=values(fixed_amount),profit_rate=values(profit_rate),
+      minimum_profit=0,cap_amount=null,currency=values(currency),status=values(status),
+      config_reason=values(config_reason),configured_user_id=values(configured_user_id),
+      configured_user_name=values(configured_user_name),configured_time=sysdate(),
+      eligibility_project_count=values(eligibility_project_count),eligibility_project_ids=values(eligibility_project_ids),
+      eligibility_project_names=values(eligibility_project_names),eligibility_checked_time=sysdate(),
+      version=version+1,update_time=sysdate()
+  </insert>
+  <update id="settle" parameterType="map">
+    update biz_project_management_fee set status='SETTLED',basis_revenue=#{basisRevenue},
+      basis_business_cost=#{basisBusinessCost},basis_personnel_cost=#{basisPersonnelCost},basis_bonus_cost=#{basisBonusCost},
+      basis_adjustment=#{basisAdjustment},pre_fee_profit=#{preFeeProfit},settled_amount=#{settledAmount},
+      accounting_fact_id=#{accountingFactId},settled_user_id=#{userId},settled_user_name=#{userName},
+      settled_time=sysdate(),version=version+1,update_time=sysdate()
+    where project_id=#{projectId} and status in('CONFIGURED','WAIVED')
+  </update>
+  <select id="selectPayments" resultType="map">
+    select payment_id paymentId,fee_id feeId,project_id projectId,amount,paid_date paidDate,method,
+      reference_no referenceNo,voucher,reason,request_key requestKey,recorded_user_id recordedUserId,
+      recorded_user_name recordedUserName,create_time createTime
+    from biz_project_management_fee_payment where fee_id=#{feeId} order by paid_date desc,payment_id desc
+  </select>
+  <select id="selectPaymentByRequest" resultType="map">
+    select payment_id paymentId,fee_id feeId,project_id projectId,amount,paid_date paidDate,method,
+      reference_no referenceNo,voucher,reason,request_key requestKey
+    from biz_project_management_fee_payment where project_id=#{projectId} and request_key=#{requestKey} limit 1
+  </select>
+  <select id="countPaymentReference" resultType="int">
+    select count(*) from biz_project_management_fee_payment where fee_id=#{feeId} and reference_no=#{referenceNo}
+  </select>
+  <insert id="insertPayment" parameterType="map" useGeneratedKeys="true" keyProperty="paymentId">
+    insert into biz_project_management_fee_payment(fee_id,project_id,amount,paid_date,method,reference_no,voucher,
+      reason,request_key,recorded_user_id,recorded_user_name,create_time)
+    values(#{feeId},#{projectId},#{amount},#{paidDate},#{method},#{referenceNo},#{voucher},#{reason},#{requestKey},
+      #{userId},#{userName},sysdate())
+  </insert>
+  <insert id="insertEvent" parameterType="map">
+    insert into biz_project_management_fee_event(project_id,fee_id,event_type,operator_user_id,operator_name,reason,snapshot,create_time)
+    values(#{projectId},#{feeId},#{eventType},#{userId},#{userName},#{reason},#{snapshot},sysdate())
+  </insert>
+</mapper>

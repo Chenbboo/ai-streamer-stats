@@ -50,6 +50,7 @@ class BusinessIncentiveMapperIntegrationTest
         execute("create table biz_project(project_id bigint primary key,project_no varchar(40),project_name varchar(100),"
             +"status varchar(24),company_dept_id bigint,base_currency varchar(3),accounting_state varchar(16),"
             +"main_owner_user_id bigint,sponsor_owner_user_id bigint,initiator_user_id bigint,del_flag char(1),update_time timestamp)");
+        execute("create table sys_user(user_id bigint primary key,nick_name varchar(100),user_name varchar(100),del_flag char(1))");
         execute("create table biz_operating_fact(fact_id bigint primary key,project_id bigint,status varchar(24),"
             +"source_domain varchar(40),source_type varchar(40),version int,update_by varchar(100),update_time timestamp)");
         execute("create table biz_project_kpi_plan(plan_id bigint primary key,plan_version int,reward_policy_version varchar(24))");
@@ -70,6 +71,8 @@ class BusinessIncentiveMapperIntegrationTest
         execute("insert into biz_project values(1,'P1','Project 1','ACTIVE',110,'CNY','OPEN',9,8,8,'0',current_timestamp),"
             +"(2,'P2','Project 2','ACTIVE',120,'VND','OPEN',19,18,18,'0',current_timestamp),"
             +"(3,'P3','Deleted','ACTIVE',110,'CNY','OPEN',9,8,8,'2',current_timestamp)");
+        execute("insert into sys_user values(8,'老板八','boss8','0'),(9,'负责人九','owner9','0'),"
+            +"(18,'老板十八','boss18','0'),(19,'负责人十九','owner19','0')");
         String distributionDdl=new String(Files.readAllBytes(migration().resolveSibling("V077__bonus_allocation_payment.sql")),StandardCharsets.UTF_8);
         Matcher distributionTables=Pattern.compile("(?s)create table if not exists biz_bonus_.*?\\) engine=InnoDB default charset=utf8mb4 comment='[^']*';").matcher(distributionDdl);
         int distributionCount=0;

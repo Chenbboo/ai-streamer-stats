@@ -70,6 +70,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     private static final List<String> KPI_PERIOD_TYPES = Arrays.asList("MONTH", "QUARTER", "PROJECT");
     private static final List<String> KPI_SOURCE_TYPES = Arrays.asList("MANUAL", "REVENUE", "BUSINESS_COST",
         "PERSONNEL_COST", "PROFIT", "ROUTINE", "TASK", "MILESTONE");
+    private static final List<String> MANUAL_EXPENSE_CATEGORY_CODES = Arrays.asList("PURCHASE_COST", "PLATFORM_FEE",
+        "MARKETING_COST", "LOGISTICS_COST", "ADMIN_ALLOCATION", "OTHER_EXPENSE");
     private static final List<String> LEAVE_TYPES = Arrays.asList("SICK", "PERSONAL", "ANNUAL", "COMPENSATORY", "OTHER");
     private static final BigDecimal CHINA_STANDARD_WORK_DAYS = new BigDecimal("21.75");
     private static final BigDecimal VIETNAM_STANDARD_WORK_DAYS = new BigDecimal("26");
@@ -85,6 +87,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
 
     @Autowired
     private IBusinessAccountingService accountingService;
+
+    @Autowired
+    private BusinessProjectManagementFeeService managementFeeService;
 
     @Autowired private BusinessProjectWorkMapper workMapper;
     @Autowired private BusinessMemberDayCostService memberDays;
@@ -163,7 +168,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     {
         BusinessProject project = requireProject(projectId);
         requireAccess(project, userId, viewAll, boss);
-        return buildSettlementStatus(project, userId, boss);
+        return buildSettlementStatus(project, userId, boss, viewAll, false);
     }
 
     @Override
@@ -178,18 +183,30 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (version == null || !version.equals(project.getVersion())) throw changed();
         if (StringUtils.isBlank(reason) || reason.trim().length() > 2000)
             throw new ServiceException("请填写核算关闭说明，且不超过2000个字符");
-        Map<String, Object> status = buildSettlementStatus(project, userId, boss);
+        if (!BusinessProjectLifecycle.isTerminal(project.getStatus()))
+        {
+            String readinessIssue = unifiedCloseReadinessIssue(project);
+            if (readinessIssue != null) throw new ServiceException(readinessIssue);
+            BusinessProject closed = finalizeSeparatedProject(project, reason.trim(), userId, userName, boss);
+            return buildSettlementStatus(closed, userId, boss, false, true);
+        }
+        Map<String, Object> status = buildSettlementStatus(project, userId, boss, false, false);
         if (!Boolean.TRUE.equals(status.get("canClose")))
             throw new ServiceException("项目尚不满足核算关闭条件，请刷新查看待处理清单");
+        // Unit-level legacy callers construct this service without the Spring-added collaborator.
+        // Production always injects it; keeping the null guard preserves those isolated lifecycle tests.
+        if (managementFeeService != null)
+            managementFeeService.settle(projectId, project.getActualEndDate(), userId, userName);
         accountingService.closeProjectAccounting(projectId, project.getActualEndDate(), userName);
         if (mapper.closeAccounting(projectId, version, userName) != 1) throw changed();
         addEvent(projectId, "ACCOUNTING_CLOSE", "OPEN", "CLOSED", userId, userName, reason.trim());
         project.setAccountingState("CLOSED");
         project.setVersion(version + 1);
-        return buildSettlementStatus(project, userId, boss);
+        return buildSettlementStatus(project, userId, boss, false, false);
     }
 
-    private Map<String, Object> buildSettlementStatus(BusinessProject project, Long userId, boolean boss)
+    private Map<String, Object> buildSettlementStatus(BusinessProject project, Long userId, boolean boss,
+        boolean viewAll, boolean deliveryValidated)
     {
         Long projectId = project.getProjectId();
         if(BusinessMemberDayCostService.enabled(project))memberDays.synchronize(projectId);
@@ -198,17 +215,31 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         int pendingCostCount = BusinessMemberDayCostService.enabled(project)?memberDays.pending(projectId):"ACTUAL_WORK_V1".equals(project.getCostPolicyVersion()) ? workMapper.countPendingCosts(projectId) : 0;
         int factCount = accountingMapper.countProjectUnsettledFacts(projectId);
         int awardCount = incentiveMapper.countPendingAwards(projectId);
+        Map<String, Object> managementFee;
+        if (managementFeeService == null)
+        {
+            managementFee = new LinkedHashMap<String, Object>();
+            managementFee.put("configured", true);
+        }
+        else managementFee = managementFeeService.settlementSnapshot(project, userId,
+            hasPermission("business:incentive:pay"));
         List<Map<String, Object>> blockers = new ArrayList<Map<String, Object>>();
         addSettlementBlocker(blockers, "LEGACY_POLICY", "旧版项目沿用原结项规则", BusinessProjectLifecycle.isSeparated(project) ? 0 : 1);
-        addSettlementBlocker(blockers, "DELIVERY_OPEN", "项目交付尚未结束", BusinessProjectLifecycle.isTerminal(project.getStatus()) ? 0 : 1);
+        String deliveryIssue = deliveryValidated || BusinessProjectLifecycle.isTerminal(project.getStatus())
+            ? null : unifiedCloseReadinessIssue(project);
+        addSettlementBlocker(blockers, "DELIVERY_OPEN",
+            deliveryIssue == null ? "项目交付尚未结束" : deliveryIssue, deliveryIssue == null ? 0 : 1);
         addSettlementBlocker(blockers, "ACCOUNTING_CLOSED", "项目核算已关闭", BusinessProjectLifecycle.isAccountingClosed(project) ? 1 : 0);
         addSettlementBlocker(blockers, "NOT_SPONSOR", "需由项目归属老板确认", boss && userId != null && userId.equals(projectSponsorUserId(project)) ? 0 : 1);
-        addSettlementBlocker(blockers, "MISSING_END_DATE", "缺少实际交付结束日期", project.getActualEndDate() == null ? 1 : 0);
+        addSettlementBlocker(blockers, "MISSING_END_DATE", "缺少实际交付结束日期",
+            BusinessProjectLifecycle.isTerminal(project.getStatus()) && project.getActualEndDate() == null ? 1 : 0);
         addSettlementBlocker(blockers, "PENDING_KPI", "KPI方案尚未完成结算或作废", kpiCount);
         addSettlementBlocker(blockers, "PENDING_EFFORT", "人员投入尚待确认", effortCount);
         addSettlementBlocker(blockers, "PENDING_FACT", "财务事实尚待处理", factCount);
         addSettlementBlocker(blockers, "PENDING_COST", BusinessMemberDayCostService.enabled(project)?"成员工作日成本尚未计算完整":"已确认工作尚待计价或核算", pendingCostCount);
         addSettlementBlocker(blockers, "PENDING_AWARD", "奖金奖励单尚待处理或取消", awardCount);
+        addSettlementBlocker(blockers, "MANAGEMENT_FEE_PENDING", "项目管理费尚未设置或明确免除",
+            Boolean.TRUE.equals(managementFee.get("configurationRequired")) ? 1 : 0);
         Map<String, Object> result = new LinkedHashMap<String, Object>();
         result.put("projectId", projectId);
         result.put("status", project.getStatus());
@@ -223,6 +254,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         result.put("pendingCostCount", pendingCostCount);
         result.put("pendingAwardCount", awardCount);
         result.put("costPolicyVersion", project.getCostPolicyVersion());
+        result.put("managementFee", managementFee);
         return result;
     }
 
@@ -232,6 +264,70 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         Map<String, Object> blocker = new LinkedHashMap<String, Object>();
         blocker.put("code", code); blocker.put("label", label); blocker.put("count", count);
         blockers.add(blocker);
+    }
+
+    /**
+     * Returns the first delivery-side reason that prevents the boss from completing the one-step close.
+     * Financial queues are reported separately by buildSettlementStatus.
+     */
+    private String unifiedCloseReadinessIssue(BusinessProject project)
+    {
+        if (!BusinessProjectLifecycle.isSeparated(project)) return "旧版项目沿用原结项规则";
+        if (BusinessProjectLifecycle.isTerminal(project.getStatus())) return null;
+        String closeMethod = effectiveCloseMethod(project);
+        if ("RESULT_ACCEPTANCE".equals(closeMethod))
+            return "请在成果验收中确认通过，系统将同时结项、核算并冻结数据";
+        try
+        {
+            if ("STAGED_ACCEPTANCE".equals(closeMethod))
+            {
+                if (!"ACCEPTANCE".equals(project.getStatus())) return "负责人尚未提交结项申请";
+                ensureStagesReadyForClose(project.getProjectId());
+            }
+            else
+            {
+                if (!"ACTIVE".equals(project.getStatus()) && !"ACCEPTANCE".equals(project.getStatus()))
+                    return "当前项目状态不能办理结项";
+                if ("KEY_CONTROL".equals(normalizeManagementMode(project.getManagementMode())))
+                    ensureKeyMilestonesReady(project.getProjectId());
+            }
+            if (!"LIGHT".equals(normalizeManagementMode(project.getManagementMode())))
+                ensureHighRisksClosed(project.getProjectId());
+            ensureKpiReadyForClose(project.getProjectId());
+            ensureReadyForAcceptance(project.getProjectId());
+            return null;
+        }
+        catch (ServiceException ex)
+        {
+            return ex.getMessage();
+        }
+    }
+
+    /** Complete delivery, final accounting and the project data freeze in the same transaction. */
+    private BusinessProject finalizeSeparatedProject(BusinessProject project, String reason,
+        Long userId, String userName, boolean boss)
+    {
+        if (!BusinessProjectLifecycle.isSeparated(project))
+            throw new ServiceException("当前项目不使用结项与核算合并流程");
+        Date closeDate = normalizeLeaveDate(DateUtils.getNowDate(), "结项日期不能为空");
+        project.setActualEndDate(closeDate);
+        prepareTerminalState(project, "CLOSED", userName);
+        Map<String, Object> status = buildSettlementStatus(project, userId, boss, false, true);
+        if (!Boolean.TRUE.equals(status.get("canClose")))
+            throw new ServiceException("项目尚不满足结项条件，请刷新查看待处理清单");
+        if (managementFeeService != null)
+            managementFeeService.settle(project.getProjectId(), closeDate, userId, userName);
+        accountingService.closeProjectAccounting(project.getProjectId(), closeDate, userName);
+        Integer version = project.getVersion();
+        String from = project.getStatus();
+        if (mapper.updateProjectStatus(project.getProjectId(), from, "CLOSED", null, false, userName, version) != 1)
+            throw changed();
+        if (mapper.closeAccounting(project.getProjectId(), version + 1, userName) != 1) throw changed();
+        addEvent(project.getProjectId(), "CLOSE_AND_FREEZE", from, "CLOSED", userId, userName, reason);
+        project.setStatus("CLOSED");
+        project.setAccountingState("CLOSED");
+        project.setVersion(version + 2);
+        return project;
     }
 
     @Override
@@ -1022,7 +1118,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             throw new ServiceException("只有选择成果验收的项目需要提交整体验收资料");
         if ("KEY_CONTROL".equals(normalizeManagementMode(project.getManagementMode()))) ensureKeyMilestonesReady(projectId);
         ensureReadyForAcceptance(projectId);
-        if (!BusinessProjectLifecycle.isSeparated(project)) ensureKpiReadyForClose(projectId);
+        ensureKpiReadyForClose(projectId);
         if (acceptance == null || StringUtils.isBlank(acceptance.getResultSummary()))
             throw new ServiceException("请填写项目结果摘要");
         if (StringUtils.isBlank(acceptance.getDeliverables())) throw new ServiceException("请填写交付成果说明");
@@ -1066,13 +1162,17 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         {
             if ("KEY_CONTROL".equals(normalizeManagementMode(project.getManagementMode()))) ensureKeyMilestonesReady(projectId);
             ensureReadyForAcceptance(projectId);
-            if (!BusinessProjectLifecycle.isSeparated(project)) ensureKpiReadyForClose(projectId);
-            prepareTerminalState(project, "CLOSED", userName);
+            ensureKpiReadyForClose(projectId);
+            if (!BusinessProjectLifecycle.isSeparated(project)) prepareTerminalState(project, "CLOSED", userName);
         }
         String reviewerName = displayName(requireActiveUser(userId));
         if (mapper.reviewAcceptance(pending.getAcceptanceId(), decision, userId, reviewerName, comment, userName) != 1)
             throw new ServiceException("验收资料已被其他人处理，请刷新后重试");
         String to = "APPROVED".equals(decision) ? "CLOSED" : "ACTIVE";
+        if ("APPROVED".equals(decision) && BusinessProjectLifecycle.isSeparated(project))
+            return finalizeSeparatedProject(project,
+                StringUtils.isBlank(comment) ? "成果验收通过并完成结项核算" : comment,
+                userId, userName, boss);
         if (mapper.updateProjectStatus(projectId, "ACCEPTANCE", to, null, false, userName, project.getVersion()) != 1)
             throw changed();
         addEvent(projectId, "APPROVED".equals(decision) ? "CLOSE" : "RETURN_ACTIVE",
@@ -1225,7 +1325,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             if ("STAGED_ACCEPTANCE".equals(closeMethod)) ensureStagesReadyForClose(projectId);
             else if ("KEY_CONTROL".equals(normalizeManagementMode(project.getManagementMode()))) ensureKeyMilestonesReady(projectId);
             if (!"LIGHT".equals(normalizeManagementMode(project.getManagementMode()))) ensureHighRisksClosed(projectId);
-            if (!BusinessProjectLifecycle.isSeparated(project)) ensureKpiReadyForClose(projectId);
+            ensureKpiReadyForClose(projectId);
             ensureReadyForAcceptance(projectId);
             if (StringUtils.isBlank(comment)) throw new ServiceException("请填写结项申请说明");
             to = "ACCEPTANCE";
@@ -1257,8 +1357,10 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             }
             if (!"LIGHT".equals(normalizeManagementMode(project.getManagementMode()))) ensureHighRisksClosed(projectId);
             if (StringUtils.isBlank(comment)) throw new ServiceException("请填写项目完成结论");
-            if (!BusinessProjectLifecycle.isSeparated(project)) ensureKpiReadyForClose(projectId);
+            ensureKpiReadyForClose(projectId);
             ensureReadyForAcceptance(projectId);
+            if (BusinessProjectLifecycle.isSeparated(project))
+                return finalizeSeparatedProject(project, comment, userId, userName, boss);
             to = "CLOSED";
         }
         else if ("CANCEL".equals(action))
@@ -1953,6 +2055,41 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         result.put("projects", projects);
         result.put("decisions", decisions);
         result.put("tasks", mapper.selectMyDueTasks(userId, viewAll, boss));
+        if (boss) result.put("ownerLoads", ownerLoads(mapper.selectBossOwnerActiveProjects(userId, viewAll, null)));
+        return result;
+    }
+
+    private List<Map<String, Object>> ownerLoads(List<Map<String, Object>> projectRows)
+    {
+        Map<Long, Map<String, Object>> grouped = new LinkedHashMap<Long, Map<String, Object>>();
+        if (projectRows != null) for (Map<String, Object> row : projectRows)
+        {
+            Long ownerId = longValue(row.get("ownerUserId"));
+            Map<String, Object> owner = grouped.get(ownerId);
+            if (owner == null)
+            {
+                owner = new LinkedHashMap<String, Object>();
+                owner.put("ownerUserId", ownerId); owner.put("ownerName", row.get("ownerName"));
+                owner.put("projects", new ArrayList<Map<String, Object>>()); grouped.put(ownerId, owner);
+            }
+            Map<String, Object> project = new LinkedHashMap<String, Object>();
+            project.put("projectId", row.get("projectId")); project.put("projectNo", row.get("projectNo"));
+            project.put("projectName", row.get("projectName")); project.put("status", row.get("status"));
+            project.put("companyName", row.get("companyName"));
+            @SuppressWarnings("unchecked") List<Map<String, Object>> rows = (List<Map<String, Object>>) owner.get("projects");
+            rows.add(project);
+        }
+        List<Map<String, Object>> result = new ArrayList<Map<String, Object>>(grouped.values());
+        for (Map<String, Object> owner : result)
+        {
+            @SuppressWarnings("unchecked") List<Map<String, Object>> rows = (List<Map<String, Object>>) owner.get("projects");
+            owner.put("projectCount", rows.size()); owner.put("eligibilityThreshold", 3);
+            owner.put("managementFeeEligible", rows.size() >= 3);
+        }
+        Collections.sort(result, (left, right) -> {
+            int count = Integer.compare(((Number) right.get("projectCount")).intValue(), ((Number) left.get("projectCount")).intValue());
+            return count != 0 ? count : String.valueOf(left.get("ownerName")).compareTo(String.valueOf(right.get("ownerName")));
+        });
         return result;
     }
 
@@ -1995,7 +2132,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         int pageSize = positiveInt(query, "pageSize", 5, 50);
         String category = query == null || query.get("category") == null
             ? "ALL" : String.valueOf(query.get("category")).trim().toUpperCase();
-        if (!Arrays.asList("ALL", "PROPOSAL", "ACCOUNTING", "INCENTIVE_REVIEW", "STAGE_ACCEPTANCE", "KPI_MISSING", "KPI_REVIEW", "PERSONNEL_COST", "PROJECT")
+        if (!Arrays.asList("ALL", "PROPOSAL", "MANAGEMENT_FEE", "ACCOUNTING", "INCENTIVE_REVIEW", "STAGE_ACCEPTANCE", "KPI_MISSING", "KPI_REVIEW", "PERSONNEL_COST", "PROJECT")
             .contains(category)) category = "ALL";
         Date bizDate = new Date();
         Map<String, Object> counts = mapper.selectBossPendingCounts(userId, viewAll, bizDate);
@@ -2017,6 +2154,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     {
         Map<String, String> keys = new HashMap<String, String>();
         keys.put("PROPOSAL", "proposalCount");
+        keys.put("MANAGEMENT_FEE", "managementFeeCount");
         keys.put("ACCOUNTING", "accountingCount");
         keys.put("INCENTIVE_REVIEW", "incentiveReviewCount");
         keys.put("STAGE_ACCEPTANCE", "stageAcceptanceCount");
@@ -2119,10 +2257,16 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         accounting.put("dailyRevenue", accountingMapper.selectProjectRevenueSummary(selectedId,
             java.sql.Date.valueOf(today)));
         List<Map<String, Object>> revenueCategories = new ArrayList<Map<String, Object>>();
+        List<Map<String, Object>> expenseCategories = new ArrayList<Map<String, Object>>();
         List<Map<String, Object>> categories = accountingMapper.selectCategories();
         if (categories != null) for (Map<String, Object> category : categories)
+        {
             if ("REVENUE".equals(String.valueOf(category.get("factKind")))) revenueCategories.add(category);
+            if ("COST".equals(String.valueOf(category.get("factKind")))
+                && MANUAL_EXPENSE_CATEGORY_CODES.contains(String.valueOf(category.get("categoryCode")))) expenseCategories.add(category);
+        }
         accounting.put("revenueCategories", revenueCategories);
+        accounting.put("expenseCategories", expenseCategories);
 
         result.put("project", detail);
         result.put("attendanceAuthority", feishuService.getAuthority(detail.getCompanyDeptId(), java.sql.Date.valueOf(today)));
@@ -2756,6 +2900,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             if (!"PUBLISHED".equals(planStatus) && !"CLOSED".equals(planStatus)) continue;
             publishedPlanCount++;
 
+            String settlementStatus = value(plan.get("settlementStatus"));
+            if ("CONFIRMED".equals(settlementStatus)) continue;
+
             Date cycleEnd = plan.get("cycleEnd") instanceof Date
                 ? (Date) plan.get("cycleEnd") : DateUtils.parseDate(plan.get("cycleEnd"));
             if (cycleEnd == null)
@@ -2767,8 +2914,6 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
                 continue;
             }
 
-            String settlementStatus = value(plan.get("settlementStatus"));
-            if ("CONFIRMED".equals(settlementStatus)) continue;
             if (StringUtils.isBlank(settlementStatus) || "DRAFT".equals(settlementStatus)) pendingInputCount++;
             else if ("RETURNED".equals(settlementStatus)) returnedCount++;
             else if ("SUBMITTED".equals(settlementStatus)) pendingReviewCount++;
@@ -2941,6 +3086,12 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     private Long projectSponsorUserId(BusinessProject project)
     {
         return project.getSponsorOwnerUserId() == null ? project.getInitiatorUserId() : project.getSponsorOwnerUserId();
+    }
+
+    private boolean hasPermission(String permission)
+    {
+        try { return SecurityUtils.hasPermi(permission); }
+        catch (RuntimeException ex) { return false; }
     }
 
     private String displayName(Map<String, Object> user)

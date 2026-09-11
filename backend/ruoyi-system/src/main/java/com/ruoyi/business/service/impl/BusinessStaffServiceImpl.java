@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashSet;
 import java.util.Set;
+import com.github.pagehelper.Page;
+import com.github.pagehelper.PageHelper;
 import com.github.pagehelper.PageInfo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -47,7 +49,15 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
         boolean boss, boolean staffCostManager)
     {
         SysUser safeQuery = query == null ? new SysUser() : query;
+        Page<?> requestedPage = !administrator ? PageHelper.getLocalPage() : null;
+        if (requestedPage != null) PageHelper.clearPage();
         boolean directoryOwner = !administrator && projectMapper.countUserRoleByKey(viewerUserId, "company_owner") > 0;
+        if (requestedPage != null)
+        {
+            PageHelper.startPage(requestedPage.getPageNum(), requestedPage.getPageSize(), requestedPage.getOrderBy())
+                .setReasonable(requestedPage.getReasonable())
+                .setPageSizeZero(requestedPage.getPageSizeZero());
+        }
         if (directoryOwner) safeQuery.getParams().put("dataScope", "");
         boolean includeManagedProjectMembers = !administrator && !directoryOwner;
         List<SysUser> users = projectMapper.selectStaffDirectory(safeQuery,
