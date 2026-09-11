@@ -442,10 +442,12 @@ class BusinessProjectProposalServiceImplTest
         assertThrows(ServiceException.class,()->org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeBusinessPlan",proposal));
     }
 
-    @Test
-    void lightTemplateLaunchesWithoutBudgetStaffCostRevenueKpiOrBonus()
+    @ParameterizedTest
+    @CsvSource({"DIRECT", "RESULT_ACCEPTANCE", "STAGED_ACCEPTANCE"})
+    void lightTemplateLaunchesWithoutAcceptanceCriteriaBudgetStaffCostRevenueKpiOrBonus(String closeMethod)
     {
-        proposal.setTemplateVersion("LIGHT_V1");proposal.setStatus("DRAFT");proposal.setBudgetLimit(null);proposal.setAcceptanceCriteria("交付可验收文件");
+        proposal.setTemplateVersion("LIGHT_V1");proposal.setStatus("DRAFT");proposal.setBudgetLimit(null);
+        proposal.setCloseMethod(closeMethod);proposal.setAcceptanceCriteria(null);
         proposal.setBudgetMode("NONE");proposal.setBudgetReason("本次测试明确不设置预算控制上限");
         when(mapper.selectById(77L)).thenReturn(proposal);
         when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
@@ -457,6 +459,7 @@ class BusinessProjectProposalServiceImplTest
         when(mapper.activate(77L,9L,2,88L,"申请人九","applicant9")).thenAnswer(call->{proposal.setStatus("APPROVED");return 1;});
         BusinessProjectProposal result=service.submit(77L,9L,"applicant9");
         assertEquals("APPROVED",result.getStatus());assertEquals("1",result.getNoBudget());assertEquals(0,result.getPlannedHeadcount());
+        assertEquals(null,result.getAcceptanceCriteria());assertEquals(closeMethod,result.getCloseMethod());
         verify(mapper,never()).selectProposalStaff(any(),any());verify(mapper,never()).submit(any(),any(),any(),any());
     }
 

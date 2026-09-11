@@ -3496,8 +3496,6 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             throw new ServiceException("重点监管项目必须填写选择该模式的理由");
         if (StringUtils.isNotEmpty(project.getManagementReason()) && project.getManagementReason().length() > 1000)
             throw new ServiceException("管理模式选择理由不能超过1000个字符");
-        if (!"DIRECT".equals(project.getCloseMethod()) && StringUtils.isBlank(project.getAcceptanceCriteria()))
-            throw new ServiceException("成果验收或阶段验收项目必须填写验收标准");
         if (StringUtils.isNotEmpty(project.getAcceptanceCriteria()) && project.getAcceptanceCriteria().length() > 2000)
             throw new ServiceException("验收标准不能超过2000个字符");
         if (StringUtils.isBlank(project.getPriority())) project.setPriority("MEDIUM");

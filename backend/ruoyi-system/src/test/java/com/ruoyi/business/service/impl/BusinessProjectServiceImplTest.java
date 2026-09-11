@@ -23,6 +23,8 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Date;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.BeforeEach;
 import static org.mockito.Mockito.lenient;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -439,11 +441,13 @@ class BusinessProjectServiceImplTest
         assertEquals(true, captor.getValue().get("boss"));
     }
 
-    @Test
-    void approvedProposalCreatesActiveProjectAndRegistersApplicantAsOwner()
+    @ParameterizedTest
+    @ValueSource(strings = {"DIRECT", "RESULT_ACCEPTANCE", "STAGED_ACCEPTANCE"})
+    void approvedProposalCreatesActiveProjectAndRegistersApplicantAsOwner(String closeMethod)
     {
         BusinessProjectProposal proposal = new BusinessProjectProposal();
         proposal.setProposalId(66L);
+        proposal.setCloseMethod(closeMethod);
         proposal.setProjectName("东南亚直播增长");
         proposal.setProjectType("LIVE");
         proposal.setExecutionSource("LIVE");
@@ -487,6 +491,8 @@ class BusinessProjectServiceImplTest
         BusinessProject created = service.createApprovedProject(proposal, 23L, "boss23");
 
         assertEquals(88L, created.getProjectId());
+        assertEquals(null, created.getAcceptanceCriteria());
+        assertEquals(closeMethod, created.getCloseMethod());
         assertEquals("ACTIVE", created.getStatus());
         assertEquals("APPROVED", created.getBaselineStatus());
         assertEquals(Integer.valueOf(0),created.getBaselineVersion());
@@ -497,7 +503,6 @@ class BusinessProjectServiceImplTest
         assertEquals("负责人九", created.getMainOwnerName());
         assertEquals("LIVE", created.getExecutionSource());
         assertEquals("LIGHT", created.getManagementMode());
-        assertEquals("DIRECT", created.getCloseMethod());
         assertTrue(created.getProjectNo().startsWith("XM"));
         ArgumentCaptor<BusinessProjectMember> member = ArgumentCaptor.forClass(BusinessProjectMember.class);
         verify(mapper,times(2)).upsertMember(member.capture());

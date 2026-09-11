@@ -359,8 +359,6 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             throw new ServiceException("重点监管项目必须说明选择原因和主要监管事项");
         if (StringUtils.isNotBlank(proposal.getAcceptanceCriteria()) && proposal.getAcceptanceCriteria().length() > 2000)
             throw new ServiceException("验收标准不能超过2000个字符");
-        if (!"DIRECT".equals(proposal.getCloseMethod()) && StringUtils.isBlank(proposal.getAcceptanceCriteria()))
-            throw new ServiceException("成果验收或阶段验收项目必须填写验收标准");
         if (StringUtils.isBlank(proposal.getPriority())) proposal.setPriority("MEDIUM");
         if (!PRIORITIES.contains(proposal.getPriority())) throw new ServiceException("项目优先级不正确");
         if (StringUtils.isBlank(proposal.getBaseCurrency())) proposal.setBaseCurrency("CNY");
@@ -581,7 +579,6 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         if(proposal.getBudget()!=null&&!"READY".equals(proposal.getBudget().get("status")))throw new ServiceException("预算尚未计算完整，请处理预算提示后再启动项目："+proposal.getBudget().get("issues"));
         if(isNewTemplate(proposal))
         {
-            if(StringUtils.isBlank(proposal.getAcceptanceCriteria()))throw new ServiceException("请填写成果清单及验收依据");
             if(proposal.getBudget()!=null&&!"READY".equals(proposal.getBudget().get("status")))
                 throw new ServiceException("预算尚未计算完整，请处理预算提示后再启动项目："+proposal.getBudget().get("issues"));
             if(proposal.getBudget()==null&&proposal.getBudgetLimit()!=null&&proposal.getBudgetLimit().compareTo(proposal.getEstimatedExternalCost())<0)throw new ServiceException("预算上限低于已估算外部支出");
