@@ -93,6 +93,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             throw new ServiceException("无权查看该立项申请");
         }
         hydratePlanLines(proposal);
+        budgetService.refreshMonthlyForecast(proposal);
         proposal.setEvents(mapper.selectEvents(proposalId));
         decorate(proposal, userId, boss, viewAll);
         if (!canReadRawRates(userId)) redactRawRates(proposal);

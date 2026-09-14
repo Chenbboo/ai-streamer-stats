@@ -37,7 +37,8 @@ class BusinessMemberDayCostServiceTest {
     }
     List<Map<String,Object>> week(){return service.calculate(project,LocalDate.parse("2026-08-31"),LocalDate.parse("2026-09-06"));}
     @Test void fiveWeekdaysWithoutAnyWorkReportOrPercentage(){
-        assertEquals(5,week().size());assertTrue(week().stream().allMatch(c->new BigDecimal("1000.00").equals(c.get("amount"))));
+        assertEquals(5,week().size());assertEquals(new BigDecimal("1047.62"),week().get(0).get("amount"));
+        assertTrue(week().subList(1,5).stream().allMatch(c->new BigDecimal("1000.00").equals(c.get("amount"))));
         verify(work,never()).selectWorkCosts(anyLong(),any());
     }
     @Test void holidayAndMakeupDayCountWholeDayEvenWhenCalendarHoursVary(){
@@ -65,7 +66,8 @@ class BusinessMemberDayCostServiceTest {
             row("allocationId",31L,"userId",7L,"allocationValue",40,"effectiveFrom","2026-08-31","version",2)));
         List<Map<String,Object>> rows=week();
         assertEquals(5,rows.size());
-        assertTrue(rows.stream().allMatch(c->new BigDecimal("400.00").equals(c.get("amount"))));
+        assertEquals(new BigDecimal("419.05"),rows.get(0).get("amount"));
+        assertTrue(rows.subList(1,5).stream().allMatch(c->new BigDecimal("400.00").equals(c.get("amount"))));
         assertTrue(rows.stream().allMatch(c->String.valueOf(c.get("basisJson")).contains("\"allocationPercent\":40")));
     }
     @Test void missingEffectiveProjectWeightStaysPending(){
@@ -116,5 +118,34 @@ class BusinessMemberDayCostServiceTest {
     }
     @Test void projectPlannedStartPreventsEarlyAccrual(){
         project.setPlanStartDate(Date.valueOf("2026-09-03"));assertEquals(2,week().size());
+    }
+    private BigDecimal sum(List<Map<String,Object>> rows){return rows.stream().map(r->(BigDecimal)r.get("amount")).reduce(BigDecimal.ZERO,BigDecimal::add);}
+    @Test void fullMonthAndProjectShareHaveNoAccumulatedRoundingError(){
+        rate.put("unitCost",8000);rate.put("standardWorkDays",21.75);
+        LocalDate from=LocalDate.parse("2026-10-01"),to=LocalDate.parse("2026-10-31");
+        assertEquals(new BigDecimal("8000.00"),sum(service.calculate(project,from,to)));
+        when(costs.selectAllocationPeriods(1L)).thenReturn(Collections.singletonList(
+            row("allocationId",31L,"userId",7L,"allocationValue",new BigDecimal("33.33"),"effectiveFrom","2026-08-31","confirmationStatus","CONFIRMED")));
+        List<Map<String,Object>> rows=service.calculate(project,from,to);
+        assertEquals(new BigDecimal("2666.40"),sum(rows));
+        assertTrue(String.valueOf(rows.get(0).get("basisJson")).contains("CALENDAR_MONTH_V1"));
+        assertEquals(sum(rows),sum(service.calculate(project,from,LocalDate.parse("2026-10-14"))).add(sum(service.calculate(project,LocalDate.parse("2026-10-15"),to))));
+    }
+    @Test void midMonthRateAndWeightChangesAreProrated(){
+        rate.put("unitCost",8000);rate.put("effectiveTo","2026-10-15");
+        Map<String,Object> next=new HashMap<>(rate);next.put("policyId",3L);next.put("effectiveFrom","2026-10-16");next.remove("effectiveTo");next.put("unitCost",10000);
+        when(work.selectBudgetRates(eq(7L),anyString(),anyString())).thenReturn(Arrays.asList(rate,next));
+        LocalDate from=LocalDate.parse("2026-10-01"),to=LocalDate.parse("2026-10-31");
+        assertEquals(new BigDecimal("9000.00"),sum(service.calculate(project,from,to)));
+        when(costs.selectAllocationPeriods(1L)).thenReturn(Arrays.asList(
+            row("userId",7L,"allocationValue",100,"effectiveFrom","2026-08-31","effectiveTo","2026-10-15"),
+            row("userId",7L,"allocationValue",50,"effectiveFrom","2026-10-16")));
+        assertEquals(new BigDecimal("6500.00"),sum(service.calculate(project,from,to)));
+    }
+    @Test void newMonthlyRulePreservesAlreadyPricedHistory(){
+        Map<String,Object> stored=row("userId",7L,"bizDate","2026-09-01","amount",new BigDecimal("101.23"),"pricingStatus","PRICED","basisJson","historical snapshot");
+        when(costs.selectCosts(1L)).thenReturn(Collections.singletonList(stored));
+        List<Map<String,Object>> rows=service.calculate(project,LocalDate.parse("2026-09-01"),LocalDate.parse("2026-09-01"));
+        assertEquals(new BigDecimal("101.23"),rows.get(0).get("amount"));assertEquals("historical snapshot",rows.get(0).get("basisJson"));
     }
 }

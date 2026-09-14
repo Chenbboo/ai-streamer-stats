@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import com.ruoyi.business.domain.BusinessProjectProposal;
 import com.ruoyi.business.mapper.BusinessProjectProposalMapper;
 import com.ruoyi.business.mapper.BusinessProjectWorkMapper;
+import com.ruoyi.business.support.BusinessPersonnelCost;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
 
@@ -61,6 +62,20 @@ public class BusinessProjectBudgetService
         }
         return result;
     }
+    /** Refresh the forward-looking month only; approved budget and past snapshots stay intact. */
+    public void refreshMonthlyForecast(BusinessProjectProposal proposal) {
+        if(proposal.getPlanStartDate()==null||proposal.getPlanEndDate()!=null||proposal.getBudget()==null
+            ||proposal.getTemplateVersion()==null||"LEGACY_V1".equals(proposal.getTemplateVersion()))return;
+        BusinessProjectProposal copy=new BusinessProjectProposal();org.springframework.beans.BeanUtils.copyProperties(proposal,copy);
+        ensureOwner(copy);
+        Map<String,Object> forecast=monthlyForecast(copy,date(copy.getPlanStartDate()).withDayOfMonth(1).plusMonths(1),true);
+        Map<String,Object> budget=new LinkedHashMap<String,Object>(proposal.getBudget());
+        budget.put("steadyMonth",forecast);proposal.setBudget(budget);
+        proposal.setRecurringEstimatedRevenue(amountOrNull(forecast.get("revenueAmount")));
+        proposal.setRecurringEstimatedExternalCost(amountOrNull(forecast.get("plannedBusinessAmount")));
+        proposal.setRecurringEstimatedTotalCost(amountOrNull(forecast.get("plannedTotalCost")));
+        proposal.setRecurringExpectedProfit(amountOrNull(forecast.get("profit")));
+    }
     private Map<String,Object> monthlyForecast(BusinessProjectProposal source,LocalDate month,boolean recurringOnly){
         BusinessProjectProposal copy=new BusinessProjectProposal();org.springframework.beans.BeanUtils.copyProperties(source,copy);
         Map<String,Object> input=new LinkedHashMap<String,Object>();if(source.getBudget()!=null)input.putAll(source.getBudget());
@@ -68,7 +83,7 @@ public class BusinessProjectBudgetService
         if(recurringOnly){copy.setRevenueLines(recurring(source.getRevenueLines()));copy.setExpenseLines(recurring(source.getExpenseLines()));}
         Map<String,Object> estimate=estimate(copy,false);
         Map<String,Object> result=new LinkedHashMap<String,Object>();
-        for(String key:Arrays.asList("startDate","endDate","currency","revenueAmount","plannedBusinessAmount","personnelAmount","plannedTotalCost","profit","status","issues","staffingStatus"))result.put(key,estimate.get(key));
+        for(String key:Arrays.asList("startDate","endDate","currency","revenueAmount","plannedBusinessAmount","personnelAmount","plannedTotalCost","profit","status","issues","staffingStatus","personnelCostRule"))result.put(key,estimate.get(key));
         result.put("recurringOnly",recurringOnly);return result;
     }
     private List<Map<String,Object>> recurring(List<Map<String,Object>> rows){List<Map<String,Object>> result=new ArrayList<Map<String,Object>>();for(Map<String,Object> row:rows(rows))if(!"ONE_TIME".equals(occurrence(row)))result.add(row);return result;}
@@ -128,6 +143,8 @@ public class BusinessProjectBudgetService
         BigDecimal revenue=plannedAmount(proposal.getRevenueLines(),"expectedAmount","expectedDate",start,end,true,issues);
         if(business!=null&&external.compareTo(business)>0)issues.add("业务预算不能低于本期支出计划合计 "+external.toPlainString()+" "+currency);
         Map<LocalDate,BigDecimal> dailyPersonnel=new TreeMap<>();
+        BusinessPersonnelCost pricing=new BusinessPersonnelCost();
+        result.put("personnelCostRule",BusinessPersonnelCost.MONTHLY_RULE);
         List<Map<String,Object>> staffingStatus=new ArrayList<>();
         BigDecimal personnel=BigDecimal.ZERO;boolean missing=false;Set<Long> people=new HashSet<Long>();
         for(Map<String,Object> staff:rows(proposal.getStaffingLines()))
@@ -176,6 +193,7 @@ public class BusinessProjectBudgetService
                 planned.put("planStartDate",pricedFrom.toString());planned.put("planEndDate",pricedTo.toString());
                 planned.put("inputUnit","PERCENTAGE");planned.put("inputQuantity",100);planned.put("unitPolicyId",1L);
                 List<Map<String,Object>> days=work.plannedWorkDays(planned);
+                Map<String,Object> calendar=mapper.selectCalendar(Long.valueOf(String.valueOf(planned.get("calendarId"))));
                 List<Map<String,Object>> rates=mapper.selectBudgetRates(userId,start.toString(),end.toString());
                 if(rates==null)rates=Collections.emptyList();
                 BigDecimal staffCost=BigDecimal.ZERO;
@@ -190,7 +208,7 @@ public class BusinessProjectBudgetService
                     if(matches.size()!=1){(matches.isEmpty()?missingDates:overlapDates).add(d);continue;}
                     Map<String,Object> rate=matches.get(0);
                     if(!currency.equals(String.valueOf(rate.get("currency")))){currencyDates.add(d);continue;}
-                    BigDecimal dayCost=BusinessMemberDayCostService.dailyRate(rate);
+                    BigDecimal dayCost=pricing.amount(rate,calendar,d,new BigDecimal("100"));
                     staffCost=staffCost.add(dayCost);dailyPersonnel.merge(d,dayCost,BigDecimal::add);
                     Map<String,Object> period=new LinkedHashMap<>();
                     period.put("effectiveFrom",date(rate.get("effectiveFrom")).toString());

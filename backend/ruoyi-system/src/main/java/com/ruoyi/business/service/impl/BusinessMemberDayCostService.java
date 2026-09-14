@@ -13,6 +13,7 @@ import com.ruoyi.business.domain.BusinessProject;
 import com.ruoyi.business.mapper.*;
 import com.ruoyi.business.service.IBusinessAccountingService;
 import com.ruoyi.business.support.BusinessProjectLifecycle;
+import com.ruoyi.business.support.BusinessPersonnelCost;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
 
@@ -94,6 +95,7 @@ public class BusinessMemberDayCostService {
     }
     public List<Map<String,Object>> calculateCurrent(BusinessProject p,LocalDate from,LocalDate to){
         List<Map<String,Object>> result=new ArrayList<>();
+        BusinessPersonnelCost pricing=new BusinessPersonnelCost();
         List<Map<String,Object>> roles=mapper.selectRolePeriods(p.getProjectId());
         List<Map<String,Object>> pauses=mapper.selectCostPauses(p.getProjectId());
         List<Map<String,Object>> allocations=mapper.selectAllocationPeriods(p.getProjectId());
@@ -139,7 +141,7 @@ public class BusinessMemberDayCostService {
                     List<Map<String,Object>> matches=new ArrayList<>();for(Map<String,Object> r:rates)if(covers(r,"effectiveFrom","effectiveTo",date))matches.add(r);
                     if(matches.size()!=1)issue=matches.isEmpty()?"缺少有效用人成本":"成本生效日期重叠";
                     else {rate=matches.get(0);if(!p.getBaseCurrency().equals(rate.get("currency")))issue="成本币种与项目不一致";
-                        else try{fullDailyCost=dailyRate(rate);amount=fullDailyCost.multiply(allocationPercent).divide(new BigDecimal("100"),2,RoundingMode.HALF_UP);}catch(ServiceException ex){issue=ex.getMessage();}}
+                        else try{fullDailyCost=pricing.amount(rate,calendar,date,new BigDecimal("100"));amount=pricing.amount(rate,calendar,date,allocationPercent);}catch(ServiceException ex){issue=ex.getMessage();}}
                 }
                 String metadataKey=userId+":"+(rate==null?"":rate.get("policyId"));
                 final Long metadataPolicy=rate==null?null:id(rate.get("policyId"));
@@ -149,6 +151,11 @@ public class BusinessMemberDayCostService {
                 if(metadata!=null)cost.putAll(metadata);
                 cost.put("calendarId",calendar==null?null:calendar.get("calendarId"));cost.put("ratePolicyId",rate==null?null:rate.get("policyId"));cost.put("amount",amount);cost.put("issue",issue);cost.put("pricingStatus",issue==null?"PRICED":"PENDING");
                 Map<String,Object> basis=new LinkedHashMap<>();basis.put("costPolicyVersion",POLICY);basis.put("formula","工作日数 × 当日有效日成本 × 项目投入权重");basis.put("workingDays",1);basis.put("bizDate",date.toString());basis.put("userName",member.get("userName"));basis.put("calendarId",cost.get("calendarId"));basis.put("calendarVersion",calendar==null?null:calendar.get("version"));basis.put("ratePolicyId",cost.get("ratePolicyId"));basis.put("rateVersion",rate==null?null:rate.get("version"));basis.put("allocationId",allocation==null?null:allocation.get("allocationId"));basis.put("allocationVersion",allocation==null?null:allocation.get("version"));basis.put("allocationPercent",allocationPercent);basis.put("fullDailyCost",fullDailyCost);basis.put("dailyCost",amount);basis.put("currency",p.getBaseCurrency());basis.put("issue",issue);for(String field:Arrays.asList("companyName","companyDeptId","countryRegion","costMode","monthlyCost","standardWorkDays"))basis.put(field,cost.get(field));
+                if(rate!=null&&"MONTHLY".equals(rate.get("costMode"))&&calendar!=null){
+                    basis.put("monthlyCostRule",BusinessPersonnelCost.MONTHLY_RULE);
+                    basis.put("monthWorkingDays",pricing.monthWorkingDays(calendar,date));
+                    basis.put("formula","月度用人成本按当月工作日分摊 × 项目投入权重（整月按月成本，逐日分配分币尾差）");
+                }
                 try{cost.put("basisJson",json.writeValueAsString(basis));}catch(Exception ex){throw new ServiceException("工作日成本依据无法保存");}
                 if(calculated.add(userId+":"+date))result.add(cost);
             }
@@ -175,9 +182,7 @@ public class BusinessMemberDayCostService {
         }
     }
     public boolean workingDay(Map<String,Object> calendar,LocalDate date){
-        Object raw=calendar.get("exceptionsJson");
-        if(raw!=null)try{for(Map<String,Object> e:json.readValue(String.valueOf(raw),new TypeReference<List<Map<String,Object>>>(){}))if(date.toString().equals(String.valueOf(e.get("bizDate"))))return new BigDecimal(String.valueOf(e.get("minutes"))).signum()>0;}catch(Exception ex){throw new ServiceException("工作日历例外格式不正确");}
-        return Arrays.asList(String.valueOf(calendar.get("workingWeekdays")).split(",")).contains(String.valueOf(date.getDayOfWeek().getValue()))&&new BigDecimal(String.valueOf(calendar.get("dailyMinutes"))).signum()>0;
+        return BusinessPersonnelCost.workingDay(calendar,date);
     }
     public static BigDecimal dailyRate(Map<String,Object> rate){
         try {

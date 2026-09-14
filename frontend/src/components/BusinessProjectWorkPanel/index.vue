@@ -1,6 +1,7 @@
 <template>
   <section v-loading="loading" class="member-cost-panel">
     <div class="heading"><div><h3>人员工作日成本</h3><p>同一负责人名下直接调整；涉及其他负责人的分配，由相关负责人全部确认后统一生效。</p></div><div class="heading-actions"><el-button v-if="canManage" type="primary" @click="openAllocation">申请调整投入</el-button><el-button icon="Refresh" @click="load">刷新</el-button></div></div>
+    <p class="hint">月成本制整月按月度用人成本×项目投入比例计费；不足整月按当月参与工作日占比分摊，月中费率或比例变化分段计算。已核算历史保留原依据。</p>
     <el-alert v-if="data.overdue" title="项目已超过计划结束日，仍参与的成员继续按工作日计费，请更新项目计划。" type="warning" :closable="false" show-icon />
     <el-date-picker v-model="dates" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" :clearable="false" @change="load" />
     <el-alert v-if="data.pendingCount" title="部分人员成本待完善，请查看下方说明，确认投入分配或完善成本、工作日历。" type="warning" :closable="false" show-icon />
