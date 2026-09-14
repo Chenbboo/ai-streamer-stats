@@ -80,6 +80,26 @@ public class BusinessProjectHierarchyMapperIntegrationTest
         }
     }
 
+    @Test void projectTypeFilterMatchesRootsAndChildren() throws Exception
+    {
+        try (SqlSession session = factory.openSession(); Statement sql = session.getConnection().createStatement())
+        {
+            sql.execute("update biz_project set project_type='GENERAL'");
+            sql.execute("update biz_project set project_type='ECOMMERCE' where project_id=10");
+            BusinessProjectMapper mapper = session.getMapper(BusinessProjectMapper.class);
+            Map<String, Object> query = query(1L, true, false, "");
+            query.put("projectType", "ECOMMERCE");
+            List<BusinessProject> roots = mapper.selectProjectRoots(query);
+            assertEquals(1, roots.size()); assertEquals(1L, roots.get(0).getProjectId());
+            assertEquals(10L, roots.get(0).getMatchedChildId());
+            query.put("parentId", 1L);
+            List<BusinessProject> children = mapper.selectProjectList(query);
+            assertEquals(1, children.size()); assertEquals(10L, children.get(0).getProjectId());
+            query.put("projectType", "JEWELRY");
+            assertTrue(mapper.selectProjectRoots(query).isEmpty());
+        }
+    }
+
     @Test void assigningParentOwnerCanSeeCreatedChildButNotOtherChildren() throws Exception {
         try (SqlSession session=factory.openSession();Statement sql=session.getConnection().createStatement()) {
             sql.execute("update biz_project set applicant_user_id=9 where project_id=10");

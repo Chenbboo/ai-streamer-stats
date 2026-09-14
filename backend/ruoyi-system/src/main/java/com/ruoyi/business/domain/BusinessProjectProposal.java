@@ -12,6 +12,10 @@ public class BusinessProjectProposal extends BaseEntity
 {
     private static final long serialVersionUID = 1L;
 
+    private Boolean saveAsDraft;
+    public Boolean getSaveAsDraft() { return saveAsDraft; }
+    public void setSaveAsDraft(Boolean value) { saveAsDraft = value; }
+
     private Long proposalId;
     private String proposalNo;
     private Integer submissionVersion;

@@ -140,7 +140,8 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         proposal.setApplicantName(displayName(applicant));
         if (StringUtils.isBlank(proposal.getTemplateVersion())) proposal.setTemplateVersion("LIGHT_V1");
         if("LEGACY_V1".equals(proposal.getTemplateVersion()))throw new ServiceException("新立项必须选择已发布标准模板，不能创建旧策略项目");
-        normalizeAndValidate(proposal);
+        if (Boolean.TRUE.equals(proposal.getSaveAsDraft())) prepareIncompleteDraft(proposal);
+        else normalizeAndValidate(proposal);
         proposal.setProposalNo("LX" + DateUtils.dateTimeNow("yyyyMMddHHmmss")
             + IdUtils.fastSimpleUUID().substring(0, 4).toUpperCase());
         proposal.setCreateBy(userName);
@@ -166,7 +167,8 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         input.setVersion(current.getVersion());
         if (!isNewTemplate(current)) input.setTemplateVersion("LEGACY_V1");
         else input.setTemplateVersion(current.getTemplateVersion());
-        normalizeAndValidate(input);
+        if (Boolean.TRUE.equals(input.getSaveAsDraft()) && isNewTemplate(input)) prepareIncompleteDraft(input);
+        else normalizeAndValidate(input);
         input.setUpdateBy(userName);
         if (mapper.updateDraft(input) != 1) throw changed();
         savePlanLines(input);
@@ -304,6 +306,114 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         } else proposal.setAssignedOwnerName(displayName(requireActiveUser(proposal.getAssignedOwnerUserId())));
     }
 
+    /** Incomplete new-template drafts keep their input in the snapshot, never in executable plan lines. */
+    private void prepareIncompleteDraft(BusinessProjectProposal proposal)
+    {
+        Map<String,Object> template = workMapper.selectTemplate(proposal.getTemplateVersion());
+        if (template == null) throw new ServiceException("项目模板版本不存在或未启用");
+        if (proposal.getCompanyDeptId() != null && mapper.selectCompany(proposal.getCompanyDeptId()) == null)
+            throw new ServiceException("请选择有效归属公司");
+        bindSubprojectOwner(proposal, false);
+        proposal.setSponsorOwnerName(proposal.getSponsorOwnerUserId() == null ? "" : displayName(requireActiveBoss(proposal.getSponsorOwnerUserId())));
+        proposal.setProjectName(draftText(proposal.getProjectName(), 160, "项目名称"));
+        proposal.setObjective(draftText(proposal.getObjective(), 1000, "项目目标"));
+        proposal.setApplicationReason(draftText(proposal.getApplicationReason(), 2000, "立项理由"));
+        proposal.setManagementReason(draftText(proposal.getManagementReason(), 1000, "监管原因"));
+        proposal.setAcceptanceCriteria(draftText(proposal.getAcceptanceCriteria(), 2000, "验收标准"));
+        proposal.setRiskSummary(draftText(proposal.getRiskSummary(), 2000, "主要风险"));
+        proposal.setRemark(draftText(proposal.getRemark(), 500, "备注"));
+        proposal.setProjectType(draftText(StringUtils.defaultIfBlank(proposal.getProjectType(), "GENERAL"), 64, "项目类型"));
+        proposal.setAccountingMode(draftCode(proposal.getAccountingMode(), "COST", ACCOUNTING_MODES));
+        if ("SIMPLE".equals(proposal.getManagementMode())) proposal.setManagementMode("LIGHT");
+        if ("DELIVERY".equals(proposal.getManagementMode())) { proposal.setManagementMode("STANDARD"); if (StringUtils.isBlank(proposal.getCloseMethod())) proposal.setCloseMethod("RESULT_ACCEPTANCE"); }
+        proposal.setManagementMode(draftCode(proposal.getManagementMode(), "LIGHT", MANAGEMENT_MODES));
+        proposal.setCloseMethod(draftCode(proposal.getCloseMethod(), "DIRECT", CLOSE_METHODS));
+        proposal.setGoalMode(draftCode(proposal.getGoalMode(), "TOTAL", Arrays.asList("TOTAL", "NO_TOTAL")));
+        proposal.setPriority(draftCode(proposal.getPriority(), "MEDIUM", PRIORITIES));
+        proposal.setBaseCurrency(draftCode(proposal.getBaseCurrency(), "CNY", Arrays.asList("CNY", "USD", "VND")));
+        Map<String,Object> budget = new LinkedHashMap<>();
+        if (proposal.getBudget() != null) for (String key : Arrays.asList("mode", "scope", "dailyLimit", "startupLimit", "reason", "cycle", "anchorDate", "businessAmount", "projectOpenEnded"))
+            budget.put(key, proposal.getBudget().get(key));
+        proposal.setBudgetMode(draftCode(proposal.getBudgetMode(), "TOTAL", Arrays.asList("TOTAL", "DAILY", "NONE")));
+        proposal.setBudgetScope(draftCode(proposal.getBudgetScope(), "FULL_COST", Arrays.asList("FULL_COST", "CASH_EXPENSE")));
+        budget.put("mode", proposal.getBudgetMode()); budget.put("scope", proposal.getBudgetScope());
+        budget.put("status", "PENDING"); budget.put("issues", Collections.singletonList("草稿尚未完成校验，请完善资料后启动"));
+        Map<String,Object> draft = new LinkedHashMap<>();
+        draft.put("revenueLines", draftLines(proposal.getRevenueLines(), "scenario,revenueType,itemName,unitPrice,quantity,conversionRate,expectedAmount,occurrenceType,expectedDate,assumptionText"));
+        draft.put("expenseLines", draftLines(proposal.getExpenseLines(), "expenseCategory,itemName,purpose,counterparty,amount,occurrenceType,occurDate,expenseType,hasQuotation"));
+        draft.put("targetLines", draftLines(proposal.getTargetLines(), "targetType,targetName,targetValue,unit,dueDate,acceptanceEvidence,weight"));
+        draft.put("staffingLines", draftLines(proposal.getStaffingLines(), "userId,userName,roleName,participationMode,planStartDate,planEndDate,calendarId,inputUnit,inputQuantity,unitPolicyId,note"));
+        try {
+            Map<String,Object> snapshot = objectMapper.readValue(StringUtils.defaultIfBlank(text(template.get("snapshotJson")), "{}"), Map.class);
+            snapshot.put("draftPlan", draft); snapshot.put("budget", budget);
+            String json = objectMapper.writeValueAsString(snapshot);
+            if (json.length() > 1000000) throw new ServiceException("草稿内容过长，请减少明细或说明");
+            proposal.setTemplateSnapshotJson(json);
+        } catch (ServiceException ex) { throw ex; }
+        catch (Exception ex) { throw new ServiceException("保存草稿内容失败"); }
+        proposal.setBudget(budget);
+        proposal.setRevenueLines(Collections.emptyList()); proposal.setExpenseLines(Collections.emptyList());
+        proposal.setTargetLines(Collections.emptyList()); proposal.setStaffingLines(Collections.emptyList());
+        // Pending amounts are not forecasts. Launch recomputes them from the restored input.
+        org.springframework.beans.BeanWrapper fields = new org.springframework.beans.BeanWrapperImpl(proposal);
+        for (String name : Arrays.asList("estimatedRevenue", "recurringEstimatedRevenue", "estimatedExternalCost", "recurringEstimatedExternalCost", "estimatedPersonnelCost", "estimatedBonusCost", "estimatedTaxCost", "contingencyCost", "estimatedTotalCost", "recurringEstimatedTotalCost", "expectedProfit", "recurringExpectedProfit"))
+            fields.setPropertyValue(name, BigDecimal.ZERO);
+        proposal.setExpectedMargin(null); proposal.setBreakEvenRevenue(null); proposal.setPeakCashNeed(null);
+        proposal.setPlannedHeadcount(0); proposal.setForecastDays(0); proposal.setForecastPeriod("PROJECT");
+        proposal.setBudgetLimit(null); proposal.setDailyBudgetLimit(null); proposal.setStartupBudgetLimit(null);
+        proposal.setBudgetReason(draftText(text(budget.get("reason")), 500, "预算说明"));
+        proposal.setNoBudget("NONE".equals(proposal.getBudgetMode()) ? "1" : "0");
+        proposal.setFundingPlan(null); proposal.setKeyAssumptions(null); proposal.setStopLossRule(null); proposal.setRevenueModel(null);
+        proposal.setExecutionSource(null);
+    }
+
+    private String draftText(String value, int limit, String label)
+    {
+        String result = value == null ? "" : value.trim();
+        if (result.length() > limit) throw new ServiceException(label + "不能超过" + limit + "个字符");
+        return result;
+    }
+
+    private String draftCode(String value, String fallback, List<String> allowed)
+    {
+        String result = code(value, fallback);
+        if (!allowed.contains(result)) throw new ServiceException("选项不正确：" + result);
+        return result;
+    }
+
+    private List<Map<String,Object>> draftLines(List<Map<String,Object>> source, String keys)
+    {
+        List<Map<String,Object>> result = new ArrayList<>();
+        if (source == null) return result;
+        if (source.size() > 100) throw new ServiceException("每个明细区一次最多100行");
+        for (Map<String,Object> row : source) {
+            if (row == null) throw new ServiceException("明细行不能为空");
+            Map<String,Object> safe = new LinkedHashMap<>();
+            for (String key : keys.split(",")) if (row.containsKey(key)) safe.put(key, row.get(key));
+            result.add(safe);
+        }
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void restoreIncompleteDraft(BusinessProjectProposal proposal)
+    {
+        if (!isNewTemplate(proposal) || "APPROVED".equals(proposal.getStatus())) return;
+        try {
+            Map<String,Object> snapshot = objectMapper.readValue(StringUtils.defaultIfBlank(proposal.getTemplateSnapshotJson(), "{}"), Map.class);
+            Object raw = snapshot.get("draftPlan");
+            if (!(raw instanceof Map)) return;
+            Map<String,Object> draft = (Map<String,Object>) raw;
+            proposal.setRevenueLines((List<Map<String,Object>>) draft.get("revenueLines"));
+            proposal.setExpenseLines((List<Map<String,Object>>) draft.get("expenseLines"));
+            proposal.setTargetLines((List<Map<String,Object>>) draft.get("targetLines"));
+            proposal.setStaffingLines((List<Map<String,Object>>) draft.get("staffingLines"));
+            proposal.setBudget((Map<String,Object>) snapshot.get("budget"));
+            proposal.setDailyBudgetLimit(proposal.getBudget().get("dailyLimit") == null ? null : new BigDecimal(String.valueOf(proposal.getBudget().get("dailyLimit"))));
+            proposal.setStartupBudgetLimit(proposal.getBudget().get("startupLimit") == null ? null : new BigDecimal(String.valueOf(proposal.getBudget().get("startupLimit"))));
+        } catch (Exception ex) { throw new ServiceException("读取草稿内容失败，请重新打开申请"); }
+    }
+
     private void normalizeAndValidate(BusinessProjectProposal proposal)
     {
         if (proposal == null || StringUtils.isBlank(proposal.getProjectName())) throw new ServiceException("项目名称不能为空");
@@ -333,6 +443,11 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         if (StringUtils.isBlank(proposal.getApplicationReason())) throw new ServiceException("请填写立项理由");
         if (proposal.getApplicationReason().length() > 2000) throw new ServiceException("立项理由不能超过2000个字符");
         if (proposal.getPlanStartDate() == null) throw new ServiceException("请选择计划开始日期");
+        if (proposal.getBudget() != null && Boolean.FALSE.equals(proposal.getBudget().get("projectOpenEnded")) && proposal.getPlanEndDate() == null)
+            throw new ServiceException("请选择计划结束日期或勾选不限期");
+        if (isNewTemplate(proposal) && proposal.getPlanEndDate() == null && proposal.getBudget() != null
+            && StringUtils.isBlank(text(proposal.getBudget().get("anchorDate"))))
+            throw new ServiceException("请选择预算所属期间");
         if (proposal.getPlanEndDate() != null && proposal.getPlanStartDate().after(proposal.getPlanEndDate()))
             throw new ServiceException("计划结束日期不能早于开始日期");
         if (StringUtils.isBlank(proposal.getProjectType())) proposal.setProjectType("GENERAL");
@@ -649,14 +764,13 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         if (Arrays.asList("PROFIT", "HYBRID").contains(mode)
             && (proposal.getEstimatedRevenue() == null || proposal.getEstimatedRevenue().signum() <= 0))
             throw new ServiceException("盈利型、混合型项目启动前须填写正常场景预计收入，合计须大于0；可先保存草稿");
-        if (Arrays.asList("VALUE", "HYBRID").contains(mode)
-            && (proposal.getTargetLines() == null || proposal.getTargetLines().isEmpty()))
-            throw new ServiceException("价值型、混合型项目启动前须填写至少一项可验收目标；可先保存草稿");
+        if (proposal.getTargetLines() == null || proposal.getTargetLines().isEmpty())
+            throw new ServiceException("项目启动前须填写至少一项可验收目标；可先保存草稿");
     }
 
     private boolean usesTargetLines(BusinessProjectProposal proposal)
     {
-        return !"NO_TOTAL".equals(proposal.getGoalMode())
+        return isNewTemplate(proposal) || !"NO_TOTAL".equals(proposal.getGoalMode())
             || Arrays.asList("VALUE", "HYBRID").contains(proposal.getAccountingMode());
     }
 
@@ -725,6 +839,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             proposal.setStaffingLines(staffing);
         }
         proposal.setTargetLines(mapper.selectTargetLines(proposal.getProposalId()));
+        restoreIncompleteDraft(proposal);
     }
 
     private void normalizeStoredBudgetForMode(BusinessProjectProposal proposal)

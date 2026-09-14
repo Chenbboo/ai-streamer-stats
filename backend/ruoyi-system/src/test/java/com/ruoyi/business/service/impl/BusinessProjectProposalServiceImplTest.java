@@ -179,7 +179,7 @@ class BusinessProjectProposalServiceImplTest
     }
 
     @Test
-    void createDiscardsHiddenTargetsForContinuousOperation()
+    void createKeepsOptionalTargetsForContinuousOperation()
     {
         proposal.setProposalId(null);
         proposal.setGoalMode("NO_TOTAL");
@@ -195,7 +195,7 @@ class BusinessProjectProposalServiceImplTest
         when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","审批老板"));
         doAnswer(invocation -> {
             BusinessProjectProposal input = invocation.getArgument(0);
-            assertEquals(0,input.getTargetLines().size());
+            assertEquals(1,input.getTargetLines().size());
             input.setProposalId(77L); input.setStatus("DRAFT"); input.setVersion(0); input.setSubmissionVersion(0);
             return 1;
         }).when(mapper).insertProposal(any(BusinessProjectProposal.class));
@@ -205,8 +205,8 @@ class BusinessProjectProposalServiceImplTest
         BusinessProjectProposal created = service.create(proposal,9L,"applicant9");
 
         assertEquals("NO_TOTAL",created.getGoalMode());
-        assertEquals(0,created.getTargetLines().size());
-        verify(mapper,never()).insertTargetLine(any());
+
+        verify(mapper).insertTargetLine(any());
     }
 
     @Test
@@ -412,6 +412,7 @@ class BusinessProjectProposalServiceImplTest
     @CsvSource({"2026-09-08,FOLLOW_PROJECT", "2026-09-15,UNLIMITED"})
     void savedOpenEndedDraftWithoutModeCanLaunch(String staffStart,String expectedMode)
     {
+        stubAcceptanceTarget();
         proposal.setAccountingMode("COST");
         proposal.setTemplateVersion("LIGHT_V1");proposal.setStatus("DRAFT");proposal.setAcceptanceCriteria("交付文件");
         proposal.setPlanStartDate(java.sql.Date.valueOf("2026-09-08"));proposal.setPlanEndDate(null);
@@ -447,6 +448,7 @@ class BusinessProjectProposalServiceImplTest
     @CsvSource({"DIRECT", "RESULT_ACCEPTANCE", "STAGED_ACCEPTANCE"})
     void lightTemplateLaunchesWithoutAcceptanceCriteriaBudgetStaffCostRevenueKpiOrBonus(String closeMethod)
     {
+        stubAcceptanceTarget();
         proposal.setAccountingMode("COST");
         proposal.setTemplateVersion("LIGHT_V1");proposal.setStatus("DRAFT");proposal.setBudgetLimit(null);
         proposal.setCloseMethod(closeMethod);proposal.setAcceptanceCriteria(null);
@@ -470,6 +472,7 @@ class BusinessProjectProposalServiceImplTest
         "CONTROLLED_V1,PENDING", "CONTROLLED_V1,RETURNED", "SERVICE_V1,WITHDRAWN"})
     void everyProposalLaunchesDirectlyIncludingPendingApplications(String templateVersion, String status) throws Exception
     {
+        stubAcceptanceTarget();
         proposal.setAccountingMode("COST");
         proposal.setTemplateVersion(templateVersion);proposal.setStatus(status);proposal.setBudgetLimit(null);proposal.setAcceptanceCriteria("交付文件验收");
         proposal.setPlanEndDate(null);
@@ -709,8 +712,15 @@ class BusinessProjectProposalServiceImplTest
         return row;
     }
 
+    private void stubAcceptanceTarget()
+    {
+        when(mapper.selectTargetLines(77L)).thenReturn(Collections.singletonList(BusinessProjectWorkServiceTest.row(
+            "targetType","DELIVERY","targetName","成果交付","acceptanceEvidence","交付文件验收通过")));
+    }
+
     @ParameterizedTest
-    @CsvSource({"COST,0,false,true", "PROFIT,0,false,false", "PROFIT,100,false,true",
+    @CsvSource({"COST,0,false,false", "COST,0,true,true", "PROFIT,0,false,false", "PROFIT,100,false,false",
+        "PROFIT,0,true,false", "PROFIT,100,true,true",
         "VALUE,0,false,false", "VALUE,0,true,true", "HYBRID,100,false,false",
         "HYBRID,0,true,false", "HYBRID,100,true,true"})
     void accountingModeRequirementsAreCheckedAtLaunch(String mode,String revenue,boolean target,boolean allowed)
@@ -735,16 +745,101 @@ class BusinessProjectProposalServiceImplTest
         verify(projectService,never()).createApprovedProject(any(),any(),any());
     }
 
-    @Test
-    void continuousValueProjectKeepsQualitativeGoalWithoutNumericEntry()
+    @ParameterizedTest
+    @CsvSource({"COST", "PROFIT", "VALUE", "HYBRID"})
+    void continuousProjectKeepsQualitativeGoalWithoutNumericEntry(String mode)
     {
-        proposal.setAccountingMode("VALUE");proposal.setGoalMode("NO_TOTAL");proposal.setTemplateVersion("LIGHT_V1");proposal.setForecastDays(1);
+        proposal.setAccountingMode(mode);proposal.setGoalMode("NO_TOTAL");proposal.setTemplateVersion("LIGHT_V1");proposal.setForecastDays(1);
         Map<String,Object> target=BusinessProjectWorkServiceTest.row("targetType","DELIVERY","targetName","系统上线","acceptanceEvidence","验收通过");
         proposal.setTargetLines(Collections.singletonList(target));
         org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeBusinessPlan",proposal);
         assertEquals(1,proposal.getTargetLines().size());assertEquals(BigDecimal.ONE,target.get("targetValue"));assertEquals("项",target.get("unit"));
+        proposal.setEstimatedRevenue(new BigDecimal("100"));
         service.validateAccountingRequirements(proposal);
         proposal.getTargetLines().get(0).put("acceptanceEvidence","");
         assertThrows(ServiceException.class,()->org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeBusinessPlan",proposal));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"COST", "PROFIT", "VALUE", "HYBRID"})
+    void incompleteDraftPreservesAllInputAndCannotLaunch(String mode)
+    {
+        proposal.setSaveAsDraft(true);proposal.setProposalId(null);proposal.setAccountingMode(mode);
+        proposal.setProjectName(null);proposal.setObjective(null);proposal.setApplicationReason(null);
+        proposal.setCompanyDeptId(null);proposal.setSponsorOwnerUserId(null);proposal.setPlanStartDate(null);proposal.setPlanEndDate(null);
+        proposal.setRevenueLines(Collections.singletonList(BusinessProjectWorkServiceTest.row("itemName","未填金额")));
+        proposal.setTargetLines(Collections.singletonList(BusinessProjectWorkServiceTest.row("targetName","未填验收依据")));
+        proposal.setExpenseLines(Collections.singletonList(BusinessProjectWorkServiceTest.row("purpose","未填金额")));
+        proposal.setStaffingLines(Collections.singletonList(BusinessProjectWorkServiceTest.row("userId",9,"note","保留备注","dailyCostSnapshot",9999)));
+        proposal.setBudget(BusinessProjectWorkServiceTest.row("mode","TOTAL","projectOpenEnded",false));
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
+        doAnswer(call->{proposal.setProposalId(77L);proposal.setStatus("DRAFT");return 1;}).when(mapper).insertProposal(any());
+        when(mapper.selectById(77L)).thenReturn(proposal);
+        BusinessProjectProposal saved=service.create(proposal,9L,"applicant9");
+        assertEquals("",saved.getProjectName());assertEquals(null,saved.getPlanStartDate());
+        assertEquals("未填金额",saved.getRevenueLines().get(0).get("itemName"));
+        assertEquals("未填验收依据",saved.getTargetLines().get(0).get("targetName"));
+        assertEquals("未填金额",saved.getExpenseLines().get(0).get("purpose"));
+        assertEquals("保留备注",saved.getStaffingLines().get(0).get("note"));
+        assertEquals(false,saved.getStaffingLines().get(0).containsKey("dailyCostSnapshot"));
+        assertEquals(false,saved.getBudget().get("projectOpenEnded"));
+        verify(mapper,never()).insertRevenueLine(any());verify(mapper,never()).insertTargetLine(any());
+        assertThrows(ServiceException.class,()->service.submit(77L,9L,"applicant9"));
+        verify(projectService,never()).createApprovedProject(any(),any(),any());
+    }
+
+    @Test
+    void draftSaveStillRejectsInvalidCompanyAndDoesNotOverwriteOtherApplicants()
+    {
+        proposal.setSaveAsDraft(true);proposal.setTemplateVersion("LIGHT_V1");
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
+        assertThrows(ServiceException.class,()->service.create(proposal,9L,"applicant9"));
+        verify(mapper,never()).insertProposal(any());
+        proposal.setApplicantUserId(12L);when(mapper.selectById(77L)).thenReturn(proposal);
+        assertThrows(ServiceException.class,()->service.update(proposal,9L,"applicant9"));
+        verify(mapper,never()).updateDraft(any());
+    }
+
+    @Test
+    void finiteDraftMissingEndDateCannotBeTreatedAsUnlimitedAtLaunch()
+    {
+        proposal.setTemplateVersion("LIGHT_V1");proposal.setPlanEndDate(null);
+        proposal.setBudget(BusinessProjectWorkServiceTest.row("projectOpenEnded",false));
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
+        when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","老板"));
+        when(mapper.selectCompany(111L)).thenReturn(Collections.singletonMap("deptId",111L));
+        ServiceException error=assertThrows(ServiceException.class,()->org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeAndValidate",proposal));
+        assertEquals("请选择计划结束日期或勾选不限期",error.getMessage());
+    }
+
+    @Test
+    void draftRoundTripKeepsHistoricalRevenueInputsAndTargetWeight()
+    {
+        proposal.setSaveAsDraft(true);proposal.setProposalId(null);
+        proposal.setRevenueLines(Collections.singletonList(BusinessProjectWorkServiceTest.row("itemName","收入","unitPrice",20,"quantity",500,"conversionRate",0.8)));
+        proposal.setTargetLines(Collections.singletonList(BusinessProjectWorkServiceTest.row("targetName","目标","weight",30)));
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
+        when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","老板"));
+        when(mapper.selectCompany(111L)).thenReturn(Collections.singletonMap("deptId",111L));
+        doAnswer(call->{proposal.setProposalId(77L);proposal.setStatus("DRAFT");return 1;}).when(mapper).insertProposal(any());
+        when(mapper.selectById(77L)).thenReturn(proposal);
+        BusinessProjectProposal saved=service.create(proposal,9L,"applicant9");
+        assertEquals(20,saved.getRevenueLines().get(0).get("unitPrice"));
+        assertEquals(500,saved.getRevenueLines().get(0).get("quantity"));
+        assertEquals(0.8,saved.getRevenueLines().get(0).get("conversionRate"));
+        assertEquals(30,saved.getTargetLines().get(0).get("weight"));
+    }
+
+    @Test
+    void unlimitedProjectCannotLaunchWithoutExplicitBudgetPeriod()
+    {
+        proposal.setTemplateVersion("LIGHT_V1");proposal.setPlanEndDate(null);
+        proposal.setBudget(BusinessProjectWorkServiceTest.row("projectOpenEnded",true,"cycle","MONTH"));
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
+        when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","老板"));
+        when(mapper.selectCompany(111L)).thenReturn(Collections.singletonMap("deptId",111L));
+        ServiceException error=assertThrows(ServiceException.class,()->org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeAndValidate",proposal));
+        assertEquals("请选择预算所属期间",error.getMessage());
+        verify(projectService,never()).createApprovedProject(any(),any(),any());
     }
 }

@@ -184,6 +184,7 @@
                   or p.main_owner_name like concat('%',#{keyword},'%'))
             </if>
             <if test="status != null and status != ''">and p.status=#{status}</if>
+            <if test="projectType != null and projectType != ''">and p.project_type=#{projectType}</if>
             <if test="accountingMode != null and accountingMode != ''">and p.accounting_mode=#{accountingMode}</if>
             <if test="managementMode != null and managementMode != ''">and p.management_mode=#{managementMode}</if>
             <if test="closeMethod != null and closeMethod != ''">and p.close_method=#{closeMethod}</if>
@@ -212,6 +213,7 @@
                 or ${alias}.main_owner_name like concat('%',#{keyword},'%'))
         </if>
         <if test="status != null and status != ''">and ${alias}.status=#{status}</if>
+        <if test="projectType != null and projectType != ''">and ${alias}.project_type=#{projectType}</if>
         <if test="managementMode != null and managementMode != ''">and ${alias}.management_mode=#{managementMode}</if>
         <if test="closeMethod != null and closeMethod != ''">and ${alias}.close_method=#{closeMethod}</if>
     </sql>
@@ -220,7 +222,7 @@
         select <include refid="projectColumns"/>,
           case when (<include refid="hierarchyAccess"><property name="alias" value="p"/></include>) then 0 else 1 end context_only,
           <choose>
-            <when test="(keyword != null and keyword != '') or (status != null and status != '') or (managementMode != null and managementMode != '') or (closeMethod != null and closeMethod != '')">
+            <when test="(keyword != null and keyword != '') or (status != null and status != '') or (projectType != null and projectType != '') or (managementMode != null and managementMode != '') or (closeMethod != null and closeMethod != '')">
                 (select min(c.project_id) from biz_project c where c.parent_id=p.project_id and c.del_flag='0'
                   and (<include refid="hierarchyAccess"><property name="alias" value="c"/></include>)
                   <include refid="hierarchyFilters"><property name="alias" value="c"/></include>)
