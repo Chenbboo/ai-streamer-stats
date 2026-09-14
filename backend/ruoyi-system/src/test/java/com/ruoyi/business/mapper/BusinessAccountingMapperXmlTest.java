@@ -70,9 +70,13 @@ class BusinessAccountingMapperXmlTest
         int end=xml.indexOf("</select>",start);
         assertTrue(start>=0&&end>start);
         String query=xml.substring(start,end);
-        assertTrue(query.contains("p.status in('ACTIVE','ACCEPTANCE')"));
+        assertFalse(query.contains("p.status in('ACTIVE','ACCEPTANCE')"));
         assertTrue(query.contains("exists(select 1 from biz_operating_fact"));
-        assertTrue(query.contains("or exists(select 1 from biz_project_staff_allocation"));
+        assertTrue(query.contains("and exists(select 1 from biz_project_staff_allocation"));
+        assertTrue(query.contains("not in('MEMBER_DAYS_V1','ACTUAL_WORK_V1')"));
+        assertTrue(query.contains("from biz_project_member_day_cost c"));
+        assertTrue(query.contains("from biz_project_work_entry e"));
+        assertTrue(query.contains("from biz_project_resource_day d"));
         assertTrue(query.contains("not exists(select 1 from biz_project_daily_result"));
         assertFalse(query.contains("join biz_project_staff_allocation a on"));
     }

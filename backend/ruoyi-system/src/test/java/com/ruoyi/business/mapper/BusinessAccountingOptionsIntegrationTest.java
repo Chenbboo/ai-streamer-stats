@@ -30,13 +30,14 @@ class BusinessAccountingOptionsIntegrationTest
         dataSource=new UnpooledDataSource("org.h2.Driver","jdbc:h2:mem:accounting_options_"+UUID.randomUUID().toString().replace("-","")+";MODE=MySQL;DATABASE_TO_UPPER=FALSE;DB_CLOSE_DELAY=-1","sa","");
         execute("create table sys_dept(dept_id bigint primary key,dept_name varchar(100),del_flag varchar(1),status varchar(1),parent_id bigint,order_num int)",
             "create table biz_project(project_id bigint primary key,project_no varchar(50),project_name varchar(100),company_dept_id bigint,accounting_mode varchar(32),base_currency varchar(3),initiator_name varchar(100),status varchar(24),delivery_policy_version varchar(32),accounting_state varchar(24),actual_end_date date,cost_policy_version varchar(32),sponsor_owner_user_id bigint,initiator_user_id bigint,del_flag varchar(1))",
-            "create table biz_project_work_entry(entry_id bigint primary key,project_id bigint,status varchar(24),is_current varchar(1))",
-            "create table biz_project_work_cost(entry_id bigint primary key,pricing_status varchar(24))",
+            "create table biz_project_work_entry(entry_id bigint primary key,project_id bigint,status varchar(24),is_current varchar(1),biz_date date default '2026-09-13')",
+            "create table biz_project_work_cost(entry_id bigint primary key,pricing_status varchar(24),amount decimal(20,2) default 100)",
+            "create table biz_project_member_day_cost(project_id bigint,biz_date date,pricing_status varchar(24),amount decimal(20,2))",
             "create table biz_project_work_event(entry_id bigint primary key,status varchar(24))",
             "insert into sys_dept values(110,'target-company','0','0',100,1),(111,'other-company','0','0',100,2)",
             "insert into biz_project values(1,'P1','target-project',110,'PROFIT','CNY','creator8','ACTIVE','SEPARATED_V1','OPEN',null,'ACTUAL_WORK_V1',9,8,'0'),(2,'P2','legacy-sponsor-fallback',111,'PROFIT','CNY','creator9','ACTIVE','SEPARATED_V1','OPEN',null,'ACTUAL_WORK_V1',null,9,'0'),(3,'P3','foreign-project',111,'PROFIT','CNY','creator10','ACTIVE','SEPARATED_V1','OPEN',null,'ACTUAL_WORK_V1',10,10,'0')",
-            "insert into biz_project_work_entry values(11,1,'CONFIRMED','1'),(12,1,'CONFIRMED','1'),(13,1,'SUPERSEDED','0'),(21,2,'CONFIRMED','1'),(31,3,'CONFIRMED','1')",
-            "insert into biz_project_work_cost values(12,'PRICED')",
+            "insert into biz_project_work_entry(entry_id,project_id,status,is_current) values(11,1,'CONFIRMED','1'),(12,1,'CONFIRMED','1'),(13,1,'SUPERSEDED','0'),(21,2,'CONFIRMED','1'),(31,3,'CONFIRMED','1')",
+            "insert into biz_project_work_cost(entry_id,pricing_status) values(12,'PRICED')",
             "insert into biz_project_work_event values(12,'PENDING')");
         Configuration config=new Configuration(new Environment("test",new JdbcTransactionFactory(),dataSource));
         for(String name:Arrays.asList("BusinessAccountingMapper","BusinessProjectWorkMapper"))
@@ -69,7 +70,11 @@ class BusinessAccountingOptionsIntegrationTest
             Map<String,Object> pending=service.dashboard(query,9L,false);
             assertEquals(2,pending.get("pendingCostCount"));assertEquals("PENDING_COST",pending.get("costDataStatus"));
             assertEquals(1,service.dashboard(Collections.singletonMap("companyDeptId",111L),9L,false).get("pendingCostCount"));
-            execute("insert into biz_project_work_cost values(11,'PRICED')","update biz_project_work_event set status='DONE' where entry_id=12");session.clearCache();
+            Map<String,Object> dated=new HashMap<>(query);dated.put("dateFrom","2026-09-13");dated.put("dateTo","2026-09-13");
+            assertEquals(2,service.dashboard(dated,9L,false).get("pendingCostCount"));
+            dated.put("dateFrom","2026-09-14");dated.put("dateTo","2026-09-14");
+            assertEquals(0,service.dashboard(dated,9L,false).get("pendingCostCount"));
+            execute("insert into biz_project_work_cost(entry_id,pricing_status) values(11,'PRICED')","update biz_project_work_event set status='DONE' where entry_id=12");session.clearCache();
             assertEquals(0,service.dashboard(query,9L,false).get("pendingCostCount"));
         }
     }
@@ -111,6 +116,7 @@ class BusinessAccountingOptionsIntegrationTest
         BusinessAccountingMapper actual=session.getMapper(BusinessAccountingMapper.class),bridge=mock(BusinessAccountingMapper.class);
         when(bridge.selectProjectOptions(anyLong(),anyBoolean(),anyBoolean())).thenAnswer(call->actual.selectProjectOptions(call.getArgument(0),call.getArgument(1),call.getArgument(2)));
         when(bridge.selectCompanies()).thenAnswer(call->actual.selectCompanies());
+        when(bridge.countPendingCostsInRange(anyMap())).thenAnswer(call->actual.countPendingCostsInRange(call.getArgument(0)));
         if(project!=null)when(bridge.selectProjectForAccounting(1L)).thenReturn(project);
         BusinessAccountingServiceImpl service=new BusinessAccountingServiceImpl();ReflectionTestUtils.setField(service,"mapper",bridge);ReflectionTestUtils.setField(service,"workMapper",session.getMapper(BusinessProjectWorkMapper.class));return service;
     }
