@@ -277,4 +277,9 @@ from (
   union all
   select count(*) from (select routine_id,biz_date from biz_project_routine_daily_target
     where status='CURRENT' group by routine_id,biz_date having count(*)>1) duplicate_target
+  union all
+  select if(count(*)=3,0,1) from information_schema.columns where table_schema=database()
+    and table_name='biz_project_proposal'
+    and column_name in ('sponsor_owner_user_id','company_dept_id','plan_start_date')
+    and is_nullable='YES'
 ) release_gate;
