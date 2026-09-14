@@ -13,6 +13,9 @@ public class BusinessProjectProposal extends BaseEntity
     private static final long serialVersionUID = 1L;
 
     private Boolean saveAsDraft;
+    private String createRequestKey;
+    public String getCreateRequestKey() { return createRequestKey; }
+    public void setCreateRequestKey(String value) { createRequestKey = value; }
     public Boolean getSaveAsDraft() { return saveAsDraft; }
     public void setSaveAsDraft(Boolean value) { saveAsDraft = value; }
 

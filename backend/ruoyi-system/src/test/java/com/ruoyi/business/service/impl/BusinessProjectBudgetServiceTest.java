@@ -54,6 +54,19 @@ class BusinessProjectBudgetServiceTest
     {p.setPlanStartDate(Date.valueOf("2026-09-15"));staff.put("planStartDate","2026-09-15");Map<String,Object> b=service.estimate(p);assertEquals("2026-09-15",b.get("startDate"));assertEquals("2026-09-30",b.get("endDate"));assertEquals(new BigDecimal("12000.00"),b.get("personnelAmount"));}
     @Test void weeklyBudgetUsesMondayThroughSunday()
     {p.getBudget().put("cycle","WEEK");p.getBudget().put("anchorDate","2026-09-20");Map<String,Object> b=service.estimate(p);assertEquals("2026-09-14",b.get("startDate"));assertEquals("2026-09-20",b.get("endDate"));assertEquals(new BigDecimal("5000.00"),b.get("personnelAmount"));}
+    @Test void weeklyOneTimeIncomeAndExpenseUseExactDates()
+    {
+        p.getBudget().put("cycle","WEEK");p.getBudget().put("anchorDate","2026-09-14");
+        p.getBudget().put("businessAmount",2000);
+        p.setRevenueLines(Arrays.asList(row("scenario","BASE","expectedAmount",1000,"occurrenceType","ONE_TIME","expectedDate","2026-09-15"),
+            row("scenario","BASE","expectedAmount",7000,"occurrenceType","ONE_TIME","expectedDate","2026-09-01")));
+        p.setExpenseLines(Arrays.asList(row("amount",800,"occurrenceType","ONE_TIME","occurDate","2026-09-15"),
+            row("amount",6000,"occurrenceType","ONE_TIME","occurDate","2026-09-21")));
+        Map<String,Object> budget=service.estimate(p);
+        assertEquals(new BigDecimal("1000.00"),budget.get("revenueAmount"));
+        assertEquals(new BigDecimal("800.00"),budget.get("plannedBusinessAmount"));
+        assertEquals("READY",budget.get("status"));
+    }
     @Test void quarterlyBudgetUsesSelectedThreeMonthsAcrossYearBoundary()
     {
         p.getBudget().put("cycle","QUARTER");p.getBudget().put("anchorDate","2026-11-15");

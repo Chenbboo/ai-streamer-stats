@@ -8,7 +8,6 @@
     <el-card shadow="never" class="filter-card">
       <el-form :inline="true" :model="query" @submit.prevent>
         <el-form-item><el-input v-model="query.keyword" clearable placeholder="项目名称 / 编号 / 负责人" style="width:240px" @keyup.enter="search" /></el-form-item>
-        <el-form-item><el-select v-model="query.projectType" clearable placeholder="全部项目类型" style="width:140px"><el-option v-for="(label,key) in typeLabel" :key="key" :label="label" :value="key" /></el-select></el-form-item>
         <el-form-item><el-select v-model="query.status" clearable placeholder="全部状态" style="width:140px"><el-option v-for="(label,key) in statusLabel" :key="key" :label="label" :value="key" /></el-select></el-form-item>
         <el-form-item><el-select v-model="query.managementMode" clearable placeholder="全部管理模式" style="width:145px"><el-option label="轻量" value="LIGHT"/><el-option label="标准" value="STANDARD"/><el-option label="重点监管" value="KEY_CONTROL"/></el-select></el-form-item>
         <el-form-item><el-select v-model="query.closeMethod" clearable placeholder="全部结项方式" style="width:145px"><el-option v-for="(label,key) in closeMethodLabel" :key="key" :label="label" :value="key" /></el-select></el-form-item>
@@ -348,7 +347,7 @@ const cockpit=ref({summary:{},results:[]}),cockpitLoading=ref(false),cockpitErro
 let cockpitRequest=0
 const kpiDialog=ref(false),kpiForm=reactive({}),allocationDialog=ref(false),allocationForm=reactive({}),allocationDates=ref([]),allocationFollowProject=ref(true)
 const routineDialog=ref(false),routineForm=reactive({}),routineLongTerm=ref(false)
-const query = reactive({ pageNum: 1, pageSize: 10, keyword: '', projectType:'', status: '', managementMode:'', closeMethod:'' })
+const query = reactive({ pageNum: 1, pageSize: 10, keyword: '', status: '', managementMode:'', closeMethod:'' })
 const statusLabel = { DRAFT:'草稿', PLANNING:'规划中', ACTIVE:'执行中', PAUSED:'已暂停', ACCEPTANCE:'待验收', CLOSED:'已关闭', CANCELED:'已取消' }
 const statusTone = { DRAFT:'info', PLANNING:'warning', ACTIVE:'primary', PAUSED:'info', ACCEPTANCE:'success', CLOSED:'success', CANCELED:'danger' }
 const typeLabel = { LIVE:'直播', JEWELRY:'珠宝', ECOMMERCE:'电商', OPERATIONS:'运营', INTERNAL:'内部', GENERAL:'通用', OTHER:'其他' }
@@ -562,7 +561,7 @@ const availableActions = computed(() => {
 
 async function load() { await hierarchyTable.value?.refresh() }
 function search(){ appliedQuery.value={...query} }
-function resetQuery(){ query.keyword=''; query.projectType=''; query.status=''; query.managementMode='';query.closeMethod='';search() }
+function resetQuery(){ query.keyword=''; query.status=''; query.managementMode='';query.closeMethod='';search() }
 async function openDetail(row){ const res=await getBusinessProject(row.projectId); detail.value=res.data;activeTab.value=route.query.tab||'overview'; detailVisible.value=true; router.replace({query:{...route.query,id:row.projectId}}); await Promise.all([loadOperatingConfig(),loadKpiClosureState(),loadCockpit()]) }
 function openProjectAccountingEntry(action){if(!detail.value?.projectId)return;router.push({path:'/business/accounting',query:{action,projectId:detail.value.projectId}})}
 async function refreshDetail(){ if(!detail.value)return; detail.value=(await getBusinessProject(detail.value.projectId)).data; await Promise.all([load(),loadOperatingConfig(),loadKpiClosureState(),loadCockpit()]) }

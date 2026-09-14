@@ -124,7 +124,7 @@
 
     <el-dialog v-model="targetDialog" :title="targetForm.kpiId ? '调整项目KPI目标' : '新增项目KPI'" width="min(680px,94vw)" append-to-body>
       <el-alert title="KPI只评价项目，不指定个人考核对象；已发布方案继续使用原目标快照。" type="info" :closable="false" show-icon />
-      <el-form :model="targetForm" label-width="92px" class="dialog-form">
+      <el-form :model="targetForm" label-width="112px" class="dialog-form">
         <el-form-item v-if="!targetForm.kpiId && proposalTargetOptions.length" label="引用立项目标">
           <el-select v-model="selectedProposalTarget" filterable placeholder="选择后自动带入，可继续调整" style="width:100%" @change="useProposalTarget">
             <el-option v-for="item in proposalTargetOptions" :key="item.key" :label="item.label" :value="item.key" />

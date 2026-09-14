@@ -282,4 +282,11 @@ from (
     and table_name='biz_project_proposal'
     and column_name in ('sponsor_owner_user_id','company_dept_id','plan_start_date')
     and is_nullable='YES'
+  union all
+  select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
+    and table_name='biz_project_proposal' and column_name='create_request_key'
+  union all
+  select if(count(*)=2,0,1) from information_schema.statistics where table_schema=database()
+    and table_name='biz_project_proposal' and index_name='uk_proposal_create_request' and non_unique=0
+    and ((seq_in_index=1 and column_name='applicant_user_id') or (seq_in_index=2 and column_name='create_request_key'))
 ) release_gate;

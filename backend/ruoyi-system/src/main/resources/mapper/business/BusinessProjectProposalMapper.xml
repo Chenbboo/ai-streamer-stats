@@ -143,9 +143,26 @@
         where p.proposal_id=#{proposalId} and p.del_flag='0'
     </select>
 
+    <select id="lockCreateApplicant" resultType="long">
+        select user_id from sys_user where user_id=#{userId} for update
+    </select>
+    <select id="selectCreateRequest" resultType="map">
+        select proposal_id as proposalId,del_flag as delFlag from biz_project_proposal
+        where applicant_user_id=#{userId} and create_request_key=#{requestKey} for update
+    </select>
+    <select id="canReadCompanyRates" resultType="int">
+        select count(*) from sys_dept company
+        where company.dept_id=#{companyDeptId} and company.parent_id=100
+          and company.status='0' and company.del_flag='0'
+          and (company.leader_user_id=#{userId} or exists (
+            select 1 from sys_user u join sys_dept d on d.dept_id=u.dept_id
+            where u.user_id=#{userId} and u.del_flag='0' and u.status='0'
+              and d.del_flag='0' and d.status='0'
+              and (d.dept_id=company.dept_id or find_in_set(company.dept_id,d.ancestors)>0)))
+    </select>
     <insert id="insertProposal" parameterType="com.ruoyi.business.domain.BusinessProjectProposal"
             useGeneratedKeys="true" keyProperty="proposalId">
-        insert into biz_project_proposal(proposal_no,submission_version,project_name,template_version,template_snapshot_json,applicant_user_id,applicant_name,
+        insert into biz_project_proposal(create_request_key,proposal_no,submission_version,project_name,template_version,template_snapshot_json,applicant_user_id,applicant_name,
           sponsor_owner_user_id,sponsor_owner_name,company_dept_id,parent_project_id,assigned_owner_user_id,assigned_owner_name,project_type,accounting_mode,
           management_mode,close_method,management_reason,acceptance_criteria,goal_mode,objective,application_reason,
           plan_start_date,plan_end_date,priority,base_currency,
@@ -156,7 +173,7 @@
           recurring_estimated_total_cost,recurring_expected_profit,expected_margin,break_even_revenue,
           peak_cash_need,planned_headcount,funding_plan,key_assumptions,
           risk_summary,stop_loss_rule,execution_source,status,version,del_flag,create_by,create_time,update_by,update_time,remark)
-        values(#{proposalNo},0,#{projectName},#{templateVersion},#{templateSnapshotJson},#{applicantUserId},#{applicantName},#{sponsorOwnerUserId},#{sponsorOwnerName},
+        values(#{createRequestKey},#{proposalNo},0,#{projectName},#{templateVersion},#{templateSnapshotJson},#{applicantUserId},#{applicantName},#{sponsorOwnerUserId},#{sponsorOwnerName},
           #{companyDeptId},#{parentProjectId},#{assignedOwnerUserId},#{assignedOwnerName},#{projectType},#{accountingMode},#{managementMode},#{closeMethod},
           #{managementReason},#{acceptanceCriteria},#{goalMode},#{objective},#{applicationReason},#{planStartDate},#{planEndDate},
           #{priority},#{baseCurrency},#{budgetLimit},#{noBudget},#{budgetMode},#{dailyBudgetLimit},#{budgetScope},

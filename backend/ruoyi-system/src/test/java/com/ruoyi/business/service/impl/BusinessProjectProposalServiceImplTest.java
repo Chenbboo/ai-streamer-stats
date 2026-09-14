@@ -74,6 +74,7 @@ class BusinessProjectProposalServiceImplTest
     @CsvSource({"1,true", "9,true"})
     void staffOptionsExposeBudgetRatesToAdminAndProposalPlanner(Long userId,boolean visible)
     {
+        if(userId!=1L)when(mapper.canReadCompanyRates(userId,111L)).thenReturn(1);
         when(mapper.selectActiveUser(userId)).thenReturn(BusinessProjectWorkServiceTest.row("userId",userId));
         when(mapper.selectCompany(111L)).thenReturn(BusinessProjectWorkServiceTest.row("deptId",111L));
         when(mapper.selectStaffOptions(eq(111L),any())).thenReturn(Collections.singletonList(
@@ -84,6 +85,58 @@ class BusinessProjectProposalServiceImplTest
         assertEquals(visible,staff.containsKey("costCurrency"));assertEquals(7L,staff.get("userId"));
         assertEquals(new BigDecimal("21750"),staff.get("monthlyCost"));
         assertEquals(new BigDecimal("1000"),staff.get("dailyCost"));
+    }
+
+    @Test
+    void foreignCompanyStaffOptionsKeepIdentityButRemoveEveryRateField()
+    {
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"planner","立项人员"));
+        when(mapper.selectCompany(222L)).thenReturn(Collections.singletonMap("deptId",222L));
+        Map<String,Object> original=BusinessProjectWorkServiceTest.row("userId",7L,"nickName","其他公司人员",
+            "monthlyCost",22000,"dailyCost",1000,"standardWorkDays",22,"costMode","MONTHLY",
+            "costCurrency","CNY","costPolicyId",1L,"costPolicyVersion",2);
+        when(mapper.selectStaffOptions(eq(222L),any())).thenReturn(Collections.singletonList(original));
+        Map<String,Object> safe=service.staffOptions(222L,"2026-09-01",9L).get(0);
+        assertEquals(BusinessProjectWorkServiceTest.row("userId",7L,"nickName","其他公司人员","rawCostVisible",false),safe);
+        assertEquals(22000,original.get("monthlyCost"));
+    }
+
+    @Test
+    void repeatedCreateReturnsOriginalDraftWithoutInsertingAgain()
+    {
+        proposal.setStatus("DRAFT");
+        String key="proposal-request-123456";
+        BusinessProjectProposal retry=new BusinessProjectProposal();retry.setCreateRequestKey(key);
+        // A forged applicant in the request must not change the replay scope.
+        retry.setApplicantUserId(999L);
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"planner","申请人"));
+        when(mapper.lockCreateApplicant(9L)).thenReturn(9L);
+        when(mapper.selectCreateRequest(9L,key)).thenReturn(BusinessProjectWorkServiceTest.row("proposalId",77L,"delFlag","0"));
+        when(mapper.selectById(77L)).thenReturn(proposal);
+        assertEquals(77L,service.create(retry,9L,"planner").getProposalId());
+        assertEquals(77L,service.create(retry,9L,"planner").getProposalId());
+        verify(mapper,never()).insertProposal(any());
+        verify(mapper,never()).insertEvent(any());
+    }
+
+    @Test
+    void deletedCreateRequestCannotCreateAnotherDraft()
+    {
+        proposal.setCreateRequestKey("proposal-request-123456");
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"planner","申请人"));
+        when(mapper.lockCreateApplicant(9L)).thenReturn(9L);
+        when(mapper.selectCreateRequest(9L,proposal.getCreateRequestKey())).thenReturn(BusinessProjectWorkServiceTest.row("proposalId",77L,"delFlag","2"));
+        assertThrows(ServiceException.class,()->service.create(proposal,9L,"planner"));
+        verify(mapper,never()).insertProposal(any());
+    }
+
+    @Test
+    void invalidCreateRequestKeyRejectedBeforeWrite()
+    {
+        proposal.setCreateRequestKey("bad key");
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"planner","申请人"));
+        assertThrows(ServiceException.class,()->service.create(proposal,9L,"planner"));
+        verify(mapper,never()).insertProposal(any());
     }
 
     @Test
@@ -413,7 +466,7 @@ class BusinessProjectProposalServiceImplTest
     void savedOpenEndedDraftWithoutModeCanLaunch(String staffStart,String expectedMode)
     {
         stubAcceptanceTarget();
-        proposal.setAccountingMode("COST");
+        proposal.setAccountingMode("VALUE");
         proposal.setTemplateVersion("LIGHT_V1");proposal.setStatus("DRAFT");proposal.setAcceptanceCriteria("交付文件");
         proposal.setPlanStartDate(java.sql.Date.valueOf("2026-09-08"));proposal.setPlanEndDate(null);
         proposal.setBudgetMode("NONE");proposal.setBudgetReason("持续经营");
@@ -449,7 +502,7 @@ class BusinessProjectProposalServiceImplTest
     void lightTemplateLaunchesWithoutAcceptanceCriteriaBudgetStaffCostRevenueKpiOrBonus(String closeMethod)
     {
         stubAcceptanceTarget();
-        proposal.setAccountingMode("COST");
+        proposal.setAccountingMode("VALUE");
         proposal.setTemplateVersion("LIGHT_V1");proposal.setStatus("DRAFT");proposal.setBudgetLimit(null);
         proposal.setCloseMethod(closeMethod);proposal.setAcceptanceCriteria(null);
         proposal.setBudgetMode("NONE");proposal.setBudgetReason("本次测试明确不设置预算控制上限");
@@ -473,7 +526,7 @@ class BusinessProjectProposalServiceImplTest
     void everyProposalLaunchesDirectlyIncludingPendingApplications(String templateVersion, String status) throws Exception
     {
         stubAcceptanceTarget();
-        proposal.setAccountingMode("COST");
+        proposal.setAccountingMode("VALUE");
         proposal.setTemplateVersion(templateVersion);proposal.setStatus(status);proposal.setBudgetLimit(null);proposal.setAcceptanceCriteria("交付文件验收");
         proposal.setPlanEndDate(null);
         proposal.setManagementMode("KEY_CONTROL");proposal.setCloseMethod("STAGED_ACCEPTANCE");proposal.setManagementReason("逐阶段检查交付风险");
@@ -686,12 +739,12 @@ class BusinessProjectProposalServiceImplTest
     }
 
     @Test
-    void noTotalModeDiscardsIncompleteHiddenTargets()
+    void noTotalModeRejectsIncompleteAcceptanceTargets()
     {
         proposal.setGoalMode("NO_TOTAL");proposal.setForecastDays(30);
         proposal.setTargetLines(Collections.singletonList(BusinessProjectWorkServiceTest.row("targetType","VALUE")));
-        org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeBusinessPlan",proposal);
-        assertEquals(0,proposal.getTargetLines().size());
+        assertThrows(ServiceException.class,()->org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeBusinessPlan",proposal));
+        assertEquals(1,proposal.getTargetLines().size());
     }
 
     @Test
@@ -712,20 +765,57 @@ class BusinessProjectProposalServiceImplTest
         return row;
     }
 
+
+    private Map<String,Object> expensePlanLine()
+    {
+        return BusinessProjectWorkServiceTest.row("expenseCategory","OTHER","itemName","业务费用",
+            "purpose","业务执行","amount",BigDecimal.ZERO,"occurrenceType","ONE_TIME");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"PROFIT", "VALUE"})
+    void bothModesRequireExpensePlanBeforeLaunch(String mode)
+    {
+        proposal.setAccountingMode(mode);proposal.setEstimatedRevenue(new BigDecimal("100"));proposal.setRevenueLines(Collections.singletonList(BusinessProjectWorkServiceTest.row("scenario","BASE","expectedAmount",100)));
+        proposal.setTargetLines(Collections.singletonList(BusinessProjectWorkServiceTest.row("targetName","验收目标")));
+        proposal.setExpenseLines(Collections.emptyList());
+        ServiceException error=assertThrows(ServiceException.class,()->service.validateAccountingRequirements(proposal));
+        org.junit.jupiter.api.Assertions.assertTrue(error.getMessage().contains("业务支出计划"));
+        proposal.setExpenseLines(Collections.singletonList(expensePlanLine()));
+        proposal.setRiskSummary(null);
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(()->service.validateAccountingRequirements(proposal));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"BASE,11,0,true", "BASE,0,100,false", "OPTIMISTIC,11,100,false", "CONSERVATIVE,11,100,false"})
+    void plannedRevenueRequirementDoesNotUseCurrentPeriodTotal(String scenario,String amount,String periodTotal,boolean allowed)
+    {
+        proposal.setAccountingMode("PROFIT");
+        proposal.setEstimatedRevenue(new BigDecimal(periodTotal));
+        proposal.setRevenueLines(Collections.singletonList(BusinessProjectWorkServiceTest.row(
+            "scenario",scenario,"expectedAmount",amount,"expectedDate","2026-10-01","occurrenceType","DAILY")));
+        proposal.setExpenseLines(Collections.singletonList(expensePlanLine()));
+        proposal.setTargetLines(Collections.singletonList(BusinessProjectWorkServiceTest.row("targetName","验收目标")));
+        if(allowed)org.junit.jupiter.api.Assertions.assertDoesNotThrow(()->service.validateAccountingRequirements(proposal));
+        else assertThrows(ServiceException.class,()->service.validateAccountingRequirements(proposal));
+    }
+
     private void stubAcceptanceTarget()
     {
+        when(mapper.selectExpenseLines(77L)).thenReturn(Collections.singletonList(expensePlanLine()));
         when(mapper.selectTargetLines(77L)).thenReturn(Collections.singletonList(BusinessProjectWorkServiceTest.row(
             "targetType","DELIVERY","targetName","成果交付","acceptanceEvidence","交付文件验收通过")));
     }
 
     @ParameterizedTest
-    @CsvSource({"COST,0,false,false", "COST,0,true,true", "PROFIT,0,false,false", "PROFIT,100,false,false",
+    @CsvSource({"COST,0,false,false", "COST,0,true,false", "PROFIT,0,false,false", "PROFIT,100,false,false",
         "PROFIT,0,true,false", "PROFIT,100,true,true",
         "VALUE,0,false,false", "VALUE,0,true,true", "HYBRID,100,false,false",
-        "HYBRID,0,true,false", "HYBRID,100,true,true"})
+        "HYBRID,0,true,false", "HYBRID,100,true,false"})
     void accountingModeRequirementsAreCheckedAtLaunch(String mode,String revenue,boolean target,boolean allowed)
     {
-        proposal.setAccountingMode(mode);proposal.setEstimatedRevenue(new BigDecimal(revenue));
+        proposal.setExpenseLines(Collections.singletonList(expensePlanLine()));
+        proposal.setAccountingMode(mode);proposal.setEstimatedRevenue(new BigDecimal(revenue));proposal.setRevenueLines(Collections.singletonList(BusinessProjectWorkServiceTest.row("scenario","BASE","expectedAmount",revenue)));
         proposal.setTargetLines(target?Collections.singletonList(BusinessProjectWorkServiceTest.row("targetName","完成上线","acceptanceEvidence","上线验收")):Collections.emptyList());
         if(allowed)org.junit.jupiter.api.Assertions.assertDoesNotThrow(()->service.validateAccountingRequirements(proposal));
         else assertThrows(ServiceException.class,()->service.validateAccountingRequirements(proposal));
@@ -746,15 +836,17 @@ class BusinessProjectProposalServiceImplTest
     }
 
     @ParameterizedTest
-    @CsvSource({"COST", "PROFIT", "VALUE", "HYBRID"})
+    @CsvSource({"PROFIT", "VALUE"})
     void continuousProjectKeepsQualitativeGoalWithoutNumericEntry(String mode)
     {
+        proposal.setExpenseLines(Collections.singletonList(expensePlanLine()));
         proposal.setAccountingMode(mode);proposal.setGoalMode("NO_TOTAL");proposal.setTemplateVersion("LIGHT_V1");proposal.setForecastDays(1);
         Map<String,Object> target=BusinessProjectWorkServiceTest.row("targetType","DELIVERY","targetName","系统上线","acceptanceEvidence","验收通过");
         proposal.setTargetLines(Collections.singletonList(target));
         org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeBusinessPlan",proposal);
         assertEquals(1,proposal.getTargetLines().size());assertEquals(BigDecimal.ONE,target.get("targetValue"));assertEquals("项",target.get("unit"));
         proposal.setEstimatedRevenue(new BigDecimal("100"));
+        proposal.setRevenueLines(Collections.singletonList(BusinessProjectWorkServiceTest.row("scenario","BASE","expectedAmount",100)));
         service.validateAccountingRequirements(proposal);
         proposal.getTargetLines().get(0).put("acceptanceEvidence","");
         assertThrows(ServiceException.class,()->org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeBusinessPlan",proposal));
@@ -795,7 +887,7 @@ class BusinessProjectProposalServiceImplTest
         when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
         assertThrows(ServiceException.class,()->service.create(proposal,9L,"applicant9"));
         verify(mapper,never()).insertProposal(any());
-        proposal.setApplicantUserId(12L);when(mapper.selectById(77L)).thenReturn(proposal);
+        proposal.setProposalId(77L);proposal.setApplicantUserId(12L);when(mapper.selectById(77L)).thenReturn(proposal);
         assertThrows(ServiceException.class,()->service.update(proposal,9L,"applicant9"));
         verify(mapper,never()).updateDraft(any());
     }

@@ -89,10 +89,7 @@ async function loadChildren(parentId, force = false) {
     try {
       const result = await getBusinessProjectChildren(parentId)
       if (sequence === loadSequence) {
-        const rows = result.data || []
-        children.value[parentId] = props.query.projectType
-          ? rows.filter(row => row.projectType === props.query.projectType)
-          : rows
+        children.value[parentId] = result.data || []
       }
     } catch { if (sequence === loadSequence) childErrors.value[parentId] = true }
     finally {

@@ -12,6 +12,9 @@ public interface BusinessProjectProposalMapper
     List<BusinessProjectProposal> selectDirectory(Map<String, Object> query);
     BusinessProjectProposal selectById(Long proposalId);
     int insertProposal(BusinessProjectProposal proposal);
+    Long lockCreateApplicant(Long userId);
+    Map<String,Object> selectCreateRequest(@Param("userId") Long userId, @Param("requestKey") String requestKey);
+    int canReadCompanyRates(@Param("userId") Long userId, @Param("companyDeptId") Long companyDeptId);
     int updateDraft(BusinessProjectProposal proposal);
     int updateComputedPlan(BusinessProjectProposal proposal);
     int deleteRevenueLines(Long proposalId);

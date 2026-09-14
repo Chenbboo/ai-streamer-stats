@@ -96,7 +96,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         budgetService.refreshMonthlyForecast(proposal);
         proposal.setEvents(mapper.selectEvents(proposalId));
         decorate(proposal, userId, boss, viewAll);
-        if (!canReadRawRates(userId)) redactRawRates(proposal);
+        if (!canReadRawRates(userId) || !canReadCompanyRates(userId,proposal.getCompanyDeptId())) redactRawRates(proposal);
         return proposal;
     }
 
@@ -137,6 +137,21 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     public BusinessProjectProposal create(BusinessProjectProposal proposal, Long userId, String userName)
     {
         Map<String, Object> applicant = requireActiveUser(userId);
+        String requestKey=StringUtils.trim(proposal.getCreateRequestKey());
+        if(StringUtils.isNotBlank(requestKey))
+        {
+            if(!requestKey.matches("[A-Za-z0-9_-]{16,64}"))throw new ServiceException("创建请求标识无效，请重新打开表单");
+            // Serialize creates for this applicant. Locking reads also see a preceding committed retry.
+            if(mapper.lockCreateApplicant(userId)==null)throw new ServiceException("申请人不存在");
+            Map<String,Object> previous=mapper.selectCreateRequest(userId,requestKey);
+            if(previous!=null)
+            {
+                if(!"0".equals(String.valueOf(previous.get("delFlag"))))throw new ServiceException("该创建请求对应的草稿已删除，请重新新建立项");
+                return get(((Number)previous.get("proposalId")).longValue(),userId,false,false);
+            }
+        }
+        proposal.setCreateRequestKey(StringUtils.isBlank(requestKey)?null:requestKey);
+        proposal.setProposalId(null);
         proposal.setApplicantUserId(userId);
         proposal.setApplicantName(displayName(applicant));
         if (StringUtils.isBlank(proposal.getTemplateVersion())) proposal.setTemplateVersion("LIGHT_V1");
@@ -324,7 +339,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         proposal.setRiskSummary(draftText(proposal.getRiskSummary(), 2000, "主要风险"));
         proposal.setRemark(draftText(proposal.getRemark(), 500, "备注"));
         proposal.setProjectType(draftText(StringUtils.defaultIfBlank(proposal.getProjectType(), "GENERAL"), 64, "项目类型"));
-        proposal.setAccountingMode(draftCode(proposal.getAccountingMode(), "COST", ACCOUNTING_MODES));
+        proposal.setAccountingMode(draftCode(proposal.getAccountingMode(), "PROFIT", ACCOUNTING_MODES));
         if ("SIMPLE".equals(proposal.getManagementMode())) proposal.setManagementMode("LIGHT");
         if ("DELIVERY".equals(proposal.getManagementMode())) { proposal.setManagementMode("STANDARD"); if (StringUtils.isBlank(proposal.getCloseMethod())) proposal.setCloseMethod("RESULT_ACCEPTANCE"); }
         proposal.setManagementMode(draftCode(proposal.getManagementMode(), "LIGHT", MANAGEMENT_MODES));
@@ -427,7 +442,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             if (StringUtils.isBlank(proposal.getManagementMode())) proposal.setManagementMode(text(template.get("managementMode")));
             if (StringUtils.isBlank(proposal.getCloseMethod())) proposal.setCloseMethod(text(template.get("closeMethod")));
             if(proposal.getBudgetLimit()==null)proposal.setNoBudget("1");
-            if(StringUtils.isBlank(proposal.getAccountingMode()))proposal.setAccountingMode("COST");
+            if(StringUtils.isBlank(proposal.getAccountingMode()))proposal.setAccountingMode("PROFIT");
         }
         proposal.setProjectName(proposal.getProjectName().trim());
         if (proposal.getProjectName().length() > 160) throw new ServiceException("项目名称不能超过160个字符");
@@ -692,7 +707,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
 
     private void validateBusinessPlanForLaunch(BusinessProjectProposal proposal)
     {
-        if (isNewTemplate(proposal)) validateAccountingRequirements(proposal);
+        validateAccountingRequirements(proposal);
         if(proposal.getBudget()!=null&&!"READY".equals(proposal.getBudget().get("status")))throw new ServiceException("预算尚未计算完整，请处理预算提示后再启动项目："+proposal.getBudget().get("issues"));
         if(isNewTemplate(proposal))
         {
@@ -706,9 +721,6 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         if ("TOTAL".equals(proposal.getGoalMode())
             && (proposal.getTargetLines() == null || proposal.getTargetLines().isEmpty()))
             throw new ServiceException("请至少填写一项可量化项目目标");
-        if (Arrays.asList("PROFIT", "HYBRID").contains(proposal.getAccountingMode())
-            && proposal.getEstimatedRevenue().compareTo(BigDecimal.ZERO) <= 0)
-            throw new ServiceException("盈利型或混合型项目必须填写基准收入预测");
         for (Map<String, Object> line : proposal.getRevenueLines())
             if (StringUtils.isBlank(text(line.get("revenueType"))) || StringUtils.isBlank(text(line.get("itemName"))))
                 throw new ServiceException("请完整填写每项收入的收入方式和项目名称");
@@ -748,7 +760,6 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         }
         if ("NONE".equals(proposal.getBudgetMode()) && StringUtils.isBlank(proposal.getBudgetReason()))
             throw new ServiceException("暂不设置预算时必须填写原因");
-        if (StringUtils.isBlank(proposal.getRiskSummary())) throw new ServiceException("请填写项目主要风险");
     }
 
     private String normalizeTargetType(Object value)
@@ -762,9 +773,17 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     void validateAccountingRequirements(BusinessProjectProposal proposal)
     {
         String mode = proposal.getAccountingMode();
-        if (Arrays.asList("PROFIT", "HYBRID").contains(mode)
-            && (proposal.getEstimatedRevenue() == null || proposal.getEstimatedRevenue().signum() <= 0))
-            throw new ServiceException("盈利型、混合型项目启动前须填写正常场景预计收入，合计须大于0；可先保存草稿");
+        if (!Arrays.asList("PROFIT", "VALUE").contains(mode))
+            throw new ServiceException("请将立项核算方式选择为盈利型或价值型后再启动；历史项目不受影响");
+        // The current budget period may precede the first planned receipt.
+        // Validate the plan itself, not the income calculated for that period.
+        boolean hasBaseRevenue = proposal.getRevenueLines() != null && proposal.getRevenueLines().stream()
+            .anyMatch(line -> "BASE".equals(code(line.get("scenario"), "BASE"))
+                && nonNegative(line.get("expectedAmount"), "预计收入").signum() > 0);
+        if ("PROFIT".equals(mode) && !hasBaseRevenue)
+            throw new ServiceException("盈利型项目启动前须填写预计收入，合计须大于0；可先保存草稿");
+        if (proposal.getExpenseLines() == null || proposal.getExpenseLines().isEmpty())
+            throw new ServiceException("项目启动前须填写至少一项业务支出计划；可先保存草稿");
         if (proposal.getTargetLines() == null || proposal.getTargetLines().isEmpty())
             throw new ServiceException("项目启动前须填写至少一项可验收目标；可先保存草稿");
     }
@@ -772,7 +791,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     private boolean usesTargetLines(BusinessProjectProposal proposal)
     {
         return isNewTemplate(proposal) || !"NO_TOTAL".equals(proposal.getGoalMode())
-            || Arrays.asList("VALUE", "HYBRID").contains(proposal.getAccountingMode());
+            || Arrays.asList("PROFIT", "VALUE", "HYBRID").contains(proposal.getAccountingMode());
     }
 
     private void validatePlanDetails(BusinessProjectProposal proposal)
@@ -967,11 +986,21 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             throw new ServiceException("请选择有效归属公司");
         Date date = StringUtils.isBlank(effectiveDate) ? new Date() : DateUtils.parseDate(effectiveDate);
         if (date == null) throw new ServiceException("计划开始日期格式不正确");
-        List<Map<String,Object>> rows=mapper.selectStaffOptions(companyDeptId,date);
-        // This endpoint requires proposal access. Planners need the selected company's
-        // effective monthly/daily rates to estimate costs, without staff-cost edit permission.
-        for(Map<String,Object> row:rows)row.put("rawCostVisible",true);
-        return rows;
+        boolean visible=canReadCompanyRates(userId,companyDeptId);
+        List<Map<String,Object>> safe=new ArrayList<>();
+        for(Map<String,Object> original:mapper.selectStaffOptions(companyDeptId,date))
+        {
+            Map<String,Object> row=new LinkedHashMap<>(original);
+            if(!visible)for(String field:Arrays.asList("costPolicyId","costPolicyVersion","costMode","monthlyCost","standardWorkDays","dailyCost","costCurrency"))row.remove(field);
+            row.put("rawCostVisible",visible);
+            safe.add(row);
+        }
+        return safe;
+    }
+
+    private boolean canReadCompanyRates(Long userId,Long companyDeptId)
+    {
+        return SecurityUtils.isAdmin(userId) || companyDeptId!=null && mapper.canReadCompanyRates(userId,companyDeptId)>0;
     }
 
     private boolean isNewTemplate(BusinessProjectProposal proposal)
