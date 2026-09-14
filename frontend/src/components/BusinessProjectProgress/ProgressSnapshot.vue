@@ -10,6 +10,7 @@
           <el-table-column label="状态" width="90"><template #default="{row}">{{ status[row.status] || row.status }}</template></el-table-column>
           <el-table-column label="进度" width="80"><template #default="{row}">{{ row.progress ?? 0 }}%</template></el-table-column>
           <el-table-column label="最新成果" min-width="160"><template #default="{row}">{{ latestTask(row.taskId)?.completionSummary || '暂无填报' }}</template></el-table-column>
+          <el-table-column label="成果凭证" min-width="200"><template #default="{row}"><BusinessFileUpload v-if="latestTask(row.taskId)?.evidenceUrls" :model-value="latestTask(row.taskId).evidenceUrls" :project-id="snapshot.projectId" disabled :drag="false" :is-show-tip="false" inline-document-preview /><span v-else>未上传</span></template></el-table-column>
         </el-table>
       </template>
       <template v-if="archiveDetails">
@@ -20,6 +21,7 @@
           <el-table-column prop="submittedUserName" label="填报人" width="90"/>
           <el-table-column label="进度" width="80"><template #default="{row}">{{ row.progress }}%</template></el-table-column>
           <el-table-column prop="completionSummary" label="完成成果" min-width="180"/>
+          <el-table-column label="成果凭证" min-width="200"><template #default="{row}"><BusinessFileUpload v-if="row.evidenceUrls" :model-value="row.evidenceUrls" :project-id="snapshot.projectId" disabled :drag="false" :is-show-tip="false" inline-document-preview /><span v-else>未上传</span></template></el-table-column>
         </el-table>
         <h4>关联工作执行区间</h4>
         <el-table :data="snapshot.executionPeriods || []" size="small" empty-text="暂无执行区间" max-height="300">
@@ -38,6 +40,7 @@
           <el-table-column label="累计完成" width="100"><template #default="{row}">{{ row.cumulativeActual ?? 0 }} {{ row.unit }}</template></el-table-column>
           <el-table-column prop="todaySummary" label="执行说明" min-width="160" />
           <el-table-column prop="todayIssueReason" label="问题" min-width="140" />
+          <el-table-column label="成果凭证" min-width="200"><template #default="{row}"><BusinessFileUpload v-if="row.todayEvidenceUrls" :model-value="row.todayEvidenceUrls" :project-id="snapshot.projectId" disabled :drag="false" :is-show-tip="false" inline-document-preview /><span v-else>未上传</span></template></el-table-column>
         </el-table>
       </template>
     </template>
@@ -48,6 +51,7 @@
 import { computed } from 'vue'
 import { taskCompletion } from '@/utils/projectProgress'
 import { parseTime } from '@/utils/ruoyi'
+import BusinessFileUpload from '@/components/BusinessFileUpload/index.vue'
 const props = defineProps({ snapshot: Object, archiveDetails: Boolean, showTasks: { type: Boolean, default: true }, showRoutines: { type: Boolean, default: true } })
 const completion = computed(() => taskCompletion(props.snapshot?.tasks || []))
 const status = { TODO: '待开始', DOING: '进行中', BLOCKED: '阻塞', DONE: '已完成', CANCELED: '已取消' }

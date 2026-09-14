@@ -86,6 +86,13 @@
     <el-dialog v-model="videoPreviewVisible" title="视频预览" width="min(840px, 94vw)" append-to-body destroy-on-close @closed="videoPreviewUrl = ''">
       <video v-if="videoPreviewUrl" class="video-preview" :src="videoPreviewUrl" controls autoplay />
     </el-dialog>
+    <el-dialog v-model="documentPreviewVisible" :title="documentPreviewName" width="min(960px, 96vw)" append-to-body destroy-on-close @closed="clearDocumentPreview">
+      <div v-loading="documentPreviewLoading" class="document-preview">
+        <el-alert v-if="documentPreviewError" title="文件内容加载失败或无权查看，请关闭后重试" type="error" :closable="false" />
+        <iframe v-else-if="documentPreviewUrl" :src="documentPreviewUrl" :title="documentPreviewName" class="document-preview__pdf" />
+        <pre v-else-if="!documentPreviewLoading" class="document-preview__text">{{ documentPreviewText }}</pre>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -156,6 +163,11 @@ const props = defineProps({
   businessPreview: {
     type: Boolean,
     default: false
+  },
+  // Read-only report viewers can display PDF and text content inside the report.
+  inlineDocumentPreview: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -170,6 +182,13 @@ const headers = ref({ Authorization: "Bearer " + getToken() })
 const fileList = ref([])
 const videoPreviewVisible = ref(false)
 const videoPreviewUrl = ref("")
+const documentPreviewVisible = ref(false)
+const documentPreviewLoading = ref(false)
+const documentPreviewError = ref(false)
+const documentPreviewName = ref('文件内容')
+const documentPreviewUrl = ref('')
+const documentPreviewText = ref('')
+let documentPreviewSequence = 0
 const failedOptimizedPreviews = ref(new Set())
 const requestQueue = []
 let activeRequests = 0
@@ -511,6 +530,10 @@ async function previewVideo(file) {
 }
 
 async function openFile(file) {
+  if (props.inlineDocumentPreview && (isPdf(file) || fileExtension(file) === 'TXT')) {
+    await previewDocument(file)
+    return
+  }
   if (props.businessPreview && shouldDownload(file)) {
     try {
       const blob = await fetchAuthorizedFile(rawFileUrl(file))
@@ -536,6 +559,37 @@ async function openFile(file) {
 
 function shouldDownload(file) {
   return !isImage(file) && !isVideo(file) && !isPdf(file) && fileExtension(file) !== 'TXT'
+}
+
+function clearDocumentPreview() {
+  documentPreviewSequence++
+  if (documentPreviewUrl.value) URL.revokeObjectURL(documentPreviewUrl.value)
+  documentPreviewUrl.value=''
+  documentPreviewText.value=''
+  documentPreviewLoading.value=false
+  documentPreviewError.value=false
+}
+
+async function previewDocument(file) {
+  clearDocumentPreview()
+  const sequence=documentPreviewSequence
+  documentPreviewName.value=preferredFileName(file)
+  documentPreviewVisible.value=true
+  documentPreviewLoading.value=true
+  try {
+    const blob=await fetchAuthorizedFile(rawFileUrl(file))
+    if (!blob || blob.type.includes('json')) throw new Error('File unavailable')
+    if (sequence!==documentPreviewSequence) return
+    if (isPdf(file)) documentPreviewUrl.value=URL.createObjectURL(new Blob([blob],{type:'application/pdf'}))
+    else {
+      const text=await blob.text()
+      if (sequence===documentPreviewSequence) documentPreviewText.value=text
+    }
+  } catch {
+    if (sequence===documentPreviewSequence) documentPreviewError.value=true
+  } finally {
+    if (sequence===documentPreviewSequence) documentPreviewLoading.value=false
+  }
 }
 
 function rawFileUrl(file) {
@@ -635,6 +689,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  clearDocumentPreview()
   closeUploadLoading()
   pendingFileSizes.clear()
   pendingBytes.value = 0
@@ -643,6 +698,9 @@ onBeforeUnmount(() => {
 })
 </script>
 <style scoped lang="scss">
+.document-preview { min-height:180px; }
+.document-preview__pdf { display:block;width:100%;height:65vh;border:0; }
+.document-preview__text { margin:0;max-height:65vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.8 monospace; }
 .file-upload-darg {
   opacity: 0.5;
   transform: scale(0.98);

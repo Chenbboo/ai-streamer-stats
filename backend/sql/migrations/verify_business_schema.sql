@@ -969,3 +969,14 @@ select 1-count(*) as missing_progress_weight from information_schema.columns
 where table_schema=database() and table_name='biz_project' and column_name='progress_weight';
 select 1-count(*) as missing_progress_notifications from information_schema.tables
 where table_schema=database() and table_name='biz_project_progress_notification';
+
+-- V086-V087 管理费：项目详情和负责人工作台均会读取，必须随代码同步升级。
+select 3-count(*) as missing_management_fee_tables from information_schema.tables
+where table_schema=database() and table_name in
+  ('biz_project_management_fee','biz_project_management_fee_payment','biz_project_management_fee_event');
+select 4-count(*) as missing_management_fee_eligibility_fields from information_schema.columns
+where table_schema=database() and table_name='biz_project_management_fee'
+  and column_name in('eligibility_project_count','eligibility_project_ids',
+    'eligibility_project_names','eligibility_checked_time');
+select 1-count(*) as missing_management_fee_category from biz_fact_category
+where category_code='PROJECT_MANAGEMENT_FEE' and fact_kind='COST' and status='0';

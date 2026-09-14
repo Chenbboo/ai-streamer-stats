@@ -14,19 +14,32 @@
     </section>
 
     <section class="panel">
-      <div class="panel-head"><div><h2>组织架构</h2><p>可直接调整显示顺序，保存后对人员选择立即生效</p></div><div><el-button icon="Sort" @click="expanded=!expanded">{{ expanded ? '折叠' : '展开' }}</el-button><el-button type="primary" plain :loading="savingSort" @click="saveSort">保存排序</el-button></div></div>
-      <el-table v-if="refreshTable" :data="rows" v-loading="loading" row-key="deptId" :default-expand-all="expanded" :tree-props="{children:'children'}">
-        <el-table-column prop="deptName" label="组织名称" min-width="240"><template #default="{row}"><b>{{ row.deptName }}</b><small v-if="isRoot(row)">集团根节点</small><small v-else-if="isCompany(row)">公司</small></template></el-table-column>
-        <el-table-column label="人员" width="100" align="center"><template #default="{row}"><el-button link type="primary" @click="openPeople(row)">{{ peopleFor(row).length }} 人</el-button></template></el-table-column>
-        <el-table-column label="排序" width="110"><template #default="{row}"><el-input-number v-model="row.orderNum" :min="0" controls-position="right" size="small" /></template></el-table-column>
-        <el-table-column prop="leader" label="负责人" width="130"><template #default="{row}">{{ row.leader || '—' }}</template></el-table-column>
-        <el-table-column prop="phone" label="联系电话" width="125"><template #default="{row}">{{ row.phone || '—' }}</template></el-table-column>
-        <el-table-column label="状态" width="90"><template #default="{row}"><el-tag :type="row.status === '0' ? 'success' : 'info'">{{ row.status === '0' ? '正常' : '停用' }}</el-tag></template></el-table-column>
+      <div class="panel-head"><div><h2>组织架构</h2><p>点击公司名称下拉查看部门；可调整显示顺序，保存后对人员选择立即生效</p></div><div><el-button icon="Sort" @click="toggleExpandAll">{{ expanded ? '全部折叠' : '全部展开' }}</el-button><el-button type="primary" plain :loading="savingSort" @click="saveSort">保存排序</el-button></div></div>
+      <el-table :data="tableRows" v-loading="loading" :row-key="organizationKey" :row-class-name="({row})=>row.isDepartmentHeader ? 'department-header-row' : ''" :expand-row-keys="expandedIds" :tree-props="{children:'children'}" @expand-change="onExpandChange">
+        <el-table-column prop="deptName" label="组织名称" min-width="280">
+          <template #default="{row}">
+            <span v-if="row.isDepartmentHeader" class="department-column-heading">部门名称</span>
+            <span v-else class="organization-label">
+              <button v-if="row.children?.length" type="button" class="organization-toggle" :aria-expanded="expandedIds.includes(organizationKey(row))" @click.stop="onExpandChange(row,!expandedIds.includes(organizationKey(row)))">
+                {{ row.deptName }}
+                <small>{{ isRoot(row) ? '集团根节点' : (isCompany(row) ? `公司 · ${row.source.children.length} 个部门` : '下级部门') }}</small>
+              </button>
+              <span v-else><b>{{ row.deptName }}</b><small v-if="isRoot(row)">集团根节点</small><small v-else-if="isCompany(row)">公司</small></span>
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="人员" width="100" align="center"><template #default="{row}"><span v-if="row.isDepartmentHeader" class="department-column-heading">人员</span><el-button v-else link type="primary" @click="openPeople(row)">{{ peopleFor(row).length }} 人</el-button></template></el-table-column>
+        <el-table-column label="排序" width="110"><template #default="{row}"><span v-if="row.isDepartmentHeader" class="department-column-heading">排序</span><el-input-number v-else v-model="row.source.orderNum" :min="0" controls-position="right" size="small" /></template></el-table-column>
+        <el-table-column prop="leader" label="负责人" width="130"><template #default="{row}"><span v-if="row.isDepartmentHeader" class="department-column-heading">负责人</span><template v-else>{{ row.leader || '—' }}</template></template></el-table-column>
+        <el-table-column label="状态" width="90"><template #default="{row}"><span v-if="row.isDepartmentHeader" class="department-column-heading">状态</span><el-tag v-else :type="row.status === '0' ? 'success' : 'info'">{{ row.status === '0' ? '正常' : '停用' }}</el-tag></template></el-table-column>
         <el-table-column label="操作" width="190" fixed="right"><template #default="{row}">
+          <span v-if="row.isDepartmentHeader" class="department-column-heading">操作</span>
+          <template v-else>
           <el-button link type="primary" @click="openCreate(row)">{{ isRoot(row) ? '新增公司' : (isCompany(row) ? '新增部门' : '新增下级') }}</el-button>
           <el-button v-if="!isRoot(row)" link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button v-if="!isProtected(row)" link type="danger" @click="remove(row)">删除</el-button>
           <span v-if="isProtected(row)" class="protected-copy">受保护</span>
+          </template>
         </template></el-table-column>
       </el-table>
     </section>
@@ -79,10 +92,15 @@ const savingSort = ref(false)
 const dialogOpen = ref(false)
 const peopleOpen = ref(false)
 const lockedOrganization = ref(false)
-const expanded = ref(true)
-const refreshTable = ref(true)
+const expandedIds = ref([])
+const expansionInitialized = ref(false)
+const expanded = computed(() => {
+  const branches=flatten(rows.value,[]).filter(row=>row.children?.length)
+  return branches.length>0 && branches.every(row=>expandedIds.value.includes(organizationKey(row)))
+})
 const formRef = ref()
 const rows = ref([])
+const tableRows = computed(() => withDepartmentHeaders(rows.value))
 const staffRows = ref([])
 const selectedOrganization = ref()
 const parentOptions = ref([])
@@ -103,6 +121,10 @@ async function load() {
   try {
     const [departmentResult, staffResult]=await Promise.all([listBusinessDepartments(query),listBusinessDepartmentStaff()])
     rows.value=departmentResult.data || []
+    if (!expansionInitialized.value && rows.value.length) {
+      expandedIds.value=rows.value.filter(isRoot).map(organizationKey)
+      expansionInitialized.value=true
+    }
     staffRows.value=staffResult.data || []
   } finally { loading.value=false }
 }
@@ -148,15 +170,36 @@ async function remove(row) {
   await removeBusinessDepartment(row.deptId); ElMessage.success('删除成功'); load()
 }
 function flatten(nodes, result=[]) { for (const node of nodes||[]) { result.push(node); flatten(node.children,result) } return result }
+function withDepartmentHeaders(nodes) {
+  return (nodes||[]).map(node=>{
+    const children=withDepartmentHeaders(node.children)
+    if (String(node.deptId)==='110' && children.length) {
+      children.unshift({deptId:`department-header-${node.deptId}`,isDepartmentHeader:true})
+    }
+    return {...node,source:node,children}
+  })
+}
 async function saveSort() {
   const list=flatten(rows.value,[]); savingSort.value=true
   try { await saveBusinessDepartmentSort({deptIds:list.map(x=>x.deptId).join(','),orderNums:list.map(x=>x.orderNum||0).join(',')}); ElMessage.success('排序已保存'); load() } finally { savingSort.value=false }
 }
-watch(expanded,()=>{refreshTable.value=false;nextTick(()=>refreshTable.value=true)})
+function onExpandChange(row, isExpanded) {
+  const ids=new Set(expandedIds.value)
+  const key=organizationKey(row)
+  isExpanded ? ids.add(key) : ids.delete(key)
+  expandedIds.value=[...ids]
+}
+// Element Plus stores tree node keys as strings, including numeric department IDs.
+function organizationKey(row) { return String(row.deptId) }
+function toggleExpandAll() {
+  expandedIds.value=expanded.value ? [] : flatten(rows.value,[]).filter(row=>row.children?.length).map(organizationKey)
+}
 load()
 useBusinessRefreshOnReactivated(load)
 </script>
 
 <style scoped>
+.department-page :deep(.department-header-row td.el-table__cell){background:#edf3fa!important;border-top:1px solid #dce6f1;border-bottom:1px solid #dce6f1;padding-top:10px;padding-bottom:10px}.department-column-heading{color:#405773;font-size:13px;font-weight:600}
+.organization-label{display:inline-block;vertical-align:middle}.organization-toggle{padding:0;border:0;background:none;color:inherit;font:inherit;font-weight:700;text-align:left;cursor:pointer}.organization-toggle:hover{color:var(--el-color-primary)}.organization-toggle:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:4px;border-radius:3px}.organization-toggle small{font-weight:400}
 .department-page{min-height:calc(100vh - 84px);padding:24px;background:#f3f5f8;color:#172033}.hero{display:flex;align-items:flex-end;justify-content:space-between;padding:25px 30px;border-radius:16px;background:linear-gradient(120deg,#17304d,#375a76);color:#fff}.eyebrow{font-size:11px;letter-spacing:.18em;color:#9ed7ee}.hero h1{margin:5px 0 4px;font-size:28px}.hero p{margin:0;color:#d1deea}.panel{margin-top:16px;padding:18px 20px;border:1px solid #e0e5eb;border-radius:14px;background:#fff}.search-panel{padding-bottom:0}.panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.panel-head h2{margin:0;font-size:18px}.panel-head p{margin:4px 0 0;color:#8490a0;font-size:13px}.el-table b,.el-table small{display:block}.el-table small{margin-top:3px;color:#8a95a3}.protected-copy{margin-left:8px;color:#9aa4b1;font-size:13px}.people-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px}.people-summary div{padding:14px;border:1px solid #e3e8ee;border-radius:10px;background:#f7f9fb}.people-summary b,.people-summary span{display:block}.people-summary b{font-size:22px;color:#173b5b}.people-summary span{margin-top:3px;color:#8490a0;font-size:12px}.leader-option{display:flex;align-items:center;justify-content:space-between;gap:18px}.leader-option span,.leader-option b,.leader-option small{display:block}.leader-option small{color:#9aa4b1;font-size:11px;line-height:1.1}.leader-option em{color:#8490a0;font-size:12px;font-style:normal}@media(max-width:760px){.department-page{padding:14px}.hero{align-items:flex-start;flex-direction:column;gap:16px;padding:22px}.hero .el-button{width:100%}.panel{padding:14px}.panel-head{align-items:flex-start;flex-direction:column;gap:12px}.search-panel :deep(.el-form-item){display:flex;margin-right:0}.search-panel :deep(.el-form-item__content){flex:1}.search-panel :deep(.el-input),.search-panel :deep(.el-select){width:100%!important}.people-summary{grid-template-columns:1fr}.el-dialog .el-col{max-width:100%;flex:0 0 100%}}
 </style>

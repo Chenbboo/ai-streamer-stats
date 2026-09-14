@@ -25,7 +25,6 @@
     <el-table-column label="操作" width="350" fixed="right"><template #default="{ row }"><div v-if="!row.contextOnly" class="row-actions">
       <el-button v-if="row.manageable && !row.parentId && !ended(row)" v-hasPermi="['business:project:proposal:add']" link type="primary" @click.stop="$emit('create', row)">新增子项目</el-button>
       <el-button v-if="row.manageable && !ended(row)" v-hasPermi="['business:project:edit']" link type="primary" @click.stop="$emit('edit', row)">编辑</el-button>
-      <el-button v-if="canReportProgress(row,userStore.id)" v-hasPermi="['business:project:report']" link type="primary" @click.stop="$emit('report',row)">汇报进度</el-button>
       <el-button link type="primary" @click.stop="$emit('detail', row)">查看详情</el-button>
       <el-button v-if="row.manageable" v-hasPermi="['business:project:edit']" link type="danger" :loading="deleting===row.projectId" @click.stop="remove(row)">删除</el-button>
     </div></template></el-table-column>
@@ -44,8 +43,6 @@
 </template>
 
 <script setup>
-import useUserStore from '@/store/modules/user'
-import { canReportProgress } from '@/utils/projectProgress'
 import { computed, nextTick, ref, watch } from 'vue'
 import { ArrowDown, ArrowRight } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -54,9 +51,8 @@ import { isDeliveryEnded as ended } from '@/utils/businessProjectState'
 import { flattenProjectRows } from '@/utils/projectHierarchy'
 import { getBusinessProjectHierarchy, getBusinessProjectChildren, getBusinessProject, deleteBusinessProject } from '@/api/business/project'
 
-const userStore = useUserStore()
 const props = defineProps({ query: { type: Object, required: true } })
-const emit = defineEmits(['create', 'edit', 'detail', 'deleted', 'report', 'progress'])
+const emit = defineEmits(['create', 'edit', 'detail', 'deleted', 'progress'])
 const records = ref([]), expanded = ref(new Set()), loading = ref(false), deleting = ref(null), loadError = ref(false)
 const page = ref(1), pageSize = ref(10), total = ref(0), tableRef = ref(null)
 const children = ref({}), childLoading = ref({}), childErrors = ref({})

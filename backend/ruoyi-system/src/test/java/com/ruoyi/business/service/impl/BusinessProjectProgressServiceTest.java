@@ -58,9 +58,32 @@ class BusinessProjectProgressServiceTest {
         verify(mapper,times(2)).insertEvent(any());verify(progressMapper).notifyOwner(31L,8L);
     }
     @Test void requiredFieldsAndProgressRangeRejectBeforeWriting() {
-        BusinessProjectProgressReport input=report();input.setIssuesRisks(" ");
+        BusinessProjectProgressReport input=report();input.setCompletionSummary(" ");
         assertThrows(ServiceException.class,()->service.submitProjectProgressReport(input,9L,"owner",false));
-        input.setIssuesRisks("无");input.setProgress(101);
+        input.setCompletionSummary("完成第一阶段");input.setProgress(101);
+        assertThrows(ServiceException.class,()->service.submitProjectProgressReport(input,9L,"owner",false));
+        verify(mapper,never()).insertProjectProgressReport(any());
+    }
+    @Test void dailySubprojectReportAcceptsMissingOrBlankRiskAndPlan() {
+        when(mapper.selectProjectById(10L)).thenReturn(parent);
+        Map<String,Object> user=new HashMap<>();user.put("userName","owner");
+        when(mapper.selectActiveUserById(9L)).thenReturn(user);
+        doAnswer(call->{((BusinessProjectProgressReport)call.getArgument(0)).setReportId(31L);return 1;})
+            .when(mapper).insertProjectProgressReport(any());
+        for (String optional : Arrays.asList(null,""," ")) {
+            BusinessProjectProgressReport input=report();
+            input.setIssuesRisks(optional);input.setNextPlan(optional);
+            BusinessProjectProgressReport saved=service.submitProjectProgressReport(input,9L,"owner",false);
+            assertEquals(31L,saved.getReportId());
+            assertEquals(optional,saved.getIssuesRisks());assertEquals(optional,saved.getNextPlan());
+        }
+        verify(mapper,times(3)).insertProjectProgressReport(any());
+    }
+    @Test void optionalRiskAndPlanStillEnforceLengthLimits() {
+        String tooLong=String.join("",Collections.nCopies(2001,"字"));
+        BusinessProjectProgressReport input=report();input.setIssuesRisks(tooLong);
+        assertThrows(ServiceException.class,()->service.submitProjectProgressReport(input,9L,"owner",false));
+        input.setIssuesRisks(null);input.setNextPlan(tooLong);
         assertThrows(ServiceException.class,()->service.submitProjectProgressReport(input,9L,"owner",false));
         verify(mapper,never()).insertProjectProgressReport(any());
     }

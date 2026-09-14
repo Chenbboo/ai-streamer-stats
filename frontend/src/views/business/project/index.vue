@@ -17,7 +17,7 @@
     </el-card>
 
     <el-card shadow="never" class="table-card">
-      <ProjectHierarchyTable ref="hierarchyTable" :query="appliedQuery" @create="openSubprojectForm" @edit="openProjectForm" @detail="openDetail" @deleted="handleProjectDeleted" @report="row => progressPanel.open(row, 'submit')" @progress="row => progressPanel.open(row)" />
+      <ProjectHierarchyTable ref="hierarchyTable" :query="appliedQuery" @create="openSubprojectForm" @edit="openProjectForm" @detail="openDetail" @deleted="handleProjectDeleted" @progress="row => progressPanel.open(row)" />
     </el-card>
 
     <el-drawer v-model="detailVisible" size="min(920px, 96vw)" destroy-on-close @closed="detail = null">
@@ -40,7 +40,6 @@
           <p>这里只返回数字，不显示主播名单和日报内容；主播仍只在直播数据管理中提交。</p>
         </section>
         <div class="action-bar">
-          <el-button v-if="canReportProgress(detail,userStore.id)" v-hasPermi="['business:project:report']" type="primary" @click="progressPanel.open(detail,'submit')">汇报进度</el-button>
           <el-button @click="progressPanel.open(detail)">进度汇报历史</el-button>
           <el-button v-if="canManage && !usesActualWork" icon="Edit" @click="openProjectForm(detail)">编辑资料</el-button>
           <el-button v-if="isBoss && projectAccountingState(detail)==='OPEN'" type="success" icon="Plus" @click="openProjectAccountingEntry('revenue')">录入收入</el-button>
@@ -216,7 +215,7 @@
       </template>
     </el-drawer>
 
-    <BusinessProjectProgress ref="progressPanel" @submitted="handleProgressSubmitted" @closed="clearProgressQuery" />
+    <BusinessProjectProgress ref="progressPanel" :allow-submit="false" @submitted="handleProgressSubmitted" @closed="clearProgressQuery" />
     <el-dialog v-model="projectDialog" top="5vh" :title="projectForm.projectId ? (projectForm.parentId ? '编辑子项目' : '编辑主项目') : '新增子项目'" width="min(680px, 94vw)" destroy-on-close>
       <el-alert v-if="projectFormFrozen" title="范围、计划周期和验收基线请通过项目详情的“项目计划与变更”调整。" type="info" :closable="false" show-icon style="margin-bottom:16px" />
       <el-form class="project-edit-form" ref="projectFormRef" :model="projectForm" :rules="projectRules" label-width="100px">
@@ -306,7 +305,7 @@ import BusinessProjectPlanPanel from '@/components/BusinessProjectPlanPanel/inde
 import BusinessSettlementPanel from '@/components/BusinessSettlementPanel/index.vue'
 import { isSeparatedDelivery, isDeliveryEnded, projectAccountingState } from '@/utils/businessProjectState'
 import BusinessProjectProgress from '@/components/BusinessProjectProgress/index.vue'
-import { canReportProgress, progressEventTarget } from '@/utils/projectProgress'
+import { progressEventTarget } from '@/utils/projectProgress'
 import useUserStore from '@/store/modules/user'
 import { getProjectKpiWorkspace } from '@/api/business/kpi'
 import { getBusinessProjectDashboard } from '@/api/business/accounting'

@@ -6,6 +6,11 @@
       <article class="report">
         <el-button v-if="linkProject" link type="primary" @click="$emit('open-project', {projectId:report.projectId, reportId:report.reportId})">跳转子项目汇报</el-button>
         <h4>阶段成果</h4><p>{{ report.completionSummary }}</p>
+        <section class="report-evidence">
+          <h4>成果凭证</h4>
+          <BusinessFileUpload v-if="report.evidenceUrls" :model-value="report.evidenceUrls" :project-id="report.projectId" disabled :drag="false" :is-show-tip="false" inline-document-preview />
+          <p v-else class="hint">本次汇报未上传成果凭证</p>
+        </section>
         <h4>问题风险</h4><p>{{ report.issuesRisks || '未记录' }}</p>
         <h4>下一步计划</h4><p>{{ report.nextPlan || '未记录' }}</p>
         <p class="hint">同步内容：{{ report.syncTasks ? '一次性任务' : '' }} {{ report.syncRoutines ? '持续工作' : '' }}{{ !report.syncTasks && !report.syncRoutines ? '未勾选' : '' }}。汇报只读，纠正请提交新版本。</p>
@@ -19,9 +24,17 @@
 import { ref, watch } from 'vue'
 import { readProgressSnapshot } from '@/utils/projectProgress'
 import ProgressSnapshot from './ProgressSnapshot.vue'
+import BusinessFileUpload from '@/components/BusinessFileUpload/index.vue'
 const props = defineProps({ reports: Array, selectedReportId: [Number, String], linkProject: Boolean })
 defineEmits(['open-project'])
 const expanded = ref([])
-watch(() => props.selectedReportId, id => { if(id) expanded.value = [String(id)] }, { immediate: true })
+watch([() => props.reports, () => props.selectedReportId], ([reports, selectedId]) => {
+  const ids=(reports||[]).map(report=>String(report.reportId))
+  if(selectedId && ids.includes(String(selectedId))) expanded.value=[String(selectedId)]
+  else {
+    const retained=expanded.value.filter(id=>ids.includes(id))
+    expanded.value=retained.length ? retained : ids.slice(0,1)
+  }
+}, { immediate: true })
 </script>
 <style scoped>.report-title{display:flex;flex-wrap:wrap;gap:8px 18px;padding:10px 8px 10px 0;line-height:1.6}.report-title>span,.hint{color:#8491a1;font-size:12px}.report{padding:8px 12px;background:#f8fafc;border-radius:8px}.report h4{margin:12px 0 5px}.report p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7}</style>

@@ -2065,8 +2065,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (report.getProgress() == null || report.getProgress() < 0 || report.getProgress() > 100)
             throw new ServiceException("项目进度必须在0到100之间");
         validateProgressText(report.getCompletionSummary(), "阶段成果", true);
-        validateProgressText(report.getIssuesRisks(), "问题风险", project.getParentId() != null);
-        validateProgressText(report.getNextPlan(), "下一步计划", project.getParentId() != null);
+        // Daily completion forms do not require risks or a next-step plan, including for subprojects.
+        validateProgressText(report.getIssuesRisks(), "问题风险", false);
+        validateProgressText(report.getNextPlan(), "下一步计划", false);
         if (report.getEvidenceUrls() == null) report.setEvidenceUrls("");
         if (report.getEvidenceUrls().length() > 4000) throw new ServiceException("成果凭证文件过多");
         if (!report.getEvidenceUrls().isEmpty()) businessFileService.validateReferences(report.getEvidenceUrls(), project.getProjectId(), userId, false, SecurityUtils.isAdmin(userId));
