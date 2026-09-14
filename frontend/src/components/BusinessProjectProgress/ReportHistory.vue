@@ -11,8 +11,6 @@
           <BusinessFileUpload v-if="report.evidenceUrls" :model-value="report.evidenceUrls" :project-id="report.projectId" disabled :drag="false" :is-show-tip="false" inline-document-preview />
           <p v-else class="hint">本次汇报未上传成果凭证</p>
         </section>
-        <h4>问题风险</h4><p>{{ report.issuesRisks || '未记录' }}</p>
-        <h4>下一步计划</h4><p>{{ report.nextPlan || '未记录' }}</p>
         <p class="hint">同步内容：{{ report.syncTasks ? '一次性任务' : '' }} {{ report.syncRoutines ? '持续工作' : '' }}{{ !report.syncTasks && !report.syncRoutines ? '未勾选' : '' }}。汇报只读，纠正请提交新版本。</p>
         <ProgressSnapshot v-if="report.syncTasks || report.syncRoutines" :snapshot="readProgressSnapshot(report)" :show-tasks="!!report.syncTasks" :show-routines="!!report.syncRoutines" />
         <el-collapse><el-collapse-item title="查看完整关联数据快照（提交时归档）" name="snapshot"><ProgressSnapshot :snapshot="readProgressSnapshot(report)" archive-details /></el-collapse-item></el-collapse>
