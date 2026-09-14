@@ -113,43 +113,62 @@
       </div>
     </section>
 
-    <section class="panel accounting-overview">
+    <section class="panel accounting-overview" :aria-busy="accountingLoading">
       <div class="section-title section-title--between">
-        <h2>今日经营</h2>
-        <div class="panel-actions">
-          <el-tag v-if="accounting.missingDailyResultCount" type="warning">{{ accounting.missingDailyResultCount }} 个项目尚未生成今日经营结果</el-tag>
-          <el-tag v-if="accounting.draftFactCount" type="warning">{{ accounting.draftFactCount }} 条草稿</el-tag>
-          <el-button type="success" icon="Plus" @click="openAccountingEntry('revenue')">录入收入</el-button>
-          <el-button type="primary" icon="Plus" @click="openAccountingEntry('spend')">录入支出</el-button>
-          <el-button link type="primary" @click="openAccounting()">查看全部收支</el-button>
+        <div><h2>{{ t('bossReview.title') }}</h2><span v-if="accounting.bizDate">{{ accounting.bizDate }} · {{ t('bossReview.timezone') }}</span></div>
+        <div class="panel-actions review-date-controls">
+          <el-select v-model="reportPeriod" :aria-label="t('bossReview.period')" @change="changeReportPeriod">
+            <el-option :label="t('bossReview.yesterday')" value="yesterday" />
+            <el-option :label="t('bossReview.today')" value="today" />
+            <el-option :label="t('bossReview.custom')" value="custom" />
+          </el-select>
+          <el-date-picker v-if="reportPeriod === 'custom'" v-model="customReportDate" type="date" value-format="YYYY-MM-DD" :clearable="false" :disabled-date="futureReportDate" :aria-label="t('bossReview.period')" @change="loadAccounting" />
+          <el-button link type="primary" :disabled="accountingLoading || accountingError || !accounting.bizDate" @click="openReviewAccounting()">{{ t('bossReview.details') }}</el-button>
         </div>
       </div>
-      <div class="finance-grid">
-        <article><span>确认收入</span><strong>{{ accountingTotal('revenueAmount') }}</strong></article>
-        <article><span>总成本</span><strong>{{ accountingTotal('costAmount') }}</strong></article>
-        <article><span>经营结果</span><strong :class="amountTone(accounting.today?.profitAmount)">{{ accountingTotal('profitAmount') }}</strong></article>
+      <div v-if="accountingLoading" class="empty-state" role="status">{{ t('bossReview.loading') }}</div>
+      <div v-else-if="accountingError" class="empty-state" role="alert">
+        {{ t('bossReview.failed') }} <el-button link type="primary" @click="loadAccounting">{{ t('bossReview.retry') }}</el-button>
       </div>
-      <div v-if="!accounting.alerts?.length" class="healthy-banner">✓ 今日无亏损、超预算或项目归属异常</div>
-      <div v-else class="alert-section">
-        <div class="subsection-head">
-          <div><b>经营异常</b><span>优先关注亏损、预算和项目归属问题</span></div>
-          <el-tag type="danger" effect="plain" round>{{ accounting.alerts.length }} 项</el-tag>
+      <template v-else>
+        <div class="review-readiness">
+          <el-tag :type="accounting.dataStatus === 'INCOMPLETE' ? 'warning' : 'info'">{{ t(`bossReview.status${accounting.dataStatus || 'NO_DATA'}`) }}</el-tag>
+          <span>{{ t('bossReview.coverage', { count: accounting.readiness?.resultCount || 0 }) }}</span>
+          <el-tag v-if="accounting.missingDailyResultCount" type="warning">{{ t('bossReview.missing', { count: accounting.missingDailyResultCount }) }}</el-tag>
+          <el-tag v-if="accounting.readiness?.pendingCostCount" type="warning">{{ t('bossReview.pendingCosts', { count: accounting.readiness.pendingCostCount }) }}</el-tag>
+          <el-tag v-if="accounting.readiness?.unfinishedFactCount" type="warning">{{ t('bossReview.pendingFacts', { count: accounting.readiness.unfinishedFactCount }) }}</el-tag>
+          <el-tag v-if="accounting.readiness?.unfinishedWorkCount" type="warning">{{ t('bossReview.pendingWork', { count: accounting.readiness.unfinishedWorkCount }) }}</el-tag>
         </div>
-        <div class="alert-grid">
-          <button
-            v-for="alert in visibleAlerts"
-            :key="`${alert.alertType}-${alert.projectId}`"
-            :class="['alert-card', `alert-card--${alertClass(alert.alertType)}`]"
-            @click="alert.alertType === 'MISSING_COMPANY' ? openProject(alert) : openAccounting({ projectId: alert.projectId })"
-          >
-            <span class="alert-icon">!</span>
-            <span class="alert-content"><b>{{ alert.projectName }}</b><span>{{ alert.alertMessage }}</span></span>
-            <span class="alert-arrow">›</span>
-          </button>
+        <div class="finance-grid">
+          <article><span>{{ t('bossReview.revenue') }}</span><strong>{{ accountingTotal('revenueAmount') }}</strong></article>
+          <article><span>{{ t('bossReview.cost') }}</span><strong>{{ accountingTotal('costAmount') }}</strong></article>
+          <article><span>{{ t('bossReview.result') }}</span><strong :class="hasReviewResults ? amountTone(accounting.summary?.profitAmount) : ''">{{ accountingTotal('profitAmount') }}</strong></article>
         </div>
-        <div v-if="accounting.alerts.length > visibleAlerts.length" class="alert-footer">
-          <el-button link type="primary" @click="openAccounting()">查看全部异常</el-button>
+        <p class="review-note">{{ t(accounting.dataStatus === 'INCOMPLETE' ? 'bossReview.incompleteNote' : 'bossReview.coverageNote') }}</p>
+        <p v-if="accounting.readiness?.dataCutoffFrom" class="review-note">{{ t('bossReview.cutoff') }} {{ accounting.readiness.dataCutoffFrom }} ～ {{ accounting.readiness.dataCutoffTo }}</p>
+        <div v-if="accounting.dataStatus === 'AVAILABLE' && !accounting.alerts?.length" class="healthy-banner">{{ t('bossReview.noReportedAlerts') }}</div>
+        <div v-if="accounting.alerts?.length" class="alert-section">
+          <div class="subsection-head"><div><b>{{ t('bossReview.periodAlerts') }}</b><span>{{ t('bossReview.budgetBasis') }}</span></div><el-tag type="danger">{{ accounting.alerts.length }}</el-tag></div>
+          <div class="alert-grid">
+            <button v-for="alert in accounting.alerts" :key="`${alert.alertType}-${alert.projectId}`" :class="['alert-card', `alert-card--${alertClass(alert.alertType)}`]" @click="openReviewAccounting(alert)">
+              <span class="alert-icon">!</span><span class="alert-content"><b>{{ alert.projectName }}</b><span>{{ reviewAlertText(alert) }}</span></span><span class="alert-arrow">›</span>
+            </button>
+          </div>
         </div>
+        <div v-if="accounting.currentAlerts?.length" class="alert-section">
+          <div class="subsection-head"><div><b>{{ t('bossReview.currentAlerts') }}</b><span>{{ t('bossReview.currentBasis') }}</span></div></div>
+          <div class="alert-grid">
+            <button v-for="alert in accounting.currentAlerts" :key="`${alert.alertType}-${alert.projectId}`" class="alert-card" @click="alert.alertType === 'MISSING_COMPANY' ? openProject(alert) : openReviewAccounting(alert)">
+              <span class="alert-icon">!</span><span class="alert-content"><b>{{ alert.projectName }}</b><span>{{ reviewAlertText(alert) }}</span><small>{{ t('bossReview.sourceDate') }} {{ alert.bizDate }}</small></span><span class="alert-arrow">›</span>
+            </button>
+          </div>
+        </div>
+      </template>
+      <div class="review-entry-actions">
+        <span>{{ t('bossReview.currentActions') }}</span>
+        <el-button type="success" icon="Plus" @click="openAccountingEntry('revenue')">{{ t('bossReview.addRevenue') }}</el-button>
+        <el-button type="primary" icon="Plus" @click="openAccountingEntry('spend')">{{ t('bossReview.addCost') }}</el-button>
+        <el-tag v-if="accounting.draftFactCount" type="warning">{{ t('bossReview.allDrafts', { count: accounting.draftFactCount }) }}</el-tag>
       </div>
     </section>
 
@@ -293,6 +312,7 @@
 
 <script setup name="BusinessBoss">
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { getBossBusinessDashboard, getBossBusinessPending, transitionBusinessProject } from '@/api/business/project'
 import { confirmBusinessOperatingFact, getBusinessBossAccountingOverview, returnBusinessOperatingFact } from '@/api/business/accounting'
 import { getProjectKpiOverview } from '@/api/business/kpi'
@@ -303,10 +323,12 @@ import BusinessProjectState from '@/components/BusinessProjectState/index.vue'
 import { isDeliveryEnded } from '@/utils/businessProjectState'
 
 const router = useRouter()
+const { t, locale } = useI18n()
 const loading = ref(false)
 const projectLoading = ref(false)
 const projectsExpanded = ref(true)
-const accountingTotal = key => (accounting.value.todayByCurrency?.length ? accounting.value.todayByCurrency : [accounting.value.today || {}]).map(row => money(row[key]) + (row.currency ? ' ' + row.currency : '')).join(' / ')
+const hasReviewResults = computed(() => Number(accounting.value.readiness?.resultCount || 0) > 0)
+const accountingTotal = key => !hasReviewResults.value ? '—' : (accounting.value.summaryByCurrency?.length ? accounting.value.summaryByCurrency : [accounting.value.summary || {}]).map(row => money(row[key]) + (row.currency ? ' ' + row.currency : '')).join(' / ')
 const summary = ref({})
 const projects = ref([])
 const ownerLoads = ref([])
@@ -318,7 +340,12 @@ const appliedProjectFilters = reactive({projectKeyword:'',projectStatus:''})
 const projectStatusOptions = {DRAFT:'草稿',PLANNING:'规划中',ACTIVE:'执行中',PAUSED:'已暂停',ACCEPTANCE:'待验收',CLOSED:'已关闭',CANCELED:'已取消'}
 let projectRequestSequence = 0
 const kpiOverviews = ref([])
-const accounting = ref({ today: {}, alerts: [], draftFactCount: 0 })
+const accounting = ref({})
+const accountingLoading = ref(true)
+const accountingError = ref(false)
+const reportPeriod = ref('yesterday')
+const customReportDate = ref(null)
+let accountingRequestSequence = 0
 const pendingRows = ref([])
 const pendingCounts = ref({})
 const pendingTotal = ref(0)
@@ -363,7 +390,6 @@ const personnelPreview = computed(() => {
   const names = personnelRows.value.slice(0, 4).map(row => row.userName).join('、')
   return `${names}${personnelRows.value.length > 4 ? ` 等 ${personnelRows.value.length} 人` : ''} `
 })
-const visibleAlerts = computed(() => (accounting.value.alerts || []).slice(0, 5))
 const costDialogTitle = computed(() => costDialogMode.value === 'batch' ? '批量设置月度用人成本' : '设置月度用人成本')
 const costSubmitLabel = computed(() => costDialogMode.value === 'batch' ? '批量保存成本版本' : '保存成本版本')
 const costTargetRows = computed(() => costDialogMode.value === 'batch' ? batchEligibleRows.value : selectedPersonnel.value ? [selectedPersonnel.value] : [])
@@ -423,6 +449,35 @@ const openProposals = () => router.push({ path: '/business/project-proposals', q
 const openProposal = row => router.push({ path: '/business/project-proposals', query: { tab: 'review', id: row.proposalId } })
 const openAccounting = (query = {}) => router.push({ path: '/business/accounting', query })
 const openAccountingEntry = action => openAccounting({ action })
+const openReviewAccounting = (row = {}) => {
+  const date = row.bizDate || accounting.value.bizDate
+  if (!date) return
+  openAccounting({ ...(row.projectId ? { projectId: row.projectId } : {}), dateFrom: date, dateTo: date })
+}
+const reviewAlertText = row => locale.value === 'zh-CN' ? row.alertMessage : t(`bossReview.alert${row.alertType}`, { amount: money(row.amount) })
+const futureReportDate = date => {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+  return local > (accounting.value.currentBizDate || localToday())
+}
+async function changeReportPeriod() {
+  if (reportPeriod.value === 'custom' && !customReportDate.value) customReportDate.value = accounting.value.bizDate || localToday()
+  await loadAccounting()
+}
+async function loadAccounting() {
+  const sequence = ++accountingRequestSequence
+  const bizDate = reportPeriod.value === 'custom' ? customReportDate.value : reportPeriod.value
+  if (!bizDate) return
+  accountingLoading.value = true
+  accountingError.value = false
+  try {
+    const result = await getBusinessBossAccountingOverview({ bizDate })
+    if (sequence === accountingRequestSequence) accounting.value = result.data || {}
+  } catch {
+    if (sequence === accountingRequestSequence) accountingError.value = true
+  } finally {
+    if (sequence === accountingRequestSequence) accountingLoading.value = false
+  }
+}
 function openOwnerLoad(owner) { selectedOwnerLoad.value = owner; ownerLoadDialog.value = true }
 const openPendingAccounting = row => openAccounting({ projectId: row.projectId, dateFrom: row.bizDate, dateTo: row.bizDate })
 const openKpi = row => {
@@ -474,13 +529,13 @@ function openIncentive(row) {
 }
 
 function localToday() {
-  const now = new Date()
-  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
-  return local.toISOString().slice(0, 10)
+  const parts = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
+  const part = type => parts.find(value => value.type === type).value
+  return `${part('year')}-${part('month')}-${part('day')}`
 }
 function resetCostForm() {
   costForm.unitCost = null
-  costForm.effectiveFrom = accounting.value.bizDate || localToday()
+  costForm.effectiveFrom = localToday()
   costForm.effectiveTo = null
   costForm.remark = ''
 }
@@ -544,12 +599,11 @@ async function loadVisibleProjectKpis(sequence = projectRequestSequence) {
 async function load() {
   loading.value = true
   try {
-    const [, accountingResult, pending] = await Promise.all([
+    const [, , pending] = await Promise.all([
       loadProjectPage(),
-      getBusinessBossAccountingOverview(),
+      loadAccounting(),
       loadAllPending()
     ])
-    accounting.value = accountingResult.data || { today: {}, alerts: [] }
     pendingRows.value = pending.rows
     pendingTotal.value = pending.total
     pendingCounts.value = pending.counts
@@ -635,13 +689,17 @@ async function doTransition(row, action) {
 let progressRefreshTimer
 onMounted(() => {
   load()
-  progressRefreshTimer = window.setInterval(() => refreshProjectProgress().catch(() => {}), 15000)
+  progressRefreshTimer = window.setInterval(() => {
+    refreshProjectProgress().catch(() => {})
+    if (!accountingLoading.value && accounting.value.currentBizDate && accounting.value.currentBizDate !== localToday()) loadAccounting()
+  }, 15000)
 })
 useBusinessRefreshOnReactivated(load)
 onBeforeUnmount(() => window.clearInterval(progressRefreshTimer))
 </script>
 
 <style scoped>
+.review-date-controls .el-select{width:150px}.review-readiness,.review-entry-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.review-entry-actions{margin-top:20px;padding-top:16px;border-top:1px solid #e5e7eb}.review-note{color:#64748b;font-size:13px;line-height:1.6}.review-readiness{margin:12px 0}.review-entry-actions>.el-button{margin-left:0}
 .project-filters{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px}.project-filters>.el-input{width:235px}.project-filters>.el-select{width:130px}.project-filters>.el-button{margin:0}.project-pagination :deep(.el-pagination){flex-wrap:wrap;gap:8px}@media(max-width:1100px){.project-panel>.section-title{flex-wrap:wrap;gap:14px}.project-filters{justify-content:flex-start}}
 .project-status-toggle{display:flex;align-items:center;flex-wrap:wrap;gap:8px;border:0;padding:0;background:none;color:inherit;font:inherit;cursor:pointer;text-align:left}.project-status-toggle small{font-size:12px;font-weight:400;color:#8492a3}.project-status-toggle:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:4px;border-radius:4px}
 .business-page{min-height:calc(100vh - 84px);padding:24px;background:#eef1f5;color:#12213a}.hero{display:flex;align-items:center;justify-content:space-between;min-height:134px;padding:26px 40px;border-radius:18px;background:#1d344f;color:#fff;box-shadow:0 12px 30px rgba(27,48,74,.13)}.eyebrow{font-size:12px;letter-spacing:.28em;color:#78ecd1}.hero h1{margin:15px 0 8px;font-size:30px;line-height:1}.hero p{margin:0;color:#d2deea;font-size:15px}.hero-actions,.panel-actions{display:flex;align-items:center;gap:10px}.hero-actions :deep(.el-button){height:42px;padding:0 20px;border-radius:11px;font-weight:700}.panel{margin-top:20px;padding:24px 26px;border:0;border-radius:17px;background:#fff;box-shadow:0 7px 20px rgba(29,50,75,.06)}.section-title{display:flex;align-items:baseline;gap:7px;margin-bottom:18px}.section-title h2{margin:0;font-size:19px}.section-title>span{color:#8493a7;font-size:13px}.section-title--between{align-items:center;justify-content:space-between}.empty-state{padding:30px;text-align:center;color:#93a0b1}.success-empty{border-radius:10px;background:#edf9f2;color:#18a856}.success-empty span{margin-right:8px;font-weight:800}.decision-row{display:flex;align-items:center;gap:16px;padding:19px 20px;border:1px solid #dfe6ef;border-radius:14px}.decision-row+.decision-row{margin-top:14px}.decision-dot{width:10px;height:10px;flex:none;border-radius:50%}.dot-danger{background:#ef323a}.dot-warning{background:#df7c00}.dot-info{background:#4a83d8}.decision-copy{min-width:0;flex:1}.decision-title{display:flex;align-items:center;gap:10px}.decision-title b{font-size:16px}.decision-count{color:#df7c00;font-weight:700}.badge-danger{color:#e04b00}.badge-warning{color:#df7c00}.badge-info{color:#3f75bd}.decision-copy>p{margin:7px 0 0;color:#8493a7;font-size:14px;line-height:1.55}.decision-actions{display:flex;flex:none;align-self:flex-start;flex-wrap:wrap;justify-content:flex-end;gap:8px}.decision-actions :deep(.el-button){margin:0;font-weight:650}.pending-toggle{display:flex;justify-content:center;padding-top:15px}.pending-toggle :deep(.el-button){font-weight:650}.pending-toggle-arrow{display:inline-block;margin-left:5px;font-size:16px;transition:transform .2s ease}.pending-toggle-arrow.is-expanded{transform:rotate(180deg)}.personnel-list{margin-top:14px;border-top:1px dashed #dce4ee}.personnel-item{display:grid;grid-template-columns:110px minmax(0,1fr) auto;align-items:center;gap:18px;padding:10px 2px;border-bottom:1px dashed #dce4ee}.personnel-item>b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.personnel-item>span{overflow:hidden;color:#8493a7;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.finance-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.finance-grid article{padding:20px;border:1px solid #dfe6ef;border-radius:13px;background:#fafbfd}.finance-grid span,.finance-grid strong{display:block}.finance-grid span{color:#8794a8;font-size:14px}.finance-grid strong{margin-top:12px;font-size:29px;line-height:1}.amount-profit{color:#11a957}.amount-loss{color:#d84e58}.healthy-banner{margin-top:15px;padding:11px 16px;border-radius:10px;background:#e7f7ed;color:#11a957;font-size:14px}.alert-section{margin-top:16px;padding:16px;border:1px solid #e5eaf0;border-radius:12px;background:#f8fafc}.subsection-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.subsection-head>div{display:flex;align-items:baseline;gap:10px}.subsection-head span{color:#8a95a2;font-size:12px}.alert-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.alert-card{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:11px;padding:14px;border:1px solid #e0e6ec;border-radius:11px;background:#fff;color:inherit;text-align:left;cursor:pointer}.alert-card:hover{border-color:#b9c7d5;box-shadow:0 7px 18px rgba(31,53,74,.09)}.alert-icon{display:flex;width:30px;height:30px;align-items:center;justify-content:center;border-radius:9px;background:#fff0f1;color:#d94e58;font-weight:800}.alert-card--over-budget .alert-icon{background:#fff5e6;color:#c8841c}.alert-card--missing-company .alert-icon{background:#eef4fb;color:#4f78a8}.alert-content{display:flex;min-width:0;flex-direction:column}.alert-content>b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.alert-content>span{margin-top:4px;color:#788695;font-size:12px}.alert-arrow{color:#a3adb8;font-size:24px}.alert-footer{display:flex;justify-content:flex-end;padding-top:8px}.project-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;min-height:60px}.project-card{padding:19px 20px;border:1px solid #dfe6ef;border-radius:14px}.project-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.project-link{min-width:0;overflow:hidden;padding:0;border:0;background:none;color:#13213a;font:inherit;font-size:16px;font-weight:700;text-align:left;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.project-link:hover{color:#3478ef}.progress-row{display:grid;grid-template-columns:auto minmax(80px,1fr) auto;align-items:center;gap:14px;margin-top:18px;color:#8493a7;font-size:13px}.progress-row :deep(.el-progress__text){display:none}.progress-row :deep(.el-progress){width:100%}.project-card-foot{display:flex;align-items:center;gap:10px;margin-top:14px;color:#8493a7;font-size:13px}.project-actions{display:flex;margin-left:auto;gap:8px}.project-actions :deep(.el-button){margin:0}.project-pagination{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:18px}.project-pagination>span{color:#7e8a98;font-size:12px}.cost-form{margin-top:18px}.cost-form :deep(.el-form-item){margin-bottom:20px}.form-help{margin-top:6px;color:#8490a0;font-size:12px;line-height:1.5}.cost-preview{display:grid;gap:5px;margin:-4px 0 18px 126px;padding:13px 15px;border:1px solid #cfe3df;border-radius:9px;background:#f0f8f6}.cost-preview span,.cost-preview small{color:#71828c;font-size:12px}.cost-preview b{color:#174f4f;font-size:15px}.cost-preview b:not(:first-of-type){margin-top:7px}

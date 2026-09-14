@@ -58,6 +58,8 @@ public interface BusinessAccountingMapper
     Map<String,Object> selectDailySummary(Map<String,Object> query);
     List<Map<String,Object>> selectDailySummaryByCurrency(Map<String,Object> query);
     int countDraftFacts(Map<String,Object> query);
+    Map<String,Object> selectOverviewReadiness(Map<String,Object> query);
+    int countPendingCostsInRange(Map<String,Object> query);
     List<Map<String,Object>> selectAccountingAlerts(Map<String,Object> query);
     List<Map<String,Object>> selectProjectProfitRanking(Map<String,Object> query);
     List<Map<String,Object>> selectCompanyAccountingSummary(Map<String,Object> query);

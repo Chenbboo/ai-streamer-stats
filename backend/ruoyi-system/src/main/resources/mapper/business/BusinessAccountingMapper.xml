@@ -27,14 +27,23 @@
   <select id="countProjectsMissingDailyResult" resultType="int">
     select count(distinct p.project_id)
     from biz_project p
-    where p.del_flag='0' and p.status in('ACTIVE','ACCEPTANCE')
+    where p.del_flag='0'
       <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
       and (
         exists(select 1 from biz_operating_fact f where f.project_id=p.project_id
           and f.biz_date=#{bizDate} and f.status in('DRAFT','RETURNED','CONFIRMED','REVERSED'))
-        or exists(select 1 from biz_project_staff_allocation a where a.project_id=p.project_id
+        or (coalesce(p.cost_policy_version,'PERCENTAGE_V1') not in('MEMBER_DAYS_V1','ACTUAL_WORK_V1')
+          and exists(select 1 from biz_project_staff_allocation a where a.project_id=p.project_id
           and a.status='ACTIVE' and a.effective_from&lt;=#{bizDate}
-          and (a.effective_to is null or a.effective_to&gt;=#{bizDate}))
+          and (a.effective_to is null or a.effective_to&gt;=#{bizDate})
+          and (p.actual_end_date is null or p.actual_end_date&gt;=#{bizDate})))
+        or (p.cost_policy_version='MEMBER_DAYS_V1' and exists(
+          select 1 from biz_project_member_day_cost c where c.project_id=p.project_id and c.biz_date=#{bizDate}))
+        or (p.cost_policy_version='ACTUAL_WORK_V1' and (exists(
+          select 1 from biz_project_work_entry e where e.project_id=p.project_id and e.biz_date=#{bizDate}
+            and e.is_current='1' and e.status&lt;&gt;'SUPERSEDED') or exists(
+          select 1 from biz_project_resource_day d where d.project_id=p.project_id and d.biz_date=#{bizDate} and d.planned_minutes&gt;0
+            and (p.actual_end_date is null or p.actual_end_date&gt;=#{bizDate}))))
       )
       and not exists(select 1 from biz_project_daily_result r where r.project_id=p.project_id
         and r.biz_date=#{bizDate} and r.is_current='1')
@@ -380,6 +389,50 @@
     select count(*) from biz_operating_fact f join biz_project p on p.project_id=f.project_id and p.del_flag='0'
     where f.status='DRAFT'<if test="viewAll == false"> and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
   </select>
+  <sql id="overviewScopedProjects">
+    with scoped_projects as (
+      select p.project_id,p.cost_policy_version,p.actual_end_date from biz_project p where p.del_flag='0'
+      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="projectId != null">and p.project_id=#{projectId}</if>
+      <if test="companyDeptId != null">and p.company_dept_id=#{companyDeptId}</if>
+    )
+  </sql>
+  <sql id="overviewPendingCosts">
+      (select count(*) from biz_project_member_day_cost c join scoped_projects p on p.project_id=c.project_id
+        where p.cost_policy_version='MEMBER_DAYS_V1' <if test="dateFrom != null and dateFrom != ''">and c.biz_date&gt;=#{dateFrom}</if><if test="dateTo != null and dateTo != ''">and c.biz_date&lt;=#{dateTo}</if> and (c.pricing_status&lt;&gt;'PRICED' or c.amount is null))
+      + (select count(*) from biz_project_work_entry e join scoped_projects p on p.project_id=e.project_id
+        left join biz_project_work_cost c on c.entry_id=e.entry_id
+        where p.cost_policy_version='ACTUAL_WORK_V1' <if test="dateFrom != null and dateFrom != ''">and e.biz_date&gt;=#{dateFrom}</if><if test="dateTo != null and dateTo != ''">and e.biz_date&lt;=#{dateTo}</if> and e.status='CONFIRMED' and e.is_current='1'
+          and (c.entry_id is null or c.pricing_status&lt;&gt;'PRICED' or c.amount is null or exists(
+            select 1 from biz_project_work_event v where v.entry_id=e.entry_id and v.status&lt;&gt;'DONE')))
+  </sql>
+  <select id="countPendingCostsInRange" resultType="int">
+    <include refid="overviewScopedProjects"/>
+    select <include refid="overviewPendingCosts"/>
+  </select>
+  <!-- Read stored facts only. Missing scheduled costs must never be manufactured as zero. -->
+  <select id="selectOverviewReadiness" resultType="map">
+    <include refid="overviewScopedProjects"/>
+    select
+      (select count(*) from biz_project_daily_result r join scoped_projects p on p.project_id=r.project_id
+        where r.biz_date=#{dateFrom} and r.is_current='1') resultCount,
+      (select date_format(min(r.data_cutoff_time),'%Y-%m-%d %H:%i:%s') from biz_project_daily_result r
+        join scoped_projects p on p.project_id=r.project_id where r.biz_date=#{dateFrom} and r.is_current='1') dataCutoffFrom,
+      (select date_format(max(r.data_cutoff_time),'%Y-%m-%d %H:%i:%s') from biz_project_daily_result r
+        join scoped_projects p on p.project_id=r.project_id where r.biz_date=#{dateFrom} and r.is_current='1') dataCutoffTo,
+      (select count(*) from biz_operating_fact f join scoped_projects p on p.project_id=f.project_id
+        where f.biz_date=#{dateFrom} and f.status in('DRAFT','RETURNED')) unfinishedFactCount,
+      <include refid="overviewPendingCosts"/> pendingCostCount,
+      (select count(*) from biz_project_work_entry e join scoped_projects p on p.project_id=e.project_id
+        where p.cost_policy_version='ACTUAL_WORK_V1' and e.biz_date=#{dateFrom} and e.is_current='1'
+          and e.status in('DRAFT','SUBMITTED','RETURNED','WITHDRAWN'))
+      + (select count(*) from (select distinct d.project_id,d.user_id from biz_project_resource_day d
+          join scoped_projects p on p.project_id=d.project_id
+          where p.cost_policy_version='ACTUAL_WORK_V1' and d.biz_date=#{dateFrom} and d.planned_minutes&gt;0
+            and (p.actual_end_date is null or p.actual_end_date&gt;=#{dateFrom})
+            and not exists(select 1 from biz_project_work_entry e where e.project_id=d.project_id and e.user_id=d.user_id
+              and e.biz_date=d.biz_date and e.is_current='1' and e.status&lt;&gt;'SUPERSEDED')) missing_work) unfinishedWorkCount
+  </select>
   <select id="countProjectUnsettledFacts" resultType="int">
     select count(*) from biz_operating_fact where project_id=#{projectId} and status in('DRAFT','RETURNED')
   </select>
@@ -391,7 +444,7 @@
     select * from (
       select 'LOSS' alertType,r.project_id projectId,p.project_name projectName,p.company_dept_id companyDeptId,
         d.dept_name companyName,r.biz_date bizDate,r.profit_amount amount,
-        concat('当日经营结果为 ',round(r.profit_amount,2)) alertMessage,1 sortOrder
+        concat('当日经营结果为 ',round(r.profit_amount,2)) alertMessage,1 sortOrder,'PERIOD' alertPeriod
       from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
       left join sys_dept d on d.dept_id=p.company_dept_id
       where r.is_current='1' and r.biz_date=#{bizDate} and r.profit_amount&lt;0
@@ -400,19 +453,19 @@
       select 'BUDGET_WARNING',r.project_id,p.project_name,p.company_dept_id,d.dept_name,r.biz_date,
         r.budget_spent,concat(
           case when p.management_mode='KEY_CONTROL' and r.budget_spent&gt;=p.budget_limit*0.9 then '重点监管项目预算已达高警戒线：' else '预算预警：' end,
-          round(r.budget_spent/p.budget_limit*100,1),'%，累计成本 ',round(r.budget_spent,2),' / ',round(p.budget_limit,2)),2
+          round(r.budget_spent/p.budget_limit*100,1),'%，累计成本 ',round(r.budget_spent,2),' / ',round(p.budget_limit,2)),2,'CURRENT'
       from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
       left join sys_dept d on d.dept_id=p.company_dept_id
-      where r.is_current='1' and r.biz_date=#{bizDate} and p.budget_mode='TOTAL' and p.budget_limit&gt;0
+      where r.is_current='1' and <include refid="overviewBudgetDate"/> and p.budget_mode='TOTAL' and p.budget_limit&gt;0
         and r.budget_spent&gt;=p.budget_limit*(case p.management_mode when 'KEY_CONTROL' then 0.7 when 'STANDARD' then 0.8 else 1 end)
         and r.budget_spent&lt;=p.budget_limit
       <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
       union all
       select 'OVER_BUDGET',r.project_id,p.project_name,p.company_dept_id,d.dept_name,r.biz_date,
-        r.budget_spent,concat('累计成本 ',round(r.budget_spent,2),' 已超过预算 ',round(p.budget_limit,2)),2
+        r.budget_spent,concat('累计成本 ',round(r.budget_spent,2),' 已超过预算 ',round(p.budget_limit,2)),2,'CURRENT'
       from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
       left join sys_dept d on d.dept_id=p.company_dept_id
-      where r.is_current='1' and r.biz_date=#{bizDate} and p.budget_mode='TOTAL'
+      where r.is_current='1' and <include refid="overviewBudgetDate"/> and p.budget_mode='TOTAL'
         and p.budget_limit is not null and r.budget_spent&gt;p.budget_limit
       <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
       union all
@@ -424,7 +477,7 @@
           round((r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost else 0 end)
             /p.daily_budget_limit*100,1),'%，当日成本 ',
           round(r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost else 0 end,2),
-          ' / ',round(p.daily_budget_limit,2)),2
+          ' / ',round(p.daily_budget_limit,2)),2,'PERIOD'
       from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
       left join sys_dept d on d.dept_id=p.company_dept_id
       where r.is_current='1' and r.biz_date=#{bizDate} and p.budget_mode='DAILY' and p.daily_budget_limit&gt;0
@@ -438,18 +491,30 @@
         (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost else 0 end),
         concat('当日成本 ',
           round(r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost else 0 end,2),
-          ' 已超过每日预算 ',round(p.daily_budget_limit,2)),2
+          ' 已超过每日预算 ',round(p.daily_budget_limit,2)),2,'PERIOD'
       from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
       left join sys_dept d on d.dept_id=p.company_dept_id
       where r.is_current='1' and r.biz_date=#{bizDate} and p.budget_mode='DAILY' and p.daily_budget_limit is not null
         and (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost else 0 end)&gt;p.daily_budget_limit
       <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
       union all
-      select 'MISSING_COMPANY',p.project_id,p.project_name,null,null,#{bizDate},null,'项目尚未设置归属公司，无法录入收支',3
+      select 'MISSING_COMPANY',p.project_id,p.project_name,null,null,#{bizDate},null,'项目尚未设置归属公司，无法录入收支',3,'CURRENT'
       from biz_project p where p.del_flag='0' and p.company_dept_id is null and p.status not in('CLOSED','CANCELED')
       <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
-    ) alerts order by sortOrder,projectName limit 20
+    ) alerts
+    <if test="alertScope != null">where alertPeriod=#{alertScope}</if>
+    order by sortOrder,projectName limit 20
   </select>
+  <sql id="overviewBudgetDate">
+    <choose>
+      <when test="alertScope == 'CURRENT'">
+        r.biz_date=(select max(latest.biz_date) from biz_project_daily_result latest
+          where latest.project_id=r.project_id and latest.is_current='1' and latest.biz_date&lt;=#{bizDate})
+        and p.status not in('CLOSED','CANCELED')
+      </when>
+      <otherwise>r.biz_date=#{bizDate}</otherwise>
+    </choose>
+  </sql>
   <select id="selectProjectProfitRanking" resultType="map">
     select p.base_currency currency,r.project_id projectId,p.project_name projectName,p.company_dept_id companyDeptId,d.dept_name companyName,
       sum(r.revenue_amount) revenueAmount,sum(r.cost_amount) businessCost,sum(r.personnel_cost) personnelCost,

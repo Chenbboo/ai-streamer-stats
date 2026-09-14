@@ -31,6 +31,8 @@ import com.ruoyi.common.utils.uuid.IdUtils;
 @Service
 public class BusinessAccountingServiceImpl implements IBusinessAccountingService
 {
+    private java.time.Clock overviewClock = java.time.Clock.system(java.time.ZoneId.of("Asia/Shanghai"));
+    void setOverviewClock(java.time.Clock clock) { overviewClock = clock.withZone(java.time.ZoneId.of("Asia/Shanghai")); }
     private static final List<String> MANUAL_EXPENSE_CATEGORY_CODES = Arrays.asList("PURCHASE_COST", "PLATFORM_FEE",
         "MARKETING_COST", "LOGISTICS_COST", "ADMIN_ALLOCATION", "OTHER_EXPENSE");
     @Autowired private BusinessAccountingMapper mapper;
@@ -70,14 +72,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         result.put("companies",mapper.selectCompanies());
         List<Map<String,Object>> projects=mapper.selectProjectOptions(userId,viewAll,true);
         result.put("projects",projects);
-        int pendingCosts=0;
-        if(projects!=null) for(Map<String,Object> project:projects)
-        {
-            if(scoped.get("projectId")!=null&&!String.valueOf(scoped.get("projectId")).equals(String.valueOf(project.get("projectId"))))continue;
-            if(scoped.get("companyDeptId")!=null&&!String.valueOf(scoped.get("companyDeptId")).equals(String.valueOf(project.get("companyDeptId"))))continue;
-            if("ACTUAL_WORK_V1".equals(project.get("costPolicyVersion")))pendingCosts+=workMapper.countPendingCosts(longValue(project.get("projectId")));
-            if(BusinessMemberDayCostService.POLICY.equals(project.get("costPolicyVersion")))pendingCosts+=memberDays.pending(longValue(project.get("projectId")));
-        }
+        int pendingCosts=mapper.countPendingCostsInRange(scoped);
         result.put("pendingCostCount",pendingCosts);
         result.put("costDataStatus",pendingCosts>0?"PENDING_COST":"AVAILABLE");
         result.put("categories",mapper.selectCategories());
@@ -85,26 +80,64 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     }
 
     @Override
+    @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
     public Map<String,Object> bossOverview(Long userId,boolean viewAll)
     {
-        String today=new SimpleDateFormat("yyyy-MM-dd").format(new Date());
+        // Existing AI tools explicitly ask for today; keep their contract.
+        String currentDate=java.time.LocalDate.now(overviewClock).toString();
+        return bossOverviewInternal(currentDate,currentDate,userId,viewAll,false);
+    }
+
+    @Override
+    @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
+    public Map<String,Object> bossOverview(String requestedDate,Long userId,boolean viewAll)
+    {
+        java.time.LocalDate today=java.time.LocalDate.now(overviewClock), date;
+        if("yesterday".equals(requestedDate)) date=today.minusDays(1);
+        else if("today".equals(requestedDate)) date=today;
+        else try {
+            if(requestedDate==null||!requestedDate.matches("\\d{4}-\\d{2}-\\d{2}"))throw new IllegalArgumentException();
+            date=java.time.LocalDate.parse(requestedDate);
+        } catch(RuntimeException ex) { throw new ServiceException("经营日期须为有效的 yyyy-MM-dd 日期"); }
+        if(date.isAfter(today))throw new ServiceException("经营日期不能晚于今天");
+        return bossOverviewInternal(date.toString(),today.toString(),userId,viewAll,true);
+    }
+
+    private Map<String,Object> bossOverviewInternal(String today,String currentDate,Long userId,boolean viewAll,boolean review)
+    {
         Date bizDate=java.sql.Date.valueOf(today);
         Map<String,Object> todayQuery=new HashMap<String,Object>();todayQuery.put("userId",userId);
         todayQuery.put("viewAll",viewAll);todayQuery.put("dateFrom",today);todayQuery.put("dateTo",today);
         Map<String,Object> alertQuery=new HashMap<String,Object>();alertQuery.put("userId",userId);
         alertQuery.put("viewAll",viewAll);alertQuery.put("bizDate",today);
         // 人员成本是否完整是公司级责任：即使员工尚未加入任何项目，也必须提醒对应公司老板设置。
-        List<Map<String,Object>> personnelRows=mapper.selectCompanyPersonnelCostReadiness(userId,viewAll,bizDate);
+        List<Map<String,Object>> personnelRows=mapper.selectCompanyPersonnelCostReadiness(userId,viewAll,java.sql.Date.valueOf(currentDate));
         Map<String,Object> result=new LinkedHashMap<String,Object>();
         result.put("bizDate",today);
+        result.put("currentBizDate",currentDate);
         result.put("missingDailyResultCount",mapper.countProjectsMissingDailyResult(userId,viewAll,bizDate));
         result.put("today",mapper.selectDailySummary(todayQuery));
         result.put("todayByCurrency",mapper.selectDailySummaryByCurrency(todayQuery));
         result.put("draftFactCount",mapper.countDraftFacts(todayQuery));
+        if(review)alertQuery.put("alertScope","PERIOD");
         result.put("alerts",mapper.selectAccountingAlerts(alertQuery));
         result.put("personnelReadiness",summarizePersonnelReadiness(personnelRows));
         result.put("ranking",mapper.selectProjectProfitRanking(todayQuery));
         result.put("companies",mapper.selectCompanyAccountingSummary(todayQuery));
+        if(review)
+        {
+            Map<String,Object> readiness=mapper.selectOverviewReadiness(todayQuery);
+            if(readiness==null)readiness=Collections.emptyMap();
+            result.put("readiness",readiness);
+            result.put("summary",result.get("today"));
+            result.put("summaryByCurrency",result.get("todayByCurrency"));
+            int missing=((Number)result.get("missingDailyResultCount")).intValue();
+            boolean incomplete=missing>0||decimal(readiness.get("pendingCostCount")).signum()>0
+                ||decimal(readiness.get("unfinishedFactCount")).signum()>0||decimal(readiness.get("unfinishedWorkCount")).signum()>0;
+            result.put("dataStatus",incomplete?"INCOMPLETE":decimal(readiness.get("resultCount")).signum()==0?"NO_DATA":"AVAILABLE");
+            alertQuery.put("alertScope","CURRENT");alertQuery.put("bizDate",currentDate);
+            result.put("currentAlerts",mapper.selectAccountingAlerts(alertQuery));
+        }
         return result;
     }
 
