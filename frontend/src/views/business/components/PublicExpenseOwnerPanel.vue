@@ -54,7 +54,6 @@
           <el-table-column label="项目" min-width="190"><template #default="{ row }"><b>{{ row.projectName }}</b><small v-if="row.unavailable && !readOnly" class="unavailable-project">当前不可分配，请将比例设为 0</small></template></el-table-column>
           <el-table-column label="分配比例" width="190"><template #default="{ row, $index }"><span v-if="readOnly">{{ percent(row.percentage) }}%</span><div v-else class="percentage-input"><el-input-number v-model="allocationRows[$index].percentage" :min="0" :max="100" :precision="2" :step="1" :disabled="saving || loading" controls-position="right" :aria-label="`${row.projectName}分配比例`" /><span>%</span></div></template></el-table-column>
           <el-table-column label="本月公共费用" min-width="155" align="right"><template #default="{ row }">{{ money(row.amount) }} {{ activeBill.currency }}</template></el-table-column>
-          
         </el-table>
         <div class="allocation-totals"><span>合计 {{ percent(percentageTotal) }}%</span><b>{{ money(previewAllocated) }} {{ activeBill.currency }}</b></div>
         <p class="allocation-note">可以先保存部分比例；提交时必须合计 100%。金额精确到分，系统自动处理尾差；月中新增或结束的项目，由你确定当月承担比例。</p>
