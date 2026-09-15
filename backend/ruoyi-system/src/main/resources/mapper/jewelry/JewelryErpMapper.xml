@@ -7,6 +7,7 @@
         <result property="docNo" column="doc_no"/>
         <result property="docType" column="doc_type"/>
         <result property="bizDate" column="biz_date"/>
+        <result property="supplierReturnDate" column="supplier_return_date"/>
         <result property="status" column="status"/>
         <result property="supplierId" column="supplier_id"/>
         <result property="supplierNameSnapshot" column="supplier_name_snapshot"/>
@@ -385,24 +386,108 @@
         order by main.sku,addon.sku
     </select>
 
-    <select id="selectStockList" resultType="java.util.LinkedHashMap">
-        with inbound_layers as (
-          select t.product_id,t.transaction_id,t.create_time,
-            sum(t.on_hand_change) over(partition by t.product_id order by t.transaction_id desc) cumulative_qty
+    <!-- Infer remaining inbound layers by FIFO; posted supplier returns consume their own purchase layer.
+         Cancelled documents and their reversal entries cancel out rather than create a new deadline. -->
+    <sql id="supplierReturnDeadlineCtes">
+        return_config as (
+          select coalesce(max(case when cast(config_value as decimal(10,0)) between 1 and 365
+            then cast(config_value as decimal(10,0)) end),25) return_days
+          from sys_config where config_key='jewelry.supplier.return.days'
+        ),
+        supplier_returned as (
+          select ri.source_item_id,sum(ri.qty) returned_qty
+          from jewelry_document_item ri
+          join jewelry_document rd on rd.document_id=ri.document_id
+          where rd.doc_type='SUPPLIER_RETURN' and rd.status='POSTED' and ri.source_item_id is not null
+          group by ri.source_item_id
+        ),
+        original_inbound as (
+          select t.product_id,t.transaction_id,d.document_id,d.doc_no,d.supplier_name_snapshot,
+            d.doc_type,d.biz_date origin_date,
+            case when d.doc_type='PURCHASE_IN' then coalesce(d.supplier_return_date,
+              timestampadd(DAY,rc.return_days,d.biz_date)) else null end deadline,
+            case when d.doc_type='PURCHASE_IN'
+              then greatest(t.on_hand_change-coalesce(sr.returned_qty,0),0)
+              else t.on_hand_change end layer_qty
           from jewelry_stock_transaction t
-          where t.on_hand_change &gt; 0
+          join jewelry_document d on d.document_id=t.document_id
+          cross join return_config rc
+          left join supplier_returned sr on sr.source_item_id=t.item_id
+          where t.on_hand_change &gt; 0 and d.status='POSTED'
+            and d.doc_type not in ('REVERSAL','RETURN_INSPECT','CUSTOMER_RETURN')
         ),
-        age_boundary as (
-          select l.product_id,max(l.transaction_id) boundary_id
-          from inbound_layers l
-          join jewelry_stock current_stock on current_stock.product_id=l.product_id
-          where current_stock.on_hand_qty &gt; 0 and l.cumulative_qty &gt;= current_stock.on_hand_qty
-          group by l.product_id
+        return_events as (
+          select t.product_id,t.transaction_id,t.on_hand_change layer_qty,
+            coalesce(sale_tx.transaction_id,t.transaction_id) origin_before_tx,
+            coalesce(sale_doc.biz_date,return_doc.biz_date,d.biz_date) origin_before_date
+          from jewelry_stock_transaction t
+          join jewelry_document d on d.document_id=t.document_id
+          join jewelry_document_item ti on ti.item_id=t.item_id
+          left join jewelry_document_item return_item on return_item.item_id=
+            case when d.doc_type='RETURN_INSPECT' then ti.source_item_id else ti.item_id end
+          left join jewelry_document return_doc on return_doc.document_id=return_item.document_id
+            and return_doc.doc_type='CUSTOMER_RETURN'
+          left join jewelry_document_item sale_item on sale_item.item_id=return_item.source_item_id
+            and sale_item.product_id=t.product_id
+          left join jewelry_document sale_doc on sale_doc.document_id=sale_item.document_id
+            and sale_doc.doc_type='SALES_OUT'
+          left join jewelry_stock_transaction sale_tx on sale_tx.item_id=sale_item.item_id
+            and sale_tx.document_id=sale_doc.document_id and sale_tx.on_hand_change &lt; 0
+          where t.on_hand_change &gt; 0 and d.status='POSTED'
+            and d.doc_type in ('RETURN_INSPECT','CUSTOMER_RETURN')
         ),
-        warning_config as (
+        return_origins as (
+          select r.product_id,r.transaction_id,r.layer_qty,
+            count(distinct o.document_id) origin_count,
+            min(o.document_id) document_id,min(o.doc_no) doc_no,
+            min(o.supplier_name_snapshot) supplier_name_snapshot,
+            min(o.origin_date) origin_date,min(o.deadline) deadline
+          from return_events r left join original_inbound o on o.product_id=r.product_id
+            and o.transaction_id &lt; r.origin_before_tx and o.origin_date &lt;= r.origin_before_date
+          group by r.product_id,r.transaction_id,r.layer_qty
+        ),
+        deadline_layer_quantities as (
+          select product_id,transaction_id,document_id,doc_no,supplier_name_snapshot,
+            origin_date,deadline,layer_qty,0 origin_unknown
+          from original_inbound
+          union all
+          select product_id,transaction_id,
+            case when origin_count=1 then document_id else null end,
+            case when origin_count=1 then doc_no else null end,
+            case when origin_count=1 then supplier_name_snapshot else null end,
+            case when origin_count=1 then origin_date else null end,
+            case when origin_count=1 then deadline else null end,
+            layer_qty,case when origin_count=1 then 0 else 1 end
+          from return_origins
+        ),
+        deadline_layers as (
+          select l.*,sum(l.layer_qty) over(partition by l.product_id order by l.transaction_id desc
+            rows between unbounded preceding and current row) cumulative_qty
+          from deadline_layer_quantities l where l.layer_qty &gt; 0
+        ),
+        remaining_origin_layers as (
+          select l.* from deadline_layers l join jewelry_stock cs on cs.product_id=l.product_id
+          where cs.on_hand_qty &gt; 0 and l.cumulative_qty-l.layer_qty &lt; cs.on_hand_qty
+        ),
+        stock_origin_summary as (
+          select product_id,max(origin_unknown) origin_unknown,
+            case when max(origin_unknown)=0 then min(origin_date) else null end oldest_inbound_date
+          from remaining_origin_layers group by product_id
+        ),
+        remaining_deadlines as (
+          select l.*,row_number() over(partition by l.product_id order by l.deadline,l.document_id,l.transaction_id) deadline_rank
+          from remaining_origin_layers l
+          join stock_origin_summary os on os.product_id=l.product_id and os.origin_unknown=0
+          where l.deadline is not null
+        )
+    </sql>
+
+    <select id="selectStockList" resultType="java.util.LinkedHashMap">
+        with warning_config as (
           select coalesce(max(cast(config_value as unsigned)),25) warning_days
           from sys_config where config_key='jewelry.stock.warning.days'
         )
+        , <include refid="supplierReturnDeadlineCtes"/>
         select p.product_id productId,p.sku,p.product_name productName,p.product_type productType,
                p.specification,p.category,p.warning_qty warningQty,
                (s.on_hand_qty+s.inspection_qty+s.defect_qty) totalStockQty,
@@ -412,16 +497,20 @@
                s.defect_reserved_qty defectReservedQty,s.avg_cost avgCost,
                round(s.on_hand_qty*s.avg_cost+s.inspection_cost_amount+s.defect_cost_amount,2) stockAmount,
                s.update_time updateTime,
-               date(age_tx.create_time) oldestInboundDate,
-               case when s.on_hand_qty &gt; 0 and age_tx.create_time is not null
-                 then datediff(curdate(),date(age_tx.create_time)) else 0 end stockAgeDays,
-               wc.warning_days warningDays,
+               os.oldest_inbound_date oldestInboundDate,
+               case when s.on_hand_qty &gt; 0 and os.oldest_inbound_date is not null
+                 then datediff(curdate(),os.oldest_inbound_date) else 0 end stockAgeDays,
+               wc.warning_days warningDays,coalesce(os.origin_unknown,0) stockOriginUnknown,
+               rd.deadline supplierReturnDate,
+               timestampdiff(DAY,curdate(),rd.deadline) supplierReturnDays,
+               rd.doc_no supplierReturnDocNo,rd.supplier_name_snapshot supplierReturnSupplierName,
                case when (s.on_hand_qty-s.reserved_out_qty) &lt;= p.warning_qty then 1 else 0 end quantityWarning,
-               case when s.on_hand_qty &gt; 0 and age_tx.create_time is not null
-                 and datediff(curdate(),date(age_tx.create_time)) &gt;= wc.warning_days then 1 else 0 end ageWarning
+               case when s.on_hand_qty &gt; 0 and os.oldest_inbound_date is not null
+                 and datediff(curdate(),os.oldest_inbound_date) &gt;= wc.warning_days then 1 else 0 end ageWarning
         from jewelry_stock s join jewelry_product p on p.product_id=s.product_id
-        left join age_boundary ab on ab.product_id=s.product_id
-        left join jewelry_stock_transaction age_tx on age_tx.transaction_id=ab.boundary_id
+        left join stock_origin_summary os on os.product_id=s.product_id
+        left join remaining_deadlines rd on rd.product_id=s.product_id and rd.deadline_rank=1
+          and p.product_type='FINISHED'
         cross join warning_config wc
         <where>
             <if test="keyword != null and keyword != ''">
@@ -434,13 +523,13 @@
                         and (s.on_hand_qty-s.reserved_out_qty) &lt;= p.warning_qty
                     </when>
                     <when test="warningType == 'age'">
-                        and s.on_hand_qty &gt; 0 and age_tx.create_time is not null
-                          and datediff(curdate(),date(age_tx.create_time)) &gt;= wc.warning_days
+                        and s.on_hand_qty &gt; 0 and os.oldest_inbound_date is not null
+                          and datediff(curdate(),os.oldest_inbound_date) &gt;= wc.warning_days
                     </when>
                     <otherwise>
                         and ((s.on_hand_qty-s.reserved_out_qty) &lt;= p.warning_qty
-                          or (s.on_hand_qty &gt; 0 and age_tx.create_time is not null
-                            and datediff(curdate(),date(age_tx.create_time)) &gt;= wc.warning_days))
+                          or (s.on_hand_qty &gt; 0 and os.oldest_inbound_date is not null
+                            and datediff(curdate(),os.oldest_inbound_date) &gt;= wc.warning_days))
                     </otherwise>
                 </choose>
             </if>
@@ -479,23 +568,11 @@
         order by t.transaction_id desc
     </select>
     <select id="selectDashboard" resultType="java.util.LinkedHashMap">
-        with inbound_layers as (
-          select t.product_id,t.transaction_id,t.create_time,
-            sum(t.on_hand_change) over(partition by t.product_id order by t.transaction_id desc) cumulative_qty
-          from jewelry_stock_transaction t
-          where t.on_hand_change &gt; 0
-        ),
-        age_boundary as (
-          select l.product_id,max(l.transaction_id) boundary_id
-          from inbound_layers l
-          join jewelry_stock current_stock on current_stock.product_id=l.product_id
-          where current_stock.on_hand_qty &gt; 0 and l.cumulative_qty &gt;= current_stock.on_hand_qty
-          group by l.product_id
-        ),
-        warning_config as (
+        with warning_config as (
           select coalesce(max(cast(config_value as unsigned)),25) warning_days
           from sys_config where config_key='jewelry.stock.warning.days'
         )
+        , <include refid="supplierReturnDeadlineCtes"/>
         select (select count(*) from jewelry_product where status='0') productCount,
           coalesce((select sum(on_hand_qty+inspection_qty+defect_qty) from jewelry_stock),0) stockQty,
           coalesce((select sum(on_hand_qty-reserved_out_qty) from jewelry_stock),0) availableQty,
@@ -510,19 +587,17 @@
                and (s.on_hand_qty-s.reserved_out_qty)&lt;=p.warning_qty) quantityWarningCount,
           (select count(*) from jewelry_stock s
              join jewelry_product p on p.product_id=s.product_id
-             left join age_boundary ab on ab.product_id=s.product_id
-             left join jewelry_stock_transaction age_tx on age_tx.transaction_id=ab.boundary_id
+             left join stock_origin_summary os on os.product_id=s.product_id
              cross join warning_config wc
-             where p.status='0' and s.on_hand_qty&gt;0 and age_tx.create_time is not null
-               and datediff(curdate(),date(age_tx.create_time))&gt;=wc.warning_days) ageWarningCount,
+             where p.status='0' and s.on_hand_qty&gt;0 and os.oldest_inbound_date is not null
+               and datediff(curdate(),os.oldest_inbound_date)&gt;=wc.warning_days) ageWarningCount,
           (select count(*) from jewelry_stock s
              join jewelry_product p on p.product_id=s.product_id
-             left join age_boundary ab on ab.product_id=s.product_id
-             left join jewelry_stock_transaction age_tx on age_tx.transaction_id=ab.boundary_id
+             left join stock_origin_summary os on os.product_id=s.product_id
              cross join warning_config wc
              where p.status='0' and ((s.on_hand_qty-s.reserved_out_qty)&lt;=p.warning_qty
-               or (s.on_hand_qty&gt;0 and age_tx.create_time is not null
-                 and datediff(curdate(),date(age_tx.create_time))&gt;=wc.warning_days))) warningCount,
+               or (s.on_hand_qty&gt;0 and os.oldest_inbound_date is not null
+                 and datediff(curdate(),os.oldest_inbound_date)&gt;=wc.warning_days))) warningCount,
           coalesce((select round(sum(d.total_amount),2)
              from jewelry_document d
              left join jewelry_document src on src.document_id=d.source_document_id
@@ -566,6 +641,21 @@
         </where>
         order by d.document_id desc
     </select>
+    <select id="selectSupplierReturnDays" resultType="java.lang.Integer">
+        select coalesce(max(case when cast(config_value as decimal(10,0)) between 1 and 365
+          then cast(config_value as decimal(10,0)) end),25)
+        from sys_config where config_key='jewelry.supplier.return.days'
+    </select>
+    <insert id="upsertSupplierReturnDays">
+        insert into sys_config(config_name,config_key,config_value,config_type,create_by,create_time,remark)
+        values('珠宝ERP供应商退货期限','jewelry.supplier.return.days',#{days},'Y',#{userName},sysdate(),
+          '采购业务日期加此天数；单据约定日期优先')
+        on duplicate key update config_value=#{days},update_by=#{userName},update_time=sysdate()
+    </insert>
+    <update id="updatePostedSupplierReturnDate">
+        update jewelry_document set supplier_return_date=#{supplierReturnDate},update_by=#{updateBy},update_time=sysdate()
+        where document_id=#{documentId} and doc_type='PURCHASE_IN' and status='POSTED'
+    </update>
     <select id="selectDocumentById" resultMap="documentMap">
         select d.*,src.doc_type source_doc_type,src.doc_no source_doc_no
         from jewelry_document d
@@ -721,13 +811,13 @@
         order by item.item_id
     </select>
     <insert id="insertDocument" useGeneratedKeys="true" keyProperty="documentId">
-        insert into jewelry_document(doc_no,doc_type,biz_date,status,supplier_id,supplier_name_snapshot,sales_channel,
+        insert into jewelry_document(doc_no,doc_type,biz_date,supplier_return_date,status,supplier_id,supplier_name_snapshot,sales_channel,
           external_no,influencer_id,influencer_name,influencer_price_snapshot,influencer_price_version,
           platform_rate,commission_rate,tax_rate,return_reason,source_document_id,
           unlinked_reason,actual_refund_amount,total_qty,total_amount,total_cost,total_profit,risk_status,
           labor_fee,processing_fee,other_fee,creator_user_id,creator_name,
           create_by,create_time,remark)
-        values(#{docNo},#{docType},#{bizDate},#{status},#{supplierId},#{supplierNameSnapshot},#{salesChannel},
+        values(#{docNo},#{docType},#{bizDate},#{supplierReturnDate},#{status},#{supplierId},#{supplierNameSnapshot},#{salesChannel},
           #{externalNo},#{influencerId},#{influencerName},#{influencerPriceSnapshot},#{influencerPriceVersion},
           #{platformRate},#{commissionRate},#{taxRate},#{returnReason},
           #{sourceDocumentId},#{unlinkedReason},#{actualRefundAmount},#{totalQty},#{totalAmount},#{totalCost},#{totalProfit},#{riskStatus},
@@ -736,6 +826,7 @@
     </insert>
     <update id="updateDocument">
         update jewelry_document set doc_type=#{docType},biz_date=#{bizDate},supplier_id=#{supplierId},
+          supplier_return_date=#{supplierReturnDate},
           supplier_name_snapshot=#{supplierNameSnapshot},sales_channel=#{salesChannel},external_no=#{externalNo},
           influencer_id=#{influencerId},influencer_name=#{influencerName},
           influencer_price_snapshot=#{influencerPriceSnapshot},influencer_price_version=#{influencerPriceVersion},

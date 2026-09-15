@@ -26,6 +26,12 @@
         <el-form :model="form" label-position="top"><div class="sheet-head">
           <el-form-item label="单据类型" required><el-select v-model="form.docType" :disabled="readonly" @change="typeChanged"><el-option v-for="o in editableTypes" :key="o.value" :label="o.label" :value="o.value"/></el-select></el-form-item>
           <el-form-item label="业务日期" required><el-date-picker v-model="form.bizDate" value-format="YYYY-MM-DD" :disabled="readonly"/></el-form-item>
+          <el-form-item v-if="form.docType==='PURCHASE_IN'" label="约定退货日期">
+            <el-date-picker v-model="form.supplierReturnDate" type="date" value-format="YYYY-MM-DD"
+              placeholder="留空按统一退货期限" clearable :disabled="readonly"/>
+            <el-button v-if="readonly && form.status==='POSTED'" v-hasPermi="['jewelry:stock:config']"
+              link type="primary" @click="openReturnDate">设置特殊日期</el-button>
+          </el-form-item>
           <el-form-item v-if="needsSupplier" label="供应商" required><el-select v-model="form.supplierId" filterable clearable :disabled="readonly" @change="supplierChanged"><el-option v-for="s in suppliers" :key="s.supplierId" :label="s.supplierName" :value="s.supplierId"/></el-select></el-form-item>
           <el-form-item v-if="form.docType==='SUPPLIER_RETURN'" label="原采购单" required>
             <el-input v-if="readonly" :model-value="form.sourceDocNo || form.sourceDocumentId" disabled />
@@ -325,9 +331,19 @@
           @click="applyImportRows">导入到当前单据</el-button>
       </template>
     </el-dialog>
+    <el-dialog v-model="returnDateDialog" title="设置特殊退货日期" width="440px" append-to-body>
+      <p>采购单：{{form.docNo}}</p>
+      <p>仅修改本采购单退货期限，不改变库存、金额和审批状态。清空日期后恢复统一规则。</p>
+      <el-date-picker v-model="returnDateValue" type="date" value-format="YYYY-MM-DD" clearable placeholder="留空使用统一退货期限" style="width:100%"/>
+      <template #footer>
+        <el-button @click="returnDateDialog=false">取消</el-button>
+        <el-button type="primary" :loading="savingReturnDate" @click="saveReturnDate">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 <script setup name="JewelryDocument">
+import {updateJewelrySupplierReturnDate} from '@/api/jewelry/erp'
 import {saveAs} from 'file-saver'
 import {listJewelryDocuments,getJewelryDocument,listSupplierReturnSources,getSupplierReturnSource,getCustomerReturnSource,getReturnInspectionSource,saveJewelryDocument,deleteJewelryDraft,assessJewelryDocumentRisk,submitJewelryDocument,withdrawJewelryDocument,createJewelryReversal,listJewelryProducts,listJewelryProductOptions,listJewelrySuppliers,listJewelryInfluencerOptions,getJewelryInfluencerProductPrices,getJewelryInfluencerBundleItems,saveJewelryProduct,downloadJewelryDocumentImportTemplate,previewJewelryDocumentImport} from '@/api/jewelry/erp'
 import {compressXlsxImages,formatFileSize} from '@/utils/xlsxImageCompressor'
@@ -337,6 +353,14 @@ const {proxy}=getCurrentInstance(),rows=ref([]),total=ref(0),loading=ref(false),
 const productDialog=ref(false),productSaving=ref(false),productFormRef=ref(),activeProductRow=ref(null)
 const importDialog=ref(false),importLoading=ref(false),applyingImport=ref(false),importPreview=ref({})
 const importCompression=ref(null)
+const returnDateDialog=ref(false),returnDateValue=ref(null),savingReturnDate=ref(false)
+function openReturnDate(){returnDateValue.value=form.supplierReturnDate||null;returnDateDialog.value=true}
+async function saveReturnDate(){
+  if(returnDateValue.value && returnDateValue.value<form.bizDate){proxy.$modal.msgWarning('约定退货日期不能早于采购入库业务日期');return}
+  savingReturnDate.value=true
+  try{await updateJewelrySupplierReturnDate(form.documentId,returnDateValue.value||null);form.supplierReturnDate=returnDateValue.value||null;returnDateDialog.value=false;proxy.$modal.msgSuccess(returnDateValue.value?'特殊退货日期已保存':'已恢复按统一退货期限计算')}
+  finally{savingReturnDate.value=false}
+}
 const importProgress=reactive({active:false,percentage:0,text:''})
 const actualRefundManuallyEdited=ref(false)
 const influencerProductPrices=ref([])
@@ -353,7 +377,7 @@ const editableTypes=types.filter(item=>!['REVERSAL','ASSEMBLY'].includes(item.va
 const statuses=[{value:'DRAFT',label:'草稿'},{value:'PENDING_FIRST',label:'待审核'},{value:'PENDING_SECOND',label:'待审核'},{value:'POSTED',label:'已入账'},{value:'REJECTED',label:'已驳回'},{value:'REVERSED',label:'已红冲'}]
 const query=reactive({pageNum:1,pageSize:10,docNo:'',docType:'',status:''})
 const blankItem=()=>({productId:null,sourceItemId:null,itemRole:'NORMAL',bundleGroupNo:null,saleRole:'NORMAL',pricingMode:'SEPARATE',productTypeSnapshot:'',specificationSnapshot:'',imageUrls:'',qty:1,sourceQty:0,goodQty:0,defectQty:0,remainingInspectQty:0,remainingReturnQty:0,systemQty:0,countedQty:0,adjustmentQty:0,unitPrice:0,sourceUnitPrice:0,unitCost:0,packFee:0,shipFee:0,certFee:0,otherFee1:0,otherFee2:0,otherFee3:0,influencerPriceSnapshot:null,influencerPriceVersion:0,influencerPriceStatus:'',lineReason:''})
-const blank=()=>({documentId:null,docType:'PURCHASE_IN',bizDate:new Date().toISOString().slice(0,10),supplierId:null,supplierNameSnapshot:'',externalNo:'',salesChannel:'',influencerId:null,influencerName:'',influencerPriceSnapshot:null,influencerPriceVersion:0,platformRate:0,commissionRate:0,taxRate:0,returnReason:'',sourceDocumentId:null,sourceDocNo:'',unlinkedReason:'',actualRefundAmount:null,riskStatus:'',remark:'',items:[blankItem()]})
+const blank=()=>({documentId:null,docType:'PURCHASE_IN',bizDate:new Date().toISOString().slice(0,10),supplierReturnDate:null,supplierId:null,supplierNameSnapshot:'',externalNo:'',salesChannel:'',influencerId:null,influencerName:'',influencerPriceSnapshot:null,influencerPriceVersion:0,platformRate:0,commissionRate:0,taxRate:0,returnReason:'',sourceDocumentId:null,sourceDocNo:'',unlinkedReason:'',actualRefundAmount:null,riskStatus:'',remark:'',items:[blankItem()]})
 const form=reactive(blank())
 const serverRiskStatus=ref('')
 let riskTimer=null,riskSequence=0
@@ -854,8 +878,9 @@ async function inspectionSourceChanged(id){
   try{await loadInspectionSource(id,false)}catch(error){form.sourceDocumentId=null;form.items=[blankItem()];proxy.$modal.msgError(error?.message||'加载客户退货单失败')}
 }
 function actualRefundTotalChanged(){actualRefundManuallyEdited.value=true}
-async function typeChanged(){actualRefundManuallyEdited.value=false;form.items=[blankItem()];form.supplierId=null;form.supplierNameSnapshot='';form.salesChannel='';form.influencerId=null;form.influencerName='';influencerProductPrices.value=[];form.influencerPriceSnapshot=null;form.influencerPriceVersion=0;form.platformRate=0;form.commissionRate=0;form.taxRate=0;form.returnReason='';form.sourceDocumentId=null;form.sourceDocNo='';form.unlinkedReason='';form.actualRefundAmount=null;purchaseDocuments.value=[];importPreview.value={};importCompression.value=null;if(form.docType==='COST_ADJUST')await reloadProducts('COST_ADJUST')}
+async function typeChanged(){form.supplierReturnDate=null;actualRefundManuallyEdited.value=false;form.items=[blankItem()];form.supplierId=null;form.supplierNameSnapshot='';form.salesChannel='';form.influencerId=null;form.influencerName='';influencerProductPrices.value=[];form.influencerPriceSnapshot=null;form.influencerPriceVersion=0;form.platformRate=0;form.commissionRate=0;form.taxRate=0;form.returnReason='';form.sourceDocumentId=null;form.sourceDocNo='';form.unlinkedReason='';form.actualRefundAmount=null;purchaseDocuments.value=[];importPreview.value={};importCompression.value=null;if(form.docType==='COST_ADJUST')await reloadProducts('COST_ADJUST')}
 function validateDocument(requireSubmit=false){
+  if(form.docType==='PURCHASE_IN'&&form.supplierReturnDate&&form.bizDate&&form.supplierReturnDate<form.bizDate){proxy.$modal.msgError('约定退货日期不能早于采购入库业务日期');return false}
   if(form.docType==='SUPPLIER_RETURN'&&!form.sourceDocumentId){proxy.$modal.msgError('供应商退货必须选择原采购单');return false}
   if(form.docType==='CUSTOMER_RETURN'&&(form.actualRefundAmount===null||Number(form.actualRefundAmount)<0)){proxy.$modal.msgError('请填写实际退款总额');return false}
   if(form.docType==='SALES_OUT'&&!form.influencerId){proxy.$modal.msgError('销售出库必须选择达人/主播');return false}

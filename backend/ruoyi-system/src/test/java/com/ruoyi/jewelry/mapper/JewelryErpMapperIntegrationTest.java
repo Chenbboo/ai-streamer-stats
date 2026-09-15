@@ -84,6 +84,256 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void purchaseDeadlinePersistsAndCanBeClearedOnDraft() throws Exception
+    {
+        try (SqlSession session = sqlSessionFactory.openSession(true))
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            JewelryDocument purchase = new JewelryDocument();
+            purchase.setDocNo("DEADLINE-DRAFT");
+            purchase.setDocType("PURCHASE_IN");
+            purchase.setBizDate(java.sql.Date.valueOf("2026-09-15"));
+            purchase.setSupplierReturnDate(java.sql.Date.valueOf("2026-10-15"));
+            purchase.setStatus("DRAFT");
+            purchase.setCreatorUserId(10L);
+            purchase.setCreatorName("maker");
+            purchase.setTotalQty(1);
+            purchase.setTotalAmount(BigDecimal.ONE);
+            purchase.setTotalCost(BigDecimal.ONE);
+            purchase.setTotalProfit(BigDecimal.ZERO);
+            mapper.insertDocument(purchase);
+            assertEquals(purchase.getSupplierReturnDate(), mapper.selectDocumentById(purchase.getDocumentId()).getSupplierReturnDate());
+            purchase.setSupplierReturnDate(null);
+            mapper.updateDocument(purchase);
+            assertEquals(null, mapper.selectDocumentById(purchase.getDocumentId()).getSupplierReturnDate());
+        }
+    }
+
+    @Test
+    void returnCountdownChoosesEarliestRemainingDeadlineAndSkipsConsumedBatches() throws Exception
+    {
+        insertStock(1L, 15, 0, 0, 0, 0, 0, "10");
+        deadlinePurchase(1L, 10, "2026-10-20");
+        deadlinePurchase(2L, 10, "2026-10-10");
+        assertEquals("2026-10-10", nextDeadline());
+        // Newest batch has a later deadline; FIFO has completely consumed the oldest batch.
+        execute("update jewelry_document set supplier_return_date='2026-10-25' where document_id=2");
+        execute("update jewelry_stock set on_hand_qty=10 where product_id=1");
+        assertEquals("2026-10-25", nextDeadline());
+        execute("update jewelry_stock set on_hand_qty=11 where product_id=1");
+        assertEquals("2026-10-20", nextDeadline());
+        execute("update jewelry_stock set on_hand_qty=0 where product_id=1");
+        assertEquals(null, nextDeadline());
+    }
+
+    @Test
+    void returnCountdownExcludesReturnedAndReversedPurchasesAndDoesNotDoubleCountReversal() throws Exception
+    {
+        insertStock(1L, 10, 0, 0, 0, 0, 0, "10");
+        deadlinePurchase(1L, 10, "2026-10-20");
+        deadlinePurchase(2L, 10, "2026-10-10");
+        insertDocument(3L, "RETURN-2", "SUPPLIER_RETURN", "POSTED", 2L);
+        insertItem(3L, 3L, 2L, 1L, 10);
+        assertEquals("2026-10-20", nextDeadline());
+        // Reversing the return restores batch 2, and the positive reversal must not hide that batch.
+        execute("update jewelry_document set status='REVERSED' where document_id=3");
+        insertDocument(4L, "REV-3", "REVERSAL", "POSTED", 3L);
+        execute("insert into jewelry_stock_transaction values(4,1,4,4,10,current_timestamp)");
+        execute("update jewelry_stock set on_hand_qty=20 where product_id=1");
+        assertEquals("2026-10-10", nextDeadline());
+        execute("update jewelry_document set status='REVERSED' where document_id=2");
+        execute("update jewelry_stock set on_hand_qty=10 where product_id=1");
+        assertEquals("2026-10-20", nextDeadline());
+          execute("update jewelry_document set supplier_return_date=null where document_id=1");
+          execute("update jewelry_document set biz_date='2026-09-01' where document_id=1");
+          assertEquals("2026-09-26", nextDeadline());
+    }
+
+    @Test
+    void unifiedReturnDaysApplyToHistoricalPurchasesButNeverOverrideSpecialDates() throws Exception
+    {
+        insertStock(1L, 10, 0, 0, 0, 0, 0, "10");
+        deadlinePurchase(1L, 10, "2026-10-20");
+        execute("update jewelry_document set biz_date='2026-09-01',supplier_return_date=null where document_id=1");
+        assertEquals("2026-09-26", nextDeadline());
+        try (SqlSession session = sqlSessionFactory.openSession(true))
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            assertEquals(25, mapper.selectSupplierReturnDays());
+            mapper.upsertSupplierReturnDays(30, "admin");
+            assertEquals(30, mapper.selectSupplierReturnDays());
+            assertEquals("2026-10-01", nextDeadline());
+            JewelryDocument dateOnly = new JewelryDocument();
+            dateOnly.setDocumentId(1L);
+            dateOnly.setSupplierReturnDate(java.sql.Date.valueOf("2026-11-01"));
+            dateOnly.setUpdateBy("admin");
+            dateOnly.setTotalAmount(new java.math.BigDecimal("999999"));
+            assertEquals(1, mapper.updatePostedSupplierReturnDate(dateOnly));
+            mapper.upsertSupplierReturnDays(15, "admin");
+            assertEquals("2026-11-01", nextDeadline());
+            assertEquals(0, intValue("select total_amount from jewelry_document where document_id=1"));
+            assertEquals(10, intValue("select on_hand_qty from jewelry_stock where product_id=1"));
+            dateOnly.setSupplierReturnDate(null);
+            assertEquals(1, mapper.updatePostedSupplierReturnDate(dateOnly));
+            assertEquals("2026-09-16", nextDeadline());
+            execute("update jewelry_document set status='REVERSED' where document_id=1");
+            assertEquals(0, mapper.updatePostedSupplierReturnDate(dateOnly));
+        }
+    }
+
+    @Test
+    void customerReturnInspectionKeepsOriginalPurchaseAgeAndDeadline() throws Exception
+    {
+        insertStock(1L, 12, 0, 0, 0, 0, 0, "750");
+        deadlinePurchase(1L, 29, "2026-09-14");
+        execute("update jewelry_document set biz_date='2026-08-20',supplier_return_date=null where document_id=1");
+        saleEvent(2L, 29, "2026-08-20");
+        inspectedReturn(3L, 4L, null, 20, "2026-08-24", "2026-08-26");
+        insertDocument(5L, "SUP-RETURN", "SUPPLIER_RETURN", "POSTED", 1L);
+        insertItem(5L, 5L, 1L, 1L, 8);
+        assertEquals("2026-08-20", originValue("oldest_inbound_date"));
+        assertEquals("0", originValue("origin_unknown"));
+        assertEquals("2026-09-14", nextDeadline());
+        execute("update jewelry_document set supplier_return_date='2026-09-30' where document_id=1");
+        assertEquals("2026-09-30", nextDeadline());
+        execute("update jewelry_stock set on_hand_qty=0 where product_id=1");
+        assertEquals(null, originValue("oldest_inbound_date"));
+        assertEquals(null, nextDeadline());
+    }
+
+    @Test
+    void multiplePossibleReturnOriginsAreNotSilentlyReplacedByInspectionDate() throws Exception
+    {
+        insertStock(1L, 2, 0, 0, 0, 0, 0, "10");
+        deadlinePurchase(1L, 10, "2026-09-14");
+        deadlinePurchase(2L, 10, "2026-09-15");
+        execute("update jewelry_document set biz_date='2026-08-20' where document_id in(1,2)");
+        inspectedReturn(3L, 4L, null, 2, "2026-08-24", "2026-08-26");
+        assertEquals("1", originValue("origin_unknown"));
+        assertEquals(null, originValue("oldest_inbound_date"));
+        assertEquals(null, nextDeadline());
+        execute("update jewelry_document set status='REVERSED' where document_id=2");
+        assertEquals("2026-08-20", originValue("oldest_inbound_date"));
+        assertEquals("2026-09-14", nextDeadline());
+    }
+
+    @Test
+    void linkedSalesExcludeLaterPurchasesWhenTracingReturnedGoods() throws Exception
+    {
+        insertStock(1L, 12, 0, 0, 0, 0, 0, "10");
+        deadlinePurchase(1L, 10, "2026-09-14");
+        execute("update jewelry_document set biz_date='2026-08-20' where document_id=1");
+        saleEvent(2L, 10, "2026-08-21");
+        deadlinePurchase(3L, 10, "2026-09-16");
+        execute("update jewelry_document set biz_date='2026-08-22' where document_id=3");
+        inspectedReturn(4L, 5L, 2L, 2, "2026-08-24", "2026-08-26");
+        assertEquals("2026-08-20", originValue("oldest_inbound_date"));
+        assertEquals("2026-09-14", nextDeadline());
+        // Undoing inspection restores the later purchase as the remaining saleable stock.
+        execute("update jewelry_document set status='REVERSED' where document_id=5");
+        execute("update jewelry_stock set on_hand_qty=10 where product_id=1");
+        assertEquals("2026-08-22", originValue("oldest_inbound_date"));
+        assertEquals("2026-09-16", nextDeadline());
+    }
+
+    @Test
+    void purchaseAfterCustomerReturnCannotBecomeItsOrigin() throws Exception
+    {
+        insertStock(1L, 12, 0, 0, 0, 0, 0, "10");
+        deadlinePurchase(1L, 10, "2026-09-14");
+        execute("update jewelry_document set biz_date='2026-08-20' where document_id=1");
+        deadlinePurchase(2L, 10, "2026-09-19");
+        execute("update jewelry_document set biz_date='2026-08-25' where document_id=2");
+        inspectedReturn(3L, 4L, null, 2, "2026-08-24", "2026-08-26");
+        assertEquals("2026-08-20", originValue("oldest_inbound_date"));
+        assertEquals("2026-09-14", nextDeadline());
+    }
+
+    private void saleEvent(Long id, int qty, String date)
+    {
+        insertDocument(id, "SALE-" + id, "SALES_OUT", "POSTED", null);
+        insertItem(id, id, null, 1L, qty);
+        execute("update jewelry_document set biz_date='" + date + "' where document_id=" + id);
+        execute("insert into jewelry_stock_transaction values(" + id + ",1," + id + "," + id + ",-" + qty + ",current_timestamp)");
+    }
+
+    private void inspectedReturn(Long returnId, Long inspectId, Long saleItemId, int qty, String returnDate, String inspectDate)
+    {
+        insertDocument(returnId, "RETURN-" + returnId, "CUSTOMER_RETURN", "POSTED", saleItemId);
+        insertItem(returnId, returnId, saleItemId, 1L, qty);
+        execute("update jewelry_document set biz_date='" + returnDate + "' where document_id=" + returnId);
+        insertDocument(inspectId, "INSPECT-" + inspectId, "RETURN_INSPECT", "POSTED", returnId);
+        insertItem(inspectId, inspectId, returnId, 1L, qty);
+        execute("update jewelry_document set biz_date='" + inspectDate + "' where document_id=" + inspectId);
+        execute("insert into jewelry_stock_transaction values(" + inspectId + ",1," + inspectId + "," + inspectId + "," + qty + ",current_timestamp)");
+    }
+
+    private String originValue(String column) throws Exception
+    {
+        String sql = sqlSessionFactory.getConfiguration()
+            .getMappedStatement("com.ruoyi.jewelry.mapper.JewelryErpMapper.selectStockList")
+            .getBoundSql(Collections.emptyMap()).getSql();
+        String ctes = sql.substring(sql.indexOf("return_config as"), sql.indexOf("select p.product_id productId"));
+        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("with " + ctes + " select " + column + " from stock_origin_summary where product_id=1"))
+        {
+            return result.next() ? result.getString(1) : null;
+        }
+    }
+
+    @Test
+    void onlyFinishedProductsExposeSupplierReturnCountdown() throws Exception
+    {
+        insertStock(1L, 10, 0, 0, 0, 0, 0, "10");
+        deadlinePurchase(1L, 10, "2026-09-14");
+        execute("update jewelry_document set biz_date='2026-08-20' where document_id=1");
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification)"
+            + " values(1,'SKU-1','分类预警测试','FINISHED','普通')");
+        String sql = sqlSessionFactory.getConfiguration()
+            .getMappedStatement("com.ruoyi.jewelry.mapper.JewelryErpMapper.selectStockList")
+            .getBoundSql(Collections.emptyMap()).getSql();
+        String ctes = sql.substring(sql.indexOf("return_config as"), sql.indexOf("select p.product_id productId"));
+        String deadlineJoin = sql.substring(sql.indexOf("left join remaining_deadlines rd"), sql.indexOf("cross join warning_config wc"));
+        for (String type : Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE", "FINISHED"))
+        {
+            execute("update jewelry_product set product_type='" + type + "' where product_id=1");
+            try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement();
+                 ResultSet result = statement.executeQuery("with " + ctes
+                    + " select rd.deadline,rd.doc_no from jewelry_stock s join jewelry_product p on p.product_id=s.product_id " + deadlineJoin))
+            {
+                assertEquals(true, result.next());
+                assertEquals("FINISHED".equals(type) ? java.sql.Date.valueOf("2026-09-14") : null, result.getDate(1));
+                assertEquals("FINISHED".equals(type) ? "PUR-1" : null, result.getString(2));
+            }
+            // Product-type gating must not alter the independent stock-age calculation.
+            assertEquals("2026-08-20", originValue("oldest_inbound_date"));
+        }
+    }
+
+    private void deadlinePurchase(Long id, int qty, String deadline)
+    {
+        insertDocument(id, "PUR-" + id, "PURCHASE_IN", "POSTED", null);
+        insertItem(id, id, null, 1L, qty);
+        execute("update jewelry_document set supplier_return_date='" + deadline + "' where document_id=" + id);
+        execute("insert into jewelry_stock_transaction values(" + id + ",1," + id + "," + id + "," + qty + ",current_timestamp)");
+    }
+
+    private String nextDeadline() throws Exception
+    {
+        // Execute the production CTEs, independently of existing MySQL-only stock-age expressions.
+        String sql = sqlSessionFactory.getConfiguration()
+            .getMappedStatement("com.ruoyi.jewelry.mapper.JewelryErpMapper.selectStockList")
+            .getBoundSql(Collections.emptyMap()).getSql();
+          String ctes = sql.substring(sql.indexOf("return_config as"), sql.indexOf("select p.product_id productId"));
+        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("with " + ctes
+                 + " select deadline from remaining_deadlines where deadline_rank=1"))
+        {
+            return result.next() ? result.getDate(1).toString() : null;
+        }
+    }
+
+    @Test
     void basicProductUpdateCannotChangeProtectedProductFields()
     {
         execute("insert into jewelry_product(product_id,sku,product_name,product_type,category,specification,"
@@ -613,6 +863,11 @@ class JewelryErpMapperIntegrationTest
 
     private void createSchema() throws Exception
     {
+        execute("create table jewelry_stock_transaction (transaction_id bigint primary key,"
+            + "product_id bigint,document_id bigint,item_id bigint,on_hand_change int,create_time timestamp)");
+        execute("create table sys_config (config_key varchar(100) unique,config_value varchar(100),"
+            + "config_name varchar(100),config_type char(1),create_by varchar(64),update_by varchar(64),"
+            + "create_time timestamp,update_time timestamp,remark varchar(500))");
         execute("create table sys_user (user_id bigint primary key,user_name varchar(64),"
             + "status char(1),del_flag char(1))");
         execute("create table sys_role (role_id bigint primary key,role_key varchar(100),"
@@ -639,7 +894,7 @@ class JewelryErpMapperIntegrationTest
             + "update_time timestamp)");
         execute("create table jewelry_document ("
             + "document_id bigint auto_increment primary key,doc_no varchar(32) not null unique,"
-            + "doc_type varchar(32) not null,biz_date date not null,status varchar(24) not null,"
+            + "doc_type varchar(32) not null,biz_date date not null,supplier_return_date date,status varchar(24) not null,"
             + "supplier_id bigint,supplier_name_snapshot varchar(128) default '',"
             + "sales_channel varchar(64) default '',external_no varchar(64) default '',influencer_id bigint,"
             + "influencer_name varchar(64) default '',influencer_price_snapshot decimal(18,4),"

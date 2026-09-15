@@ -211,6 +211,39 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         return days == null || days <= 0 ? 25 : days;
     }
     @Override
+    public int getSupplierReturnDays()
+    {
+        Integer days = mapper.selectSupplierReturnDays();
+        return days == null || days < 1 || days > 365 ? 25 : days;
+    }
+
+    @Override
+    public void setSupplierReturnDays(int days, String userName)
+    {
+        if (days < 1 || days > 365) throw new ServiceException("供应商退货期限必须在1到365天之间");
+        mapper.upsertSupplierReturnDays(days, userName);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void setPostedSupplierReturnDate(Long documentId, Date date, String userName)
+    {
+        JewelryDocument document = mapper.selectDocumentByIdForUpdate(documentId);
+        if (document == null || !"PURCHASE_IN".equals(document.getDocType()) || !"POSTED".equals(document.getStatus()))
+            throw new ServiceException("仅已入账的采购入库单可以单独设置退货日期");
+        if (date != null && document.getBizDate() != null)
+        {
+            java.text.SimpleDateFormat format = new java.text.SimpleDateFormat("yyyy-MM-dd");
+            format.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Shanghai"));
+            if (format.format(date).compareTo(format.format(document.getBizDate())) < 0)
+                throw new ServiceException("约定退货日期不能早于采购入库业务日期");
+        }
+        document.setSupplierReturnDate(date);
+        document.setUpdateBy(userName);
+        if (mapper.updatePostedSupplierReturnDate(document) != 1)
+            throw new ServiceException("采购单状态已变化，请刷新后重试");
+    }
+    @Override
     public void setStockWarningDays(int days, String userName)
     {
         if (days < 1 || days > 365) throw new ServiceException("库存时间预警必须在1到365天之间");
@@ -855,6 +888,14 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         if (!EDITABLE_DOCUMENT_TYPES.contains(document.getDocType()))
             throw new ServiceException("单据类型不正确");
         if (document.getBizDate() == null) document.setBizDate(new Date());
+        if ("PURCHASE_IN".equals(document.getDocType()) && document.getSupplierReturnDate() != null)
+        {
+            SimpleDateFormat dayFormat = new SimpleDateFormat("yyyy-MM-dd");
+            dayFormat.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Shanghai"));
+            if (dayFormat.format(document.getSupplierReturnDate()).compareTo(dayFormat.format(document.getBizDate())) < 0)
+                throw new ServiceException("约定退货日期不能早于采购入库业务日期");
+        }
+        else if (!"PURCHASE_IN".equals(document.getDocType())) document.setSupplierReturnDate(null);
         if (document.getItems() == null || document.getItems().isEmpty()) throw new ServiceException("单据至少需要一行商品");
         prepareInfluencerReference(document);
         if (("PURCHASE_IN".equals(document.getDocType()) || "SUPPLIER_RETURN".equals(document.getDocType()))

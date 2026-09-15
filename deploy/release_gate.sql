@@ -330,4 +330,7 @@ from (
   where parent.parent_id=0 and parent.path='finance' and child.menu_type='C'
     and child.status='0' and child.path='public-expenses'
     and child.component='business/public-expenses/index'
+  union all
+  select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
+    and table_name='jewelry_document' and column_name='supplier_return_date' and data_type='date'
 ) release_gate;

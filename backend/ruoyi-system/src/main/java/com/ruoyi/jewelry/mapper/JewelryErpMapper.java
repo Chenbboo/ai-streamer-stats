@@ -62,6 +62,9 @@ public interface JewelryErpMapper
     Map<String, Object> selectStockForUpdate(Long productId);
     List<Map<String, Object>> selectStockTransactions(Map<String, Object> query);
     Integer selectStockWarningDays();
+    Integer selectSupplierReturnDays();
+    int upsertSupplierReturnDays(@Param("days") Integer days, @Param("userName") String userName);
+    int updatePostedSupplierReturnDate(JewelryDocument document);
     int upsertStockWarningDays(@Param("days") Integer days, @Param("userName") String userName);
     Map<String, Object> selectDashboard();
 

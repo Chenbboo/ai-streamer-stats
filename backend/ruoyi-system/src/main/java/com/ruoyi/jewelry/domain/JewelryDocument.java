@@ -16,6 +16,8 @@ public class JewelryDocument extends BaseEntity
     private String docType;
     @JsonFormat(pattern = "yyyy-MM-dd")
     private Date bizDate;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private Date supplierReturnDate;
     private String status;
     private Long supplierId;
     private String supplierNameSnapshot;
@@ -61,6 +63,8 @@ public class JewelryDocument extends BaseEntity
     public void setDocType(String docType) { this.docType = docType; }
     public Date getBizDate() { return bizDate; }
     public void setBizDate(Date bizDate) { this.bizDate = bizDate; }
+    public Date getSupplierReturnDate() { return supplierReturnDate; }
+    public void setSupplierReturnDate(Date supplierReturnDate) { this.supplierReturnDate = supplierReturnDate; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public Long getSupplierId() { return supplierId; }

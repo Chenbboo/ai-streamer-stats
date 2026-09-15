@@ -86,6 +86,9 @@ class JewelryErpControllerPermissionTest
         expected.put("influencerBundleItems", "@ss.hasPermi('jewelry:influencer:list')");
         expected.put("changeInfluencerPrice", "@ss.hasPermi('jewelry:influencer:price')");
         expected.put("stockList", "@ss.hasPermi('jewelry:stock:list')");
+        expected.put("supplierReturnDays", "@ss.hasPermi('jewelry:stock:list')");
+        expected.put("updateSupplierReturnDays", "@ss.hasPermi('jewelry:stock:config')");
+        expected.put("updateSupplierReturnDate", "@ss.hasPermi('jewelry:stock:config')");
         expected.put("transactions", "@ss.hasPermi('jewelry:stock:list')");
         expected.put("directAdjustCosts", "@ss.hasPermi('jewelry:stock:config')");
         expected.put("documentList", "@ss.hasPermi('jewelry:document:list')");

@@ -19,6 +19,7 @@
       <el-descriptions v-if="detail" :column="4" border>
         <el-descriptions-item label="单号">{{detail.docNo}}</el-descriptions-item>
         <el-descriptions-item label="类型">{{typeLabel(detail.docType)}}</el-descriptions-item>
+        <el-descriptions-item v-if="detail.docType==='PURCHASE_IN'" label="约定退货日期">{{detail.supplierReturnDate || '按统一退货期限'}}</el-descriptions-item>
         <el-descriptions-item label="制单人">{{detail.creatorName}}</el-descriptions-item>
         <el-descriptions-item label="数量">{{detail.totalQty}}</el-descriptions-item>
         <el-descriptions-item :label="detail.docType==='ASSEMBLY'?'组装总成本':detail.docType==='COST_ADJUST'?'库存金额变化':'总金额'">¥ {{documentMoney(detail.docType==='ASSEMBLY'?detail.totalCost:detail.totalAmount,detail)}}</el-descriptions-item>

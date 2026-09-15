@@ -1007,3 +1007,8 @@ select count(*)=0 as invalid_proposal_expected_margin_range
 from information_schema.columns where table_schema=database()
   and table_name='biz_project_proposal' and column_name='expected_margin'
   and numeric_precision-numeric_scale>=26;
+
+-- V102 珠宝采购单约定退货日期。
+select 1-count(*) as missing_jewelry_supplier_return_date from information_schema.columns
+where table_schema=database() and table_name='jewelry_document'
+  and column_name='supplier_return_date' and data_type='date';

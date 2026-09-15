@@ -65,6 +65,42 @@ class JewelryErpServiceImplTest
     }
 
     @Test
+    void supplierReturnDaysDefaultAndBounds()
+    {
+        assertEquals(25, service.getSupplierReturnDays());
+        service.setSupplierReturnDays(25, "admin");
+        verify(mapper).upsertSupplierReturnDays(25, "admin");
+        assertThrows(ServiceException.class, () -> service.setSupplierReturnDays(0, "admin"));
+        assertThrows(ServiceException.class, () -> service.setSupplierReturnDays(366, "admin"));
+    }
+
+    @Test
+    void postedReturnDeadlineIsDateOnlyAndCanRestoreUnifiedRule()
+    {
+        JewelryDocument document = new JewelryDocument();
+        document.setDocumentId(1L);
+        document.setDocType("PURCHASE_IN");
+        document.setStatus("POSTED");
+        document.setBizDate(java.sql.Date.valueOf("2026-09-01"));
+        when(mapper.selectDocumentByIdForUpdate(1L)).thenReturn(document);
+        when(mapper.updatePostedSupplierReturnDate(document)).thenReturn(1);
+        service.setPostedSupplierReturnDate(1L, java.sql.Date.valueOf("2026-10-01"), "admin");
+        assertEquals(java.sql.Date.valueOf("2026-10-01"), document.getSupplierReturnDate());
+        assertEquals("POSTED", document.getStatus());
+        service.setPostedSupplierReturnDate(1L, null, "admin");
+        assertEquals(null, document.getSupplierReturnDate());
+        assertThrows(ServiceException.class, () -> service.setPostedSupplierReturnDate(1L, java.sql.Date.valueOf("2026-08-31"), "admin"));
+        document.setStatus("REVERSED");
+        assertThrows(ServiceException.class, () -> service.setPostedSupplierReturnDate(1L, null, "admin"));
+        document.setStatus("DRAFT");
+        assertThrows(ServiceException.class, () -> service.setPostedSupplierReturnDate(1L, null, "admin"));
+        document.setStatus("POSTED");
+        document.setDocType("SALES_OUT");
+        assertThrows(ServiceException.class, () -> service.setPostedSupplierReturnDate(1L, null, "admin"));
+        verify(mapper, never()).updateDocument(any());
+    }
+
+    @Test
     void productTypeMustUseSupportedBusinessType()
     {
         Map<String, Object> product = new HashMap<String, Object>();
@@ -753,6 +789,19 @@ class JewelryErpServiceImplTest
         assertMoney("0", document.getLaborFee());
         assertMoney("0", document.getProcessingFee());
         assertMoney("0", document.getOtherFee());
+    }
+
+    @Test
+    void purchaseReturnDeadlineCannotPrecedeBusinessDate()
+    {
+        JewelryDocument purchase = document(null, "PURCHASE_IN", "DRAFT");
+        purchase.setBizDate(java.sql.Date.valueOf("2026-09-15"));
+        purchase.setSupplierReturnDate(java.sql.Date.valueOf("2026-09-14"));
+        purchase.setItems(Arrays.asList(item(null, 1, "20.00")));
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveDocument(purchase, MAKER_ID, "maker"));
+        assertEquals("约定退货日期不能早于采购入库业务日期", error.getMessage());
+        verify(mapper, never()).insertDocument(any());
     }
 
     @Test

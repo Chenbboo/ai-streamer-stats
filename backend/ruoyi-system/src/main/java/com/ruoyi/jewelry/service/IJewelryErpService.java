@@ -22,6 +22,9 @@ public interface IJewelryErpService
     List<Map<String, Object>> listStock(Map<String, Object> query);
     List<Map<String, Object>> listTransactions(Map<String, Object> query);
     int getStockWarningDays();
+    int getSupplierReturnDays();
+    void setSupplierReturnDays(int days, String userName);
+    void setPostedSupplierReturnDate(Long documentId, java.util.Date date, String userName);
     void setStockWarningDays(int days, String userName);
     Map<String, Object> dashboard();
     List<JewelryDocument> listDocuments(JewelryDocument query);

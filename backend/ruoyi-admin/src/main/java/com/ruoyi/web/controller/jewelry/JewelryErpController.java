@@ -314,6 +314,33 @@ public class JewelryErpController extends BaseController
         return success(service.getStockWarningDays());
     }
 
+    @PreAuthorize("@ss.hasPermi('jewelry:stock:list')")
+    @GetMapping("/stock/supplier-return-days")
+    public AjaxResult supplierReturnDays()
+    {
+        return success(service.getSupplierReturnDays());
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:stock:config')")
+    @Log(title = "供应商统一退货期限", businessType = BusinessType.UPDATE)
+    @PutMapping("/stock/supplier-return-days")
+    public AjaxResult updateSupplierReturnDays(@RequestBody Map<String, Object> body)
+    {
+        String value = string(body.get("days"));
+        if (value == null || !value.matches("[0-9]{1,3}")) return error("请输入1到365之间的整数天数");
+        service.setSupplierReturnDays(Integer.parseInt(value), SecurityUtils.getUsername());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:stock:config')")
+    @Log(title = "采购单约定退货日期", businessType = BusinessType.UPDATE)
+    @PutMapping("/document/{documentId}/supplier-return-date")
+    public AjaxResult updateSupplierReturnDate(@PathVariable Long documentId, @RequestBody JewelryDocument body)
+    {
+        service.setPostedSupplierReturnDate(documentId, body.getSupplierReturnDate(), SecurityUtils.getUsername());
+        return success();
+    }
+
     @PreAuthorize("@ss.hasPermi('jewelry:stock:config')")
     @PutMapping("/stock/warning-days")
     public AjaxResult updateStockWarningDays(@RequestBody Map<String, Object> body)
