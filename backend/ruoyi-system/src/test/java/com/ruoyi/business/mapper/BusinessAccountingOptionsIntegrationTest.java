@@ -29,13 +29,15 @@ class BusinessAccountingOptionsIntegrationTest
     {
         dataSource=new UnpooledDataSource("org.h2.Driver","jdbc:h2:mem:accounting_options_"+UUID.randomUUID().toString().replace("-","")+";MODE=MySQL;DATABASE_TO_UPPER=FALSE;DB_CLOSE_DELAY=-1","sa","");
         execute("create table sys_dept(dept_id bigint primary key,dept_name varchar(100),del_flag varchar(1),status varchar(1),parent_id bigint,order_num int)",
-            "create table biz_project(project_id bigint primary key,project_no varchar(50),project_name varchar(100),company_dept_id bigint,accounting_mode varchar(32),base_currency varchar(3),initiator_name varchar(100),status varchar(24),delivery_policy_version varchar(32),accounting_state varchar(24),actual_end_date date,cost_policy_version varchar(32),sponsor_owner_user_id bigint,initiator_user_id bigint,del_flag varchar(1))",
+            "create table sys_user(user_id bigint primary key,dept_id bigint,del_flag varchar(1))",
+            "create table biz_project(project_id bigint primary key,project_no varchar(50),project_name varchar(100),company_dept_id bigint,accounting_mode varchar(32),base_currency varchar(3),initiator_name varchar(100),status varchar(24),delivery_policy_version varchar(32),accounting_state varchar(24),actual_start_date date,actual_end_date date,cost_policy_version varchar(32),sponsor_owner_user_id bigint,initiator_user_id bigint,main_owner_user_id bigint,del_flag varchar(1))",
             "create table biz_project_work_entry(entry_id bigint primary key,project_id bigint,status varchar(24),is_current varchar(1),biz_date date default '2026-09-13')",
             "create table biz_project_work_cost(entry_id bigint primary key,pricing_status varchar(24),amount decimal(20,2) default 100)",
             "create table biz_project_member_day_cost(project_id bigint,biz_date date,pricing_status varchar(24),amount decimal(20,2))",
             "create table biz_project_work_event(entry_id bigint primary key,status varchar(24))",
             "insert into sys_dept values(110,'target-company','0','0',100,1),(111,'other-company','0','0',100,2)",
-            "insert into biz_project values(1,'P1','target-project',110,'PROFIT','CNY','creator8','ACTIVE','SEPARATED_V1','OPEN',null,'ACTUAL_WORK_V1',9,8,'0'),(2,'P2','legacy-sponsor-fallback',111,'PROFIT','CNY','creator9','ACTIVE','SEPARATED_V1','OPEN',null,'ACTUAL_WORK_V1',null,9,'0'),(3,'P3','foreign-project',111,'PROFIT','CNY','creator10','ACTIVE','SEPARATED_V1','OPEN',null,'ACTUAL_WORK_V1',10,10,'0')",
+            "insert into sys_user values(8,110,'0'),(9,111,'0'),(10,111,'0')",
+            "insert into biz_project values(1,'P1','target-project',110,'PROFIT','CNY','creator8','ACTIVE','SEPARATED_V1','OPEN',null,null,'ACTUAL_WORK_V1',9,8,8,'0'),(2,'P2','legacy-sponsor-fallback',111,'PROFIT','CNY','creator9','ACTIVE','SEPARATED_V1','OPEN',null,null,'ACTUAL_WORK_V1',null,9,9,'0'),(3,'P3','foreign-project',111,'PROFIT','CNY','creator10','ACTIVE','SEPARATED_V1','OPEN',null,null,'ACTUAL_WORK_V1',10,10,10,'0')",
             "insert into biz_project_work_entry(entry_id,project_id,status,is_current) values(11,1,'CONFIRMED','1'),(12,1,'CONFIRMED','1'),(13,1,'SUPERSEDED','0'),(21,2,'CONFIRMED','1'),(31,3,'CONFIRMED','1')",
             "insert into biz_project_work_cost(entry_id,pricing_status) values(12,'PRICED')",
             "insert into biz_project_work_event values(12,'PENDING')");

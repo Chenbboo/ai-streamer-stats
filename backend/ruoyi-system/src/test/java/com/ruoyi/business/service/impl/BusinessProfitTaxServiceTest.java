@@ -29,12 +29,21 @@ class BusinessProfitTaxServiceTest {
         assertEquals(0,result.get("taxUnconfiguredCount"));
     }
     @Test void cumulativeCalculationReleasesTaxWhenLaterCostsReduceProfit() {
-        List<Map<String,Object>> rows=Arrays.asList(row("projectId",1,"profitAmount",100,"taxRate",10),row("projectId",1,"profitAmount",-80,"taxRate",10),row("projectId",2,"profitAmount",-100,"taxRate",10));
+        List<Map<String,Object>> rows=Arrays.asList(row("projectId",1,"companyDeptId",110,"currency","CNY","bizDate","2026-09-01","profitAmount",100,"taxRate",10),row("projectId",1,"companyDeptId",110,"currency","CNY","bizDate","2026-09-02","profitAmount",-80,"taxRate",10),row("projectId",2,"companyDeptId",111,"currency","CNY","bizDate","2026-09-02","profitAmount",-100,"taxRate",10));
         BusinessProfitTaxService.calculateSeries(rows);
         assertEquals(new BigDecimal("10.00"),rows.get(0).get("taxAmount"));
         assertEquals(new BigDecimal("-8.00"),rows.get(1).get("taxAmount"));
         assertEquals(new BigDecimal("-72.00"),rows.get(1).get("afterTaxProfit"));
         assertEquals(new BigDecimal("0.00"),rows.get(2).get("taxAmount"));
+    }
+    @Test void openProjectsInOneCompanyOffsetBeforeTax() {
+        List<Map<String,Object>> rows=Arrays.asList(
+            row("projectId",1,"companyDeptId",110,"currency","CNY","bizDate","2026-09-15","profitAmount",7440,"taxRate",10),
+            row("projectId",2,"companyDeptId",110,"currency","CNY","bizDate","2026-09-15","profitAmount",new BigDecimal("-4390.97"),"taxRate",10));
+        BusinessProfitTaxService.calculateSeries(rows);
+        BigDecimal totalTax=rows.stream().map(value->(BigDecimal)value.get("taxAmount")).reduce(BigDecimal.ZERO,BigDecimal::add);
+        assertEquals(new BigDecimal("304.90"),totalTax);
+        assertEquals(new BigDecimal("2744.13"),rows.stream().map(value->(BigDecimal)value.get("afterTaxProfit")).reduce(BigDecimal.ZERO,BigDecimal::add));
     }
     @Test void differentCurrenciesAndRatesStaySeparate() {
         BusinessProfitTaxMapper mapper=mock(BusinessProfitTaxMapper.class);BusinessProfitTaxService service=service(mapper);

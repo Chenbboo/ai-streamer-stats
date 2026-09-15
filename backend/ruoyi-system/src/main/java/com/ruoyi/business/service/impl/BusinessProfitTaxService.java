@@ -51,14 +51,39 @@ public class BusinessProfitTaxService {
             .min(positive.setScale(2,RoundingMode.DOWN));
     }
 
-    /** A day's deduction is the change in cumulative project tax, so loss days and month sums reconcile. */
+    /** A day's deduction is the change in cumulative company/currency tax, so projects offset before tax. */
     static void calculateSeries(List<Map<String,Object>> rows) {
+        rows.sort(Comparator.comparing((Map<String,Object> row)->String.valueOf(row.get("bizDate")))
+            .thenComparing(BusinessProfitTaxService::taxGroup)
+            .thenComparing(row->String.valueOf(row.get("projectId")))
+            .thenComparing(row->String.valueOf(row.get("resultId"))));
         Map<String,BigDecimal> balances=new HashMap<>();
-        for(Map<String,Object> row:rows) {
-            String id=String.valueOf(row.get("projectId"));
-            BigDecimal prior=balances.getOrDefault(id,BigDecimal.ZERO),profit=number(row.get("profitAmount")),rate=number(row.get("taxRate"));
-            BigDecimal next=prior.add(profit),amount=tax(next,rate).subtract(tax(prior,rate));
-            row.put("taxAmount",amount);row.put("afterTaxProfit",profit.subtract(amount));balances.put(id,next);
+        for(int start=0;start<rows.size();) {
+            Map<String,Object> first=rows.get(start);String group=taxGroup(first),date=String.valueOf(first.get("bizDate"));int end=start+1;
+            while(end<rows.size()&&group.equals(taxGroup(rows.get(end)))&&date.equals(String.valueOf(rows.get(end).get("bizDate"))))end++;
+            BigDecimal prior=balances.getOrDefault(group,BigDecimal.ZERO),dayProfit=BigDecimal.ZERO;
+            for(int i=start;i<end;i++)dayProfit=dayProfit.add(number(rows.get(i).get("profitAmount")));
+            BigDecimal next=prior.add(dayProfit),amount=tax(next,number(first.get("taxRate"))).subtract(tax(prior,number(first.get("taxRate"))));
+            allocateTax(rows.subList(start,end),amount);balances.put(group,next);start=end;
+        }
+    }
+
+    private static String taxGroup(Map<String,Object> row) {
+        if("1".equals(String.valueOf(row.get("taxFrozen"))))return "F:"+row.get("projectId");
+        return "C:"+row.get("companyDeptId")+":"+row.get("currency")+":"+number(row.get("taxRate")).stripTrailingZeros().toPlainString();
+    }
+
+    private static void allocateTax(List<Map<String,Object>> rows,BigDecimal total) {
+        for(Map<String,Object> row:rows){row.put("taxAmount",BigDecimal.ZERO.setScale(2));row.put("afterTaxProfit",number(row.get("profitAmount")));}
+        if(total.signum()==0)return;
+        List<Map<String,Object>> candidates=new ArrayList<>();BigDecimal weight=BigDecimal.ZERO;
+        for(Map<String,Object> row:rows){BigDecimal profit=number(row.get("profitAmount"));if(profit.signum()==total.signum()){candidates.add(row);weight=weight.add(profit.abs());}}
+        if(candidates.isEmpty()){candidates.add(rows.get(rows.size()-1));weight=BigDecimal.ONE;}
+        BigDecimal assigned=BigDecimal.ZERO;
+        for(int i=0;i<candidates.size();i++){
+            Map<String,Object> row=candidates.get(i);BigDecimal share=i==candidates.size()-1?total.subtract(assigned)
+                :total.multiply(number(row.get("profitAmount")).abs()).divide(weight,2,RoundingMode.DOWN);
+            row.put("taxAmount",share);row.put("afterTaxProfit",number(row.get("profitAmount")).subtract(share));assigned=assigned.add(share);
         }
     }
 
@@ -67,12 +92,15 @@ public class BusinessProfitTaxService {
         List<Map<String,Object>> rows=mapper.selectSeries(query);
         calculateSeries(rows);
         Map<String,Map<String,Object>> byResult=new HashMap<>();
+        List<Map<String,Object>> departmentAdjustments=new ArrayList<>();
         Map<String,Totals> currencies=new LinkedHashMap<>(),projects=new HashMap<>(),companies=new HashMap<>();
         Totals all=new Totals();
         String from=String.valueOf(query.getOrDefault("dateFrom",""));
         for(Map<String,Object> row:rows) {
             if(!"null".equals(from)&&!from.isEmpty()&&String.valueOf(row.get("bizDate")).compareTo(from)<0)continue;
-            if(row.get("resultId")!=null)byResult.put(String.valueOf(row.get("resultId")),row);all.add(row);
+            if(row.get("resultId")!=null)byResult.put(String.valueOf(row.get("resultId")),row);
+            if(number(row.get("isAdjustment")).signum()!=0)departmentAdjustments.add(new LinkedHashMap<>(row));
+            all.add(row);
             currencies.computeIfAbsent(String.valueOf(row.get("currency")),k->new Totals()).add(row);
             projects.computeIfAbsent(String.valueOf(row.get("projectId")),k->new Totals()).add(row);
             companies.computeIfAbsent(row.get("companyDeptId")+":"+row.get("currency"),k->new Totals()).add(row);
@@ -90,6 +118,7 @@ public class BusinessProfitTaxService {
         for(Map<String,Object> row:list(result.get("ranking")))apply(row,projects.get(String.valueOf(row.get("projectId"))));
         for(Map<String,Object> row:list(result.get("companies")))apply(row,companies.get(row.get("companyDeptId")+":"+row.get("currency")));
         for(Map<String,Object> row:list(result.get("closedAdjustmentTotals"))){row.put("includedInAfterTaxProfit",true);}
+        result.put("departmentAdjustments",departmentAdjustments);
         result.put("taxUnconfiguredCount",all.missing.size());
         result.put("hasClosedAdjustments",all.hasAdjustments);
         if(all.hasAdjustments&&"NO_DATA".equals(result.get("dataStatus")))result.put("dataStatus","AVAILABLE");
