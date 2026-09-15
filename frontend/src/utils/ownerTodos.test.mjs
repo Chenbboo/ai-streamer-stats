@@ -1,6 +1,35 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildOwnerTodos } from './ownerTodos.js'
+import { buildOwnerTodos, buildPublicExpenseTodos } from './ownerTodos.js'
+
+const expense = { allocationId: 51, billStatus: 'PUBLISHED', status: 'DRAFT', companyName: '上海公司', month: '2026-09', remainingAmount: 200, amount: 500, currency: 'CNY' }
+test('published owner expense produces a todo linking the exact allocation and month', () => {
+  const [todo] = buildPublicExpenseTodos([expense])
+  assert.equal(todo.action, 'public-expense')
+  assert.equal(todo.allocationId, 51)
+  assert.equal(todo.month, '2026-09')
+  assert.equal(todo.title, '分摊公共费用')
+  assert.match(todo.detail, /上海公司.*2026-09.*200.00 CNY/)
+})
+test('fully allocated draft still needs submission; submitted, recalled and settled bills do not', () => {
+  const bills = [
+    {...expense, remainingAmount: 0},
+    {...expense, allocationId: 52, status: 'SUBMITTED'},
+    {...expense, allocationId: 53, billStatus: 'DRAFT'},
+    {...expense, allocationId: 54, billStatus: 'SETTLED'}
+  ]
+  const todos = buildPublicExpenseTodos(bills)
+  assert.equal(todos.length, 1)
+  assert.equal(todos[0].title, '提交公共费用分摊')
+  assert.match(todos[0].detail, /500.00 CNY/)
+})
+test('expense todos deduplicate allocations and preserve separate currencies', () => {
+  const todos = buildPublicExpenseTodos([expense, {...expense, allocationId: '51'}, {...expense, allocationId: 52, currency: 'VND', amount: 1000}])
+  assert.equal(todos.length, 2)
+  assert.notEqual(todos[0].key,todos[1].key)
+  assert.match(todos[1].detail,/VND/)
+  assert.deepEqual(buildPublicExpenseTodos(), [])
+})
 
 const permissions = ['business:kpi:manage']
 const data = { project: { projectId: 12, status: 'ACTIVE', accountingState: 'OPEN', goalMode: 'NO_TOTAL' } }

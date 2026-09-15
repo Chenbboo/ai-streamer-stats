@@ -68,7 +68,7 @@
 </template>
 
 <script setup name="PublicExpenseOwnerPanel">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getOwnerPublicExpenseWorkspace, savePublicExpenseProjectAllocations, submitPublicExpenseProjectAllocations, copyPreviousPublicExpenseProjects } from '@/api/business/publicExpense'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
@@ -184,7 +184,16 @@ async function copyPrevious() {
 }
 watch(month, () => { dialogVisible.value = false; expandedEntries.value = []; refresh() }, { immediate: true })
 useBusinessRefreshOnReactivated(refresh)
-defineExpose({ refresh, openPending: () => { panelElement.value?.scrollIntoView({ block: 'start', behavior: 'smooth' }); if (pendingBills.value.length) openAllocation(pendingBills.value[0]) } })
+async function openPending(allocationId, selectedMonth) {
+  if (saving.value) return
+  if (selectedMonth && month.value !== selectedMonth) { month.value = selectedMonth; await nextTick() }
+  if (!await refresh()) return
+  panelElement.value?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  const bill = allocationId == null ? pendingBills.value[0] : pendingBills.value.find(row => String(row.allocationId) === String(allocationId))
+  if (bill) openAllocation(bill)
+  else ElMessage.info('该笔公共费用已处理或尚未下发，请查看最新状态')
+}
+defineExpose({ refresh, openPending })
 </script>
 
 <style scoped>

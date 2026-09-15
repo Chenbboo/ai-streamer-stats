@@ -38,14 +38,14 @@
       </section>
 
       <section class="panel owner-todos">
-        <div class="panel-head"><div><h2>全部项目待办 <el-tag size="small" :type="allOwnerTodos.length ? 'warning' : 'success'">{{ allOwnerTodos.length }} 项</el-tag></h2><p>按项目汇总，点击处理会自动进入对应项目</p></div></div>
+        <div class="panel-head"><div><h2>全部项目待办 <el-tag size="small" :type="allOwnerTodos.length ? 'warning' : 'success'">{{ allOwnerTodos.length }} 项</el-tag></h2><p>汇总项目待办和本月公共费用，点击处理进入对应事项</p></div></div>
         <el-alert v-if="allProjectsLoadWarning" title="部分项目的 KPI 或结算状态暂未加载，其他数据已正常显示，可刷新重试。" type="warning" :closable="false" />
-        <div v-if="!allOwnerTodos.length && !loading" class="todo-empty">✓ 所有项目当前暂无需要处理的事项</div>
+        <el-alert v-if="publicExpenseTodoFailed" title="公共费用待办暂未加载，请刷新重试" type="warning" :closable="false" /><div v-if="!allOwnerTodos.length && !loading && !publicExpenseTodoLoading && !publicExpenseTodoFailed" class="todo-empty">✓ 所有项目当前暂无需要处理的事项</div>
         <article v-for="item in visibleAllOwnerTodos" :key="item.key" class="owner-todo-row">
           <span :class="['todo-dot', { urgent: item.urgent }]"></span>
           <div class="todo-copy"><b>{{ item.title }}</b><small>{{ item.projectName }} · {{ item.detail }}</small></div>
           <el-tag v-if="item.urgent" type="danger" size="small" effect="plain">优先处理</el-tag>
-          <el-button size="small" type="primary" plain :disabled="loading || saving" @click="handleAllOwnerTodo(item)">去处理</el-button>
+          <el-button size="small" type="primary" plain :disabled="loading || saving" @click="handleAllOwnerTodo(item)">{{ item.action==='public-expense' ? '去分摊' : '去处理' }}</el-button>
         </article>
         <el-button v-if="allOwnerTodos.length > 5" class="todo-expand" link type="primary" @click="allTodosExpanded = !allTodosExpanded">{{ allTodosExpanded ? '收起' : `查看全部 ${allOwnerTodos.length} 项` }}</el-button>
       </section>
@@ -92,7 +92,7 @@
         </el-tab-pane>
         <el-tab-pane label="公共费用" name="public-expense" lazy>
           <div class="owner-section-intro"><span>查看本人承担的公司公共费用，并统一分配到负责项目</span></div>
-          <PublicExpenseOwnerPanel ref="publicExpensePanel" />
+          <PublicExpenseOwnerPanel ref="publicExpensePanel" @changed="loadPublicExpenseTodos" />
         </el-tab-pane>
       </el-tabs>
     </template>
@@ -107,12 +107,12 @@
       <section class="panel owner-todos">
         <div class="panel-head"><div><h2>我的待办 <el-tag size="small" :type="ownerTodos.length ? 'warning' : 'success'">{{ ownerTodos.length }} 项</el-tag></h2><p>{{ project.projectName }} · 优先处理异常，再完成今天的工作</p></div></div>
         <el-alert v-if="todoLoadFailed" title="KPI 待办暂未加载，请刷新重试" type="warning" :closable="false" />
-        <div v-if="!ownerTodos.length && !loading" class="todo-empty">✓ 当前项目暂无需要你处理的事项</div>
+        <el-alert v-if="publicExpenseTodoFailed" title="公共费用待办暂未加载，请刷新重试" type="warning" :closable="false" /><div v-if="!ownerTodos.length && !loading && !publicExpenseTodoLoading && !publicExpenseTodoFailed" class="todo-empty">✓ 当前项目暂无需要你处理的事项</div>
         <article v-for="item in visibleOwnerTodos" :key="item.key" class="owner-todo-row">
           <span :class="['todo-dot', { urgent: item.urgent }]"></span>
           <div class="todo-copy"><b>{{ item.title }}</b><small>{{ item.detail }}</small></div>
           <el-tag v-if="item.urgent" type="danger" size="small" effect="plain">优先处理</el-tag>
-          <el-button size="small" type="primary" plain :disabled="loading || saving" @click="handleOwnerTodo(item)">{{ item.action==='effort' ? '确认' : item.action==='revenue' ? '去填写' : item.action==='kpi-settings' ? '去设置' : '去处理' }}</el-button>
+          <el-button size="small" type="primary" plain :disabled="loading || saving" @click="handleOwnerTodo(item)">{{ item.action==='public-expense' ? '去分摊' : item.action==='effort' ? '确认' : item.action==='revenue' ? '去填写' : item.action==='kpi-settings' ? '去设置' : '去处理' }}</el-button>
           <el-button v-if="item.action==='spend' && item.allowZero" size="small" :disabled="loading || saving" @click="confirmNoSpend">今日无支出</el-button>
           <el-button v-if="item.action==='revenue' && item.allowZero" size="small" :disabled="loading || saving" @click="confirmNoRevenue">今日无收入</el-button>
           <el-button v-if="item.action==='effort'" size="small" :disabled="loading || saving" @click="returnPendingEffort(item.item)">退回</el-button>
@@ -274,7 +274,7 @@
         </el-tab-pane>
         <el-tab-pane label="公共费用" name="public-expense" lazy>
           <div class="owner-section-intro"><span>查看本人承担的公司公共费用，并统一分配到负责项目</span></div>
-          <PublicExpenseOwnerPanel ref="publicExpensePanel" />
+          <PublicExpenseOwnerPanel ref="publicExpensePanel" @changed="loadPublicExpenseTodos" />
         </el-tab-pane>
       </el-tabs>
     </template>
@@ -409,19 +409,34 @@ import BusinessProjectPlanPanel from '@/components/BusinessProjectPlanPanel/inde
 import BusinessSettlementPanel from '@/components/BusinessSettlementPanel/index.vue'
 import PublicExpenseOwnerPanel from '@/views/business/components/PublicExpenseOwnerPanel.vue'
 import { getProjectKpiWorkspace } from '@/api/business/kpi'
-import { buildOwnerTodos } from '@/utils/ownerTodos'
+import { buildOwnerTodos, buildPublicExpenseTodos } from '@/utils/ownerTodos'
+import { getOwnerPublicExpenseWorkspace } from '@/api/business/publicExpense'
 import { canContinueProjectSettlement, isSeparatedDelivery, isDeliveryEnded, projectAccountingState } from '@/utils/businessProjectState'
 
 const route=useRoute(),router=useRouter()
 const userStore=useUserStore()
 const publicExpensePanel=ref(null)
+const publicExpenseBills=ref([]),publicExpenseTodoFailed=ref(false),publicExpenseTodoLoading=ref(false)
+const publicExpenseTodos=computed(()=>buildPublicExpenseTodos(publicExpenseBills.value))
+const publicExpenseMonth=()=>today().slice(0,7)
+let expenseTodoRequest=0
+async function loadPublicExpenseTodos(){
+  const request=++expenseTodoRequest
+  publicExpenseTodoLoading.value=true;publicExpenseTodoFailed.value=false
+  try {
+    const response=await getOwnerPublicExpenseWorkspace(publicExpenseMonth())
+    if(request===expenseTodoRequest)publicExpenseBills.value=response.data?.bills||[]
+  } catch {
+    if(request===expenseTodoRequest){publicExpenseBills.value=[];publicExpenseTodoFailed.value=true}
+  } finally {if(request===expenseTodoRequest)publicExpenseTodoLoading.value=false}
+}
 const ALL_PROJECTS='ALL'
 const todoKpi=ref(null),todoLoadFailed=ref(false),todosExpanded=ref(false),allTodosExpanded=ref(false)
 const allProjectWorkspaces=ref([]),allProjectsLoadWarning=ref(false)
 let ownerRequest=0
 const workspaceTab=ref('execution'),workspaceTabs=ref(null),settlementSummary=ref({}),settlementLoadFailed=ref(false)
 const ownerTodos=computed(()=>{
-  const rows=buildOwnerTodos({data:data.value,userId:userStore.id,today:today(),permissions:userStore.permissions,kpi:todoKpi.value})
+  const rows=[...publicExpenseTodos.value,...buildOwnerTodos({data:data.value,userId:userStore.id,today:today(),permissions:userStore.permissions,kpi:todoKpi.value})]
   if(Number(settlementSummary.value.pendingCostCount)>0)rows.push({key:'cost-setup',title:'完善人员成本',detail:'部分工作日缺少有效成本，请核对后补充',action:'people',urgent:true})
   if(Number(settlementSummary.value.pendingFactCount)>0)rows.push({key:'settlement-facts',title:'处理待结算收支',detail:settlementSummary.value.pendingFactCount+' 笔收支需要处理',action:'settlement',urgent:true})
   if(Number(settlementSummary.value.pendingAwardCount)>0)rows.push({key:'settlement-awards',title:'查看待处理奖金',detail:'奖金事项将在项目结算中列出',action:'settlement'})
@@ -432,14 +447,14 @@ const visibleOwnerTodos=computed(()=>todosExpanded.value?ownerTodos.value:ownerT
 const loading=ref(false),saving=ref(false),data=ref({}),selectedProjectId=ref(null),revenueDialog=ref(false),reportDialog=ref(false),projectProgressDialog=ref(false),routineReportDialog=ref(false),dailyTargetDialog=ref(false),effortReturnDialog=ref(false),taskReportDialog=ref(false),evidenceDialog=ref(false)
 const projects=computed(()=>data.value.projects||[]),project=computed(()=>data.value.project||null)
 const allProjectsMode=computed(()=>selectedProjectId.value===ALL_PROJECTS)
-const allOwnerTodos=computed(()=>allProjectWorkspaces.value.flatMap(entry=>{
+const allOwnerTodos=computed(()=>[...publicExpenseTodos.value,...allProjectWorkspaces.value.flatMap(entry=>{
   const rows=buildOwnerTodos({data:entry,userId:userStore.id,today:today(),permissions:userStore.permissions,kpi:entry.kpi})
   const settlement=entry.settlement||{}
   if(Number(settlement.pendingCostCount)>0)rows.push({key:'cost-setup',title:'完善人员成本',detail:'部分工作日缺少有效成本，请核对后补充',action:'people',urgent:true})
   if(Number(settlement.pendingFactCount)>0)rows.push({key:'settlement-facts',title:'处理待结算收支',detail:settlement.pendingFactCount+' 笔收支需要处理',action:'settlement',urgent:true})
   if(Number(settlement.pendingAwardCount)>0)rows.push({key:'settlement-awards',title:'查看待处理奖金',detail:'奖金事项将在项目结算中列出',action:'settlement'})
   return rows.map(item=>({...item,key:`${entry.project.projectId}-${item.key}`,projectId:entry.project.projectId,projectName:entry.project.projectName}))
-}).sort((a,b)=>Number(!!b.urgent)-Number(!!a.urgent)))
+})].sort((a,b)=>Number(!!b.urgent)-Number(!!a.urgent)))
 const visibleAllOwnerTodos=computed(()=>allTodosExpanded.value?allOwnerTodos.value:allOwnerTodos.value.slice(0,5))
 const allUrgentTodoCount=computed(()=>allOwnerTodos.value.filter(item=>item.urgent).length)
 const allActiveProjectCount=computed(()=>allProjectWorkspaces.value.filter(item=>item.project.status==='ACTIVE').length)
@@ -579,6 +594,7 @@ function routineLeave(routine){return routine.sourceManaged?null:(data.value.tod
 function participantName(member){return member.userNameSnapshot||member.userName||'项目成员'}
 async function load(projectId){
   const request=++ownerRequest
+  const expensesRequest=loadPublicExpenseTodos()
   loading.value=true;todoKpi.value=null;todoLoadFailed.value=false;settlementSummary.value={};settlementLoadFailed.value=false
   try{
     if(projectId===ALL_PROJECTS){
@@ -623,9 +639,10 @@ async function load(projectId){
         : Promise.resolve()
       await Promise.all([statusRequest,kpiRequest])
     }
-  }finally{if(request===ownerRequest)loading.value=false}
+  }finally{await expensesRequest;if(request===ownerRequest)loading.value=false}
 }
 function handleOwnerTodo(item){
+  if(item.action==='public-expense')return openPublicExpenseTodo(item)
   if(item.action==='allocation-review')return router.push({path:'/business/projects',query:{id:item.item.projectId,tab:'resources',allocationUserId:item.item.userId}})
   if(item.action==='people')return goToWorkspace('people')
   if(item.action==='settlement')return goToWorkspace('project')
@@ -640,6 +657,11 @@ function handleOwnerTodo(item){
   if(item.action==='kpi')return router.push({path:'/projects/kpi-results',query:{projectId:project.value.projectId,planId:item.planId}})
   return router.push({path:'/business/projects',query:{id:project.value.projectId,tab:item.tab||'overview'}})
 }
+async function openPublicExpenseTodo(item){
+  await goToWorkspace('public-expense')
+  await publicExpensePanel.value?.openPending(item.allocationId,item.month)
+  await loadPublicExpenseTodos()
+}
 async function goToWorkspace(tab){
   workspaceTab.value=tab
   await nextTick()
@@ -648,7 +670,7 @@ async function goToWorkspace(tab){
 async function refreshWorkbench(){await Promise.all([load(selectedProjectId.value),publicExpensePanel.value?.refresh()])}
 function switchProject(id){workspaceTab.value='execution';load(id)}
 async function selectProject(projectId,tab){await load(projectId);if(tab)await goToWorkspace(tab)}
-async function handleAllOwnerTodo(item){await load(item.projectId);await nextTick();return handleOwnerTodo(item)}
+async function handleAllOwnerTodo(item){if(item.action==='public-expense')return openPublicExpenseTodo(item);await load(item.projectId);await nextTick();return handleOwnerTodo(item)}
 function openProject(){router.push({path:'/business/projects',query:{id:project.value.projectId}})}
 function openProjectAllocation(item){router.push({path:'/business/projects',query:{id:item.projectId,tab:'operating'}})}
 function openKpiBonus(){router.push({path:'/business/kpi-bonus',query:{projectId:project.value.projectId}})}

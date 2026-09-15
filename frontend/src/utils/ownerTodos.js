@@ -77,3 +77,16 @@ export function buildOwnerTodos({ data = {}, userId, today, permissions = [], kp
   }
   return rows.sort((a, b) => Number(!!b.urgent) - Number(!!a.urgent))
 }
+export function buildPublicExpenseTodos(bills = []) {
+  const seen = new Set()
+  return bills.filter(bill => {
+    if (bill.billStatus !== 'PUBLISHED' || bill.status === 'SUBMITTED' || bill.allocationId == null || seen.has(String(bill.allocationId))) return false
+    seen.add(String(bill.allocationId))
+    return true
+  }).map(bill => ({
+    key: `public-expense-${bill.allocationId}`,
+    title: Number(bill.remainingAmount) > 0 ? '分摊公共费用' : '提交公共费用分摊',
+    detail: `${bill.companyName || '公司公共费用'} · ${bill.month} · ${Number(bill.remainingAmount) > 0 ? '待分摊' : '待提交'} ${Number(Number(bill.remainingAmount) > 0 ? bill.remainingAmount : bill.amount).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${bill.currency}`,
+    action: 'public-expense', projectName: '公司公共费用', allocationId: bill.allocationId, month: bill.month
+  }))
+}
