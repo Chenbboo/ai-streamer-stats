@@ -222,8 +222,9 @@
   </update>
   <select id="sumProjectFacts" resultType="map">
     select coalesce(sum(case when fact_kind='REVENUE' then amount else 0 end),0) revenueAmount,
-      coalesce(sum(case when fact_kind='COST' and category_code&lt;&gt;'PROJECT_BONUS_COST' then amount else 0 end),0) costAmount,
+      coalesce(sum(case when fact_kind='COST' and category_code not in ('PROJECT_BONUS_COST','COMPANY_PUBLIC_COST') then amount else 0 end),0) costAmount,
       coalesce(sum(case when fact_kind='COST' and category_code='PROJECT_BONUS_COST' then amount else 0 end),0) bonusCost,
+      coalesce(sum(case when fact_kind='COST' and category_code='COMPANY_PUBLIC_COST' then amount else 0 end),0) publicCost,
       coalesce(sum(case when fact_kind='ADJUSTMENT' then amount else 0 end),0) adjustmentAmount,
       coalesce(sum(case when fact_kind='VALUE' then coalesce(quantity,amount,0) else 0 end),0) valueScore
     from biz_operating_fact where project_id=#{projectId} and biz_date=#{bizDate} and status in('CONFIRMED','REVERSED')
@@ -295,15 +296,15 @@
   </select>
   <select id="sumProjectCostToDate" resultType="java.math.BigDecimal">
     select coalesce((select sum(amount) from biz_operating_fact where project_id=#{projectId}
-      and biz_date&lt;=#{bizDate} and fact_kind='COST' and status in('CONFIRMED','REVERSED')),0)
-      +coalesce((select sum(personnel_cost) from biz_project_daily_result where project_id=#{projectId}
+      and biz_date&lt;=#{bizDate} and fact_kind='COST' and coalesce(category_code,'')!='COMPANY_PUBLIC_COST' and status in('CONFIRMED','REVERSED')),0)
+      +coalesce((select sum(personnel_cost+coalesce(public_cost,0)) from biz_project_daily_result where project_id=#{projectId}
       and biz_date&lt;=#{bizDate} and is_current='1'),0)
   </select>
   <select id="selectProjectBudgetSnapshot" resultType="string">select template_snapshot_json from biz_project where project_id=#{projectId} and del_flag='0'</select>
   <select id="sumProjectCostInPeriod" resultType="java.math.BigDecimal">
     select coalesce((select sum(amount) from biz_operating_fact where project_id=#{projectId}
-      and biz_date between #{from} and #{to} and fact_kind='COST' and status in('CONFIRMED','REVERSED')),0)
-      +coalesce((select sum(personnel_cost) from biz_project_daily_result where project_id=#{projectId}
+      and biz_date between #{from} and #{to} and fact_kind='COST' and coalesce(category_code,'')!='COMPANY_PUBLIC_COST' and status in('CONFIRMED','REVERSED')),0)
+      +coalesce((select sum(personnel_cost+coalesce(public_cost,0)) from biz_project_daily_result where project_id=#{projectId}
       and biz_date between #{from} and #{to} and is_current='1'),0)
   </select>
   <select id="selectCurrentResultsAfter" resultType="map">
@@ -321,9 +322,9 @@
   <update id="retireCurrentResult">update biz_project_daily_result set is_current='0' where project_id=#{projectId} and biz_date=#{bizDate} and is_current='1'</update>
   <insert id="insertDailyResult" parameterType="map" useGeneratedKeys="true" keyProperty="resultId">
     insert into biz_project_daily_result(project_id,company_dept_id,biz_date,accounting_mode,revenue_amount,cost_amount,
-      personnel_cost,bonus_cost,adjustment_amount,profit_amount,budget_spent,value_score,data_cutoff_time,close_status,
+      personnel_cost,bonus_cost,public_cost,adjustment_amount,profit_amount,budget_spent,value_score,data_cutoff_time,close_status,
       result_version,is_current,calculation_detail,create_by,create_time)
-    values(#{projectId},#{companyDeptId},#{bizDate},#{accountingMode},#{revenueAmount},#{costAmount},#{personnelCost},#{bonusCost},
+    values(#{projectId},#{companyDeptId},#{bizDate},#{accountingMode},#{revenueAmount},#{costAmount},#{personnelCost},#{bonusCost},#{publicCost},
       #{adjustmentAmount},#{profitAmount},#{budgetSpent},#{valueScore},sysdate(),'OPEN',#{resultVersion},'1',
       #{calculationDetail},#{createBy},sysdate())
   </insert>
@@ -334,7 +335,7 @@
   <select id="selectDailyResults" resultType="map">
     select r.result_id resultId,r.project_id projectId,p.project_name projectName,p.project_no projectNo,
       r.company_dept_id companyDeptId,d.dept_name companyName,r.biz_date bizDate,r.accounting_mode accountingMode,
-      r.revenue_amount revenueAmount,r.cost_amount costAmount,r.personnel_cost personnelCost,r.bonus_cost bonusCost,
+      r.revenue_amount revenueAmount,r.cost_amount costAmount,r.personnel_cost personnelCost,r.bonus_cost bonusCost,r.public_cost publicCost,
       r.adjustment_amount adjustmentAmount,r.profit_amount profitAmount,r.budget_spent budgetSpent,
       r.value_score valueScore,r.data_cutoff_time dataCutoffTime,r.close_status closeStatus,r.result_version resultVersion,
       r.calculation_detail calculationDetail,p.budget_limit budgetLimit,p.initiator_name initiatorName,p.base_currency currency
@@ -352,12 +353,45 @@
     select item_id itemId,result_id resultId,component_code componentCode,component_name componentName,amount,quantity,
       calculation_detail calculationDetail from biz_project_daily_result_item where result_id=#{resultId} order by item_id
   </select>
+  <!-- Display-only workday reference. Monthly settlement is already included in public_cost;
+       add that day's recognized amount back before applying the daily reference. -->
+  <select id="selectPublicExpenseReferences" resultType="map">
+    select p.project_id projectId,p.project_name projectName,p.company_dept_id companyDeptId,p.base_currency currency,
+      coalesce(sum(a.amount),0)+coalesce((select sum(adj.amount) from biz_public_expense_adjustment adj
+        where adj.bill_id=b.bill_id and adj.project_id=p.project_id),0) monthAmount,
+      round((coalesce(sum(a.amount),0)+coalesce((select sum(adj.amount) from biz_public_expense_adjustment adj
+        where adj.bill_id=b.bill_id and adj.project_id=p.project_id),0))/21.75,2) dailyReference,
+      r.profit_amount profitAmount,coalesce(r.public_cost,0) recognizedPublicCost,
+      case when b.bill_id is null or (b.status='DRAFT' and b.total_amount&gt;0) then 1
+        when b.status='PUBLISHED' and exists(select 1 from biz_public_expense_owner pending_owner where pending_owner.bill_id=b.bill_id
+          and pending_owner.owner_user_id=p.main_owner_user_id and pending_owner.amount&gt;0
+          and pending_owner.status&lt;&gt;'SUBMITTED') then 1 else 0 end pendingCount
+    from biz_project p
+    left join biz_public_expense_month b on b.company_dept_id=p.company_dept_id and b.currency=p.base_currency
+      and b.bill_month=substring(#{dateFrom},1,7)
+    left join biz_public_expense_owner o on o.bill_id=b.bill_id and b.status in('PUBLISHED','SETTLED')
+    left join biz_public_expense_project a on a.allocation_id=o.allocation_id and a.project_id=p.project_id
+    left join biz_project_daily_result r on r.project_id=p.project_id and r.biz_date=#{dateFrom} and r.is_current='1'
+    where p.del_flag='0'
+      and coalesce(p.actual_start_date,p.plan_start_date,'1900-01-01')&lt;=#{dateFrom}
+      and (p.actual_end_date is null or p.actual_end_date&gt;=#{dateFrom})
+      and (b.bill_id is not null or exists(select 1 from biz_public_expense_policy policy
+        where policy.company_dept_id=p.company_dept_id and policy.currency=p.base_currency and policy.status='ACTIVE' and policy.amount&gt;0
+        and substring(#{dateFrom},1,7) between policy.start_month and policy.end_month))
+      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="projectId != null">and p.project_id=#{projectId}</if>
+      <if test="companyDeptId != null">and p.company_dept_id=#{companyDeptId}</if>
+    group by p.project_id,p.project_name,p.company_dept_id,p.base_currency,p.main_owner_user_id,b.bill_id,b.status,b.total_amount,
+      r.profit_amount,r.public_cost
+    order by p.base_currency,p.project_id
+  </select>
   <select id="selectDailySummary" resultType="map">
     select count(distinct p.base_currency) currencyCount,case when count(distinct p.base_currency)=1 then min(p.base_currency) end currency,case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.revenue_amount),0) end revenueAmount,
       case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.cost_amount),0) end businessCost,
       case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.personnel_cost),0) end personnelCost,
       case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.bonus_cost),0) end bonusCost,
-      case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.cost_amount+r.personnel_cost+r.bonus_cost),0) end costAmount,
+      case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.public_cost),0) end publicCost,
+      case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.cost_amount+r.personnel_cost+r.bonus_cost+r.public_cost),0) end costAmount,
       case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.adjustment_amount),0) end adjustmentAmount,case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.profit_amount),0) end profitAmount,
       count(distinct r.project_id) projectCount,count(*) resultCount
     from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
@@ -372,8 +406,8 @@
     select p.base_currency currency,coalesce(sum(r.revenue_amount),0) revenueAmount,
       coalesce(sum(r.cost_amount),0) businessCost,
       coalesce(sum(r.personnel_cost),0) personnelCost,
-      coalesce(sum(r.bonus_cost),0) bonusCost,
-      coalesce(sum(r.cost_amount+r.personnel_cost+r.bonus_cost),0) costAmount,
+      coalesce(sum(r.bonus_cost),0) bonusCost,coalesce(sum(r.public_cost),0) publicCost,
+      coalesce(sum(r.cost_amount+r.personnel_cost+r.bonus_cost+r.public_cost),0) costAmount,
       coalesce(sum(r.adjustment_amount),0) adjustmentAmount,coalesce(sum(r.profit_amount),0) profitAmount,
       count(distinct r.project_id) projectCount,count(*) resultCount
     from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
@@ -470,32 +504,32 @@
       <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
       union all
       select 'BUDGET_WARNING',r.project_id,p.project_name,p.company_dept_id,d.dept_name,r.biz_date,
-        (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost else 0 end),concat(
+        (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end),concat(
           case when p.management_mode='KEY_CONTROL' and
-            (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost else 0 end)&gt;=p.daily_budget_limit*0.9
+            (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end)&gt;=p.daily_budget_limit*0.9
             then '重点监管项目当日预算已达高警戒线：' else '当日预算预警：' end,
-          round((r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost else 0 end)
+          round((r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end)
             /p.daily_budget_limit*100,1),'%，当日成本 ',
-          round(r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost else 0 end,2),
+          round(r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end,2),
           ' / ',round(p.daily_budget_limit,2)),2,'PERIOD'
       from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
       left join sys_dept d on d.dept_id=p.company_dept_id
       where r.is_current='1' and r.biz_date=#{bizDate} and p.budget_mode='DAILY' and p.daily_budget_limit&gt;0
-        and (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost else 0 end)
+        and (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end)
           &gt;=p.daily_budget_limit*(case p.management_mode when 'KEY_CONTROL' then 0.7 when 'STANDARD' then 0.8 else 1 end)
-        and (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost else 0 end)
+        and (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end)
           &lt;=p.daily_budget_limit
       <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
       union all
       select 'OVER_BUDGET',r.project_id,p.project_name,p.company_dept_id,d.dept_name,r.biz_date,
-        (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost else 0 end),
+        (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end),
         concat('当日成本 ',
-          round(r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost else 0 end,2),
+          round(r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end,2),
           ' 已超过每日预算 ',round(p.daily_budget_limit,2)),2,'PERIOD'
       from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
       left join sys_dept d on d.dept_id=p.company_dept_id
       where r.is_current='1' and r.biz_date=#{bizDate} and p.budget_mode='DAILY' and p.daily_budget_limit is not null
-        and (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost else 0 end)&gt;p.daily_budget_limit
+        and (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end)&gt;p.daily_budget_limit
       <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
       union all
       select 'MISSING_COMPANY',p.project_id,p.project_name,null,null,#{bizDate},null,'项目尚未设置归属公司，无法录入收支',3,'CURRENT'
@@ -518,7 +552,7 @@
   <select id="selectProjectProfitRanking" resultType="map">
     select p.base_currency currency,r.project_id projectId,p.project_name projectName,p.company_dept_id companyDeptId,d.dept_name companyName,
       sum(r.revenue_amount) revenueAmount,sum(r.cost_amount) businessCost,sum(r.personnel_cost) personnelCost,
-      sum(r.bonus_cost) bonusCost,sum(r.cost_amount+r.personnel_cost+r.bonus_cost) costAmount,
+      sum(r.bonus_cost) bonusCost,sum(r.public_cost) publicCost,sum(r.cost_amount+r.personnel_cost+r.bonus_cost+r.public_cost) costAmount,
       sum(r.adjustment_amount) adjustmentAmount,sum(r.profit_amount) profitAmount,max(r.data_cutoff_time) dataCutoffTime
     from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
     left join sys_dept d on d.dept_id=p.company_dept_id
@@ -529,8 +563,8 @@
   </select>
   <select id="selectCompanyAccountingSummary" resultType="map">
     select p.base_currency currency,r.company_dept_id companyDeptId,d.dept_name companyName,sum(r.revenue_amount) revenueAmount,
-      sum(r.cost_amount) businessCost,sum(r.personnel_cost) personnelCost,sum(r.bonus_cost) bonusCost,
-      sum(r.cost_amount+r.personnel_cost+r.bonus_cost) costAmount,sum(r.adjustment_amount) adjustmentAmount,
+      sum(r.cost_amount) businessCost,sum(r.personnel_cost) personnelCost,sum(r.bonus_cost) bonusCost,sum(r.public_cost) publicCost,
+      sum(r.cost_amount+r.personnel_cost+r.bonus_cost+r.public_cost) costAmount,sum(r.adjustment_amount) adjustmentAmount,
       sum(r.profit_amount) profitAmount,count(distinct r.project_id) projectCount,max(r.data_cutoff_time) dataCutoffTime
     from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
     left join sys_dept d on d.dept_id=r.company_dept_id

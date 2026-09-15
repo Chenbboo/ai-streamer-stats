@@ -92,10 +92,11 @@
               <article><span>{{ projectBudgetTitle }}</span><b>{{ cockpitBudget==null?'未设置':money(cockpitBudget) }}</b><small>{{ cockpitCurrency }}</small></article>
               <el-alert v-if="cockpit.budgetPeriodExpired" title="本期预算已到期，请在项目计划与变更中续编；此处保留上一期使用情况。" type="warning" :closable="false"/><article v-if="isDailyBudget"><span>每日统计口径</span><b>{{ (operating.budgetScope||detail.budgetScope)==='CASH_EXPENSE'?'仅外部支出':'全成本' }}</b><small>按业务日分别预警；启动预算 {{ money(operating.startupBudgetLimit??detail.startupBudgetLimit) }}</small></article><article v-else :class="budgetTone"><span>{{ detail.budget?'本期预算已使用':cockpitCostIncomplete?'已核算预算使用':'预算已使用' }}</span><b>{{ money(cockpitBudgetSpent) }}</b><small v-if="cockpitCostIncomplete">剩余预算待成本完整后确认</small><small v-else>{{ budgetUsage==null?'—':`${budgetUsage}%` }} · 剩余 {{ money(cockpitBudgetRemaining) }}</small></article>
               <article><span>累计收入</span><b>{{ money(cockpitSummary.revenueAmount) }}</b><small>{{ cockpitCurrency }}</small></article>
-              <article><span>{{ cockpitCostIncomplete?'累计已核算成本':'累计总成本' }}</span><b>{{ money(cockpitTotalCost) }}</b><small>{{ cockpitCostIncomplete?'部分人员成本未知，待完善':'业务、人员及奖金成本' }}</small></article>
-              <article :class="cockpitCostIncomplete?'is-warning':cockpitSummary.profitAmount==null?'':Number(cockpitSummary.profitAmount)<0?'is-danger':'is-success'"><span>{{ cockpitCostIncomplete?'已核算经营结果':'累计经营结果' }}</span><b>{{ signedMoney(cockpitSummary.profitAmount) }}</b><small>{{ cockpitCostIncomplete?'成本尚不完整，不代表最终利润':cockpitCurrency }}</small></article>
-              <article><span>经营结果天数</span><b>{{ cockpitSummary.resultCount || 0 }}</b><small>{{ cockpitDateRange }}</small></article>
+              <article><span>{{ cockpitCostIncomplete?'累计已核算成本':'累计总成本' }}</span><b>{{ money(cockpitTotalCost) }}</b><small>{{ cockpitCostIncomplete?'部分人员成本未知，待完善':'业务、人员、奖金及公共费用' }}</small></article>
+              <article :class="cockpitCostIncomplete?'is-warning':cockpitSummary.profitAmount==null?'':Number(cockpitSummary.profitAmount)<0?'is-danger':'is-success'"><span>{{ cockpitCostIncomplete?'已核算税前结果':'累计税前结果' }}</span><b>{{ signedMoney(cockpitSummary.pretaxProfit ?? cockpitSummary.profitAmount) }}</b><small>{{ cockpitCostIncomplete?'成本尚不完整，不代表最终利润':cockpitCurrency }}</small></article>
+              <article><span>累计税额</span><b>{{ money(cockpitSummary.taxAmount) }}</b><small>扣完各项费用后计税</small></article><article :class="Number(cockpitSummary.afterTaxProfit)<0?'is-danger':'is-success'"><span>{{ cockpitCostIncomplete?'已核算税后盈利':'税后盈利结果' }}</span><b>{{ signedMoney(cockpitSummary.afterTaxProfit) }}</b><small>{{ cockpit.taxUnconfiguredCount?'税率未设置，暂按0%':cockpitCostIncomplete?'成本待完善':cockpitCurrency }}</small></article><article><span>经营结果天数</span><b>{{ cockpitSummary.resultCount || 0 }}</b><small>{{ cockpitDateRange }}</small></article>
             </section>
+            <ProjectPublicExpensePanel :project-id="detail.projectId" :currency="cockpitCurrency" />
             <div class="cockpit-columns">
               <section class="cockpit-card">
                 <div class="cockpit-card-head"><div><h3>KPI目标与差距</h3><p>当前目标及自动统计或手工填报的实际值</p></div><el-button link type="primary" @click="openKpiWorkspace">进入KPI工作区</el-button></div>
@@ -292,6 +293,7 @@
 </template>
 
 <script setup name="BusinessProject">
+import ProjectPublicExpensePanel from '@/views/business/components/ProjectPublicExpensePanel.vue'
 import { h, nextTick } from 'vue'
 import ProjectHierarchyTable from './ProjectHierarchyTable.vue'
 import { getBusinessProjectCompanies } from '@/api/business/project'
@@ -422,7 +424,7 @@ const isDailyBudget=computed(()=>(operating.value.budgetMode||detail.value?.budg
 const cockpitBudget=computed(()=>{if((operating.value.budgetMode||detail.value?.budgetMode)==='NONE')return null;const value=isDailyBudget.value?(operating.value.dailyBudgetLimit??detail.value?.dailyBudgetLimit):(operating.value.budgetLimit??detail.value?.budgetLimit);return value==null?null:Number(value)})
 const projectBudgetTitle=computed(()=>operating.value.budgetMode==='DAILY'?'每日预算上限':operating.value.budgetMode==='NONE'?'预算控制':'项目总额预算')
 const projectBudgetText=computed(()=>operating.value.budgetMode==='NONE'?'暂不设置':`${money(cockpitBudget.value)} ${operating.value.currency||detail.value.baseCurrency}${isDailyBudget.value?' / 日':''}`)
-const cockpitTotalCost=computed(()=>{const values=[cockpitSummary.value.businessCost,cockpitSummary.value.personnelCost,cockpitSummary.value.bonusCost];return values.some(value=>value==null)?null:values.reduce((total,value)=>total+Number(value),0)})
+const cockpitTotalCost=computed(()=>{const values=[cockpitSummary.value.businessCost,cockpitSummary.value.personnelCost,cockpitSummary.value.bonusCost,cockpitSummary.value.publicCost??0];return values.some(value=>value==null)?null:values.reduce((total,value)=>total+Number(value),0)})
 const cockpitBudgetSpent=computed(()=>detail.value?.budget?(cockpit.value.budgetPeriodSpent??null):cockpitTotalCost.value)
 const cockpitBudgetRemaining=computed(()=>cockpitCostIncomplete.value||cockpitBudget.value==null||cockpitBudgetSpent.value==null?null:cockpitBudget.value-cockpitBudgetSpent.value)
 const budgetUsage=computed(()=>cockpitCostIncomplete.value||!cockpitBudget.value||cockpitBudgetSpent.value==null?null:Math.round(cockpitBudgetSpent.value*1000/cockpitBudget.value)/10)

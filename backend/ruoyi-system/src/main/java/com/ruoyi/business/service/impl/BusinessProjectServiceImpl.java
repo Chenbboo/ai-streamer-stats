@@ -87,6 +87,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
 
     @Autowired
     private BusinessAccountingMapper accountingMapper;
+    @Autowired private com.ruoyi.business.mapper.BusinessPublicExpenseMapper publicExpenses;
 
     @Autowired
     private IBusinessAccountingService accountingService;
@@ -281,6 +282,51 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         return buildSettlementStatus(project, userId, boss, false, false);
     }
 
+    /** Stop delivery on the explicit business sign-off date while its last month's shared costs remain open. */
+    @Override
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+    public Map<String, Object> endDeliveryAwaitingCosts(Long projectId, Integer version, String reason,
+        Long acceptanceId, boolean approveAcceptance, boolean separateLegacyAccounting, Long userId, String userName, boolean boss)
+    {
+        BusinessProject project = requireProjectForUpdate(projectId);
+        if (!boss || userId == null || !userId.equals(projectSponsorUserId(project)))
+            throw new ServiceException("只有项目归属老板可以确认结束交付");
+        if (version == null || !version.equals(project.getVersion())) throw changed();
+        if (StringUtils.isBlank(reason) || reason.trim().length() > 2000)
+            throw new ServiceException("请填写交付结束说明，且不超过2000个字符");
+        Map<String,Object> readiness = buildSettlementStatus(project, userId, boss, false, false);
+        if (!Boolean.TRUE.equals(readiness.get("canEndDeliveryAwaitingCosts")))
+            throw new ServiceException("项目尚不满足结束交付条件，请先完成交付、KPI及其他待办；此操作用于公共费用待月结的项目");
+        if (!BusinessProjectLifecycle.isSeparated(project))
+        {
+            if (!separateLegacyAccounting) throw new ServiceException("旧版项目需明确同意将本项目的交付结束与核算关闭分开办理");
+            if (mapper.separateDeliveryForPublicCosts(projectId, version, userName) != 1) throw changed();
+            addEvent(projectId, "SEPARATE_DELIVERY_FOR_COSTS", project.getDeliveryPolicyVersion(), "SEPARATED_V1", userId, userName,
+                "为等待公共费用月结，仅将本项目的交付结束与核算关闭分开办理；" + reason.trim());
+            project.setDeliveryPolicyVersion("SEPARATED_V1");project.setAccountingState("OPEN");
+            version = version + 1;project.setVersion(version);
+        }
+        if ("RESULT_ACCEPTANCE".equals(effectiveCloseMethod(project)))
+        {
+            BusinessProjectAcceptance pending = mapper.selectLatestPendingAcceptance(projectId);
+            if (!approveAcceptance || pending == null || !java.util.Objects.equals(acceptanceId, pending.getAcceptanceId()))
+                throw new ServiceException("请核对当前成果验收资料，并明确确认验收通过");
+            String reviewerName = displayName(requireActiveUser(userId));
+            if (mapper.reviewAcceptance(pending.getAcceptanceId(), "APPROVED", userId, reviewerName, reason.trim(), userName) != 1)
+                throw new ServiceException("验收资料已被处理，请刷新后重试");
+        }
+        Date endDate = normalizeLeaveDate(DateUtils.getNowDate(), "交付结束日期不能为空");
+        project.setActualEndDate(endDate);
+        prepareTerminalState(project, "CLOSED", userName);
+        String from = project.getStatus();
+        // The existing status update persists today's actual_end_date and keeps separated accounting OPEN.
+        if (mapper.updateProjectStatus(projectId, from, "CLOSED", null, false, userName, version) != 1) throw changed();
+        addEvent(projectId, "DELIVERY_END_AWAITING_COSTS", from, "CLOSED", userId, userName,
+            reason.trim() + "；交付已结束，公共费用月结后再确认最终核算与管理费");
+        project.setStatus("CLOSED");project.setAccountingState("OPEN");project.setVersion(version + 1);
+        return buildSettlementStatus(project, userId, boss, false, true);
+    }
+
     private Map<String, Object> buildSettlementStatus(BusinessProject project, Long userId, boolean boss,
         boolean viewAll, boolean deliveryValidated)
     {
@@ -290,6 +336,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         int effortCount = BusinessMemberDayCostService.enabled(project)?0:"ACTUAL_WORK_V1".equals(project.getCostPolicyVersion()) ? workMapper.countPendingWork(projectId) : mapper.countPendingProjectEfforts(projectId);
         int pendingCostCount = BusinessMemberDayCostService.enabled(project)?memberDays.pending(projectId):"ACTUAL_WORK_V1".equals(project.getCostPolicyVersion()) ? workMapper.countPendingCosts(projectId) : 0;
         int factCount = accountingMapper.countProjectUnsettledFacts(projectId);
+        int publicExpenseCount = publicExpenses == null ? 0 : publicExpenses.countProjectPending(projectId);
         int awardCount = incentiveMapper.countPendingAwards(projectId);
         Map<String, Object> managementFee;
         if (managementFeeService == null)
@@ -312,6 +359,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         addSettlementBlocker(blockers, "PENDING_KPI", "KPI方案尚未完成结算或作废", kpiCount);
         addSettlementBlocker(blockers, "PENDING_EFFORT", "人员投入尚待确认", effortCount);
         addSettlementBlocker(blockers, "PENDING_FACT", "财务事实尚待处理", factCount);
+        addSettlementBlocker(blockers, "PENDING_PUBLIC_EXPENSE", BusinessProjectLifecycle.isTerminal(project.getStatus())
+            ? "公司公共费用尚未月结；完成交付结束月份的费用结算后，再确认核算并冻结"
+            : "公司公共费用尚未完成分摊或月结；交付检查通过后可先结束交付，费用次月结清", publicExpenseCount);
         addSettlementBlocker(blockers, "PENDING_COST", BusinessMemberDayCostService.enabled(project)?"成员工作日成本尚未计算完整":"已确认工作尚待计价或核算", pendingCostCount);
         addSettlementBlocker(blockers, "PENDING_AWARD", "奖金奖励单尚待处理或取消", awardCount);
         addSettlementBlocker(blockers, "MANAGEMENT_FEE_PENDING", "项目管理费尚未设置或明确免除",
@@ -323,10 +373,27 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         result.put("accountingState", BusinessProjectLifecycle.isAccountingClosed(project) ? "CLOSED" : "OPEN");
         result.put("version", project.getVersion());
         result.put("canClose", blockers.isEmpty());
+        boolean deliveryActive = !BusinessProjectLifecycle.isTerminal(project.getStatus()) && !BusinessProjectLifecycle.isAccountingClosed(project);
+        boolean sponsor = boss && userId != null && userId.equals(projectSponsorUserId(project));
+        String deliveryEndIssue = !deliveryActive ? "项目交付已经结束"
+            : (!BusinessProjectLifecycle.isSeparated(project) || "RESULT_ACCEPTANCE".equals(effectiveCloseMethod(project))) ? unifiedCloseReadinessIssue(project, true) : deliveryIssue;
+        boolean canEndDelivery = deliveryActive && sponsor && deliveryEndIssue == null && publicExpenseCount > 0
+            && kpiCount == 0 && effortCount == 0 && factCount == 0 && pendingCostCount == 0 && awardCount == 0
+            && !Boolean.TRUE.equals(managementFee.get("configurationRequired"));
+        result.put("canEndDeliveryAwaitingCosts", canEndDelivery);
+        result.put("requiresLegacyDeliverySeparation", deliveryActive && !BusinessProjectLifecycle.isSeparated(project));
+        result.put("deliveryEndBlocker", deliveryEndIssue);
+        result.put("deliveryAwaitingCosts", BusinessProjectLifecycle.isTerminal(project.getStatus())
+            && !BusinessProjectLifecycle.isAccountingClosed(project) && publicExpenseCount > 0);
+        result.put("actualEndDate", project.getActualEndDate() == null ? null : DateUtils.parseDateToStr("yyyy-MM-dd", project.getActualEndDate()));
+        boolean acceptanceRequired = deliveryActive && "RESULT_ACCEPTANCE".equals(effectiveCloseMethod(project));
+        result.put("requiresAcceptanceApprovalForDeliveryEnd", acceptanceRequired);
+        if (acceptanceRequired) result.put("deliveryEndAcceptance", mapper.selectLatestPendingAcceptance(projectId));
         result.put("blockers", blockers);
         result.put("pendingKpiCount", kpiCount);
         result.put("pendingEffortCount", effortCount);
         result.put("pendingFactCount", factCount);
+        result.put("pendingPublicExpenseCount", publicExpenseCount);
         result.put("pendingCostCount", pendingCostCount);
         result.put("pendingAwardCount", awardCount);
         result.put("costPolicyVersion", project.getCostPolicyVersion());
@@ -348,14 +415,26 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
      */
     private String unifiedCloseReadinessIssue(BusinessProject project)
     {
-        if (!BusinessProjectLifecycle.isSeparated(project)) return "旧版项目沿用原结项规则";
+        return unifiedCloseReadinessIssue(project, false);
+    }
+
+    private String unifiedCloseReadinessIssue(BusinessProject project, boolean allowPendingAcceptance)
+    {
+        if (!BusinessProjectLifecycle.isSeparated(project) && !allowPendingAcceptance) return "旧版项目沿用原结项规则";
         if (BusinessProjectLifecycle.isTerminal(project.getStatus())) return null;
         String closeMethod = effectiveCloseMethod(project);
-        if ("RESULT_ACCEPTANCE".equals(closeMethod))
+        if ("RESULT_ACCEPTANCE".equals(closeMethod) && !allowPendingAcceptance)
             return "请在成果验收中确认通过，系统将同时结项、核算并冻结数据";
         try
         {
-            if ("STAGED_ACCEPTANCE".equals(closeMethod))
+            if ("RESULT_ACCEPTANCE".equals(closeMethod))
+            {
+                if (!"ACCEPTANCE".equals(project.getStatus()) || mapper.selectLatestPendingAcceptance(project.getProjectId()) == null)
+                    return "负责人尚未提交待评审的成果验收资料";
+                if ("KEY_CONTROL".equals(normalizeManagementMode(project.getManagementMode())))
+                    ensureKeyMilestonesReady(project.getProjectId());
+            }
+            else if ("STAGED_ACCEPTANCE".equals(closeMethod))
             {
                 if (!"ACCEPTANCE".equals(project.getStatus())) return "负责人尚未提交结项申请";
                 ensureStagesReadyForClose(project.getProjectId());
@@ -1458,6 +1537,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         requireBoss(project, userId, boss);
         ensureMutable(project);
         if (project.getMainOwnerUserId().equals(newOwnerUserId)) throw new ServiceException("新负责人不能与当前负责人相同");
+        if(publicExpenses!=null&&publicExpenses.countProjectUnsubmitted(projectId)>0)
+            throw new ServiceException("原负责人仍有已下发的公共费用未提交项目分摊，请先提交分摊或由老板退回调整，再交接项目");
         Map<String, Object> newOwner = requireActiveUser(newOwnerUserId);
         String newOwnerPreviousRole = mapper.selectMemberRole(projectId, newOwnerUserId);
         String newOwnerName = displayName(newOwner);

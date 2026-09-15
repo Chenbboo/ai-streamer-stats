@@ -954,6 +954,13 @@ union all select 'missing_independent_product_roles',5-count(*)
 from sys_role where del_flag='0' and role_key in('finance_cost_manager','hcm_incentive_operator',
   'hcm_incentive_approver','attendance_reader','feishu_integrator');
 
+-- 公司公共费用页面须挂在财务模块，并与前端组件路径一致。
+select 'missing_public_expense_finance_menu' check_name, 1-count(*) problem_rows
+from sys_menu child join sys_menu parent on parent.menu_id=child.parent_id
+where parent.parent_id=0 and parent.path='finance' and child.menu_type='C'
+  and child.status='0' and child.path='public-expenses'
+  and child.component='business/public-expenses/index';
+
 -- V089 子项目立项负责人
 select 2-count(*) as missing_subproject_owner_fields from information_schema.columns
 where table_schema=database() and table_name='biz_project_proposal'
@@ -980,3 +987,23 @@ where table_schema=database() and table_name='biz_project_management_fee'
     'eligibility_project_names','eligibility_checked_time');
 select 1-count(*) as missing_management_fee_category from biz_fact_category
 where category_code='PROJECT_MANAGEMENT_FEE' and fact_kind='COST' and status='0';
+
+-- V097-V101 公司公共费用、按日核算及税后盈利。
+select 11-count(*) as missing_public_expense_or_profit_tax_tables
+from information_schema.tables where table_schema=database() and table_name in
+  ('biz_public_expense_policy','biz_public_expense_month','biz_public_expense_entry',
+   'biz_public_expense_owner','biz_public_expense_project','biz_public_expense_adjustment',
+   'biz_public_expense_event','biz_public_expense_daily','biz_company_profit_tax',
+   'biz_company_profit_tax_event','biz_project_profit_tax_snapshot');
+select 2-count(*) as missing_public_expense_accounting_columns
+from information_schema.columns where table_schema=database()
+  and ((table_name='biz_project_daily_result' and column_name='public_cost')
+    or (table_name='biz_public_expense_month' and column_name='recognition_mode'));
+select count(*)=0 as invalid_public_expense_project_name_length
+from information_schema.columns where table_schema=database()
+  and table_name='biz_public_expense_project' and column_name='project_name'
+  and character_maximum_length>=160;
+select count(*)=0 as invalid_proposal_expected_margin_range
+from information_schema.columns where table_schema=database()
+  and table_name='biz_project_proposal' and column_name='expected_margin'
+  and numeric_precision-numeric_scale>=26;

@@ -19,6 +19,7 @@ class BusinessAccountingCurrencyTest {
             s.execute("create table biz_project_daily_result(project_id bigint,is_current char(1),company_dept_id bigint,biz_date date,revenue_amount decimal(18,2),cost_amount decimal(18,2),personnel_cost decimal(18,2),bonus_cost decimal(18,2),adjustment_amount decimal(18,2),profit_amount decimal(18,2))");
             s.execute("insert into biz_project values(1,'0','CNY',10,10),(2,'0','VND',10,10)");
             s.execute("insert into biz_project_daily_result values(1,'1',111,'2026-09-01',100,0,0,0,0,100),(2,'1',222,'2026-09-01',100,0,0,0,0,100)");
+            s.execute("alter table biz_project_daily_result add column public_cost decimal(18,2) not null default 0");
         }
         Configuration config=new Configuration(new Environment("test",new JdbcTransactionFactory(),ds));
         String path="mapper/business/BusinessAccountingMapper.xml";

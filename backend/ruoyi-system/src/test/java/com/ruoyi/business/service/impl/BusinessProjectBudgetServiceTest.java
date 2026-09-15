@@ -44,6 +44,25 @@ class BusinessProjectBudgetServiceTest
         assertEquals("子负责人",p.getStaffingLines().get(0).get("userName"));
         service.ensureOwner(p);assertEquals(1,p.getStaffingLines().size());
     }
+    @Test void smallRevenueRetainsLargeNegativeMarginInsteadOfCappingLoss()
+    {
+        p.setPlanStartDate(Date.valueOf("2026-09-15"));p.setPlanEndDate(Date.valueOf("2026-09-24"));
+        staff.put("planStartDate","2026-09-15");staff.put("planEndDate","2026-09-24");
+        rate.put("unitCost",new BigDecimal("12300"));
+        p.getBudget().put("businessAmount",3);
+        p.setExpenseLines(Collections.singletonList(row("amount",3,"occurrenceType","ONE_TIME")));
+        p.setRevenueLines(Collections.singletonList(row("scenario","BASE","expectedAmount",3,"occurrenceType","ONE_TIME")));
+        service.apply(p);
+        assertEquals(new BigDecimal("4472.73"),p.getEstimatedPersonnelCost());
+        assertEquals(new BigDecimal("4475.73"),p.getEstimatedTotalCost());
+        assertEquals(new BigDecimal("-4472.73"),p.getExpectedProfit());
+        assertEquals(new BigDecimal("-149091.0000"),p.getExpectedMargin());
+        p.setRevenueLines(Collections.singletonList(row("expectedAmount",new BigDecimal("0.01"))));
+        service.apply(p);
+        assertEquals(new BigDecimal("-44757200.0000"),p.getExpectedMargin());
+        p.setRevenueLines(Collections.emptyList());service.apply(p);
+        assertNull(p.getExpectedMargin());
+    }
     @Test void monthlyBudgetUsesCalendarAndRateAndIgnoresClientTotals()
     {
         p.getBudget().put("totalAmount",1);p.getBudget().put("personnelAmount",1);p.setBudgetLimit(BigDecimal.ONE);

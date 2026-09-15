@@ -289,4 +289,45 @@ from (
   select if(count(*)=2,0,1) from information_schema.statistics where table_schema=database()
     and table_name='biz_project_proposal' and index_name='uk_proposal_create_request' and non_unique=0
     and ((seq_in_index=1 and column_name='applicant_user_id') or (seq_in_index=2 and column_name='create_request_key'))
+
+  union all
+  select if(count(*)=11,0,1)
+  from information_schema.tables
+  where table_schema=database() and table_name in (
+    'biz_public_expense_policy','biz_public_expense_month','biz_public_expense_entry',
+    'biz_public_expense_owner','biz_public_expense_project','biz_public_expense_adjustment',
+    'biz_public_expense_event','biz_public_expense_daily','biz_company_profit_tax',
+    'biz_company_profit_tax_event','biz_project_profit_tax_snapshot'
+  )
+
+  union all
+  select if(count(*)=2,0,1)
+  from information_schema.columns
+  where table_schema=database()
+    and ((table_name='biz_project_daily_result' and column_name='public_cost')
+      or (table_name='biz_public_expense_month' and column_name='recognition_mode'))
+
+  union all
+  select if(count(*)=1,0,1)
+  from information_schema.columns
+  where table_schema=database() and table_name='biz_public_expense_project'
+    and column_name='project_name' and character_maximum_length>=160
+
+  union all
+  select if(count(*)=1,0,1)
+  from information_schema.columns
+  where table_schema=database() and table_name='biz_project_proposal'
+    and column_name='expected_margin' and numeric_precision-numeric_scale>=26
+
+  union all
+  select if(count(*)=1,0,1)
+  from biz_fact_category
+  where category_code='COMPANY_PUBLIC_COST' and fact_kind='COST' and status='0'
+
+  union all
+  select if(count(*)=1,0,1)
+  from sys_menu child join sys_menu parent on parent.menu_id=child.parent_id
+  where parent.parent_id=0 and parent.path='finance' and child.menu_type='C'
+    and child.status='0' and child.path='public-expenses'
+    and child.component='business/public-expenses/index'
 ) release_gate;

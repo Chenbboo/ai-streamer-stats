@@ -22,6 +22,7 @@ public interface IBusinessAccountingService
     BusinessOperatingFact reverseFact(Long factId,String reason,Long userId,String userName,boolean viewAll);
     Map<String,Object> recalculate(Long projectId,Date bizDate,Long userId,String userName,boolean viewAll);
     Map<String,Object> recalculatePersonnelCost(Long projectId,Date bizDate,String userName);
+    Map<String,Object> recalculatePublicExpenseCost(Long projectId,Date bizDate,String userName);
     void ensureProjectCanClose(Long projectId);
     void closeProjectAccounting(Long projectId,Date closeDate,String userName);
     BusinessOperatingFact recordProjectBonus(Long projectId,Date bizDate,java.math.BigDecimal amount,

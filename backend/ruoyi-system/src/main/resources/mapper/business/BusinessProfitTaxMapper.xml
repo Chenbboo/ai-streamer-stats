@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.business.mapper.BusinessProfitTaxMapper">
+ <select id="selectCompanies" resultType="map">
+  select d.dept_id companyDeptId,d.dept_name companyName,t.tax_rate taxRate,coalesce(t.version,0) version,t.update_by updateBy,t.update_time updateTime
+  from sys_dept d left join biz_company_profit_tax t on t.company_dept_id=d.dept_id
+  where d.parent_id=100 and d.del_flag='0' and d.status='0' and (d.leader_user_id=#{userId} or exists(
+   select 1 from sys_user u join sys_user_role ur on ur.user_id=u.user_id join sys_role r on r.role_id=ur.role_id
+   where u.user_id=#{userId} and u.status='0' and u.del_flag='0' and r.role_key='company_owner' and r.status='0' and r.del_flag='0'))
+  order by d.order_num,d.dept_id
+ </select>
+ <select id="lockCompany" resultType="long">select dept_id from sys_dept where dept_id=#{companyDeptId} and parent_id=100 and del_flag='0' and status='0' for update</select>
+ <select id="selectPolicy" resultType="map">select tax_rate taxRate,version from biz_company_profit_tax where company_dept_id=#{companyDeptId}</select>
+ <insert id="savePolicy">insert into biz_company_profit_tax(company_dept_id,tax_rate,update_by) values(#{companyDeptId},#{taxRate},#{userName}) on duplicate key update tax_rate=values(tax_rate),version=version+1,update_by=values(update_by),update_time=now()</insert>
+ <insert id="insertEvent">insert into biz_company_profit_tax_event(company_dept_id,old_rate,new_rate,reason,operator_id,operator_name) values(#{companyDeptId},#{oldRate},#{taxRate},#{reason},#{userId},#{userName})</insert>
+ <select id="selectSeries" resultType="map">
+  select r.project_id projectId,p.project_name projectName,p.company_dept_id companyDeptId,p.base_currency currency,
+   date_format(r.biz_date,'%Y-%m-%d') bizDate,r.result_id resultId,r.profit_amount profitAmount,r.is_adjustment isAdjustment,
+   coalesce(s.tax_rate,t.tax_rate,0) taxRate,case when s.project_id is not null then '1' else '0' end taxFrozen,
+   case when s.project_id is not null then s.configured when t.company_dept_id is not null then '1' else '0' end taxConfigured
+  from (
+   select project_id,biz_date,result_id,profit_amount,0 is_adjustment from biz_project_daily_result where is_current='1'
+   union all
+   select project_id,posting_date,null,sum(profit_delta),1 from biz_closed_project_adjustment where status='APPROVED' group by project_id,posting_date
+  ) r join biz_project p on p.project_id=r.project_id
+  left join biz_company_profit_tax t on t.company_dept_id=p.company_dept_id
+  left join biz_project_profit_tax_snapshot s on s.project_id=p.project_id
+  where p.del_flag='0'
+  <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+  <if test="projectId != null">and p.project_id=#{projectId}</if>
+  <if test="companyDeptId != null">and p.company_dept_id=#{companyDeptId}</if>
+  <if test="dateTo != null and dateTo != ''">and r.biz_date&lt;=#{dateTo}</if>
+  order by r.project_id,r.biz_date,r.is_adjustment,r.result_id
+ </select>
+ <select id="selectProjectBasis" resultType="map">
+  select p.project_id projectId,p.company_dept_id companyDeptId,coalesce(t.tax_rate,0) taxRate,
+   case when t.company_dept_id is null then '0' else '1' end configured,
+   coalesce((select sum(r.profit_amount) from biz_project_daily_result r where r.project_id=p.project_id and r.is_current='1'),0) pretaxProfit
+  from biz_project p left join biz_company_profit_tax t on t.company_dept_id=p.company_dept_id where p.project_id=#{projectId}
+ </select>
+ <insert id="insertSnapshot">insert into biz_project_profit_tax_snapshot(project_id,company_dept_id,tax_rate,configured,pretax_profit,tax_amount,aftertax_profit,create_by) values(#{projectId},#{companyDeptId},#{taxRate},#{configured},#{pretaxProfit},#{taxAmount},#{afterTaxProfit},#{userName}) on duplicate key update project_id=values(project_id)</insert>
+</mapper>

@@ -17,7 +17,7 @@
         <el-button v-hasPermi="['business:project:report']" type="primary" :disabled="allProjectsMode || !canReportFinance" @click="openRevenue">{{ isLateSettlement ? '补录收入' : '录入收入' }}</el-button>
         <el-button v-hasPermi="['business:project:report']" :disabled="allProjectsMode || !canReportFinance" @click="openDailySpend">{{ isLateSettlement ? '补录花费' : '填写花费' }}</el-button>
         <el-button v-hasPermi="['business:project:proposal:add']" @click="openProposals">发起立项</el-button>
-        <el-button icon="Refresh" :loading="loading" @click="load(selectedProjectId)">刷新</el-button>
+        <el-button icon="Refresh" :loading="loading" @click="refreshWorkbench">刷新</el-button>
       </div>
     </header>
 
@@ -89,6 +89,10 @@
               <el-table-column label="操作" width="105" fixed="right"><template #default="{row}"><el-button link type="primary" @click="selectProject(row.project.projectId,'project')">查看结算</el-button></template></el-table-column>
             </el-table>
           </section>
+        </el-tab-pane>
+        <el-tab-pane label="公共费用" name="public-expense" lazy>
+          <div class="owner-section-intro"><span>查看本人承担的公司公共费用，并统一分配到负责项目</span></div>
+          <PublicExpenseOwnerPanel ref="publicExpensePanel" />
         </el-tab-pane>
       </el-tabs>
     </template>
@@ -268,6 +272,10 @@
         <template #default><el-button link type="primary" @click="openProject">查看治理要求与验收进度</el-button></template>
       </el-alert></details>
         </el-tab-pane>
+        <el-tab-pane label="公共费用" name="public-expense" lazy>
+          <div class="owner-section-intro"><span>查看本人承担的公司公共费用，并统一分配到负责项目</span></div>
+          <PublicExpenseOwnerPanel ref="publicExpensePanel" />
+        </el-tab-pane>
       </el-tabs>
     </template>
 
@@ -399,12 +407,14 @@ import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 import BusinessProjectWorkPanel from '@/components/BusinessProjectWorkPanel/index.vue'
 import BusinessProjectPlanPanel from '@/components/BusinessProjectPlanPanel/index.vue'
 import BusinessSettlementPanel from '@/components/BusinessSettlementPanel/index.vue'
+import PublicExpenseOwnerPanel from '@/views/business/components/PublicExpenseOwnerPanel.vue'
 import { getProjectKpiWorkspace } from '@/api/business/kpi'
 import { buildOwnerTodos } from '@/utils/ownerTodos'
 import { canContinueProjectSettlement, isSeparatedDelivery, isDeliveryEnded, projectAccountingState } from '@/utils/businessProjectState'
 
 const route=useRoute(),router=useRouter()
 const userStore=useUserStore()
+const publicExpensePanel=ref(null)
 const ALL_PROJECTS='ALL'
 const todoKpi=ref(null),todoLoadFailed=ref(false),todosExpanded=ref(false),allTodosExpanded=ref(false)
 const allProjectWorkspaces=ref([]),allProjectsLoadWarning=ref(false)
@@ -594,7 +604,6 @@ async function load(projectId){
       data.value={...seed,project:null,projects:projectRows}
       allProjectWorkspaces.value=enriched
       selectedProjectId.value=ALL_PROJECTS
-      workspaceTab.value='execution'
       await router.replace({query:{...route.query,projectId:'all'}})
       return
     }
@@ -636,7 +645,8 @@ async function goToWorkspace(tab){
   await nextTick()
   workspaceTabs.value?.$el?.querySelector(':scope > .el-tabs__header')?.scrollIntoView({block:'start'})
 }
-function switchProject(id){load(id)}
+async function refreshWorkbench(){await Promise.all([load(selectedProjectId.value),publicExpensePanel.value?.refresh()])}
+function switchProject(id){workspaceTab.value='execution';load(id)}
 async function selectProject(projectId,tab){await load(projectId);if(tab)await goToWorkspace(tab)}
 async function handleAllOwnerTodo(item){await load(item.projectId);await nextTick();return handleOwnerTodo(item)}
 function openProject(){router.push({path:'/business/projects',query:{id:project.value.projectId}})}

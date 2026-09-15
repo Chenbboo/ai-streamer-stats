@@ -36,6 +36,8 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     private static final List<String> MANUAL_EXPENSE_CATEGORY_CODES = Arrays.asList("PURCHASE_COST", "PLATFORM_FEE",
         "MARKETING_COST", "LOGISTICS_COST", "ADMIN_ALLOCATION", "OTHER_EXPENSE");
     @Autowired private BusinessAccountingMapper mapper;
+    @Autowired private com.ruoyi.business.mapper.BusinessPublicExpenseMapper publicExpenses;
+    @Autowired private BusinessProfitTaxService profitTax;
     @Autowired private BusinessIncentiveMapper incentiveMapper;
     @Autowired private BusinessFileService businessFileService;
     @Autowired private BusinessProjectWorkMapper workMapper;
@@ -76,6 +78,8 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         result.put("pendingCostCount",pendingCosts);
         result.put("costDataStatus",pendingCosts>0?"PENDING_COST":"AVAILABLE");
         result.put("categories",mapper.selectCategories());
+        addPublicExpenseReference(result,scoped);
+        if(profitTax!=null)profitTax.decorate(result,scoped);
         return result;
     }
 
@@ -124,6 +128,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         result.put("personnelReadiness",summarizePersonnelReadiness(personnelRows));
         result.put("ranking",mapper.selectProjectProfitRanking(todayQuery));
         result.put("companies",mapper.selectCompanyAccountingSummary(todayQuery));
+        addPublicExpenseReference(result,todayQuery);
         if(review)
         {
             Map<String,Object> readiness=mapper.selectOverviewReadiness(todayQuery);
@@ -138,7 +143,49 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             alertQuery.put("alertScope","CURRENT");alertQuery.put("bizDate",currentDate);
             result.put("currentAlerts",mapper.selectAccountingAlerts(alertQuery));
         }
+        if(profitTax!=null)profitTax.decorate(result,todayQuery);
         return result;
+    }
+
+    /** Public daily costs are already included in the operating result; never deduct them again. */
+    @SuppressWarnings("unchecked")
+    private void addPublicExpenseReference(Map<String,Object> result,Map<String,Object> query)
+    {
+        Object from=query.get("dateFrom"),to=query.get("dateTo");
+        if(from==null||!from.equals(to)||!String.valueOf(from).matches("\\d{4}-\\d{2}-\\d{2}"))return;
+        List<Map<String,Object>> rows=mapper.selectPublicExpenseReferences(query);
+        if(rows==null)rows=Collections.emptyList();
+        Map<String,Map<String,Object>> currencies=new TreeMap<>();
+        int pending=0;
+        for(Map<String,Object> row:rows)
+        {
+            row.put("dailyReference",decimal(row.get("recognizedPublicCost")));
+            Map<String,Object> daily=publicExpenses==null?null:publicExpenses.sumDailyCost(longValue(row.get("projectId")),DateUtils.parseDate(String.valueOf(from)));
+            row.put("estimatedAmount",daily==null?BigDecimal.ZERO:decimal(daily.get("estimatedAmount")));
+            String currency=String.valueOf(row.get("currency"));
+            Map<String,Object> total=currencies.get(currency);
+            if(total==null){total=new LinkedHashMap<>();total.put("currency",currency);total.put("dailyReference",BigDecimal.ZERO);
+                total.put("pendingCount",0);total.put("missingResultCount",0);currencies.put(currency,total);}
+            total.put("dailyReference",decimal(total.get("dailyReference")).add(decimal(row.get("dailyReference"))));
+            int count=decimal(row.get("pendingCount")).intValue();pending+=count;
+            total.put("pendingCount",((Integer)total.get("pendingCount"))+count);
+            if(row.get("profitAmount")==null)total.put("missingResultCount",((Integer)total.get("missingResultCount"))+1);
+            row.put("referenceProfit",count>0||row.get("profitAmount")==null?null:
+                decimal(row.get("profitAmount")));
+        }
+        List<Map<String,Object>> summaries=(List<Map<String,Object>>)result.get("summaryByCurrency");
+        if(summaries==null)summaries=(List<Map<String,Object>>)result.get("todayByCurrency");
+        if(summaries!=null)for(Map<String,Object> summary:summaries)
+        {
+            Map<String,Object> total=currencies.get(String.valueOf(summary.get("currency")));
+            if(total!=null&&decimal(total.get("pendingCount")).signum()==0&&decimal(total.get("missingResultCount")).signum()==0
+                &&summary.get("profitAmount")!=null)
+                total.put("referenceProfit",decimal(summary.get("profitAmount")));
+        }
+        Map<String,Object> reference=new LinkedHashMap<>();reference.put("month",String.valueOf(from).substring(0,7));
+        reference.put("recognitionMode","DAILY_V1");reference.put("rows",rows);
+        reference.put("byCurrency",new ArrayList<>(currencies.values()));reference.put("pendingCount",pending);
+        result.put("publicExpenseReference",reference);
     }
 
     @Override
@@ -353,6 +400,8 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         if(project.get("companyDeptId")==null)throw new ServiceException("该项目尚未设置归属公司，请先编辑项目选择上海或越南公司");
         Map<String,Object> category=mapper.selectCategoryById(fact.getCategoryId());
         if(category==null)throw new ServiceException("请选择有效的收支类别");
+        if("COMPANY_PUBLIC_COST".equals(String.valueOf(category.get("categoryCode"))))
+            throw new ServiceException("公司公共费用只能通过月结或公共费用调整入账，不能手工录入");
         if("PROJECT_MANAGEMENT_FEE".equals(String.valueOf(category.get("categoryCode"))))
             throw new ServiceException("项目管理费只能在关闭项目核算时由系统确认，不能手工录入");
         if(fact.getBizDate()==null)throw new ServiceException("请选择业务日期");
@@ -461,6 +510,8 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     {
         if(StringUtils.isBlank(reason))throw new ServiceException("请填写冲销原因");
         BusinessOperatingFact original=requireFact(factId,userId,viewAll);
+        if("COMPANY_PUBLIC_COST".equals(original.getCategoryCode()))
+            throw new ServiceException("公司公共费用须在原月账中登记调整，不能单独冲销分摊流水");
         Map<String,Object> project = mapper.selectProjectForAccountingForUpdate(original.getProjectId());
         ensureAccountingOpen(project);
         requireAwardCostAuthority(original, project, userId);
@@ -564,6 +615,8 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     @Override
     public void ensureProjectCanClose(Long projectId)
     {
+        if(publicExpenses!=null&&publicExpenses.countProjectPending(projectId)>0)
+            throw new ServiceException("项目相关月份的公司公共费用尚未完成分摊或月结，请先在公司公共费用中处理");
         if(mapper.countProjectUnsettledFacts(projectId)>0)
             throw new ServiceException("项目仍有待确认或已退回未修改的收支，请处理完成后再结项");
         Map<String,Object> project=mapper.selectProjectForAccounting(projectId);
@@ -581,6 +634,16 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
 
     @Override
     @Transactional
+    public Map<String,Object> recalculatePublicExpenseCost(Long projectId,Date bizDate,String userName)
+    {
+        // Internal reclassification may clear a previously estimated day after an actual end-date correction.
+        if(bizDate==null)throw new ServiceException("公共费用日期不能为空");
+        ensureNotFuture(bizDate);
+        return recalculateInternal(projectId,bizDate,userName);
+    }
+
+    @Override
+    @Transactional
     public void closeProjectAccounting(Long projectId,Date closeDate,String userName)
     {
         Map<String,Object> project=mapper.selectProjectForAccountingForUpdate(projectId);
@@ -590,6 +653,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         if("ACTUAL_WORK_V1".equals(project.get("costPolicyVersion")))
             for(String date:workMapper.selectConfirmedWorkDates(projectId))recalculateInternal(projectId,DateUtils.parseDate(date),userName);
         recalculateInternal(projectId,closeDate,userName);
+        if(profitTax!=null)profitTax.freeze(projectId,userName);
         mapper.closeProjectDailyResults(projectId,userName);
     }
 
@@ -643,6 +707,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         List<Map<String,Object>> rows=mapper.selectDailyResults(query);Map<String,Object> found=null;
         for(Map<String,Object> row:rows)if(String.valueOf(resultId).equals(String.valueOf(row.get("resultId")))){found=row;break;}
         if(found==null)throw new ServiceException("日结果不存在或无权查看");
+        if(profitTax!=null){Map<String,Object> taxResult=new HashMap<>();taxResult.put("results",rows);profitTax.decorate(taxResult,query);}
         List<Map<String,Object>> allItems=mapper.selectDailyResultItems(resultId);
         boolean rawCostVisible=com.ruoyi.common.utils.SecurityUtils.isAdmin(userId);
         if(!rawCostVisible)try{rawCostVisible=com.ruoyi.common.utils.SecurityUtils.hasPermi("business:staff:cost");}
@@ -673,7 +738,10 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         ensureAccountingOpen(project);
         Map<String,Object> sums=mapper.sumProjectFacts(projectId,bizDate);
         BigDecimal revenue=decimal(sums.get("revenueAmount")),cost=decimal(sums.get("costAmount"));
-        BigDecimal bonus=decimal(sums.get("bonusCost"));
+        BigDecimal bonus=decimal(sums.get("bonusCost")),publicCost=decimal(sums.get("publicCost"));
+        Map<String,Object> dailyPublic=publicExpenses==null?null:publicExpenses.sumDailyCost(projectId,bizDate);
+        BigDecimal publicEstimated=BigDecimal.ZERO;
+        if(dailyPublic!=null){publicCost=publicCost.subtract(decimal(dailyPublic.get("monthlyFactAmount"))).add(decimal(dailyPublic.get("amount")));publicEstimated=decimal(dailyPublic.get("estimatedAmount"));}
         BigDecimal adjustment=decimal(sums.get("adjustmentAmount")),value=decimal(sums.get("valueScore"));
         boolean actualWork="ACTUAL_WORK_V1".equals(project.get("costPolicyVersion"));
         boolean automaticDays=BusinessMemberDayCostService.POLICY.equals(project.get("costPolicyVersion"));
@@ -687,16 +755,17 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
                 else pendingPersonnel++;
         }
         else personnel=decimal(mapper.sumProjectPersonnelCost(projectId,bizDate));
-        BigDecimal profit=revenue.subtract(cost).subtract(personnel).subtract(bonus).add(adjustment);
+        BigDecimal profit=revenue.subtract(cost).subtract(personnel).subtract(bonus).subtract(publicCost).add(adjustment);
         Map<String,Object> result=new HashMap<String,Object>();result.put("projectId",projectId);
         result.put("companyDeptId",project.get("companyDeptId"));result.put("bizDate",bizDate);
         result.put("accountingMode",project.get("accountingMode"));result.put("revenueAmount",revenue);
         result.put("costAmount",cost);result.put("personnelCost",personnel);result.put("bonusCost",bonus);result.put("adjustmentAmount",adjustment);
+        result.put("publicCost",publicCost);result.put("publicEstimatedCost",publicEstimated);
         // The current result must become effective before cumulative cost is read. Reading first would either
         // omit today's personnel cost or reuse the retired snapshot from a previous recalculation.
         result.put("profitAmount",profit);result.put("budgetSpent",BigDecimal.ZERO);
         result.put("valueScore",value);result.put("resultVersion",mapper.selectNextResultVersion(projectId,bizDate));
-        result.put("calculationDetail","收入 - 业务成本 - 内部人员成本 - 项目绩效奖金 + 核算调整；价值型项目将利润解释为净投入结果");
+        result.put("calculationDetail","收入 - 业务成本 - 内部人员成本 - 项目绩效奖金 - 公共费用（日分摊，含暂估） + 核算调整；月结确认金额，不重复扣费");
         result.put("createBy",userName);mapper.retireCurrentResult(projectId,bizDate);mapper.insertDailyResult(result);
         result.put("pendingPersonnelCount",pendingPersonnel);result.put("personnelPricingStatus",pendingPersonnel>0?"PENDING":"PRICED");
         BigDecimal budgetSpent=budgetSpent(projectId,bizDate);
@@ -714,6 +783,8 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             addItem(result,"PERSONNEL_COST_PERSON",String.valueOf(personnelItem.get("componentName")),
                 decimal(personnelItem.get("amount")),String.valueOf(personnelItem.get("calculationDetail")));
         addItem(result,"PROJECT_BONUS_COST","项目绩效奖金",bonus,"独立奖励核准后由核算确认，或依历史KPI方案确认；不代表已向个人发放");
+        if(publicCost.signum()!=0)addItem(result,"COMPANY_PUBLIC_COST","公司公共费用",publicCost,"按项目当月承担费用期间的自然日分摊，最后一天补齐尾差；月结确认，不重复扣费。包含暂估："+publicEstimated.toPlainString());
+        if(publicEstimated.signum()!=0)addItem(result,"PUBLIC_COST_ESTIMATED","其中：公共费用暂估",publicEstimated,"已包含在公司公共费用中，请勿再次相加；月结后确认实际金额");
         addItem(result,"ADJUSTMENT","核算调整",adjustment,"已确认调整事实合计");
         return result;
     }

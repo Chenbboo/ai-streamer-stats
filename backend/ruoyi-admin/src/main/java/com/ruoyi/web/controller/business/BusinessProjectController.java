@@ -120,6 +120,21 @@ public class BusinessProjectController extends BaseController
             currentUserId(), currentUserName(), isBoss()));
     }
 
+    @PreAuthorize("@ss.hasPermi('business:accounting:close')")
+    @Log(title = "结束项目交付待月结", businessType = BusinessType.UPDATE)
+    @PostMapping("/project/{projectId}/delivery-end-awaiting-costs")
+    public AjaxResult endDeliveryAwaitingCosts(@PathVariable Long projectId, @RequestBody Map<String, Object> body)
+    {
+        Integer version;Long acceptanceId;
+        try {
+            version = body.get("version") == null ? null : Integer.valueOf(String.valueOf(body.get("version")));
+            acceptanceId = body.get("acceptanceId") == null ? null : Long.valueOf(String.valueOf(body.get("acceptanceId")));
+        }
+        catch (NumberFormatException ex) { return error("项目或验收版本不正确，请刷新后重试"); }
+        return success(projectService.endDeliveryAwaitingCosts(projectId, version, text(body, "reason"),
+            acceptanceId, Boolean.TRUE.equals(body.get("approveAcceptance")), Boolean.TRUE.equals(body.get("separateLegacyAccounting")), currentUserId(), currentUserName(), isBoss()));
+    }
+
     @PreAuthorize("@ss.hasAnyPermi('business:project:list,business:accounting:list,business:kpi:list')")
     @GetMapping("/project/{projectId}/management-fee")
     public AjaxResult managementFee(@PathVariable Long projectId)

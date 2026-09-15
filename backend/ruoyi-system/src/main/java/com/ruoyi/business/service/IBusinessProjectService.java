@@ -28,6 +28,8 @@ public interface IBusinessProjectService
     Map<String, Object> settlementStatus(Long projectId, Long userId, boolean viewAll, boolean boss);
     Map<String, Object> closeAccounting(Long projectId, Integer version, String reason,
         Long userId, String userName, boolean boss);
+    Map<String, Object> endDeliveryAwaitingCosts(Long projectId, Integer version, String reason,
+        Long acceptanceId, boolean approveAcceptance, boolean separateLegacyAccounting, Long userId, String userName, boolean boss);
     BusinessProject createProject(BusinessProject project, Long userId, String userName);
     List<BusinessProject> projectHierarchy(Map<String, Object> query, Long userId, boolean viewAll, boolean boss);
     List<BusinessProject> projectChildren(Long parentId, Long userId, boolean viewAll, boolean boss);

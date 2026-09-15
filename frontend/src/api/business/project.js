@@ -8,6 +8,7 @@ export const getBusinessProjectCompanies = () => request({ url: '/business/proje
 export const getBusinessProject = id => request({ url: `/business/project/${id}`, method: 'get' })
 export const getBusinessProjectSettlementStatus = id => request({ url: `/business/project/${id}/settlement-status`, method: 'get' })
 export const closeBusinessProjectAccounting = (id, data) => request({ url: `/business/project/${id}/accounting-close`, method: 'post', data })
+export const endBusinessProjectDeliveryAwaitingCosts = (id, data) => request({ url: `/business/project/${id}/delivery-end-awaiting-costs`, method: 'post', data })
 export const getBusinessProjectManagementFee = id => request({ url: `/business/project/${id}/management-fee`, method: 'get' })
 export const saveBusinessProjectManagementFee = (id, data) => request({ url: `/business/project/${id}/management-fee`, method: 'put', data })
 export const payBusinessProjectManagementFee = (id, data) => request({ url: `/business/project/${id}/management-fee/payment`, method: 'post', data })

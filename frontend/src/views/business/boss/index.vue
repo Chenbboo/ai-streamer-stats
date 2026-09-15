@@ -142,8 +142,9 @@
         <div class="finance-grid">
           <article><span>{{ t('bossReview.revenue') }}</span><strong>{{ accountingTotal('revenueAmount') }}</strong></article>
           <article><span>{{ t('bossReview.cost') }}</span><strong>{{ accountingTotal('costAmount') }}</strong></article>
-          <article><span>{{ t('bossReview.result') }}</span><strong :class="hasReviewResults ? amountTone(accounting.summary?.profitAmount) : ''">{{ accountingTotal('profitAmount') }}</strong></article>
+          <article><span>税前经营结果</span><strong :class="hasReviewResults ? amountTone(accounting.summary?.profitAmount) : ''">{{ accountingTotal('pretaxProfit') }}</strong></article>
         </div>
+        <section class="finance-grid"><article><span>税额</span><strong>{{ accountingTotal('taxAmount') }}</strong></article><article><span>税后盈利结果</span><strong>{{ accountingTotal('afterTaxProfit') }}</strong></article><article><ProfitTaxSettings @changed="loadAccounting" /><small v-if="accounting.taxUnconfiguredCount">部分公司税率未设置，暂按0%</small></article></section><PublicExpenseDailyReference :reference="accounting.publicExpenseReference" />
         <p class="review-note">{{ t(accounting.dataStatus === 'INCOMPLETE' ? 'bossReview.incompleteNote' : 'bossReview.coverageNote') }}</p>
         <p v-if="accounting.readiness?.dataCutoffFrom" class="review-note">{{ t('bossReview.cutoff') }} {{ accounting.readiness.dataCutoffFrom }} ～ {{ accounting.readiness.dataCutoffTo }}</p>
         <div v-if="accounting.dataStatus === 'AVAILABLE' && !accounting.alerts?.length" class="healthy-banner">{{ t('bossReview.noReportedAlerts') }}</div>
@@ -311,6 +312,8 @@
 </template>
 
 <script setup name="BusinessBoss">
+import PublicExpenseDailyReference from '@/components/PublicExpenseDailyReference/index.vue'
+import ProfitTaxSettings from '@/components/ProfitTaxSettings/index.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { getBossBusinessDashboard, getBossBusinessPending, transitionBusinessProject } from '@/api/business/project'
@@ -327,7 +330,7 @@ const { t, locale } = useI18n()
 const loading = ref(false)
 const projectLoading = ref(false)
 const projectsExpanded = ref(true)
-const hasReviewResults = computed(() => Number(accounting.value.readiness?.resultCount || 0) > 0)
+const hasReviewResults = computed(() => Number(accounting.value.readiness?.resultCount || 0) > 0 || accounting.value.hasClosedAdjustments === true)
 const accountingTotal = key => !hasReviewResults.value ? '—' : (accounting.value.summaryByCurrency?.length ? accounting.value.summaryByCurrency : [accounting.value.summary || {}]).map(row => money(row[key]) + (row.currency ? ' ' + row.currency : '')).join(' / ')
 const summary = ref({})
 const projects = ref([])

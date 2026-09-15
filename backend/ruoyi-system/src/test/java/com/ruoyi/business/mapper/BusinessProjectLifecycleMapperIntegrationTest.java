@@ -168,6 +168,37 @@ class BusinessProjectLifecycleMapperIntegrationTest
         }
     }
 
+    @Test void explicitLegacySeparationPersistsDeliveryEndButDoesNotCloseAccounting() throws Exception
+    {
+        insertProject(1,"LEGACY_V1","ACTIVE","OPEN",7,"0");
+        insertProject(2,"LEGACY_V1","CLOSED","CLOSED",7,"0");
+        execute("update biz_project set actual_end_date=null where project_id=1");
+        try(SqlSession session=sessionFactory.openSession(false))
+        {
+            BusinessProjectMapper mapper=session.getMapper(BusinessProjectMapper.class);
+            assertEquals(0,mapper.separateDeliveryForPublicCosts(1L,6,"boss"));
+            assertEquals(0,mapper.separateDeliveryForPublicCosts(2L,7,"boss"));
+            assertEquals(1,mapper.separateDeliveryForPublicCosts(1L,7,"boss"));
+            assertEquals(0,mapper.separateDeliveryForPublicCosts(1L,8,"boss"));
+            assertEquals(1,mapper.updateProjectStatus(1L,"ACTIVE","CLOSED",null,false,"boss",8));
+            BusinessProject ended=mapper.selectProjectByIdForUpdate(1L);
+            assertEquals("CLOSED",ended.getStatus());assertEquals("OPEN",ended.getAccountingState());
+            assertEquals("SEPARATED_V1",ended.getDeliveryPolicyVersion());
+            assertEquals("OWNER_CONFIRM_V1",ended.getSettlementPolicyVersion());assertEquals("PERCENTAGE_V1",ended.getCostPolicyVersion());
+            assertEquals(Date.valueOf(java.time.LocalDate.now()),ended.getActualEndDate());
+            assertEquals(Integer.valueOf(9),ended.getVersion());session.commit();
+        }
+        // A later accounting sign-off never shifts the completed delivery into the new accounting month.
+        execute("update biz_project set actual_end_date='2025-09-30' where project_id=1");
+        try(SqlSession session=sessionFactory.openSession(false))
+        {
+            BusinessProjectMapper mapper=session.getMapper(BusinessProjectMapper.class);
+            assertEquals(1,mapper.closeAccounting(1L,9,"boss"));
+            BusinessProject closed=mapper.selectProjectByIdForUpdate(1L);
+            assertEquals(Date.valueOf("2025-09-30"),closed.getActualEndDate());assertEquals("CLOSED",closed.getAccountingState());
+        }
+    }
+
     @Test void includedFactAndSettlementQueriesExecuteAndPreserveReviewIdentity() throws Exception
     {
         execute("insert into biz_operating_fact(fact_id,project_id,company_dept_id,biz_date,fact_kind,amount,"

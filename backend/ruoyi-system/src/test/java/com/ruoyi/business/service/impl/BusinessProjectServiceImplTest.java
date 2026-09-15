@@ -70,6 +70,7 @@ class BusinessProjectServiceImplTest
 
     @Mock
     private BusinessAccountingMapper accountingMapper;
+    @Mock private com.ruoyi.business.mapper.BusinessPublicExpenseMapper publicExpenses;
     @Mock private BusinessMemberDayCostService memberDays;
     @Mock private com.ruoyi.business.mapper.BusinessProjectWorkMapper workMapper;
     @Mock private com.ruoyi.business.mapper.BusinessIncentiveMapper incentiveMapper;
@@ -95,6 +96,17 @@ class BusinessProjectServiceImplTest
         lenient().when(feishuService.getAuthority(any(),any())).thenReturn(Collections.emptyMap());
         lenient().when(mapper.selectProjectByIdForUpdate(anyLong()))
             .thenAnswer(invocation -> mapper.selectProjectById(invocation.getArgument(0)));
+    }
+
+    @Test
+    void ownerHandoffRequiresExistingPublicExpenseAllocationSubmission()
+    {
+        BusinessProject project=project(15L,9L,"ACTIVE","APPROVED");project.setSponsorOwnerUserId(8L);
+        when(mapper.selectProjectById(15L)).thenReturn(project);
+        when(publicExpenses.countProjectUnsubmitted(15L)).thenReturn(1);
+        ServiceException error=assertThrows(ServiceException.class,()->service.changeOwner(15L,10L,"项目交接",8L,"boss",true));
+        assertTrue(error.getMessage().contains("公共费用"));
+        verify(mapper,never()).updateProjectOwner(any(),any(),any(),any(),any());
     }
 
     @Test
@@ -2689,6 +2701,105 @@ class BusinessProjectServiceImplTest
         assertEquals(2, result.get("version"));
         verify(accountingService).closeProjectAccounting(eq(910L), any(Date.class), eq("boss8"));
         verify(mapper).closeAccounting(910L, 1, "boss8");
+    }
+
+    @Test
+    void explicitDeliveryEndKeepsAccountingOpenUntilFinalMonthCostsSettle()
+    {
+        BusinessProject p=projectAwaitingPublicCosts(920L,"SEPARATED_V1");
+        when(mapper.updateProjectStatus(920L,"ACTIVE","CLOSED",null,false,"boss8",0)).thenReturn(1);
+        Map<String,Object> before=service.settlementStatus(920L,8L,false,true);
+        assertEquals(false,before.get("canClose"));assertEquals(true,before.get("canEndDeliveryAwaitingCosts"));
+        Map<String,Object> ended=service.endDeliveryAwaitingCosts(920L,0,"交付完成，等待九月账单",null,false,false,8L,"boss8",true);
+        assertEquals("CLOSED",ended.get("status"));assertEquals("OPEN",ended.get("accountingState"));assertEquals(1,ended.get("version"));assertEquals(true,ended.get("deliveryAwaitingCosts"));
+        assertEquals(com.ruoyi.common.utils.DateUtils.getDate(),ended.get("actualEndDate"));
+        verify(mapper).closeProjectRoutines(920L,"boss8");verify(mapper).closeProjectWorkPeriods(920L,"boss8");
+        verify(mapper).closeProjectAllocations(eq(920L),any(Date.class),eq("boss8"));
+        verify(accountingService,never()).closeProjectAccounting(any(),any(),any());
+        assertThrows(ServiceException.class,()->service.endDeliveryAwaitingCosts(920L,0,"重复提交",null,false,false,8L,"boss8",true));
+        // Simulate final month costs settling after the calendar has advanced: the saved delivery date is reused.
+        Date savedEnd=java.sql.Date.valueOf("2025-09-30");p.setActualEndDate(savedEnd);
+        when(publicExpenses.countProjectPending(920L)).thenReturn(0);when(mapper.closeAccounting(920L,1,"boss8")).thenReturn(1);
+        Map<String,Object> closed=service.closeAccounting(920L,1,"九月费用已月结",8L,"boss8",true);
+        assertEquals("CLOSED",closed.get("accountingState"));verify(accountingService).closeProjectAccounting(920L,savedEnd,"boss8");
+        verify(mapper,times(1)).updateProjectStatus(920L,"ACTIVE","CLOSED",null,false,"boss8",0);
+    }
+
+    @Test
+    void legacyDeliverySeparationNeedsExplicitConsentAndPreservesOtherPolicies()
+    {
+        BusinessProject p=projectAwaitingPublicCosts(921L,"LEGACY_V1");p.setCostPolicyVersion("PERCENTAGE_V1");p.setSettlementPolicyVersion("LEGACY_V1");p.setBudgetMode("DAILY");
+        Map<String,Object> before=service.settlementStatus(921L,8L,false,true);
+        assertEquals(true,before.get("canEndDeliveryAwaitingCosts"));assertEquals(true,before.get("requiresLegacyDeliverySeparation"));
+        assertThrows(ServiceException.class,()->service.endDeliveryAwaitingCosts(921L,0,"结束交付",null,false,false,8L,"boss8",true));
+        verify(mapper,never()).separateDeliveryForPublicCosts(any(),any(),any());
+        when(mapper.separateDeliveryForPublicCosts(921L,0,"boss8")).thenReturn(1);
+        when(mapper.updateProjectStatus(921L,"ACTIVE","CLOSED",null,false,"boss8",1)).thenReturn(1);
+        Map<String,Object> ended=service.endDeliveryAwaitingCosts(921L,0,"确认分开办理",null,false,true,8L,"boss8",true);
+        assertEquals("SEPARATED_V1",ended.get("deliveryPolicyVersion"));assertEquals("OPEN",ended.get("accountingState"));assertEquals(2,ended.get("version"));
+        assertEquals("PERCENTAGE_V1",p.getCostPolicyVersion());assertEquals("LEGACY_V1",p.getSettlementPolicyVersion());assertEquals("DAILY",p.getBudgetMode());
+        verify(accountingService,never()).ensureProjectCanClose(921L);verify(accountingService,never()).closeProjectAccounting(any(),any(),any());
+    }
+
+    @Test
+    void resultAcceptanceNeedsExplicitApprovalOfTheCurrentSubmissionBeforeDeliveryEnds()
+    {
+        BusinessProject p=projectAwaitingPublicCosts(922L,"SEPARATED_V1");p.setStatus("ACCEPTANCE");p.setCloseMethod("RESULT_ACCEPTANCE");
+        BusinessProjectAcceptance pending=new BusinessProjectAcceptance();pending.setAcceptanceId(9220L);
+        when(mapper.selectLatestPendingAcceptance(922L)).thenReturn(pending);
+        assertEquals(true,service.settlementStatus(922L,8L,false,true).get("canEndDeliveryAwaitingCosts"));
+        assertThrows(ServiceException.class,()->service.endDeliveryAwaitingCosts(922L,0,"资料已核对",9220L,false,false,8L,"boss8",true));
+        assertThrows(ServiceException.class,()->service.endDeliveryAwaitingCosts(922L,0,"资料已核对",9210L,true,false,8L,"boss8",true));
+        verify(mapper,never()).reviewAcceptance(any(),any(),any(),any(),any(),any());
+        when(mapper.selectActiveUserById(8L)).thenReturn(row("nickName","老板八"));
+        when(mapper.reviewAcceptance(9220L,"APPROVED",8L,"老板八","资料已核对","boss8")).thenReturn(1);
+        when(mapper.updateProjectStatus(922L,"ACCEPTANCE","CLOSED",null,false,"boss8",0)).thenReturn(1);
+        Map<String,Object> ended=service.endDeliveryAwaitingCosts(922L,0,"资料已核对",9220L,true,false,8L,"boss8",true);
+        assertEquals("OPEN",ended.get("accountingState"));verify(mapper).reviewAcceptance(9220L,"APPROVED",8L,"老板八","资料已核对","boss8");
+        verify(accountingService,never()).closeProjectAccounting(any(),any(),any());
+    }
+
+    @Test
+    void endingDeliveryStillRequiresCurrentSponsorAndVersion()
+    {
+        BusinessProject p=project(923L,9L,"ACTIVE","APPROVED");p.setSponsorOwnerUserId(8L);p.setDeliveryPolicyVersion("SEPARATED_V1");p.setAccountingState("OPEN");
+        when(mapper.selectProjectById(923L)).thenReturn(p);
+        assertThrows(ServiceException.class,()->service.endDeliveryAwaitingCosts(923L,0,"结束交付",null,false,false,9L,"owner",false));
+        assertThrows(ServiceException.class,()->service.endDeliveryAwaitingCosts(923L,0,"结束交付",null,false,false,1L,"admin",true));
+        assertThrows(ServiceException.class,()->service.endDeliveryAwaitingCosts(923L,2,"结束交付",null,false,false,8L,"boss8",true));
+        verify(mapper,never()).updateProjectStatus(any(),any(),any(),any(),any(Boolean.class),any(),any());
+    }
+
+    @Test
+    void deliveryEndCannotBypassUnconfirmedKpiOrUnfinishedTasksOrPendingFacts()
+    {
+        projectAwaitingPublicCosts(924L,"SEPARATED_V1");
+        when(kpiMapper.selectPlanSummaries(924L)).thenReturn(Collections.singletonList(publishedKpiPlan("PENDING")));
+        assertEquals(false,service.settlementStatus(924L,8L,false,true).get("canEndDeliveryAwaitingCosts"));
+        assertThrows(ServiceException.class,()->service.endDeliveryAwaitingCosts(924L,0,"提前结束",null,false,false,8L,"boss8",true));
+        when(kpiMapper.selectPlanSummaries(924L)).thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
+        BusinessProjectTask unfinished=completedTask("未完成交付");unfinished.setStatus("DOING");unfinished.setProgress(50);when(mapper.selectTasks(924L)).thenReturn(Collections.singletonList(unfinished));
+        assertEquals(false,service.settlementStatus(924L,8L,false,true).get("canEndDeliveryAwaitingCosts"));
+        when(mapper.selectTasks(924L)).thenReturn(Collections.singletonList(completedTask("已完成")));when(accountingMapper.countProjectUnsettledFacts(924L)).thenReturn(1);
+        assertEquals(false,service.settlementStatus(924L,8L,false,true).get("canEndDeliveryAwaitingCosts"));
+        verify(accountingService,never()).recalculatePersonnelCost(any(),any(),any());
+    }
+
+    @Test
+    void stagedDeliveryCannotEndBeforeOwnerRequestsClosure()
+    {
+        BusinessProject p=projectAwaitingPublicCosts(925L,"SEPARATED_V1");p.setCloseMethod("STAGED_ACCEPTANCE");
+        assertEquals(false,service.settlementStatus(925L,8L,false,true).get("canEndDeliveryAwaitingCosts"));
+        assertThrows(ServiceException.class,()->service.endDeliveryAwaitingCosts(925L,0,"阶段交付",null,false,false,8L,"boss8",true));
+    }
+
+    private BusinessProject projectAwaitingPublicCosts(Long projectId,String policy)
+    {
+        BusinessProject p=project(projectId,9L,"ACTIVE","APPROVED");p.setSponsorOwnerUserId(8L);p.setDeliveryPolicyVersion(policy);p.setAccountingState("OPEN");
+        when(mapper.selectProjectById(projectId)).thenReturn(p);
+        lenient().when(mapper.selectTasks(projectId)).thenReturn(Collections.singletonList(completedTask("最终交付")));
+        lenient().when(kpiMapper.selectPlanSummaries(projectId)).thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
+        when(publicExpenses.countProjectPending(projectId)).thenReturn(1);return p;
     }
 
     @Test

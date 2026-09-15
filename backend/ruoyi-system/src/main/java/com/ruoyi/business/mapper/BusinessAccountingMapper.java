@@ -8,6 +8,7 @@ import com.ruoyi.business.domain.BusinessOperatingFact;
 
 public interface BusinessAccountingMapper
 {
+    List<Map<String,Object>> selectPublicExpenseReferences(Map<String,Object> query);
     @org.apache.ibatis.annotations.Select("select confirmed_user_name confirmedUserName,confirmed_at confirmedAt from biz_project_spend_confirmation where project_id=#{projectId} and biz_date=#{bizDate}")
     Map<String,Object> selectSpendConfirmation(@Param("projectId") Long projectId,@Param("bizDate") Date date);
     @org.apache.ibatis.annotations.Insert("insert into biz_project_spend_confirmation(project_id,biz_date,confirmed_user_id,confirmed_user_name,confirmed_at) values(#{projectId},#{bizDate},#{userId},#{userName},now()) on duplicate key update id=id")

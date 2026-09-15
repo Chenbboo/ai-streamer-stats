@@ -664,6 +664,14 @@
           and allocation_mode='PERCENTAGE' and effective_from&gt;=#{effectiveDate}
     </update>
 
+    <update id="separateDeliveryForPublicCosts">
+        update biz_project set delivery_policy_version='SEPARATED_V1',accounting_state='OPEN',
+          version=version+1,update_by=#{userName},update_time=sysdate()
+        where project_id=#{projectId} and version=#{version} and del_flag='0'
+          and coalesce(delivery_policy_version,'LEGACY_V1')!='SEPARATED_V1'
+          and status not in('CLOSED','CANCELED') and coalesce(accounting_state,'OPEN')='OPEN'
+    </update>
+
     <update id="updateProjectStatus">
         update biz_project set status=#{status},
           <if test="baselineStatus != null">baseline_status=#{baselineStatus},</if>

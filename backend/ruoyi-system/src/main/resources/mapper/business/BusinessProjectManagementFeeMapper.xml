@@ -20,7 +20,8 @@
   <select id="selectLifetimeBasis" resultType="map">
     select
       coalesce(sum(case when f.fact_kind='REVENUE' then f.amount else 0 end),0) basisRevenue,
-      coalesce(sum(case when f.fact_kind='COST' and f.category_code not in('PROJECT_BONUS_COST','PROJECT_MANAGEMENT_FEE') then f.amount else 0 end),0) basisBusinessCost,
+      coalesce(sum(case when f.fact_kind='COST' and f.category_code not in('PROJECT_BONUS_COST','PROJECT_MANAGEMENT_FEE','COMPANY_PUBLIC_COST') then f.amount else 0 end),0)
+        +coalesce((select sum(r.public_cost) from biz_project_daily_result r where r.project_id=#{projectId} and r.is_current='1'),0) basisBusinessCost,
       coalesce(sum(case when f.fact_kind='COST' and f.category_code='PROJECT_BONUS_COST' then f.amount else 0 end),0) basisBonusCost,
       coalesce(sum(case when f.fact_kind='ADJUSTMENT' then f.amount else 0 end),0) basisAdjustment,
       coalesce((select sum(r.personnel_cost) from biz_project_daily_result r

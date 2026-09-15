@@ -11,12 +11,14 @@
       <div class="actions heading-actions">
         <el-button size="small" link type="primary" @click="expanded=!expanded">{{ expanded?'收起详情':'查看详情' }}</el-button>
         <el-button size="small" icon="Refresh" :disabled="loading||closing" @click="loadStatus">刷新</el-button>
+        <el-button v-if="summary?.canEndDeliveryAwaitingCosts" v-hasPermi="['business:accounting:close']" size="small" type="primary" plain @click="openDeliveryEnd">结束交付，待月结</el-button>
         <el-button v-if="summary?.canClose" v-hasPermi="['business:accounting:close']" size="small" type="warning" @click="openClose">{{ closeActionLabel }}</el-button>
       </div>
     </div>
     <p v-if="expanded" class="policy-hint">{{ policyHint }}</p>
     <el-alert v-if="loadFailed" title="暂时无法读取结项检查，请刷新后核对；当前不能办理结项。" type="warning" :closable="false" show-icon />
     <template v-else-if="summary">
+      <el-alert v-if="summary.deliveryAwaitingCosts" :title="`交付已于 ${summary.actualEndDate||'记录日期'} 结束。请结清交付结束月份的公司公共费用，再确认最终核算与管理费。`" type="info" :closable="false" show-icon class="delivery-alert" />
       <div class="management-card">
         <div class="management-head">
           <div class="management-title">
@@ -31,10 +33,10 @@
             <el-button v-if="fee?.canPay" v-hasPermi="['business:incentive:pay']" size="small" type="success" @click="openPayment">登记付款</el-button>
           </div>
         </div>
-        <div class="fee-grid">
+        <div class="fee-grid" :class="{'fee-grid-single':!showProfitMetrics&&!fee?.settledTime}">
           <div class="fee-metric"><span>领取人</span><b>{{ fee?.recipientUserName||'—' }}</b></div>
-          <div class="fee-metric fee-metric-primary"><span>{{ fee?.settledTime?'最终确认':'当前预计' }}</span><b>{{ money(fee?.settledTime?fee.settledAmount:fee?.estimatedAmount) }} <small>{{ fee?.currency||project.baseCurrency||'' }}</small></b></div>
-          <div class="fee-metric"><span>管理费前利润</span><b>{{ money(fee?.preFeeProfit) }} <small>{{ fee?.currency||project.baseCurrency||'' }}</small></b></div>
+          <div v-if="showProfitMetrics||fee?.settledTime" class="fee-metric fee-metric-primary"><span>{{ fee?.settledTime?'最终确认':'当前预计' }}</span><b>{{ money(fee?.settledTime?fee.settledAmount:fee?.estimatedAmount) }} <small>{{ fee?.currency||project.baseCurrency||'' }}</small></b></div>
+          <div v-if="showProfitMetrics" class="fee-metric"><span>管理费前利润</span><b>{{ money(fee?.preFeeProfit) }} <small>{{ fee?.currency||project.baseCurrency||'' }}</small></b></div>
           <div v-if="fee?.settledTime" class="fee-metric fee-metric-warning"><span>待支付</span><b>{{ money(fee?.remainingAmount) }} <small>{{ fee.currency }}</small></b></div>
         </div>
         <div v-if="fee?.configured" class="fee-note fee-rule"><span></span><p>{{ feeRule }}<template v-if="Number(fee?.eligibilityProjectCount)">；设置时负责人在管 {{ fee.eligibilityProjectCount }} 个项目</template></p></div>
@@ -65,6 +67,7 @@
       <div v-if="expanded&&summary.accountingState==='OPEN'" class="actions links">
         <el-button v-hasPermi="['business:kpi:list']" link type="primary" @click="openKpi">办理KPI结算</el-button>
         <el-button v-hasPermi="['business:accounting:list']" link type="primary" @click="openAccounting">查看收支与核算</el-button>
+        <el-button v-if="Number(summary.pendingPublicExpenseCount)>0" v-hasPermi="['business:public-expense:list']" link type="primary" @click="openPublicExpenses">办理公司公共费用月结</el-button>
       </div>
     </template>
     <BusinessClosedAdjustments v-if="projectAccountingState(displayProject)==='CLOSED'" :project="displayProject" @changed="emit('closed')" />
@@ -105,6 +108,25 @@
       </el-form>
       <template #footer><el-button @click="paymentDialog=false">取消</el-button><el-button type="success" :loading="paymentSaving" @click="savePayment">保存付款记录</el-button></template>
     </el-dialog>
+
+    <el-dialog v-model="deliveryEndDialog" title="结束交付，待公共费用月结" width="min(680px,94vw)" append-to-body destroy-on-close>
+      <el-alert title="确认后以今天作为实际交付结束日期，停止后续人员投入和持续工作安排。核算保持开放，交付结束月份的公共费用结清后，再确认最终核算与管理费。" type="warning" :closable="false" show-icon />
+      <template v-if="summary?.requiresLegacyDeliverySeparation">
+        <p class="legacy-separation-note">该项目沿用旧版规则。本次操作会将本项目改为交付结束与核算关闭分开办理，保留原成本、预算、结算规则及历史金额。</p>
+        <el-checkbox v-model="separateLegacyAccounting" class="delivery-approval">同意仅为本项目分开办理交付结束和核算关闭</el-checkbox>
+      </template>
+      <template v-if="summary?.requiresAcceptanceApprovalForDeliveryEnd">
+        <el-descriptions title="待确认的成果验收" :column="1" border class="delivery-review">
+          <el-descriptions-item label="提交人">{{ summary.deliveryEndAcceptance?.submittedUserName||'—' }}</el-descriptions-item>
+          <el-descriptions-item label="成果摘要">{{ summary.deliveryEndAcceptance?.resultSummary||'—' }}</el-descriptions-item>
+          <el-descriptions-item label="交付说明">{{ summary.deliveryEndAcceptance?.deliverables||'—' }}</el-descriptions-item>
+        </el-descriptions>
+        <business-file-upload v-if="summary.deliveryEndAcceptance?.attachmentUrls" :model-value="summary.deliveryEndAcceptance.attachmentUrls" :project-id="project.projectId" disabled :drag="false" :is-show-tip="false" />
+        <el-checkbox v-model="approveDeliveryAcceptance" class="delivery-approval">已核对成果资料，确认验收通过</el-checkbox>
+      </template>
+      <el-input v-model="deliveryEndReason" class="close-reason" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="请填写交付结束说明；成果验收项目将同时记录为验收意见" />
+      <template #footer><el-button @click="deliveryEndDialog=false">取消</el-button><el-button type="primary" :loading="endingDelivery" @click="endDelivery">确认结束交付，待月结</el-button></template>
+    </el-dialog>
   </section>
 </template>
 
@@ -112,7 +134,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { closeBusinessProjectAccounting, getBusinessProjectSettlementStatus, payBusinessProjectManagementFee, saveBusinessProjectManagementFee } from '@/api/business/project'
+import { closeBusinessProjectAccounting, endBusinessProjectDeliveryAwaitingCosts, getBusinessProjectSettlementStatus, payBusinessProjectManagementFee, saveBusinessProjectManagementFee } from '@/api/business/project'
 import { isDeliveryEnded, isSeparatedDelivery, projectAccountingState } from '@/utils/businessProjectState'
 import BusinessClosedAdjustments from '@/components/BusinessClosedAdjustments/index.vue'
 import BusinessProjectState from '@/components/BusinessProjectState/index.vue'
@@ -121,15 +143,17 @@ const props=defineProps({project:{type:Object,required:true},refreshKey:{type:[S
 const emit=defineEmits(['closed']),router=useRouter()
 const loading=ref(false),closing=ref(false),loadFailed=ref(false),summary=ref(null),expanded=ref(false)
 const feeDialog=ref(false),feeSaving=ref(false),closeDialog=ref(false),closeReason=ref(''),paymentDialog=ref(false),paymentSaving=ref(false)
+const deliveryEndDialog=ref(false),endingDelivery=ref(false),deliveryEndReason=ref(''),approveDeliveryAcceptance=ref(false),separateLegacyAccounting=ref(false)
 const feeForm=reactive({calculationMode:'FIXED',fixedAmount:null,profitRate:null,configReason:''})
 const paymentForm=reactive({amount:null,paidDate:'',method:'BANK',referenceNo:'',voucher:'',reason:''})
 const paymentMethods={BANK:'银行转账',WECHAT:'微信',ALIPAY:'支付宝',CASH:'现金',OTHER:'其他'}
 const blockerLabels={PENDING_AWARD:'奖金奖励单尚待处理或取消',PENDING_COST:'成员工作日缺少有效成本或日历',LEGACY_POLICY:'沿用原结项关账规则',DELIVERY_OPEN:'项目尚未完成交付或取消',ACCOUNTING_CLOSED:'项目核算已关闭',NOT_SPONSOR:'由项目归属老板办理核算关闭',MISSING_END_DATE:'缺少实际结束日期，请核对',PENDING_KPI:'仍有未完成KPI结算，包括尚未到期的周期',PENDING_EFFORT:'仍有投入待确认',PENDING_LEAVE:'仍有假勤待处理',PENDING_FACT:'仍有收支待确认或退回修改',MANAGEMENT_FEE_PENDING:'项目管理费尚未设置，请设置规则或明确不发放'}
 const fee=computed(()=>summary.value?.managementFee||null)
-const pendingCounts=computed(()=>[['pendingKpiCount','KPI待结算'],['pendingFactCount','收支待处理'],['pendingAwardCount','奖金待处理'],['pendingCostCount','人员成本待完善'],['pendingLeaveCount','假勤待处理']].map(([key,label])=>({key,label,count:Number(summary.value?.[key]||0)})).filter(item=>item.count>0))
+const pendingCounts=computed(()=>[['pendingKpiCount','KPI待结算'],['pendingFactCount','收支待处理'],['pendingPublicExpenseCount','公共费用待月结'],['pendingAwardCount','奖金待处理'],['pendingCostCount','人员成本待完善'],['pendingLeaveCount','假勤待处理']].map(([key,label])=>({key,label,count:Number(summary.value?.[key]||0)})).filter(item=>item.count>0))
 let requestSequence=0
 const displayProject=computed(()=>({...props.project,...(summary.value||{})}))
-const policyHint=computed(()=>projectAccountingState(displayProject.value)==='CLOSED'?'项目已经结项并冻结，管理费成本已固定；付款凭证和受控调账仍可继续登记。':!isSeparatedDelivery(displayProject.value)?'本项目沿用原结项规则，历史记录和金额不自动迁移。':isDeliveryEnded(displayProject.value)?'这是合并流程上线前已经结项的项目，完成最终核算后即可冻结。':'KPI达标或周期结束并确认后，由归属老板一次完成结项、最终核算和数据冻结。')
+const showProfitMetrics=computed(()=>displayProject.value.accountingMode==='PROFIT')
+const policyHint=computed(()=>projectAccountingState(displayProject.value)==='CLOSED'?'项目已经结项并冻结，管理费成本已固定；付款凭证和受控调账仍可继续登记。':!isSeparatedDelivery(displayProject.value)?'本项目沿用原结项规则，历史记录和金额不自动迁移。':isDeliveryEnded(displayProject.value)?'交付已经结束，实际结束日期已固定。处理该日期前的结算待办后，确认最终核算并冻结。':'交付和KPI检查通过后，由归属老板确认结项。公共费用尚待月结时，可先结束交付并固定实际结束日期，月结后再完成核算。')
 const feeStatus=computed(()=>({INELIGIBLE:{label:'未达到条件',type:'info'},PENDING_CONFIG:{label:'待设置',type:'danger'},ESTIMATED:{label:'预计中',type:'primary'},PENDING_SETTLEMENT:{label:'待结算',type:'warning'},WAIVED:{label:'不发放',type:'info'},UNPAID:{label:'待支付',type:'danger'},PARTIAL:{label:'部分支付',type:'warning'},PAID:{label:'已结清',type:'success'}}[fee.value?.processStatus]||{label:'—',type:'info'}))
 const eligibilityText=computed(()=>{const count=Number(fee.value?.projectCount||0),threshold=Number(fee.value?.eligibilityThreshold||3);if(fee.value?.configured&&Number(fee.value?.eligibilityProjectCount)>=threshold&&count<threshold)return `当前在管 ${count} 个项目；设置时为 ${fee.value.eligibilityProjectCount} 个，规则继续有效`;return `负责人当前在管 ${count} 个项目 · ${count>=threshold?'已达到管理费条件':`还差 ${threshold-count} 个达到管理费条件`}`})
 const feeRule=computed(()=>fee.value?.calculationMode==='WAIVED'?'本项目明确不发放管理费':fee.value?.calculationMode==='FIXED'?`固定金额 ${money(fee.value.fixedAmount)} ${fee.value.currency}`:`管理费前利润 × ${fee.value?.profitRate||0}%`)
@@ -137,7 +161,7 @@ const afterFeeProfit=computed(()=>Number(fee.value?.preFeeProfit||0)-Number(fee.
 const completingOldClosedProject=computed(()=>isDeliveryEnded(displayProject.value)&&projectAccountingState(displayProject.value)!=='CLOSED')
 const closeActionLabel=computed(()=>completingOldClosedProject.value?'确认核算并冻结':'确认结项并冻结')
 const closeDialogTitle=computed(()=>completingOldClosedProject.value?'确认最终核算并冻结数据':'确认结项、核算并冻结')
-const closeDialogHint=computed(()=>completingOldClosedProject.value?'这是合并流程上线前已经结项的项目。系统将确认最终金额并冻结核算数据。':'系统将检查交付、KPI、收支、人员成本、奖金与管理费，并在一次操作中完成结项、核算和数据冻结。')
+const closeDialogHint=computed(()=>completingOldClosedProject.value?'项目交付已经结束，系统将沿用实际结束日期确认最终金额并冻结核算数据。':'系统将检查交付、KPI、收支、人员成本、公共费用、奖金与管理费，并在一次操作中完成结项、核算和数据冻结。')
 const money=value=>Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})
 const signedMoney=value=>`${Number(value||0)>=0?'+ ':'- '}${money(Math.abs(Number(value||0)))}`
 const localToday=()=>{const now=new Date();return new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10)}
@@ -148,16 +172,21 @@ function openFeeConfig(){Object.assign(feeForm,{calculationMode:fee.value?.calcu
 async function saveFee(){if(!feeForm.configReason.trim())return ElMessage.warning('请填写设置说明');feeSaving.value=true;try{await saveBusinessProjectManagementFee(props.project.projectId,{...feeForm,version:fee.value?.version});feeDialog.value=false;ElMessage.success('管理费规则已保存');await loadStatus();emit('closed')}finally{feeSaving.value=false}}
 async function openClose(){if(!summary.value&&!loading.value)await loadStatus();if(!summary.value?.canClose){expanded.value=true;return ElMessage.warning('结项检查尚未通过，请先处理下方待办')};closeReason.value='';closeDialog.value=true}
 async function closeAccounting(){if(!closeReason.value.trim())return ElMessage.warning('请填写结项确认说明');closing.value=true;try{await closeBusinessProjectAccounting(props.project.projectId,{version:summary.value.version,reason:closeReason.value.trim()});closeDialog.value=false;ElMessage.success(completingOldClosedProject.value?'项目核算已确认并冻结':'项目已结项，核算已确认并冻结');await loadStatus();emit('closed')}catch{await loadStatus()}finally{closing.value=false}}
+function openDeliveryEnd(){if(!summary.value?.canEndDeliveryAwaitingCosts)return ElMessage.warning('交付结束检查尚未通过，请先处理待办');deliveryEndReason.value='';approveDeliveryAcceptance.value=false;separateLegacyAccounting.value=false;deliveryEndDialog.value=true}
+async function endDelivery(){if(!deliveryEndReason.value.trim())return ElMessage.warning('请填写交付结束说明');if(summary.value?.requiresAcceptanceApprovalForDeliveryEnd&&!approveDeliveryAcceptance.value)return ElMessage.warning('请核对成果资料并确认验收通过');if(summary.value?.requiresLegacyDeliverySeparation&&!separateLegacyAccounting.value)return ElMessage.warning('请确认仅为本项目分开办理交付结束与核算关闭');endingDelivery.value=true;try{await endBusinessProjectDeliveryAwaitingCosts(props.project.projectId,{version:summary.value.version,reason:deliveryEndReason.value.trim(),acceptanceId:summary.value.deliveryEndAcceptance?.acceptanceId,approveAcceptance:approveDeliveryAcceptance.value,separateLegacyAccounting:separateLegacyAccounting.value});deliveryEndDialog.value=false;ElMessage.success('交付已结束，公共费用月结后可继续确认核算');await loadStatus();emit('closed')}catch{deliveryEndDialog.value=false;await loadStatus()}finally{endingDelivery.value=false}}
 function openPayment(){Object.assign(paymentForm,{amount:Number(fee.value?.remainingAmount||0),paidDate:localToday(),method:'BANK',referenceNo:'',voucher:'',reason:''});paymentDialog.value=true}
 async function savePayment(){if(!paymentForm.amount||!paymentForm.paidDate||!paymentForm.referenceNo.trim()||!paymentForm.voucher||!paymentForm.reason.trim())return ElMessage.warning('请完整填写付款信息并上传凭证');paymentSaving.value=true;try{await payBusinessProjectManagementFee(props.project.projectId,{...paymentForm,requestKey:requestKey()});paymentDialog.value=false;ElMessage.success('付款记录已保存');await loadStatus()}finally{paymentSaving.value=false}}
 function openKpi(){router.push({path:'/projects/kpi-results',query:{projectId:props.project.projectId}})}
 function openAccounting(){router.push({path:'/business/accounting',query:{projectId:props.project.projectId}})}
+function openPublicExpenses(){router.push({path:'/finance/public-expenses',query:{companyDeptId:props.project.companyDeptId,month:summary.value?.actualEndDate?.slice(0,7)}})}
 watch(()=>[props.project,props.refreshKey],loadStatus,{immediate:true});watch(()=>props.project.projectId,()=>{expanded.value=false})
 defineExpose({openClose})
 </script>
 
 <style scoped>
+.fee-grid.fee-grid-single{grid-template-columns:minmax(0,1fr)}
 .settlement-panel{padding:20px;margin:16px 0;border:1px solid #e2e8f0;border-radius:14px;background:#f8fafc;box-shadow:0 1px 2px rgba(15,23,42,.03)}
+.delivery-alert,.delivery-review{margin-top:16px}.delivery-review :deep(.el-descriptions__content){white-space:pre-wrap;overflow-wrap:anywhere}.delivery-approval{margin-top:12px;white-space:normal}.legacy-separation-note{color:#916525;line-height:1.7}
 .settlement-heading,.management-head,.payment-head{display:flex;justify-content:space-between;align-items:center;gap:18px}.management-actions{display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:8px}.management-actions :deep(.el-button){margin:0}
 .heading-copy{min-width:0}.heading-title-row{display:flex;align-items:center;flex-wrap:wrap;gap:12px}.settlement-heading h3{margin:0;color:#172033;font-size:19px;font-weight:650;line-height:28px}.settlement-panel .heading-description{margin:3px 0 0;color:#94a3b8;font-size:12px}.heading-actions{flex:none}.actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.policy-hint{padding:10px 13px;border-radius:8px;background:#eef4f8}.settlement-panel p{font-size:13px;line-height:1.65;color:#64748b;margin:12px 0 0}
 .management-card{margin-top:18px;padding:18px;border:1px solid #e2e8f0;border-radius:12px;background:#fff;box-shadow:0 4px 14px rgba(15,23,42,.035)}.management-head{align-items:flex-start}.management-title{display:flex;align-items:center;min-width:0;gap:12px}.management-mark{display:grid;place-items:center;width:38px;height:38px;flex:none;border-radius:10px;background:linear-gradient(135deg,#eaf4ff,#edf8f5);color:#2476d2;font-size:15px;font-weight:700}.management-name{display:flex;align-items:center;flex-wrap:wrap;gap:9px;color:#1e293b;font-size:15px;line-height:24px}.management-subtitle{display:block;margin-top:1px;color:#94a3b8;font-size:12px;line-height:20px}

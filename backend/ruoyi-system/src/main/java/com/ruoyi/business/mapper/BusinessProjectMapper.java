@@ -23,6 +23,8 @@ import com.ruoyi.business.domain.BusinessStaffCostPolicy;
 
 public interface BusinessProjectMapper
 {
+    int separateDeliveryForPublicCosts(@org.apache.ibatis.annotations.Param("projectId") Long projectId,
+        @org.apache.ibatis.annotations.Param("version") Integer version,@org.apache.ibatis.annotations.Param("userName") String userName);
     Long selectStaffCompanyId(Long userId);
     Long lockStaffCostPerson(Long userId);
     List<Map<String,Object>> selectStaffCostOptions(Map<String,Object> query);
