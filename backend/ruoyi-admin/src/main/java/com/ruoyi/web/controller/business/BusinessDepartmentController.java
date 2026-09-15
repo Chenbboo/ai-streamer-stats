@@ -59,6 +59,14 @@ public class BusinessDepartmentController extends BaseController
         return success(departmentService.createDepartment(input, getUsername()));
     }
 
+    @PreAuthorize("@ss.hasPermi('business:department:manage') and @ss.hasPermi('business:staff:manage')")
+    @Log(title = "部门加入员工", businessType = BusinessType.UPDATE)
+    @PostMapping("/{deptId}/staff")
+    public AjaxResult assignStaff(@PathVariable Long deptId, @RequestBody List<Long> userIds)
+    {
+        return success(departmentService.assignStaff(deptId, userIds, getUsername()));
+    }
+
     @PreAuthorize("@ss.hasPermi('business:department:manage')")
     @Log(title = "公司部门", businessType = BusinessType.UPDATE)
     @PutMapping

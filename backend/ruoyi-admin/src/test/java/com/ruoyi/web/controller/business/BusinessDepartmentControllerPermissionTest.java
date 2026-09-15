@@ -26,9 +26,11 @@ class BusinessDepartmentControllerPermissionTest
             endpoints++;
             PreAuthorize permission = method.getAnnotation(PreAuthorize.class);
             assertNotNull(permission, method.getName() + " 缺少权限保护");
-            assertEquals(read ? "@ss.hasPermi('business:department:list')"
+            assertEquals(method.getName().equals("assignStaff")
+                ? "@ss.hasPermi('business:department:manage') and @ss.hasPermi('business:staff:manage')"
+                : read ? "@ss.hasPermi('business:department:list')"
                 : "@ss.hasPermi('business:department:manage')", permission.value());
         }
-        assertEquals(6, endpoints);
+        assertEquals(7, endpoints);
     }
 }

@@ -1,6 +1,8 @@
 package com.ruoyi.business.service.impl;
 
 import java.util.List;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -11,6 +13,9 @@ import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.system.service.ISysDeptService;
 import com.ruoyi.system.service.ISysUserService;
+import com.ruoyi.system.service.OnlineUserPermissionService;
+import com.ruoyi.business.mapper.BusinessStaffProfileMapper;
+import com.ruoyi.business.domain.BusinessStaffProfile;
 
 @Service
 public class BusinessDepartmentServiceImpl implements IBusinessDepartmentService
@@ -20,6 +25,47 @@ public class BusinessDepartmentServiceImpl implements IBusinessDepartmentService
 
     @Autowired
     private ISysUserService userService;
+
+    @Autowired private OnlineUserPermissionService onlinePermissions;
+    @Autowired private BusinessStaffProfileMapper profileMapper;
+
+    @Override
+    @Transactional
+    public int assignStaff(Long deptId, List<Long> userIds, String operatorName)
+    {
+        if (userIds == null || userIds.isEmpty() || userIds.size() > 200 || userIds.contains(null))
+            throw new ServiceException("请选择1至200个员工账号");
+        deptService.checkDeptDataScope(deptId);
+        SysDept target = requireActiveParent(deptId);
+        ensureNonRoot(target);
+        SysDept parent = requireDepartment(target.getParentId());
+        if (Long.valueOf(0L).equals(parent.getParentId()))
+            throw new ServiceException("请选择公司下面的具体部门");
+        List<SysUser> employees = new ArrayList<>();
+        for (Long userId : new LinkedHashSet<>(userIds))
+        {
+            userService.checkUserDataScope(userId);
+            SysUser user = userService.selectUserById(userId);
+            if (user == null || !"0".equals(user.getDelFlag())) throw new ServiceException("员工账号不存在");
+            if (user.isAdmin() || (user.getRoles() != null && user.getRoles().stream()
+                .anyMatch(role -> "company_owner".equals(role.getRoleKey()))))
+                throw new ServiceException("系统管理员和老板账号不能调整部门");
+            BusinessStaffProfile profile = profileMapper.selectByUserId(userId);
+            if (!"0".equals(user.getStatus()) || (profile != null && "LEFT".equals(profile.getEmploymentStatus())))
+                throw new ServiceException("停用或离职员工不能加入部门");
+            if (!deptId.equals(user.getDeptId())) employees.add(user);
+        }
+        for (SysUser user : employees)
+        {
+            // Only change membership; keep contact details, credentials, roles and staff profile intact.
+            SysUser patch = new SysUser(user.getUserId());
+            patch.setDeptId(deptId);
+            patch.setUpdateBy(operatorName);
+            if (userService.updateUserProfile(patch) != 1) throw new ServiceException("员工加入部门失败");
+            onlinePermissions.forceReloginAfterCommit(user.getUserId());
+        }
+        return employees.size();
+    }
 
     @Override
     public List<SysDept> listDepartments(SysDept query)

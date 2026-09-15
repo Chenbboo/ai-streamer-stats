@@ -10,4 +10,5 @@ public interface IBusinessDepartmentService
     SysDept updateDepartment(SysDept input, String operatorName);
     void updateSort(String[] deptIds, String[] orderNums);
     void deleteDepartment(Long deptId);
+    int assignStaff(Long deptId, List<Long> userIds, String operatorName);
 }
