@@ -67,6 +67,15 @@ public class BusinessDepartmentController extends BaseController
         return success(departmentService.assignStaff(deptId, userIds, getUsername()));
     }
 
+    @PreAuthorize("@ss.hasPermi('business:department:manage') and @ss.hasPermi('business:staff:manage')")
+    @Log(title = "部门移出员工", businessType = BusinessType.UPDATE)
+    @DeleteMapping("/{deptId}/staff/{userId}")
+    public AjaxResult removeStaff(@PathVariable Long deptId, @PathVariable Long userId)
+    {
+        departmentService.removeStaff(deptId, userId, getUsername());
+        return success();
+    }
+
     @PreAuthorize("@ss.hasPermi('business:department:manage')")
     @Log(title = "公司部门", businessType = BusinessType.UPDATE)
     @PutMapping

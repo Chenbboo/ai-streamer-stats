@@ -68,6 +68,40 @@ public class BusinessDepartmentServiceImpl implements IBusinessDepartmentService
     }
 
     @Override
+    @Transactional
+    public void removeStaff(Long deptId, Long userId, String operatorName)
+    {
+        if (deptId == null || userId == null) throw new ServiceException("部门和员工不能为空");
+        deptService.checkDeptDataScope(deptId);
+        userService.checkUserDataScope(userId);
+        SysDept current = requireDepartment(deptId);
+        ensureNonRoot(current);
+        SysDept company = current;
+        java.util.Set<Long> visited = new LinkedHashSet<>();
+        while (true)
+        {
+            if (!visited.add(company.getDeptId())) throw new ServiceException("组织层级异常");
+            SysDept parent = requireDepartment(company.getParentId());
+            if (Long.valueOf(0L).equals(parent.getParentId())) break;
+            company = parent;
+        }
+        if (deptId.equals(company.getDeptId())) throw new ServiceException("员工已直属公司，无需移出部门");
+        deptService.checkDeptDataScope(company.getDeptId());
+        if (!"0".equals(company.getStatus())) throw new ServiceException("所属公司已停用");
+        SysUser user = userService.selectUserById(userId);
+        if (user == null || !"0".equals(user.getDelFlag())) throw new ServiceException("员工账号不存在");
+        if (user.isAdmin() || (user.getRoles() != null && user.getRoles().stream()
+            .anyMatch(role -> "company_owner".equals(role.getRoleKey()))))
+            throw new ServiceException("系统管理员和老板账号不能调整部门");
+        if (!deptId.equals(user.getDeptId())) throw new ServiceException("员工已不在该部门，请刷新后重试");
+        SysUser patch = new SysUser(userId);
+        patch.setDeptId(company.getDeptId());
+        patch.setUpdateBy(operatorName);
+        if (userService.updateUserProfile(patch) != 1) throw new ServiceException("员工移出部门失败");
+        onlinePermissions.forceReloginAfterCommit(userId);
+    }
+
+    @Override
     public List<SysDept> listDepartments(SysDept query)
     {
         return deptService.buildDeptTree(deptService.selectDeptList(query == null ? new SysDept() : query));

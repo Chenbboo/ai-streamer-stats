@@ -36,7 +36,10 @@
         <el-table-column label="状态" width="90"><template #default="{row}"><span v-if="row.isDepartmentHeader" class="department-column-heading">状态</span><el-tag v-else-if="!row.isEmptyStaffRow" :type="row.status === '0' ? 'success' : 'info'">{{ row.status === '0' ? '正常' : '停用' }}</el-tag></template></el-table-column>
         <el-table-column label="操作" width="190" fixed="right"><template #default="{row}">
           <span v-if="row.isDepartmentHeader" class="department-column-heading">操作</span>
-          <el-button v-else-if="row.isEmployeeRow" link type="primary" @click="openEmployeeDetail(row.person)">查看详情</el-button>
+          <template v-else-if="row.isEmployeeRow">
+            <el-button link type="primary" @click="openEmployeeDetail(row.person)">查看详情</el-button>
+            <el-button v-if="canAssignStaff && !row.person.protectedAccount" link type="danger" :loading="removingStaffId===row.person.userId" :disabled="removingStaffId!==null" @click="removeEmployee(row.person)">移出部门</el-button>
+          </template>
           <template v-else-if="row.source">
           <el-button v-if="isRoot(row) || isCompany(row)" link type="primary" @click="openCreate(row)">{{ isRoot(row) ? '新增公司' : '新增部门' }}</el-button>
           <el-button v-else-if="canAssignStaff" link type="primary" :disabled="row.status!=='0'" @click="openAssignStaff(row)">加入员工</el-button>
@@ -111,7 +114,7 @@
 
 <script setup name="BusinessDepartment">
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { addBusinessDepartment, assignBusinessDepartmentStaff, listBusinessDepartments, listBusinessDepartmentStaff, removeBusinessDepartment, saveBusinessDepartmentSort, updateBusinessDepartment } from '@/api/business/department'
+import { addBusinessDepartment, assignBusinessDepartmentStaff, listBusinessDepartments, listBusinessDepartmentStaff, removeBusinessDepartment, removeBusinessDepartmentStaff, saveBusinessDepartmentSort, updateBusinessDepartment } from '@/api/business/department'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 import { checkPermi } from '@/utils/permission'
 
@@ -127,6 +130,7 @@ const assigningStaff = ref(false)
 const loadingStaffOptions = ref(false)
 const assignDepartment = ref()
 const assignUserIds = ref([])
+const removingStaffId = ref(null)
 const canAssignStaff = computed(() => checkPermi(['business:department:manage']) && checkPermi(['business:staff:manage']))
 const lockedOrganization = ref(false)
 const expandedIds = ref([])
@@ -192,6 +196,18 @@ function peopleFor(row) {
 }
 function openPeople(row) { selectedOrganization.value=row; peopleOpen.value=true }
 function openEmployeeDetail(person) { selectedEmployeeId.value=person.userId; employeeDetailOpen.value=true }
+async function removeEmployee(person) {
+  if (removingStaffId.value!==null) return
+  removingStaffId.value=person.userId
+  try {
+    await ElMessageBox.confirm(`确定将“${displayName(person)}”（${person.userName}）移出“${person.deptName}”吗？移出后归属“${person.companyName || '所属公司'}”，账号和资料保留，可重新加入其他部门。`,'移出部门',{type:'warning',confirmButtonText:'确认移出',cancelButtonText:'取消'})
+    await removeBusinessDepartmentStaff(person.deptId,person.userId)
+    ElMessage.success('员工已移出部门')
+    await load()
+  } catch {
+    // Cancel leaves membership intact; request errors are displayed by the interceptor.
+  } finally { removingStaffId.value=null }
+}
 async function openAssignStaff(row) {
   assignDepartment.value=row
   assignUserIds.value=[]
