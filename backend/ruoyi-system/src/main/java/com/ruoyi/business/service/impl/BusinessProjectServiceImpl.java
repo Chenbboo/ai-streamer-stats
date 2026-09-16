@@ -220,6 +220,12 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     }
 
     @Override
+    public List<Map<String, Object>> projectDepartmentOptions()
+    {
+        return mapper.selectProjectDepartmentOptions();
+    }
+
+    @Override
     public void validateSubprojectParent(Long parentId, Long sponsorId, Long applicantId)
     {
         BusinessProject parent = requireProjectForUpdate(parentId);

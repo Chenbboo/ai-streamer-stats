@@ -1,7 +1,7 @@
 <template>
   <div class="app-container kpi-page" v-loading="loading">
     <header class="kpi-hero">
-      <div><span>{{ resultsOnly ? 'PROJECT KPI RESULTS' : 'PROJECT KPI SETTINGS' }}</span><h1>{{ resultsOnly ? '项目 KPI 结果' : '项目 KPI 设置' }}</h1><p>{{ resultsOnly ? '填报项目实际结果，查看并确认各期指标。' : '设置项目指标、目标值、权重和考核周期，发布并管理 KPI 方案。' }}</p></div>
+      <div><span>{{ resultsOnly ? 'PROJECT KPI RESULTS' : 'PROJECT KPI SETTINGS' }}</span><h1>{{ resultsOnly ? '项目 KPI 结果' : '项目 KPI 设置' }}</h1><p>{{ resultsOnly ? '填报项目实际结果，查看并确认各期指标。' : '设置项目指标、目标值和权重，发布方案时统一设置考核时间。' }}</p></div>
       <div class="hero-tools">
         <el-select v-model="selectedProjectId" filterable placeholder="选择项目" @change="switchProject">
           <el-option v-for="project in projects" :key="project.projectId" :label="`${project.projectName} · ${project.mainOwnerName}`" :value="project.projectId" />
@@ -36,7 +36,6 @@
               <el-table-column label="方向" width="95"><template #default="{row}">{{ directionLabel[row.direction] }}</template></el-table-column>
               <el-table-column label="数据来源" min-width="150"><template #default="{row}"><el-tag :type="row.sourceType==='MANUAL'?'info':'success'">{{ sourceTypeLabel[row.sourceType] || row.sourceType }}</el-tag><small v-if="row.sourceRefId">{{ sourceReferenceLabel(row) }}</small></template></el-table-column>
               <el-table-column label="权重" width="85"><template #default="{row}">{{ row.weight }}%</template></el-table-column>
-              <el-table-column label="周期" width="95"><template #default="{row}">{{ cycleLabel[row.periodType] }}</template></el-table-column>
               <el-table-column v-if="canEditPlan" label="操作" width="120"><template #default="{row}"><el-button link @click="openTarget(row)">调整</el-button><el-button link type="danger" @click="retireTarget(row)">停用</el-button></template></el-table-column>
             </el-table>
           </el-card>
@@ -123,7 +122,7 @@
     </template>
 
     <el-dialog v-model="targetDialog" :title="targetForm.kpiId ? '调整项目KPI目标' : '新增项目KPI'" width="min(680px,94vw)" append-to-body>
-      <el-alert title="KPI只评价项目，不指定个人考核对象；已发布方案继续使用原目标快照。" type="info" :closable="false" show-icon />
+      <el-alert title="考核周期和起止时间在发布方案时统一设置；已发布方案继续使用原目标快照。" type="info" :closable="false" show-icon />
       <el-form :model="targetForm" label-width="112px" class="dialog-form">
         <el-form-item v-if="!targetForm.kpiId && proposalTargetOptions.length" label="引用立项目标">
           <el-select v-model="selectedProposalTarget" filterable placeholder="选择后自动带入，可继续调整" style="width:100%" @change="useProposalTarget">
@@ -131,14 +130,13 @@
           </el-select>
         </el-form-item>
         <el-row :gutter="12"><el-col :sm="12" :xs="24"><el-form-item label="系统编码"><el-input v-model="targetForm.kpiCode" disabled placeholder="保存后自动生成" /></el-form-item></el-col><el-col :sm="12" :xs="24"><el-form-item label="指标名称" required><el-input v-model="targetForm.kpiName" /></el-form-item></el-col></el-row>
-        <el-row :gutter="12"><el-col :sm="12" :xs="24"><el-form-item label="指标类型"><el-select v-model="targetForm.metricType" style="width:100%"><el-option v-for="(label,key) in metricTypeLabel" :key="key" :label="label" :value="key" /></el-select></el-form-item></el-col><el-col :sm="12" :xs="24"><el-form-item label="考核周期"><el-select v-model="targetForm.periodType" style="width:100%"><el-option v-for="key in ['MONTH','QUARTER','PROJECT']" :key="key" :label="cycleLabel[key]" :value="key" /></el-select></el-form-item></el-col></el-row>
+        <el-row :gutter="12"><el-col :sm="12" :xs="24"><el-form-item label="指标类型"><el-select v-model="targetForm.metricType" style="width:100%"><el-option v-for="(label,key) in metricTypeLabel" :key="key" :label="label" :value="key" /></el-select></el-form-item></el-col></el-row>
         <el-row :gutter="12"><el-col :sm="12" :xs="24"><el-form-item label="目标值" required><el-input-number v-model="targetForm.targetValue" :min="0.0001" :precision="4" style="width:100%" /></el-form-item></el-col><el-col :sm="12" :xs="24"><el-form-item label="单位"><el-select v-model="targetForm.unit" filterable allow-create default-first-option clearable placeholder="选择或输入单位" style="width:100%"><el-option v-for="unit in commonKpiUnits" :key="unit" :label="unit" :value="unit" /></el-select></el-form-item></el-col></el-row>
         <el-row :gutter="12"><el-col :sm="12" :xs="24"><el-form-item label="权重%" required><el-input-number v-model="targetForm.weight" :min="0" :max="100" :precision="2" style="width:100%" /><small class="field-help">其他KPI已占 {{ formatWeight(otherKpiWeightTotal) }}%，录入后合计 {{ formatWeight(pendingKpiWeightTotal) }}%，本项最多可填 {{ formatWeight(maxKpiWeight) }}%</small></el-form-item></el-col><el-col :sm="12" :xs="24"><el-form-item label="考核方向"><el-select v-model="targetForm.direction" style="width:100%"><el-option label="越高越好" value="HIGHER_BETTER"/><el-option label="越低越好" value="LOWER_BETTER"/></el-select></el-form-item></el-col></el-row>
         <el-alert v-if="pendingKpiWeightTotal>100" :title="`当前KPI权重合计为 ${formatWeight(pendingKpiWeightTotal)}%，超过100%，请将本项权重调整到 ${formatWeight(maxKpiWeight)}% 以内。`" type="error" :closable="false" show-icon />
         <el-row :gutter="12"><el-col :sm="12" :xs="24"><el-form-item label="数据来源" required><el-select v-model="targetForm.sourceType" style="width:100%" @change="changeSourceType"><el-option v-for="(label,key) in sourceTypeLabel" :key="key" :label="label" :value="key" /></el-select></el-form-item></el-col><el-col v-if="sourceNeedsReference" :sm="12" :xs="24"><el-form-item label="绑定数据" :required="targetForm.sourceType==='ROUTINE'"><el-select v-model="targetForm.sourceRefId" clearable filterable style="width:100%" :placeholder="targetForm.sourceType==='ROUTINE'?'请选择持续工作':'不选则统计全部'"><el-option v-for="option in sourceReferenceOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item></el-col></el-row>
         <el-alert v-if="targetForm.sourceType!=='MANUAL'" :title="sourceHelpText" type="success" :closable="false" show-icon />
         <el-row :gutter="12"><el-col :sm="12" :xs="24"><el-form-item label="最低值"><el-input-number v-model="targetForm.minimumValue" :precision="4" style="width:100%" /></el-form-item></el-col><el-col :sm="12" :xs="24"><el-form-item label="挑战值"><el-input-number v-model="targetForm.challengeValue" :precision="4" style="width:100%" /></el-form-item></el-col></el-row>
-        <el-form-item label="生效日期" required><el-date-picker v-model="targetForm.effectiveFrom" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
         <el-form-item label="调整说明"><el-input v-model="targetForm.remark" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
       </el-form>
       <template #footer><el-button @click="targetDialog=false">取消</el-button><el-button type="primary" :loading="saving" :disabled="pendingKpiWeightTotal>100" @click="saveTarget">保存KPI版本</el-button></template>
@@ -230,9 +228,9 @@ const proposalTargetOptions=computed(()=>{
 function useProposalTarget(key){
  const item=proposalTargetOptions.value.find(item=>item.key===key);if(!item)return
  const row=item.row||{},delivery=row.targetType==='DELIVERY',unit=item.revenue?(workspace.project?.baseCurrency||'CNY'):row.unit
- Object.assign(targetForm,{kpiName:item.label,targetValue:item.revenue?Number(workspace.proposalEstimatedRevenue):delivery?1:Number(row.targetValue),unit:unit||'项',metricType:item.revenue?'AMOUNT':delivery?'MILESTONE':unit==='%'?'PERCENT':['元','万元','CNY','USD','VND'].includes(unit)?'AMOUNT':['天','小时','分钟'].includes(unit)?'DURATION':'COUNT',sourceType:item.revenue?'REVENUE':'MANUAL',sourceRefId:null,aggregateType:'SUM',direction:'HIGHER_BETTER',periodType:workspace.project?.planEndDate?'PROJECT':'MONTH',remark:delivery?('验收通过填1，未通过填0；'+(row.acceptanceEvidence||'')).slice(0,500):row.acceptanceEvidence||''})
+ Object.assign(targetForm,{kpiName:item.label,targetValue:item.revenue?Number(workspace.proposalEstimatedRevenue):delivery?1:Number(row.targetValue),unit:unit||'项',metricType:item.revenue?'AMOUNT':delivery?'MILESTONE':unit==='%'?'PERCENT':['元','万元','CNY','USD','VND'].includes(unit)?'AMOUNT':['天','小时','分钟'].includes(unit)?'DURATION':'COUNT',sourceType:item.revenue?'REVENUE':'MANUAL',sourceRefId:null,aggregateType:'SUM',direction:'HIGHER_BETTER',remark:delivery?('验收通过填1，未通过填0；'+(row.acceptanceEvidence||'')).slice(0,500):row.acceptanceEvidence||''})
 }
-function openTarget(row={}){selectedProposalTarget.value=null;Object.assign(targetForm,{kpiId:null,projectId:selectedProjectId.value,kpiCode:'',kpiName:'',metricType:'COUNT',periodType:'MONTH',targetValue:null,minimumValue:null,warningValue:null,challengeValue:null,unit:'',weight:0,direction:'HIGHER_BETTER',aggregateType:'SUM',sourceType:'MANUAL',sourceRefId:null,effectiveFrom:today(),remark:'',...row,actualValue:null,ownerUserId:null,ownerName:null});targetDialog.value=true}
+function openTarget(row={}){selectedProposalTarget.value=null;Object.assign(targetForm,{kpiId:null,projectId:selectedProjectId.value,kpiCode:'',kpiName:'',metricType:'COUNT',targetValue:null,minimumValue:null,warningValue:null,challengeValue:null,unit:'',weight:0,direction:'HIGHER_BETTER',aggregateType:'SUM',sourceType:'MANUAL',sourceRefId:null,remark:'',...row,actualValue:null,ownerUserId:null,ownerName:null});targetDialog.value=true}
 async function saveTarget(){if(!targetForm.kpiName?.trim())return ElMessage.warning('请填写指标名称');if(!(Number(targetForm.targetValue)>0))return ElMessage.warning('KPI目标值必须大于0');if(!Number.isFinite(Number(targetForm.weight))||Number(targetForm.weight)<0)return ElMessage.warning('请填写0到100之间的KPI权重');if(pendingKpiWeightTotal.value>100)return ElMessage.warning(`当前KPI权重合计为 ${formatWeight(pendingKpiWeightTotal.value)}%，不能超过100%；本项最多可填 ${formatWeight(maxKpiWeight.value)}%`);if(targetForm.sourceType==='ROUTINE'&&!targetForm.sourceRefId)return ElMessage.warning('请选择要自动汇总的持续工作');saving.value=true;try{await saveBusinessProjectKpi(targetForm);targetDialog.value=false;await loadWorkspace(selectedProjectId.value,selectedPlan.value?.planId);ElMessage.success(targetForm.kpiId?'KPI新版本已保存':'KPI已创建，编码已自动生成')}finally{saving.value=false}}
 async function retireTarget(row){await ElMessageBox.confirm(`确认停用“${row.kpiName}”吗？已发布方案不会受影响。`,'停用KPI',{type:'warning'});await retireBusinessProjectKpi(selectedProjectId.value,row.kpiId);await loadWorkspace(selectedProjectId.value,selectedPlan.value?.planId);ElMessage.success('KPI已停用')}
 function monthRange(){const date=new Date(),start=new Date(date.getFullYear(),date.getMonth(),1),end=new Date(date.getFullYear(),date.getMonth()+1,0);return [localDate(start),localDate(end)]}

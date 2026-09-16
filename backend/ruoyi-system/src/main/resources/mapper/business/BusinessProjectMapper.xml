@@ -188,6 +188,7 @@
             <if test="accountingMode != null and accountingMode != ''">and p.accounting_mode=#{accountingMode}</if>
             <if test="managementMode != null and managementMode != ''">and p.management_mode=#{managementMode}</if>
             <if test="closeMethod != null and closeMethod != ''">and p.close_method=#{closeMethod}</if>
+            <include refid="projectOrganizationFilters"><property name="alias" value="p"/></include>
             <if test="parentId != null">and p.parent_id=#{parentId}</if>
             <if test="mainOwnerUserId != null">and p.main_owner_user_id=#{mainOwnerUserId}</if>
         </where>
@@ -206,6 +207,17 @@
         </choose>
     </sql>
 
+    <sql id="projectOrganizationFilters">
+        <if test="companyDeptId != null and companyDeptId != ''">and ${alias}.company_dept_id=#{companyDeptId}</if>
+        <if test="mainOwnerDeptId != null and mainOwnerDeptId != ''">
+            and exists(select 1 from sys_user filter_owner
+                join sys_dept filter_dept on filter_dept.dept_id=filter_owner.dept_id
+                where filter_owner.user_id=${alias}.main_owner_user_id
+                  and (filter_dept.dept_id=#{mainOwnerDeptId}
+                    or concat(',',filter_dept.ancestors,',') like concat('%,',#{mainOwnerDeptId},',%')))
+        </if>
+    </sql>
+
     <sql id="hierarchyFilters">
         <if test="keyword != null and keyword != ''">
             and (${alias}.project_name like concat('%',#{keyword},'%')
@@ -216,13 +228,14 @@
         <if test="projectType != null and projectType != ''">and ${alias}.project_type=#{projectType}</if>
         <if test="managementMode != null and managementMode != ''">and ${alias}.management_mode=#{managementMode}</if>
         <if test="closeMethod != null and closeMethod != ''">and ${alias}.close_method=#{closeMethod}</if>
+        <include refid="projectOrganizationFilters"/>
     </sql>
 
     <select id="selectProjectRoots" resultMap="ProjectResult">
         select <include refid="projectColumns"/>,
           case when (<include refid="hierarchyAccess"><property name="alias" value="p"/></include>) then 0 else 1 end context_only,
           <choose>
-            <when test="(keyword != null and keyword != '') or (status != null and status != '') or (projectType != null and projectType != '') or (managementMode != null and managementMode != '') or (closeMethod != null and closeMethod != '')">
+            <when test="(keyword != null and keyword != '') or (status != null and status != '') or (projectType != null and projectType != '') or (managementMode != null and managementMode != '') or (closeMethod != null and closeMethod != '') or (companyDeptId != null and companyDeptId != '') or (mainOwnerDeptId != null and mainOwnerDeptId != '')">
                 (select min(c.project_id) from biz_project c where c.parent_id=p.project_id and c.del_flag='0'
                   and (<include refid="hierarchyAccess"><property name="alias" value="c"/></include>)
                   <include refid="hierarchyFilters"><property name="alias" value="c"/></include>)
@@ -307,6 +320,16 @@
     <select id="selectProjectCompanyOptions" resultType="map">
         select dept_id companyDeptId,dept_name companyName from sys_dept
         where parent_id=100 and del_flag='0' and status='0' order by order_num,dept_id
+    </select>
+
+    <select id="selectProjectDepartmentOptions" resultType="map">
+        select department.dept_id deptId,department.dept_name deptName,
+            company.dept_id companyDeptId,company.dept_name companyName
+        from sys_dept department join sys_dept company
+          on concat(',',department.ancestors,',') like concat('%,',company.dept_id,',%')
+        where company.parent_id=100 and company.del_flag='0' and company.status='0'
+          and department.del_flag='0' and department.status='0'
+        order by company.order_num,company.dept_id,department.order_num,department.dept_id
     </select>
 
     <update id="softDeleteProject">

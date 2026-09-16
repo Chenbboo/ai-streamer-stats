@@ -1,18 +1,20 @@
 <template>
   <section v-loading="loading" class="member-cost-panel">
-    <div class="heading"><div><h3>人员工作日成本</h3><p>同一负责人名下直接调整；涉及其他负责人的分配，由相关负责人全部确认后统一生效。</p></div><div class="heading-actions"><el-button v-if="canManage" type="primary" @click="openAllocation">申请调整投入</el-button><el-button icon="Refresh" @click="load">刷新</el-button></div></div>
-    <p class="hint">月成本制整月按月度用人成本×项目投入比例计费；不足整月按当月参与工作日占比分摊，月中费率或比例变化分段计算。已核算历史保留原依据。</p>
+    <div class="heading"><div><h3>人员工作日成本</h3></div><div class="heading-actions"><el-button v-if="canManage" type="primary" @click="openAllocation">申请调整投入</el-button><el-button icon="Refresh" @click="load">刷新</el-button></div></div>
     <el-alert v-if="data.overdue" title="项目已超过计划结束日，仍参与的成员继续按工作日计费，请更新项目计划。" type="warning" :closable="false" show-icon />
     <el-date-picker v-model="dates" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" :clearable="false" @change="load" />
     <el-alert v-if="data.pendingCount" title="部分人员成本待完善，请查看下方说明，确认投入分配或完善成本、工作日历。" type="warning" :closable="false" show-icon />
     <p>本期累计：<b>{{ data.totalAmount == null ? '待完善成本' : money(data.totalAmount) + ' ' + (data.currency || '') }}</b><span class="hint">（截至今天）</span></p>
-    <el-table :data="data.rows || []" empty-text="所选期间没有应计费的成员工作日">
+    <el-table :data="pagedCostRows" empty-text="所选期间没有应计费的成员工作日">
       <el-table-column prop="userName" label="成员" min-width="100" />
       <el-table-column label="计费日期" min-width="215"><template #default="{ row }">{{ row.startDate }} 至 {{ row.endDate }}</template></el-table-column>
       <el-table-column prop="workingDays" label="工作日数" width="110" />
       <el-table-column label="人员成本" min-width="135"><template #default="{ row }">{{ row.amount == null ? '待完善' : money(row.amount) + ' ' + data.currency }}</template></el-table-column>
       <el-table-column label="说明" min-width="180"><template #default="{ row }">{{ row.issues?.join('；') || '已按工作日和投入权重计算' }}</template></el-table-column>
     </el-table>
+    <div v-if="costRows.length > costPageSize" class="cost-pagination">
+      <el-pagination v-model:current-page="costPage" :page-size="costPageSize" :total="costRows.length" layout="total, prev, pager, next" small background />
+    </div>
 
     <el-dialog v-model="allocationDialog" title="设置人员跨项目投入权重" width="min(720px, 95vw)" :z-index="4000" append-to-body destroy-on-close>
       <el-alert title="填写该员工全部项目的投入比例，合计必须为100%。涉及其他负责人时提交确认；确认完成前继续使用原分配。" type="info" :closable="false" show-icon />
@@ -54,6 +56,9 @@ const emit = defineEmits(['changed'])
 const now = new Date()
 const dates = ref([parseTime(new Date(now.getFullYear(), now.getMonth(), 1), '{y}-{m}-{d}'), parseTime(now, '{y}-{m}-{d}')])
 const data = ref({}), loading = ref(false)
+const costPage = ref(1), costPageSize = 5
+const costRows = computed(() => data.value.rows || [])
+const pagedCostRows = computed(() => costRows.value.slice((costPage.value - 1) * costPageSize, costPage.value * costPageSize))
 const allocationDialog=ref(false),allocationLoading=ref(false),allocationSaving=ref(false),allocation=ref({projects:[]}),allocationUserId=ref(null),allocationDate=ref(parseTime(now,'{y}-{m}-{d}')),allocationReason=ref('')
 const editableMembers=computed(()=>(props.members||[]).filter(member=>String(member.status??'0')==='0'&&member.memberRole!=='OBSERVER'))
 const userStore=useUserStore(),originalValues=ref({}),reviewComment=ref('')
@@ -73,7 +78,7 @@ async function load() {
   loading.value = true
   try {
     const response = await getProjectWork(props.projectId, { dateFrom: dates.value[0], dateTo: dates.value[1] })
-    if (current === sequence) data.value = response.data || {}
+    if (current === sequence) { data.value = response.data || {}; costPage.value = 1 }
   } finally { if (current === sequence) loading.value = false }
 }
 async function openAllocation(userId){
@@ -117,5 +122,5 @@ defineExpose({openAllocation})
 watch(() => props.projectId, () => { data.value = {}; load() }, { immediate: true })
 </script>
 <style scoped>
-.heading{display:flex;justify-content:space-between;align-items:center;gap:16px}.heading h3{margin:0}.heading p,.hint{color:#8492a3}.heading-actions{display:flex;gap:8px}.member-cost-panel :deep(.el-alert){margin-top:16px}.member-cost-panel :deep(.el-date-editor){max-width:100%}.allocation-form{margin-top:18px}.person-hint{display:block;margin-top:5px;color:#8492a3;line-height:1.5}.allocation-table small{display:block;margin-top:3px;color:#909399}.allocation-table :deep(.el-input-number){width:145px}.percent{margin-left:6px;color:#606266}.allocation-total{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:14px;margin:14px 0;padding:14px 16px;border-radius:8px;background:#f5f7fa}.allocation-total b{font-size:20px}.allocation-total small{min-width:78px;text-align:right}.allocation-total.valid{background:#edf8f3;color:#237a57}.allocation-total.invalid{background:#fff6e8;color:#c47a13}@media(max-width:640px){.heading{align-items:flex-start;flex-direction:column}.heading-actions{width:100%;flex-wrap:wrap}.allocation-total{grid-template-columns:1fr auto}.allocation-total small{grid-column:1/-1;text-align:left}}
+.heading{display:flex;justify-content:space-between;align-items:center;gap:16px}.heading h3{margin:0}.heading p,.hint{color:#8492a3}.heading-actions{display:flex;gap:8px}.member-cost-panel :deep(.el-alert){margin-top:16px}.member-cost-panel :deep(.el-date-editor){max-width:100%}.cost-pagination{display:flex;justify-content:flex-end;margin-top:14px}.allocation-form{margin-top:18px}.person-hint{display:block;margin-top:5px;color:#8492a3;line-height:1.5}.allocation-table small{display:block;margin-top:3px;color:#909399}.allocation-table :deep(.el-input-number){width:145px}.percent{margin-left:6px;color:#606266}.allocation-total{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:14px;margin:14px 0;padding:14px 16px;border-radius:8px;background:#f5f7fa}.allocation-total b{font-size:20px}.allocation-total small{min-width:78px;text-align:right}.allocation-total.valid{background:#edf8f3;color:#237a57}.allocation-total.invalid{background:#fff6e8;color:#c47a13}@media(max-width:640px){.heading{align-items:flex-start;flex-direction:column}.heading-actions{width:100%;flex-wrap:wrap}.cost-pagination{justify-content:center}.allocation-total{grid-template-columns:1fr auto}.allocation-total small{grid-column:1/-1;text-align:left}}
 </style>

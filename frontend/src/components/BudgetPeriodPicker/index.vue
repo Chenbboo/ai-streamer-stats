@@ -23,7 +23,7 @@
     @update:model-value="value => emit('update:anchorDate', value)"
   />
   </el-config-provider>
-    <small v-if="cycle === 'QUARTER'" class="period-help">{{ quarterRange || '选择起始月份，自动包含连续三个月（可跨年）' }}</small>
+    <small v-if="cycle === 'QUARTER'" class="period-help">{{ quarterRange || (compact ? '从所选月份起连续三个月' : '选择起始月份，自动包含连续三个月（可跨年）') }}</small>
     <small v-else-if="cycle === 'WEEK' && weekStart" class="period-help">{{ dateText(weekStart) }} 至 {{ dateText(weekStart.add(6, 'day')) }}（周一至周日）</small>
   </div>
 </template>
@@ -39,7 +39,8 @@ const budgetLocale = { ...zhCn, name: 'budget-iso' }
 
 const props = defineProps({
   cycle: { type: String, required: true },
-  anchorDate: { type: String, default: null }
+  anchorDate: { type: String, default: null },
+  compact: Boolean
 })
 const emit = defineEmits(['update:anchorDate'])
 

@@ -100,6 +100,95 @@ public class BusinessProjectHierarchyMapperIntegrationTest
         }
     }
 
+    @Test void companyFilterPreservesPaginationChildMatchingAndAccessScope() throws Exception
+    {
+        try (SqlSession session = factory.openSession(); Statement sql = session.getConnection().createStatement())
+        {
+            sql.execute("update biz_project set company_dept_id=101 where project_id in (1,10,13)");
+            sql.execute("update biz_project set company_dept_id=102 where project_id in (2,3,11,12)");
+            BusinessProjectMapper mapper = session.getMapper(BusinessProjectMapper.class);
+            Map<String, Object> query = query(8L, false, true, "");
+            query.put("companyDeptId", "102");
+            PageHelper.startPage(1, 1);
+            List<BusinessProject> roots = mapper.selectProjectRoots(query);
+            assertEquals(1, ((Page<?>) roots).getTotal());
+            assertEquals(2L, roots.get(0).getProjectId());
+            query.put("keyword", "Needle");
+            assertTrue(mapper.selectProjectRoots(query).isEmpty());
+            query.put("companyDeptId", "101");
+            roots = mapper.selectProjectRoots(query);
+            assertEquals(1, roots.size());
+            assertEquals(1L, roots.get(0).getProjectId());
+            assertEquals(10L, roots.get(0).getMatchedChildId());
+            query.put("parentId", 1L);
+            List<BusinessProject> children = mapper.selectProjectList(query);
+            assertEquals(1, children.size());
+            assertEquals(10L, children.get(0).getProjectId());
+            query.put("companyDeptId", "");
+            query.put("keyword", "");
+            assertEquals(2, mapper.selectProjectRoots(query).size());
+            query.put("companyDeptId", "999");
+            assertTrue(mapper.selectProjectRoots(query).isEmpty());
+        }
+        finally { PageHelper.clearPage(); }
+    }
+
+    @Test void ownerDepartmentFilterIncludesDescendantsAndCombinesWithCompanyWithoutLeakingProjects() throws Exception
+    {
+        try (SqlSession session = factory.openSession(); Statement sql = session.getConnection().createStatement())
+        {
+            sql.execute("alter table sys_user add dept_id bigint");
+            sql.execute("alter table sys_dept add ancestors varchar(100)");
+            sql.execute("insert into sys_dept(dept_id,dept_name,ancestors) values(201,'Operations','0,100,101'),(202,'Team','0,100,101,201'),(1201,'Other','0,100,102')");
+            sql.execute("insert into sys_user(user_id,dept_id) values(9,1201),(10,202),(11,201)");
+            sql.execute("update biz_project set company_dept_id=101 where project_id in (1,10,11,13)");
+            sql.execute("update biz_project set company_dept_id=102 where project_id in (2,3,12)");
+            BusinessProjectMapper mapper = session.getMapper(BusinessProjectMapper.class);
+            Map<String, Object> query = query(8L, false, true, "");
+            query.put("mainOwnerDeptId", "201");
+            List<BusinessProject> roots = mapper.selectProjectRoots(query);
+            assertEquals(1, roots.size());
+            assertEquals(1L, roots.get(0).getProjectId());
+            assertEquals(10L, roots.get(0).getMatchedChildId());
+            query.put("companyDeptId", "102");
+            assertTrue(mapper.selectProjectRoots(query).isEmpty());
+            query.put("companyDeptId", "101");
+            query.put("parentId", 1L);
+            List<BusinessProject> children = mapper.selectProjectList(query);
+            assertEquals(1, children.size());
+            assertEquals(10L, children.get(0).getProjectId());
+            query.put("mainOwnerDeptId", "202");
+            assertEquals(1, mapper.selectProjectRoots(query).size());
+            query.put("mainOwnerDeptId", "999");
+            assertTrue(mapper.selectProjectRoots(query).isEmpty());
+            query.put("mainOwnerDeptId", "");
+            query.put("companyDeptId", "");
+            assertEquals(2, mapper.selectProjectRoots(query).size());
+        }
+    }
+
+    @Test void departmentOptionsIncludeNestedDepartmentsUnderActiveCompanies() throws Exception
+    {
+        try (SqlSession session = factory.openSession(); Statement sql = session.getConnection().createStatement())
+        {
+            sql.execute("alter table sys_dept add ancestors varchar(100)");
+            sql.execute("alter table sys_dept add parent_id bigint");
+            sql.execute("alter table sys_dept add status char(1)");
+            sql.execute("alter table sys_dept add order_num int default 0");
+            sql.execute("insert into sys_dept(dept_id,dept_name,parent_id,ancestors,status,del_flag) values"
+                + "(101,'Company A',100,'0,100','0','0'),(102,'Company B',100,'0,100','1','0'),"
+                + "(201,'Operations',101,'0,100,101','0','0'),(202,'Team',201,'0,100,101,201','0','0'),"
+                + "(203,'Inactive',101,'0,100,101','1','0'),(204,'Deleted',101,'0,100,101','0','2'),"
+                + "(205,'Inactive company team',102,'0,100,102','0','0')");
+            List<Map<String, Object>> options = session.getMapper(BusinessProjectMapper.class).selectProjectDepartmentOptions();
+            assertEquals(2, options.size());
+            // The H2 fixture normalizes unquoted SQL aliases to lower case.
+            assertEquals(201L, ((Number) options.get(0).get("deptid")).longValue());
+            assertEquals(202L, ((Number) options.get(1).get("deptid")).longValue());
+            assertTrue(options.stream().allMatch(option -> "Company A".equals(option.get("companyname"))));
+        }
+    }
+
     @Test void assigningParentOwnerCanSeeCreatedChildButNotOtherChildren() throws Exception {
         try (SqlSession session=factory.openSession();Statement sql=session.getConnection().createStatement()) {
             sql.execute("update biz_project set applicant_user_id=9 where project_id=10");

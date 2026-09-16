@@ -5,6 +5,7 @@ export const getBusinessProjectHierarchy = params => request({ url: '/business/p
 export const getBusinessProjectChildren = parentId => request({ url: `/business/project/${parentId}/children`, method: 'get' })
 export const deleteBusinessProject = id => request({ url: `/business/project/${id}`, method: 'delete' })
 export const getBusinessProjectCompanies = () => request({ url: '/business/project/company-options', method: 'get' })
+export const getBusinessProjectDepartments = () => request({ url: '/business/project/department-options', method: 'get' })
 export const getBusinessProject = id => request({ url: `/business/project/${id}`, method: 'get' })
 export const getBusinessProjectSettlementStatus = id => request({ url: `/business/project/${id}/settlement-status`, method: 'get' })
 export const closeBusinessProjectAccounting = (id, data) => request({ url: `/business/project/${id}/accounting-close`, method: 'post', data })
@@ -17,7 +18,14 @@ export const addBusinessProject = data => request({ url: '/business/project', me
 export const updateBusinessProject = data => request({ url: '/business/project', method: 'put', data })
 export const getBusinessOperatingConfig = id => request({ url: `/business/project/${id}/operating-config`, method: 'get' })
 export const updateBusinessProjectBudget = (id, data) => request({ url: `/business/project/${id}/budget`, method: 'put', data })
-export const saveBusinessProjectKpi = data => request({ url: '/business/project/kpi', method: 'post', data })
+export const saveBusinessProjectKpi = data => {
+  const payload = { ...data }
+  // 考核时间由方案定义，旧指标返回的时间字段不再作为编辑参数提交。
+  delete payload.periodType
+  delete payload.effectiveFrom
+  delete payload.effectiveTo
+  return request({ url: '/business/project/kpi', method: 'post', data: payload })
+}
 export const retireBusinessProjectKpi = (projectId, kpiId) => request({ url: `/business/project/${projectId}/kpi/${kpiId}`, method: 'delete' })
 export const saveBusinessStaffAllocation = data => request({ url: '/business/project/staff-allocation', method: 'post', data })
 export const getBusinessStaffAllocationWorkspace = params => request({ url: '/business/project/staff-allocation/workspace', method: 'get', params })

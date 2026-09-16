@@ -34,6 +34,7 @@ public interface IBusinessProjectService
     List<BusinessProject> projectHierarchy(Map<String, Object> query, Long userId, boolean viewAll, boolean boss);
     List<BusinessProject> projectChildren(Long parentId, Long userId, boolean viewAll, boolean boss);
     List<Map<String, Object>> projectCompanyOptions();
+    List<Map<String, Object>> projectDepartmentOptions();
     void validateSubprojectParent(Long parentId, Long sponsorId, Long applicantId);
     void deleteProject(Long projectId, Long userId, String userName, boolean boss);
     BusinessProject createApprovedProject(BusinessProjectProposal proposal, Long reviewerUserId, String reviewerUserName);

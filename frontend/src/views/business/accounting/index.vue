@@ -9,7 +9,7 @@
     <template v-for="totals in summaryGroups" :key="totals.currency || 'all'"><p v-if="totals.currency" class="currency-label">{{ totals.currency }} 所有部门汇总</p>    <section class="summary-grid"><article><span>确认收入</span><b>{{ money(totals.revenueAmount) }}</b></article><article><span>业务成本</span><b>{{ money(totals.businessCost) }}</b></article><article><span>{{ hasIncompleteCosts?'已核算人员成本':'人员成本' }}</span><b>{{ money(totals.personnelCost) }}</b></article><article><span>项目奖金</span><b>{{ money(totals.bonusCost) }}</b></article><article><span>公共费用（含暂估）</span><b>{{ money(totals.publicCost) }}</b></article><article :class="hasIncompleteCosts?'':Number(totals.profitAmount)<0?'loss':'profit'"><span>{{ hasIncompleteCosts?'已核算税前结果':'税前经营结果' }}</span><b>{{ signed(totals.pretaxProfit ?? totals.profitAmount) }}</b></article><article><span>税额</span><b>{{ money(totals.taxAmount) }}</b></article><article :class="Number(totals.afterTaxProfit)<0?'loss':'profit'"><span>{{ hasIncompleteCosts?'已核算税后盈利':'税后盈利结果' }}</span><b>{{ signed(totals.afterTaxProfit) }}</b></article></section></template>
     <section v-if="data.closedAdjustmentTotals?.length" class="pricing-notice pricing-breakdown"><el-alert title="关账后调整按审核日期计入当期，已包含在上方税前结果、税额和税后盈利中；原结算记录保留。" type="info" :closable="false" /><p v-for="t in data.closedAdjustmentTotals" :key="t.currency">当期关账后调整：{{ signed(t.amount) }} {{ t.currency }} · {{ t.itemCount }} 笔</p></section>
     <el-card shadow="never" class="section-card department-result-card">
-      <div class="section-head"><div><h2>部门月结果 · {{ departmentGroups.length }} 个部门</h2><p>{{ selectedMonthLabel }}，点击部门可查看该部门下所有项目的营收与成本。</p></div><el-button v-hasPermi="['business:accounting:recalculate']" @click="openRecalculate">手动重算</el-button></div>
+      <div class="section-head"><div><h2>部门月结果 · {{ departmentGroups.length }} 个部门</h2><p>{{ selectedMonthLabel }}，点击部门可查看该部门下所有项目的营收与成本。</p></div></div>
       <el-table ref="departmentTable" :data="departmentGroups" row-key="key" class="department-table" empty-text="本月暂无部门经营数据" @row-click="toggleDepartment">
         <el-table-column type="expand">
           <template #default="{ row }">
@@ -68,7 +68,6 @@
       </el-form>
       <template #footer><el-button @click="factDialog=false">{{ factReadOnly?'关闭':'取消' }}</el-button><el-button v-if="!factReadOnly" :type="entryKind==='REVENUE'?'success':'primary'" :disabled="!canWriteFactProject" :loading="saving" @click="saveFact">{{ factForm.status==='RETURNED'?'修改并重新提交':entryKind==='REVENUE'?'保存收入':'保存支出' }}</el-button></template>
     </el-dialog>
-    <el-dialog v-model="recalcDialog" title="重算项目日结果" width="min(500px,94vw)" append-to-body><el-form :model="recalcForm" label-width="90px"><el-form-item label="项目" required><el-select v-model="recalcForm.projectId" filterable style="width:100%"><el-option v-for="p in writableProjects" :key="p.projectId" :label="p.projectName" :value="p.projectId" /></el-select></el-form-item><el-form-item label="业务日期" required><el-date-picker v-model="recalcForm.bizDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-form><template #footer><el-button @click="recalcDialog=false">取消</el-button><el-button type="primary" :loading="saving" :disabled="!canRecalculateProject" @click="saveRecalculate">开始重算</el-button></template></el-dialog>
     <el-drawer v-model="resultDrawer" title="项目日结果计算明细" size="min(760px,96vw)" append-to-body><template v-if="resultDetail"><div class="result-title"><div><b>{{ resultDetail.projectName }}</b><span>{{ resultDetail.bizDate }} · v{{ resultDetail.resultVersion }}</span></div><strong :class="Number(resultDetail.afterTaxProfit)<0?'red':'green'">税后 {{ signed(resultDetail.afterTaxProfit) }}</strong></div><p>税前结果 {{ signed(resultDetail.profitAmount) }} · 税率 {{ resultDetail.taxRate }}% · 当日税额 {{ signed(resultDetail.taxAmount) }}</p><el-alert :title="resultDetail.calculationDetail" type="info" :closable="false"/><el-table :data="resultDetail.items" class="item-table"><el-table-column prop="componentName" label="计算分项"/><el-table-column label="金额" align="right"><template #default="{row}">{{ signed(row.amount) }}</template></el-table-column><el-table-column prop="calculationDetail" label="来源说明" min-width="190"/></el-table><section class="personnel-detail">
   <div class="personnel-title"><div><h3>人员成本明细</h3><p>按成员工作日数和有效日成本计算；下表展示当时保存的核算依据。</p></div><b>{{ money(resultDetail.personnelCost) }} {{ resultDetail.currency||'CNY' }}</b></div>
   <el-table v-if="personnelDetailRows.length" :data="personnelDetailRows" size="small">
@@ -86,7 +85,7 @@
 <script setup name="BusinessAccounting">
 import { newSubmissionId } from '@/utils/submission'
 import {ElMessage,ElMessageBox} from 'element-plus'
-import {confirmBusinessOperatingFact,getBusinessAccountingDashboard,getBusinessDailyResult,getBusinessPersonnelCostOverview,recalculateBusinessProjectDay,returnBusinessOperatingFact,reverseBusinessOperatingFact,saveBusinessOperatingFact} from '@/api/business/accounting'
+import {confirmBusinessOperatingFact,getBusinessAccountingDashboard,getBusinessDailyResult,getBusinessPersonnelCostOverview,returnBusinessOperatingFact,reverseBusinessOperatingFact,saveBusinessOperatingFact} from '@/api/business/accounting'
 import useUserStore from '@/store/modules/user'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 import BusinessSettlementPanel from '@/components/BusinessSettlementPanel/index.vue'
@@ -102,7 +101,7 @@ function routeMonth(value){if(typeof value==='string'&&/^\d{4}-\d{2}$/.test(valu
 function monthRange(month){const [year,number]=String(month).split('-').map(Number),lastDay=new Date(Date.UTC(year,number,0)).getUTCDate(),last=`${month}-${String(lastDay).padStart(2,'0')}`;return [`${month}-01`,month===today().slice(0,7)?today():last]}
 const initialMonth=routeMonth(route.query.month||route.query.dateFrom)
 const query=reactive({companyDeptId:routeId(route.query.companyDeptId),projectId:routeId(route.query.projectId)}),selectedMonth=ref(initialMonth),dates=ref(monthRange(initialMonth)),data=reactive({summary:{},results:[],facts:[],companies:[],projects:[],categories:[],departmentAdjustments:[]}),personnel=reactive({rows:[],personnelCost:0,readyCount:0,issueCount:0,overAllocatedCount:0}),issuesOnly=ref(false),saving=ref(false)
-const factDialog=ref(false),factReadOnly=ref(false),entryKind=ref(''),factForm=reactive({}),recalcDialog=ref(false),recalcForm=reactive({}),resultDrawer=ref(false),resultDetail=ref(null)
+const factDialog=ref(false),factReadOnly=ref(false),entryKind=ref(''),factForm=reactive({}),resultDrawer=ref(false),resultDetail=ref(null)
 const departmentTable=ref(null)
 const summaryGroups=computed(()=>data.summaryByCurrency?.length?data.summaryByCurrency:[data.summary||{}])
 const selectedMonthLabel=computed(()=>`${selectedMonth.value.slice(0,4)}年${selectedMonth.value.slice(5,7)}月`)
@@ -145,7 +144,6 @@ const personnelTotals=computed(()=>personnel.amountsByCurrency?.length?personnel
 const summary=computed(()=>data.summary||{}),filteredProjects=computed(()=>query.companyDeptId?data.projects.filter(p=>Number(p.companyDeptId)===Number(query.companyDeptId)):data.projects)
 const writableProjects=computed(()=>data.projects.filter(project=>projectAccountingState(project)==='OPEN'))
 const factProjectOptions=computed(()=>{const projects=factReadOnly.value?data.projects:writableProjects.value;if(!factForm.companyDeptId)return [];return projects.filter(project=>Number(project.companyDeptId)===Number(factForm.companyDeptId))})
-const canRecalculateProject=computed(()=>writableProjects.value.some(project=>Number(project.projectId)===Number(recalcForm.projectId)))
 const selectedProject=computed(()=>data.projects.find(p=>Number(p.projectId)===Number(query.projectId))||{projectId:query.projectId})
 const repricing=ref(false),loadingData=ref(false),loadedProjectId=ref(null)
 let loadSequence=0
@@ -217,8 +215,6 @@ async function saveFact(){if(factReadOnly.value)return;if(!canWriteFactProject.v
 async function confirmFact(row){await ElMessageBox.confirm('确认后将计入正式日报，不能直接修改，确定吗？','确认入账',{type:'warning'});await confirmBusinessOperatingFact(row.factId);await load();ElMessage.success('已确认入账并生成日结果')}
 async function returnFact(row){const {value}=await ElMessageBox.prompt('请说明收支数据或凭证需要修改的内容','退回收支修改',{inputValidator:v=>!!v?.trim()||'必须填写退回原因',inputAttributes:{maxlength:500},type:'warning'});await returnBusinessOperatingFact(row.factId,{reason:value.trim()});await load();ElMessage.success('已退回提交人修改')}
 async function reverseFact(row){const {value}=await ElMessageBox.prompt('请填写冲销原因','冲销已确认流水',{inputValidator:v=>!!v?.trim()||'必须填写冲销原因',type:'warning'});await reverseBusinessOperatingFact(row.factId,{reason:value});await load();ElMessage.success('已冲销并重新生成日结果')}
-function openRecalculate(){const project=writableProjects.value.find(value=>Number(value.projectId)===Number(query.projectId));Object.assign(recalcForm,{projectId:project?.projectId||null,bizDate:dates.value?.[1]||today()});recalcDialog.value=true}
-async function saveRecalculate(){if(!canRecalculateProject.value||!recalcForm.bizDate)return ElMessage.warning('请选择核算开放的项目和日期');saving.value=true;try{await recalculateBusinessProjectDay(recalcForm);recalcDialog.value=false;await load();ElMessage.success('项目日结果已生成新版本')}finally{saving.value=false}}
 async function openResult(row){resultDetail.value=(await getBusinessDailyResult(row.resultId)).data;resultDrawer.value=true}
 function openStaffCost(row){router.push({path:'/finance/cost-policies',query:{userId:row.userId}})}
 function openStaffProfile(row){router.push({path:'/business/staff',query:{userId:row.userId,action:'edit'}})}

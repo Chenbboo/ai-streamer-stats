@@ -39,6 +39,7 @@ public interface BusinessProjectMapper
     int updateProject(BusinessProject project);
     int countSubprojects(Long projectId);
     List<Map<String, Object>> selectProjectCompanyOptions();
+    List<Map<String, Object>> selectProjectDepartmentOptions();
     int softDeleteProject(@Param("projectId") Long projectId, @Param("version") Integer version,
         @Param("userName") String userName);
     int updateProjectBudget(@Param("projectId") Long projectId, @Param("budgetLimit") java.math.BigDecimal budgetLimit,

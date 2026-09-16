@@ -78,11 +78,18 @@ public class BusinessProjectController extends BaseController
         return success(projectService.projectChildren(parentId, currentUserId(), isAdministrator(), isBoss()));
     }
 
-    @PreAuthorize("@ss.hasPermi('business:project:edit')")
+    @PreAuthorize("@ss.hasAnyPermi('business:project:list,business:project:edit')")
     @GetMapping("/project/company-options")
     public AjaxResult projectCompanyOptions()
     {
         return success(projectService.projectCompanyOptions());
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:list')")
+    @GetMapping("/project/department-options")
+    public AjaxResult projectDepartmentOptions()
+    {
+        return success(projectService.projectDepartmentOptions());
     }
 
     @PreAuthorize("@ss.hasPermi('business:project:edit')")
