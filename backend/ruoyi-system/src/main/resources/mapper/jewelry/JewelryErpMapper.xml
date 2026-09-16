@@ -446,19 +446,30 @@
             and o.transaction_id &lt; r.origin_before_tx and o.origin_date &lt;= r.origin_before_date
           group by r.product_id,r.transaction_id,r.layer_qty
         ),
+        return_first_purchases as (
+          select r.product_id,r.transaction_id,o.document_id,o.doc_no,o.supplier_name_snapshot,
+            o.origin_date,o.deadline,
+            row_number() over(partition by r.product_id,r.transaction_id
+              order by o.origin_date,o.document_id,o.transaction_id) purchase_rank
+          from return_events r join original_inbound o on o.product_id=r.product_id
+            and o.doc_type='PURCHASE_IN'
+            and o.transaction_id &lt; r.origin_before_tx and o.origin_date &lt;= r.origin_before_date
+        ),
         deadline_layer_quantities as (
           select product_id,transaction_id,document_id,doc_no,supplier_name_snapshot,
-            origin_date,deadline,layer_qty,0 origin_unknown
+            origin_date,deadline,layer_qty,0 origin_unknown,0 origin_first_purchase
           from original_inbound
           union all
-          select product_id,transaction_id,
-            case when origin_count=1 then document_id else null end,
-            case when origin_count=1 then doc_no else null end,
-            case when origin_count=1 then supplier_name_snapshot else null end,
-            case when origin_count=1 then origin_date else null end,
-            case when origin_count=1 then deadline else null end,
-            layer_qty,case when origin_count=1 then 0 else 1 end
-          from return_origins
+          select r.product_id,r.transaction_id,
+            case when r.origin_count=1 then r.document_id else fp.document_id end,
+            case when r.origin_count=1 then r.doc_no else fp.doc_no end,
+            case when r.origin_count=1 then r.supplier_name_snapshot else fp.supplier_name_snapshot end,
+            case when r.origin_count=1 then r.origin_date else fp.origin_date end,
+            case when r.origin_count=1 then r.deadline else fp.deadline end,
+            r.layer_qty,case when r.origin_count=1 or fp.document_id is not null then 0 else 1 end,
+            case when r.origin_count&lt;&gt;1 and fp.document_id is not null then 1 else 0 end
+          from return_origins r left join return_first_purchases fp
+            on fp.product_id=r.product_id and fp.transaction_id=r.transaction_id and fp.purchase_rank=1
         ),
         deadline_layers as (
           select l.*,sum(l.layer_qty) over(partition by l.product_id order by l.transaction_id desc
@@ -470,18 +481,28 @@
           where cs.on_hand_qty &gt; 0 and l.cumulative_qty-l.layer_qty &lt; cs.on_hand_qty
         ),
         stock_origin_summary as (
-          select product_id,max(origin_unknown) origin_unknown,
-            case when max(origin_unknown)=0 then min(origin_date) else null end oldest_inbound_date
+          select product_id,max(origin_unknown) origin_unknown,max(origin_first_purchase) origin_first_purchase,
+            case when max(origin_unknown)=0 then
+              coalesce(min(case when origin_first_purchase=1 then origin_date end),min(origin_date))
+              else null end oldest_inbound_date
           from remaining_origin_layers group by product_id
         ),
         remaining_deadlines as (
-          select l.*,row_number() over(partition by l.product_id order by l.deadline,l.document_id,l.transaction_id) deadline_rank
+          select l.*,row_number() over(partition by l.product_id
+            order by l.origin_first_purchase desc,
+              case when l.origin_first_purchase=1 then l.origin_date end,
+              l.deadline,l.document_id,l.transaction_id) deadline_rank
           from remaining_origin_layers l
           join stock_origin_summary os on os.product_id=l.product_id and os.origin_unknown=0
           where l.deadline is not null
         )
     </sql>
 
+    <!-- Same strict seven-day boundary for overview, drill-down and combined warnings. -->
+    <sql id="supplierReturnWarningPredicate">
+        p.status='0' and p.product_type='FINISHED' and s.on_hand_qty &gt; 0
+        and rd.deadline is not null and timestampdiff(DAY,curdate(),rd.deadline) &lt; 7
+    </sql>
     <select id="selectStockList" resultType="java.util.LinkedHashMap">
         with warning_config as (
           select coalesce(max(cast(config_value as unsigned)),25) warning_days
@@ -501,6 +522,7 @@
                case when s.on_hand_qty &gt; 0 and os.oldest_inbound_date is not null
                  then datediff(curdate(),os.oldest_inbound_date) else 0 end stockAgeDays,
                wc.warning_days warningDays,coalesce(os.origin_unknown,0) stockOriginUnknown,
+               coalesce(os.origin_first_purchase,0) stockOriginFirstPurchase,
                rd.deadline supplierReturnDate,
                timestampdiff(DAY,curdate(),rd.deadline) supplierReturnDays,
                rd.doc_no supplierReturnDocNo,rd.supplier_name_snapshot supplierReturnSupplierName,
@@ -526,8 +548,12 @@
                         and s.on_hand_qty &gt; 0 and os.oldest_inbound_date is not null
                           and datediff(curdate(),os.oldest_inbound_date) &gt;= wc.warning_days
                     </when>
+                    <when test="warningType == 'supplierReturn'">
+                        and (<include refid="supplierReturnWarningPredicate"/>)
+                    </when>
                     <otherwise>
                         and ((s.on_hand_qty-s.reserved_out_qty) &lt;= p.warning_qty
+                          or (<include refid="supplierReturnWarningPredicate"/>)
                           or (s.on_hand_qty &gt; 0 and os.oldest_inbound_date is not null
                             and datediff(curdate(),os.oldest_inbound_date) &gt;= wc.warning_days))
                     </otherwise>
@@ -583,6 +609,10 @@
           0 pendingSecondCount,
           (select count(*) from jewelry_stock s
              join jewelry_product p on p.product_id=s.product_id
+             join remaining_deadlines rd on rd.product_id=s.product_id and rd.deadline_rank=1
+             where <include refid="supplierReturnWarningPredicate"/>) supplierReturnWarningCount,
+          (select count(*) from jewelry_stock s
+             join jewelry_product p on p.product_id=s.product_id
              where p.status='0'
                and (s.on_hand_qty-s.reserved_out_qty)&lt;=p.warning_qty) quantityWarningCount,
           (select count(*) from jewelry_stock s
@@ -596,6 +626,9 @@
              left join stock_origin_summary os on os.product_id=s.product_id
              cross join warning_config wc
              where p.status='0' and ((s.on_hand_qty-s.reserved_out_qty)&lt;=p.warning_qty
+               or exists (select 1 from remaining_deadlines rd
+                 where rd.product_id=s.product_id and rd.deadline_rank=1
+                   and (<include refid="supplierReturnWarningPredicate"/>))
                or (s.on_hand_qty&gt;0 and os.oldest_inbound_date is not null
                  and datediff(curdate(),os.oldest_inbound_date)&gt;=wc.warning_days))) warningCount,
           coalesce((select round(sum(d.total_amount),2)

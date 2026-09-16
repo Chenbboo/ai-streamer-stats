@@ -287,7 +287,7 @@ public class JewelryErpController extends BaseController
             query.remove("warningOnly");
             query.remove("warningType");
         }
-        else if (!Arrays.asList("quantity", "age").contains(string(query.get("warningType"))))
+        else if (!Arrays.asList("quantity", "age", "supplierReturn").contains(string(query.get("warningType"))))
         {
             query.remove("warningType");
         }

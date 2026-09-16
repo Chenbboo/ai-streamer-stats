@@ -202,19 +202,31 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
-    void multiplePossibleReturnOriginsAreNotSilentlyReplacedByInspectionDate() throws Exception
+    void ambiguousReturnsUseFirstPurchaseAndItsOwnDeadline() throws Exception
     {
         insertStock(1L, 2, 0, 0, 0, 0, 0, "10");
-        deadlinePurchase(1L, 10, "2026-09-14");
-        deadlinePurchase(2L, 10, "2026-09-15");
-        execute("update jewelry_document set biz_date='2026-08-20' where document_id in(1,2)");
+        deadlinePurchase(1L, 10, "2026-09-10");
+        deadlinePurchase(2L, 10, "2026-09-30");
+        // First purchase means earliest business date, not lowest ID or shortest deadline.
+        execute("update jewelry_document set biz_date='2026-08-24',supplier_name_snapshot='later' where document_id=1");
+        execute("update jewelry_document set biz_date='2026-08-20',supplier_name_snapshot='first' where document_id=2");
         inspectedReturn(3L, 4L, null, 2, "2026-08-24", "2026-08-26");
-        assertEquals("1", originValue("origin_unknown"));
-        assertEquals(null, originValue("oldest_inbound_date"));
-        assertEquals(null, nextDeadline());
-        execute("update jewelry_document set status='REVERSED' where document_id=2");
+        assertEquals("0", originValue("origin_unknown"));
+        assertEquals("1", originValue("origin_first_purchase"));
         assertEquals("2026-08-20", originValue("oldest_inbound_date"));
+        assertEquals("2026-09-30", nextDeadline());
+        assertEquals("PUR-2", deadlineValue("doc_no"));
+        assertEquals("first", deadlineValue("supplier_name_snapshot"));
+        // Even with another remaining known batch, the agreed fallback uses the FIRST purchase's terms.
+        execute("update jewelry_stock set on_hand_qty=15 where product_id=1");
+        assertEquals("2026-09-30", nextDeadline());
+        execute("update jewelry_document set supplier_return_date=null where document_id=2");
         assertEquals("2026-09-14", nextDeadline());
+        // Reversed purchases are excluded; unique sources retain their existing behavior.
+        execute("update jewelry_document set status='REVERSED' where document_id=2");
+        assertEquals("2026-08-24", originValue("oldest_inbound_date"));
+        assertEquals("0", originValue("origin_first_purchase"));
+        assertEquals("2026-09-10", nextDeadline());
     }
 
     @Test
@@ -237,6 +249,32 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void firstPurchaseFallbackBreaksSameDateTiesByDocumentId() throws Exception
+    {
+        insertStock(1L, 2, 0, 0, 0, 0, 0, "10");
+        deadlinePurchase(1L, 10, "2026-09-30");
+        deadlinePurchase(2L, 10, "2026-09-01");
+        execute("update jewelry_document set biz_date='2026-08-20' where document_id in(1,2)");
+        inspectedReturn(3L, 4L, null, 2, "2026-08-24", "2026-08-26");
+        assertEquals("PUR-1", deadlineValue("doc_no"));
+        assertEquals("2026-09-30", nextDeadline());
+    }
+
+    @Test
+    void missingOriginalPurchaseIsNotInventedOrReplacedByLaterPurchase() throws Exception
+    {
+        insertStock(1L, 2, 0, 0, 0, 0, 0, "10");
+        inspectedReturn(1L, 2L, null, 2, "2026-08-24", "2026-08-26");
+        deadlinePurchase(3L, 10, "2026-09-30");
+        execute("update jewelry_document set biz_date='2026-08-27' where document_id=3");
+        // Later purchase was returned to its supplier; it must not become the earlier customer's source.
+        insertDocument(4L, "SUP-LATER", "SUPPLIER_RETURN", "POSTED", 3L);
+        insertItem(4L, 4L, 3L, 1L, 10);
+        assertEquals("1", originValue("origin_unknown"));
+        assertEquals(null, nextDeadline());
+    }
+
+    @Test
     void purchaseAfterCustomerReturnCannotBecomeItsOrigin() throws Exception
     {
         insertStock(1L, 12, 0, 0, 0, 0, 0, "10");
@@ -247,6 +285,55 @@ class JewelryErpMapperIntegrationTest
         inspectedReturn(3L, 4L, null, 2, "2026-08-24", "2026-08-26");
         assertEquals("2026-08-20", originValue("oldest_inbound_date"));
         assertEquals("2026-09-14", nextDeadline());
+    }
+
+    @Test
+    void supplierReturnWarningUsesStrictSevenDaysAndMatchesDrillDown() throws Exception
+    {
+        insertStock(1L, 10, 0, 0, 0, 0, 0, "10");
+        deadlinePurchase(1L, 10, "2026-09-14");
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification)"
+            + " values(1,'SKU-1','退供预警边界测试','FINISHED','普通')");
+        for (int days : new int[] {-5, 0, 1, 6, 7, 8})
+        {
+            execute("update jewelry_document set supplier_return_date=timestampadd(DAY," + days + ",current_date) where document_id=1");
+            assertSupplierReturnWarningCount(days < 7 ? 1 : 0);
+        }
+        execute("update jewelry_document set supplier_return_date=current_date where document_id=1");
+        for (String type : Arrays.asList("PART", "ACCESSORY", "WELFARE"))
+        {
+            execute("update jewelry_product set product_type='" + type + "' where product_id=1");
+            assertSupplierReturnWarningCount(0);
+        }
+        execute("update jewelry_product set product_type='FINISHED',status='1' where product_id=1");
+        assertSupplierReturnWarningCount(0);
+        execute("update jewelry_product set status='0' where product_id=1");
+        execute("update jewelry_stock set on_hand_qty=0 where product_id=1");
+        assertSupplierReturnWarningCount(0);
+        execute("update jewelry_stock set on_hand_qty=10 where product_id=1");
+        execute("update jewelry_document set status='REVERSED' where document_id=1");
+        assertSupplierReturnWarningCount(0);
+    }
+
+    private void assertSupplierReturnWarningCount(int expected) throws Exception
+    {
+        Map<String, Object> query = new HashMap<String, Object>();
+        query.put("warningOnly", true);
+        query.put("warningType", "supplierReturn");
+        String stockSql = sqlSessionFactory.getConfiguration()
+            .getMappedStatement("com.ruoyi.jewelry.mapper.JewelryErpMapper.selectStockList")
+            .getBoundSql(query).getSql();
+        String ctes = stockSql.substring(stockSql.indexOf("return_config as"), stockSql.indexOf("select p.product_id productId"));
+        // Execute the actual production filter, excluding unrelated MySQL-only age projections.
+        String from = stockSql.substring(stockSql.indexOf("from jewelry_stock s join jewelry_product p", stockSql.indexOf("select p.product_id productId")), stockSql.lastIndexOf("order by p.product_id desc"));
+        assertEquals(expected, intValue("with " + ctes
+            + ", warning_config as (select 25 warning_days) select count(*) " + from));
+        String dashboardSql = sqlSessionFactory.getConfiguration()
+            .getMappedStatement("com.ruoyi.jewelry.mapper.JewelryErpMapper.selectDashboard")
+            .getBoundSql(Collections.emptyMap()).getSql();
+        int end = dashboardSql.indexOf(") supplierReturnWarningCount");
+        int start = dashboardSql.lastIndexOf("(select count(*)", end);
+        assertEquals(expected, intValue("with " + ctes + " " + dashboardSql.substring(start + 1, end)));
     }
 
     private void saleEvent(Long id, int qty, String date)
@@ -320,6 +407,11 @@ class JewelryErpMapperIntegrationTest
 
     private String nextDeadline() throws Exception
     {
+        return deadlineValue("deadline");
+    }
+
+    private String deadlineValue(String column) throws Exception
+    {
         // Execute the production CTEs, independently of existing MySQL-only stock-age expressions.
         String sql = sqlSessionFactory.getConfiguration()
             .getMappedStatement("com.ruoyi.jewelry.mapper.JewelryErpMapper.selectStockList")
@@ -327,9 +419,10 @@ class JewelryErpMapperIntegrationTest
           String ctes = sql.substring(sql.indexOf("return_config as"), sql.indexOf("select p.product_id productId"));
         try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement();
              ResultSet result = statement.executeQuery("with " + ctes
-                 + " select deadline from remaining_deadlines where deadline_rank=1"))
+                 + " select " + column + " from remaining_deadlines where deadline_rank=1"))
         {
-            return result.next() ? result.getDate(1).toString() : null;
+            if (!result.next()) return null;
+            return "deadline".equals(column) ? result.getDate(1).toString() : result.getString(1);
         }
     }
 
