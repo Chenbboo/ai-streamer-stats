@@ -563,8 +563,38 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void supplierReturnSourcesAreCappedByAvailableStockNotPurchaseQuota()
+    {
+        insertDocument(1L, "PUR-29", "PURCHASE_IN", "POSTED", null);
+        insertItem(101L, 1L, null, 10L, 29);
+        insertDocument(2L, "RETURN-8", "SUPPLIER_RETURN", "POSTED", 1L);
+        insertItem(201L, 2L, 101L, 10L, 8);
+        insertDocument(3L, "RETURN-DRAFT", "SUPPLIER_RETURN", "DRAFT", 1L);
+        insertItem(301L, 3L, 101L, 10L, 2);
+        insertStock(10L, 12, 0, 30, 0, 40, 0, "750");
+        // on-hand, frozen outbound, expected: inspection/defect stock never increases the limit.
+        for (int[] sample : new int[][] {{12,0,12},{12,3,9},{30,0,21},{0,0,0},{12,12,0},{2,3,0}})
+        {
+            execute("update jewelry_stock set on_hand_qty=" + sample[0] + ",reserved_out_qty=" + sample[1] + " where product_id=10");
+            try (SqlSession session = sqlSessionFactory.openSession())
+            {
+                JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+                assertEquals(sample[2], mapper.selectSupplierReturnSourceItems(1L, null).get(0).getRemainingReturnQty());
+                assertEquals(sample[2], mapper.selectSupplierReturnSourceItems(1L, 3L).get(0).getRemainingReturnQty());
+            }
+        }
+        execute("delete from jewelry_stock where product_id=10");
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            assertEquals(0, session.getMapper(JewelryErpMapper.class)
+                .selectSupplierReturnSourceItems(1L, null).get(0).getRemainingReturnQty());
+        }
+    }
+
+    @Test
     void supplierReturnSourcesTrackPendingAndPostedReturnedQuantities()
     {
+        insertStock(10L, 5, 2, 0, 0, 0, 0, "12.3456");
         insertDocument(1L, "PURCHASE-1", "PURCHASE_IN", "POSTED", null);
         execute("update jewelry_document set supplier_id=9 where document_id=1");
         insertItem(101L, 1L, null, 10L, 5);

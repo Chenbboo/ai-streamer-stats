@@ -908,6 +908,32 @@ class JewelryErpServiceImplTest
     }
 
     @Test
+    void supplierReturnCannotExceedCurrentAvailableStockEvenWithPurchaseQuota()
+    {
+        JewelryDocument purchase = document(90L, "PURCHASE_IN", "POSTED");
+        purchase.setSupplierId(9L);
+        when(mapper.selectDocumentById(90L)).thenReturn(purchase);
+        when(mapper.selectDocumentItems(90L)).thenReturn(Arrays.asList(item(901L, 29, "750")));
+        when(mapper.selectSupplierReturnedQtyBySourceItem(901L, null)).thenReturn(8);
+        for (int[] sample : new int[][] {{12,0,13,12},{12,3,10,9},{0,0,1,0}})
+        {
+            when(mapper.selectStockForUpdate(PRODUCT_ID))
+                .thenReturn(stock(sample[0], sample[1], 30, 0, 40, 0, "750", "22500", "30000"));
+            JewelryDocument supplierReturn = document(null, "SUPPLIER_RETURN", null);
+            supplierReturn.setSupplierId(9L);
+            supplierReturn.setSourceDocumentId(90L);
+            supplierReturn.setReturnReason("退供");
+            JewelryDocumentItem returnItem = item(null, sample[2], "750");
+            returnItem.setSourceItemId(901L);
+            supplierReturn.setItems(Arrays.asList(returnItem));
+            ServiceException error = assertThrows(ServiceException.class,
+                () -> service.saveDocument(supplierReturn, MAKER_ID, "maker"));
+            assertTrue(error.getMessage().contains("剩余可退数量" + sample[3] + "件"));
+        }
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
     void purchaseReversalIsBlockedByActiveSupplierReturn()
     {
         JewelryDocument purchase = document(90L, "PURCHASE_IN", "POSTED");

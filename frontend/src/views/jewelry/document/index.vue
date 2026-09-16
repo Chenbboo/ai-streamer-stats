@@ -78,7 +78,7 @@
           title="已按原销售组合带出主商品和搭售散件。修改主商品退货数量会按原组合比例同步散件数量；未实际退回的散件可单独修改数量或删除。"
           type="success" :closable="false" show-icon />
         <el-alert v-if="form.docType==='SUPPLIER_RETURN' && !form.sourceDocumentId && !readonly"
-          title="请先选择供应商及其已入账的原采购单，系统会带出剩余可退商品、原采购价和采购金额。"
+          title="请先选择供应商及其已入账的原采购单。剩余可退取原采购单剩余额度与当前可用库存的较小值，已扣除其他待审出库占用。"
           type="warning" :closable="false" show-icon />
         <el-alert v-if="form.docType==='RETURN_INSPECT' && !form.sourceDocumentId && !readonly"
           title="退货质检必须先选择已入账的客户退货单，系统会带出尚未处理的退货明细。"
@@ -173,7 +173,7 @@
           <el-table-column v-if="form.docType==='CUSTOMER_RETURN' && form.sourceDocumentId" label="原销售数量" width="105" align="right"><template #default="{row}">{{row.sourceQty}}</template></el-table-column>
           <el-table-column v-if="form.docType==='CUSTOMER_RETURN' && form.sourceDocumentId" label="剩余可退" width="105" align="right"><template #default="{row}">{{row.remainingReturnQty}}</template></el-table-column>
           <el-table-column v-if="showQuantityColumn" label="数量" width="130">
-            <template #default="{ row }"><el-input-number v-model="row.qty" :min="1" :max="linkedReturnMaxQty(row)" :disabled="readonly || (form.docType==='SUPPLIER_RETURN' && !form.sourceDocumentId)" @change="linkedReturnQtyChanged(row)" /></template>
+            <template #default="{ row }"><el-input-number v-model="row.qty" :min="1" :max="linkedReturnMaxQty(row)" :disabled="readonly || (form.docType==='SUPPLIER_RETURN' && (!form.sourceDocumentId || Number(row.remainingReturnQty || 0)<=0))" @change="linkedReturnQtyChanged(row)" /></template>
           </el-table-column>
           <el-table-column v-if="form.docType==='SUPPLIER_RETURN'" label="原采购单价" width="125" align="right"><template #default="{row}">{{fourDecimalMoney(row.sourceUnitPrice)}}</template></el-table-column>
           <el-table-column v-if="form.docType==='CUSTOMER_RETURN' && !form.sourceDocumentId" label="系统应退单价" width="135" align="right">
@@ -779,7 +779,8 @@ async function loadSupplierReturnSource(id,preserveCurrent=false){
   const source=(await getSupplierReturnSource(id,form.documentId)).data
   if(String(source.supplierId)!==String(form.supplierId))throw new Error('原采购单与所选供应商不一致')
   form.sourceDocNo=source.docNo||''
-  form.items=(source.items||[]).map(sourceItem=>{
+  form.items=(source.items||[]).filter(sourceItem=>Number(sourceItem.remainingReturnQty||0)>0
+    || (preserveCurrent && currentBySourceItem.has(sourceItem.itemId))).map(sourceItem=>{
     const current=preserveCurrent?currentBySourceItem.get(sourceItem.itemId):null
     const remaining=Number(sourceItem.remainingReturnQty||0)
     return {...blankItem(),...(current||{}),productId:sourceItem.productId,sourceItemId:sourceItem.itemId,
@@ -789,7 +790,7 @@ async function loadSupplierReturnSource(id,preserveCurrent=false){
       productTypeSnapshot:sourceItem.productTypeSnapshot||'',specificationSnapshot:sourceItem.specificationSnapshot||'',
       imageUrls:sourceItem.imageUrls||''}
   })
-  if(!form.items.length)throw new Error('该采购单已没有可退商品')
+  if(!form.items.length)throw new Error('该采购单没有当前可退商品，请检查采购单剩余额度和可用库存')
 }
 async function supplierReturnSourceChanged(id){
   form.sourceDocNo=''
@@ -889,7 +890,7 @@ function validateDocument(requireSubmit=false){
   if(form.docType==='RETURN_INSPECT'&&!form.sourceDocumentId){proxy.$modal.msgError('退货质检必须选择原客户退货单');return false}
   if(!form.items.length||form.items.some(x=>!x.productId)){proxy.$modal.msgError('请完整选择商品');return false}
   if(form.docType==='SUPPLIER_RETURN'&&form.items.some(x=>!x.sourceItemId)){proxy.$modal.msgError('退供商品必须来自原采购单');return false}
-  if(form.docType==='SUPPLIER_RETURN'&&form.items.some(x=>Number(x.qty||0)>Number(x.remainingReturnQty||0))){proxy.$modal.msgError('退货数量不能超过原采购单剩余可退数量');return false}
+  if(form.docType==='SUPPLIER_RETURN'&&form.items.some(x=>Number(x.qty||0)>Number(x.remainingReturnQty||0))){proxy.$modal.msgError('退货数量不能超过当前剩余可退数量，请检查可用库存；不可退的行请删除');return false}
   if(form.docType==='RETURN_INSPECT'&&form.items.some(x=>!x.sourceItemId)){proxy.$modal.msgError('质检商品必须来自原客户退货单');return false}
   if(form.docType==='RETURN_INSPECT'&&form.items.some(x=>Number(x.goodQty||0)+Number(x.defectQty||0)<=0)){proxy.$modal.msgError('每行至少填写一个良品或次品数量');return false}
   if(form.docType==='RETURN_INSPECT'&&form.items.some(x=>Number(x.goodQty||0)+Number(x.defectQty||0)>Number(x.remainingInspectQty||0))){proxy.$modal.msgError('质检数量不能超过原退货单剩余待检数量');return false}

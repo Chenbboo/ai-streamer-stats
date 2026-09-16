@@ -773,8 +773,10 @@
     </select>
     <select id="selectSupplierReturnSourceItems" resultMap="itemMap">
         select source_item.*,
-          source_item.qty-coalesce(returned.returned_qty,0) remaining_return_qty
+          greatest(0,least(source_item.qty-coalesce(returned.returned_qty,0),
+            coalesce(stock.on_hand_qty,0)-coalesce(stock.reserved_out_qty,0))) remaining_return_qty
         from jewelry_document_item source_item
+        left join jewelry_stock stock on stock.product_id=source_item.product_id
         left join (
           select return_item.source_item_id,sum(return_item.qty) returned_qty
           from jewelry_document_item return_item

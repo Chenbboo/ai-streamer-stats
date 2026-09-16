@@ -1031,9 +1031,12 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     int returnedQty = mapper.selectSupplierReturnedQtyBySourceItem(sourceItem.getItemId(),
                         document.getDocumentId());
                     int remainingQty = nonNegative(sourceItem.getQty()) - returnedQty;
+                    int availableQty = Math.max(0, decimal(stock.get("onHandQty"))
+                        .subtract(decimal(stock.get("reservedOutQty"))).intValue());
+                    remainingQty = Math.max(0, Math.min(remainingQty, availableQty));
                     if (item.getQty() > remainingQty)
-                        throw new ServiceException(item.getProductNameSnapshot() + "本次退货数量不能超过原采购单剩余可退数量"
-                            + Math.max(remainingQty, 0) + "件");
+                        throw new ServiceException(item.getProductNameSnapshot() + "本次退货数量不能超过当前剩余可退数量"
+                            + remainingQty + "件（取原采购单剩余额度与当前可用库存的较小值）");
                     item.setSourceItemId(sourceItem.getItemId());
                     item.setSourceUnitPrice(money(sourceItem.getUnitPrice()));
                     if (money(item.getUnitPrice()).signum() <= 0)
