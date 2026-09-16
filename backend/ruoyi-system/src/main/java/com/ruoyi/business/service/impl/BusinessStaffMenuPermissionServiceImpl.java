@@ -27,6 +27,9 @@ import com.ruoyi.system.service.PersonalMenuPermissionService;
 @Service
 public class BusinessStaffMenuPermissionServiceImpl implements IBusinessStaffMenuPermissionService
 {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     private static final String HIDDEN = PersonalMenuPermissionService.HIDDEN;
     private static final String READ = PersonalMenuPermissionService.READ;
     private static final String MAINTAIN = PersonalMenuPermissionService.MAINTAIN;
@@ -151,7 +154,7 @@ public class BusinessStaffMenuPermissionServiceImpl implements IBusinessStaffMen
         if (target == null || "2".equals(target.getDelFlag())) throw new ServiceException("人员不存在");
         if (!administrator)
         {
-            if (projectMapper.countUserRoleByKey(operatorUserId, "company_owner") == 0)
+            if (!companyAccess.staff(operatorUserId,userId,"STAFF"))
                 throw new ServiceException("只有老板可以设置员工目录权限");
         }
         return target;

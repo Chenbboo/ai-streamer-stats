@@ -20,7 +20,7 @@ public class BusinessFeishuController extends BaseController
 
     @PreAuthorize("@ss.hasPermi('business:integration:feishu')")
     @GetMapping("/{connectionId}/directory") public AjaxResult directory(@PathVariable Long connectionId)
-    { return success(service.directory(connectionId)); }
+    { service.requireIntegration(connectionId,SecurityUtils.getUserId()); return success(service.directory(connectionId)); }
 
     @PreAuthorize("@ss.hasPermi('business:integration:feishu')")
     @PostMapping("/{connectionId}/mappings/batch")
@@ -30,9 +30,9 @@ public class BusinessFeishuController extends BaseController
 
     @PreAuthorize("@ss.hasPermi('business:integration:feishu')")
     @GetMapping("/{connectionId}/sync-overview") public AjaxResult overview(@PathVariable Long connectionId)
-    { return success(service.syncOverview(connectionId)); }
+    { service.requireIntegration(connectionId,SecurityUtils.getUserId()); return success(service.syncOverview(connectionId)); }
 
-    @PreAuthorize("@ss.hasAnyPermi('business:integration:feishu,business:attendance:cutover')")
+    @PreAuthorize("@ss.hasAnyPermi('business:integration:feishu,business:attendance:cutover,business:attendance:read')")
     @GetMapping("/connections") public AjaxResult connections()
     { return success(service.connections(SecurityUtils.getUserId(),SecurityUtils.hasPermi("business:integration:feishu"))); }
 
@@ -43,11 +43,11 @@ public class BusinessFeishuController extends BaseController
 
     @PreAuthorize("@ss.hasPermi('business:integration:feishu')")
     @GetMapping("/{connectionId}/people") public AjaxResult people(@PathVariable Long connectionId)
-    { return success(service.people(connectionId)); }
+    { service.requireIntegration(connectionId,SecurityUtils.getUserId()); return success(service.people(connectionId)); }
 
     @PreAuthorize("@ss.hasPermi('business:integration:feishu')")
     @GetMapping("/{connectionId}/mappings") public AjaxResult mappings(@PathVariable Long connectionId)
-    { return success(service.mappings(connectionId)); }
+    { service.requireIntegration(connectionId,SecurityUtils.getUserId()); return success(service.mappings(connectionId)); }
 
     @PreAuthorize("@ss.hasPermi('business:integration:feishu')")
     @Log(title="飞书人员映射",businessType=BusinessType.INSERT,isSaveRequestData=false,isSaveResponseData=false)
@@ -59,18 +59,18 @@ public class BusinessFeishuController extends BaseController
     @PutMapping("/mappings/{mappingId}/retire") public AjaxResult retire(@PathVariable Long mappingId,@RequestBody Map<String,Object> body)
     { service.retireMapping(mappingId,body,SecurityUtils.getUserId()); return success(); }
 
-    @PreAuthorize("@ss.hasAnyPermi('business:integration:feishu,business:attendance:cutover')")
+    @PreAuthorize("@ss.hasAnyPermi('business:integration:feishu,business:attendance:cutover,business:attendance:read')")
     @GetMapping("/{connectionId}/runs") public AjaxResult runs(@PathVariable Long connectionId)
-    { if(!SecurityUtils.hasPermi("business:integration:feishu"))service.requireConnectionOwner(connectionId,SecurityUtils.getUserId());return success(service.runs(connectionId)); }
+    { service.requireConnectionRead(connectionId,SecurityUtils.getUserId());return success(service.runs(connectionId)); }
 
     @PreAuthorize("@ss.hasPermi('business:integration:feishu')")
     @Log(title="飞书手动补拉",businessType=BusinessType.OTHER,isSaveRequestData=false,isSaveResponseData=false)
     @PostMapping("/{connectionId}/sync") public AjaxResult sync(@PathVariable Long connectionId,@RequestBody Map<String,Object> body)
     { return success(service.startSync(connectionId,body,SecurityUtils.getUserId())); }
 
-    @PreAuthorize("@ss.hasAnyPermi('business:integration:feishu,business:attendance:cutover')")
+    @PreAuthorize("@ss.hasAnyPermi('business:integration:feishu,business:attendance:cutover,business:attendance:read')")
     @GetMapping("/{connectionId}/issues") public AjaxResult issues(@PathVariable Long connectionId)
-    { if(!SecurityUtils.hasPermi("business:integration:feishu"))service.requireConnectionOwner(connectionId,SecurityUtils.getUserId());return success(service.issues(connectionId)); }
+    { service.requireConnectionRead(connectionId,SecurityUtils.getUserId());return success(service.issues(connectionId)); }
 
     @PreAuthorize("@ss.hasPermi('business:integration:feishu')")
     @Log(title="飞书同步问题处理",businessType=BusinessType.UPDATE,isSaveRequestData=false,isSaveResponseData=false)

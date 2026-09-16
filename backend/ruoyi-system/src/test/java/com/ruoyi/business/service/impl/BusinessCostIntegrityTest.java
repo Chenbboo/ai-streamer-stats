@@ -31,8 +31,10 @@ class BusinessCostIntegrityTest {
         when(f.costs.selectRolePeriods(1L)).thenReturn(Arrays.asList(row("userId",7L,"effectiveFrom","2026-08-31","memberRole","MEMBER"),row("userId",7L,"effectiveFrom","2026-09-03","memberRole","OBSERVER")));
         assertEquals(3,f.week().size());
     }
-    @Test void stillParticipatingAfterPlannedEndContinuesAccruing(){
+    @Test void plannedEndStopsAccruingAndAnExplicitActualEndTakesPrecedence(){
         BusinessMemberDayCostServiceTest f=fixture();f.project.setPlanEndDate(Date.valueOf("2026-09-04"));
+        assertEquals(0,f.service.calculate(f.project,LocalDate.parse("2026-09-07"),LocalDate.parse("2026-09-08")).size());
+        f.project.setPlanEndDate(Date.valueOf("2026-09-08"));
         assertEquals(2,f.service.calculate(f.project,LocalDate.parse("2026-09-07"),LocalDate.parse("2026-09-08")).size());
         f.project.setActualEndDate(Date.valueOf("2026-09-07"));
         assertEquals(1,f.service.calculate(f.project,LocalDate.parse("2026-09-07"),LocalDate.parse("2026-09-08")).size());

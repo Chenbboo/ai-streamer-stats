@@ -34,7 +34,7 @@ public class BusinessProjectProposalAccessMapperIntegrationTest {
         }
         Configuration config=new Configuration(new Environment("test",new JdbcTransactionFactory(),source));
         String resource="mapper/business/BusinessProjectProposalMapper.xml";
-        try(InputStream xml=Resources.getResourceAsStream(resource)){new XMLMapperBuilder(xml,config,resource,config.getSqlFragments()).parse();}
+        try(InputStream xml=Resources.getResourceAsStream(resource)){com.ruoyi.business.CompanyAccessTestSupport.register(config);new XMLMapperBuilder(xml,config,resource,config.getSqlFragments()).parse();}
         factory=new SqlSessionFactoryBuilder().build(config);
     }
     @Test void companyRatesAllowOwnCompanyDescendantsAndLeaderOnly(){

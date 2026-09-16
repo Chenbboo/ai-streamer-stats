@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildOwnerTodos, buildPublicExpenseTodos } from './ownerTodos.js'
+import { buildOwnerTodos, buildPublicExpenseTodos, buildAllocationReviewTodos } from './ownerTodos.js'
 
 const expense = { allocationId: 51, billStatus: 'PUBLISHED', status: 'DRAFT', companyName: '上海公司', month: '2026-09', remainingAmount: 200, amount: 500, currency: 'CNY' }
 test('published owner expense produces a todo linking the exact allocation and month', () => {
@@ -67,4 +67,19 @@ test('allocation confirmation todo belongs to its review project even when pause
   assert.equal(rows[0].action,'allocation-review')
   assert.equal(rows[0].item.userId,11)
   assert.equal(rows[0].urgent,true)
+})
+
+test('reviewer queue includes other-project adjustments once and carries exact employee/date', () => {
+  const request={requestId:1,projectId:9,userId:132,userName:'蔡新武',applicantName:'蔡新武',effectiveDate:'2026-09-16'}
+  const projects=[{projectId:12,projectName:'3'},{projectId:9,projectName:'meimaru管理系统开发'}]
+  const todos=buildAllocationReviewTodos([request,{...request,requestId:'1'}],projects)
+  assert.equal(todos.length,1)
+  assert.equal(todos[0].projectId,9)
+  assert.equal(todos[0].projectName,'meimaru管理系统开发')
+  assert.equal(todos[0].item.userId,132)
+  assert.equal(todos[0].item.effectiveDate,'2026-09-16')
+  assert.match(todos[0].detail,/蔡新武发起/)
+  assert.deepEqual(buildAllocationReviewTodos([]),[])
+  for(const status of ['APPROVED','APPLIED','REJECTED','WITHDRAWN'])
+    assert.deepEqual(buildAllocationReviewTodos([{...request,status}],projects),[])
 })

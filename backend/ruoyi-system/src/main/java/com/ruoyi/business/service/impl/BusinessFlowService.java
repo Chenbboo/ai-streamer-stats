@@ -19,6 +19,9 @@ import com.ruoyi.system.service.OnlineUserPermissionService;
 /** Explicit business transitions; original accounting facts and priced days remain immutable. */
 @Service
 public class BusinessFlowService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
  @Autowired private BusinessFlowMapper flows;
  @Autowired private BusinessProjectMapper projects;
  @Autowired private BusinessAccountingMapper accounting;
@@ -58,7 +61,7 @@ public class BusinessFlowService {
    return projectService.getProject(id,actor,SecurityUtils.isAdmin(actor),boss);
  }
  private void staffScope(Long id){
-   users.checkUserDataScope(id);
+   companyAccess.requireStaff(id);
    SysUser u=users.selectUserById(id);
    if(u==null||"2".equals(u.getDelFlag()))throw new ServiceException("人员不存在");
    if(SecurityUtils.isAdmin(id)||projects.countUserRoleByKey(id,"company_owner")>0)throw new ServiceException("管理员和老板账号需通过专门交接办理");
@@ -119,7 +122,7 @@ public class BusinessFlowService {
    BusinessProject p=projects.selectProjectByIdForUpdate(id);
    if(p==null)throw new ServiceException("项目不存在");
    Long sponsor=p.getSponsorOwnerUserId()==null?p.getInitiatorUserId():p.getSponsorOwnerUserId();
-   if(!admin&&!actor.equals(sponsor)&&!actor.equals(p.getMainOwnerUserId()))throw new ServiceException("无权查看或申请该项目调整");
+   if(!admin&&!companyAccess.project(p,actor)&&!actor.equals(p.getMainOwnerUserId()))throw new ServiceException("无权查看或申请该项目调整");
    return p;
  }
  @Transactional
@@ -153,7 +156,7 @@ public class BusinessFlowService {
    BusinessProject p=accessibleProject(number(snapshot.get("project_id")),actor,false);
    Map<String,Object> a=flows.lockAdjustment(id);if(a==null)throw new ServiceException("调整单不存在");
    Long sponsor=p.getSponsorOwnerUserId()==null?p.getInitiatorUserId():p.getSponsorOwnerUserId();
-   if(!actor.equals(sponsor))throw new ServiceException("只能由项目归属老板审核");
+   if(!companyAccess.project(p,actor))throw new ServiceException("只能由获授权的公司老板审核");
    String decision=String.valueOf(input.get("decision"));if(!Arrays.asList("APPROVED","REJECTED").contains(decision))throw new ServiceException("审核决定无效");
    if(!"PENDING".equals(a.get("status")))throw new ServiceException("该调整单已处理，请刷新");
    Map<String,Object> row=new HashMap<>();row.put("id",id);row.put("status",decision);row.put("actor",name);row.put("actorId",actor);row.put("comment",required(input.get("comment"),"审核意见"));

@@ -28,6 +28,9 @@ import com.alibaba.fastjson2.JSON;
 @Service
 public class BusinessProjectManagementFeeService
 {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     private static final int ELIGIBILITY_PROJECT_COUNT=3;
     private static final List<String> MODES=Arrays.asList("FIXED","PROFIT_RATE","WAIVED");
     private static final List<String> PAYMENT_METHODS=Arrays.asList("BANK","WECHAT","ALIPAY","CASH","OTHER");
@@ -55,7 +58,7 @@ public class BusinessProjectManagementFeeService
     {
         if(input==null)throw error("请填写项目管理费规则");
         BusinessProject project=project(projectId,true);
-        if(!sponsor(project,userId))throw error("只有项目归属老板可以设置项目管理费");
+        if(!sponsor(project,userId))throw error("只有获授权的公司老板可以设置项目管理费");
         if("CLOSED".equals(accountingState(project)))throw error("项目核算已关闭，不能修改管理费");
         Map<String,Object> current=mapper.selectFeeForUpdate(projectId);
         if(current!=null&&"SETTLED".equals(current.get("status")))throw error("项目管理费已确认入账，不能修改");
@@ -94,7 +97,7 @@ public class BusinessProjectManagementFeeService
     public Map<String,Object> settle(Long projectId,Date closeDate,Long userId,String userName)
     {
         BusinessProject project=project(projectId,true);
-        if(!sponsor(project,userId))throw error("只有项目归属老板可以确认项目管理费");
+        if(!sponsor(project,userId))throw error("只有获授权的公司老板可以确认项目管理费");
         Map<String,Object> fee=mapper.selectFeeForUpdate(projectId);
         Map<String,Object> eligibility=ownerLoad(project);
         if(fee!=null&&!Objects.equals(longValue(fee.get("recipientUserId")),project.getMainOwnerUserId()))fee=null;
@@ -143,7 +146,7 @@ public class BusinessProjectManagementFeeService
     {
         if(input==null)throw error("请填写项目管理费付款信息");
         BusinessProject project=project(projectId,true);
-        if(!sponsor(project,userId))throw error("只有项目归属老板可以登记项目管理费付款");
+        if(!sponsor(project,userId))throw error("只有获授权的公司老板可以登记项目管理费付款");
         if(!"CLOSED".equals(accountingState(project)))throw error("项目核算关闭后才能登记管理费付款");
         Map<String,Object> fee=mapper.selectFeeForUpdate(projectId);
         if(fee==null||!"SETTLED".equals(fee.get("status")))throw error("项目管理费尚未结算");
@@ -251,7 +254,7 @@ public class BusinessProjectManagementFeeService
     private void event(Long projectId,Object feeId,String type,String reason,Object snapshot,Long userId,String userName)
     {mapper.insertEvent(map("projectId",projectId,"feeId",feeId,"eventType",type,"reason",reason,"snapshot",JSON.toJSONString(snapshot),"userId",userId,"userName",userName));}
     private BusinessProject project(Long id,boolean lock){BusinessProject p=lock?projects.selectProjectByIdForUpdate(id):projects.selectProjectById(id);if(p==null||!"0".equals(p.getDelFlag()))throw error("项目不存在");return p;}
-    private boolean sponsor(BusinessProject p,Long u){Long sponsor=p.getSponsorOwnerUserId()==null?p.getInitiatorUserId():p.getSponsorOwnerUserId();return u!=null&&u.equals(sponsor);}
+    private boolean sponsor(BusinessProject p,Long u){return companyAccess.project(p,u);}
     private String accountingState(BusinessProject p){return p.getAccountingState()==null?"OPEN":p.getAccountingState();}
     private static BigDecimal positiveMoney(Object x,String label){BigDecimal v=decimalNullable(x);if(v==null||v.signum()<=0||v.scale()>2)throw error(label+"须大于0且最多两位小数");return v;}
     private static BigDecimal decimal(Object x){BigDecimal v=decimalNullable(x);return v==null?ZERO:v;}

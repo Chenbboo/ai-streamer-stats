@@ -7,6 +7,7 @@
         <p>负责人处理日常经营；这里只呈现经营异常、跨项目风险和需要老板干预的事项。</p>
       </div>
       <div class="hero-actions">
+        <CompanyAccessSettings />
         <ProfitTaxSettings @changed="handleTaxSettingsChanged" />
         <el-button type="success" icon="Plus" @click="openAccountingEntry('revenue')">{{ t('bossReview.addRevenue') }}</el-button>
         <el-button type="primary" icon="Plus" @click="openAccountingEntry('spend')">{{ t('bossReview.addCost') }}</el-button>
@@ -323,6 +324,7 @@
 </template>
 
 <script setup name="BusinessBoss">
+import CompanyAccessSettings from '../components/CompanyAccessSettings.vue'
 import ProfitTaxSettings from '@/components/ProfitTaxSettings/index.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'

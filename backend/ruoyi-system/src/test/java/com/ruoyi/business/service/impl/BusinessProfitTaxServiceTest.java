@@ -45,6 +45,19 @@ class BusinessProfitTaxServiceTest {
         assertEquals(new BigDecimal("304.90"),totalTax);
         assertEquals(new BigDecimal("2744.13"),rows.stream().map(value->(BigDecimal)value.get("afterTaxProfit")).reduce(BigDecimal.ZERO,BigDecimal::add));
     }
+    @Test void projectFilterUsesCompanyOffsetAndNeverReturnsOtherProjectAdjustments() {
+        BusinessProfitTaxMapper mapper=mock(BusinessProfitTaxMapper.class);BusinessProfitTaxService service=service(mapper);
+        when(mapper.selectSeries(anyMap())).thenAnswer(call->Arrays.asList(
+            row("projectId",1,"resultId",1,"companyDeptId",110,"currency","CNY","bizDate","2026-09-15","profitAmount",1000,"taxRate",10,"taxConfigured","1"),
+            row("projectId",2,"resultId",2,"companyDeptId",110,"currency","CNY","bizDate","2026-09-15","profitAmount",-800,"taxRate",10,"taxConfigured","1"),
+            row("projectId",2,"companyDeptId",110,"currency","CNY","bizDate","2026-09-15","profitAmount",-100,"taxRate",10,"taxConfigured","1","isAdjustment",1)));
+        Map<String,Object> daily=row("resultId",1,"profitAmount",1000),summary=row("profitAmount",1000),result=row("results",Arrays.asList(daily),"summary",summary);
+        service.decorate(result,row("projectId",1));
+        assertEquals(new BigDecimal("10.00"),summary.get("taxAmount"));assertEquals(summary.get("taxAmount"),daily.get("taxAmount"));
+        assertEquals(new BigDecimal("990.00"),summary.get("afterTaxProfit"));assertTrue(((List<?>)result.get("departmentAdjustments")).isEmpty());
+        Map<String,Object> allDaily=row("resultId",1,"profitAmount",1000);service.decorate(row("results",Arrays.asList(allDaily)),row());
+        assertEquals(allDaily.get("taxAmount"),daily.get("taxAmount"));
+    }
     @Test void differentCurrenciesAndRatesStaySeparate() {
         BusinessProfitTaxMapper mapper=mock(BusinessProfitTaxMapper.class);BusinessProfitTaxService service=service(mapper);
         when(mapper.selectSeries(anyMap())).thenReturn(Arrays.asList(row("projectId",1,"resultId",1,"companyDeptId",110,"currency","CNY","bizDate","2026-09-15","profitAmount",1000,"taxRate",10,"taxConfigured","1"),row("projectId",2,"resultId",2,"companyDeptId",111,"currency","USD","bizDate","2026-09-15","profitAmount",1000,"taxRate",20,"taxConfigured","1")));

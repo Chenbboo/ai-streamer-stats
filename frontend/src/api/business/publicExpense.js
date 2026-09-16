@@ -18,3 +18,6 @@ export const savePublicExpenseProjectAllocations = (allocationId, data) => reque
 export const submitPublicExpenseProjectAllocations = (allocationId, data) => request({ url: `${base}/owner/${allocationId}/submit`, method: 'post', data })
 export const copyPreviousPublicExpenseProjects = (allocationId, data) => request({ url: `${base}/owner/${allocationId}/copy-projects`, method: 'post', data })
 export const getProjectPublicExpenseCosts = (projectId, month) => request({ url: `${base}/project/${projectId}`, method: 'get', params: { month } })
+
+export const getPublicPersonnelPreview = params => request({ url: '/business/public-expenses/personnel-preview', method: 'get', params })
+export const savePublicPersonnel = data => request({ url: '/business/public-expenses/personnel', method: 'post', data })

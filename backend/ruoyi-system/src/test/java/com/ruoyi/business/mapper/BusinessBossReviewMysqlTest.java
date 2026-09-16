@@ -23,7 +23,7 @@ class BusinessBossReviewMysqlTest {
             new UnpooledDataSource("com.mysql.cj.jdbc.Driver",url,"root",System.getenv("BOSS_REVIEW_TEST_PASSWORD"))));
         c.getTypeAliasRegistry().registerAliases("com.ruoyi.business.domain");
         String resource="mapper/business/BusinessAccountingMapper.xml";
-        try(InputStream in=getClass().getClassLoader().getResourceAsStream(resource)){new XMLMapperBuilder(in,c,resource,c.getSqlFragments()).parse();}
+        try(InputStream in=getClass().getClassLoader().getResourceAsStream(resource)){com.ruoyi.business.CompanyAccessTestSupport.register(c);new XMLMapperBuilder(in,c,resource,c.getSqlFragments()).parse();}
         session=new SqlSessionFactoryBuilder().build(c).openSession(false);mapper=session.getMapper(BusinessAccountingMapper.class);
         project(-820001,BOSS,"MEMBER_DAYS_V1","TOTAL");
         project(-820002,BOSS,"MEMBER_DAYS_V1","DAILY");

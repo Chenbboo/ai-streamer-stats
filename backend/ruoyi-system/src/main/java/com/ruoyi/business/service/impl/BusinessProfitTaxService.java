@@ -97,6 +97,8 @@ public class BusinessProfitTaxService {
         Totals all=new Totals();
         String from=String.valueOf(query.getOrDefault("dateFrom",""));
         for(Map<String,Object> row:rows) {
+            // Company-wide inputs are internal only; the response stays within the requested project.
+            if(query.get("projectId")!=null&&!String.valueOf(query.get("projectId")).equals(String.valueOf(row.get("projectId"))))continue;
             if(!"null".equals(from)&&!from.isEmpty()&&String.valueOf(row.get("bizDate")).compareTo(from)<0)continue;
             if(row.get("resultId")!=null)byResult.put(String.valueOf(row.get("resultId")),row);
             if(number(row.get("isAdjustment")).signum()!=0)departmentAdjustments.add(new LinkedHashMap<>(row));

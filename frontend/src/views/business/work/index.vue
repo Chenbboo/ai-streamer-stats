@@ -39,7 +39,7 @@
       <div v-else class="effort-grid">
         <article v-for="item in efforts" :key="item.allocationId" class="effort-card">
           <div class="card-top"><div><el-tag size="small" effect="plain">{{ item.projectName }}</el-tag><span>{{ item.initiatorName }}立项</span></div><el-tag size="small" :type="effortTone[item.reportStatus]">{{ effortStatusLabel[item.reportStatus] }}</el-tag></div>
-          <div class="effort-values"><span>负责人设置 <b>{{ item.plannedPercent }}%</b></span><span v-if="item.costPolicyVersion!=='MEMBER_DAYS_V1'">当天实际 <b>{{ item.actualPercent }}%</b></span><span v-else>{{ item.ownerName }}负责</span></div>
+          <div class="effort-values"><span>{{ item.autoRedistributed ? '项目结束后自动分配' : '负责人设置' }} <b>{{ item.plannedPercent }}%</b></span><span v-if="item.costPolicyVersion!=='MEMBER_DAYS_V1'">当天实际 <b>{{ item.actualPercent }}%</b></span><span v-else>{{ item.ownerName }}负责</span></div>
           <el-alert v-if="item.costPolicyVersion==='MEMBER_DAYS_V1'" :title="item.confirmationStatus==='PENDING' ? '人员投入待确认，请联系项目负责人协商分配' : '按已确定的投入比例计算，无需重复填报'" :type="item.confirmationStatus==='PENDING'?'warning':'info'" :closable="false" />
           <el-alert v-else-if="item.reportStatus==='LEAVE'" :title="`考勤显示当天无需计算投入${item.leaveReason ? `：${item.leaveReason}` : ''}`" type="info" :closable="false" show-icon />
           <div v-else-if="item.reportStatus==='UNSUBMITTED' && !item.editing" class="effort-default">

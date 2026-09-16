@@ -23,6 +23,8 @@ import com.ruoyi.system.service.OnlineUserPermissionService;
 @ExtendWith(MockitoExtension.class)
 class BusinessDepartmentStaffAssignmentTest
 {
+    @org.mockito.Mock private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Mock ISysDeptService deptService;
     @Mock ISysUserService userService;
     @Mock OnlineUserPermissionService onlinePermissions;
@@ -54,7 +56,7 @@ class BusinessDepartmentStaffAssignmentTest
         assertEquals(200L,patch.getValue().getDeptId()); assertEquals(125L,patch.getValue().getUserId());
         assertNull(patch.getValue().getPhonenumber()); assertNull(patch.getValue().getPassword());
         assertNull(patch.getValue().getRoleIds()); assertNull(patch.getValue().getStatus());
-        verify(deptService).checkDeptDataScope(200L); verify(userService).checkUserDataScope(125L);
+        verify(companyAccess,org.mockito.Mockito.atLeastOnce()).requireDepartment(200L); verify(companyAccess).requireStaff(125L);
         verify(onlinePermissions).forceReloginAfterCommit(125L);
     }
     @Test void validatesEntireBatchBeforeWriting()
@@ -89,13 +91,13 @@ class BusinessDepartmentStaffAssignmentTest
     }
     @Test void enforcesUserScope()
     {
-        target(); doThrow(new ServiceException("无权访问")).when(userService).checkUserDataScope(125L);
+        target(); doThrow(new ServiceException("无权访问")).when(companyAccess).requireStaff(125L);
         assertThrows(ServiceException.class,()->service.assignStaff(200L,Collections.singletonList(125L),"admin"));
         verify(userService,never()).updateUserProfile(any());
     }
     @Test void enforcesDepartmentScope()
     {
-        doThrow(new ServiceException("无权访问")).when(deptService).checkDeptDataScope(200L);
+        doThrow(new ServiceException("无权访问")).when(companyAccess).requireDepartment(200L);
         assertThrows(ServiceException.class,()->service.assignStaff(200L,Collections.singletonList(125L),"admin"));
         verifyNoInteractions(userService);
     }

@@ -12,6 +12,8 @@ import com.ruoyi.business.mapper.*;
 import com.ruoyi.common.exception.ServiceException;
 
 class BusinessAllocationConfirmationTest {
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     BusinessProjectServiceImpl service;
     BusinessProjectMapper projects;
     BusinessAllocationRequestMapper requests;
@@ -40,7 +42,51 @@ class BusinessAllocationConfirmationTest {
         doAnswer(call->{reviews.stream().filter(r->r.get("ownerUserId").equals(call.getArgument(1))).forEach(r->r.put("status",call.getArgument(2)));return 1;}).when(requests).review(anyLong(),anyLong(),anyString(),any());
         doAnswer(call->{stored.put("status",call.getArgument(1));return 1;}).when(requests).finish(anyLong(),anyString(),any());
         body=row("userId",11L,"effectiveDate","2026-09-11","reason","跨项目协商调配","versionToken",service.staffAllocationWorkspace(11L,java.sql.Date.valueOf("2026-09-11"),9L,false).get("versionToken"),"allocations",Arrays.asList(row("projectId",91L,"allocationValue",60),row("projectId",92L,"allocationValue",40)));
+
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
+}
+    private void endedProjectScenario() {
+        rows.get(0).put("allocationValue",new BigDecimal("30"));
+        rows.get(1).put("allocationValue",new BigDecimal("60"));rows.get(1).put("confirmationStatus","CONFIRMED");
+        when(projects.selectUserAllocationTimeline(11L)).thenReturn(Arrays.asList(
+            row("projectId",90L,"allocationId",0L,"allocationValue",10,"effectiveFrom","2026-09-01","projectEndDate","2026-09-16","confirmationStatus","CONFIRMED"),
+            row("projectId",91L,"allocationId",1L,"allocationValue",30,"effectiveFrom","2026-09-01","confirmationStatus","CONFIRMED"),
+            row("projectId",92L,"allocationId",2L,"allocationValue",60,"effectiveFrom","2026-09-01","confirmationStatus","CONFIRMED")));
     }
+    @Test void automaticWeightsAppearInWorkspaceWithoutCreatingApprovalOrRewritingSource() {
+        endedProjectScenario();
+        Map<String,Object> workspace=service.staffAllocationWorkspace(11L,java.sql.Date.valueOf("2026-09-17"),9L,false);
+        List<Map<String,Object>> effective=(List<Map<String,Object>>)workspace.get("projects");
+        assertEquals(new BigDecimal("35.00"),effective.get(0).get("allocationValue"));
+        assertEquals(new BigDecimal("65.00"),effective.get(1).get("allocationValue"));
+        assertEquals(new BigDecimal("100.00"),workspace.get("totalPercent"));
+        assertEquals(new BigDecimal("30"),rows.get(0).get("allocationValue"));
+        verify(requests,never()).insertRequest(any());verify(projects,never()).insertProjectStaffAllocation(any());
+    }
+    @Test void manualChangeAfterAutomaticDistributionStillNeedsOtherOwnerConfirmation() {
+        endedProjectScenario();
+        body.put("effectiveDate","2026-09-17");
+        body.put("versionToken",service.staffAllocationWorkspace(11L,java.sql.Date.valueOf("2026-09-17"),9L,false).get("versionToken"));
+        body.put("allocations",Arrays.asList(row("projectId",91L,"allocationValue",40),row("projectId",92L,"allocationValue",60)));
+        assertEquals("PENDING",service.saveStaffAllocationWorkspace(body,9L,"owner9",false).get("outcome"));
+        verify(projects,never()).insertProjectStaffAllocation(any());
+    }
+    @Test void myScheduleUsesTheSameAutomaticWeightsAsCostAndWorkspace() {
+        endedProjectScenario();
+        ReflectionTestUtils.setField(service,"kpiMapper",mock(BusinessProjectKpiMapper.class));
+        when(projects.selectMyEfforts(11L,"2026-09-17")).thenReturn(Arrays.asList(
+            row("projectId",90L,"plannedPercent",10,"actualPercent",10,"costPolicyVersion","MEMBER_DAYS_V1"),
+            row("projectId",91L,"plannedPercent",30,"actualPercent",30,"costPolicyVersion","MEMBER_DAYS_V1"),
+            row("projectId",92L,"plannedPercent",60,"actualPercent",60,"costPolicyVersion","MEMBER_DAYS_V1")));
+        Map<String,Object> result=service.workDashboard("DAY","2026-09-17",11L);
+        List<Map<String,Object>> efforts=(List<Map<String,Object>>)result.get("efforts");
+        assertEquals(2,efforts.size());
+        assertEquals(new BigDecimal("35.00"),efforts.get(0).get("plannedPercent"));
+        assertEquals(new BigDecimal("65.00"),efforts.get(1).get("plannedPercent"));
+        assertEquals(new BigDecimal("100.00"),((Map<String,Object>)result.get("summary")).get("plannedEffortPercent"));
+    }
+
     void submit() { service.saveStaffAllocationWorkspace(body,9L,"owner9",false); }
     @Test void crossOwnerProposalDoesNotChangeAllocationOrCost() {
         assertEquals("PENDING",service.saveStaffAllocationWorkspace(body,9L,"owner9",false).get("outcome"));

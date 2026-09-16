@@ -75,7 +75,7 @@
     left join biz_project_work_cost c on c.entry_id=e.entry_id left join biz_project_work_event v on v.entry_id=e.entry_id
     where p.del_flag='0' and p.cost_policy_version='ACTUAL_WORK_V1'
       and (p.actual_start_date is null or p.actual_start_date&lt;=#{bizDate}) and (p.actual_end_date is null or p.actual_end_date&gt;=#{bizDate})
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
       <if test="projectId != null">and p.project_id=#{projectId}</if><if test="companyDeptId != null">and p.company_dept_id=#{companyDeptId}</if>
     group by p.project_id,p.project_name,p.company_dept_id,d.dept_name,m.user_id,u.nick_name,p.base_currency
     order by p.project_name,u.nick_name,m.user_id

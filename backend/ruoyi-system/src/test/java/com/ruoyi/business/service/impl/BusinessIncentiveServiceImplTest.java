@@ -41,6 +41,8 @@ import com.ruoyi.common.exception.ServiceException;
 @ExtendWith(MockitoExtension.class)
 class BusinessIncentiveServiceImplTest
 {
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Mock BusinessIncentiveMapper mapper;
     @Mock BusinessProjectMapper projectMapper;
     @Mock BusinessProjectKpiMapper kpiMapper;
@@ -56,7 +58,10 @@ class BusinessIncentiveServiceImplTest
         project.setBaseCurrency("CNY");project.setPlanStartDate(Date.valueOf("2026-01-01"));
         lenient().when(projectMapper.selectProjectById(1L)).thenReturn(project);
         lenient().when(projectMapper.selectProjectByIdForUpdate(1L)).thenReturn(project);
-    }
+
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
+}
 
     @Test void ordinaryMemberAndOtherCompanyCannotReadRewardAmounts()
     {

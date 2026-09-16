@@ -25,7 +25,7 @@ class BusinessBossAwardPendingMysqlTest {
         config.getTypeAliasRegistry().registerAliases("com.ruoyi.business.domain");
         String resource="mapper/business/BusinessProjectMapper.xml";
         try(InputStream input=getClass().getClassLoader().getResourceAsStream(resource)){
-            new XMLMapperBuilder(input,config,resource,config.getSqlFragments()).parse();
+            com.ruoyi.business.CompanyAccessTestSupport.register(config);new XMLMapperBuilder(input,config,resource,config.getSqlFragments()).parse();
         }
         session=new SqlSessionFactoryBuilder().build(config).openSession(false);
         mapper=session.getMapper(BusinessProjectMapper.class);

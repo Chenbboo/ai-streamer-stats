@@ -23,7 +23,7 @@ class BusinessAccountingCurrencyTest {
         }
         Configuration config=new Configuration(new Environment("test",new JdbcTransactionFactory(),ds));
         String path="mapper/business/BusinessAccountingMapper.xml";
-        try(InputStream input=getClass().getClassLoader().getResourceAsStream(path)){new XMLMapperBuilder(input,config,path,config.getSqlFragments()).parse();}
+        try(InputStream input=getClass().getClassLoader().getResourceAsStream(path)){com.ruoyi.business.CompanyAccessTestSupport.register(config);new XMLMapperBuilder(input,config,path,config.getSqlFragments()).parse();}
         try(SqlSession session=new SqlSessionFactoryBuilder().build(config).openSession()){
             BusinessAccountingMapper mapper=session.getMapper(BusinessAccountingMapper.class);Map<String,Object> query=new HashMap<>();query.put("viewAll",true);
             Map<String,Object> total=mapper.selectDailySummary(query);assertNull(total.get("revenueAmount"));assertNull(total.get("profitAmount"));

@@ -90,3 +90,18 @@ export function buildPublicExpenseTodos(bills = []) {
     action: 'public-expense', projectName: '公司公共费用', allocationId: bill.allocationId, month: bill.month
   }))
 }
+
+// Cross-project reviews belong to the reviewer, regardless of the selected project.
+export function buildAllocationReviewTodos(requests = [], projects = []) {
+  const seen = new Set()
+  return requests.filter(item => {
+    if (item.requestId == null || item.projectId == null || item.status && item.status !== 'PENDING' || seen.has(String(item.requestId))) return false
+    seen.add(String(item.requestId))
+    return true
+  }).map(item => ({
+    key: `allocation-${item.requestId}`, title: '确认人员投入调整',
+    detail: `${item.applicantName}发起 · 调整人员：${item.userName} · ${item.effectiveDate}生效`,
+    action: 'allocation-review', urgent: true, item, projectId: item.projectId,
+    projectName: projects.find(project => String(project.projectId) === String(item.projectId))?.projectName || '跨项目投入调整'
+  }))
+}

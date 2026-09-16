@@ -37,11 +37,12 @@ class BusinessPublicExpenseAccountingMapperTest {
             "alter table biz_public_expense_month add column total_amount decimal(20,2) default 14400",
             "alter table biz_public_expense_owner add column amount decimal(20,2) default 14400",
             "alter table biz_public_expense_policy add column amount decimal(20,2) default 24000");
+        try(java.sql.Connection grantConnection=source.getConnection()){com.ruoyi.business.CompanyAccessTestSupport.grant(grantConnection,110L,8L);com.ruoyi.business.CompanyAccessTestSupport.grant(grantConnection,111L,10L);}
         Configuration config=new Configuration(new Environment("test",new JdbcTransactionFactory(),source));
         String path="mapper/business/BusinessAccountingMapper.xml";
-        try(InputStream input=getClass().getClassLoader().getResourceAsStream(path)){new XMLMapperBuilder(input,config,path,config.getSqlFragments()).parse();}
+        try(InputStream input=getClass().getClassLoader().getResourceAsStream(path)){com.ruoyi.business.CompanyAccessTestSupport.register(config);new XMLMapperBuilder(input,config,path,config.getSqlFragments()).parse();}
         path="mapper/business/BusinessProjectManagementFeeMapper.xml";
-        try(InputStream input=getClass().getClassLoader().getResourceAsStream(path)){new XMLMapperBuilder(input,config,path,config.getSqlFragments()).parse();}
+        try(InputStream input=getClass().getClassLoader().getResourceAsStream(path)){com.ruoyi.business.CompanyAccessTestSupport.register(config);new XMLMapperBuilder(input,config,path,config.getSqlFragments()).parse();}
         sessions=new SqlSessionFactoryBuilder().build(config);
     }
 

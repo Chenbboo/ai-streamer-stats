@@ -33,7 +33,7 @@ class BusinessProjectBonusMapperIntegrationTest
         }
         Configuration config=new Configuration(new Environment("bonus",new JdbcTransactionFactory(),source));
         String resource="mapper/business/BusinessProjectKpiMapper.xml";
-        try(InputStream in=Resources.getResourceAsStream(resource)){new XMLMapperBuilder(in,config,resource,config.getSqlFragments()).parse();}
+        try(InputStream in=Resources.getResourceAsStream(resource)){com.ruoyi.business.CompanyAccessTestSupport.register(config);new XMLMapperBuilder(in,config,resource,config.getSqlFragments()).parse();}
         try(SqlSession session=new SqlSessionFactoryBuilder().build(config).openSession()){
             List<Map<String,Object>> rows=session.getMapper(BusinessProjectKpiMapper.class).selectMemberProjectBonusTotals(7L);
             assertEquals(2,rows.size());

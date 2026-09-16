@@ -17,7 +17,7 @@ import com.ruoyi.business.service.IBusinessAccountingService;
 import com.ruoyi.common.exception.ServiceException;
 
 class BusinessMemberDayCostServiceTest {
-    BusinessMemberDayCostService service=new BusinessMemberDayCostService();
+    BusinessMemberDayCostService service=new BusinessMemberDayCostService();{org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture());}
     BusinessProjectMapper projects=mock(BusinessProjectMapper.class);
     BusinessProjectWorkMapper work=mock(BusinessProjectWorkMapper.class);
     BusinessMemberDayCostMapper costs=mock(BusinessMemberDayCostMapper.class);
@@ -61,6 +61,32 @@ class BusinessMemberDayCostServiceTest {
         when(work.selectBudgetRates(eq(7L),anyString(),anyString())).thenReturn(Arrays.asList(rate,next));
         assertEquals(new BigDecimal("1000.00"),week().get(2).get("amount"));assertEquals(new BigDecimal("2000.00"),week().get(3).get("amount"));
     }
+    @Test void monthlyCostsUseSequentialEqualRedistributionAcrossProjectEndings(){
+        rate.put("unitCost",3300);member.put("joinedDate","2026-09-14");
+        List<Map<String,Object>> timeline=Arrays.asList(
+            row("projectId",1L,"allocationId",1L,"userId",7L,"allocationValue",100,"effectiveFrom","2026-09-14","effectiveTo","2026-09-14","confirmationStatus","CONFIRMED"),
+            row("projectId",1L,"allocationId",2L,"userId",7L,"allocationValue",10,"effectiveFrom","2026-09-15","confirmationStatus","CONFIRMED"),
+            row("projectId",2L,"allocationId",3L,"userId",7L,"allocationValue",20,"effectiveFrom","2026-09-15","projectEndDate","2026-09-16","confirmationStatus","CONFIRMED"),
+            row("projectId",3L,"allocationId",4L,"userId",7L,"allocationValue",70,"effectiveFrom","2026-09-15","projectEndDate","2026-09-18","confirmationStatus","CONFIRMED"));
+        when(projects.selectUserAllocationTimeline(7L)).thenReturn(timeline);
+        BigDecimal total=BigDecimal.ZERO;
+        String[] expected={"1440.00","60.00","450.00"};
+        for(long projectId=1;projectId<=3;projectId++){
+            final long currentId=projectId;
+            BusinessProject current=new BusinessProject();current.setProjectId(projectId);current.setBaseCurrency("CNY");
+            current.setActualStartDate(Date.valueOf(projectId==1?"2026-09-14":"2026-09-15"));
+            if(projectId!=1)current.setPlanEndDate(Date.valueOf(projectId==2?"2026-09-16":"2026-09-18"));
+            when(work.selectMembers(projectId)).thenReturn(Collections.singletonList(member));
+            when(costs.selectAllocationPeriods(projectId)).thenReturn(timeline.stream().filter(r->Long.valueOf(currentId).equals(r.get("projectId"))).collect(java.util.stream.Collectors.toList()));
+            List<Map<String,Object>> calculated=service.calculateCurrent(current,java.time.LocalDate.parse("2026-09-01"),java.time.LocalDate.parse("2026-09-30"));
+            assertTrue(calculated.stream().allMatch(r->"PRICED".equals(r.get("pricingStatus"))));
+            BigDecimal amount=calculated.stream().map(r->(BigDecimal)r.get("amount")).reduce(BigDecimal.ZERO,BigDecimal::add);
+            assertEquals(new BigDecimal(expected[(int)projectId-1]),amount);total=total.add(amount);
+            if(projectId==1)assertTrue(calculated.stream().filter(r->"2026-09-21".equals(r.get("bizDate"))).allMatch(r->String.valueOf(r.get("basisJson")).contains("\"autoRedistributed\":true")));
+        }
+        assertEquals(new BigDecimal("1950.00"),total);
+    }
+
     @Test void projectWeightSplitsTheFullDailyCost(){
         when(costs.selectAllocationPeriods(1L)).thenReturn(Collections.singletonList(
             row("allocationId",31L,"userId",7L,"allocationValue",40,"effectiveFrom","2026-08-31","version",2)));

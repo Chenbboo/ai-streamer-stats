@@ -27,14 +27,14 @@
       (p.delivery_policy_version='SEPARATED_V1' and p.accounting_state='OPEN')
       or (coalesce(p.delivery_policy_version,'LEGACY_V1')&lt;&gt;'SEPARATED_V1' and p.status not in('CLOSED','CANCELED')))
     </if>
-    <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+    <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
     order by d.order_num,p.project_name
   </select>
   <select id="countProjectsMissingDailyResult" resultType="int">
     select count(distinct p.project_id)
     from biz_project p
     where p.del_flag='0'
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
       and (
         exists(select 1 from biz_operating_fact f where f.project_id=p.project_id
           and f.biz_date=#{bizDate} and f.status in('DRAFT','RETURNED','CONFIRMED','REVERSED'))
@@ -72,7 +72,7 @@
     left join sys_dept d on d.dept_id=f.company_dept_id
     left join sys_user operator on operator.user_id=f.create_user_id
     <where>
-      <if test="viewAll == false">coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false"><include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
       <if test="projectId != null">and f.project_id=#{projectId}</if>
       <if test="factId != null">and f.fact_id=#{factId}</if>
       <if test="companyDeptId != null">and f.company_dept_id=#{companyDeptId}</if>
@@ -354,7 +354,7 @@
     left join sys_user project_owner on project_owner.user_id=coalesce(p.main_owner_user_id,p.initiator_user_id) and project_owner.del_flag='0'
     left join sys_dept owner_department on owner_department.dept_id=project_owner.dept_id and owner_department.del_flag='0'
     <where>r.is_current='1'
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
       <if test="projectId != null">and r.project_id=#{projectId}</if>
       <if test="companyDeptId != null">and r.company_dept_id=#{companyDeptId}</if>
       <if test="dateFrom != null and dateFrom != ''">and r.biz_date&gt;=#{dateFrom}</if>
@@ -390,7 +390,7 @@
       and (b.bill_id is not null or exists(select 1 from biz_public_expense_policy policy
         where policy.company_dept_id=p.company_dept_id and policy.currency=p.base_currency and policy.status='ACTIVE' and policy.amount&gt;0
         and substring(#{dateFrom},1,7) between policy.start_month and policy.end_month))
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
       <if test="projectId != null">and p.project_id=#{projectId}</if>
       <if test="companyDeptId != null">and p.company_dept_id=#{companyDeptId}</if>
     group by p.project_id,p.project_name,p.company_dept_id,p.base_currency,p.main_owner_user_id,b.bill_id,b.status,b.total_amount,
@@ -408,7 +408,7 @@
       count(distinct r.project_id) projectCount,count(*) resultCount
     from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
     where r.is_current='1'
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
       <if test="projectId != null">and r.project_id=#{projectId}</if>
       <if test="companyDeptId != null">and r.company_dept_id=#{companyDeptId}</if>
       <if test="dateFrom != null and dateFrom != ''">and r.biz_date&gt;=#{dateFrom}</if>
@@ -424,7 +424,7 @@
       count(distinct r.project_id) projectCount,count(*) resultCount
     from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
     where r.is_current='1'
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
       <if test="projectId != null">and r.project_id=#{projectId}</if>
       <if test="companyDeptId != null">and r.company_dept_id=#{companyDeptId}</if>
       <if test="dateFrom != null and dateFrom != ''">and r.biz_date&gt;=#{dateFrom}</if>
@@ -433,12 +433,12 @@
   </select>
   <select id="countDraftFacts" resultType="int">
     select count(*) from biz_operating_fact f join biz_project p on p.project_id=f.project_id and p.del_flag='0'
-    where f.status='DRAFT'<if test="viewAll == false"> and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+    where f.status='DRAFT'<if test="viewAll == false"> and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
   </select>
   <sql id="overviewScopedProjects">
     with scoped_projects as (
       select p.project_id,p.cost_policy_version,p.actual_end_date from biz_project p where p.del_flag='0'
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
       <if test="projectId != null">and p.project_id=#{projectId}</if>
       <if test="companyDeptId != null">and p.company_dept_id=#{companyDeptId}</if>
     )
@@ -494,7 +494,7 @@
       from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
       left join sys_dept d on d.dept_id=p.company_dept_id
       where r.is_current='1' and r.biz_date=#{bizDate} and r.profit_amount&lt;0
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
       union all
       select 'BUDGET_WARNING',r.project_id,p.project_name,p.company_dept_id,d.dept_name,r.biz_date,
         r.budget_spent,concat(
@@ -505,7 +505,7 @@
       where r.is_current='1' and <include refid="overviewBudgetDate"/> and p.budget_mode='TOTAL' and p.budget_limit&gt;0
         and r.budget_spent&gt;=p.budget_limit*(case p.management_mode when 'KEY_CONTROL' then 0.7 when 'STANDARD' then 0.8 else 1 end)
         and r.budget_spent&lt;=p.budget_limit
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
       union all
       select 'OVER_BUDGET',r.project_id,p.project_name,p.company_dept_id,d.dept_name,r.biz_date,
         r.budget_spent,concat('累计成本 ',round(r.budget_spent,2),' 已超过预算 ',round(p.budget_limit,2)),2,'CURRENT'
@@ -513,7 +513,7 @@
       left join sys_dept d on d.dept_id=p.company_dept_id
       where r.is_current='1' and <include refid="overviewBudgetDate"/> and p.budget_mode='TOTAL'
         and p.budget_limit is not null and r.budget_spent&gt;p.budget_limit
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
       union all
       select 'BUDGET_WARNING',r.project_id,p.project_name,p.company_dept_id,d.dept_name,r.biz_date,
         (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end),concat(
@@ -531,7 +531,7 @@
           &gt;=p.daily_budget_limit*(case p.management_mode when 'KEY_CONTROL' then 0.7 when 'STANDARD' then 0.8 else 1 end)
         and (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end)
           &lt;=p.daily_budget_limit
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
       union all
       select 'OVER_BUDGET',r.project_id,p.project_name,p.company_dept_id,d.dept_name,r.biz_date,
         (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end),
@@ -542,11 +542,11 @@
       left join sys_dept d on d.dept_id=p.company_dept_id
       where r.is_current='1' and r.biz_date=#{bizDate} and p.budget_mode='DAILY' and p.daily_budget_limit is not null
         and (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end)&gt;p.daily_budget_limit
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
       union all
       select 'MISSING_COMPANY',p.project_id,p.project_name,null,null,#{bizDate},null,'项目尚未设置归属公司，无法录入收支',3,'CURRENT'
       from biz_project p where p.del_flag='0' and p.company_dept_id is null and p.status not in('CLOSED','CANCELED')
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
     ) alerts
     <if test="alertScope != null">where alertPeriod=#{alertScope}</if>
     order by sortOrder,projectName limit 20
@@ -569,7 +569,7 @@
     from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
     left join sys_dept d on d.dept_id=p.company_dept_id
     where r.is_current='1' and r.biz_date between #{dateFrom} and #{dateTo}
-    <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+    <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
     group by r.project_id,p.project_name,p.company_dept_id,d.dept_name,p.base_currency
     order by p.base_currency,profitAmount desc,r.project_id
   </select>
@@ -581,7 +581,7 @@
     from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
     left join sys_dept d on d.dept_id=r.company_dept_id
     where r.is_current='1' and r.biz_date between #{dateFrom} and #{dateTo}
-    <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+    <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
     group by r.company_dept_id,d.dept_name,p.base_currency order by r.company_dept_id,p.base_currency
   </select>
   <select id="selectPersonnelCostOverview" resultType="map">
@@ -633,7 +633,7 @@
         and p2.status not in('CLOSED','CANCELED')
       where a2.status='ACTIVE' and a2.allocation_mode='PERCENTAGE' and a2.effective_from&lt;=#{bizDate}
         and (a2.effective_to is null or a2.effective_to&gt;=#{bizDate})
-        <if test="viewAll == false">and coalesce(p2.sponsor_owner_user_id,p2.initiator_user_id)=#{userId}</if>
+        <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p2.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
       group by a2.user_id
     ) total_plan on total_plan.user_id=m.user_id
     where p.del_flag='0' and coalesce(p.cost_policy_version,'PERCENTAGE_V1')='PERCENTAGE_V1' and p.status&lt;&gt;'CANCELED'
@@ -642,7 +642,7 @@
         where closed_result.project_id=p.project_id and closed_result.biz_date=#{bizDate}
           and closed_result.is_current='1'
       ))
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
       <if test="projectId != null">and p.project_id=#{projectId}</if>
       <if test="companyDeptId != null">and p.company_dept_id=#{companyDeptId}</if>
     order by field(costStatus,'MISSING_COST','LEGACY_COST','MISSING_ALLOCATION','OVER_ALLOCATED','READY','LEAVE'),
@@ -680,7 +680,7 @@
     left join biz_project project on project.project_id=member.project_id and project.del_flag='0'
       and project.status not in('CLOSED','CANCELED')
     where u.del_flag='0' and u.status='0' and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT'
-      <if test="viewAll == false">and company.leader_user_id=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="company.dept_id"/><property name="capability" value="COST_READ"/></include></if>
     group by u.user_id,u.nick_name,u.user_name,company.dept_id,company.dept_name,profile.country_region,
       valid_cost.user_id,any_cost.user_id
     having costStatus&lt;&gt;'READY'

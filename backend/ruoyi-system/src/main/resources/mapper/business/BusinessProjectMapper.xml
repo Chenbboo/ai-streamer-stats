@@ -169,7 +169,7 @@
                 </when>
                 <when test="viewAll == true"/>
                 <when test="boss == true">
-                    and (coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId} or (p.applicant_user_id=#{userId} and (parent.main_owner_user_id=#{userId} or exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=parent.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY')))))
+                    and (<include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include> or (p.applicant_user_id=#{userId} and (parent.main_owner_user_id=#{userId} or exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=parent.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY')))))
                 </when>
                 <otherwise>
                     and (p.main_owner_user_id=#{userId} or (p.applicant_user_id=#{userId} and (parent.main_owner_user_id=#{userId} or exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=parent.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY')))) or exists(
@@ -200,7 +200,7 @@
     <sql id="hierarchyAccess">
         <choose>
             <when test="viewAll == true">1=1</when>
-            <when test="boss == true">(coalesce(${alias}.sponsor_owner_user_id,${alias}.initiator_user_id)=#{userId} or (${alias}.applicant_user_id=#{userId} and exists(select 1 from biz_project hp where hp.project_id=${alias}.parent_id and hp.del_flag='0' and (hp.main_owner_user_id=#{userId} or exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=hp.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY'))))))</when>
+            <when test="boss == true">(<include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="${alias}.company_dept_id"/><property name="capability" value="BUSINESS"/></include> or (${alias}.applicant_user_id=#{userId} and exists(select 1 from biz_project hp where hp.project_id=${alias}.parent_id and hp.del_flag='0' and (hp.main_owner_user_id=#{userId} or exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=hp.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY'))))))</when>
             <otherwise>(${alias}.main_owner_user_id=#{userId} or (${alias}.applicant_user_id=#{userId} and exists(select 1 from biz_project hp where hp.project_id=${alias}.parent_id and hp.del_flag='0' and (hp.main_owner_user_id=#{userId} or exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=hp.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY'))))) or exists(
                 select 1 from biz_project_member hm where hm.project_id=${alias}.project_id
                 and hm.user_id=#{userId} and hm.status='0'))</otherwise>
@@ -640,6 +640,18 @@
         update biz_project_staff_allocation set status='VOID',update_by=#{userName},update_time=sysdate(),version=version+1
         where allocation_id=#{allocationId} and project_id=#{projectId} and status='ACTIVE'
     </update>
+    <select id="selectUserAllocationTimeline" resultType="map">
+        select a.project_id projectId,a.allocation_id allocationId,a.allocation_value allocationValue,
+          a.effective_from effectiveFrom,a.effective_to effectiveTo,a.confirmation_status confirmationStatus,
+          a.version allocationVersion,
+          greatest(coalesce(p.plan_start_date,p.actual_start_date),coalesce(p.actual_start_date,p.plan_start_date)) projectStartDate,
+          coalesce(p.actual_end_date,p.plan_end_date) projectEndDate
+        from biz_project_staff_allocation a join biz_project p on p.project_id=a.project_id
+        where a.user_id=#{userId} and a.status='ACTIVE' and a.allocation_mode='PERCENTAGE'
+          and p.del_flag='0' and p.cost_policy_version='MEMBER_DAYS_V1'
+        order by a.effective_from,a.project_id,a.allocation_id
+    </select>
+
     <select id="selectUserAllocationWorkspace" resultType="map">
         select p.project_id projectId,p.project_no projectNo,p.project_name projectName,p.main_owner_user_id ownerUserId,
           p.main_owner_name ownerName,m.user_id userId,m.user_name_snapshot userName,m.member_role memberRole,
@@ -758,6 +770,12 @@
               (select t.dept_id from sys_dept t where find_in_set(#{query.deptId},t.ancestors)))
         </if>
         <choose>
+            <when test="query.params.companyScoped == true">
+                and exists(select 1 from biz_company_access staff_access
+                  join sys_dept staff_company on staff_company.dept_id=staff_access.company_dept_id and staff_company.status='0' and staff_company.del_flag='0'
+                  where staff_access.user_id=#{query.params.companyActor} and find_in_set('STAFF',staff_access.capabilities)
+                    and (d.dept_id=staff_company.dept_id or find_in_set(staff_company.dept_id,d.ancestors)))
+            </when>
             <when test="managedOwnerUserId != null">
                 and ((1=1 ${query.params.dataScope}) or exists (
                   select 1 from biz_project p
@@ -1297,7 +1315,7 @@
         from biz_project p where p.del_flag='0'
         <choose>
           <when test="viewAll == true"/>
-          <when test="boss == true">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</when>
+          <when test="boss == true">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></when>
           <otherwise>
             and (p.main_owner_user_id=#{userId} or exists(select 1 from biz_project_member m
               where m.project_id=p.project_id and m.user_id=#{userId} and m.status='0'))
@@ -1307,7 +1325,7 @@
     <sql id="dashboardScope">
       <choose>
         <when test="viewAll == true"/>
-        <when test="boss == true">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</when>
+        <when test="boss == true">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></when>
         <otherwise>
           and (p.main_owner_user_id=#{userId} or exists(select 1 from biz_project_member scope_member
             where scope_member.project_id=p.project_id and scope_member.user_id=#{userId} and scope_member.status='0'))
@@ -1364,7 +1382,7 @@
       left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
       where p.del_flag='0' and p.status in('PLANNING','ACTIVE','PAUSED','ACCEPTANCE')
       <if test="ownerUserId != null">and p.main_owner_user_id=#{ownerUserId}</if>
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
       order by p.main_owner_name,p.plan_start_date,p.project_id
     </select>
     <sql id="bossPendingProposal">
@@ -1382,7 +1400,7 @@
       from biz_project_proposal proposal
       left join sys_dept company on company.dept_id=proposal.company_dept_id and company.del_flag='0'
       where proposal.del_flag='0' and proposal.status='PENDING'
-      <if test="viewAll == false">and proposal.sponsor_owner_user_id=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="proposal.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
     </sql>
     <sql id="bossPendingAccounting">
       select 'ACCOUNTING' category,2 categoryOrder,concat('accounting-',fact.fact_id) itemKey,
@@ -1400,7 +1418,7 @@
       join biz_project p on p.project_id=fact.project_id and p.del_flag='0'
       left join sys_dept company on company.dept_id=fact.company_dept_id and company.del_flag='0'
       where fact.status='DRAFT'
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
     </sql>
     <sql id="bossPendingManagementFee">
       select 'MANAGEMENT_FEE' category,1 categoryOrder,concat('management-fee-',p.project_id) itemKey,
@@ -1431,7 +1449,7 @@
           and workload.main_owner_user_id=p.main_owner_user_id
           and workload.status in('PLANNING','ACTIVE','PAUSED','ACCEPTANCE')
           and coalesce(workload.sponsor_owner_user_id,workload.initiator_user_id)=coalesce(p.sponsor_owner_user_id,p.initiator_user_id))&gt;=3
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
     </sql>
     <sql id="bossPendingKpiMissing">
       select 'KPI_MISSING' category,3 categoryOrder,concat('kpi-missing-',p.project_id) itemKey,
@@ -1453,7 +1471,7 @@
       where p.del_flag='0' and p.status in ('ACTIVE','PAUSED','ACCEPTANCE')
         and ((select count(*) from biz_project_kpi target
           where target.project_id=p.project_id and target.status='CURRENT')=0 or plan.plan_id is null)
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
     </sql>
     <sql id="bossPendingKpiReview">
       select 'KPI_REVIEW' category,4 categoryOrder,concat('kpi-review-',p.project_id) itemKey,
@@ -1474,7 +1492,7 @@
         order by latest.cycle_end desc,latest.plan_version desc limit 1)
       join biz_project_kpi_settlement settlement on settlement.plan_id=plan.plan_id and settlement.status='SUBMITTED'
       where p.del_flag='0'
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
     </sql>
     <sql id="bossPendingPersonnelCost">
       select 'PERSONNEL_COST' category,5 categoryOrder,concat('personnel-',u.user_id) itemKey,
@@ -1510,7 +1528,7 @@
       left join biz_project project on project.project_id=member.project_id and project.del_flag='0'
         and project.status not in ('CLOSED','CANCELED')
       where u.del_flag='0' and u.status='0' and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT'
-      <if test="viewAll == false">and company.leader_user_id=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="company.dept_id"/><property name="capability" value="COST_READ"/></include></if>
       group by u.user_id,u.nick_name,u.user_name,company.dept_id,company.dept_name,profile.country_region,
         valid_cost.user_id,any_cost.user_id,u.update_time,u.create_time
       having costStatus&lt;&gt;'READY'
@@ -1530,7 +1548,7 @@
       left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
       where p.del_flag='0' and (p.status='DRAFT'
         or (p.status='PLANNING' and p.baseline_status='SUBMITTED') or p.status in ('PAUSED','ACCEPTANCE'))
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
     </sql>
     <sql id="bossPendingStageAcceptance">
       select 'STAGE_ACCEPTANCE' category,3 categoryOrder,
@@ -1552,14 +1570,14 @@
         and milestone.project_id=acceptance.project_id
       left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
       where acceptance.review_status='PENDING'
-      <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
     </sql>
     <!-- Match incentive canReview: actual sponsor, no self-approval, accounting open. -->
     <sql id="bossPendingIncentiveScope">
       from biz_incentive_award award
       join biz_project p on p.project_id=award.project_id and p.del_flag='0'
       where award.status='SUBMITTED'
-        and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}
+        and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include>
         and award.applicant_user_id&lt;&gt;#{userId}
         and ((p.delivery_policy_version='SEPARATED_V1' and p.accounting_state='OPEN')
           or ((p.delivery_policy_version is null or p.delivery_policy_version='LEGACY_V1')
@@ -1593,7 +1611,7 @@
         where line.amount&gt;coalesce(paid.amount,0)
         group by line.allocation_id) unpaid on unpaid.allocation_id=allocation.allocation_id
       where allocation.status='APPROVED'
-        and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}
+        and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include>
     </sql>
     <sql id="bossPendingBonusPayment">
       select 'BONUS_PAYMENT' category,2 categoryOrder,concat('bonus-payment-',allocation.allocation_id) itemKey,
@@ -1616,7 +1634,7 @@
         (select count(*) <include refid="bossPendingIncentiveScope"/>) incentiveReviewCount,
         (select count(*) <include refid="bossPendingBonusPaymentScope"/>) bonusPaymentCount,
         (select count(*) from biz_project_proposal proposal where proposal.del_flag='0' and proposal.status='PENDING'
-          <if test="viewAll == false">and proposal.sponsor_owner_user_id=#{userId}</if>) proposalCount,
+          <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="proposal.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>) proposalCount,
         (select count(*) from biz_project p left join biz_project_management_fee fee
           on fee.project_id=p.project_id and fee.recipient_user_id=p.main_owner_user_id
           where p.del_flag='0' and coalesce(p.accounting_state,'OPEN')='OPEN'
@@ -1625,15 +1643,15 @@
               and workload.main_owner_user_id=p.main_owner_user_id
               and workload.status in('PLANNING','ACTIVE','PAUSED','ACCEPTANCE')
               and coalesce(workload.sponsor_owner_user_id,workload.initiator_user_id)=coalesce(p.sponsor_owner_user_id,p.initiator_user_id))&gt;=3
-          <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>) managementFeeCount,
+          <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>) managementFeeCount,
         (select count(*) from biz_operating_fact fact
           join biz_project p on p.project_id=fact.project_id and p.del_flag='0'
           where fact.status='DRAFT'
-          <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>) accountingCount,
+          <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>) accountingCount,
         (select count(*) from biz_project_stage_acceptance acceptance
           join biz_project p on p.project_id=acceptance.project_id and p.del_flag='0'
           where acceptance.review_status='PENDING'
-          <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>) stageAcceptanceCount,
+          <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>) stageAcceptanceCount,
         (select count(*) from biz_project p
           left join biz_project_kpi_plan plan on plan.plan_id=(select latest.plan_id from biz_project_kpi_plan latest
             where latest.project_id=p.project_id and latest.status&lt;&gt;'VOIDED'
@@ -1641,14 +1659,14 @@
           where p.del_flag='0' and p.status in ('ACTIVE','PAUSED','ACCEPTANCE')
             and ((select count(*) from biz_project_kpi target
               where target.project_id=p.project_id and target.status='CURRENT')=0 or plan.plan_id is null)
-          <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>) kpiMissingCount,
+          <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>) kpiMissingCount,
         (select count(*) from biz_project p
           join biz_project_kpi_plan plan on plan.plan_id=(select latest.plan_id from biz_project_kpi_plan latest
             where latest.project_id=p.project_id and latest.status&lt;&gt;'VOIDED'
             order by latest.cycle_end desc,latest.plan_version desc limit 1)
           join biz_project_kpi_settlement settlement on settlement.plan_id=plan.plan_id and settlement.status='SUBMITTED'
           where p.del_flag='0'
-          <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>) kpiReviewCount,
+          <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>) kpiReviewCount,
         (select count(*) from (select u.user_id,
             case when profile.country_region is null or profile.country_region not in ('CN','VN') then 'MISSING_REGION'
                  when valid_cost.user_id is not null then 'READY'
@@ -1665,11 +1683,11 @@
             and effective_from&lt;=#{bizDate} and (effective_to is null or effective_to&gt;=#{bizDate})
             group by user_id) valid_cost on valid_cost.user_id=u.user_id
           where u.del_flag='0' and u.status='0' and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT'
-          <if test="viewAll == false">and company.leader_user_id=#{userId}</if>
+          <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="company.dept_id"/><property name="capability" value="COST_READ"/></include></if>
           having costStatus&lt;&gt;'READY') personnel_issue) personnelCostCount,
         (select count(*) from biz_project p where p.del_flag='0' and (p.status='DRAFT'
           or (p.status='PLANNING' and p.baseline_status='SUBMITTED') or p.status in ('PAUSED','ACCEPTANCE'))
-          <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>) projectCount
+          <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>) projectCount
     </select>
     <select id="selectBossPendingPage" resultType="map">
       select pending.* from (
@@ -1705,7 +1723,7 @@
           p.project_id projectId,p.project_no projectNo,p.project_name projectName
         from biz_project_task t join biz_project p on p.project_id=t.project_id and p.del_flag='0'
         where t.assignee_user_id=#{userId} and t.active_status='ACTIVE' and t.status&lt;&gt;'DONE'
-        <if test="boss == true and viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
+        <if test="boss == true and viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
         order by t.due_date is null,t.due_date,t.priority='HIGH' desc limit 20
     </select>
     <select id="selectMyWorkTasks" resultType="map">
@@ -2052,8 +2070,8 @@
       join sys_dept c on c.parent_id=100 and c.del_flag='0' and c.status='0' and (c.dept_id=d.dept_id or find_in_set(c.dept_id,d.ancestors))
       left join biz_staff_profile p on p.user_id=u.user_id
       where u.del_flag='0' and u.status='0' and coalesce(p.employment_status,'ACTIVE')&lt;&gt;'LEFT'
-      and (exists(select 1 from biz_project_member m join biz_project pr on pr.project_id=m.project_id and pr.main_owner_user_id=#{userId} and pr.del_flag='0' and pr.status not in('CLOSED','CANCELED') where m.user_id=u.user_id and m.status='0')
-        or <choose><when test="administrator == true">1=1</when><when test="companyOwner == true">c.leader_user_id=#{userId}</when><when test="financeManager == true">c.dept_id=#{companyDeptId}</when><otherwise>1=0</otherwise></choose>)
+      and ((#{companyOwner}=false and exists(select 1 from biz_project_member m join biz_project pr on pr.project_id=m.project_id and pr.main_owner_user_id=#{userId} and pr.del_flag='0' and pr.status not in('CLOSED','CANCELED') where m.user_id=u.user_id and m.status='0'))
+        or <choose><when test="administrator == true">1=1</when><when test="companyOwner == true"><include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="c.dept_id"/><property name="capability" value="COST_READ"/></include></when><when test="financeManager == true">c.dept_id=#{companyDeptId}</when><otherwise>1=0</otherwise></choose>)
       order by c.order_num,u.nick_name,u.user_id
     </select>
 </mapper>

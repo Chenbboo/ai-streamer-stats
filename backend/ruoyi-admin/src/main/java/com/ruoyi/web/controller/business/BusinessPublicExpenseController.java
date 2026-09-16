@@ -22,6 +22,17 @@ public class BusinessPublicExpenseController extends BaseController
     {return success(service.workspace(companyDeptId,month,currency,SecurityUtils.getUserId()));}
 
     @PreAuthorize("@ss.hasPermi('business:public-expense:list')")
+    @GetMapping("/personnel-preview")
+    public AjaxResult personnelPreview(@RequestParam Long companyDeptId,@RequestParam String month,@RequestParam String currency)
+    {return success(service.personnelPreview(companyDeptId,month,currency,SecurityUtils.getUserId()));}
+
+    @PreAuthorize("@ss.hasPermi('business:public-expense:list')")
+    @Log(title="核实公共人员成本",businessType=BusinessType.UPDATE)
+    @PostMapping("/personnel")
+    public AjaxResult personnel(@RequestBody Map<String,Object> body)
+    {return success(service.savePersonnel(body,SecurityUtils.getUserId(),getUsername()));}
+
+    @PreAuthorize("@ss.hasPermi('business:public-expense:list')")
     @Log(title="公司公共费用规则",businessType=BusinessType.UPDATE)
     @PostMapping("/policy")
     public AjaxResult policy(@RequestBody Map<String,Object> body){return success(service.savePolicy(body,SecurityUtils.getUserId(),getUsername()));}

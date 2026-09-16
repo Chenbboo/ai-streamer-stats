@@ -12,7 +12,7 @@ class BusinessPublicExpenseMapperTest
 {
     @Test void mapperParsesAndMissingMonthlyBillsCannotBypassClosing() throws Exception
     {
-        Configuration config=new Configuration();try(InputStream stream=getClass().getResourceAsStream("/mapper/business/BusinessPublicExpenseMapper.xml")){assertNotNull(stream);new XMLMapperBuilder(stream,config,"public-expenses",config.getSqlFragments()).parse();}
+        Configuration config=new Configuration();try(InputStream stream=getClass().getResourceAsStream("/mapper/business/BusinessPublicExpenseMapper.xml")){assertNotNull(stream);com.ruoyi.business.CompanyAccessTestSupport.register(config);new XMLMapperBuilder(stream,config,"public-expenses",config.getSqlFragments()).parse();}
         Map<String,Object> args=new HashMap<>();args.put("projectId",1L);args.put("month","2025-02");
         String pending=config.getMappedStatement(BusinessPublicExpenseMapper.class.getName()+".countProjectPending").getBoundSql(args).getSql();
         assertTrue(pending.contains("biz_public_expense_policy"));assertTrue(pending.contains("not exists(select 1 from biz_public_expense_month"));assertTrue(pending.contains("p.base_currency=policy.currency"));

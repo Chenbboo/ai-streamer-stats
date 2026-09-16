@@ -16,7 +16,7 @@ class BusinessProjectWorkspaceAccessTest
     @Test void resourceOptionsUseActorScopeCombineSponsorProjectsAndExposeOnlyActualProjectIdentity()
     {
         BusinessProjectMapper projects=mock(BusinessProjectMapper.class);
-        BusinessProjectWorkService service=new BusinessProjectWorkService();ReflectionTestUtils.setField(service,"projectMapper",projects);
+        BusinessProjectWorkService service=new BusinessProjectWorkService();{org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture());}ReflectionTestUtils.setField(service,"projectMapper",projects);
         BusinessProject actual=project(1L,"MEMBER_DAYS_V1"),legacy=project(2L,"LEGACY_V1"),sponsored=project(3L,"MEMBER_DAYS_V1");
         when(projects.selectProjectList(anyMap())).thenAnswer(call->{Map<String,Object> query=call.getArgument(0);assertEquals(7L,query.get("userId"));assertEquals(false,query.get("viewAll"));return Boolean.TRUE.equals(query.get("boss"))?Arrays.asList(actual,sponsored):Arrays.asList(actual,legacy);});
         List<Map<String,Object>> options=service.options(7L,false);
@@ -26,7 +26,7 @@ class BusinessProjectWorkspaceAccessTest
     @Test void sponsorCanReadPlanButOnlyProjectOwnerCanRequestChange()
     {
         BusinessProjectMapper projects=mock(BusinessProjectMapper.class);BusinessProjectWorkMapper work=mock(BusinessProjectWorkMapper.class);
-        BusinessProjectPlanService service=new BusinessProjectPlanService();ReflectionTestUtils.setField(service,"projectMapper",projects);ReflectionTestUtils.setField(service,"mapper",work);
+        BusinessProjectPlanService service=new BusinessProjectPlanService();{org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture());}ReflectionTestUtils.setField(service,"projectMapper",projects);ReflectionTestUtils.setField(service,"mapper",work);
         when(projects.selectProjectById(1L)).thenReturn(project(1L,"ACTUAL_WORK_V1"));
         assertEquals(false,service.plan(1L,20L,false).get("canRequestChange"));
         assertEquals(true,service.plan(1L,10L,false).get("canRequestChange"));
@@ -34,7 +34,7 @@ class BusinessProjectWorkspaceAccessTest
     @Test void workWorkspaceReturnsDateOnlyBoundsForTheReportForm()
     {
         BusinessProjectMapper projects=mock(BusinessProjectMapper.class);BusinessProjectWorkMapper work=mock(BusinessProjectWorkMapper.class);
-        BusinessProjectWorkService service=new BusinessProjectWorkService();ReflectionTestUtils.setField(service,"projectMapper",projects);ReflectionTestUtils.setField(service,"mapper",work);
+        BusinessProjectWorkService service=new BusinessProjectWorkService();{org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture());}ReflectionTestUtils.setField(service,"projectMapper",projects);ReflectionTestUtils.setField(service,"mapper",work);
         BusinessProject project=project(1L,"ACTUAL_WORK_V1");project.setPlanStartDate(Date.valueOf("2026-09-01"));project.setPlanEndDate(Date.valueOf("2026-10-01"));project.setActualStartDate(Date.valueOf("2026-09-03"));when(projects.selectProjectById(1L)).thenReturn(project);
         Map<?,?> summary=(Map<?,?>)service.workspace(1L,Collections.emptyMap(),10L,false).get("project");
         assertEquals("2026-09-01",summary.get("planStartDate"));assertEquals("2026-10-01",summary.get("planEndDate"));assertEquals("2026-09-03",summary.get("actualStartDate"));

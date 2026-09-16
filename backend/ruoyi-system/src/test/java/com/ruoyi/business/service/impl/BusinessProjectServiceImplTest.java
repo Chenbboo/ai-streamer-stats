@@ -61,6 +61,8 @@ import com.ruoyi.system.service.OnlineUserPermissionService;
 @ExtendWith(MockitoExtension.class)
 class BusinessProjectServiceImplTest
 {
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Mock
     private BusinessProjectMapper mapper;
     @Mock private com.ruoyi.business.mapper.BusinessAllocationRequestMapper allocationRequests;
@@ -96,7 +98,15 @@ class BusinessProjectServiceImplTest
         lenient().when(feishuService.getAuthority(any(),any())).thenReturn(Collections.emptyMap());
         lenient().when(mapper.selectProjectByIdForUpdate(anyLong()))
             .thenAnswer(invocation -> mapper.selectProjectById(invocation.getArgument(0)));
-    }
+
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+        lenient().when(companyAccess.staff(org.mockito.ArgumentMatchers.anyLong(),org.mockito.ArgumentMatchers.anyLong(),org.mockito.ArgumentMatchers.anyString())).thenAnswer(call -> mapper.selectStaffCompanyId(call.getArgument(1))!=null);
+        lenient().when(companyAccess.allowed(eq(23L),org.mockito.ArgumentMatchers.any(),eq("BUSINESS"))).thenReturn(true);
+        lenient().when(companyAccess.project(1L,7L)).thenReturn(true);
+        org.springframework.test.util.ReflectionTestUtils.setField(feishuService,"companyAccess",companyAccess);
+        org.springframework.test.util.ReflectionTestUtils.setField(businessFileService,"companyAccess",companyAccess);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
+}
 
     @Test
     void ownerHandoffRequiresExistingPublicExpenseAllocationSubmission()
@@ -649,7 +659,7 @@ class BusinessProjectServiceImplTest
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.getProject(43L, 8L, false, true));
 
-        assertTrue(error.getMessage().contains("其他老板"));
+        assertTrue(error.getMessage().contains("未授权公司"));
         verify(mapper, never()).selectMemberRole(43L, 8L);
         verify(mapper, never()).selectTasks(43L);
     }
@@ -664,7 +674,7 @@ class BusinessProjectServiceImplTest
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.transition(44L, "START_PLANNING", null, 8L, "boss8", true));
 
-        assertTrue(error.getMessage().contains("其他老板"));
+        assertTrue(error.getMessage().contains("未授权公司"));
         verify(mapper, never()).updateProjectStatus(any(), any(), any(), any(),
             org.mockito.ArgumentMatchers.anyBoolean(), any(), any());
     }
@@ -1975,7 +1985,7 @@ class BusinessProjectServiceImplTest
         staff.put("nickName", "中国员工");
         when(mapper.selectActiveUserById(147L)).thenReturn(staff);
         when(mapper.countUserRoleByKey(8L, "company_owner")).thenReturn(1);
-        when(mapper.selectStaffCompanyLeaderUserId(147L, true)).thenReturn(8L);
+        when(mapper.selectStaffCompanyId(147L)).thenReturn(110L);
         when(mapper.selectStaffCountryRegion(147L)).thenReturn("CN");
         when(mapper.selectNextStaffCostVersion(147L)).thenReturn(1);
 
@@ -2084,7 +2094,7 @@ class BusinessProjectServiceImplTest
         staff.put("nickName", "越南员工");
         when(mapper.selectActiveUserById(148L)).thenReturn(staff);
         when(mapper.countUserRoleByKey(8L, "company_owner")).thenReturn(1);
-        when(mapper.selectStaffCompanyLeaderUserId(148L, true)).thenReturn(8L);
+        when(mapper.selectStaffCompanyId(148L)).thenReturn(110L);
         when(mapper.selectStaffCountryRegion(148L)).thenReturn("VN");
         when(mapper.selectNextStaffCostVersion(148L)).thenReturn(3);
 
@@ -2111,7 +2121,8 @@ class BusinessProjectServiceImplTest
         when(mapper.selectActiveUserById(147L)).thenReturn(chinaStaff);
         when(mapper.selectActiveUserById(148L)).thenReturn(vietnamStaff);
         when(mapper.countUserRoleByKey(8L, "company_owner")).thenReturn(1);
-        when(mapper.selectStaffCompanyLeaderUserId(anyLong(), eq(true))).thenReturn(8L);
+        when(mapper.selectStaffCompanyId(147L)).thenReturn(110L);
+        when(mapper.selectStaffCompanyId(148L)).thenReturn(111L);
         when(mapper.selectStaffCountryRegion(147L)).thenReturn("CN");
         when(mapper.selectStaffCountryRegion(148L)).thenReturn("VN");
         when(mapper.selectNextStaffCostVersion(anyLong())).thenReturn(1);
@@ -2151,7 +2162,7 @@ class BusinessProjectServiceImplTest
         staff.put("nickName", "其他地区员工");
         when(mapper.selectActiveUserById(149L)).thenReturn(staff);
         when(mapper.countUserRoleByKey(8L, "company_owner")).thenReturn(1);
-        when(mapper.selectStaffCompanyLeaderUserId(149L, true)).thenReturn(8L);
+        when(mapper.selectStaffCompanyId(149L)).thenReturn(110L);
         when(mapper.selectStaffCountryRegion(149L)).thenReturn("OTHER");
         BusinessStaffCostPolicy input = new BusinessStaffCostPolicy();
         input.setUserId(149L); input.setUnitCost(new BigDecimal("9000")); input.setStandardWorkDays(new BigDecimal("22"));
@@ -2173,7 +2184,7 @@ class BusinessProjectServiceImplTest
         policy.setPolicyId(21L);
         when(mapper.countUserRoleByKey(120L, "company_owner")).thenReturn(1);
         when(mapper.selectActiveUserById(147L)).thenReturn(staff);
-        when(mapper.selectStaffCompanyLeaderUserId(147L, false)).thenReturn(120L);
+        when(mapper.selectStaffCompanyId(147L)).thenReturn(110L);
         when(mapper.selectStaffCostPolicies(147L)).thenReturn(Collections.singletonList(policy));
 
         List<BusinessStaffCostPolicy> result = service.staffCostPolicies(147L, 120L, true);
@@ -2205,39 +2216,52 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
-    void companyOwnerCannotReadForeignCompanyStaffCostPolicies()
+    void companyOwnerCanReadForeignCompanyStaffCostPolicies()
     {
         Map<String, Object> staff = new HashMap<String, Object>();
         staff.put("nickName", "上海员工");
         when(mapper.countUserRoleByKey(143L, "company_owner")).thenReturn(1);
         when(mapper.selectActiveUserById(147L)).thenReturn(staff);
-        when(mapper.selectStaffCompanyLeaderUserId(147L, false)).thenReturn(120L);
+        when(mapper.selectStaffCompanyId(147L)).thenReturn(110L);
 
-        ServiceException error = assertThrows(ServiceException.class,
-            () -> service.staffCostPolicies(147L, 143L, true));
-
-        assertTrue(error.getMessage().contains("本人负责公司"));
-        verify(mapper, never()).selectStaffCostPolicies(147L);
+        when(mapper.selectStaffCostPolicies(147L)).thenReturn(Collections.singletonList(new BusinessStaffCostPolicy()));
+        assertEquals(1, service.staffCostPolicies(147L, 143L, true).size());
+        verify(mapper).selectStaffCostPolicies(147L);
     }
 
     @Test
-    void companyOwnerCannotWriteForeignCompanyStaffCostPolicy()
+    void companyOwnerCanWriteForeignCompanyStaffCostPolicy()
     {
         Map<String, Object> staff = new HashMap<String, Object>();
         staff.put("nickName", "上海员工");
         when(mapper.countUserRoleByKey(143L, "company_owner")).thenReturn(1);
         when(mapper.selectActiveUserById(147L)).thenReturn(staff);
-        when(mapper.selectStaffCompanyLeaderUserId(147L, true)).thenReturn(120L);
+        when(mapper.selectStaffCompanyId(147L)).thenReturn(110L);
+        when(mapper.selectStaffCountryRegion(147L)).thenReturn("CN");
+        when(mapper.selectNextStaffCostVersion(147L)).thenReturn(1);
         BusinessStaffCostPolicy input = new BusinessStaffCostPolicy();
         input.setUserId(147L); input.setUnitCost(new BigDecimal("10000"));
         input.setStandardWorkDays(new BigDecimal("30")); input.setRateMinutesPerDay(360);
         input.setEffectiveFrom(java.sql.Date.valueOf("2026-08-20"));
 
+        BusinessStaffCostPolicy saved = service.saveStaffCostPolicy(input, 143L, "wangfuzhang", true);
+        assertEquals(new BigDecimal("21.75"), saved.getStandardWorkDays());
+        assertEquals(Integer.valueOf(480), saved.getRateMinutesPerDay());
+        verify(mapper).insertStaffCostPolicy(saved);
+    }
+
+    @Test
+    void companyOwnerCannotMaintainStaffWithoutActiveCompany()
+    {
+        when(mapper.countUserRoleByKey(143L, "company_owner")).thenReturn(1);
+        when(mapper.selectActiveUserById(147L)).thenReturn(Collections.singletonMap("nickName", "未归属公司人员"));
+        when(mapper.selectStaffCompanyId(147L)).thenReturn(null);
+        BusinessStaffCostPolicy input = new BusinessStaffCostPolicy();
+        input.setUserId(147L);
+        assertThrows(ServiceException.class, () -> service.staffCostPolicies(147L, 143L, true));
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.saveStaffCostPolicy(input, 143L, "wangfuzhang", true));
-
-        assertTrue(error.getMessage().contains("本人负责公司"));
-        verify(mapper, never()).closeOpenEndedStaffCostPolicy(any(), any());
+        assertTrue(error.getMessage().contains("成本权限"));
         verify(mapper, never()).insertStaffCostPolicy(any());
     }
 
@@ -2289,7 +2313,7 @@ class BusinessProjectServiceImplTest
         when(mapper.selectStaffCostPolicyById(31L)).thenReturn(policy);
         when(mapper.countUserRoleByKey(8L, "company_owner")).thenReturn(1);
         when(mapper.selectActiveUserById(147L)).thenReturn(staff);
-        when(mapper.selectStaffCompanyLeaderUserId(147L, false)).thenReturn(8L);
+        when(mapper.selectStaffCompanyId(147L)).thenReturn(110L);
         when(mapper.deleteUnusedFutureStaffCostPolicy(31L)).thenReturn(1);
 
         service.deleteStaffCostPolicy(31L, 8L, "boss8", true);
@@ -2306,7 +2330,7 @@ class BusinessProjectServiceImplTest
         when(mapper.selectStaffCostPolicyById(32L)).thenReturn(policy);
         when(mapper.countUserRoleByKey(8L, "company_owner")).thenReturn(1);
         when(mapper.selectActiveUserById(147L)).thenReturn(staff);
-        when(mapper.selectStaffCompanyLeaderUserId(147L, false)).thenReturn(8L);
+        when(mapper.selectStaffCompanyId(147L)).thenReturn(110L);
 
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.deleteStaffCostPolicy(32L, 8L, "boss8", true));
@@ -2323,7 +2347,7 @@ class BusinessProjectServiceImplTest
         when(mapper.selectStaffCostPolicyById(33L)).thenReturn(policy);
         when(mapper.countUserRoleByKey(8L, "company_owner")).thenReturn(1);
         when(mapper.selectActiveUserById(147L)).thenReturn(staff);
-        when(mapper.selectStaffCompanyLeaderUserId(147L, false)).thenReturn(8L);
+        when(mapper.selectStaffCompanyId(147L)).thenReturn(110L);
 
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.deleteStaffCostPolicy(33L, 8L, "boss8", true));
@@ -2340,7 +2364,7 @@ class BusinessProjectServiceImplTest
         when(mapper.selectStaffCostPolicyById(34L)).thenReturn(policy);
         when(mapper.countUserRoleByKey(8L, "company_owner")).thenReturn(1);
         when(mapper.selectActiveUserById(147L)).thenReturn(staff);
-        when(mapper.selectStaffCompanyLeaderUserId(147L, false)).thenReturn(8L);
+        when(mapper.selectStaffCompanyId(147L)).thenReturn(110L);
         when(mapper.voidStaffCostPolicy(34L, "金额录入错误", 8L, "boss8")).thenReturn(1);
 
         service.voidStaffCostPolicy(34L, "  金额录入错误  ", 8L, "boss8", true);

@@ -1,6 +1,32 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.ruoyi.business.mapper.BusinessPublicExpenseMapper">
+
+ <select id="selectPersonnelStaff" resultType="map">
+  select u.user_id userId,coalesce(nullif(u.nick_name,''),u.user_name) userName,d.dept_id deptId,d.dept_name deptName,
+   profile.employment_type employmentType,profile.employment_status employmentStatus,date_format(profile.hire_date,'%Y-%m-%d') hireDate
+  from sys_user u join sys_dept d on d.dept_id=u.dept_id left join biz_staff_profile profile on profile.user_id=u.user_id
+  where (d.dept_id=#{companyDeptId} or find_in_set(#{companyDeptId},d.ancestors))
+   and (profile.hire_date is null or profile.hire_date&lt;=last_day(concat(#{month},'-01')))
+   and ((u.del_flag='0' and u.status='0' and coalesce(profile.employment_status,'ACTIVE')!='LEFT')
+    or exists(select 1 from biz_staff_cost_policy c where c.user_id=u.user_id and c.status='ACTIVE'
+     and c.effective_from&lt;=last_day(concat(#{month},'-01')) and (c.effective_to is null or c.effective_to&gt;=concat(#{month},'-01'))))
+  order by d.order_num,u.user_id
+ </select>
+ <select id="selectPersonnelProjects" resultType="long">
+  select distinct p.project_id from biz_project p
+  where (p.company_dept_id=#{companyDeptId} or exists(select 1 from biz_project_member m join sys_user u on u.user_id=m.user_id
+   join sys_dept d on d.dept_id=u.dept_id where m.project_id=p.project_id and (d.dept_id=#{companyDeptId} or find_in_set(#{companyDeptId},d.ancestors))))
+   and coalesce(p.actual_start_date,p.plan_start_date,'1900-01-01')&lt;=last_day(concat(#{month},'-01'))
+   and (p.actual_end_date is null or p.actual_end_date&gt;=concat(#{month},'-01')) order by p.project_id
+ </select>
+ <select id="selectPersonnelBusinessFacts" resultType="map">
+  select f.fact_id factId,f.project_id projectId,p.project_name projectName,f.description,f.amount
+  from biz_operating_fact f join biz_project p on p.project_id=f.project_id
+  where f.company_dept_id=#{companyDeptId} and f.currency=#{currency} and date_format(f.biz_date,'%Y-%m')=#{month}
+   and f.fact_kind='COST' and f.status='CONFIRMED' and f.amount&gt;0 and f.category_code!='COMPANY_PUBLIC_COST'
+  order by f.fact_id
+ </select>
  <select id="selectDailyBills" resultType="long">select bill_id from biz_public_expense_month where recognition_mode='DAILY_V1' and bill_month&lt;=date_format(current_date(),'%Y-%m') order by company_dept_id,bill_id</select>
  <select id="selectDailyRows" resultType="map">select bill_id billId,project_id projectId,date_format(biz_date,'%Y-%m-%d') bizDate,amount,status from biz_public_expense_daily where bill_id=#{billId} order by project_id,biz_date</select>
  <insert id="upsertDailyRow">insert into biz_public_expense_daily(bill_id,project_id,biz_date,amount,status) values(#{billId},#{projectId},#{bizDate},#{amount},#{status}) on duplicate key update amount=values(amount),status=values(status)</insert>
@@ -31,12 +57,7 @@
  <select id="selectCompanies" resultType="map">
   select d.dept_id companyDeptId,d.dept_name companyName,d.leader_user_id leaderUserId
   from sys_dept d where d.parent_id=100 and d.status='0' and d.del_flag='0'
-  and (d.leader_user_id=#{userId} or exists(
-   select 1 from sys_user u join sys_user_role ur on ur.user_id=u.user_id
-   join sys_role r on r.role_id=ur.role_id
-   where u.user_id=#{userId} and u.status='0' and u.del_flag='0'
-   and r.role_key='company_owner' and r.status='0' and r.del_flag='0'
-  )) order by d.order_num,d.dept_id
+  and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="d.dept_id"/><property name="capability" value="BUSINESS"/></include> order by d.order_num,d.dept_id
  </select>
  <select id="selectCompanyForUpdate" resultType="map">select dept_id companyDeptId,dept_name companyName,leader_user_id leaderUserId from sys_dept where dept_id=#{companyDeptId} and parent_id=100 and status='0' and del_flag='0' for update</select>
  <select id="selectDepartments" resultType="map">
@@ -68,22 +89,22 @@
  <select id="selectPolicyForUpdate" resultType="map">select <include refid="policyColumns"/> from biz_public_expense_policy where policy_id=#{policyId} for update</select>
  <insert id="insertPolicy" useGeneratedKeys="true" keyProperty="policyId">insert into biz_public_expense_policy(company_dept_id,name,category,period_type,amount,currency,start_month,end_month,estimated,status,remark,attachment_urls,create_by) values(#{companyDeptId},#{name},#{category},#{periodType},#{amount},#{currency},#{startMonth},#{endMonth},#{estimated},#{status},#{remark},#{attachmentUrls},#{userName})</insert>
  <update id="updatePolicy">update biz_public_expense_policy set name=#{name},category=#{category},period_type=#{periodType},amount=#{amount},currency=#{currency},start_month=#{startMonth},end_month=#{endMonth},estimated=#{estimated},status=#{status},remark=#{remark},attachment_urls=#{attachmentUrls},version=version+1,update_by=#{userName},update_time=now() where policy_id=#{policyId} and version=#{version}</update>
- <sql id="billColumns">b.bill_id billId,b.company_dept_id companyDeptId,d.dept_name companyName,b.bill_month month,b.currency,b.total_amount totalAmount,b.status,b.version,b.recognition_mode recognitionMode,b.settled_time settledTime,b.settled_user_name settledUserName</sql>
+ <sql id="billColumns">b.bill_id billId,b.company_dept_id companyDeptId,d.dept_name companyName,b.bill_month month,b.currency,b.total_amount totalAmount,b.personnel_amount personnelAmount,b.personnel_snapshot personnelSnapshot,b.status,b.version,b.recognition_mode recognitionMode,b.settled_time settledTime,b.settled_user_name settledUserName</sql>
  <select id="selectMonth" resultType="map">select <include refid="billColumns"/> from biz_public_expense_month b join sys_dept d on d.dept_id=b.company_dept_id where b.company_dept_id=#{companyDeptId} and b.bill_month=#{month} and b.currency=#{currency}</select>
  <select id="selectBill" resultType="map">select <include refid="billColumns"/> from biz_public_expense_month b join sys_dept d on d.dept_id=b.company_dept_id where b.bill_id=#{billId}</select>
  <select id="selectBillForUpdate" resultType="map">select <include refid="billColumns"/> from biz_public_expense_month b join sys_dept d on d.dept_id=b.company_dept_id where b.bill_id=#{billId} for update</select>
  <select id="selectHistory" resultType="map">select <include refid="billColumns"/> from biz_public_expense_month b join sys_dept d on d.dept_id=b.company_dept_id where b.company_dept_id=#{companyDeptId} order by b.bill_month desc,b.currency limit 120</select>
  <insert id="insertMonth" useGeneratedKeys="true" keyProperty="billId">insert into biz_public_expense_month(company_dept_id,bill_month,currency,total_amount,create_by) values(#{companyDeptId},#{month},#{currency},#{totalAmount},#{userName})</insert>
- <update id="updateBill">update biz_public_expense_month set total_amount=#{totalAmount},status=#{status},version=version+1,update_time=now()<if test="status == 'SETTLED' and userId != null">,settled_time=coalesce(settled_time,now()),settled_user_id=coalesce(settled_user_id,#{userId}),settled_user_name=coalesce(settled_user_name,#{userName})</if> where bill_id=#{billId} and version=#{version}</update>
+ <update id="updateBill">update biz_public_expense_month set total_amount=#{totalAmount}<if test="personnelSnapshot != null">,personnel_amount=#{personnelAmount},personnel_snapshot=#{personnelSnapshot}</if>,status=#{status},version=version+1,update_time=now()<if test="status == 'SETTLED' and userId != null">,settled_time=coalesce(settled_time,now()),settled_user_id=coalesce(settled_user_id,#{userId}),settled_user_name=coalesce(settled_user_name,#{userName})</if> where bill_id=#{billId} and version=#{version}</update>
  <select id="selectEntries" resultType="map">select entry_id entryId,bill_id billId,policy_id policyId,policy_version policyVersion,name,category,amount,estimated,remark,attachment_urls attachmentUrls from biz_public_expense_entry where bill_id=#{billId} order by entry_id</select>
  <insert id="insertEntry">insert into biz_public_expense_entry(bill_id,policy_id,policy_version,name,category,amount,estimated,remark,attachment_urls) values(#{billId},#{policyId},#{policyVersion},#{name},#{category},#{amount},#{estimated},#{remark},#{attachmentUrls})</insert>
  <update id="updateEntry">update biz_public_expense_entry set amount=#{amount},estimated=#{estimated},remark=#{remark} where entry_id=#{entryId} and bill_id=#{billId}</update>
- <sql id="ownerColumns">o.allocation_id allocationId,o.bill_id billId,o.owner_user_id ownerUserId,o.owner_name ownerName,o.percentage,o.amount,o.status,o.version,o.submitted_time submittedTime</sql>
+ <sql id="ownerColumns">o.allocation_id allocationId,o.bill_id billId,o.owner_user_id ownerUserId,o.owner_name ownerName,o.cost_pool costPool,o.dept_id deptId,o.dept_name deptName,o.percentage,o.amount,o.status,o.version,o.submitted_time submittedTime</sql>
  <select id="selectOwnerAllocations" resultType="map">select <include refid="ownerColumns"/> from biz_public_expense_owner o where o.bill_id=#{billId} order by o.allocation_id</select>
  <select id="selectOwner" resultType="map">select <include refid="ownerColumns"/> from biz_public_expense_owner o where o.allocation_id=#{allocationId}</select>
  <select id="selectOwnerBills" resultType="map">select <include refid="ownerColumns"/>,b.company_dept_id companyDeptId,d.dept_name companyName,b.bill_month month,b.currency,b.total_amount totalAmount,b.status billStatus from biz_public_expense_owner o join biz_public_expense_month b on b.bill_id=o.bill_id join sys_dept d on d.dept_id=b.company_dept_id where o.owner_user_id=#{userId} and b.bill_month=#{month} and b.status in('PUBLISHED','SETTLED') order by b.company_dept_id,b.currency</select>
  <delete id="deleteOwners">delete from biz_public_expense_owner where bill_id=#{billId}</delete>
- <insert id="insertOwner" useGeneratedKeys="true" keyProperty="allocationId">insert into biz_public_expense_owner(bill_id,owner_user_id,owner_name,percentage,amount) values(#{billId},#{ownerUserId},#{ownerName},#{percentage},#{amount})</insert>
+ <insert id="insertOwner" useGeneratedKeys="true" keyProperty="allocationId">insert into biz_public_expense_owner(bill_id,owner_user_id,owner_name,cost_pool,dept_id,dept_name,percentage,amount) values(#{billId},#{ownerUserId},#{ownerName},#{costPool},#{deptId},#{deptName},#{percentage},#{amount})</insert>
  <update id="updateOwner">update biz_public_expense_owner set status=#{status},version=version+1,submitted_time=case when #{status}='SUBMITTED' then now() else null end where allocation_id=#{allocationId} and version=#{version}</update>
  <select id="selectProjectAllocations" resultType="map">select project_allocation_id projectAllocationId,allocation_id allocationId,project_id projectId,project_name projectName,percentage,amount,accounting_fact_id accountingFactId from biz_public_expense_project where allocation_id=#{allocationId} order by project_allocation_id</select>
  <delete id="deleteBillProjects">delete p from biz_public_expense_project p join biz_public_expense_owner o on o.allocation_id=p.allocation_id where o.bill_id=#{billId}</delete>
@@ -145,5 +166,5 @@
    +(select count(distinct policy.currency) <include refid="missingPolicyMonths"/> and date_format(date_add(concat(policy.start_month,'-01'),interval months.n month),'%Y-%m')=#{month}) pendingCount
   from biz_project p where p.project_id=#{projectId} and p.del_flag='0'
  </select>
- <select id="selectProjectHistory" resultType="map">select b.bill_id billId,b.bill_month month,b.currency,b.status,o.owner_name ownerName,a.percentage,a.amount,d.dept_name companyName from biz_public_expense_project a join biz_public_expense_owner o on o.allocation_id=a.allocation_id join biz_public_expense_month b on b.bill_id=o.bill_id join sys_dept d on d.dept_id=b.company_dept_id where a.project_id=#{projectId} and b.status in('PUBLISHED','SETTLED') order by b.bill_month desc,b.bill_id</select>
+ <select id="selectProjectHistory" resultType="map">select b.bill_id billId,b.bill_month month,b.currency,b.status,o.owner_name ownerName,o.cost_pool costPool,o.dept_name deptName,a.percentage,a.amount,d.dept_name companyName from biz_public_expense_project a join biz_public_expense_owner o on o.allocation_id=a.allocation_id join biz_public_expense_month b on b.bill_id=o.bill_id join sys_dept d on d.dept_id=b.company_dept_id where a.project_id=#{projectId} and b.status in('PUBLISHED','SETTLED') order by b.bill_month desc,b.bill_id</select>
 </mapper>

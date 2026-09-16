@@ -29,6 +29,8 @@ public class BusinessProjectHierarchyMapperIntegrationTest
         {
             sql.execute("create alias field for \"com.ruoyi.business.mapper.BusinessProjectHierarchyMapperIntegrationTest.field\"");
             sql.execute("alter table sys_dept add del_flag char(1)");
+            com.ruoyi.business.CompanyAccessTestSupport.grant(connection,101L,8L);
+            com.ruoyi.business.CompanyAccessTestSupport.grant(connection,102L,8L);
             sql.execute("create table biz_project_task(project_id bigint,active_status varchar(20),status varchar(20))");
             sql.execute("create table biz_project_risk(project_id bigint,status varchar(20))");
             sql.execute("create table biz_project_progress_report(report_id bigint,project_id bigint,progress int,biz_date date,completion_summary varchar(100),evidence_urls varchar(100),submitted_user_name varchar(100),update_time timestamp,create_time timestamp)");
@@ -41,6 +43,7 @@ public class BusinessProjectHierarchyMapperIntegrationTest
                 + "(11,1,'Secret child',11,99,'ACTIVE','LIGHT','DIRECT','0'),"
                 + "(12,3,'Needle second child',10,99,'ACTIVE','LIGHT','DIRECT','0'),"
                 + "(13,1,'Deleted child',10,8,'ACTIVE','LIGHT','DIRECT','2')");
+            sql.execute("update biz_project set company_dept_id=case when sponsor_owner_user_id=8 then 101 else 103 end");
         }
     }
 
@@ -105,7 +108,7 @@ public class BusinessProjectHierarchyMapperIntegrationTest
         try (SqlSession session = factory.openSession(); Statement sql = session.getConnection().createStatement())
         {
             sql.execute("update biz_project set company_dept_id=101 where project_id in (1,10,13)");
-            sql.execute("update biz_project set company_dept_id=102 where project_id in (2,3,11,12)");
+            sql.execute("update biz_project set company_dept_id=102 where project_id in (2)");
             BusinessProjectMapper mapper = session.getMapper(BusinessProjectMapper.class);
             Map<String, Object> query = query(8L, false, true, "");
             query.put("companyDeptId", "102");
@@ -141,8 +144,8 @@ public class BusinessProjectHierarchyMapperIntegrationTest
             sql.execute("alter table sys_dept add ancestors varchar(100)");
             sql.execute("insert into sys_dept(dept_id,dept_name,ancestors) values(201,'Operations','0,100,101'),(202,'Team','0,100,101,201'),(1201,'Other','0,100,102')");
             sql.execute("insert into sys_user(user_id,dept_id) values(9,1201),(10,202),(11,201)");
-            sql.execute("update biz_project set company_dept_id=101 where project_id in (1,10,11,13)");
-            sql.execute("update biz_project set company_dept_id=102 where project_id in (2,3,12)");
+            sql.execute("update biz_project set company_dept_id=101 where project_id in (1,10,13)");
+            sql.execute("update biz_project set company_dept_id=102 where project_id in (2)");
             BusinessProjectMapper mapper = session.getMapper(BusinessProjectMapper.class);
             Map<String, Object> query = query(8L, false, true, "");
             query.put("mainOwnerDeptId", "201");
@@ -173,8 +176,9 @@ public class BusinessProjectHierarchyMapperIntegrationTest
         {
             sql.execute("alter table sys_dept add ancestors varchar(100)");
             sql.execute("alter table sys_dept add parent_id bigint");
-            sql.execute("alter table sys_dept add status char(1)");
+            sql.execute("alter table sys_dept add if not exists status char(1)");
             sql.execute("alter table sys_dept add order_num int default 0");
+            sql.execute("delete from sys_dept where dept_id in(101,102)");
             sql.execute("insert into sys_dept(dept_id,dept_name,parent_id,ancestors,status,del_flag) values"
                 + "(101,'Company A',100,'0,100','0','0'),(102,'Company B',100,'0,100','1','0'),"
                 + "(201,'Operations',101,'0,100,101','0','0'),(202,'Team',201,'0,100,101,201','0','0'),"

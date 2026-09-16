@@ -34,6 +34,9 @@ import com.ruoyi.common.utils.StringUtils;
 @Service
 public class BusinessIncentiveServiceImpl implements IBusinessIncentiveService
 {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     private static final String SCORE_TIERS = "SCORE_TIERS_V1";
     @Autowired private BusinessIncentiveMapper mapper;
     @Autowired private BusinessProjectMapper projectMapper;
@@ -488,11 +491,11 @@ public class BusinessIncentiveServiceImpl implements IBusinessIncentiveService
     private boolean owner(BusinessProject project, Long userId)
     { return userId != null && userId.equals(project.getMainOwnerUserId()); }
     private boolean sponsor(BusinessProject project, Long userId)
-    { return userId != null && userId.equals(project.getSponsorOwnerUserId() == null ? project.getInitiatorUserId() : project.getSponsorOwnerUserId()); }
+    { return companyAccess.project(project, userId); }
     private void requireOwner(BusinessProject project, Long userId)
     { if (!owner(project, userId)) throw new ServiceException("只有项目主负责人可以申请奖励"); }
     private void requireSponsor(BusinessProject project, Long userId)
-    { if (!sponsor(project, userId)) throw new ServiceException("只有项目归属老板可以核准奖励；管理员不能代替业务核准"); }
+    { if (!sponsor(project, userId)) throw new ServiceException("只有获授权的公司老板可以核准奖励；管理员不能代替业务核准"); }
     private boolean canManageRules(BusinessProject project, Long userId, boolean viewAll)
     { return viewAll || owner(project, userId) || sponsor(project, userId); }
     private void requireRuleManager(BusinessProject project, Long userId, boolean viewAll)

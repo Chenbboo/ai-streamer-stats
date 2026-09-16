@@ -22,6 +22,8 @@ import com.ruoyi.system.service.ISysUserService;
 @ExtendWith(MockitoExtension.class)
 class BusinessDepartmentServiceImplTest
 {
+    @org.mockito.Mock private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Mock private ISysDeptService deptService;
     @Mock private ISysUserService userService;
     @InjectMocks private BusinessDepartmentServiceImpl service;

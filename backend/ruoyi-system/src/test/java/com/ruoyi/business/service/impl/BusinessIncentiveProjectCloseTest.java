@@ -26,6 +26,8 @@ import com.ruoyi.common.exception.ServiceException;
 @ExtendWith(MockitoExtension.class)
 class BusinessIncentiveProjectCloseTest
 {
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Mock BusinessProjectMapper mapper;
     @Mock BusinessAccountingMapper accountingMapper;
     @Mock BusinessIncentiveMapper incentiveMapper;
@@ -44,7 +46,11 @@ class BusinessIncentiveProjectCloseTest
         project.setActualEndDate(java.sql.Date.valueOf("2026-08-20"));
         lenient().when(mapper.selectProjectById(31L)).thenReturn(project);
         lenient().when(mapper.selectProjectByIdForUpdate(31L)).thenReturn(project);
-    }
+
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+        org.springframework.test.util.ReflectionTestUtils.setField(feishuService,"companyAccess",companyAccess);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
+}
 
     @Test void workspaceListsPendingAwardsAsIndependentCloseBlocker()
     {

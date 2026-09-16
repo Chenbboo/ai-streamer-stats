@@ -50,6 +50,9 @@ import com.ruoyi.business.mapper.BusinessProjectMapper;
 @Service
 public class BusinessFileService
 {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     private static final Logger log = LoggerFactory.getLogger(BusinessFileService.class);
 
     public static final int MAX_FILE_SIZE_MB = 20;
@@ -279,7 +282,7 @@ public class BusinessFileService
         if (userId.equals(project.getMainOwnerUserId())) return true;
         String role = projectMapper.selectMemberRole(projectId, userId);
         if (role != null) return true;
-        return userId.equals(project.getSponsorOwnerUserId()) || userId.equals(project.getInitiatorUserId());
+        return companyAccess.project(project,userId);
     }
 
     private void validateFileSignature(MultipartFile file, String extension) throws Exception

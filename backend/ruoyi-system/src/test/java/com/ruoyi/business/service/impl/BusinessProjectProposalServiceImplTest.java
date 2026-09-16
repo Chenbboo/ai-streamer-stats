@@ -34,6 +34,8 @@ import com.ruoyi.common.exception.ServiceException;
 @ExtendWith(MockitoExtension.class)
 class BusinessProjectProposalServiceImplTest
 {
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Mock private BusinessProjectProposalMapper mapper;
     @Mock private BusinessProjectWorkMapper workMapper;
     @Mock private IBusinessProjectService projectService;
@@ -68,7 +70,11 @@ class BusinessProjectProposalServiceImplTest
         proposal.setNoBudget("0");
         proposal.setSubmissionVersion(1);
         proposal.setVersion(2);
-    }
+
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+        org.mockito.Mockito.lenient().when(companyAccess.allowed(23L,111L,"BUSINESS")).thenReturn(true);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
+}
 
     @ParameterizedTest
     @CsvSource({"1,true", "9,true"})
@@ -703,7 +709,7 @@ class BusinessProjectProposalServiceImplTest
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.review(77L,"APPROVED",null,24L,"boss24",true));
 
-        assertEquals("只能审批分配给本人的立项申请",error.getMessage());
+        assertEquals("没有该公司立项审批权限",error.getMessage());
         verify(projectService,never()).createApprovedProject(any(),any(),any());
     }
 

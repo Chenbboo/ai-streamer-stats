@@ -33,6 +33,9 @@ import com.ruoyi.common.utils.uuid.IdUtils;
 @Service
 public class BusinessProjectProposalServiceImpl implements IBusinessProjectProposalService
 {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     private static final List<String> ACCOUNTING_MODES = Arrays.asList("PROFIT", "COST", "VALUE", "HYBRID");
     private static final List<String> MANAGEMENT_MODES = Arrays.asList("LIGHT", "STANDARD", "KEY_CONTROL");
     private static final List<String> CLOSE_METHODS = Arrays.asList("DIRECT", "RESULT_ACCEPTANCE", "STAGED_ACCEPTANCE");
@@ -72,10 +75,12 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     public List<BusinessProjectProposal> directory(Map<String, Object> query, boolean boss, boolean viewAll)
     {
         if (!boss && !viewAll) throw new ServiceException("只有老板可以查看公司立项目录");
-        List<BusinessProjectProposal> rows = mapper.selectDirectory(copy(query));
+        Map<String,Object> scoped = copy(query);
+        scoped.put("userId", SecurityUtils.getUserId()); scoped.put("viewAll", viewAll);
+        List<BusinessProjectProposal> rows = mapper.selectDirectory(scoped);
         for (BusinessProjectProposal row : rows)
         {
-            row.setCanOpen(Boolean.FALSE);
+            row.setCanOpen(Boolean.TRUE);
             row.setCanEdit(Boolean.FALSE);
             row.setCanReview(Boolean.FALSE);
         }
@@ -87,7 +92,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     {
         BusinessProjectProposal proposal = require(proposalId);
         boolean applicant = userId.equals(proposal.getApplicantUserId());
-        boolean reviewer = userId.equals(proposal.getSponsorOwnerUserId());
+        boolean reviewer = companyAccess.allowed(userId,proposal.getCompanyDeptId(),"BUSINESS");
         if (!viewAll && !applicant && !reviewer)
         {
             throw new ServiceException("无权查看该立项申请");
@@ -248,7 +253,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     {
         if (!boss) throw new ServiceException("只有老板可以审批立项申请");
         BusinessProjectProposal current = require(proposalId);
-        if (!userId.equals(current.getSponsorOwnerUserId())) throw new ServiceException("只能审批分配给本人的立项申请");
+        if (!companyAccess.allowed(userId,current.getCompanyDeptId(),"BUSINESS")) throw new ServiceException("没有该公司立项审批权限");
         if (userId.equals(current.getApplicantUserId())) throw new ServiceException("不能审批自己提交的立项申请");
         if (!"PENDING".equals(current.getStatus())) throw new ServiceException("该申请已经处理，请刷新后重试");
         if (!"APPROVED".equals(decision) && !"RETURNED".equals(decision)) throw new ServiceException("审批决定不正确");
@@ -265,7 +270,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             projectId = project.getProjectId();
         }
         String reviewerName = displayName(reviewer);
-        if (mapper.review(proposalId, userId, current.getVersion(), decision, userId, reviewerName,
+        if (mapper.review(proposalId, current.getSponsorOwnerUserId(), current.getVersion(), decision, userId, reviewerName,
             trim(comment), projectId, userName) != 1) throw changed();
         BusinessProjectProposal stored = require(proposalId);
         addEvent(stored, "APPROVED".equals(decision) ? "APPROVE" : "RETURN", "PENDING", decision,
@@ -1000,7 +1005,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
 
     private boolean canReadCompanyRates(Long userId,Long companyDeptId)
     {
-        return SecurityUtils.isAdmin(userId) || companyDeptId!=null && mapper.canReadCompanyRates(userId,companyDeptId)>0;
+        return SecurityUtils.isAdmin(userId) || companyAccess.allowed(userId,companyDeptId,"COST_READ") || (mapper.selectBossOptions(null).stream().noneMatch(row -> String.valueOf(userId).equals(String.valueOf(row.get("userId")))) && companyDeptId!=null && mapper.canReadCompanyRates(userId,companyDeptId)>0);
     }
 
     private boolean isNewTemplate(BusinessProjectProposal proposal)
@@ -1063,10 +1068,10 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     private void decorate(BusinessProjectProposal proposal, Long userId, boolean boss, boolean viewAll)
     {
         proposal.setCanOpen(viewAll || userId.equals(proposal.getApplicantUserId())
-            || userId.equals(proposal.getSponsorOwnerUserId()));
+            || companyAccess.allowed(userId,proposal.getCompanyDeptId(),"BUSINESS"));
         proposal.setCanEdit(userId.equals(proposal.getApplicantUserId())
             && Arrays.asList("DRAFT", "PENDING", "RETURNED", "WITHDRAWN").contains(proposal.getStatus()));
-        proposal.setCanReview(boss && userId.equals(proposal.getSponsorOwnerUserId())
+        proposal.setCanReview(boss && companyAccess.allowed(userId,proposal.getCompanyDeptId(),"BUSINESS")
             && "PENDING".equals(proposal.getStatus()));
     }
 

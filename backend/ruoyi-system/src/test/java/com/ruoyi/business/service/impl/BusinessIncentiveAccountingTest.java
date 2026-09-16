@@ -30,6 +30,8 @@ import com.ruoyi.common.exception.ServiceException;
 @ExtendWith(MockitoExtension.class)
 class BusinessIncentiveAccountingTest
 {
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     private static final Long PROJECT = 31L, SPONSOR = 8L, OWNER = 9L, FACT = 501L, AWARD = 701L;
     private static final Date DAY = java.sql.Date.valueOf("2026-08-20");
     @Mock BusinessAccountingMapper mapper;
@@ -54,7 +56,12 @@ class BusinessIncentiveAccountingTest
         lenient().when(mapper.selectFactById(FACT)).thenAnswer(call -> fact);
         lenient().when(mapper.selectFactByIdForUpdate(FACT)).thenAnswer(call -> fact);
         lenient().when(incentiveMapper.selectAwardForUpdate(AWARD)).thenAnswer(call -> award);
-    }
+
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+        org.mockito.Mockito.lenient().when(companyAccess.project(org.mockito.ArgumentMatchers.anyLong(),org.mockito.ArgumentMatchers.eq(8L))).thenReturn(true);
+        org.springframework.test.util.ReflectionTestUtils.setField(businessFileService,"companyAccess",companyAccess);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
+}
 
     @Test void applicantCannotConfirmRewardCostEvenWithGlobalVisibility()
     {

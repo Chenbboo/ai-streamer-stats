@@ -7,7 +7,7 @@
  <select id="companyAccess" resultType="int">select count(*) from biz_project p where p.project_id=#{projectId} and p.del_flag='0' and <include refid="companyScope"/></select>
  <select id="projects" resultType="map">
   select p.project_id projectId,p.project_name projectName from biz_project p where p.del_flag='0'
-  <if test="!admin">and (p.main_owner_user_id=#{userId} or coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}
+  <if test="!admin">and (p.main_owner_user_id=#{userId} or <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include>
    <if test="finance">or <include refid="companyScope"/></if>
    or exists(select 1 from biz_bonus_allocation b join biz_bonus_allocation_line l on l.allocation_id=b.allocation_id
       where b.project_id=p.project_id and b.status='APPROVED' and l.user_id=#{userId}))

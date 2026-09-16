@@ -14,6 +14,8 @@ import static org.mockito.ArgumentMatchers.*;
 @ExtendWith(MockitoExtension.class)
 class BusinessAccountingPrivacyTest
 {
+    @org.mockito.Mock private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Mock BusinessAccountingMapper mapper;
     @InjectMocks BusinessAccountingServiceImpl service;
     private Map<String,Object> detail()

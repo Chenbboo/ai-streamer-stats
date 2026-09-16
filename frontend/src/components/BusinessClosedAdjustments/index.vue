@@ -20,7 +20,7 @@
     <el-form-item label="差额金额" required><el-input-number v-model="amount" :min="0.01" :max="999999999999.99" :precision="2" /><span>{{ project.baseCurrency||project.currency }}</span></el-form-item>
     <el-alert title="例如：补记收入选增加，补记费用选减少；金额仅填写本次差额。" type="info" :closable="false" />
     <el-form-item label="原因及依据" required><el-input v-model="form.reason" type="textarea" maxlength="2000" show-word-limit /></el-form-item>
-   </el-form><template #footer><el-button @click="visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="submit">提交归属老板审核</el-button></template>
+   </el-form><template #footer><el-button @click="visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="submit">提交公司老板审核</el-button></template>
   </el-dialog>
  </section>
 </template>
@@ -33,9 +33,9 @@ import {newSubmissionId} from '@/utils/submission'
 const props=defineProps({project:{type:Object,required:true}}),emit=defineEmits(['changed']),user=useUserStore()
 const rows=ref([]),loading=ref(false),failed=ref(false),saving=ref(false),visible=ref(false),form=ref({}),amount=ref(null),direction=ref('DECREASE')
 const permitted=p=>user.permissions.includes('*:*:*')||user.permissions.includes(p)
-const canView=computed(()=>Number(user.id)===1||[props.project.sponsorOwnerUserId||props.project.initiatorUserId,props.project.mainOwnerUserId].some(id=>id!=null&&Number(id)===Number(user.id)))
+const canView=computed(()=>Number(user.id)===1||props.project.governanceProfile?.companyManager===true||[props.project.mainOwnerUserId].some(id=>id!=null&&Number(id)===Number(user.id)))
 const canApply=computed(()=>permitted('business:accounting:add')||permitted('business:project:report'))
-const canReview=computed(()=>Number(user.id)===Number(props.project.sponsorOwnerUserId||props.project.initiatorUserId)&&permitted('business:accounting:close'))
+const canReview=computed(()=>props.project.governanceProfile?.companyManager===true&&permitted('business:accounting:close'))
 let sequence=0
 async function load(){const seq=++sequence;if(!canView.value){rows.value=[];loading.value=false;return}loading.value=true;failed.value=false;try{const r=await getClosedAdjustments(props.project.projectId);if(seq===sequence)rows.value=r.data||[]}catch{if(seq===sequence)failed.value=true}finally{if(seq===sequence)loading.value=false}}
 function open(){form.value={requestId:newSubmissionId(),businessDate:'',originalFactId:undefined,reason:''};amount.value=null;direction.value='DECREASE';visible.value=true}

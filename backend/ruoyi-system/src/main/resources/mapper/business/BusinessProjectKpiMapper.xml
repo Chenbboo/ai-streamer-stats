@@ -20,7 +20,7 @@
     <choose>
       <when test="viewAll == true"/>
       <when test="boss == true">
-        and (coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId} or p.main_owner_user_id=#{userId})
+        and (<include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include> or p.main_owner_user_id=#{userId})
       </when>
       <otherwise>
         and p.main_owner_user_id=#{userId}

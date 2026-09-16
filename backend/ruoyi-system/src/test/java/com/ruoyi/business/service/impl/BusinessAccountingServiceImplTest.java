@@ -24,6 +24,8 @@ import com.ruoyi.common.exception.ServiceException;
 @ExtendWith(MockitoExtension.class)
 class BusinessAccountingServiceImplTest
 {
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Test void periodicBudgetNeverUsesLifetimeCosts()
     {
         when(mapper.selectProjectBudgetSnapshot(11L)).thenReturn("{\"budget\":{\"cycle\":\"MONTH\",\"startDate\":\"2026-09-01\",\"endDate\":\"2026-09-30\"}}");
@@ -42,7 +44,15 @@ class BusinessAccountingServiceImplTest
     {
         lenient().when(mapper.selectProjectForAccountingForUpdate(any()))
             .thenAnswer(call -> mapper.selectProjectForAccounting(call.getArgument(0)));
-    }
+
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+        lenient().when(companyAccess.project(org.mockito.ArgumentMatchers.anyLong(),org.mockito.ArgumentMatchers.anyLong())).thenAnswer(call -> {
+            Map<String,Object> p=mapper.selectProjectForAccountingForUpdate(call.getArgument(0));
+            return p!=null && String.valueOf(call.getArgument(1,Long.class)).equals(String.valueOf(p.get("initiatorUserId")));
+        });
+        org.springframework.test.util.ReflectionTestUtils.setField(businessFileService,"companyAccess",companyAccess);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
+}
 
     @Test void projectOwnerCanReadProjectCockpitWithoutBeingSponsor()
     {
@@ -55,6 +65,15 @@ class BusinessAccountingServiceImplTest
         assertEquals(true,query.getValue().get("viewAll"));
     }
 
+    @Test void authorizedOtherBossCanReadProjectCockpitAndRevocationTakesEffect()
+    {
+        Map<String,Object> project=project(11L,8L);project.put("mainOwnerUserId",9L);
+        when(mapper.selectProjectForAccounting(11L)).thenReturn(project);
+        when(companyAccess.project(11L,10L)).thenReturn(true);
+        assertDoesNotThrow(()->service.projectDashboard(11L,Collections.emptyMap(),10L,false));
+        when(companyAccess.project(11L,10L)).thenReturn(false);
+        assertThrows(ServiceException.class,()->service.projectDashboard(11L,Collections.emptyMap(),10L,false));
+    }
     @Test void unrelatedUserCannotReadProjectCockpit()
     {
         Map<String,Object> project=project(11L,8L);project.put("mainOwnerUserId",9L);
@@ -69,7 +88,7 @@ class BusinessAccountingServiceImplTest
         when(mapper.selectProjectForAccounting(20L)).thenReturn(project);
         BusinessOperatingFact fact=new BusinessOperatingFact();fact.setProjectId(20L);
         ServiceException error=assertThrows(ServiceException.class,()->service.saveFact(fact,9L,"boss9",false));
-        assertTrue(error.getMessage().contains("其他老板"));
+        assertTrue(error.getMessage().contains("未授权公司"));
         verify(mapper,never()).insertFact(any());
     }
 

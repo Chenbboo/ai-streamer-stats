@@ -50,7 +50,7 @@ class BusinessProjectProposalLaunchMapperIntegrationTest
         String resource = "mapper/business/BusinessProjectProposalMapper.xml";
         try (InputStream input = Resources.getResourceAsStream(resource))
         {
-            new XMLMapperBuilder(input, config, resource, config.getSqlFragments()).parse();
+            com.ruoyi.business.CompanyAccessTestSupport.register(config);new XMLMapperBuilder(input, config, resource, config.getSqlFragments()).parse();
         }
         factory = new SqlSessionFactoryBuilder().build(config);
     }

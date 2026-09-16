@@ -38,6 +38,9 @@ import com.ruoyi.common.utils.StringUtils;
 @Service
 public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
 {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     private static final List<String> CYCLE_TYPES = Arrays.asList("MONTH", "QUARTER", "PROJECT");
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
     private static final BigDecimal MAX_ITEM_SCORE = new BigDecimal("120");
@@ -733,14 +736,14 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
     private void requireView(BusinessProject project, Long userId, boolean viewAll, boolean boss)
     {
         if (viewAll) return;
-        if (boss && userId.equals(sponsor(project))) return;
+        if (boss && companyAccess.project(project, userId)) return;
         if (userId.equals(project.getMainOwnerUserId())) return;
         throw new ServiceException("无权查看该项目KPI奖金");
     }
 
     private boolean canManage(BusinessProject project, Long userId, boolean viewAll, boolean boss)
     { return viewAll || userId != null && userId.equals(project.getMainOwnerUserId())
-        || (boss && userId.equals(sponsor(project))); }
+        || (boss && companyAccess.project(project, userId)); }
 
     private void requireManage(BusinessProject project, Long userId, boolean viewAll, boolean boss)
     {
@@ -754,7 +757,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
     }
 
     private boolean canReview(BusinessProject project, Long userId, boolean viewAll, boolean boss)
-    { return viewAll || boss && userId != null && userId.equals(sponsor(project)); }
+    { return viewAll || boss && userId != null && companyAccess.project(project, userId); }
 
     private void requireOwner(BusinessProject project, Long userId, boolean viewAll)
     {

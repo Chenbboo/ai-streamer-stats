@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.business.mapper.BusinessCompanyAccessMapper">
+  <resultMap id="Grant" type="java.util.HashMap">
+    <result property="userId" column="user_id"/>
+    <result property="userName" column="user_name"/>
+    <result property="capabilities" column="capabilities"/>
+    <result property="version" column="version"/>
+    <result property="updateBy" column="update_by"/>
+    <result property="updateTime" column="update_time"/>
+  </resultMap>
+  <!-- Static include properties only. Never interpolate request data into this fragment. -->
+  <sql id="scope">exists(select 1 from biz_company_access ca
+    join sys_user ca_user on ca_user.user_id=ca.user_id and ca_user.status='0' and ca_user.del_flag='0'
+    join sys_dept ca_company on ca_company.dept_id=ca.company_dept_id and ca_company.status='0' and ca_company.del_flag='0'
+    where ca.company_dept_id=${company} and ca.user_id=#{userId} and find_in_set('${capability}',ca.capabilities)
+    and exists(select 1 from sys_user_role ca_ur join sys_role ca_r on ca_r.role_id=ca_ur.role_id
+      where ca_ur.user_id=ca.user_id and ca_r.role_key='company_owner' and ca_r.status='0' and ca_r.del_flag='0'))</sql>
+  <select id="allowed" resultType="int">select count(*) from biz_company_access ca
+    join sys_user u on u.user_id=ca.user_id and u.status='0' and u.del_flag='0'
+    join sys_dept d on d.dept_id=ca.company_dept_id and d.status='0' and d.del_flag='0'
+    where ca.user_id=#{userId} and ca.company_dept_id=#{companyId} and find_in_set(#{capability},ca.capabilities)
+    and exists(select 1 from sys_user_role ur join sys_role r on r.role_id=ur.role_id
+      where ur.user_id=ca.user_id and r.role_key='company_owner' and r.status='0' and r.del_flag='0')
+  </select>
+  <select id="departmentCompany" resultType="long">select c.dept_id from sys_dept d join sys_dept c
+    on (c.dept_id=d.dept_id or find_in_set(c.dept_id,d.ancestors)) and c.parent_id=100
+    where d.dept_id=#{deptId} and d.del_flag='0' and c.del_flag='0' limit 1</select>
+  <select id="staffCompany" resultType="long">select c.dept_id from sys_user u join sys_dept d on d.dept_id=u.dept_id
+    join sys_dept c on (c.dept_id=d.dept_id or find_in_set(c.dept_id,d.ancestors)) and c.parent_id=100
+    where u.user_id=#{userId} and u.del_flag='0' and c.del_flag='0' limit 1</select>
+  <select id="projectCompany" resultType="long">select company_dept_id from biz_project where project_id=#{projectId} and del_flag='0'</select>
+  <select id="companies" resultType="map">select d.dept_id companyDeptId,d.dept_name companyName,coalesce(ca.capabilities,'') capabilities
+    from sys_dept d left join biz_company_access ca on ca.company_dept_id=d.dept_id and ca.user_id=#{userId}
+    where d.parent_id=100 and d.status='0' and d.del_flag='0'
+    <if test="!admin">and <include refid="scope"><property name="company" value="d.dept_id"/><property name="capability" value="AUTHORIZE"/></include></if>
+    order by d.order_num,d.dept_id</select>
+  <select id="grants" resultMap="Grant">select ca.user_id,u.nick_name user_name,ca.capabilities,ca.version,ca.update_by,ca.update_time
+    from biz_company_access ca join sys_user u on u.user_id=ca.user_id where ca.company_dept_id=#{companyId} order by ca.user_id</select>
+  <select id="bosses" resultType="map">select distinct u.user_id userId,coalesce(nullif(u.nick_name,''),u.user_name) userName
+    from sys_user u join sys_user_role ur on ur.user_id=u.user_id join sys_role r on r.role_id=ur.role_id
+    where u.status='0' and u.del_flag='0' and r.role_key='company_owner' and r.status='0' and r.del_flag='0'</select>
+  <select id="activeBoss" resultType="int">select count(*) from sys_user u join sys_user_role ur on ur.user_id=u.user_id
+    join sys_role r on r.role_id=ur.role_id where u.user_id=#{userId} and u.status='0' and u.del_flag='0'
+    and r.role_key='company_owner' and r.status='0' and r.del_flag='0'</select>
+  <select id="lockCompany" resultType="long">select dept_id from sys_dept where dept_id=#{companyId} and parent_id=100 and status='0' and del_flag='0' for update</select>
+  <select id="version" resultType="int">select coalesce((select version from biz_company_access where company_dept_id=#{companyId} and user_id=#{userId}),0)</select>
+  <insert id="replace">insert into biz_company_access(company_dept_id,user_id,capabilities,version,update_by)
+    values(#{companyId},#{userId},#{capabilities},1,#{actorName})
+    on duplicate key update capabilities=values(capabilities),version=version+1,update_by=values(update_by),update_time=now()</insert>
+  <insert id="audit">insert into biz_company_access_event(company_dept_id,user_id,capabilities,operator_id,operator_name,reason)
+    values(#{companyId},#{userId},#{capabilities},#{actorId},#{actorName},#{reason})</insert>
+</mapper>

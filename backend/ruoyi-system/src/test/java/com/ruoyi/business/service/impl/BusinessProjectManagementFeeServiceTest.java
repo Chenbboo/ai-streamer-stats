@@ -17,6 +17,8 @@ import com.ruoyi.business.mapper.BusinessProjectMapper;
 
 class BusinessProjectManagementFeeServiceTest
 {
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     BusinessProjectManagementFeeService service=new BusinessProjectManagementFeeService();
     BusinessProjectManagementFeeMapper mapper=mock(BusinessProjectManagementFeeMapper.class);
     BusinessProjectMapper projects=mock(BusinessProjectMapper.class);
@@ -39,7 +41,10 @@ class BusinessProjectManagementFeeServiceTest
         when(mapper.selectFee(1L)).thenReturn(configured);when(mapper.selectFeeForUpdate(1L)).thenReturn(configured);
         when(mapper.selectPayments(2L)).thenReturn(Collections.emptyList());when(mapper.insertEvent(anyMap())).thenReturn(1);
         when(mapper.selectPaymentByRequest(anyLong(),anyString())).thenReturn(null);
-    }
+
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
+}
 
     @Test void estimateUsesFinalProfitBasisAndIgnoresRemovedLegacyLimits()
     {

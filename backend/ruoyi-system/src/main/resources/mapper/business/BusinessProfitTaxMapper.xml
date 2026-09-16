@@ -4,9 +4,7 @@
  <select id="selectCompanies" resultType="map">
   select d.dept_id companyDeptId,d.dept_name companyName,t.tax_rate taxRate,coalesce(t.version,0) version,t.update_by updateBy,t.update_time updateTime
   from sys_dept d left join biz_company_profit_tax t on t.company_dept_id=d.dept_id
-  where d.parent_id=100 and d.del_flag='0' and d.status='0' and (d.leader_user_id=#{userId} or exists(
-   select 1 from sys_user u join sys_user_role ur on ur.user_id=u.user_id join sys_role r on r.role_id=ur.role_id
-   where u.user_id=#{userId} and u.status='0' and u.del_flag='0' and r.role_key='company_owner' and r.status='0' and r.del_flag='0'))
+  where d.parent_id=100 and d.del_flag='0' and d.status='0' and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="d.dept_id"/><property name="capability" value="BUSINESS"/></include>
   order by d.order_num,d.dept_id
  </select>
  <select id="lockCompany" resultType="long">select dept_id from sys_dept where dept_id=#{companyDeptId} and parent_id=100 and del_flag='0' and status='0' for update</select>
@@ -33,8 +31,9 @@
   left join biz_company_profit_tax t on t.company_dept_id=p.company_dept_id
   left join biz_project_profit_tax_snapshot s on s.project_id=p.project_id
   where p.del_flag='0'
-  <if test="viewAll == false">and coalesce(p.sponsor_owner_user_id,p.initiator_user_id)=#{userId}</if>
-  <if test="projectId != null">and p.project_id=#{projectId}</if>
+  <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+  <!-- Calculate company offsets before selecting the requested project's share. -->
+  <if test="projectId != null">and (p.project_id=#{projectId} or p.company_dept_id=(select target.company_dept_id from biz_project target where target.project_id=#{projectId} and target.del_flag='0'))</if>
   <if test="companyDeptId != null">and p.company_dept_id=#{companyDeptId}</if>
   <if test="dateTo != null and dateTo != ''">and r.biz_date&lt;=#{dateTo}</if>
   order by r.project_id,r.biz_date,r.is_adjustment,r.result_id

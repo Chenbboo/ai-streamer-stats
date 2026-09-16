@@ -14,6 +14,8 @@ import com.ruoyi.business.mapper.BusinessPublicExpenseMapper;
 import com.ruoyi.common.exception.ServiceException;
 
 class BusinessPublicExpenseAccountingTest {
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     BusinessAccountingMapper mapper=mock(BusinessAccountingMapper.class);
     BusinessPublicExpenseMapper publicExpenses=mock(BusinessPublicExpenseMapper.class);
     BusinessAccountingServiceImpl service=new BusinessAccountingServiceImpl();
@@ -28,7 +30,11 @@ class BusinessPublicExpenseAccountingTest {
         when(mapper.selectProjectForAccountingForUpdate(1L)).thenReturn(project);
         when(mapper.selectNextResultVersion(any(),any())).thenReturn(1,2);
         doAnswer(call->{call.<Map<String,Object>>getArgument(0).put("resultId",100L);return 1;}).when(mapper).insertDailyResult(any());
-    }
+
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+        org.mockito.Mockito.lenient().when(companyAccess.project(org.mockito.ArgumentMatchers.anyLong(),org.mockito.ArgumentMatchers.eq(8L))).thenReturn(true);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
+}
 
     @Test void monthlyCostIsDeductedOnceAndRecalculationDoesNotAccumulateIt(){
         when(mapper.sumProjectFacts(1L,date)).thenReturn(row("revenueAmount",money("20000"),"costAmount",money("200"),

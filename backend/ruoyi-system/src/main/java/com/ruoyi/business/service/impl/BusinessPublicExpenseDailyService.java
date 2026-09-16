@@ -36,13 +36,16 @@ public class BusinessPublicExpenseDailyService
         mapper.selectCompanyForUpdate(number(first.get("companyDeptId")));
         Map<String,Object> bill=mapper.selectBillForUpdate(billId);
         List<Map<String,Object>> previous=mapper.selectDailyRows(billId);
-        Map<Long,BigDecimal> totals=new TreeMap<>();
+        Map<Long,BigDecimal> totals=new TreeMap<>(),personnelTotals=new TreeMap<>();
         if(Arrays.asList("PUBLISHED","SETTLED").contains(bill.get("status")))
         {
             for(Map<String,Object> owner:mapper.selectOwnerAllocations(billId))
                 if("SUBMITTED".equals(owner.get("status")))
                     for(Map<String,Object> allocation:mapper.selectProjectAllocations(number(owner.get("allocationId"))))
-                        totals.merge(number(allocation.get("projectId")),money(allocation.get("amount")),BigDecimal::add);
+                        {
+                            totals.merge(number(allocation.get("projectId")),money(allocation.get("amount")),BigDecimal::add);
+                            if("PERSONNEL".equals(owner.get("costPool")))personnelTotals.merge(number(allocation.get("projectId")),money(allocation.get("amount")),BigDecimal::add);
+                        }
             for(Map<String,Object> adjustment:mapper.selectAdjustments(billId,null))
                 totals.merge(number(adjustment.get("projectId")),money(adjustment.get("amount")),BigDecimal::add);
         }
@@ -78,7 +81,8 @@ public class BusinessPublicExpenseDailyService
                 if(projectEnd!=null&&projectEnd.isBefore(end))end=projectEnd;
             }
             if(end.isBefore(start))throw new ServiceException("项目在该月没有可分摊日期，请核对项目起止日期");
-            for(Map<String,Object> row:schedule(billId,projectId,totals.get(projectId),start,end,confirmed))desired.put(key(row),row);
+            BigDecimal personnel=personnelTotals.getOrDefault(projectId,BigDecimal.ZERO);
+            for(Map<String,Object> row:combinedSchedule(billId,projectId,totals.get(projectId),personnel,start,end,confirmed))desired.put(key(row),row);
         }
         Map<Long,SortedSet<String>> changed=new TreeMap<>();
         for(Map<String,Object> row:old.values())if(!desired.containsKey(key(row)))
@@ -92,6 +96,14 @@ public class BusinessPublicExpenseDailyService
         for(Map<String,Object> row:mapper.selectUnrecognizedDailyDates(billId))changed(changed,row);
         for(Map.Entry<Long,SortedSet<String>> entry:changed.entrySet())for(String date:entry.getValue())
             accounting.recalculatePublicExpenseCost(entry.getKey(),java.sql.Date.valueOf(date),"public-expense-daily");
+    }
+
+    static List<Map<String,Object>> combinedSchedule(Long billId,Long projectId,BigDecimal total,BigDecimal personnel,LocalDate start,LocalDate end,boolean confirmed) {
+        // Final monthly cost replaces estimates, rather than adding another monthly charge.
+        if(confirmed)return schedule(billId,projectId,total,start,end,true);
+        List<Map<String,Object>> rows=schedule(billId,projectId,total.subtract(personnel),start,end,false);
+        BigDecimal estimate=personnel.divide(new BigDecimal("21.75"),2,RoundingMode.HALF_UP);
+        for(Map<String,Object> row:rows)row.put("amount",money(row.get("amount")).add(estimate));return rows;
     }
 
     static List<Map<String,Object>> schedule(Long billId,Long projectId,BigDecimal total,LocalDate start,LocalDate end,boolean confirmed)

@@ -116,7 +116,7 @@
         from biz_project_proposal p
         left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
         left join biz_project parent on parent.project_id=p.parent_project_id and parent.del_flag='0'
-        where p.del_flag='0' and p.sponsor_owner_user_id=#{userId}
+        where p.del_flag='0' and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include>
         <if test="status != null and status != ''">and p.status=#{status}</if>
         <if test="status == null or status == ''">and p.status='PENDING'</if>
         <if test="keyword != null and keyword != ''">
@@ -129,6 +129,7 @@
         select p.proposal_id,p.proposal_no,p.project_name,p.applicant_user_id,p.applicant_name,
           p.sponsor_owner_user_id,p.sponsor_owner_name,p.status,p.create_time,p.update_time,p.del_flag
         from biz_project_proposal p where p.del_flag='0'
+        <if test="viewAll != true">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
         <if test="keyword != null and keyword != ''">
           and (p.project_name like concat('%',#{keyword},'%') or p.applicant_name like concat('%',#{keyword},'%'))
         </if>

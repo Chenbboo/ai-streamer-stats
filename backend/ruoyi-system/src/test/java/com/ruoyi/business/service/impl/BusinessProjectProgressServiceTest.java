@@ -15,6 +15,8 @@ import com.ruoyi.common.exception.ServiceException;
 
 @ExtendWith(MockitoExtension.class)
 class BusinessProjectProgressServiceTest {
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Mock BusinessProjectMapper mapper;
     @Mock BusinessProjectProgressMapper progressMapper;
     @InjectMocks BusinessProjectServiceImpl service;
@@ -24,7 +26,10 @@ class BusinessProjectProgressServiceTest {
         child.setProjectName("子项目");child.setStatus("ACTIVE");child.setDelFlag("0");
         parent=new BusinessProject();parent.setProjectId(10L);parent.setMainOwnerUserId(8L);parent.setStatus("ACTIVE");
         lenient().when(mapper.selectProjectByIdForUpdate(20L)).thenReturn(child);
-    }
+
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
+}
     BusinessProjectProgressReport report() {
         BusinessProjectProgressReport report=new BusinessProjectProgressReport();
         report.setProjectId(20L);report.setProgress(40);report.setCompletionSummary("完成第一阶段");

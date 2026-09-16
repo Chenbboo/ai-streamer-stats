@@ -22,6 +22,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class BusinessFeishuService
 {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     private static final List<String> CASES = Arrays.asList("NORMAL", "LEAVE", "CORRECTION", "CROSS_DAY", "UNMAPPED", "RECOVERY");
     private final BusinessFeishuMapper mapper;
     private final AttendanceProvider provider;
@@ -49,23 +52,30 @@ public class BusinessFeishuService
 
     public Map<String,Object> connections(Long actor,boolean integrationManager)
     {
-        if(integrationManager)
-        {
-            Map<String,Object> result=connections();
-            for(Map<String,Object> c:(List<Map<String,Object>>)result.get("connections"))
-            { Map<String,Object> company=mapper.company(id(c,"companyDeptId"));c.put("canCutoverOwner",company!=null&&Objects.equals(actor,id(company,"leaderUserId"))); }
-            return result;
-        }
-        List<Map<String,Object>> companies=new ArrayList<>(),connections=new ArrayList<>();
+        List<Map<String,Object>> companies=new ArrayList<>(), connections=new ArrayList<>();
         for(Map<String,Object> company:mapper.companies())
         {
-            Map<String,Object> full=mapper.company(id(company,"companyDeptId"));
-            if(full==null||!Objects.equals(actor,id(full,"leaderUserId")))continue;
-            companies.add(company);Map<String,Object> c=mapper.connectionForCompany(id(company,"companyDeptId"));
-            if(c!=null){c.put("companyName",company.get("companyName"));c.put("configured",provider.isConfigured(string(c,"tenantKey")));c.put("canCutoverOwner",true);c.remove("tenantKey");connections.add(c);}
+            Long companyId=id(company,"companyDeptId");
+            boolean manage=integrationManager && canManageIntegration(companyId,actor);
+            boolean cutover=companyAccess.allowed(actor,companyId,"CUTOVER");
+            if(!manage&&!cutover&&!canReadCompany(companyId,actor))continue;
+            company.put("canManageIntegration",manage);companies.add(company);
+            Map<String,Object> c=mapper.connectionForCompany(companyId);
+            if(c!=null)
+            {
+                c.put("companyName",company.get("companyName"));c.put("configured",provider.isConfigured(string(c,"tenantKey")));
+                c.put("canManageIntegration",manage);c.put("canCutoverOwner",cutover);
+                if(!manage)c.remove("tenantKey");connections.add(c);
+            }
         }
         return map("configuration",null,"companies",companies,"connections",connections);
     }
+    private boolean canManageIntegration(Long companyId,Long actor)
+    { return com.ruoyi.common.utils.SecurityUtils.isAdmin(actor)||companyAccess.allowed(actor,companyId,"INTEGRATION"); }
+    public void requireIntegration(Long connectionId,Long actor)
+    { if(!canManageIntegration(id(connection(connectionId),"companyDeptId"),actor))fail("没有该公司的飞书配置权限"); }
+    public void requireConnectionRead(Long connectionId,Long actor)
+    { Long companyId=id(connection(connectionId),"companyDeptId");if(!canReadCompany(companyId,actor)&&!canManageIntegration(companyId,actor)&&!companyAccess.allowed(actor,companyId,"CUTOVER"))fail("没有该公司的飞书查询权限"); }
     public void requireConnectionOwner(Long connectionId,Long actor)
     { requireCompanyLeader(id(connection(connectionId),"companyDeptId"),actor); }
     public List<Map<String,Object>> readerCandidates(Long connectionId,Long actor)
@@ -75,6 +85,7 @@ public class BusinessFeishuService
     public Map<String, Object> createConnection(Map<String, Object> input, Long actor)
     {
         Long companyId = requiredId(input, "companyDeptId");
+        if(!canManageIntegration(companyId,actor))fail("没有该公司的飞书配置权限");
         if (mapper.company(companyId) == null) fail("公司不存在或已停用");
         mapper.lockCompany(companyId);
         if (mapper.connectionForCompany(companyId) != null) fail("该公司已有连接；不可创建第二个假勤权威来源");
@@ -107,6 +118,7 @@ public class BusinessFeishuService
     @Transactional
     public Map<String, Object> addMapping(Long connectionId, Map<String, Object> input, Long actor)
     {
+        requireIntegration(connectionId,actor);
         Map<String, Object> c = lock(connectionId); requireIdle(c);
         mapper.lockTenant(string(c,"tenantKey"));
         Long userId = requiredId(input, "userId");
@@ -135,6 +147,7 @@ public class BusinessFeishuService
     /** All rows are validated before the first insert; conflicts roll back the complete selection. */
     public Map<String,Object> addMappings(Long connectionId, Map<String,Object> input, Long actor)
     {
+        requireIntegration(connectionId,actor);
         if (!Boolean.TRUE.equals(input.get("confirmed"))) fail("请先逐项核对并确认人员关联");
         Object raw=input.get("items");
         if (!(raw instanceof List) || ((List<?>)raw).isEmpty() || ((List<?>)raw).size()>50) fail("每次确认 1 至 50 名人员");
@@ -186,6 +199,7 @@ public class BusinessFeishuService
     {
         Map<String, Object> existing = mapper.mapping(mappingId);
         if (existing == null) fail("映射不存在");
+        requireIntegration(id(existing,"connectionId"),actor);
         Map<String, Object> c = lock(id(existing,"connectionId")); requireIdle(c);
         existing = mapper.mapping(mappingId);
         LocalDate to = date(input,"effectiveTo"), from = optionalDate(existing.get("effectiveFrom"));
@@ -204,6 +218,7 @@ public class BusinessFeishuService
     @Transactional
     public void resolveIssue(Long connectionId, Long issueId, Map<String,Object> input, Long actor)
     {
+        requireIntegration(connectionId,actor);
         lock(connectionId);
         Map<String,Object> issue = mapper.issue(issueId);
         if (issue == null || !Objects.equals(connectionId,id(issue,"connectionId"))) fail("问题不属于此连接");
@@ -223,6 +238,7 @@ public class BusinessFeishuService
     /** Return the persisted run immediately; the existing bounded application executor performs I/O. */
     public Map<String,Object> startSync(Long connectionId,Map<String,Object> input,Long actor)
     {
+        requireIntegration(connectionId,actor);
         Map<String,Object> prepared=prepareSync(connectionId,input,actor);
         Map<String,Object> run=(Map<String,Object>)prepared.get("run");
         try
@@ -574,9 +590,9 @@ public class BusinessFeishuService
     public List<Map<String,Object>> readers(Long connectionId,Long actor)
     { Map<String,Object> c=connection(connectionId); requireCompanyLeader(id(c,"companyDeptId"),actor); return mapper.readers(id(c,"companyDeptId")); }
     private boolean canReadCompany(Long company,Long user)
-    { Map<String,Object> c=mapper.company(company); return c!=null&&(Objects.equals(user,id(c,"leaderUserId"))||mapper.readerAllowed(company,user)>0); }
+    { Map<String,Object> c=mapper.company(company); return c!=null&&(companyAccess.allowed(user,company,"ATTENDANCE_READ")||mapper.readerAllowed(company,user)>0); }
     private void requireCompanyLeader(Long company,Long user)
-    { Map<String,Object> c=mapper.company(company); if(c==null||!Objects.equals(user,id(c,"leaderUserId"))) fail("此操作须由该公司实际负责人执行，技术管理权限不授予业务验收或来源切换权"); }
+    { Map<String,Object> c=mapper.company(company); if(c==null||!companyAccess.allowed(user,company,"CUTOVER")) fail("此操作需要单独的公司验收与来源切换授权"); }
     private Map<String,Object> connection(Long id) { Map<String,Object> c=mapper.connection(id); if(c==null) fail("飞书连接不存在"); return c; }
     private Map<String,Object> lock(Long id) { Map<String,Object> c=mapper.lockConnection(id); if(c==null) fail("飞书连接不存在"); return c; }
     private void requireIdle(Map<String,Object> c) { if(c.get("runningRunId")!=null) fail("同步期间不能更改映射或切换来源"); }

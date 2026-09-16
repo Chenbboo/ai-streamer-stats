@@ -31,6 +31,9 @@ import com.ruoyi.common.utils.uuid.IdUtils;
 @Service
 public class BusinessAccountingServiceImpl implements IBusinessAccountingService
 {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     private java.time.Clock overviewClock = java.time.Clock.system(java.time.ZoneId.of("Asia/Shanghai"));
     void setOverviewClock(java.time.Clock clock) { overviewClock = clock.withZone(java.time.ZoneId.of("Asia/Shanghai")); }
     private static final List<String> MANUAL_EXPENSE_CATEGORY_CODES = Arrays.asList("PURCHASE_COST", "PLATFORM_FEE",
@@ -783,7 +786,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             addItem(result,"PERSONNEL_COST_PERSON",String.valueOf(personnelItem.get("componentName")),
                 decimal(personnelItem.get("amount")),String.valueOf(personnelItem.get("calculationDetail")));
         addItem(result,"PROJECT_BONUS_COST","项目绩效奖金",bonus,"独立奖励核准后由核算确认，或依历史KPI方案确认；不代表已向个人发放");
-        if(publicCost.signum()!=0)addItem(result,"COMPANY_PUBLIC_COST","公司公共费用",publicCost,"按项目当月承担费用期间的自然日分摊，最后一天补齐尾差；月结确认，不重复扣费。包含暂估："+publicEstimated.toPlainString());
+        if(publicCost.signum()!=0)addItem(result,"COMPANY_PUBLIC_COST","公司公共费用",publicCost,"公共人员成本按月承担额除以21.75暂估；日常公共费用按承担期间自然日分摊。月结以实际月额替换估算，不重复扣费。包含暂估："+publicEstimated.toPlainString());
         if(publicEstimated.signum()!=0)addItem(result,"PUBLIC_COST_ESTIMATED","其中：公共费用暂估",publicEstimated,"已包含在公司公共费用中，请勿再次相加；月结后确认实际金额");
         addItem(result,"ADJUSTMENT","核算调整",adjustment,"已确认调整事实合计");
         return result;
@@ -794,9 +797,8 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     {
         Map<String,Object> project=mapper.selectProjectForAccounting(projectId);
         if(project==null)throw new ServiceException("项目不存在");
-        boolean sponsor=String.valueOf(userId).equals(String.valueOf(project.get("initiatorUserId")));
         boolean owner=String.valueOf(userId).equals(String.valueOf(project.get("mainOwnerUserId")));
-        if(!viewAll&&!sponsor&&!owner)throw new ServiceException("无权查看该项目经营数据");
+        if(!viewAll&&!owner&&!companyAccess.project(projectId,userId))throw new ServiceException("无权查看该项目经营数据");
         Map<String,Object> scoped=query==null?new HashMap<String,Object>():new HashMap<String,Object>(query);
         scoped.put("projectId",projectId);
         // The project boundary was explicitly checked above. The generic dashboard's non-admin
@@ -850,7 +852,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     }
     private void addItem(Map<String,Object> result,String code,String name,BigDecimal amount,String detail)
     {Map<String,Object> item=new HashMap<String,Object>();item.put("resultId",result.get("resultId"));item.put("componentCode",code);item.put("componentName",name);item.put("amount",amount);item.put("calculationDetail",detail);mapper.insertDailyResultItem(item);}
-    private Map<String,Object> requireProject(Long id,Long userId,boolean viewAll){Map<String,Object> p=mapper.selectProjectForAccountingForUpdate(id);if(p==null)throw new ServiceException("项目不存在");if(!viewAll&&!String.valueOf(userId).equals(String.valueOf(p.get("initiatorUserId"))))throw new ServiceException("无权核算其他老板立项的项目");return p;}
+    private Map<String,Object> requireProject(Long id,Long userId,boolean viewAll){Map<String,Object> p=mapper.selectProjectForAccountingForUpdate(id);if(p==null)throw new ServiceException("项目不存在");if(!viewAll&&!companyAccess.project(id,userId))throw new ServiceException("无权核算未授权公司的项目");return p;}
     private BusinessOperatingFact requireFact(Long id,Long userId,boolean viewAll)
     {
         BusinessOperatingFact f=mapper.selectFactById(id);

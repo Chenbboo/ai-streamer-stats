@@ -94,6 +94,8 @@ public interface BusinessProjectMapper
     int countOverlappingProjectAllocation(@Param("projectId") Long projectId, @Param("userId") Long userId,
         @Param("effectiveFrom") java.util.Date effectiveFrom, @Param("effectiveTo") java.util.Date effectiveTo,
         @Param("excludeAllocationId") Long excludeAllocationId);
+    List<Map<String, Object>> selectUserAllocationTimeline(@Param("userId") Long userId);
+
     List<Map<String, Object>> selectUserAllocationWorkspace(@Param("userId") Long userId,
         @Param("effectiveDate") java.util.Date effectiveDate);
     java.math.BigDecimal sumAllocationPercentAtDate(@Param("userId") Long userId,

@@ -17,6 +17,8 @@ import com.ruoyi.common.exception.ServiceException;
 
 class BusinessFeishuServiceTest
 {
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     private BusinessFeishuMapper mapper;
     private AttendanceProvider provider;
     private BusinessFeishuService service;
@@ -26,7 +28,13 @@ class BusinessFeishuServiceTest
         PlatformTransactionManager tx=mock(PlatformTransactionManager.class);
         when(tx.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
         service=new BusinessFeishuService(mapper,provider,tx);
-    }
+
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+        lenient().when(companyAccess.allowed(9L,110L,"INTEGRATION")).thenReturn(true);
+        lenient().when(companyAccess.allowed(9L,110L,"CUTOVER")).thenReturn(true);
+        lenient().when(companyAccess.allowed(9L,110L,"ATTENDANCE_READ")).thenReturn(true);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
+}
     @Test void bulkMappingRejectsUnconfirmedAndRevokedScopeBeforeWriting()
     {
         assertThrows(ServiceException.class,()->service.addMappings(1L,map("confirmed",false),9L));

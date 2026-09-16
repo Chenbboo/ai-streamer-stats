@@ -30,6 +30,8 @@ import com.ruoyi.common.exception.ServiceException;
 @ExtendWith(MockitoExtension.class)
 class ProjectGovernanceCapabilitiesTest
 {
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Mock private IBusinessProjectService service;
     @Mock private BusinessFeishuService attendance;
     private AiCapabilityInvocation invocation;
@@ -38,7 +40,10 @@ class ProjectGovernanceCapabilitiesTest
     void setup()
     {
         invocation = new AiCapabilityInvocation(AiExecutionContext.legacy(23L, "jianglan", true), 1L, 2L, 3L);
-    }
+
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+        org.springframework.test.util.ReflectionTestUtils.setField(attendance,"companyAccess",companyAccess);
+}
 
     @Test
     void milestoneAndRiskChangesAreConfirmationOnlyAndUseBusinessService()

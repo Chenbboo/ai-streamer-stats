@@ -50,7 +50,7 @@ public class BusinessPublicExpenseOwnerEligibilityTest
         Configuration configuration = new Configuration(new Environment("test", new JdbcTransactionFactory(), source));
         String path = "mapper/business/BusinessPublicExpenseMapper.xml";
         try (InputStream input = getClass().getClassLoader().getResourceAsStream(path))
-        { new XMLMapperBuilder(input, configuration, path, configuration.getSqlFragments()).parse(); }
+        { com.ruoyi.business.CompanyAccessTestSupport.register(configuration);new XMLMapperBuilder(input, configuration, path, configuration.getSqlFragments()).parse(); }
         try (SqlSession session = new SqlSessionFactoryBuilder().build(configuration).openSession())
         {
             List<Map<String,Object>> owners = session.getMapper(BusinessPublicExpenseMapper.class).selectOwners(110L);

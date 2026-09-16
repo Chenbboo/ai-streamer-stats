@@ -20,6 +20,8 @@ import com.ruoyi.common.exception.ServiceException;
 @ExtendWith(MockitoExtension.class)
 class BusinessProjectWorkServiceTest
 {
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Mock BusinessProjectWorkMapper mapper;
     @Mock BusinessProjectMapper projectMapper;
     @Spy ObjectMapper json=new ObjectMapper();
@@ -41,7 +43,10 @@ class BusinessProjectWorkServiceTest
         lenient().doAnswer(call->{Map<String,Object> v=call.getArgument(0);v.put("entryId",101L);entry=new HashMap<String,Object>(v);entry.put("createUserId",v.get("actorId"));entry.put("status","DRAFT");entry.put("version",0);entry.put("isCurrent","0");return 1;}).when(mapper).insertEntry(anyMap());
         lenient().when(mapper.selectEntry(101L)).thenAnswer(call->entry);lenient().when(mapper.selectEntryForUpdate(101L)).thenAnswer(call->entry);
         lenient().doAnswer(call->{Map<String,Object> v=call.getArgument(0);entry.put("status",v.get("toStatus"));entry.put("isCurrent",v.get("isCurrent"));entry.put("logicalEntryId",101L);entry.put("version",((Number)entry.get("version")).intValue()+1);return 1;}).when(mapper).transitionEntry(anyMap());
-    }
+
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
+}
 
     @Test void initialChildPlanKeepsActualOperatorWithoutGrantingOngoingManagement() {
         project.setParentId(2L);project.setSourceProposalId(3L);project.setApplicantUserId(9L);

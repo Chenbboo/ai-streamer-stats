@@ -20,6 +20,9 @@ import com.ruoyi.business.domain.BusinessStaffProfile;
 @Service
 public class BusinessDepartmentServiceImpl implements IBusinessDepartmentService
 {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Autowired
     private ISysDeptService deptService;
 
@@ -28,6 +31,7 @@ public class BusinessDepartmentServiceImpl implements IBusinessDepartmentService
 
     @Autowired private OnlineUserPermissionService onlinePermissions;
     @Autowired private BusinessStaffProfileMapper profileMapper;
+    @Autowired private com.ruoyi.system.mapper.SysDeptMapper companyDepartments;
 
     @Override
     @Transactional
@@ -35,7 +39,7 @@ public class BusinessDepartmentServiceImpl implements IBusinessDepartmentService
     {
         if (userIds == null || userIds.isEmpty() || userIds.size() > 200 || userIds.contains(null))
             throw new ServiceException("请选择1至200个员工账号");
-        deptService.checkDeptDataScope(deptId);
+        companyAccess.requireDepartment(deptId);
         SysDept target = requireActiveParent(deptId);
         ensureNonRoot(target);
         SysDept parent = requireDepartment(target.getParentId());
@@ -44,7 +48,7 @@ public class BusinessDepartmentServiceImpl implements IBusinessDepartmentService
         List<SysUser> employees = new ArrayList<>();
         for (Long userId : new LinkedHashSet<>(userIds))
         {
-            userService.checkUserDataScope(userId);
+            companyAccess.requireStaff(userId);
             SysUser user = userService.selectUserById(userId);
             if (user == null || !"0".equals(user.getDelFlag())) throw new ServiceException("员工账号不存在");
             if (user.isAdmin() || (user.getRoles() != null && user.getRoles().stream()
@@ -53,6 +57,7 @@ public class BusinessDepartmentServiceImpl implements IBusinessDepartmentService
             BusinessStaffProfile profile = profileMapper.selectByUserId(userId);
             if (!"0".equals(user.getStatus()) || (profile != null && "LEFT".equals(profile.getEmploymentStatus())))
                 throw new ServiceException("停用或离职员工不能加入部门");
+            if (!java.util.Objects.equals(companyAccess.departmentCompany(deptId),companyAccess.staffCompany(userId))) throw new ServiceException("跨公司调动请在人员档案中办理，不能直接加入其他公司的部门");
             if (!deptId.equals(user.getDeptId())) employees.add(user);
         }
         for (SysUser user : employees)
@@ -72,8 +77,8 @@ public class BusinessDepartmentServiceImpl implements IBusinessDepartmentService
     public void removeStaff(Long deptId, Long userId, String operatorName)
     {
         if (deptId == null || userId == null) throw new ServiceException("部门和员工不能为空");
-        deptService.checkDeptDataScope(deptId);
-        userService.checkUserDataScope(userId);
+        companyAccess.requireDepartment(deptId);
+        companyAccess.requireStaff(userId);
         SysDept current = requireDepartment(deptId);
         ensureNonRoot(current);
         SysDept company = current;
@@ -86,7 +91,7 @@ public class BusinessDepartmentServiceImpl implements IBusinessDepartmentService
             company = parent;
         }
         if (deptId.equals(company.getDeptId())) throw new ServiceException("员工已直属公司，无需移出部门");
-        deptService.checkDeptDataScope(company.getDeptId());
+        companyAccess.requireDepartment(company.getDeptId());
         if (!"0".equals(company.getStatus())) throw new ServiceException("所属公司已停用");
         SysUser user = userService.selectUserById(userId);
         if (user == null || !"0".equals(user.getDelFlag())) throw new ServiceException("员工账号不存在");
@@ -104,7 +109,13 @@ public class BusinessDepartmentServiceImpl implements IBusinessDepartmentService
     @Override
     public List<SysDept> listDepartments(SysDept query)
     {
-        return deptService.buildDeptTree(deptService.selectDeptList(query == null ? new SysDept() : query));
+        SysDept filter = query == null ? new SysDept() : query;
+        if (!com.ruoyi.common.utils.SecurityUtils.isAdmin() && !companyAccess.isCompanyBoss(com.ruoyi.common.utils.SecurityUtils.getUserId()))
+            return deptService.buildDeptTree(deptService.selectDeptList(filter));
+        filter.getParams().put("dataScope", "");
+        List<SysDept> rows = companyDepartments.selectDeptList(filter);
+        if (!com.ruoyi.common.utils.SecurityUtils.isAdmin()) rows.removeIf(dept -> !companyAccess.allowed(com.ruoyi.common.utils.SecurityUtils.getUserId(),companyAccess.departmentCompany(dept.getDeptId()),"STAFF"));
+        return deptService.buildDeptTree(rows);
     }
 
     @Override
@@ -157,7 +168,8 @@ public class BusinessDepartmentServiceImpl implements IBusinessDepartmentService
         if (companyNode && "1".equals(input.getStatus()))
             throw new ServiceException("公司节点不能停用");
         if (input.getDeptId().equals(input.getParentId())) throw new ServiceException("上级部门不能是当前部门");
-        SysDept parent = requireActiveParent(input.getParentId());
+        SysDept parent = companyNode ? requireDepartment(input.getParentId()) : requireActiveParent(input.getParentId());
+        if (!companyNode && !java.util.Objects.equals(companyAccess.departmentCompany(existing.getDeptId()),companyAccess.departmentCompany(parent.getDeptId()))) throw new ServiceException("部门不能跨公司移动，请分别维护公司组织");
         if (containsAncestor(parent.getAncestors(), input.getDeptId())) throw new ServiceException("不能选择当前部门的下级作为上级部门");
         if (!deptService.checkDeptNameUnique(input)) throw new ServiceException("同一上级部门下已存在同名部门");
         if ("1".equals(input.getStatus()) && deptService.selectNormalChildrenDeptById(input.getDeptId()) > 0)
@@ -175,7 +187,7 @@ public class BusinessDepartmentServiceImpl implements IBusinessDepartmentService
             throw new ServiceException("部门排序数据不正确");
         for (int i = 0; i < deptIds.length; i++)
         {
-            Long.valueOf(deptIds[i]);
+            companyAccess.requireDepartment(Long.valueOf(deptIds[i]));
             int order = Integer.parseInt(orderNums[i]);
             if (order < 0) throw new ServiceException("部门排序不能为负数");
         }
@@ -225,6 +237,7 @@ public class BusinessDepartmentServiceImpl implements IBusinessDepartmentService
     private SysDept requireDepartment(Long deptId)
     {
         if (deptId == null) throw new ServiceException("部门ID不能为空");
+        if (!Long.valueOf(100L).equals(deptId)) companyAccess.requireDepartment(deptId);
         SysDept dept = deptService.selectDeptById(deptId);
         if (dept == null || "2".equals(dept.getDelFlag())) throw new ServiceException("部门不存在");
         return dept;
@@ -232,6 +245,7 @@ public class BusinessDepartmentServiceImpl implements IBusinessDepartmentService
 
     private SysDept requireActiveParent(Long parentId)
     {
+        companyAccess.requireDepartment(parentId);
         SysDept parent = requireDepartment(parentId);
         if (!"0".equals(parent.getStatus())) throw new ServiceException("上级部门已停用");
         return parent;

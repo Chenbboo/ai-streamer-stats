@@ -57,6 +57,9 @@ import com.ruoyi.system.service.OnlineUserPermissionService;
 @Service
 public class BusinessProjectServiceImpl implements IBusinessProjectService
 {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     private static final List<String> ACCOUNTING_MODES = Arrays.asList("PROFIT", "COST", "VALUE", "HYBRID");
     private static final List<String> MANAGEMENT_MODES = Arrays.asList("LIGHT", "STANDARD", "KEY_CONTROL");
     private static final List<String> CLOSE_METHODS = Arrays.asList("DIRECT", "RESULT_ACCEPTANCE", "STAGED_ACCEPTANCE");
@@ -146,6 +149,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         project.setStageAcceptances(mapper.selectStageAcceptances(projectId));
         project.setEvents(mapper.selectEvents(projectId));
         project.setGovernanceProfile(buildGovernanceProfile(project));
+        project.getGovernanceProfile().put("companyManager", companyAccess.project(project,userId));
         Map<String, Object> executionRelation = mapper.selectActiveExecutionRelation(projectId);
         if (executionRelation != null && executionRelation.get("sourceDomain") != null)
         {
@@ -210,7 +214,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     {
         String role = mapper.selectMemberRole(project.getProjectId(), userId);
         project.setManageable(SecurityUtils.isAdmin(userId)
-            || (boss ? userId.equals(projectSponsorUserId(project)) : Arrays.asList("OWNER", "DEPUTY").contains(role)));
+            || (boss ? companyAccess.project(project, userId) : Arrays.asList("OWNER", "DEPUTY").contains(role)));
     }
 
     @Override
@@ -229,7 +233,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     public void validateSubprojectParent(Long parentId, Long sponsorId, Long applicantId)
     {
         BusinessProject parent = requireProjectForUpdate(parentId);
-        requireManage(parent, applicantId, applicantId.equals(projectSponsorUserId(parent)));
+        requireManage(parent, applicantId, companyAccess.project(parent, applicantId));
         ensureMutable(parent);
         validateParent(parentId, null, sponsorId);
     }
@@ -261,7 +265,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     {
         BusinessProject project = requireProjectForUpdate(projectId);
         // A technical administrator's visibility is not a business sign-off responsibility.
-        if (!boss || userId == null || !userId.equals(projectSponsorUserId(project)))
+        if (!boss || userId == null || !companyAccess.project(project, userId))
             throw new ServiceException("只有项目归属老板可以确认关闭核算");
         if (version == null || !version.equals(project.getVersion())) throw changed();
         if (StringUtils.isBlank(reason) || reason.trim().length() > 2000)
@@ -295,7 +299,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         Long acceptanceId, boolean approveAcceptance, boolean separateLegacyAccounting, Long userId, String userName, boolean boss)
     {
         BusinessProject project = requireProjectForUpdate(projectId);
-        if (!boss || userId == null || !userId.equals(projectSponsorUserId(project)))
+        if (!boss || userId == null || !companyAccess.project(project, userId))
             throw new ServiceException("只有项目归属老板可以确认结束交付");
         if (version == null || !version.equals(project.getVersion())) throw changed();
         if (StringUtils.isBlank(reason) || reason.trim().length() > 2000)
@@ -359,7 +363,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         addSettlementBlocker(blockers, "DELIVERY_OPEN",
             deliveryIssue == null ? "项目交付尚未结束" : deliveryIssue, deliveryIssue == null ? 0 : 1);
         addSettlementBlocker(blockers, "ACCOUNTING_CLOSED", "项目核算已关闭", BusinessProjectLifecycle.isAccountingClosed(project) ? 1 : 0);
-        addSettlementBlocker(blockers, "NOT_SPONSOR", "需由项目归属老板确认", boss && userId != null && userId.equals(projectSponsorUserId(project)) ? 0 : 1);
+        addSettlementBlocker(blockers, "NOT_SPONSOR", "需由获授权的公司老板确认", boss && userId != null && companyAccess.project(project, userId) ? 0 : 1);
         addSettlementBlocker(blockers, "MISSING_END_DATE", "缺少实际交付结束日期",
             BusinessProjectLifecycle.isTerminal(project.getStatus()) && project.getActualEndDate() == null ? 1 : 0);
         addSettlementBlocker(blockers, "PENDING_KPI", "KPI方案尚未完成结算或作废", kpiCount);
@@ -380,7 +384,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         result.put("version", project.getVersion());
         result.put("canClose", blockers.isEmpty());
         boolean deliveryActive = !BusinessProjectLifecycle.isTerminal(project.getStatus()) && !BusinessProjectLifecycle.isAccountingClosed(project);
-        boolean sponsor = boss && userId != null && userId.equals(projectSponsorUserId(project));
+        boolean sponsor = boss && userId != null && companyAccess.project(project, userId);
         String deliveryEndIssue = !deliveryActive ? "项目交付已经结束"
             : (!BusinessProjectLifecycle.isSeparated(project) || "RESULT_ACCEPTANCE".equals(effectiveCloseMethod(project))) ? unifiedCloseReadinessIssue(project, true) : deliveryIssue;
         boolean canEndDelivery = deliveryActive && sponsor && deliveryEndIssue == null && publicExpenseCount > 0
@@ -503,7 +507,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         Map<String, Object> owner = requireActiveUser(proposal.getEffectiveOwnerUserId());
         Map<String, Object> sponsor = requireActiveUser(proposal.getSponsorOwnerUserId());
         if (!reviewerUserId.equals(proposal.getApplicantUserId())
-            && !reviewerUserId.equals(proposal.getSponsorOwnerUserId()))
+            && !companyAccess.allowed(reviewerUserId,proposal.getCompanyDeptId(),"BUSINESS"))
             throw new ServiceException("只有项目负责人或归属老板可以启动项目");
 
         BusinessProject project = new BusinessProject();
@@ -640,7 +644,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         addEvent(project.getProjectId(), "CREATE_FROM_PROPOSAL", null, "ACTIVE", reviewerUserId,
             reviewerUserName, "负责人确认项目测算并直接进入执行");
         syncExecutionSource(project, reviewerUserId, reviewerUserName);
-        boolean operatorIsSponsor = reviewerUserId.equals(proposal.getSponsorOwnerUserId());
+        boolean operatorIsSponsor = companyAccess.allowed(reviewerUserId,proposal.getCompanyDeptId(),"BUSINESS");
         return getProject(project.getProjectId(), reviewerUserId, SecurityUtils.isAdmin(reviewerUserId), operatorIsSponsor);
     }
 
@@ -1007,7 +1011,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         boolean companyOwner = requireStaffCostManager(userId, staffCostManager);
         if (administrator) requireCostEligibleUser(staffUserId);
         else requireActiveUser(staffUserId);
-        if (!administrator) requireStaffCostScope(staffUserId, userId, companyOwner, staffCostManager, false);
+        if (!administrator) requireStaffCostScope(staffUserId, userId, companyOwner, staffCostManager, "COST_READ");
         return mapper.selectStaffCostPolicies(staffUserId);
     }
 
@@ -1017,7 +1021,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         boolean companyOwner=requireStaffCostManager(userId,staffCostManager);
         Map<String,Object> query=new HashMap<String,Object>();query.put("userId",userId);query.put("administrator",SecurityUtils.isAdmin(userId));query.put("companyOwner",companyOwner);
         query.put("financeManager",staffCostManager&&mapper.countUserRoleByKey(userId,"finance_cost_manager")>0);query.put("companyDeptId",mapper.selectStaffCompanyId(userId));
-        List<Map<String,Object>> rows=mapper.selectStaffCostOptions(query);for(Map<String,Object> row:rows){row.put("rawCostVisible",true);row.put("canManageCost",true);}return rows;
+        List<Map<String,Object>> rows=mapper.selectStaffCostOptions(query);for(Map<String,Object> row:rows){row.put("rawCostVisible",true);row.put("canManageCost",!companyOwner || companyAccess.staff(userId,Long.valueOf(String.valueOf(row.get("userId"))),"COST_WRITE"));}return rows;
     }
 
     @Override
@@ -1031,7 +1035,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         mapper.lockStaffCostPerson(policy.getUserId());
         if (administrator) requireCostEligibleUser(policy.getUserId());
         else requireActiveUser(policy.getUserId());
-        if (!administrator) requireStaffCostScope(policy.getUserId(), userId, companyOwner, staffCostManager, true);
+        if (!administrator) requireStaffCostScope(policy.getUserId(), userId, companyOwner, staffCostManager, "COST_WRITE");
         if (policy.getUnitCost() == null || policy.getUnitCost().compareTo(BigDecimal.ZERO) < 0)
             throw new ServiceException("内部成本单价不能为空或为负数");
         if (policy.getUnitCost().stripTrailingZeros().scale() > 4 || policy.getUnitCost().compareTo(new BigDecimal("10000000000")) >= 0)
@@ -1125,7 +1129,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         else
         {
             requireActiveUser(policy.getUserId());
-            requireStaffCostScope(policy.getUserId(), userId, companyOwner, staffCostManager, false);
+            requireStaffCostScope(policy.getUserId(), userId, companyOwner, staffCostManager, "COST_WRITE");
         }
         return policy;
     }
@@ -1138,17 +1142,14 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         boolean financeManager=staffCostManager&&mapper.countUserRoleByKey(userId,"finance_cost_manager")>0;
         if (!companyOwner && !projectOwner && !financeManager)
             throw new ServiceException("只有项目负责人或具备成本权限的公司、财务负责人可以维护用人成本");
-        // 公司负责人继续受本人公司范围限制；纯项目负责人只获得成本维护能力。
+        // 老板还须通过公司的查看/修改授权；财务和项目负责人保留原有范围。
         return companyOwner;
     }
 
-    private void requireStaffCostCompanyOwner(Long staffUserId, Long operatorUserId, boolean lockForUpdate)
+    private void requireStaffCostCompany(Long staffUserId)
     {
-        Long companyLeaderUserId = mapper.selectStaffCompanyLeaderUserId(staffUserId, lockForUpdate);
-        if (companyLeaderUserId == null)
-            throw new ServiceException("该人员所属公司尚未配置负责人，暂时无法维护人员成本");
-        if (!companyLeaderUserId.equals(operatorUserId))
-            throw new ServiceException("只能查看和设置本人负责公司的人员内部核算成本");
+        if (mapper.selectStaffCompanyId(staffUserId) == null)
+            throw new ServiceException("该人员未归属有效公司，暂时无法维护人员成本");
     }
 
     @Override
@@ -1234,7 +1235,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (staffUserId == null) throw new ServiceException("请选择人员");
         Date date = normalizeLeaveDate(effectiveDate == null ? DateUtils.getNowDate() : effectiveDate, "生效日期不正确");
         Map<String, Object> staff = requireActiveUser(staffUserId);
-        List<Map<String, Object>> projects = mapper.selectUserAllocationWorkspace(staffUserId, date);
+        List<Map<String, Object>> projects = effectiveAllocationWorkspace(staffUserId, date);
         boolean authorized = SecurityUtils.isAdmin(userId) || boss;
         Set<Long> projectIds = new HashSet<Long>();
         BigDecimal total = BigDecimal.ZERO;
@@ -1321,7 +1322,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             if (!BusinessMemberDayCostService.enabled(project))
                 throw new ServiceException("历史成本项目不能使用项目投入权重调整");
         }
-        List<Map<String, Object>> lockedRows = mapper.selectUserAllocationWorkspace(staffUserId, effectiveDate);
+        List<Map<String, Object>> lockedRows = effectiveAllocationWorkspace(staffUserId, effectiveDate);
         if (!expectedToken.equals(allocationVersionToken(lockedRows)))
             throw new ServiceException("投入权重已被其他人修改，请刷新后重新调整");
         String staffName = String.valueOf(current.get("userName"));
@@ -1452,7 +1453,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             for (Map<String,Object> row : snapshotRows) projectIds.add(Long.valueOf(String.valueOf(row.get("projectId"))));
             Collections.sort(projectIds);
             for (Long projectId : projectIds) requireProjectForUpdate(projectId);
-            if (!String.valueOf(snapshot.get("versionToken")).equals(allocationVersionToken(mapper.selectUserAllocationWorkspace(staffId, effective))))
+            if (!String.valueOf(snapshot.get("versionToken")).equals(allocationVersionToken(effectiveAllocationWorkspace(staffId, effective))))
             {
                 allocationRequests.finish(requestId, "INVALIDATED", "项目成员、负责人或投入分配已变化，请重新发起");
             }
@@ -1474,6 +1475,46 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             }
         }
         return allocationRequestView(allocationRequests.selectRequest(requestId), userId);
+    }
+
+    private List<Map<String,Object>> effectiveMyEfforts(Long userId, String date, List<Map<String,Object>> rows)
+    {
+        List<Map<String,Object>> timeline=mapper.selectUserAllocationTimeline(userId);
+        if(timeline==null||timeline.isEmpty())return rows;
+        Map<Long,Map<String,Object>> weights=com.ruoyi.business.support.BusinessAllocationWeights.at(timeline,java.time.LocalDate.parse(date));
+        List<Map<String,Object>> result=new ArrayList<>();
+        for(Map<String,Object> row:rows){
+            if(!"MEMBER_DAYS_V1".equals(row.get("costPolicyVersion"))){result.add(row);continue;}
+            Map<String,Object> weight=weights.get(Long.valueOf(String.valueOf(row.get("projectId"))));
+            if(weight==null)continue;
+            Map<String,Object> copy=new LinkedHashMap<>(row);
+            copy.put("plannedPercent",weight.get("allocationValue"));
+            if(!"LEAVE".equals(row.get("reportStatus")))copy.put("actualPercent",weight.get("allocationValue"));
+            copy.put("autoRedistributed",Boolean.TRUE.equals(weight.get("autoRedistributed")));
+            result.add(copy);
+        }
+        return result;
+    }
+
+    private List<Map<String,Object>> effectiveAllocationWorkspace(Long staffUserId, Date date)
+    {
+        List<Map<String,Object>> rows=mapper.selectUserAllocationWorkspace(staffUserId,date);
+        List<Map<String,Object>> timeline=mapper.selectUserAllocationTimeline(staffUserId);
+        if(timeline==null||timeline.isEmpty())return rows;
+        Map<Long,Map<String,Object>> weights=com.ruoyi.business.support.BusinessAllocationWeights.at(timeline,
+            java.time.LocalDate.parse(DateUtils.parseDateToStr("yyyy-MM-dd",date)));
+        Set<Long> weightedProjects=new HashSet<>();
+        for(Map<String,Object> period:timeline)weightedProjects.add(Long.valueOf(String.valueOf(period.get("projectId"))));
+        List<Map<String,Object>> result=new ArrayList<>();
+        for(Map<String,Object> row:rows){
+            Long projectId=Long.valueOf(String.valueOf(row.get("projectId")));
+            Map<String,Object> weight=weights.get(projectId);
+            if(weight==null&&weightedProjects.contains(projectId))continue;
+            Map<String,Object> copy=new LinkedHashMap<>(row);
+            if(weight!=null){copy.put("allocationValue",weight.get("allocationValue"));copy.put("autoRedistributed",weight.get("autoRedistributed"));}
+            result.add(copy);
+        }
+        return result;
     }
 
     private String allocationVersionToken(List<Map<String, Object>> rows)
@@ -1667,15 +1708,13 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         return getProject(projectId, userId, SecurityUtils.isAdmin(userId), boss);
     }
 
-    private void requireStaffCostScope(Long staffUserId, Long operatorUserId, boolean companyOwner, boolean staffCostManager,
-        boolean lockForUpdate)
+    private void requireStaffCostScope(Long staffUserId, Long operatorUserId, boolean companyOwner, boolean staffCostManager, String capability)
     {
-        if (mapper.countManagedProjectMember(operatorUserId, staffUserId) > 0) return;
-        if (companyOwner)
-        {
-            requireStaffCostCompanyOwner(staffUserId, operatorUserId, lockForUpdate);
+        if (companyOwner) {
+            if (!companyAccess.staff(operatorUserId,staffUserId,capability)) throw new ServiceException("没有该公司对应的成本权限");
             return;
         }
+        if (mapper.countManagedProjectMember(operatorUserId, staffUserId) > 0) return;
         if(staffCostManager && mapper.countUserRoleByKey(operatorUserId,"finance_cost_manager")>0)
         {
             Long operatorCompany=mapper.selectStaffCompanyId(operatorUserId),staffCompany=mapper.selectStaffCompanyId(staffUserId);
@@ -2264,7 +2303,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         result.put("reports", progressMapper.history(projectId));
         if (project.getParentId() == null) {
             boolean full = viewAll || Objects.equals(userId, project.getMainOwnerUserId())
-                || (boss && Objects.equals(userId, projectSponsorUserId(project)));
+                || (boss && companyAccess.project(project, userId));
             Map<String,Object> query = new HashMap<>();
             query.put("parentId",projectId); query.put("viewAll",full); query.put("boss",boss); query.put("userId",userId);
             List<BusinessProject> children = mapper.selectProjectList(query);
@@ -2928,6 +2967,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         List<Map<String, Object>> tasks = mapper.selectMyWorkTasks(userId, dateFrom, dateTo);
         List<Map<String, Object>> routines = mapper.selectMyWorkRoutines(userId, dateFrom, dateTo, today);
         List<Map<String, Object>> efforts = mapper.selectMyEfforts(userId, format.format(anchor));
+        efforts = effectiveMyEfforts(userId, format.format(anchor), efforts);
         decorateWorkAbsence(tasks, userId, java.sql.Date.valueOf(today));
         decorateWorkAbsence(routines, userId, java.sql.Date.valueOf(today));
         List<Map<String, Object>> projectBonuses = kpiMapper.selectMemberProjectBonusTotals(userId);
@@ -3082,7 +3122,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         List<Map<String, Object>> rows = mapper.selectProjectDirectory();
         for (Map<String, Object> row : rows)
         {
-            boolean canOpen = viewAll || sameLong(row.get("initiatorUserId"), userId);
+            boolean canOpen = viewAll || companyAccess.project(Long.valueOf(String.valueOf(row.get("projectId"))),userId);
             row.put("canOpen", canOpen);
         }
         return rows;
@@ -3183,8 +3223,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         }
         if (boss)
         {
-            if (userId.equals(projectSponsorUserId(project))) return;
-            throw new ServiceException("无权查看其他老板归属的项目");
+            if (companyAccess.project(project, userId)) return;
+            throw new ServiceException("无权查看未授权公司的项目");
         }
         if (project.getMainOwnerUserId().equals(userId)) return;
         if (mapper.selectMemberRole(project.getProjectId(), userId) == null) throw new ServiceException("无权查看该项目");
@@ -3195,8 +3235,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (SecurityUtils.isAdmin(userId)) return;
         if (boss)
         {
-            if (userId.equals(projectSponsorUserId(project))) return;
-            throw new ServiceException("无权管理其他老板归属的项目");
+            if (companyAccess.project(project, userId)) return;
+            throw new ServiceException("无权管理未授权公司的项目");
         }
         String role = mapper.selectMemberRole(project.getProjectId(), userId);
         if (!"OWNER".equals(role) && !"DEPUTY".equals(role)) throw new ServiceException("无权管理该项目");
@@ -3247,8 +3287,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     private void requireBoss(BusinessProject project, Long userId, boolean boss)
     {
         if (!boss) throw new ServiceException("只有老板可以执行此操作");
-        if (!SecurityUtils.isAdmin(userId) && !userId.equals(projectSponsorUserId(project)))
-            throw new ServiceException("无权操作其他老板归属的项目");
+        if (!SecurityUtils.isAdmin(userId) && !companyAccess.project(project, userId))
+            throw new ServiceException("无权操作未授权公司的项目");
     }
 
     private void requireStatus(BusinessProject project, String expected)

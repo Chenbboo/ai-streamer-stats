@@ -27,7 +27,7 @@ class BusinessProjectProposalStaffingMapperIntegrationTest {
         }
         Configuration config=new Configuration(new Environment("test",new JdbcTransactionFactory(),source));
         String resource="mapper/business/BusinessProjectProposalMapper.xml";
-        try(InputStream xml=Resources.getResourceAsStream(resource)){new XMLMapperBuilder(xml,config,resource,config.getSqlFragments()).parse();}
+        try(InputStream xml=Resources.getResourceAsStream(resource)){com.ruoyi.business.CompanyAccessTestSupport.register(config);new XMLMapperBuilder(xml,config,resource,config.getSqlFragments()).parse();}
         SqlSessionFactory factory=new SqlSessionFactoryBuilder().build(config);
         try(SqlSession session=factory.openSession()){
             BusinessProjectProposalMapper mapper=session.getMapper(BusinessProjectProposalMapper.class);

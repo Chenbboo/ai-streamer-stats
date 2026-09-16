@@ -40,6 +40,8 @@ import com.ruoyi.common.exception.ServiceException;
 @ExtendWith(MockitoExtension.class)
 class BusinessProjectKpiServiceImplTest
 {
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Mock BusinessProjectKpiMapper mapper;
     @Mock BusinessProjectMapper projectMapper;
     @Mock IBusinessAccountingService accountingService;
@@ -53,7 +55,11 @@ class BusinessProjectKpiServiceImplTest
             .thenAnswer(call -> projectMapper.selectProjectById(call.getArgument(0)));
         lenient().when(mapper.selectSettlementByIdForUpdate(any()))
             .thenAnswer(call -> mapper.selectSettlementById(call.getArgument(0)));
-    }
+
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+        org.springframework.test.util.ReflectionTestUtils.setField(businessFileService,"companyAccess",companyAccess);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
+}
 
     @Test void bossOverviewUsesOwnerScopedProjectQuery()
     {

@@ -26,6 +26,8 @@ import com.ruoyi.common.exception.ServiceException;
 
 class BusinessFileServiceTest
 {
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @TempDir Path profile;
     private BusinessFileService service;
     private BusinessProjectMapper projectMapper;
@@ -40,7 +42,10 @@ class BusinessFileServiceTest
         BusinessProject project = new BusinessProject();
         project.setProjectId(1L); project.setMainOwnerUserId(2L);
         when(projectMapper.selectProjectById(1L)).thenReturn(project);
-    }
+
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
+}
 
     @Test
     void imageUploadKeepsOriginalAndCreatesWebpDerivatives() throws Exception

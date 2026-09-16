@@ -20,6 +20,8 @@ import com.ruoyi.system.service.OnlineUserPermissionService;
 @ExtendWith(MockitoExtension.class)
 class BusinessDepartmentStaffRemovalTest
 {
+    @org.mockito.Mock private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Mock ISysDeptService deptService;
     @Mock ISysUserService userService;
     @Mock OnlineUserPermissionService onlinePermissions;
@@ -47,8 +49,8 @@ class BusinessDepartmentStaffRemovalTest
         assertNull(patch.getValue().getPassword());assertNull(patch.getValue().getRoleIds());
         assertNull(patch.getValue().getStatus());assertNull(patch.getValue().getDelFlag());
         assertNull(patch.getValue().getPhonenumber());assertNull(patch.getValue().getNickName());
-        verify(deptService).checkDeptDataScope(200L);verify(deptService).checkDeptDataScope(110L);
-        verify(userService).checkUserDataScope(125L);verify(onlinePermissions).forceReloginAfterCommit(125L);
+        verify(companyAccess,org.mockito.Mockito.atLeastOnce()).requireDepartment(200L);verify(companyAccess,org.mockito.Mockito.atLeastOnce()).requireDepartment(110L);
+        verify(companyAccess).requireStaff(125L);verify(onlinePermissions).forceReloginAfterCommit(125L);
     }
     @Test void nestedDepartmentReturnsToCompanyRatherThanParentDepartment()
     {
@@ -77,14 +79,14 @@ class BusinessDepartmentStaffRemovalTest
     }
     @Test void rejectsOutOfScopeUser()
     {
-        doThrow(new ServiceException("无权访问")).when(userService).checkUserDataScope(125L);
+        doThrow(new ServiceException("无权访问")).when(companyAccess).requireStaff(125L);
         assertThrows(ServiceException.class,()->service.removeStaff(200L,125L,"admin"));
         verify(userService,never()).updateUserProfile(any());
     }
     @Test void rejectsOutOfScopeCompany()
     {
-        hierarchy();doNothing().when(deptService).checkDeptDataScope(200L);
-        doThrow(new ServiceException("无权访问")).when(deptService).checkDeptDataScope(110L);
+        dept(200,110);doNothing().when(companyAccess).requireDepartment(200L);
+        doThrow(new ServiceException("无权访问")).when(companyAccess).requireDepartment(110L);
         assertThrows(ServiceException.class,()->service.removeStaff(200L,125L,"admin"));
         verify(userService,never()).updateUserProfile(any());
     }

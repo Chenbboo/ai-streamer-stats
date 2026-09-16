@@ -18,6 +18,9 @@ import com.ruoyi.common.utils.DateUtils;
 @Service
 public class BusinessProjectPlanService
 {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Autowired private BusinessProjectMapper projectMapper;
     @Autowired private BusinessProjectWorkMapper mapper;
     @Autowired private ObjectMapper json;
@@ -116,11 +119,11 @@ public class BusinessProjectPlanService
         }
         return row;
     }
-    private boolean canReview(BusinessProject p,Map<String,Object> row,Long actor){return mutable(p)&&"SUBMITTED".equals(row.get("status"))&&actor.equals(sponsor(p))&&!actor.equals(id(row.get("requestUserId")));}
+    private boolean canReview(BusinessProject p,Map<String,Object> row,Long actor){return mutable(p)&&"SUBMITTED".equals(row.get("status"))&&companyAccess.project(p,actor)&&!actor.equals(id(row.get("requestUserId")));}
     private boolean mutable(BusinessProject p){return !BusinessProjectLifecycle.isAccountingClosed(p)&&!Arrays.asList("CLOSED","CANCELED","ACCEPTANCE").contains(p.getStatus());}
     private void requireMutable(BusinessProject p){if(!mutable(p))throw new ServiceException("当前项目状态不能调整计划");}
     private void requireProject(BusinessProject p){if(p==null||!BusinessMemberDayCostService.enabled(p)&&!"ACTUAL_WORK_V1".equals(p.getCostPolicyVersion()))throw new ServiceException("该项目未启用版本化计划");}
-    private boolean manager(BusinessProject p,Long actor){return actor.equals(p.getMainOwnerUserId())||actor.equals(sponsor(p));}
+    private boolean manager(BusinessProject p,Long actor){return actor.equals(p.getMainOwnerUserId())||companyAccess.project(p,actor);}
     private Long sponsor(BusinessProject p){return p.getSponsorOwnerUserId()==null?p.getInitiatorUserId():p.getSponsorOwnerUserId();}
     private String reason(Object v){String s=text(v);if(s==null||s.isEmpty()||s.length()>2000)throw new ServiceException("请填写2000字符内的变更说明");return s;}
     private BigDecimal money(Object v){if(v==null||"".equals(v))return null;try{BigDecimal d=new BigDecimal(String.valueOf(v));if(d.signum()<0||d.scale()>2)throw new Exception();return d;}catch(Exception ex){throw new ServiceException("金额须为非负且最多两位小数");}}

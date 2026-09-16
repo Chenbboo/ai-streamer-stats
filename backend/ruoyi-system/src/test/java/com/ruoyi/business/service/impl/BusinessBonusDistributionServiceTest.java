@@ -14,6 +14,8 @@ import com.ruoyi.common.exception.ServiceException;
 
 class BusinessBonusDistributionServiceTest
 {
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
  BusinessBonusDistributionMapper mapper=mock(BusinessBonusDistributionMapper.class);
  BusinessIncentiveMapper awards=mock(BusinessIncentiveMapper.class);
  BusinessProjectMapper projects=mock(BusinessProjectMapper.class);
@@ -32,7 +34,11 @@ class BusinessBonusDistributionServiceTest
   line=line(30L,"60.00");line.setLineId(4L);line.setAllocationId(3L);line.setPaidAmount(new BigDecimal("20.00"));
   when(mapper.line(4L)).thenReturn(line);when(mapper.lines(3L)).thenReturn(Arrays.asList(line));
   when(mapper.companyAccess(1L,50L)).thenReturn(1);
- }
+
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
+}
  Map<String,Object> person(Long id,String name){Map<String,Object> m=new HashMap<>();m.put("userId",id);m.put("userName",name);return m;}
  BusinessBonusAllocationLine line(Long user,String amount){BusinessBonusAllocationLine l=new BusinessBonusAllocationLine();l.setUserId(user);l.setUserName("client spoof");l.setAmount(new BigDecimal(amount));l.setReason("contribution");return l;}
  BusinessBonusAllocation draft(){BusinessBonusAllocation b=new BusinessBonusAllocation();b.setAwardId(2L);b.setMode("AMOUNT");b.setReason("allocation");b.setRequestKey("request1");b.setLines(Arrays.asList(line(30L,"60.00")));return b;}
@@ -105,7 +111,7 @@ class BusinessBonusDistributionServiceTest
   BusinessBonusPayment future=payment();future.setPaidDate(new Date(System.currentTimeMillis()+86400000L));assertThrows(ServiceException.class,()->service.pay(future,50L,"finance",true));
  }
  @Test void existingAllocationBlocksCancelingSourceAward(){
-  BusinessIncentiveServiceImpl original=new BusinessIncentiveServiceImpl();
+  BusinessIncentiveServiceImpl original=new BusinessIncentiveServiceImpl();ReflectionTestUtils.setField(original,"companyAccess",companyAccess);
   ReflectionTestUtils.setField(original,"mapper",awards);ReflectionTestUtils.setField(original,"projectMapper",projects);
   project.setStatus("ACTIVE");award.setVersion(0);when(awards.countDistributionReservations(2L)).thenReturn(1);
   assertThrows(ServiceException.class,()->original.cancel(2L,0,"cancel",20L,"sponsor"));

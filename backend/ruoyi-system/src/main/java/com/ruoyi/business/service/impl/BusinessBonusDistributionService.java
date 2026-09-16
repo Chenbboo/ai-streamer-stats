@@ -18,6 +18,9 @@ import com.ruoyi.common.exception.ServiceException;
 @Service
 public class BusinessBonusDistributionService
 {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Autowired private BusinessBonusDistributionMapper mapper;
     @Autowired private BusinessIncentiveMapper awards;
     @Autowired private BusinessProjectMapper projects;
@@ -146,7 +149,7 @@ public class BusinessBonusDistributionService
         String next;
         if("APPROVED".equals(action)||"RETURNED".equals(action))
         {
-            if(!sponsor(p,userId)||userId.equals(b.getCreatedUserId()))throw error("须由项目归属老板核准，不能审核本人分配");
+            if(!sponsor(p,userId)||userId.equals(b.getCreatedUserId()))throw error("须由获授权的公司老板核准，不能审核本人分配");
             if(!"SUBMITTED".equals(b.getStatus()))throw error("仅待核准分配可审核");
             requireApproved(award(b.getAwardId()));next=action;
         }
@@ -171,7 +174,7 @@ public class BusinessBonusDistributionService
         BusinessBonusAllocationLine l=mapper.line(input.getLineId());
         if(l==null)throw error("分配明细不存在");
         BusinessBonusAllocation b=batch(l.getAllocationId());BusinessProject p=project(b.getProjectId(),true);
-        if(!sponsor(p,userId)&&(!companyFinance||mapper.companyAccess(b.getProjectId(),userId)==0))throw error("仅项目归属老板或本公司获授权的经办人可登记发放");
+        if(!sponsor(p,userId)&&(!companyFinance||mapper.companyAccess(b.getProjectId(),userId)==0))throw error("仅获授权的公司老板或本公司获授权的经办人可登记发放");
         b=batch(b.getAllocationId());l=mapper.line(input.getLineId());
         BusinessIncentiveAward a=awards.selectAwardForUpdate(b.getAwardId());requireApproved(a);
         if(!"APPROVED".equals(b.getStatus()))throw error("分配核准后才能登记发放");
@@ -212,7 +215,7 @@ public class BusinessBonusDistributionService
     private BusinessBonusAllocation batch(Long id){BusinessBonusAllocation b=mapper.allocation(id);if(b==null)throw error("分配方案不存在");return b;}
     private void requireApproved(BusinessIncentiveAward a){if(!"APPROVED".equals(a.getStatus()))throw error("只能分配已核准奖金");}
     private boolean owner(BusinessProject p,Long u){return u!=null&&u.equals(p.getMainOwnerUserId());}
-    private boolean sponsor(BusinessProject p,Long u){return u!=null&&u.equals(p.getSponsorOwnerUserId()==null?p.getInitiatorUserId():p.getSponsorOwnerUserId());}
+    private boolean sponsor(BusinessProject p,Long u){return companyAccess.project(p,u);}
     private void requireOwner(BusinessProject p,Long u){if(!owner(p,u))throw error("仅项目主负责人可分配奖金");}
     private void version(BusinessBonusAllocation b,Integer v){if(v==null||!v.equals(b.getVersion()))throw error("分配已更新，请刷新");}
     private static BigDecimal zero(BigDecimal x){return x==null?ZERO:x;}

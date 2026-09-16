@@ -14,9 +14,14 @@ import com.ruoyi.common.exception.ServiceException;
 
 @ExtendWith(MockitoExtension.class)
 class BusinessBossReviewServiceTest {
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Mock BusinessAccountingMapper mapper;
     @InjectMocks BusinessAccountingServiceImpl service;
-    @BeforeEach void clock() { service.setOverviewClock(Clock.fixed(Instant.parse("2026-09-13T16:10:00Z"),ZoneOffset.UTC)); }
+    @BeforeEach void clock() { service.setOverviewClock(Clock.fixed(Instant.parse("2026-09-13T16:10:00Z"),ZoneOffset.UTC));
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
+}
     Map<String,Object> row(Object... values) {
         Map<String,Object> result=new HashMap<>();for(int i=0;i<values.length;i+=2)result.put((String)values[i],values[i+1]);return result;
     }

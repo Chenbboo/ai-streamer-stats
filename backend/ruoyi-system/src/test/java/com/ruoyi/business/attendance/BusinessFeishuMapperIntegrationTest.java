@@ -42,7 +42,7 @@ class BusinessFeishuMapperIntegrationTest
         }
         Configuration configuration=new Configuration(new Environment("test",new JdbcTransactionFactory(),dataSource));
         try(InputStream input=Resources.getResourceAsStream("mapper/business/BusinessFeishuMapper.xml"))
-        {new XMLMapperBuilder(input,configuration,"mapper/business/BusinessFeishuMapper.xml",configuration.getSqlFragments()).parse();}
+        {com.ruoyi.business.CompanyAccessTestSupport.register(configuration);new XMLMapperBuilder(input,configuration,"mapper/business/BusinessFeishuMapper.xml",configuration.getSqlFragments()).parse();}
         sessions=new SqlSessionFactoryBuilder().build(configuration);
     }
     @Test void everyDeclaredMapperOperationIsMappedAndConnectionsDoNotHaveSecretFields()

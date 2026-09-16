@@ -23,6 +23,9 @@ import com.ruoyi.common.utils.DateUtils;
 @Service
 public class BusinessProjectWorkService
 {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Autowired private BusinessProjectWorkMapper mapper;
     @Autowired private BusinessProjectMapper projectMapper;
     @Autowired private ObjectMapper json;
@@ -296,10 +299,10 @@ public class BusinessProjectWorkService
     private void requireMembership(BusinessProject p,Long user,LocalDate day){if(user==null||mapper.countMembership(p.getProjectId(),user,day.toString())==0)throw new ServiceException("人员在工作日期没有有效项目参与授权");}
     private void requireReporter(BusinessProject p,Long person,Long actor){if(!actor.equals(person)&&!actor.equals(p.getMainOwnerUserId()))throw new ServiceException("仅可记录本人工作，项目负责人代填须保留代填人");}
     private void requireWorkDate(BusinessProject p,LocalDate day,Object reason){if(p.getActualStartDate()!=null&&day.isBefore(date(p.getActualStartDate())))throw new ServiceException("工作日期早于实际项目开始日");if(BusinessProjectLifecycle.isTerminal(p.getStatus())){if(p.getActualEndDate()==null||day.isAfter(date(p.getActualEndDate())))throw new ServiceException("只能补录交付结束日前已经发生的工作");requiredReason(reason);}}
-    private boolean canConfirm(BusinessProject p,Map<String,Object> row,Long actor){if(actor==null||actor.equals(id(row.get("userId")))||actor.equals(id(row.get("createUserId"))))return false;return actor.equals(p.getMainOwnerUserId())||actor.equals(sponsor(p));}
+    private boolean canConfirm(BusinessProject p,Map<String,Object> row,Long actor){if(actor==null||actor.equals(id(row.get("userId")))||actor.equals(id(row.get("createUserId"))))return false;return actor.equals(p.getMainOwnerUserId())||companyAccess.project(p,actor);}
     private void decorate(BusinessProject p,Map<String,Object> row,Long actor){boolean open=!BusinessProjectLifecycle.isAccountingClosed(p),creator=actor.equals(id(row.get("createUserId")));String s=code(row.get("status"));row.put("canEdit",open&&creator&&Arrays.asList("DRAFT","RETURNED","WITHDRAWN").contains(s));row.put("canSubmit",open&&creator&&Arrays.asList("DRAFT","RETURNED","WITHDRAWN").contains(s));row.put("canWithdraw",open&&creator&&"SUBMITTED".equals(s));row.put("canDiscard",open&&creator&&Arrays.asList("DRAFT","RETURNED","WITHDRAWN").contains(s));row.put("canConfirm",open&&"SUBMITTED".equals(s)&&canConfirm(p,row,actor));row.put("canReturn",row.get("canConfirm"));row.put("canCorrect",open&&"CONFIRMED".equals(s)&&"1".equals(row.get("isCurrent"))&&(actor.equals(id(row.get("userId")))||actor.equals(p.getMainOwnerUserId())));row.put("confirmingSelfBlocked",actor.equals(id(row.get("userId")))||actor.equals(id(row.get("createUserId"))));if(row.get("pricingStatus")==null&&"CONFIRMED".equals(s))row.put("pricingStatus","PENDING");}
     private Map<String,Object> decorated(BusinessProject p,Map<String,Object> row,Long actor){decorate(p,row,actor);return row;}
-    private boolean isManager(BusinessProject p,Long actor){return actor!=null&&(actor.equals(p.getMainOwnerUserId())||actor.equals(sponsor(p)));}
+    private boolean isManager(BusinessProject p,Long actor){return actor!=null&&(actor.equals(p.getMainOwnerUserId())||companyAccess.project(p,actor));}
     private Long sponsor(BusinessProject p){return p.getSponsorOwnerUserId()==null?p.getInitiatorUserId():p.getSponsorOwnerUserId();}
     private boolean hasMember(List<Map<String,Object>> rows,Long actor){for(Map<String,Object> row:rows)if(actor.equals(id(row.get("userId"))))return true;return false;}
     private BusinessProject lockProject(Long id){BusinessProject p=projectMapper.selectProjectByIdForUpdate(id);requireProject(p);return p;}

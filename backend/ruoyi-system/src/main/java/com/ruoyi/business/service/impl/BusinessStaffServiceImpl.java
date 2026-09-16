@@ -32,6 +32,9 @@ import com.ruoyi.system.service.ISysUserService;
 @Service
 public class BusinessStaffServiceImpl implements IBusinessStaffService
 {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     private static final String DEFAULT_PHONE_CODE = "+86";
     private static final String DEFAULT_REGION = "CN";
     private static final String DEFAULT_EMPLOYMENT_TYPE = "FULL_TIME";
@@ -39,6 +42,7 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
 
     @Autowired private ISysUserService userService;
     @Autowired private ISysDeptService deptService;
+    @Autowired private com.ruoyi.business.service.IBusinessDepartmentService businessDepartments;
     @Autowired private BusinessProjectMapper projectMapper;
     @Autowired private BusinessStaffProfileMapper profileMapper;
     @Autowired private com.ruoyi.system.service.OnlineUserPermissionService onlinePermissions;
@@ -59,6 +63,8 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
                 .setPageSizeZero(requestedPage.getPageSizeZero());
         }
         if (directoryOwner) safeQuery.getParams().put("dataScope", "");
+        safeQuery.getParams().put("companyScoped", directoryOwner);
+        safeQuery.getParams().put("companyActor", viewerUserId);
         boolean includeManagedProjectMembers = !administrator && !directoryOwner;
         List<SysUser> users = projectMapper.selectStaffDirectory(safeQuery,
             includeManagedProjectMembers ? viewerUserId : null);
@@ -77,13 +83,14 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
             boolean costEligibleStaff = profile != null && !"LEFT".equals(profile.getEmploymentStatus());
             boolean activeStaff = "0".equals(user.getStatus()) && costEligibleStaff;
             boolean companyOwner = activeStaff && boss && staffCostManager
-                && sameLong(profile.getCompanyLeaderUserId(), viewerUserId);
+                && companyAccess.staff(viewerUserId,user.getUserId(),"COST_WRITE");
             boolean projectOwnerCostManager = activeStaff && projectOwner
                 && managedProjectMemberIds.contains(user.getUserId());
             boolean canManageCost = (administrator && costEligibleStaff) || companyOwner || projectOwnerCostManager;
-            row.put("canViewCost", canManageCost);
+            boolean canViewCost = canManageCost || (activeStaff && boss && staffCostManager && companyAccess.staff(viewerUserId,user.getUserId(),"COST_READ"));
+            row.put("canViewCost", canViewCost);
             row.put("canManageCost", canManageCost);
-            row.put("rawCostVisible",canManageCost);
+            row.put("rawCostVisible",canViewCost);
             rows.add(row);
         }
         TableDataInfo result = new TableDataInfo();
@@ -97,6 +104,7 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
     @Override
     public BusinessStaffProfile getStaffProfile(Long userId)
     {
+        companyAccess.requireStaff(userId);
         SysUser user = requireExisting(userId);
         BusinessStaffProfile profile = profileMapper.selectByUserId(userId);
         if (profile == null) profile = new BusinessStaffProfile();
@@ -121,7 +129,11 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
     {
         SysUser query = new SysUser();
         query.setStatus("0");
-        List<SysUser> users = userService.selectUserList(query);
+        boolean companyScoped = !SecurityUtils.isAdmin() && companyAccess.isCompanyBoss(SecurityUtils.getUserId());
+        query.getParams().put("companyScoped",companyScoped);
+        query.getParams().put("companyActor",SecurityUtils.getUserId());
+        query.getParams().put("dataScope", "");
+        List<SysUser> users = companyScoped ? projectMapper.selectStaffDirectory(query,null) : userService.selectUserList(query);
         Map<Long, BusinessStaffProfile> profiles = profilesFor(users);
         List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
         for (SysUser user : users)
@@ -161,7 +173,7 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
             if (activeResponsibility && owner) ownerCount++;
             if (activeResponsibility && !owner) memberCount++;
             boolean foreignBossProject = boss && !viewAll
-                && !sameLong(row.get("initiatorUserId"), viewerUserId);
+                && !companyAccess.project(Long.valueOf(String.valueOf(row.get("projectId"))),viewerUserId);
             row.put("canOpen", !foreignBossProject);
             if (foreignBossProject)
             {
@@ -201,7 +213,7 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
     @Override
     public List<TreeSelect> departmentOptions()
     {
-        return deptService.selectDeptTreeList(new SysDept());
+        return businessDepartments.listDepartments(new SysDept()).stream().map(TreeSelect::new).collect(java.util.stream.Collectors.toList());
     }
 
     @Override
@@ -236,7 +248,7 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
     public Object updateStaff(BusinessStaffProfile input, String operatorName)
     {
         SysUser existing = requireExisting(input == null ? null : input.getUserId());
-        userService.checkUserDataScope(existing.getUserId());
+        companyAccess.requireStaff(existing.getUserId());
         boolean protectedAccount = isProtected(existing);
         if (StringUtils.isBlank(input.getNickName())) throw new ServiceException("人员姓名不能为空");
         if (protectedAccount) input.setDeptId(existing.getDeptId());
@@ -329,7 +341,7 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
     private SysUser requireManageable(Long userId)
     {
         SysUser user = requireExisting(userId);
-        userService.checkUserDataScope(userId);
+        companyAccess.requireStaff(userId);
         if (isProtected(user)) throw new ServiceException("系统管理员和老板账号为受保护账号");
         return user;
     }
@@ -424,7 +436,7 @@ public class BusinessStaffServiceImpl implements IBusinessStaffService
     private void validateDepartment(Long deptId, boolean allowGroupRoot)
     {
         if (deptId == null) throw new ServiceException("请选择所属公司或部门");
-        deptService.checkDeptDataScope(deptId);
+        companyAccess.requireDepartment(deptId);
         SysDept dept = deptService.selectDeptById(deptId);
         if (dept == null || !"0".equals(dept.getStatus())) throw new ServiceException("所选部门不存在或已停用");
         if (!allowGroupRoot && Long.valueOf(0L).equals(dept.getParentId()))

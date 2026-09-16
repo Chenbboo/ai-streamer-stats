@@ -15,14 +15,14 @@
     <div v-else class="expense-bills">
       <article v-for="bill in bills" :key="bill.allocationId" class="expense-bill">
         <div class="bill-heading">
-          <div><h3>{{ bill.companyName || '公司公共费用' }} <small>{{ bill.currency }}</small></h3><p>公司月费用 {{ money(bill.totalAmount) }} {{ bill.currency }} × 本人比例 {{ percent(bill.percentage) }}%</p></div>
+          <div><h3>{{ bill.companyName || '公司公共费用' }} · {{ bill.costPool === 'PERSONNEL' ? '公共人员成本' : '日常公共费用' }} <small>{{ bill.currency }}</small></h3><p>公司月费用 {{ money(bill.totalAmount) }} {{ bill.currency }} × 本人比例 {{ percent(bill.percentage) }}%</p></div>
           <el-tag :type="statusTone(bill)" effect="plain">{{ statusLabel(bill) }}</el-tag>
         </div>
         <div class="expense-metrics">
           <div><span>本月承担</span><strong>{{ money(bill.amount) }}<small>{{ bill.currency }}</small></strong></div>
           <div><span>已分摊{{ bill.status === 'DRAFT' ? '（草稿）' : '' }}</span><strong>{{ money(bill.allocatedAmount) }}</strong></div>
           <div><span>待分摊</span><strong :class="{ attention: Number(bill.remainingAmount) > 0 }">{{ money(bill.remainingAmount) }}</strong></div>
-          <div><span>成本计入</span><strong>{{ bill.billStatus === "SETTLED" ? "已确认" : bill.status === "SUBMITTED" ? "按天暂估" : "待提交" }}</strong><small>已提交的分摊按项目日期计入成本</small></div>
+          <div><span>成本计入</span><strong>{{ bill.billStatus === "SETTLED" ? "已确认" : bill.status === "SUBMITTED" ? "按天暂估" : "待提交" }}</strong><small>{{ bill.costPool === 'PERSONNEL' ? `日估算 ${money(bill.amount / 21.75)} ${bill.currency}，月额 ÷ 21.75` : '已提交的分摊按项目日期计入成本' }}</small></div>
         </div>
         <el-alert v-if="bill.billStatus !== 'SETTLED' && bill.status !== 'SUBMITTED'" class="bill-alert" :title="Number(bill.remainingAmount) > 0 ? '公共费用待分摊，项目经营参考结果尚不完整。' : '项目分摊已保存为草稿，提交后按天计入暂估成本。'" type="warning" :closable="false" show-icon />
         <div class="bill-actions">
@@ -37,12 +37,12 @@
         </el-table>
       </article>
     </div>
-    <p class="expense-footnote">提交后按项目当月承担费用期间的自然日计入暂估成本，月结核实实际金额，不重复扣费。请勿再录入项目其他花费。</p>
+    <p class="expense-footnote">提交后，公共人员成本按月承担额 ÷ 21.75 展示每日估算；日常公共费用按承担期间的自然日暂估。两类费用统一月结，以实际月额替换估算，不重复扣费。请勿再录入项目其他花费。</p>
 
     <el-dialog v-model="dialogVisible" :title="`${activeBill?.companyName || '公司公共费用'} · ${activeBill?.month || month} 项目分摊`" width="min(920px, 96vw)" append-to-body :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving" :before-close="closeDialog">
       <div v-if="activeBill" v-loading="saving || loading" class="allocation-dialog">
         <div class="allocation-summary">
-          <span>本月承担 <b>{{ money(activeBill.amount) }} {{ activeBill.currency }}</b></span>
+          <span v-if="activeBill.costPool === 'PERSONNEL'">日估算 <b>{{ money(activeBill.amount / 21.75) }} {{ activeBill.currency }}</b></span><span>本月承担 <b>{{ money(activeBill.amount) }} {{ activeBill.currency }}</b></span>
           <span>分配比例 <b :class="{ attention: percentageTotal !== 100 }">{{ percent(percentageTotal) }}%</b></span>
           <span>待分摊 <b>{{ money(previewRemaining) }} {{ activeBill.currency }}</b></span>
         </div>
@@ -53,6 +53,7 @@
         <el-table :data="previewRows" row-key="projectId" empty-text="暂无项目分摊记录">
           <el-table-column label="项目" min-width="190"><template #default="{ row }"><b>{{ row.projectName }}</b><small v-if="row.unavailable && !readOnly" class="unavailable-project">当前不可分配，请将比例设为 0</small></template></el-table-column>
           <el-table-column label="分配比例" width="190"><template #default="{ row, $index }"><span v-if="readOnly">{{ percent(row.percentage) }}%</span><div v-else class="percentage-input"><el-input-number v-model="allocationRows[$index].percentage" :min="0" :max="100" :precision="2" :step="1" :disabled="saving || loading" controls-position="right" :aria-label="`${row.projectName}分配比例`" /><span>%</span></div></template></el-table-column>
+          <el-table-column v-if="activeBill.costPool === 'PERSONNEL'" label="日估算（÷ 21.75）" min-width="150" align="right"><template #default="{ row }">{{ money(row.amount / 21.75) }}</template></el-table-column>
           <el-table-column label="本月公共费用" min-width="155" align="right"><template #default="{ row }">{{ money(row.amount) }} {{ activeBill.currency }}</template></el-table-column>
         </el-table>
         <div class="allocation-totals"><span>合计 {{ percent(percentageTotal) }}%</span><b>{{ money(previewAllocated) }} {{ activeBill.currency }}</b></div>
@@ -110,6 +111,7 @@ const previewRemaining = computed(() => (Math.round(Number(activeBill.value?.amo
 const money = value => value === null || value === undefined || !Number.isFinite(Number(value)) ? '—' : Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const percent = value => Number(value || 0).toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')
 const categoryLabel = value => ({
+  PERSONNEL: '公共人员成本',
   RENT: '场地房租',
   UTILITIES: '水电费',
   PROPERTY: '物业费',

@@ -16,6 +16,8 @@ import com.ruoyi.common.exception.ServiceException;
 
 class BusinessProjectBudgetServiceTest
 {
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     BusinessProjectBudgetService service=new BusinessProjectBudgetService();
     BusinessProjectWorkMapper mapper=mock(BusinessProjectWorkMapper.class);
     BusinessProjectProposalMapper proposals=mock(BusinessProjectProposalMapper.class);
@@ -35,7 +37,10 @@ class BusinessProjectBudgetServiceTest
         staff=row("userId",7L,"planStartDate","2026-09-01","planEndDate","2026-09-30","inputUnit","PERCENTAGE","inputQuantity",100,"calendarId",1L,"unitPolicyId",1L);
         p=new BusinessProjectProposal();p.setTemplateVersion("LIGHT_V1");p.setCompanyDeptId(10L);p.setBaseCurrency("CNY");p.setPlanStartDate(Date.valueOf("2026-09-01"));
         p.setBudget(row("cycle","MONTH","anchorDate","2026-09-01","businessAmount",500));p.setStaffingLines(Collections.singletonList(staff));
-    }
+
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+        org.springframework.test.util.ReflectionTestUtils.setField(work,"companyAccess",companyAccess);
+}
     @Test void childBudgetIncludesSelectedOwnerInsteadOfApplicant() {
         p.setParentProjectId(1L);p.setApplicantUserId(9L);p.setAssignedOwnerUserId(7L);p.setAssignedOwnerName("子负责人");
         p.setStaffingLines(Collections.emptyList());

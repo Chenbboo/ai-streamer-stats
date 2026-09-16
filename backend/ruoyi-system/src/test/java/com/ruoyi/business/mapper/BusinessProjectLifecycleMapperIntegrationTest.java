@@ -54,7 +54,7 @@ class BusinessProjectLifecycleMapperIntegrationTest
             String resource = "mapper/business/" + name + ".xml";
             try (InputStream input = Resources.getResourceAsStream(resource))
             {
-                new XMLMapperBuilder(input, configuration, resource, configuration.getSqlFragments()).parse();
+                com.ruoyi.business.CompanyAccessTestSupport.register(configuration);new XMLMapperBuilder(input, configuration, resource, configuration.getSqlFragments()).parse();
             }
         }
         sessionFactory = new SqlSessionFactoryBuilder().build(configuration);

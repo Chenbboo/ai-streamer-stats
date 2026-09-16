@@ -47,7 +47,7 @@ public class BusinessStaffProjectScopeIntegrationTest
         config.setMapUnderscoreToCamelCase(true);
         String resource="mapper/business/BusinessProjectMapper.xml";
         try(InputStream input=Resources.getResourceAsStream(resource))
-        {new XMLMapperBuilder(input,config,resource,config.getSqlFragments()).parse();}
+        {com.ruoyi.business.CompanyAccessTestSupport.register(config);new XMLMapperBuilder(input,config,resource,config.getSqlFragments()).parse();}
         factory=new SqlSessionFactoryBuilder().build(config);
     }
 
@@ -65,6 +65,34 @@ public class BusinessStaffProjectScopeIntegrationTest
             assertEquals(0,mapper.countManagedProjectMember(10L,14L));
             assertEquals(0,mapper.countManagedProjectMember(10L,15L));
         }
+    }
+
+    @Test void bossCostOptionsIncludeBothCompaniesWhileFinanceKeepsItsCompanyScope() throws Exception
+    {
+        try(SqlSession session=factory.openSession(); Statement sql=session.getConnection().createStatement())
+        {
+            sql.execute("insert into sys_dept values(110,100,'0,100','另一公司',2,'0','0',90),(112,110,'0,100,110','子部门',1,'0','0',null)");
+            sql.execute("update sys_user set dept_id=112 where user_id in (12,13,14)");
+            sql.execute("update sys_user set status='1' where user_id=13");
+            sql.execute("update biz_staff_profile set employment_status='LEFT' where user_id=14");
+            Map<String,Object> query=new HashMap<>();
+            query.put("userId",80L);query.put("administrator",false);query.put("companyOwner",true);
+            query.put("financeManager",false);query.put("companyDeptId",111L);
+            BusinessProjectMapper mapper=session.getMapper(BusinessProjectMapper.class);
+            com.ruoyi.business.CompanyAccessTestSupport.grant(session.getConnection(),110L,80L);
+            com.ruoyi.business.CompanyAccessTestSupport.grant(session.getConnection(),111L,80L);
+            List<Map<String,Object>> bossRows=mapper.selectStaffCostOptions(query);
+            assertEquals(Arrays.asList(10L,11L,12L,15L,16L),costUserIds(bossRows));
+            query.put("companyOwner",false);query.put("financeManager",true);
+            assertEquals(Arrays.asList(10L,11L,15L,16L),costUserIds(mapper.selectStaffCostOptions(query)));
+            query.put("financeManager",false);
+            assertTrue(mapper.selectStaffCostOptions(query).isEmpty());
+        }
+    }
+
+    private List<Long> costUserIds(List<Map<String,Object>> rows)
+    {
+        return rows.stream().map(row->((Number)(row.containsKey("userId")?row.get("userId"):row.get("userid"))).longValue()).sorted().collect(Collectors.toList());
     }
 
     @Test void costOptionsUseSameManagedProjectScopeAndDoNotGrantWholeCompany()

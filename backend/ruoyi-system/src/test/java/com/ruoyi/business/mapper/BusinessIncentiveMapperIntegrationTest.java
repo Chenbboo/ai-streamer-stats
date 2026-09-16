@@ -78,14 +78,15 @@ class BusinessIncentiveMapperIntegrationTest
         int distributionCount=0;
         while(distributionTables.find()){execute(distributionTables.group());execute(distributionTables.group());distributionCount++;}
         assertEquals(4,distributionCount);
+        try(java.sql.Connection grantConnection=dataSource.getConnection()){com.ruoyi.business.CompanyAccessTestSupport.grant(grantConnection,110L,8L);}
         Configuration config=new Configuration(new Environment("test",new JdbcTransactionFactory(),dataSource));
         config.setMapUnderscoreToCamelCase(true);
         String resource="mapper/business/BusinessIncentiveMapper.xml";
         try(InputStream input=Resources.getResourceAsStream(resource))
-        { new XMLMapperBuilder(input,config,resource,config.getSqlFragments()).parse(); }
+        { com.ruoyi.business.CompanyAccessTestSupport.register(config);new XMLMapperBuilder(input,config,resource,config.getSqlFragments()).parse(); }
         String distributionResource="mapper/business/BusinessBonusDistributionMapper.xml";
         try(InputStream input=Resources.getResourceAsStream(distributionResource))
-        {new XMLMapperBuilder(input,config,distributionResource,config.getSqlFragments()).parse();}
+        {com.ruoyi.business.CompanyAccessTestSupport.register(config);new XMLMapperBuilder(input,config,distributionResource,config.getSqlFragments()).parse();}
         factory=new SqlSessionFactoryBuilder().build(config);
     }
 

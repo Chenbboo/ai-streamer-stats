@@ -16,10 +16,10 @@
       </div>
       <el-table :data="costs.allocations || []" size="small" empty-text="本月暂无项目分摊记录">
         <el-table-column prop="companyName" label="公司" min-width="140" />
-        <el-table-column prop="ownerName" label="分配负责人" min-width="110" />
+        <el-table-column prop="ownerName" label="分配负责人" min-width="110" /><el-table-column label="费用类型" min-width="120"><template #default="{ row }">{{ row.costPool === 'PERSONNEL' ? '公共人员成本' : '日常公共费用' }}</template></el-table-column>
         <el-table-column label="项目分配比例" min-width="125" align="right"><template #default="{ row }">{{ Number(row.percentage || 0).toFixed(2) }}%</template></el-table-column>
         <el-table-column label="本月费用" min-width="155" align="right"><template #default="{ row }">{{ money(row.amount) }} {{ row.currency || displayCurrency }}</template></el-table-column>
-        <el-table-column label="状态" min-width="130"><template #default="{ row }"><el-tag :type="row.status === 'SETTLED' ? 'success' : row.status === 'SUBMITTED' ? 'primary' : 'warning'" size="small" effect="plain">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
+        <el-table-column label="人员日估算" min-width="130" align="right"><template #default="{ row }">{{ row.costPool === 'PERSONNEL' ? money(row.amount / 21.75) : '—' }}</template></el-table-column><el-table-column label="状态" min-width="130"><template #default="{ row }"><el-tag :type="row.status === 'SETTLED' ? 'success' : row.status === 'SUBMITTED' ? 'primary' : 'warning'" size="small" effect="plain">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
       </el-table>
       <el-collapse v-if="costs.dailyCosts?.length" class="daily-cost-details">
         <el-collapse-item title="查看每日分摊明细" name="days">
@@ -38,7 +38,7 @@
           <el-table-column prop="reason" label="调整原因" min-width="220" />
         </el-table>
       </template>
-      <p class="project-expense-note">负责人提交后，按项目当月承担费用期间的自然日计入成本；未来日期暂不计入，最后一天补齐尾差。月结确认实际金额并处理差额，不重复扣费。</p>
+      <p class="project-expense-note">负责人提交后，公共人员成本按月承担额 ÷ 21.75 计入每日估算；日常公共费用按承担期间的自然日暂估。未来日期暂不计入。统一月结时，以实际月额替换估算并处理尾差，不重复扣费。</p>
     </template>
   </section>
 </template>

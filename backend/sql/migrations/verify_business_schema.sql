@@ -1012,3 +1012,12 @@ from information_schema.columns where table_schema=database()
 select 1-count(*) as missing_jewelry_supplier_return_date from information_schema.columns
 where table_schema=database() and table_name='jewelry_document'
   and column_name='supplier_return_date' and data_type='date';
+
+-- Public personnel pool (V103)
+select 5-count(*) missing_public_personnel_columns from information_schema.columns
+where table_schema=database() and ((table_name='biz_public_expense_month' and column_name in('personnel_amount','personnel_snapshot'))
+ or (table_name='biz_public_expense_owner' and column_name in('cost_pool','dept_id','dept_name')));
+
+-- Explicit company grants and audit trail (V104).
+select 2-count(*) missing_company_access_tables from information_schema.tables
+where table_schema=database() and table_name in('biz_company_access','biz_company_access_event');

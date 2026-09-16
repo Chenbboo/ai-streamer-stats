@@ -33,6 +33,8 @@ import com.ruoyi.system.service.ISysUserService;
 @ExtendWith(MockitoExtension.class)
 class BusinessStaffServiceImplTest
 {
+    @org.mockito.Mock private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Mock private ISysUserService userService;
     @Mock private ISysDeptService deptService;
     @Mock private BusinessProjectMapper projectMapper;
@@ -79,8 +81,9 @@ class BusinessStaffServiceImplTest
     }
 
     @Test
-    void staffDirectoryOnlyEnablesCostActionsForOwnedCompany()
+    void staffDirectoryOnlyEnablesCostActionsForAuthorizedCompany()
     {
+        when(companyAccess.staff(120L,147L,"COST_WRITE")).thenReturn(true);
         SysUser shanghaiStaff = new SysUser(147L);
         shanghaiStaff.setUserName("shanghai147"); shanghaiStaff.setNickName("上海员工"); shanghaiStaff.setStatus("0");
         SysUser vietnamStaff = new SysUser(148L);
@@ -327,6 +330,7 @@ class BusinessStaffServiceImplTest
     @Test
     void bossCanSeeForeignProjectNameWithoutOperationalDetails()
     {
+        when(companyAccess.project(1L,142L)).thenReturn(true);
         SysUser staff = new SysUser(88L);
         when(userService.selectUserById(88L)).thenReturn(staff);
         Map<String, Object> own = responsibility(1L, 142L, "江澜", "OWNER", "0", "ACTIVE", 4, 2);

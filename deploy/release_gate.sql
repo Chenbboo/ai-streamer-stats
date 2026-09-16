@@ -333,4 +333,16 @@ from (
   union all
   select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
     and table_name='jewelry_document' and column_name='supplier_return_date' and data_type='date'
+  union all
+  select if(count(*)=5,0,1) from information_schema.columns where table_schema=database()
+    and ((table_name='biz_public_expense_month' and column_name in ('personnel_amount','personnel_snapshot'))
+      or (table_name='biz_public_expense_owner' and column_name in ('cost_pool','dept_id','dept_name')))
+  union all
+  select if(count(*)=3,0,1) from information_schema.statistics where table_schema=database()
+    and table_name='biz_public_expense_owner' and index_name='uk_public_owner_pool' and non_unique=0
+    and ((seq_in_index=1 and column_name='bill_id') or (seq_in_index=2 and column_name='cost_pool')
+      or (seq_in_index=3 and column_name='owner_user_id'))
+  union all
+  select if(count(*)=2,0,1) from information_schema.tables where table_schema=database()
+    and table_name in ('biz_company_access','biz_company_access_event')
 ) release_gate;

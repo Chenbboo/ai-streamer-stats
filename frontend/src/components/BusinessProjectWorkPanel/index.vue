@@ -17,7 +17,7 @@
     </div>
 
     <el-dialog v-model="allocationDialog" title="设置人员跨项目投入权重" width="min(720px, 95vw)" :z-index="4000" append-to-body destroy-on-close>
-      <el-alert title="填写该员工全部项目的投入比例，合计必须为100%。涉及其他负责人时提交确认；确认完成前继续使用原分配。" type="info" :closable="false" show-icon />
+      <el-alert title="填写该员工全部项目的投入比例，合计必须为100%。项目结束次日起，其比例自动平均分给剩余项目；全部结束后不再计项目投入。手动调整涉及其他负责人时仍需确认。" type="info" :closable="false" show-icon />
       <el-form label-width="92px" class="allocation-form">
         <el-row :gutter="12">
           <el-col :sm="12" :xs="24"><el-form-item label="调整人员" required><el-select v-model="allocationUserId" :disabled="allocationSaving" :teleported="false" filterable placeholder="选择负责人或普通员工" style="width:100%" @change="loadAllocation"><el-option v-for="member in editableMembers" :key="member.userId" :label="memberLabel(member)" :value="member.userId" /></el-select><small class="person-hint">普通员工也在这里选择；观察者不计人员成本。</small></el-form-item></el-col>
@@ -27,7 +27,7 @@
           <el-table :data="displayAllocations" empty-text="该日期没有参与中的有效项目">
             <el-table-column label="项目" min-width="210"><template #default="{row}"><b>{{ row.projectName }}</b><small>{{ row.projectNo }}</small></template></el-table-column>
             <el-table-column prop="ownerName" label="项目负责人" min-width="110" />
-            <el-table-column label="原投入" width="85"><template #default="{row}">{{ pendingRequest ? row.allocationValue : originalValues[row.projectId] }}%<small v-if="row.confirmationStatus==='PENDING'">待确认</small></template></el-table-column>
+            <el-table-column label="原投入" width="100"><template #default="{row}">{{ pendingRequest ? row.allocationValue : originalValues[row.projectId] }}%<small v-if="row.confirmationStatus==='PENDING'">待确认</small><small v-else-if="row.autoRedistributed">自动分配</small></template></el-table-column>
             <el-table-column label="调整后" width="190"><template #default="{row}"><b v-if="pendingRequest">{{ row.requestedValue }}%</b><template v-else><el-input-number v-model="row.allocationValue" :disabled="allocationLoading || allocationSaving" :min="0" :max="100" :precision="2" :step="5" /><span class="percent">%</span></template></template></el-table-column>
           </el-table>
         </div>
@@ -38,7 +38,24 @@
           <el-form-item v-if="pendingRequest.canReview" label="处理说明"><el-input v-model="reviewComment" type="textarea" :rows="2" maxlength="500" placeholder="退回时必须填写原因" /></el-form-item>
         </template>
         <el-form-item v-else label="调整原因" required><el-input v-model="allocationReason" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="说明本次项目投入权重调整原因" /></el-form-item>
-        <el-collapse v-if="allocation.history?.length"><el-collapse-item title="最近调整记录" name="history"><article v-for="record in allocation.history" :key="record.requestId" class="allocation-history"><b>{{ record.applicantName }} · {{ requestStatus[record.status] }} · {{ record.effectiveDate }}生效</b><p>{{ record.reason }}<span v-if="record.closeReason"> · {{ record.closeReason }}</span></p><p v-for="row in record.projects" :key="row.projectId">{{ row.projectName }}：{{ row.allocationValue }}% → {{ row.requestedValue }}%</p></article></el-collapse-item></el-collapse>
+        <el-collapse v-if="allocation.history?.length"><el-collapse-item title="最近调整记录" name="history">
+          <article v-for="record in allocation.history" :key="record.requestId" class="allocation-history">
+            <div class="history-heading"><b>申请人：{{ record.applicantName || '未记录姓名' }}</b><el-tag :type="record.status === 'REJECTED' ? 'danger' : record.status === 'APPLIED' ? 'success' : 'info'" size="small">{{ requestStatus[record.status] || record.status }}</el-tag></div>
+            <p>调整人员：{{ record.userName || allocation.userName || '未记录姓名' }}</p>
+            <p>{{ record.status === 'APPLIED' ? '生效日期' : '申请生效日期' }}：{{ record.effectiveDate }}<span v-if="record.createdAt"> · 申请时间：{{ record.createdAt }}</span></p>
+            <p class="history-text">申请原因：{{ record.reason || '未填写' }}</p>
+            <div v-if="record.reviews?.length" class="history-reviews">
+              <div v-for="review in record.reviews" :key="review.ownerUserId" class="history-review">
+                <b>确认负责人：{{ review.ownerName || '未记录姓名' }}</b>
+                <span>{{ review.status === 'PENDING' && record.status !== 'PENDING' ? '申请已结束，无需处理' : requestStatus[review.status] || review.status }}</span>
+                <small v-if="review.reviewedAt">{{ review.reviewedAt }}</small>
+                <p v-if="review.comment" class="history-text">{{ review.status === 'REJECTED' ? '退回原因' : '处理意见' }}：{{ review.comment }}</p>
+              </div>
+            </div>
+            <p v-if="record.closeReason && !record.reviews?.some(review => review.comment === record.closeReason)" class="history-text">{{ record.status === 'WITHDRAWN' ? '撤回说明' : '处理结果' }}：{{ record.closeReason }}</p>
+            <div class="history-projects"><p v-for="row in record.projects" :key="row.projectId">项目「{{ row.projectName }}」：{{ row.allocationValue }}% → {{ row.requestedValue }}%</p></div>
+          </article>
+        </el-collapse-item></el-collapse>
       </el-form>
       <template #footer><el-button @click="allocationDialog=false">关闭</el-button><template v-if="pendingRequest"><el-button v-if="pendingRequest.canWithdraw" :disabled="allocationSaving" @click="reviewAllocation('WITHDRAWN')">撤回申请</el-button><el-button v-if="pendingRequest.canReview" type="danger" plain :disabled="allocationSaving" @click="reviewAllocation('REJECTED')">退回</el-button><el-button v-if="pendingRequest.canReview" type="primary" :loading="allocationSaving" @click="reviewAllocation('APPROVED')">确认本次调配</el-button></template><el-button v-else type="primary" :loading="allocationSaving" :disabled="allocationLoading||allocationTotal!==100||!allocation.projects?.length" @click="saveAllocation">{{ needsConfirmation ? '提交相关负责人确认' : '保存并生效' }}</el-button></template>
     </el-dialog>
@@ -81,10 +98,10 @@ async function load() {
     if (current === sequence) { data.value = response.data || {}; costPage.value = 1 }
   } finally { if (current === sequence) loading.value = false }
 }
-async function openAllocation(userId){
+async function openAllocation(userId,effectiveDate){
   if(!editableMembers.value.length)return ElMessage.warning('当前项目没有可设置投入权重的负责人或成员')
   allocationUserId.value=editableMembers.value.some(member=>Number(member.userId)===Number(userId))?userId:editableMembers.value[0].userId
-  allocationDate.value=parseTime(new Date(),'{y}-{m}-{d}')
+  allocationDate.value=typeof effectiveDate==='string'?effectiveDate:parseTime(new Date(),'{y}-{m}-{d}')
   allocationReason.value=''
   allocationDialog.value=true
   await loadAllocation()
@@ -123,4 +140,5 @@ watch(() => props.projectId, () => { data.value = {}; load() }, { immediate: tru
 </script>
 <style scoped>
 .heading{display:flex;justify-content:space-between;align-items:center;gap:16px}.heading h3{margin:0}.heading p,.hint{color:#8492a3}.heading-actions{display:flex;gap:8px}.member-cost-panel :deep(.el-alert){margin-top:16px}.member-cost-panel :deep(.el-date-editor){max-width:100%}.cost-pagination{display:flex;justify-content:flex-end;margin-top:14px}.allocation-form{margin-top:18px}.person-hint{display:block;margin-top:5px;color:#8492a3;line-height:1.5}.allocation-table small{display:block;margin-top:3px;color:#909399}.allocation-table :deep(.el-input-number){width:145px}.percent{margin-left:6px;color:#606266}.allocation-total{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:14px;margin:14px 0;padding:14px 16px;border-radius:8px;background:#f5f7fa}.allocation-total b{font-size:20px}.allocation-total small{min-width:78px;text-align:right}.allocation-total.valid{background:#edf8f3;color:#237a57}.allocation-total.invalid{background:#fff6e8;color:#c47a13}@media(max-width:640px){.heading{align-items:flex-start;flex-direction:column}.heading-actions{width:100%;flex-wrap:wrap}.cost-pagination{justify-content:center}.allocation-total{grid-template-columns:1fr auto}.allocation-total small{grid-column:1/-1;text-align:left}}
+.allocation-history{padding:16px 0;border-top:1px solid var(--el-border-color-lighter);overflow-wrap:anywhere}.history-heading{display:flex;align-items:center;flex-wrap:wrap;gap:10px}.allocation-history p{margin:8px 0;line-height:1.7}.history-text{white-space:pre-wrap}.history-reviews{margin:12px 0;padding:0 14px;background:var(--el-fill-color-light);border-radius:8px}.history-review{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px 12px;padding:12px 0}.history-review+.history-review{border-top:1px solid var(--el-border-color-lighter)}.history-review b{white-space:normal}.history-review small{color:var(--el-text-color-secondary)}.history-review p{flex-basis:100%;margin:0}.history-projects{border-left:3px solid var(--el-border-color);padding-left:12px}
 </style>

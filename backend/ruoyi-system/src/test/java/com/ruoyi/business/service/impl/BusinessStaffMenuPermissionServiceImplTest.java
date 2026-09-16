@@ -33,6 +33,8 @@ import com.ruoyi.system.service.PersonalMenuPermissionService;
 @ExtendWith(MockitoExtension.class)
 class BusinessStaffMenuPermissionServiceImplTest
 {
+    @org.mockito.Mock private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     @Mock private ISysUserService userService;
     @Mock private BusinessProjectMapper projectMapper;
     @Mock private BusinessStaffMenuPermissionMapper permissionMapper;
@@ -62,7 +64,7 @@ class BusinessStaffMenuPermissionServiceImplTest
             menu(3003L, 3000L, "C", "erp", "jewelry:erp:view"));
 
         when(userService.selectUserById(200L)).thenReturn(target);
-        when(projectMapper.countUserRoleByKey(120L, "company_owner")).thenReturn(1);
+        when(companyAccess.staff(org.mockito.ArgumentMatchers.eq(120L),org.mockito.ArgumentMatchers.anyLong(),org.mockito.ArgumentMatchers.eq("STAFF"))).thenReturn(true);
         when(permissionResolver.selectAllActiveMenus()).thenReturn(menus);
         when(permissionResolver.selectRoleMenuIds(200L)).thenReturn(Collections.emptySet());
         when(permissionResolver.selectEffectiveMenuIds(200L, false)).thenReturn(Collections.emptySet());
@@ -96,7 +98,7 @@ class BusinessStaffMenuPermissionServiceImplTest
         pagePermission.put("accessLevel", "READ");
 
         when(userService.selectUserById(200L)).thenReturn(target);
-        when(projectMapper.countUserRoleByKey(120L, "company_owner")).thenReturn(1);
+        when(companyAccess.staff(org.mockito.ArgumentMatchers.eq(120L),org.mockito.ArgumentMatchers.anyLong(),org.mockito.ArgumentMatchers.eq("STAFF"))).thenReturn(true);
         when(permissionResolver.selectAllActiveMenus()).thenReturn(menus);
         when(permissionResolver.selectEffectiveMenuIds(200L, false)).thenReturn(Collections.emptySet());
 
@@ -114,7 +116,7 @@ class BusinessStaffMenuPermissionServiceImplTest
             menu(3001L, 3000L, "C", "product", "jewelry:product:list"));
         Map<String,Object> hidden=new HashMap<String,Object>();hidden.put("menuId",3001L);hidden.put("accessLevel","HIDDEN");
         when(userService.selectUserById(200L)).thenReturn(target);
-        when(projectMapper.countUserRoleByKey(120L,"company_owner")).thenReturn(1);
+        when(companyAccess.staff(org.mockito.ArgumentMatchers.eq(120L),org.mockito.ArgumentMatchers.anyLong(),org.mockito.ArgumentMatchers.eq("STAFF"))).thenReturn(true);
         when(permissionResolver.selectAllActiveMenus()).thenReturn(menus);
         when(permissionResolver.selectEffectiveMenuIds(200L,false)).thenReturn(new java.util.HashSet<Long>(Arrays.asList(3000L,3001L)));
 
@@ -132,7 +134,7 @@ class BusinessStaffMenuPermissionServiceImplTest
             SysUser target=new SysUser();target.setUserId(targetId);target.setDelFlag("0");
             when(userService.selectUserById(targetId)).thenReturn(target);
         }
-        when(projectMapper.countUserRoleByKey(120L,"company_owner")).thenReturn(1);
+        when(companyAccess.staff(org.mockito.ArgumentMatchers.eq(120L),org.mockito.ArgumentMatchers.anyLong(),org.mockito.ArgumentMatchers.eq("STAFF"))).thenReturn(true);
         when(permissionResolver.selectAllActiveMenus()).thenReturn(Arrays.asList(
             menu(1L,0L,"M","system",""),
             menu(100L,1L,"C","user","system:user:list"),

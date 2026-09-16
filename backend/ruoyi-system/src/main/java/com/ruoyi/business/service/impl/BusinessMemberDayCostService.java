@@ -14,12 +14,14 @@ import com.ruoyi.business.mapper.*;
 import com.ruoyi.business.service.IBusinessAccountingService;
 import com.ruoyi.business.support.BusinessProjectLifecycle;
 import com.ruoyi.business.support.BusinessPersonnelCost;
+import com.ruoyi.business.support.BusinessAllocationWeights;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
 
 /** Splits each eligible member's daily rate across projects by effective project weights; no timesheet input. */
 @Service
 public class BusinessMemberDayCostService {
+    @Autowired private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
     public static final String POLICY="MEMBER_DAYS_V1";
     @Autowired private BusinessProjectMapper projects;
     @Autowired private BusinessProjectWorkMapper work;
@@ -112,11 +114,14 @@ public class BusinessMemberDayCostService {
             List<Map<String,Object>> plans=new ArrayList<>();
             for(Map<String,Object> a:assignments)if(userId.equals(id(a.get("userId")))&&("FOLLOW_PROJECT".equals(a.get("participationMode"))||joined==null||day(a.get("effectiveTo"))==null||!day(a.get("effectiveTo")).isBefore(joined)))plans.add(a);
             List<Map<String,Object>> rates=work.selectBudgetRates(userId,from.toString(),to.toString());
+            List<Map<String,Object>> allocationTimeline=projects.selectUserAllocationTimeline(userId);
+            boolean automaticWeights=allocationTimeline!=null&&!allocationTimeline.isEmpty();
             for(LocalDate date=from;!date.isAfter(to);date=date.plusDays(1)) {
                 boolean released=false;
                 for(Map<String,Object> pause:pauses)if(!date.isBefore(day(pause.get("effectiveFrom")))&&(pause.get("effectiveTo")==null||date.isBefore(day(pause.get("effectiveTo"))))){released=true;break;}
                 if(released)continue;
-                if(projectStart(p)!=null&&date.isBefore(projectStart(p))||p.getActualEndDate()!=null&&date.isAfter(day(p.getActualEndDate())))continue;
+                LocalDate projectEnd=day(p.getActualEndDate()!=null?p.getActualEndDate():p.getPlanEndDate());
+                if(projectStart(p)!=null&&date.isBefore(projectStart(p))||projectEnd!=null&&date.isAfter(projectEnd))continue;
                 if(joined!=null&&date.isBefore(joined)||left!=null&&date.isAfter(left))continue;
                 String role=String.valueOf(member.get("memberRole"));
                 for(Map<String,Object> period:roles)if(userId.equals(id(period.get("userId")))&&!date.isBefore(day(period.get("effectiveFrom"))))role=String.valueOf(period.get("memberRole"));
@@ -132,6 +137,11 @@ public class BusinessMemberDayCostService {
                 for(Map<String,Object> candidate:userAllocations)if(covers(candidate,"effectiveFrom","effectiveTo",date)){allocation=candidate;break;}
                 BigDecimal allocationPercent=userAllocations.isEmpty()?new BigDecimal("100"):
                     allocation==null?null:new BigDecimal(String.valueOf(allocation.get("allocationValue")));
+                Map<String,Object> effectiveAllocation=null;
+                if(automaticWeights){
+                    effectiveAllocation=BusinessAllocationWeights.at(allocationTimeline,date).get(p.getProjectId());
+                    allocationPercent=effectiveAllocation==null?null:new BigDecimal(String.valueOf(effectiveAllocation.get("allocationValue")));
+                }
                 String issue=allocationPercent==null?"缺少该日期有效的项目投入权重":null;BigDecimal amount=null;BigDecimal fullDailyCost=null;Map<String,Object> rate=null;
                 if(allocation!=null&&"PENDING".equals(allocation.get("confirmationStatus")))issue="人员投入待确认，请由相关项目负责人确认分配";
                 if(issue==null&&(allocationPercent.signum()<0||allocationPercent.compareTo(new BigDecimal("100"))>0))issue="项目投入权重必须在0%至100%之间";
@@ -155,6 +165,11 @@ public class BusinessMemberDayCostService {
                     basis.put("monthlyCostRule",BusinessPersonnelCost.MONTHLY_RULE);
                     basis.put("monthWorkingDays",pricing.monthWorkingDays(calendar,date));
                     basis.put("formula","月度用人成本按当月工作日分摊 × 项目投入权重（整月按月成本，逐日分配分币尾差）");
+                }
+                if(effectiveAllocation!=null){
+                    basis.put("baseAllocationPercent",effectiveAllocation.get("baseAllocationValue"));
+                    basis.put("autoRedistributed",Boolean.TRUE.equals(effectiveAllocation.get("autoRedistributed")));
+                    basis.put("allocationRule","ENDED_PROJECT_EQUAL_SHARE_V1");
                 }
                 try{cost.put("basisJson",json.writeValueAsString(basis));}catch(Exception ex){throw new ServiceException("工作日成本依据无法保存");}
                 if(calculated.add(userId+":"+date))result.add(cost);
@@ -197,7 +212,7 @@ public class BusinessMemberDayCostService {
     public Map<String,Object> workspace(Long projectId,Map<String,Object> query,Long actor,boolean admin){
         BusinessProject p=projects.selectProjectById(projectId);if(p==null)throw new ServiceException("项目不存在");
         if(!enabled(p))throw new ServiceException("该历史项目保留原核算结果，请在项目核算中查看");
-        boolean manager=admin||actor.equals(p.getMainOwnerUserId())||actor.equals(p.getSponsorOwnerUserId())||actor.equals(p.getInitiatorUserId());
+        boolean manager=admin||actor.equals(p.getMainOwnerUserId())||companyAccess.project(p,actor);
         if(!manager&&work.selectMembers(projectId).stream().noneMatch(m->actor.equals(id(m.get("userId")))&&"0".equals(String.valueOf(m.get("status")))))throw new ServiceException("无权查看项目人员成本");
         LocalDate to=query.get("dateTo")==null?LocalDate.now():day(query.get("dateTo"));LocalDate from=query.get("dateFrom")==null?to.withDayOfMonth(1):day(query.get("dateFrom"));
         if(from==null||to==null||to.isBefore(from)||to.toEpochDay()-from.toEpochDay()>730)throw new ServiceException("请选择两年以内的日期范围");

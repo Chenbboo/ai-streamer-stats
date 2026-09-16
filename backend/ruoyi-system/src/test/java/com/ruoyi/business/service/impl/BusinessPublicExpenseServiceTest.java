@@ -18,6 +18,8 @@ import com.ruoyi.business.service.IBusinessAccountingService;
 
 class BusinessPublicExpenseServiceTest
 {
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
     BusinessPublicExpenseService service=new BusinessPublicExpenseService();
     BusinessPublicExpenseMapper mapper=mock(BusinessPublicExpenseMapper.class);
     BusinessProjectMapper projects=mock(BusinessProjectMapper.class);
@@ -40,10 +42,45 @@ class BusinessPublicExpenseServiceTest
         when(projects.selectProjectByIdForUpdate(4L)).thenReturn(project);when(projects.selectProjectById(4L)).thenReturn(project);
         when(accounting.selectCategoryByCode("COMPANY_PUBLIC_COST")).thenReturn(map("categoryId",99L));
         doAnswer(call->{((BusinessOperatingFact)call.getArgument(0)).setFactId(55L);return 1;}).when(accounting).insertFact(any());
-    }
 
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+        lenient().when(companyAccess.allowed(10L,100L,"BUSINESS")).thenReturn(true);
+        lenient().when(companyAccess.allowed(10L,101L,"BUSINESS")).thenReturn(true);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
+}
+
+    @Test void personnelSaveRejectsClientAmountsAndUsesAutomaticSources() {
+        BusinessPublicPersonnelService personnel=mock(BusinessPublicPersonnelService.class);
+        ReflectionTestUtils.setField(service,"personnel",personnel);
+        bill.put("status","DRAFT");when(mapper.selectMonth(100L,"2025-02","CNY")).thenReturn(bill);
+        Map<String,Object> input=map("companyDeptId",100L,"month","2025-02","currency","CNY","version",0,"rows",Arrays.asList(map("totalAmount",1)));
+        assertThrows(RuntimeException.class,()->service.savePersonnel(input,10L,"老板"));verifyNoInteractions(personnel);verify(mapper,never()).updateBill(anyMap());
+        input.remove("rows");when(personnel.automaticSnapshot(100L,"2025-02","CNY",null)).thenReturn(map("publicAmount",bd("60.00"),"sourceMode","AUTOMATIC","rows",Collections.emptyList()));
+        when(mapper.selectOwners(100L)).thenReturn(Arrays.asList(map("userId",20L,"userName","负责人","deptId",201L)));
+        service.savePersonnel(input,10L,"老板");assertEquals(bd("160.00"),bill.get("totalAmount"));assertEquals(bd("60.00"),bill.get("personnelAmount"));
+        verify(personnel).automaticSnapshot(100L,"2025-02","CNY",null);
+    }
+    @Test void separatePoolsAllowSameOwnerWithoutMixingPercentages() {
+        bill.put("status","DRAFT");bill.put("personnelAmount",bd("60.00"));owner.put("amount",bd("40.00"));
+        when(mapper.selectOwners(100L)).thenReturn(Arrays.asList(map("userId",20L,"userName","负责人","deptId",201L)));
+        service.saveOwners(1L,map("version",0,"costPool","PERSONNEL","allocations",Arrays.asList(map("ownerUserId",20L,"deptId",201L,"percentage",100))),10L,"老板");
+        verify(mapper).insertOwner(argThat(r->"PERSONNEL".equals(r.get("costPool"))&&bd("60.00").equals(r.get("amount"))));
+        verify(mapper).insertOwner(argThat(r->"EXPENSE".equals(r.get("costPool"))&&bd("40.00").equals(r.get("amount"))));
+    }
+    @Test void cannotPublishUntilBothPoolsAreCompletelyAllocated() {
+        bill.put("status","DRAFT");bill.put("personnelAmount",bd("60.00"));owner.put("amount",bd("40.00"));
+        assertThrows(RuntimeException.class,()->service.publish(1L,map("version",0),10L,"老板"));verify(mapper,never()).updateBill(anyMap());
+    }
+    @Test void ownerReceivesPoolTotalWithoutPayrollNamesOrSnapshots() {
+        bill.put("personnelAmount",bd("60.00"));bill.put("personnelSnapshot","sensitive payroll");owner.put("costPool","PERSONNEL");owner.put("amount",bd("60.00"));
+        when(mapper.selectOwnerBills(20L,"2025-02")).thenReturn(Arrays.asList(owner));
+        Map<String,Object> view=(Map<String,Object>)((List<?>)service.ownerWorkspace("2025-02",20L).get("bills")).get(0);
+        assertEquals(bd("60.00"),view.get("totalAmount"));assertFalse(view.containsKey("personnelSnapshot"));assertFalse(view.containsKey("personnel"));
+        assertEquals("公共人员成本",((Map<?,?>)((List<?>)view.get("entries")).get(0)).get("name"));
+    }
     @Test void bossCanSwitchCompaniesAndSaveOnlyTheSelectedCompanyOwners()
     {
+        when(companyAccess.allowed(11L,100L,"BUSINESS")).thenReturn(true);
         when(mapper.selectCompanies(11L)).thenReturn(Arrays.asList(map("companyDeptId",100L),map("companyDeptId",101L)));
         when(mapper.selectOwners(100L)).thenReturn(Arrays.asList(map("userId",20L,"userName","A负责人","deptId",201L)));
         when(mapper.selectOwners(101L)).thenReturn(Arrays.asList(map("userId",21L,"userName","B负责人","deptId",202L)));
