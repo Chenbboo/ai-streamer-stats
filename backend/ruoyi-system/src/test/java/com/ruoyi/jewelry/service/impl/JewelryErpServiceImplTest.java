@@ -882,6 +882,104 @@ class JewelryErpServiceImplTest
     }
 
     @Test
+    void freeSampleSupplierReturnCanSaveSubmitAndPostWithZeroRefund()
+    {
+        JewelryDocument document = freeSampleReturn("SAMPLE", "0");
+        JewelryDocumentItem returned = document.getItems().get(0);
+        when(mapper.insertDocument(document)).thenAnswer(invocation -> {
+            document.setDocumentId(102L);
+            return 1;
+        });
+        when(mapper.selectDocumentById(102L)).thenReturn(document);
+        when(mapper.selectDocumentItems(102L)).thenReturn(document.getItems());
+        service.saveDocument(document, MAKER_ID, "maker");
+        assertMoney("0.0000", document.getTotalAmount());
+        assertEquals(4, returned.getUnitPrice().scale());
+        verify(mapper, never()).reserveOutbound(anyLong(), anyInt());
+
+        JewelryDocument purchase = mapper.selectDocumentById(90L);
+        when(mapper.selectDocumentByIdForUpdate(90L)).thenReturn(purchase);
+        when(mapper.reserveOutbound(PRODUCT_ID, 1)).thenReturn(1);
+        service.submit(102L, MAKER_ID, "maker");
+        verify(mapper).reserveOutbound(PRODUCT_ID, 1);
+        verify(mapper).updateDocumentStatus(102L, "DRAFT", "PENDING_FIRST", MAKER_ID, "maker", null, null);
+
+        document.setStatus("PENDING_FIRST");
+        when(mapper.selectStockForUpdate(PRODUCT_ID)).thenReturn(stock(10, 1, 0, 0, 0, 0, "0", "0", "0"));
+        service.approve(102L, "", null, REVIEWER_ONE_ID, "reviewer");
+        verify(mapper).applyStock(eq(PRODUCT_ID), eq(9), eq(0), eq(0), eq(0), eq(0), eq(0),
+            decimalEq("0"), decimalEq("0"), decimalEq("0"));
+        assertMoney("0", document.getTotalAmount());
+        assertMoney("0", returned.getCostAmount());
+        verify(mapper).updateDocumentStatus(102L, "PENDING_FIRST", "POSTED", REVIEWER_ONE_ID, "reviewer", null, 1);
+    }
+
+    @Test
+    void freeSampleSupplierReturnRejectsMissingOrNegativePrice()
+    {
+        JewelryDocument document = freeSampleReturn("SAMPLE", "0");
+        document.getItems().get(0).setUnitPrice(null);
+        assertTrue(assertThrows(ServiceException.class,
+            () -> service.saveDocument(document, MAKER_ID, "maker")).getMessage().contains("必须填写"));
+        document.getItems().get(0).setUnitPrice(decimal("-0.000001"));
+        assertTrue(assertThrows(ServiceException.class,
+            () -> service.saveDocument(document, MAKER_ID, "maker")).getMessage().contains("不能为负数"));
+        verify(mapper, never()).insertDocument(any());
+    }
+
+    @Test
+    void paidSampleSupplierReturnStillRequiresPositivePrice()
+    {
+        JewelryDocument document = freeSampleReturn("SAMPLE", "0.0001");
+        assertTrue(assertThrows(ServiceException.class,
+            () -> service.saveDocument(document, MAKER_ID, "maker")).getMessage().contains("必须大于0"));
+        verify(mapper, never()).insertDocument(any());
+    }
+
+    @Test
+    void zeroReturnEligibilityUsesPurchaseSnapshotNotCurrentOrSubmittedType()
+    {
+        JewelryDocument document = freeSampleReturn("FINISHED", "0");
+        document.getItems().get(0).setProductTypeSnapshot("SAMPLE");
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("SAMPLE"));
+        assertTrue(assertThrows(ServiceException.class,
+            () -> service.saveDocument(document, MAKER_ID, "maker")).getMessage().contains("必须大于0"));
+        verify(mapper, never()).insertDocument(any());
+    }
+
+    @Test
+    void freeSampleSupplierReturnStillRejectsExcessQuantityAndNoAvailableStock()
+    {
+        JewelryDocument document = freeSampleReturn("SAMPLE", "0");
+        document.getItems().get(0).setQty(2);
+        assertTrue(assertThrows(ServiceException.class,
+            () -> service.saveDocument(document, MAKER_ID, "maker")).getMessage().contains("剩余可退数量1件"));
+        document.getItems().get(0).setQty(1);
+        when(mapper.selectStockForUpdate(PRODUCT_ID)).thenReturn(stock(1, 1, 0, 0, 0, 0, "0", "0", "0"));
+        assertTrue(assertThrows(ServiceException.class,
+            () -> service.saveDocument(document, MAKER_ID, "maker")).getMessage().contains("剩余可退数量0件"));
+        verify(mapper, never()).insertDocument(any());
+    }
+
+    private JewelryDocument freeSampleReturn(String purchasedType, String purchasePrice)
+    {
+        JewelryDocument purchase = document(90L, "PURCHASE_IN", "POSTED");
+        purchase.setSupplierId(9L);
+        JewelryDocumentItem purchased = item(901L, 1, purchasePrice);
+        purchased.setProductTypeSnapshot(purchasedType);
+        when(mapper.selectDocumentById(90L)).thenReturn(purchase);
+        when(mapper.selectDocumentItems(90L)).thenReturn(Arrays.asList(purchased));
+        JewelryDocument document = document(null, "SUPPLIER_RETURN", null);
+        document.setSupplierId(9L);
+        document.setSourceDocumentId(90L);
+        document.setReturnReason("免费样品退回，不退款");
+        JewelryDocumentItem returned = item(null, 1, "0.0000");
+        returned.setSourceItemId(901L);
+        document.setItems(Arrays.asList(returned));
+        return document;
+    }
+
+    @Test
     void supplierReturnCannotExceedSourcePurchaseRemainingQuantity()
     {
         JewelryDocument purchase = document(90L, "PURCHASE_IN", "POSTED");

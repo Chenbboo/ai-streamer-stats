@@ -1090,8 +1090,15 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                             + remainingQty + "件（取原采购单剩余额度与当前可用库存的较小值）");
                     item.setSourceItemId(sourceItem.getItemId());
                     item.setSourceUnitPrice(money(sourceItem.getUnitPrice()));
-                    if (money(item.getUnitPrice()).signum() <= 0)
+                    if (item.getUnitPrice() == null)
                         throw new ServiceException("供应商退货必须填写实际退货单价");
+                    if (item.getUnitPrice().signum() < 0)
+                        throw new ServiceException("实际退货单价不能为负数");
+                    // Only a free sample recorded on the original purchase can be returned for zero.
+                    boolean freeSample = "SAMPLE".equals(sourceItem.getProductTypeSnapshot())
+                        && sourceItem.getUnitPrice() != null && sourceItem.getUnitPrice().signum() == 0;
+                    if (fourDecimal(item.getUnitPrice()).signum() == 0 && !freeSample)
+                        throw new ServiceException("实际退货单价必须大于0；仅原采购单价为0的样品商品支持零元退货");
                 }
             }
             else if ("CUSTOMER_RETURN".equals(document.getDocType()))
