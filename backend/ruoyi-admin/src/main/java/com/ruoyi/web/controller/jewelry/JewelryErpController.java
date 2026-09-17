@@ -186,7 +186,7 @@ public class JewelryErpController extends BaseController
         if (string(body.get("sku")).isEmpty() || string(body.get("productName")).isEmpty())
             return error("SKU和商品名称不能为空");
         String productType = defaultString(body.get("productType"), "FINISHED");
-        if (!Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE").contains(productType))
+        if (!Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE", "SAMPLE").contains(productType))
             return error("商品类型不正确");
         body.put("productType", productType);
         body.put("imageUrl", string(body.get("imageUrl")));

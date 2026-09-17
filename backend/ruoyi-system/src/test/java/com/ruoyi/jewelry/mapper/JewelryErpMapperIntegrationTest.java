@@ -230,6 +230,35 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void transferWarehouseNamesPersistOnCreateAndEdit()
+    {
+        try (SqlSession session = sqlSessionFactory.openSession(true))
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            JewelryDocument document = new JewelryDocument();
+            document.setDocNo("DH-TEST");
+            document.setDocType("TRANSFER_OUT");
+            document.setBizDate(java.sql.Date.valueOf("2026-09-17"));
+            document.setStatus("DRAFT");
+            document.setCreatorUserId(10L);
+            document.setCreatorName("maker");
+            document.setSourceWarehouse("本仓");
+            document.setTargetWarehouse("接收仓");
+            document.setTotalQty(2);
+            document.setTotalAmount(BigDecimal.ZERO);
+            document.setTotalCost(BigDecimal.TEN);
+            document.setTotalProfit(BigDecimal.ZERO);
+            assertEquals(1, mapper.insertDocument(document));
+            JewelryDocument loaded = mapper.selectDocumentById(document.getDocumentId());
+            assertEquals("本仓", loaded.getSourceWarehouse());
+            assertEquals("接收仓", loaded.getTargetWarehouse());
+            document.setTargetWarehouse("接收二仓");
+            assertEquals(1, mapper.updateDocument(document));
+            assertEquals("接收二仓", mapper.selectDocumentById(document.getDocumentId()).getTargetWarehouse());
+        }
+    }
+
+    @Test
     void linkedSalesExcludeLaterPurchasesWhenTracingReturnedGoods() throws Exception
     {
         insertStock(1L, 12, 0, 0, 0, 0, 0, "10");
@@ -300,7 +329,7 @@ class JewelryErpMapperIntegrationTest
             assertSupplierReturnWarningCount(days < 7 ? 1 : 0);
         }
         execute("update jewelry_document set supplier_return_date=current_date where document_id=1");
-        for (String type : Arrays.asList("PART", "ACCESSORY", "WELFARE"))
+        for (String type : Arrays.asList("PART", "ACCESSORY", "WELFARE", "SAMPLE"))
         {
             execute("update jewelry_product set product_type='" + type + "' where product_id=1");
             assertSupplierReturnWarningCount(0);
@@ -381,7 +410,7 @@ class JewelryErpMapperIntegrationTest
             .getBoundSql(Collections.emptyMap()).getSql();
         String ctes = sql.substring(sql.indexOf("return_config as"), sql.indexOf("select p.product_id productId"));
         String deadlineJoin = sql.substring(sql.indexOf("left join remaining_deadlines rd"), sql.indexOf("cross join warning_config wc"));
-        for (String type : Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE", "FINISHED"))
+        for (String type : Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE", "SAMPLE", "FINISHED"))
         {
             execute("update jewelry_product set product_type='" + type + "' where product_id=1");
             try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement();
@@ -471,6 +500,26 @@ class JewelryErpMapperIntegrationTest
 
         String unfilteredSql = statement.getBoundSql(Collections.emptyMap()).getSql().replaceAll("\\s+", " ");
         assertFalse(unfilteredSql.contains("p.product_type=?"));
+    }
+
+    @Test
+    void sampleProductsCanBeFilteredAndAreNotSupplierReturnWarningCandidates()
+    {
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification)"
+            + " values(1,'SAMPLE-1','样品项链','SAMPLE','普通'),(2,'FINISHED-1','成品项链','FINISHED','普通')");
+        Map<String, Object> query = new HashMap<String, Object>();
+        query.put("productType", "SAMPLE");
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            List<Map<String, Object>> rows = session.getMapper(JewelryErpMapper.class).selectProductList(query);
+            assertEquals(1, rows.size());
+            assertEquals("SAMPLE-1", rows.get(0).get("sku"));
+        }
+        String stockSql = sqlSessionFactory.getConfiguration()
+            .getMappedStatement("com.ruoyi.jewelry.mapper.JewelryErpMapper.selectStockList")
+            .getBoundSql(query).getSql().replaceAll("\\s+", " ");
+        assertTrue(stockSql.contains("p.product_type=?"));
+        assertTrue(stockSql.contains("p.product_type='FINISHED'"));
     }
 
     @Test
@@ -1017,7 +1066,7 @@ class JewelryErpMapperIntegrationTest
             + "update_time timestamp)");
         execute("create table jewelry_document ("
             + "document_id bigint auto_increment primary key,doc_no varchar(32) not null unique,"
-            + "doc_type varchar(32) not null,biz_date date not null,supplier_return_date date,status varchar(24) not null,"
+            + "doc_type varchar(32) not null,biz_date date not null,supplier_return_date date,source_warehouse varchar(100),target_warehouse varchar(100),status varchar(24) not null,"
             + "supplier_id bigint,supplier_name_snapshot varchar(128) default '',"
             + "sales_channel varchar(64) default '',external_no varchar(64) default '',influencer_id bigint,"
             + "influencer_name varchar(64) default '',influencer_price_snapshot decimal(18,4),"

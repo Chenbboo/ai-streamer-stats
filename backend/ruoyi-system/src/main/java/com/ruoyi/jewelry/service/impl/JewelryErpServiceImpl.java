@@ -30,9 +30,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(6);
     private static final Set<String> EDITABLE_DOCUMENT_TYPES = Collections.unmodifiableSet(
         new HashSet<String>(Arrays.asList("PURCHASE_IN", "SALES_OUT", "SUPPLIER_RETURN",
-            "CUSTOMER_RETURN", "RETURN_INSPECT", "STOCK_ADJUST", "COST_ADJUST", "ASSEMBLY")));
+            "CUSTOMER_RETURN", "RETURN_INSPECT", "STOCK_ADJUST", "COST_ADJUST", "ASSEMBLY", "TRANSFER_OUT")));
     private static final Set<String> PRODUCT_TYPES = Collections.unmodifiableSet(
-        new HashSet<String>(Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE")));
+        new HashSet<String>(Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE", "SAMPLE")));
     private static final Set<String> SPECIFICATION_TYPES = Collections.unmodifiableSet(
         new HashSet<String>(Arrays.asList("精品", "普通")));
     private static final Set<String> SALES_ROLES = Collections.unmodifiableSet(
@@ -40,7 +40,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     private static final Set<String> SALES_PRICING_MODES = Collections.unmodifiableSet(
         new HashSet<String>(Arrays.asList("SEPARATE", "INCLUDED")));
     private static final Set<String> SALES_ADDON_PRODUCT_TYPES = Collections.unmodifiableSet(
-        new HashSet<String>(Arrays.asList("PART", "ACCESSORY", "WELFARE")));
+        new HashSet<String>(Arrays.asList("PART", "ACCESSORY", "WELFARE", "SAMPLE")));
 
     @Autowired
     private JewelryErpMapper mapper;
@@ -54,7 +54,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     {
         String productType = textValue(product.get("productType")).trim();
         if (!PRODUCT_TYPES.contains(productType))
-            throw new ServiceException("商品类型只能选择成品商品、散件商品、配件商品或福利商品");
+            throw new ServiceException("商品类型只能选择成品商品、散件商品、配件商品、福利商品或样品商品");
         String specification = textValue(product.get("specification")).trim();
         if (!SPECIFICATION_TYPES.contains(specification))
             throw new ServiceException("规格类型只能选择精品或普通");
@@ -617,6 +617,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         reversal.setSupplierNameSnapshot(source.getSupplierNameSnapshot());
         reversal.setSalesChannel(source.getSalesChannel());
         reversal.setExternalNo(source.getExternalNo());
+        reversal.setSourceWarehouse(source.getSourceWarehouse());
+        reversal.setTargetWarehouse(source.getTargetWarehouse());
         reversal.setInfluencerName(source.getInfluencerName());
         reversal.setPlatformRate(source.getPlatformRate());
         reversal.setCommissionRate(source.getCommissionRate());
@@ -888,6 +890,42 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         if (!EDITABLE_DOCUMENT_TYPES.contains(document.getDocType()))
             throw new ServiceException("单据类型不正确");
         if (document.getBizDate() == null) document.setBizDate(new Date());
+        if ("TRANSFER_OUT".equals(document.getDocType()))
+        {
+            String sourceWarehouse = text(document.getSourceWarehouse()).trim();
+            String targetWarehouse = text(document.getTargetWarehouse()).trim();
+            if (sourceWarehouse.isEmpty() || targetWarehouse.isEmpty())
+                throw new ServiceException("请填写出库仓库和入库仓库");
+            if (sourceWarehouse.length() > 100 || targetWarehouse.length() > 100)
+                throw new ServiceException("仓库名称不能超过100个字符");
+            if (sourceWarehouse.equalsIgnoreCase(targetWarehouse))
+                throw new ServiceException("出库仓库与入库仓库不能相同");
+            document.setSourceWarehouse(sourceWarehouse);
+            document.setTargetWarehouse(targetWarehouse);
+            document.setSupplierId(null);
+            document.setSupplierNameSnapshot(null);
+            document.setSourceDocumentId(null);
+            document.setSalesChannel(null);
+            document.setInfluencerId(null);
+            document.setInfluencerName(null);
+            document.setInfluencerPriceSnapshot(null);
+            document.setInfluencerPriceVersion(null);
+            document.setExternalNo(null);
+            document.setReturnReason(null);
+            document.setActualRefundAmount(null);
+            document.setRemark(null);
+            document.setPlatformRate(ZERO);
+            document.setCommissionRate(ZERO);
+            document.setTaxRate(ZERO);
+            document.setLaborFee(ZERO);
+            document.setProcessingFee(ZERO);
+            document.setOtherFee(ZERO);
+        }
+        else
+        {
+            document.setSourceWarehouse(null);
+            document.setTargetWarehouse(null);
+        }
         if ("PURCHASE_IN".equals(document.getDocType()) && document.getSupplierReturnDate() != null)
         {
             SimpleDateFormat dayFormat = new SimpleDateFormat("yyyy-MM-dd");
@@ -1016,11 +1054,24 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     throw new ServiceException("组装明细角色不正确");
                 }
             }
-            if ("SALES_OUT".equals(document.getDocType()) || "SUPPLIER_RETURN".equals(document.getDocType()))
+            if (isOutbound(document.getDocType()))
             {
                 Map<String, Object> stock = mapper.selectStockForUpdate(item.getProductId());
                 if (stock == null) throw new ServiceException("商品库存记录不存在");
                 item.setUnitCost(decimal(stock.get("avgCost")));
+                if ("TRANSFER_OUT".equals(document.getDocType()))
+                {
+                    item.setItemRole("NORMAL");
+                    item.setSourceItemId(null);
+                    item.setImageUrls(null);
+                    item.setUnitPrice(ZERO);
+                    item.setInfluencerPriceSnapshot(null);
+                    item.setInfluencerPriceVersion(null);
+                    item.setGoodQty(0);
+                    item.setDefectQty(0);
+                    item.setAdjustmentQty(0);
+                    clearNonSalesFees(item);
+                }
                 if ("SUPPLIER_RETURN".equals(document.getDocType()))
                 {
                     JewelryDocumentItem sourceItem = supplierReturnSourceItems.get(item.getSourceItemId());
@@ -1399,6 +1450,13 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             {
                 amount = grossAmount.negate();
                 costAmount = cost.multiply(BigDecimal.valueOf(qty)).negate();
+                profit = ZERO;
+            }
+            else if ("TRANSFER_OUT".equals(document.getDocType()))
+            {
+                price = ZERO;
+                amount = ZERO;
+                costAmount = productCostAmount;
                 profit = ZERO;
             }
             item.setUnitPrice(price); item.setUnitCost(cost); item.setPackFee(packFee);
@@ -1846,6 +1904,19 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     item.getProfitAmount().divide(item.getAmount(), 6, RoundingMode.HALF_UP));
                 mapper.updateDocumentItemCost(item);
             }
+            else if ("TRANSFER_OUT".equals(document.getDocType()))
+            {
+                if (before < qty || reserved < qty)
+                    throw new ServiceException(item.getProductNameSnapshot() + " 调货库存或冻结数量不足");
+                onHand -= qty; reserved -= qty;
+                item.setUnitCost(beforeAvg);
+                item.setUnitPrice(ZERO);
+                item.setAmount(ZERO);
+                item.setCostAmount(beforeAvg.multiply(BigDecimal.valueOf(qty)).setScale(2, RoundingMode.HALF_UP));
+                item.setProfitAmount(ZERO);
+                item.setProfitRate(ZERO);
+                mapper.updateDocumentItemCost(item);
+            }
             else if ("SUPPLIER_RETURN".equals(document.getDocType()))
             {
                 onHand -= qty; reserved -= qty;
@@ -2150,7 +2221,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 avg = averageAfterCostRemoval(before, beforeAvg, qty, originalUnitCost,
                     item.getProductNameSnapshot());
             }
-            else if ("SALES_OUT".equals(sourceType) || "SUPPLIER_RETURN".equals(sourceType))
+            else if (isOutbound(sourceType))
             {
                 int qty = item.getQty();
                 BigDecimal restoredCost = originalUnitCost.multiply(BigDecimal.valueOf(qty));
@@ -2567,6 +2638,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         String prefix;
         if ("PURCHASE_IN".equals(type)) prefix = "RK";
         else if ("SALES_OUT".equals(type)) prefix = "CK";
+        else if ("TRANSFER_OUT".equals(type)) prefix = "DH";
         else if ("SUPPLIER_RETURN".equals(type)) prefix = "TG";
         else if ("CUSTOMER_RETURN".equals(type)) prefix = "SH";
         else if ("RETURN_INSPECT".equals(type)) prefix = "ZJ";
@@ -2650,7 +2722,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             throw new ServiceException(label + "必须在0到1之间");
     }
 
-    private boolean isOutbound(String type) { return "SALES_OUT".equals(type) || "SUPPLIER_RETURN".equals(type); }
+    private boolean isOutbound(String type) { return "SALES_OUT".equals(type) || "SUPPLIER_RETURN".equals(type) || "TRANSFER_OUT".equals(type); }
     private boolean isFourDecimalTransactionAmount(String type)
     {
         return "PURCHASE_IN".equals(type) || "SUPPLIER_RETURN".equals(type)

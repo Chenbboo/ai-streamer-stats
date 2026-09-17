@@ -23,6 +23,13 @@ public class JewelryDocument extends BaseEntity
     private String supplierNameSnapshot;
     private String salesChannel;
     private String externalNo;
+    private String sourceWarehouse;
+    private String targetWarehouse;
+
+    public String getSourceWarehouse() { return sourceWarehouse; }
+    public void setSourceWarehouse(String sourceWarehouse) { this.sourceWarehouse = sourceWarehouse; }
+    public String getTargetWarehouse() { return targetWarehouse; }
+    public void setTargetWarehouse(String targetWarehouse) { this.targetWarehouse = targetWarehouse; }
     private Long influencerId;
     private String influencerName;
     private BigDecimal influencerPriceSnapshot;

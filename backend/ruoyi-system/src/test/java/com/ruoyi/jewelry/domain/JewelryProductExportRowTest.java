@@ -11,6 +11,14 @@ import org.junit.jupiter.api.Test;
 class JewelryProductExportRowTest
 {
     @Test
+    void sampleProductExportsChineseLabel()
+    {
+        Map<String, Object> source = new HashMap<String, Object>();
+        source.put("productType", "SAMPLE");
+        assertEquals("样品商品", JewelryProductExportRow.from(source).getProductType());
+    }
+
+    @Test
     void mapsProductArchiveFieldsAndChineseLabels()
     {
         Map<String, Object> source = new HashMap<String, Object>();

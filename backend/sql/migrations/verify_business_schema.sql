@@ -179,7 +179,7 @@ where table_schema=database()
 
 select 'invalid_jewelry_product_type' check_name, count(*) problem_rows
 from jewelry_product
-where product_type not in ('FINISHED','PART','ACCESSORY','WELFARE')
+where product_type not in ('FINISHED','PART','ACCESSORY','WELFARE','SAMPLE')
 union all
 select 'invalid_jewelry_specification', count(*)
 from jewelry_product
@@ -1021,3 +1021,9 @@ where table_schema=database() and ((table_name='biz_public_expense_month' and co
 -- Explicit company grants and audit trail (V104).
 select 2-count(*) missing_company_access_tables from information_schema.tables
 where table_schema=database() and table_name in('biz_company_access','biz_company_access_event');
+
+-- Outbound-only warehouse transfers (V105).
+select 2-count(*) as missing_jewelry_transfer_warehouses from information_schema.columns
+where table_schema=database() and table_name='jewelry_document'
+  and column_name in ('source_warehouse','target_warehouse') and data_type='varchar'
+  and character_maximum_length>=100;

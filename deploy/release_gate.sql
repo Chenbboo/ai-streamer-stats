@@ -345,4 +345,8 @@ from (
   union all
   select if(count(*)=2,0,1) from information_schema.tables where table_schema=database()
     and table_name in ('biz_company_access','biz_company_access_event')
+  union all
+  select if(count(*)=2,0,1) from information_schema.columns where table_schema=database()
+    and table_name='jewelry_document' and column_name in ('source_warehouse','target_warehouse')
+    and data_type='varchar' and character_maximum_length>=100
 ) release_gate;

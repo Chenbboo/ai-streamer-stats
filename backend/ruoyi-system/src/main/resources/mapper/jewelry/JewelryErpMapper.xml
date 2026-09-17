@@ -13,6 +13,8 @@
         <result property="supplierNameSnapshot" column="supplier_name_snapshot"/>
         <result property="salesChannel" column="sales_channel"/>
         <result property="externalNo" column="external_no"/>
+        <result property="sourceWarehouse" column="source_warehouse"/>
+        <result property="targetWarehouse" column="target_warehouse"/>
         <result property="influencerId" column="influencer_id"/>
         <result property="influencerName" column="influencer_name"/>
         <result property="influencerPriceSnapshot" column="influencer_price_snapshot"/>
@@ -847,13 +849,13 @@
     </select>
     <insert id="insertDocument" useGeneratedKeys="true" keyProperty="documentId">
         insert into jewelry_document(doc_no,doc_type,biz_date,supplier_return_date,status,supplier_id,supplier_name_snapshot,sales_channel,
-          external_no,influencer_id,influencer_name,influencer_price_snapshot,influencer_price_version,
+          external_no,source_warehouse,target_warehouse,influencer_id,influencer_name,influencer_price_snapshot,influencer_price_version,
           platform_rate,commission_rate,tax_rate,return_reason,source_document_id,
           unlinked_reason,actual_refund_amount,total_qty,total_amount,total_cost,total_profit,risk_status,
           labor_fee,processing_fee,other_fee,creator_user_id,creator_name,
           create_by,create_time,remark)
         values(#{docNo},#{docType},#{bizDate},#{supplierReturnDate},#{status},#{supplierId},#{supplierNameSnapshot},#{salesChannel},
-          #{externalNo},#{influencerId},#{influencerName},#{influencerPriceSnapshot},#{influencerPriceVersion},
+          #{externalNo},#{sourceWarehouse},#{targetWarehouse},#{influencerId},#{influencerName},#{influencerPriceSnapshot},#{influencerPriceVersion},
           #{platformRate},#{commissionRate},#{taxRate},#{returnReason},
           #{sourceDocumentId},#{unlinkedReason},#{actualRefundAmount},#{totalQty},#{totalAmount},#{totalCost},#{totalProfit},#{riskStatus},
           #{laborFee},#{processingFee},#{otherFee},
@@ -862,6 +864,7 @@
     <update id="updateDocument">
         update jewelry_document set doc_type=#{docType},biz_date=#{bizDate},supplier_id=#{supplierId},
           supplier_return_date=#{supplierReturnDate},
+          source_warehouse=#{sourceWarehouse},target_warehouse=#{targetWarehouse},
           supplier_name_snapshot=#{supplierNameSnapshot},sales_channel=#{salesChannel},external_no=#{externalNo},
           influencer_id=#{influencerId},influencer_name=#{influencerName},
           influencer_price_snapshot=#{influencerPriceSnapshot},influencer_price_version=#{influencerPriceVersion},

@@ -91,8 +91,25 @@ class JewelryDocumentExcelServiceTest
             Sheet options = workbook.getSheet("模板选项");
             assertEquals("成品商品", options.getRow(0).getCell(0).getStringCellValue());
             assertEquals("福利商品", options.getRow(3).getCell(0).getStringCellValue());
+            assertEquals("样品商品", options.getRow(4).getCell(0).getStringCellValue());
+            assertEquals("'模板选项'!$A$1:$A$5", workbook.getName("ProductTypeOptions").getRefersToFormula());
             assertEquals("精品", options.getRow(0).getCell(1).getStringCellValue());
             assertEquals("普通", options.getRow(1).getCell(1).getStringCellValue());
+        }
+    }
+
+    @Test
+    void purchasePreviewAcceptsSampleTypeLabelsAndCode() throws Exception
+    {
+        when(mapper.selectProductList(any())).thenReturn(Collections.emptyList());
+        new RuoYiConfig().setProfile(tempDir.toString());
+        for (String type : new String[] { "样品商品", "样品", "SAMPLE", "sample" })
+        {
+            Map<String, Object> result = service.preview("PURCHASE_IN", purchaseWorkbookWithImage(
+                new Object[] { "NEW-SAMPLE", "样品项链", type, "项链", "普通", "件", 2, 10, "" }), true);
+            assertEquals(0, result.get("errorCount"));
+            assertEquals(1, result.get("newProductCount"));
+            assertEquals("SAMPLE", rows(result).get(0).get("productType"));
         }
     }
 

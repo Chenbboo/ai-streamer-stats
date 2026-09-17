@@ -6,10 +6,10 @@
       <el-table-column prop="docNo" label="单号" width="190"/>
       <el-table-column label="类型" width="130"><template #default="{row}">{{labelOf(types,row.docType)}}</template></el-table-column>
       <el-table-column prop="bizDate" label="业务日期" width="110"/>
-      <el-table-column label="业务对象" min-width="130"><template #default="{row}">{{row.supplierNameSnapshot || row.salesChannel || (row.docType==='ASSEMBLY'?'手工组装':row.docType==='COST_ADJUST'?'库存成本调整':'—')}}</template></el-table-column>
+      <el-table-column label="业务对象" min-width="130"><template #default="{row}">{{isTransfer(row)?`${row.sourceWarehouse || '—'} → ${row.targetWarehouse || '—'}`:row.supplierNameSnapshot || row.salesChannel || (row.docType==='ASSEMBLY'?'手工组装':row.docType==='COST_ADJUST'?'库存成本调整':'—')}}</template></el-table-column>
       <el-table-column prop="totalQty" label="数量" width="80" align="right"/>
       <el-table-column label="金额" width="120" align="right"><template #default="{row}">{{documentAmount(row.totalAmount,row)}}</template></el-table-column>
-      <el-table-column v-if="canViewFinance" label="毛利" width="110" align="right"><template #default="{row}"><span v-if="row.docType==='COST_ADJUST'">—</span><span v-else :class="{loss:Number(row.totalProfit)<0}">{{money(row.totalProfit)}}</span></template></el-table-column>
+      <el-table-column v-if="canViewFinance" label="毛利" width="110" align="right"><template #default="{row}"><span v-if="row.docType==='COST_ADJUST' || isTransfer(row)">—</span><span v-else :class="{loss:Number(row.totalProfit)<0}">{{money(row.totalProfit)}}</span></template></el-table-column>
       <el-table-column label="风险" width="100"><template #default="{row}"><el-tag v-if="row.riskStatus==='LOSS'" type="danger">亏损</el-tag><el-tag v-else-if="row.riskStatus==='REVIEW'" type="warning">需复核</el-tag><span v-else>—</span></template></el-table-column>
       <el-table-column label="状态" width="130"><template #default="{row}"><el-tag :type="statusType(row.status)">{{documentStatusLabel(row)}}</el-tag></template></el-table-column>
       <el-table-column prop="creatorName" label="制单人" width="100"/>
@@ -25,13 +25,15 @@
         <el-alert v-if="form.docType === 'COST_ADJUST'" title="库存成本调价单提交后，将先由审核员审核，再由管理员复核；复核通过后才修改库存平均成本。审批期间对应SKU不能采购入库。" type="warning" :closable="false" show-icon />
         <el-form :model="form" label-position="top"><div class="sheet-head">
           <el-form-item label="单据类型" required><el-select v-model="form.docType" :disabled="readonly" @change="typeChanged"><el-option v-for="o in editableTypes" :key="o.value" :label="o.label" :value="o.value"/></el-select></el-form-item>
-          <el-form-item label="业务日期" required><el-date-picker v-model="form.bizDate" value-format="YYYY-MM-DD" :disabled="readonly"/></el-form-item>
+          <el-form-item  :label="isTransfer(form)?'调货时间':'业务日期'" required><el-date-picker v-model="form.bizDate" value-format="YYYY-MM-DD" :disabled="readonly"/></el-form-item>
           <el-form-item v-if="form.docType==='PURCHASE_IN'" label="约定退货日期">
             <el-date-picker v-model="form.supplierReturnDate" type="date" value-format="YYYY-MM-DD"
               placeholder="留空按统一退货期限" clearable :disabled="readonly"/>
             <el-button v-if="readonly && form.status==='POSTED'" v-hasPermi="['jewelry:stock:config']"
               link type="primary" @click="openReturnDate">设置特殊日期</el-button>
           </el-form-item>
+          <el-form-item v-if="isTransfer(form)" label="出库仓库" required><el-input v-model="form.sourceWarehouse" maxlength="100" placeholder="当前仓库名称" :disabled="readonly"/></el-form-item>
+          <el-form-item v-if="isTransfer(form)" label="入库仓库" required><el-input v-model="form.targetWarehouse" maxlength="100" placeholder="调往仓库名称" :disabled="readonly"/></el-form-item>
           <el-form-item v-if="needsSupplier" label="供应商" required><el-select v-model="form.supplierId" filterable clearable :disabled="readonly" @change="supplierChanged"><el-option v-for="s in suppliers" :key="s.supplierId" :label="s.supplierName" :value="s.supplierId"/></el-select></el-form-item>
           <el-form-item v-if="form.docType==='SUPPLIER_RETURN'" label="原采购单" required>
             <el-input v-if="readonly" :model-value="form.sourceDocNo || form.sourceDocumentId" disabled />
@@ -40,7 +42,7 @@
                 :label="`${d.docNo} · ${d.bizDate} · 采购 ¥${fourDecimalMoney(Math.abs(Number(d.totalAmount||0)))}`" :value="d.documentId"/>
             </el-select>
           </el-form-item>
-          <el-form-item label="外部单号"><el-input v-model="form.externalNo" :disabled="readonly"/></el-form-item>
+          <el-form-item v-if="!isTransfer(form)" label="外部单号"><el-input v-model="form.externalNo" :disabled="readonly"/></el-form-item>
           <el-form-item v-if="form.docType==='CUSTOMER_RETURN'" label="原销售单（可选）">
             <el-select v-model="form.sourceDocumentId" filterable clearable :disabled="readonly" @change="salesSourceChanged">
               <el-option v-for="d in salesDocuments" :key="d.documentId"
@@ -103,6 +105,7 @@
             </el-upload>
           </div>
         </div>
+        <div v-if="isTransfer(form)" class="item-toolbar"><b>商品明细</b><span>仅扣减当前仓库库存；接收方另做采购入库。</span></div>
         <el-table :data="form.items" border class="item-table" :row-class-name="bundleRowClass">
           <el-table-column type="index" width="50" label="#" />
           <el-table-column label="商品" min-width="390">
@@ -246,7 +249,7 @@
           <span v-if="form.docType==='SALES_OUT'">预计净入账 <b>¥ {{ money(estimatedNetReceipt) }}</b></span>
           <span v-if="canViewFinance && form.docType==='SALES_OUT'" :class="{loss:estimatedProfit<0}">预计毛利 <b>¥ {{ money(estimatedProfit) }}</b></span>
         </div>
-        <div class="sheet-foot"><el-form label-width="110px"><el-form-item v-if="needsReason" :label="reasonLabel" required><el-input v-model="form.returnReason" :disabled="readonly"/></el-form-item><el-form-item v-if="readonly && form.docType==='CUSTOMER_RETURN' && form.unlinkedReason" label="历史未关联原因"><el-input v-model="form.unlinkedReason" disabled/></el-form-item><el-form-item label="备注"><el-input v-model="form.remark" :disabled="readonly"/></el-form-item></el-form></div>
+        <div class="sheet-foot"><el-form label-width="110px"><el-form-item v-if="needsReason" :label="reasonLabel" required><el-input v-model="form.returnReason" :disabled="readonly"/></el-form-item><el-form-item v-if="readonly && form.docType==='CUSTOMER_RETURN' && form.unlinkedReason" label="历史未关联原因"><el-input v-model="form.unlinkedReason" disabled/></el-form-item><el-form-item v-if="!isTransfer(form)" label="备注"><el-input v-model="form.remark" :disabled="readonly"/></el-form-item></el-form></div>
       </div>
       <template #footer>
         <el-button :disabled="!!savingAction" @click="dialog=false">关闭</el-button>
@@ -372,12 +375,13 @@ const userStore=useUserStore()
 const canViewFinance=computed(()=>userStore.roles.some(role=>['admin','jewelry_admin','jewelry_reviewer'].includes(role)))
 const canDeleteDraft=row=>row.status==='DRAFT'&&String(row.creatorUserId)===String(userStore.id)
 const isDualApproval=row=>['STOCK_ADJUST','COST_ADJUST'].includes(row?.docType)||(row?.docType==='REVERSAL'&&['STOCK_ADJUST','COST_ADJUST'].includes(row?.sourceDocType))
-const types=[{value:'PURCHASE_IN',label:'采购入库'},{value:'SALES_OUT',label:'销售出库'},{value:'SUPPLIER_RETURN',label:'供应商退货'},{value:'CUSTOMER_RETURN',label:'客户退货'},{value:'RETURN_INSPECT',label:'退货质检'},{value:'STOCK_ADJUST',label:'库存调整'},{value:'COST_ADJUST',label:'库存成本调价'},{value:'ASSEMBLY',label:'手工组装'},{value:'REVERSAL',label:'红冲单'}]
+const isTransfer=row=>row?.docType==='TRANSFER_OUT'||(row?.docType==='REVERSAL'&&row?.sourceDocType==='TRANSFER_OUT')
+const types=[{value:'PURCHASE_IN',label:'采购入库'},{value:'SALES_OUT',label:'销售出库'},{value:'SUPPLIER_RETURN',label:'供应商退货'},{value:'CUSTOMER_RETURN',label:'客户退货'},{value:'RETURN_INSPECT',label:'退货质检'},{value:'STOCK_ADJUST',label:'库存调整'},{value:'COST_ADJUST',label:'库存成本调价'},{value:'TRANSFER_OUT',label:'仓库调货'},{value:'ASSEMBLY',label:'手工组装'},{value:'REVERSAL',label:'红冲单'}]
 const editableTypes=types.filter(item=>!['REVERSAL','ASSEMBLY'].includes(item.value))
 const statuses=[{value:'DRAFT',label:'草稿'},{value:'PENDING_FIRST',label:'待审核'},{value:'PENDING_SECOND',label:'待审核'},{value:'POSTED',label:'已入账'},{value:'REJECTED',label:'已驳回'},{value:'REVERSED',label:'已红冲'}]
 const query=reactive({pageNum:1,pageSize:10,docNo:'',docType:'',status:''})
 const blankItem=()=>({productId:null,sourceItemId:null,itemRole:'NORMAL',bundleGroupNo:null,saleRole:'NORMAL',pricingMode:'SEPARATE',productTypeSnapshot:'',specificationSnapshot:'',imageUrls:'',qty:1,sourceQty:0,goodQty:0,defectQty:0,remainingInspectQty:0,remainingReturnQty:0,systemQty:0,countedQty:0,adjustmentQty:0,unitPrice:0,sourceUnitPrice:0,unitCost:0,packFee:0,shipFee:0,certFee:0,otherFee1:0,otherFee2:0,otherFee3:0,influencerPriceSnapshot:null,influencerPriceVersion:0,influencerPriceStatus:'',lineReason:''})
-const blank=()=>({documentId:null,docType:'PURCHASE_IN',bizDate:new Date().toISOString().slice(0,10),supplierReturnDate:null,supplierId:null,supplierNameSnapshot:'',externalNo:'',salesChannel:'',influencerId:null,influencerName:'',influencerPriceSnapshot:null,influencerPriceVersion:0,platformRate:0,commissionRate:0,taxRate:0,returnReason:'',sourceDocumentId:null,sourceDocNo:'',unlinkedReason:'',actualRefundAmount:null,riskStatus:'',remark:'',items:[blankItem()]})
+const blank=()=>({documentId:null,docType:'PURCHASE_IN',bizDate:new Date().toISOString().slice(0,10),supplierReturnDate:null,supplierId:null,supplierNameSnapshot:'',sourceWarehouse:'',targetWarehouse:'',externalNo:'',salesChannel:'',influencerId:null,influencerName:'',influencerPriceSnapshot:null,influencerPriceVersion:0,platformRate:0,commissionRate:0,taxRate:0,returnReason:'',sourceDocumentId:null,sourceDocNo:'',unlinkedReason:'',actualRefundAmount:null,riskStatus:'',remark:'',items:[blankItem()]})
 const form=reactive(blank())
 const serverRiskStatus=ref('')
 let riskTimer=null,riskSequence=0
@@ -387,7 +391,7 @@ const showQuantityColumn=computed(()=>!showInspectColumns.value&&!showAdjustment
 const needsSupplier=computed(()=>['PURCHASE_IN','SUPPLIER_RETURN'].includes(form.docType))
 const needsSalesChannel=computed(()=>['SALES_OUT','CUSTOMER_RETURN'].includes(form.docType))
 const showPriceColumn=computed(()=>['PURCHASE_IN','SALES_OUT','SUPPLIER_RETURN','CUSTOMER_RETURN','COST_ADJUST'].includes(form.docType))
-const showCostColumn=computed(()=>form.docType==='COST_ADJUST'||(canViewFinance.value&&form.docType!=='PURCHASE_IN'))
+const showCostColumn=computed(()=>!isTransfer(form)&&(form.docType==='COST_ADJUST'||(canViewFinance.value&&form.docType!=='PURCHASE_IN')))
 const showSalesBundleColumns=computed(()=>['SALES_OUT','CUSTOMER_RETURN'].includes(form.docType)||(readonly.value&&form.items?.some(item=>['MAIN','ADDON'].includes(item.saleRole))))
 const excelImportSupported=computed(()=>['PURCHASE_IN','SALES_OUT','STOCK_ADJUST'].includes(form.docType))
 const priceLabel=computed(()=>form.docType==='PURCHASE_IN'?'采购单价':form.docType==='SALES_OUT'?'成交单价':form.docType==='SUPPLIER_RETURN'?'实际退货单价':form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId?'实际退款单价':form.docType==='COST_ADJUST'?'调整后平均成本':'原成交单价')
@@ -879,8 +883,12 @@ async function inspectionSourceChanged(id){
   try{await loadInspectionSource(id,false)}catch(error){form.sourceDocumentId=null;form.items=[blankItem()];proxy.$modal.msgError(error?.message||'加载客户退货单失败')}
 }
 function actualRefundTotalChanged(){actualRefundManuallyEdited.value=true}
-async function typeChanged(){form.supplierReturnDate=null;actualRefundManuallyEdited.value=false;form.items=[blankItem()];form.supplierId=null;form.supplierNameSnapshot='';form.salesChannel='';form.influencerId=null;form.influencerName='';influencerProductPrices.value=[];form.influencerPriceSnapshot=null;form.influencerPriceVersion=0;form.platformRate=0;form.commissionRate=0;form.taxRate=0;form.returnReason='';form.sourceDocumentId=null;form.sourceDocNo='';form.unlinkedReason='';form.actualRefundAmount=null;purchaseDocuments.value=[];importPreview.value={};importCompression.value=null;if(form.docType==='COST_ADJUST')await reloadProducts('COST_ADJUST')}
+async function typeChanged(){form.sourceWarehouse='';form.targetWarehouse='';form.supplierReturnDate=null;actualRefundManuallyEdited.value=false;form.items=[blankItem()];form.supplierId=null;form.supplierNameSnapshot='';form.salesChannel='';form.influencerId=null;form.influencerName='';influencerProductPrices.value=[];form.influencerPriceSnapshot=null;form.influencerPriceVersion=0;form.platformRate=0;form.commissionRate=0;form.taxRate=0;form.returnReason='';form.sourceDocumentId=null;form.sourceDocNo='';form.unlinkedReason='';form.actualRefundAmount=null;purchaseDocuments.value=[];importPreview.value={};importCompression.value=null;if(form.docType==='COST_ADJUST')await reloadProducts('COST_ADJUST')}
 function validateDocument(requireSubmit=false){
+  if(isTransfer(form)){
+    if(!form.sourceWarehouse?.trim()||!form.targetWarehouse?.trim()){proxy.$modal.msgError('请填写出库仓库和入库仓库');return false}
+    if(form.sourceWarehouse.trim().toLowerCase()===form.targetWarehouse.trim().toLowerCase()){proxy.$modal.msgError('出库仓库与入库仓库不能相同');return false}
+  }
   if(form.docType==='PURCHASE_IN'&&form.supplierReturnDate&&form.bizDate&&form.supplierReturnDate<form.bizDate){proxy.$modal.msgError('约定退货日期不能早于采购入库业务日期');return false}
   if(form.docType==='SUPPLIER_RETURN'&&!form.sourceDocumentId){proxy.$modal.msgError('供应商退货必须选择原采购单');return false}
   if(form.docType==='CUSTOMER_RETURN'&&(form.actualRefundAmount===null||Number(form.actualRefundAmount)<0)){proxy.$modal.msgError('请填写实际退款总额');return false}

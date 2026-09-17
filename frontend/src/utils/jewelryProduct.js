@@ -2,7 +2,8 @@ export const jewelryProductTypes = [
   { value: 'FINISHED', label: '成品商品', tagType: 'success' },
   { value: 'PART', label: '散件商品', tagType: 'warning' },
   { value: 'ACCESSORY', label: '配件商品', tagType: 'primary' },
-  { value: 'WELFARE', label: '福利商品', tagType: 'danger' }
+  { value: 'WELFARE', label: '福利商品', tagType: 'danger' },
+  { value: 'SAMPLE', label: '样品商品', tagType: 'info' }
 ]
 
 export const jewelrySpecifications = [

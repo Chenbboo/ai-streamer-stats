@@ -129,10 +129,10 @@ class JewelryErpServiceImplTest
     }
 
     @Test
-    void accessoryAndWelfareProductTypesCanBeSaved()
+    void accessoryWelfareAndSampleProductTypesCanBeSaved()
     {
         when(mapper.updateProduct(any())).thenReturn(1);
-        for (String type : Arrays.asList("ACCESSORY", "WELFARE"))
+        for (String type : Arrays.asList("ACCESSORY", "WELFARE", "SAMPLE"))
         {
             Map<String, Object> product = new HashMap<String, Object>();
             product.put("productId", "ACCESSORY".equals(type) ? 201L : 202L);
@@ -1623,7 +1623,7 @@ class JewelryErpServiceImplTest
     }
 
     @Test
-    void salesBundleAcceptsAccessoryAndWelfareAddons()
+    void salesBundleAcceptsAccessoryWelfareAndSampleAddons()
     {
         JewelryDocument document = document(null, "SALES_OUT", "DRAFT");
         document.setSalesChannel("抖音");
@@ -1639,11 +1639,16 @@ class JewelryErpServiceImplTest
         welfare.setBundleGroupNo(1);
         welfare.setSaleRole("ADDON");
         welfare.setPricingMode("INCLUDED");
-        document.setItems(Arrays.asList(main, accessory, welfare));
+        JewelryDocumentItem sample = itemForProduct(null, 202L, 1);
+        sample.setBundleGroupNo(1);
+        sample.setSaleRole("ADDON");
+        sample.setPricingMode("INCLUDED");
+        document.setItems(Arrays.asList(main, accessory, welfare, sample));
 
         when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
         when(mapper.selectProductById(200L)).thenReturn(product("ACCESSORY"));
         when(mapper.selectProductById(201L)).thenReturn(product("WELFARE"));
+        when(mapper.selectProductById(202L)).thenReturn(product("SAMPLE"));
         when(mapper.selectStockForUpdate(PRODUCT_ID))
             .thenReturn(stock(10, 0, 0, 0, 0, 0, "600.00", "0", "0"));
         when(mapper.selectStockForUpdate(200L))
@@ -1657,6 +1662,10 @@ class JewelryErpServiceImplTest
         assertEquals("ADDON", welfare.getSaleRole());
         assertMoney("0", accessory.getUnitPrice());
         assertMoney("0", welfare.getUnitPrice());
+        assertEquals("ADDON", sample.getSaleRole());
+        assertEquals("SAMPLE", sample.getProductTypeSnapshot());
+        assertMoney("0", sample.getUnitPrice());
+        assertMoney("-100", sample.getProfitAmount());
     }
 
     @Test
@@ -2105,6 +2114,127 @@ class JewelryErpServiceImplTest
     {
         when(mapper.selectDocumentById(document.getDocumentId())).thenReturn(document);
         when(mapper.selectDocumentItems(document.getDocumentId())).thenReturn(Arrays.asList(item));
+    }
+
+    private JewelryDocument transfer(Long id, String status)
+    {
+        JewelryDocument result = document(id, "TRANSFER_OUT", status);
+        result.setSourceWarehouse(" 本仓 ");
+        result.setTargetWarehouse("接收仓");
+        return result;
+    }
+
+    @Test
+    void transferDraftHasNoIncomeOrProfitAndDoesNotReserveStock()
+    {
+        JewelryDocument document = transfer(null, "DRAFT");
+        JewelryDocumentItem item = item(null, 2, "999");
+        item.setPackFee(decimal("20"));
+        document.setSupplierId(33L);
+        document.setInfluencerId(SALES_INFLUENCER_ID);
+        document.setItems(Arrays.asList(item));
+        when(mapper.insertDocument(document)).thenAnswer(call -> { document.setDocumentId(9501L); return 1; });
+        when(mapper.selectDocumentById(9501L)).thenReturn(document);
+        when(mapper.selectDocumentItems(9501L)).thenReturn(document.getItems());
+        service.saveDocument(document, MAKER_ID, "maker");
+        assertTrue(document.getDocNo().startsWith("DH"));
+        assertEquals("本仓", document.getSourceWarehouse());
+        assertEquals(null, document.getSupplierId());
+        assertEquals(null, document.getInfluencerId());
+        assertMoney("0", document.getTotalAmount());
+        assertMoney("0", document.getTotalProfit());
+        assertMoney("200", document.getTotalCost());
+        assertMoney("0", item.getPackFee());
+        verify(mapper, never()).reserveOutbound(anyLong(), anyInt());
+        verify(mapper, never()).insertPendingInfluencerProductPrice(any());
+    }
+
+    @Test
+    void transferValidatesWarehousesQuantitiesAndDuplicateProducts()
+    {
+        JewelryDocument document = transfer(null, "DRAFT");
+        document.setItems(Arrays.asList(item(null, 1, "0")));
+        document.setSourceWarehouse(" ");
+        assertThrows(ServiceException.class, () -> service.saveDocument(document, MAKER_ID, "maker"));
+        document.setSourceWarehouse("接收仓");
+        assertThrows(ServiceException.class, () -> service.saveDocument(document, MAKER_ID, "maker"));
+        document.setSourceWarehouse("本仓");
+        document.setItems(Arrays.asList(item(null, 0, "0")));
+        assertThrows(ServiceException.class, () -> service.saveDocument(document, MAKER_ID, "maker"));
+        document.setItems(Arrays.asList(item(null, 1, "0"), item(null, 1, "0")));
+        assertThrows(ServiceException.class, () -> service.saveDocument(document, MAKER_ID, "maker"));
+        verify(mapper, never()).insertDocument(any());
+    }
+
+    @Test
+    void transferSubmissionReservesStockAndBlocksInsufficientStock()
+    {
+        JewelryDocument document = transfer(9502L, "DRAFT");
+        stubDocument(document, item(9503L, 2, "0"));
+        when(mapper.reserveOutbound(PRODUCT_ID, 2)).thenReturn(0, 1);
+        assertThrows(ServiceException.class, () -> service.submit(9502L, MAKER_ID, "maker"));
+        service.submit(9502L, MAKER_ID, "maker");
+        verify(mapper).updateDocumentStatus(9502L, "DRAFT", "PENDING_FIRST", MAKER_ID, "maker", null, null);
+        verify(mapper, never()).applyStock(anyLong(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), any(), any(), any());
+    }
+
+    @Test
+    void transferWithdrawalAndRejectionReleaseStock()
+    {
+        JewelryDocument document = transfer(9504L, "PENDING_FIRST");
+        stubDocument(document, item(9505L, 2, "0"));
+        when(mapper.releaseOutbound(PRODUCT_ID, 2)).thenReturn(1);
+        service.withdraw(9504L, MAKER_ID, "maker");
+        service.reject(9504L, "不调货了", REVIEWER_ONE_ID, "reviewer", "jewelry_reviewer");
+        verify(mapper, org.mockito.Mockito.times(2)).releaseOutbound(PRODUCT_ID, 2);
+    }
+
+    @Test
+    void transferApprovalDeductsOnlyCurrentStockAndRecordsCurrentCost()
+    {
+        JewelryDocument document = transfer(9506L, "PENDING_FIRST");
+        JewelryDocumentItem item = item(9507L, 2, "0");
+        stubDocument(document, item);
+        when(mapper.selectStockForUpdate(PRODUCT_ID)).thenReturn(stock(10, 2, 1, 0, 1, 0, "123.456789", "5", "5"));
+        service.approve(9506L, "同意调货", null, REVIEWER_ONE_ID, "reviewer");
+        verify(mapper).applyStock(eq(PRODUCT_ID), eq(8), eq(0), eq(1), eq(0), eq(1), eq(0),
+            decimalEq("123.456789"), decimalEq("5"), decimalEq("5"));
+        assertMoney("246.91", item.getCostAmount());
+        assertMoney("0", document.getTotalAmount());
+        assertMoney("0", document.getTotalProfit());
+        ArgumentCaptor<Map<String, Object>> tx = ArgumentCaptor.forClass(Map.class);
+        verify(mapper).insertStockTransaction(tx.capture());
+        assertEquals("TRANSFER_OUT", tx.getValue().get("transactionType"));
+        assertEquals(-2, tx.getValue().get("onHandChange"));
+        verify(mapper).updateDocumentStatus(9506L, "PENDING_FIRST", "POSTED", REVIEWER_ONE_ID, "reviewer", null, 1);
+    }
+
+    @Test
+    void transferApprovalRejectsMissingReservationAndSelfApproval()
+    {
+        JewelryDocument document = transfer(9508L, "PENDING_FIRST");
+        stubDocument(document, item(9509L, 2, "0"));
+        assertThrows(ServiceException.class, () -> service.approve(9508L, "", null, MAKER_ID, "maker"));
+        assertThrows(ServiceException.class, () -> service.approve(9508L, "", null, REVIEWER_ONE_ID, "reviewer"));
+        verify(mapper, never()).applyStock(anyLong(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), any(), any(), any());
+    }
+
+    @Test
+    void transferReversalRestoresOriginalCostWithoutIncome()
+    {
+        JewelryDocument source = transfer(9510L, "POSTED");
+        JewelryDocument reversal = document(9511L, "REVERSAL", "PENDING_FIRST");
+        reversal.setSourceDocumentId(9510L);
+        JewelryDocumentItem item = item(9512L, 2, "0");
+        item.setUnitCost(decimal("100"));
+        stubDocument(reversal, item);
+        when(mapper.selectDocumentByIdForUpdate(9510L)).thenReturn(source);
+        when(mapper.selectStockForUpdate(PRODUCT_ID)).thenReturn(stock(8, 0, 0, 0, 0, 0, "200", "0", "0"));
+        when(mapper.markOriginalReversed(9510L, "reviewer")).thenReturn(1);
+        service.approve(9511L, "", null, REVIEWER_ONE_ID, "reviewer");
+        verify(mapper).applyStock(eq(PRODUCT_ID), eq(10), eq(0), eq(0), eq(0), eq(0), eq(0),
+            decimalEq("180"), decimalEq("0"), decimalEq("0"));
+        verify(mapper).markOriginalReversed(9510L, "reviewer");
     }
 
     private JewelryDocument document(Long id, String type, String status)

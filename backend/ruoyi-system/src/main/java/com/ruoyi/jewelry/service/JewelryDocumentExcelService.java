@@ -114,13 +114,13 @@ public class JewelryDocumentExcelService
             if ("PURCHASE_IN".equals(docType))
             {
                 Sheet options = workbook.createSheet("模板选项");
-                String[] productTypes = { "成品商品", "散件商品", "配件商品", "福利商品" };
+                String[] productTypes = { "成品商品", "散件商品", "配件商品", "福利商品", "样品商品" };
                 for (int i = 0; i < productTypes.length; i++) options.createRow(i).createCell(0).setCellValue(productTypes[i]);
                 options.getRow(0).createCell(1).setCellValue("精品");
                 options.getRow(1).createCell(1).setCellValue("普通");
                 addDropdownValidation(workbook, data, headers, "商品类型（新商品必填）",
-                    "ProductTypeOptions", "'模板选项'!$A$1:$A$4", "商品类型",
-                    "请选择成品商品、散件商品、配件商品或福利商品");
+                    "ProductTypeOptions", "'模板选项'!$A$1:$A$" + productTypes.length, "商品类型",
+                    "请选择成品商品、散件商品、配件商品、福利商品或样品商品");
                 addDropdownValidation(workbook, data, headers, "规格类型（新商品必填）",
                     "SpecificationOptions", "'模板选项'!$B$1:$B$2", "规格类型",
                     "请选择精品或普通");
@@ -195,7 +195,7 @@ public class JewelryDocumentExcelService
                     if (!allowNewProduct) errors.add("当前账号无权新增商品档案");
                     if (string(row.get("productName")).isEmpty()) errors.add("新商品必须填写商品名称");
                     String productType = normalizeProductType(string(row.get("productType")));
-                    if (productType == null) errors.add("新商品类型必须选择成品商品、散件商品、配件商品或福利商品");
+                    if (productType == null) errors.add("新商品类型必须选择成品商品、散件商品、配件商品、福利商品或样品商品");
                     else row.put("productType", productType);
                     String specification = normalizeSpecification(string(row.get("specification")));
                     if (specification == null) errors.add("新商品规格类型必须选择精品或普通");
@@ -208,7 +208,7 @@ public class JewelryDocumentExcelService
                     if (!inputType.isEmpty())
                     {
                         String normalized = normalizeProductType(inputType);
-                        if (normalized == null) errors.add("商品类型只能选择成品商品、散件商品、配件商品或福利商品");
+                        if (normalized == null) errors.add("商品类型只能选择成品商品、散件商品、配件商品、福利商品或样品商品");
                         else if (!normalized.equals(currentType)) errors.add("已有SKU的商品类型与商品档案不一致");
                     }
                     row.put("productType", currentType);
@@ -595,6 +595,7 @@ public class JewelryDocumentExcelService
         if ("成品商品".equals(value) || "成品".equals(value) || "FINISHED".equalsIgnoreCase(value)) return "FINISHED";
         if ("配件商品".equals(value) || "配件".equals(value) || "ACCESSORY".equalsIgnoreCase(value)) return "ACCESSORY";
         if ("福利商品".equals(value) || "福利".equals(value) || "WELFARE".equalsIgnoreCase(value)) return "WELFARE";
+        if ("样品商品".equals(value) || "样品".equals(value) || "SAMPLE".equalsIgnoreCase(value)) return "SAMPLE";
         return null;
     }
 

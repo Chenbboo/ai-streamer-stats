@@ -135,7 +135,7 @@ class JewelryErpControllerPermissionTest
         ReflectionTestUtils.setField(controller, "service", service);
         loginAsMakerWithProductAdd();
 
-        for (String productType : Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE"))
+        for (String productType : Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE", "SAMPLE"))
         {
             Map<String, Object> product = new HashMap<String, Object>();
             product.put("sku", productType + "-001");
@@ -143,7 +143,7 @@ class JewelryErpControllerPermissionTest
             product.put("productType", productType);
             assertTrue(controller.saveProduct(product).isSuccess());
         }
-        verify(service, times(4)).saveProduct(any());
+        verify(service, times(5)).saveProduct(any());
     }
 
     @Test

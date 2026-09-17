@@ -62,6 +62,7 @@ public class JewelryProductExportRow
         if ("PART".equals(value)) return "散件商品";
         if ("ACCESSORY".equals(value)) return "配件商品";
         if ("WELFARE".equals(value)) return "福利商品";
+        if ("SAMPLE".equals(value)) return "样品商品";
         return value;
     }
 
