@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.ruoyi.business.domain.BusinessStaffMenuPermission;
 import com.ruoyi.business.mapper.BusinessStaffMenuPermissionMapper;
+import com.ruoyi.business.mapper.BusinessProjectMapper;
 import com.ruoyi.common.core.domain.entity.SysMenu;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.SecurityUtils;
@@ -26,16 +27,23 @@ public class PersonalMenuPermissionService
     public static final String MAINTAIN = "MAINTAIN";
 
     @Autowired private BusinessStaffMenuPermissionMapper permissionMapper;
+    @Autowired private BusinessProjectMapper projectMapper;
     @Autowired private SysMenuMapper menuMapper;
+
+    private boolean usesRoleMenus(Long userId)
+    {
+        return projectMapper.countUserRoleByKey(userId, "company_owner") > 0;
+    }
 
     public boolean hasExplicitPolicy(Long userId)
     {
-        return !permissionMapper.selectByUserId(userId).isEmpty();
+        return !usesRoleMenus(userId) && !permissionMapper.selectByUserId(userId).isEmpty();
     }
 
     public Map<Long, String> selectExplicitLevels(Long userId)
     {
         Map<Long, String> result = new HashMap<Long, String>();
+        if (usesRoleMenus(userId)) return result;
         for (BusinessStaffMenuPermission item : permissionMapper.selectByUserId(userId))
         {
             result.put(item.getMenuId(), item.getAccessLevel());
@@ -56,6 +64,8 @@ public class PersonalMenuPermissionService
 
     public Set<Long> selectEffectiveMenuIds(Long userId, boolean administrator)
     {
+        if (usesRoleMenus(userId))
+            return administrator ? menuIds(menuMapper.selectActiveMenuList()) : selectRoleMenuIds(userId);
         List<BusinessStaffMenuPermission> explicit = permissionMapper.selectByUserId(userId);
         if (explicit.isEmpty()) return administrator ? menuIds(menuMapper.selectActiveMenuList()) : selectRoleMenuIds(userId);
         Set<Long> allowed = new HashSet<Long>();
@@ -68,6 +78,8 @@ public class PersonalMenuPermissionService
 
     public Set<String> applyPermissions(Long userId, List<String> rolePermissions)
     {
+        if (usesRoleMenus(userId)) return SecurityUtils.isAdmin(userId)
+            ? new HashSet<String>(Collections.singleton(Constants.ALL_PERMISSION)) : splitPermissions(rolePermissions);
         List<BusinessStaffMenuPermission> explicit = permissionMapper.selectByUserId(userId);
         if (explicit.isEmpty()) return SecurityUtils.isAdmin(userId)
             ? new HashSet<String>(Collections.singleton(Constants.ALL_PERMISSION)) : splitPermissions(rolePermissions);
@@ -89,6 +101,7 @@ public class PersonalMenuPermissionService
 
     public List<SysMenu> applyRoutes(Long userId, List<SysMenu> roleRoutes)
     {
+        if (usesRoleMenus(userId)) return roleRoutes;
         List<BusinessStaffMenuPermission> explicit = permissionMapper.selectByUserId(userId);
         if (explicit.isEmpty()) return roleRoutes;
 

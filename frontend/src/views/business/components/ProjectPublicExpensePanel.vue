@@ -9,17 +9,17 @@
       <el-alert v-if="Number(costs.pendingCount) > 0" title="本月公共费用尚未全部确认；已提交的分摊按天计入暂估成本，月结后核实。" type="warning" :closable="false" show-icon />
       <el-alert v-else-if="!hasPublishedExpenses" title="本月暂无已下发的公司公共费用。" type="info" :closable="false" show-icon />
       <div class="project-expense-metrics">
-        <div><span>本月分摊费用</span><b>{{ hasPublishedExpenses ? money(costs.monthAmount) : '待下发' }}<small v-if="hasPublishedExpenses">{{ displayCurrency }}</small></b></div>
+        <div><span>月分摊金额</span><b>{{ hasPublishedExpenses ? money(costs.monthAmount) : '待下发' }}<small v-if="hasPublishedExpenses">{{ displayCurrency }}</small></b></div>
         <div><span>{{ costs.dailyRecognition ? '本月已计入成本' : '本月已结算费用' }}</span><b>{{ money(costs.dailyRecognition ? costs.accruedMonthAmount : costs.settledMonthAmount) }}<small>{{ displayCurrency }}</small></b></div>
         <div><span>{{ costs.dailyRecognition ? '其中：本月暂估' : '累计已结算费用' }}</span><b>{{ money(costs.dailyRecognition ? costs.estimatedMonthAmount : costs.lifetimeAmount) }}<small>{{ displayCurrency }}</small></b></div>
         <div><span>{{ costs.dailyRecognition ? '今日公共费用' : '计入方式' }}</span><b>{{ costs.dailyRecognition ? money(costs.todayAmount) : '历史月结' }}<small v-if="costs.dailyRecognition">{{ displayCurrency }}</small></b><small>{{ costs.dailyRecognition ? '已包含在项目日成本中' : '保留原月结记录' }}</small></div>
       </div>
       <el-table :data="costs.allocations || []" size="small" empty-text="本月暂无项目分摊记录">
         <el-table-column prop="companyName" label="公司" min-width="140" />
-        <el-table-column prop="ownerName" label="分配负责人" min-width="110" /><el-table-column label="费用类型" min-width="120"><template #default="{ row }">{{ row.costPool === 'PERSONNEL' ? '公共人员成本' : '日常公共费用' }}</template></el-table-column>
-        <el-table-column label="项目分配比例" min-width="125" align="right"><template #default="{ row }">{{ Number(row.percentage || 0).toFixed(2) }}%</template></el-table-column>
-        <el-table-column label="本月费用" min-width="155" align="right"><template #default="{ row }">{{ money(row.amount) }} {{ row.currency || displayCurrency }}</template></el-table-column>
-        <el-table-column label="人员日估算" min-width="130" align="right"><template #default="{ row }">{{ row.costPool === 'PERSONNEL' ? money(row.amount / 21.75) : '—' }}</template></el-table-column><el-table-column label="状态" min-width="130"><template #default="{ row }"><el-tag :type="row.status === 'SETTLED' ? 'success' : row.status === 'SUBMITTED' ? 'primary' : 'warning'" size="small" effect="plain">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
+        <el-table-column prop="ownerName" label="分摊负责人" min-width="110" /><el-table-column label="费用类型" min-width="120"><template #default="{ row }">{{ row.costPool === 'PERSONNEL' ? '公共人员成本' : '日常公共费用' }}</template></el-table-column>
+        <el-table-column label="分摊比例" min-width="125" align="right"><template #default="{ row }">{{ Number(row.percentage || 0).toFixed(2) }}%</template></el-table-column>
+        <el-table-column label="月分摊金额" min-width="155" align="right"><template #default="{ row }">{{ money(row.amount) }} {{ row.currency || displayCurrency }}</template></el-table-column>
+        <el-table-column label="日暂估金额（÷ 21.75）" min-width="130" align="right"><template #default="{ row }">{{ row.costPool === 'PERSONNEL' ? money(row.amount / 21.75) : '—' }}</template></el-table-column><el-table-column label="状态" min-width="130"><template #default="{ row }"><el-tag :type="row.status === 'SETTLED' ? 'success' : row.status === 'SUBMITTED' ? 'primary' : 'warning'" size="small" effect="plain">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
       </el-table>
       <el-collapse v-if="costs.dailyCosts?.length" class="daily-cost-details">
         <el-collapse-item title="查看每日分摊明细" name="days">
@@ -38,7 +38,7 @@
           <el-table-column prop="reason" label="调整原因" min-width="220" />
         </el-table>
       </template>
-      <p class="project-expense-note">负责人提交后，公共人员成本按月承担额 ÷ 21.75 计入每日估算；日常公共费用按承担期间的自然日暂估。未来日期暂不计入。统一月结时，以实际月额替换估算并处理尾差，不重复扣费。</p>
+      <p class="project-expense-note">负责人提交后，公共人员成本按月分摊金额 ÷ 21.75 计入每日暂估金额；日常公共费用按承担期间的自然日暂估。未来日期暂不计入。统一月结时，以实际月分摊金额替换暂估金额并处理尾差，不重复扣费。</p>
     </template>
   </section>
 </template>

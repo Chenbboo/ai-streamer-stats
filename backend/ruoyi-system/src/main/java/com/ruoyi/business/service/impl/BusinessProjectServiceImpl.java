@@ -507,6 +507,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         Map<String, Object> owner = requireActiveUser(proposal.getEffectiveOwnerUserId());
         Map<String, Object> sponsor = requireActiveUser(proposal.getSponsorOwnerUserId());
         if (!reviewerUserId.equals(proposal.getApplicantUserId())
+            && !reviewerUserId.equals(proposal.getEffectiveOwnerUserId())
             && !companyAccess.allowed(reviewerUserId,proposal.getCompanyDeptId(),"BUSINESS"))
             throw new ServiceException("只有项目负责人或归属老板可以启动项目");
 
@@ -572,8 +573,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         ownerMember.setJoinedDate(standardTemplate ? proposal.getPlanStartDate() : new Date());
         ownerMember.setCreateBy(reviewerUserName);
         mapper.upsertMember(ownerMember);
-        ensureDefaultProjectWeight(project, ownerMember, reviewerUserName);
         memberDays.saveRole(project.getProjectId(),ownerMember.getUserId(),ownerMember.getJoinedDate(),"OWNER",reviewerUserName);
+        applyProposalProjectWeight(project, ownerMember, proposal, reviewerUserName, standardTemplate);
         grantProjectUser(project.getMainOwnerUserId(), true);
 
         Set<Long> selectedMemberIds = new HashSet<Long>();
@@ -597,8 +598,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             selectedMember.setCreateBy(reviewerUserName);
             selectedMember.setRemark("立项申请选择");
             mapper.upsertMember(selectedMember);
-            ensureDefaultProjectWeight(project, selectedMember, reviewerUserName);
             memberDays.saveRole(project.getProjectId(),selectedMember.getUserId(),selectedMember.getJoinedDate(),"MEMBER",reviewerUserName);
+            applyProposalProjectWeight(project, selectedMember, proposal, reviewerUserName, standardTemplate);
             grantProjectUser(selectedUserId, false);
         }
 
@@ -1530,6 +1531,99 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
 
     private void ensureDefaultProjectWeight(BusinessProject project, BusinessProjectMember member, String userName)
     {
+        ensureDefaultProjectWeight(project, member, userName, null);
+    }
+
+    private Map<String,Object> proposalStaffingLine(BusinessProjectProposal proposal, Long userId)
+    {
+        if (proposal.getStaffingLines() == null || userId == null) return null;
+        for (Map<String, Object> line : proposal.getStaffingLines())
+        {
+            if (line == null || line.get("userId") == null) continue;
+            Long lineUserId = line.get("userId") instanceof Number
+                ? ((Number) line.get("userId")).longValue() : Long.valueOf(String.valueOf(line.get("userId")));
+            if (userId.equals(lineUserId)) return line;
+        }
+        return null;
+    }
+
+    private BigDecimal proposalStaffingRatio(BusinessProjectProposal proposal, Long userId)
+    {
+        Map<String,Object> line = proposalStaffingLine(proposal, userId);
+        return line == null || line.get("inputQuantity") == null ? null : decimal(line.get("inputQuantity"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void applyProposalProjectWeight(BusinessProject project, BusinessProjectMember member,
+        BusinessProjectProposal proposal, String userName, boolean standardTemplate)
+    {
+        BigDecimal ratio = standardTemplate ? proposalStaffingRatio(proposal, member.getUserId()) : null;
+        Map<String,Object> line = standardTemplate ? proposalStaffingLine(proposal, member.getUserId()) : null;
+        Object rawPlan = line == null ? null : line.get("allocationPlan");
+        if (rawPlan == null && line != null && line.get("allocationPlanJson") != null)
+        {
+            try { rawPlan = allocationJson.readValue(String.valueOf(line.get("allocationPlanJson")), Map.class); }
+            catch (Exception ex) { throw new ServiceException("人员跨项目投入计划无法读取，请重新设置"); }
+        }
+        if (!(rawPlan instanceof Map))
+        {
+            ensureDefaultProjectWeight(project, member, userName, ratio);
+            return;
+        }
+
+        Map<String,Object> plan = (Map<String,Object>) rawPlan;
+        Date effectiveDate = DateUtils.parseDate(String.valueOf(plan.get("effectiveDate")));
+        if (effectiveDate == null || member.getJoinedDate() == null
+            || effectiveDate.before(member.getJoinedDate()))
+            throw new ServiceException(member.getUserNameSnapshot() + "的投入分配生效日期不能早于参与开始日期，请重新设置");
+        List<Map<String,Object>> workspace = effectiveAllocationWorkspace(member.getUserId(), effectiveDate);
+        List<Map<String,Object>> previousProjects = new ArrayList<>();
+        for (Map<String,Object> row : workspace)
+            if (!project.getProjectId().equals(Long.valueOf(String.valueOf(row.get("projectId")))))
+                previousProjects.add(row);
+        String plannedToken = plan.get("versionToken") == null ? "" : String.valueOf(plan.get("versionToken"));
+        if (!plannedToken.equals(allocationVersionToken(previousProjects)))
+            throw new ServiceException(member.getUserNameSnapshot() + "的其他项目投入已变化，请重新加载后调整");
+        Object rawAllocations = plan.get("allocations");
+        if (!(rawAllocations instanceof List)) throw new ServiceException("请填写人员在全部项目中的投入比例");
+        Map<Long,BigDecimal> requested = new LinkedHashMap<>();
+        for (Object item : (List<?>) rawAllocations)
+        {
+            if (!(item instanceof Map)) throw new ServiceException("跨项目投入比例格式不正确");
+            Map<String,Object> row = (Map<String,Object>) item;
+            Long projectId = row.get("projectId") == null ? null : Long.valueOf(String.valueOf(row.get("projectId")));
+            if (projectId == null || requested.put(projectId, decimal(row.get("allocationValue"))) != null)
+                throw new ServiceException("跨项目投入比例格式不正确");
+        }
+        Set<Long> expected = new HashSet<>();
+        for (Map<String,Object> row : previousProjects)
+            expected.add(Long.valueOf(String.valueOf(row.get("projectId"))));
+        if (!expected.equals(requested.keySet()))
+            throw new ServiceException(member.getUserNameSnapshot() + "参与的项目已变化，请重新加载跨项目投入分配");
+
+        List<Map<String,Object>> allocations = new ArrayList<>();
+        for (Map.Entry<Long,BigDecimal> entry : requested.entrySet())
+        {
+            Map<String,Object> allocation = new LinkedHashMap<>();
+            allocation.put("projectId", entry.getKey()); allocation.put("allocationValue", entry.getValue());
+            allocations.add(allocation);
+        }
+        Map<String,Object> currentProject = new LinkedHashMap<>();
+        currentProject.put("projectId", project.getProjectId());
+        currentProject.put("allocationValue", ratio == null ? new BigDecimal("100") : ratio);
+        allocations.add(currentProject);
+        Map<String,Object> body = new LinkedHashMap<>();
+        body.put("userId", member.getUserId());
+        body.put("effectiveDate", DateUtils.parseDateToStr("yyyy-MM-dd", effectiveDate));
+        body.put("reason", plan.get("reason"));
+        body.put("versionToken", allocationVersionToken(workspace));
+        body.put("allocations", allocations);
+        saveStaffAllocationDistribution(body, project.getMainOwnerUserId(), project.getMainOwnerName(), false, false);
+    }
+
+    private void ensureDefaultProjectWeight(BusinessProject project, BusinessProjectMember member, String userName,
+        BigDecimal proposalRatio)
+    {
         if (!BusinessMemberDayCostService.enabled(project) || "OBSERVER".equals(member.getMemberRole())) return;
         allocationRequests.lockEmployee(member.getUserId());
         Date today = normalizeLeaveDate(DateUtils.getNowDate(), "日期不正确");
@@ -1540,13 +1634,19 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
                 && row.get("allocationId") != null) return;
         BigDecimal used = decimal(mapper.sumAllocationPercentAtDate(member.getUserId(), effectiveDate));
         BigDecimal available = new BigDecimal("100").subtract(used).max(BigDecimal.ZERO);
+        BigDecimal requested = proposalRatio == null ? available : proposalRatio.setScale(2, RoundingMode.HALF_UP);
+        if (requested.signum() <= 0 || requested.compareTo(new BigDecimal("100")) > 0)
+            throw new ServiceException(member.getUserNameSnapshot() + "的项目投入比例必须大于0且不超过100%");
+        if (used.add(requested).compareTo(new BigDecimal("100")) > 0)
+            throw new ServiceException(member.getUserNameSnapshot() + "已有项目投入" + used.stripTrailingZeros().toPlainString()
+                + "%，本项目最多可设置" + available.stripTrailingZeros().toPlainString() + "%");
         BusinessStaffCostPolicy policy = mapper.selectEffectiveStaffCostPolicy(member.getUserId(), effectiveDate);
         BusinessProjectStaffAllocation allocation = new BusinessProjectStaffAllocation();
         allocation.setProjectId(project.getProjectId());
         allocation.setUserId(member.getUserId());
         allocation.setUserName(member.getUserNameSnapshot());
         allocation.setAllocationMode("PERCENTAGE");
-        allocation.setAllocationValue(available);
+        allocation.setAllocationValue(requested);
         allocation.setConfirmationStatus(used.signum() > 0 ? "PENDING" : "CONFIRMED");
         allocation.setEffectiveFrom(effectiveDate);
         allocation.setCostPolicyId(policy == null ? null : policy.getPolicyId());
@@ -1554,8 +1654,10 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         allocation.setStatus("ACTIVE");
         allocation.setVersion(0);
         allocation.setCreateBy(userName);
-        allocation.setRemark(available.compareTo(new BigDecimal("100")) == 0
-            ? "首次参与项目，系统默认投入权重100%" : "新增参与项目，待负责人重新分配投入权重");
+        allocation.setRemark(proposalRatio == null
+            ? (available.compareTo(new BigDecimal("100")) == 0
+                ? "首次参与项目，系统默认投入权重100%" : "新增参与项目，待负责人重新分配投入权重")
+            : (used.signum() > 0 ? "立项设置投入比例，待相关项目负责人确认" : "立项设置投入比例并生效"));
         mapper.insertProjectStaffAllocation(allocation);
     }
 

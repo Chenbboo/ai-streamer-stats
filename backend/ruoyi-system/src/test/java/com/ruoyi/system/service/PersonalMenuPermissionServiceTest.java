@@ -16,6 +16,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import com.ruoyi.business.domain.BusinessStaffMenuPermission;
 import com.ruoyi.business.mapper.BusinessStaffMenuPermissionMapper;
+import com.ruoyi.business.mapper.BusinessProjectMapper;
 import com.ruoyi.common.core.domain.entity.SysMenu;
 import com.ruoyi.system.mapper.SysMenuMapper;
 
@@ -23,6 +24,7 @@ import com.ruoyi.system.mapper.SysMenuMapper;
 class PersonalMenuPermissionServiceTest
 {
     @Mock private BusinessStaffMenuPermissionMapper permissionMapper;
+    @Mock private BusinessProjectMapper projectMapper;
     @Mock private SysMenuMapper menuMapper;
     @InjectMocks private PersonalMenuPermissionService service;
 
@@ -80,6 +82,19 @@ class PersonalMenuPermissionServiceTest
         assertTrue(permissions.contains("business:kpi:list"));
         assertEquals(4, routes.size());
         assertTrue(routes.stream().anyMatch(menu -> Long.valueOf(21L).equals(menu.getMenuId())));
+    }
+
+    @Test
+    void companyOwnerAlwaysUsesCurrentRoleMenusWhenAnOldPersonalSnapshotExists()
+    {
+        when(projectMapper.countUserRoleByKey(9L, "company_owner")).thenReturn(1);
+        List<SysMenu> roleRoutes = Arrays.asList(
+            menu(10L, 0L, "M", ""), menu(11L, 10L, "C", "business:boss:view"));
+
+        assertFalse(service.hasExplicitPolicy(9L));
+        assertEquals(roleRoutes, service.applyRoutes(9L, roleRoutes));
+        assertTrue(service.applyPermissions(9L,
+            Collections.singletonList("business:boss:view")).contains("business:boss:view"));
     }
 
     @Test

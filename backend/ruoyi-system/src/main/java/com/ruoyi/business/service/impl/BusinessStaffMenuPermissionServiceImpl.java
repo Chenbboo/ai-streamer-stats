@@ -68,7 +68,9 @@ public class BusinessStaffMenuPermissionServiceImpl implements IBusinessStaffMen
     public void saveMenuPermissions(Long userId, List<Map<String, Object>> permissions,
         Long operatorUserId, boolean administrator, String operatorName)
     {
-        requireScope(userId, operatorUserId, administrator);
+        SysUser target = requireScope(userId, operatorUserId, administrator);
+        if (projectMapper.countUserRoleByKey(userId, "company_owner") > 0)
+            throw new ServiceException("老板账号使用角色目录，不能单独设置目录权限");
         if (permissions == null) throw new ServiceException("目录权限不能为空");
 
         List<SysMenu> allMenus = permissionResolver.selectAllActiveMenus();

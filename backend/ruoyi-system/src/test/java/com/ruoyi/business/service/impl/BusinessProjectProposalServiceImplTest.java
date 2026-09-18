@@ -20,6 +20,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -91,6 +92,41 @@ class BusinessProjectProposalServiceImplTest
         assertEquals(visible,staff.containsKey("costCurrency"));assertEquals(7L,staff.get("userId"));
         assertEquals(new BigDecimal("21750"),staff.get("monthlyCost"));
         assertEquals(new BigDecimal("1000"),staff.get("dailyCost"));
+    }
+
+    @Test
+    void staffAllocationPreviewReturnsOtherProjectsAndStableVersionToken()
+    {
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"planner","立项人员"));
+        when(mapper.selectCompany(111L)).thenReturn(Collections.singletonMap("deptId",111L));
+        when(mapper.selectProposalStaff(eq(12L),any(Date.class))).thenReturn(
+            BusinessProjectWorkServiceTest.row("userId",12L,"companyDeptId",111L,"nickName","成员十二"));
+        Map<String,Object> project=BusinessProjectWorkServiceTest.row("projectId",88L,"projectNo","XM88",
+            "projectName","既有项目","ownerUserId",23L,"ownerName","负责人二十三","allocationValue",new BigDecimal("65"),
+            "allocationId",9L,"allocationVersion",2,"confirmationStatus","CONFIRMED","allocationHistoryToken","1:9:2");
+        when(mapper.selectStaffAllocationPreview(eq(12L),any(Date.class))).thenReturn(Collections.singletonList(project));
+        Map<String,Object> endedProject=BusinessProjectWorkServiceTest.row("projectId",77L,"projectNo","XM77",
+            "projectName","周期内已结束项目","ownerUserId",24L,"ownerName","负责人二十四","projectStatus","CLOSED",
+            "projectStartDate",java.sql.Date.valueOf("2026-09-02"),"projectEndDate",java.sql.Date.valueOf("2026-09-10"),
+            "allocationValue",new BigDecimal("35"));
+        when(mapper.selectStaffAllocationPeriodProjects(eq(12L),any(Date.class),any(Date.class)))
+            .thenReturn(java.util.Arrays.asList(new HashMap<>(project),endedProject));
+        when(mapper.selectStaffAllocationTimeline(12L)).thenReturn(Collections.emptyList());
+
+        Map<String,Object> preview=service.staffAllocationPreview(111L,12L,"2026-09-01","2026-09-30",9L);
+
+        assertEquals(new BigDecimal("65"),preview.get("totalPercent"));
+        assertEquals(Collections.singletonList(project),preview.get("projects"));
+        assertEquals("88:9:2:23:65:CONFIRMED:1:9:2;",preview.get("versionToken"));
+        assertEquals(com.ruoyi.common.utils.DateUtils.getDate(),preview.get("effectiveDate"));
+        ArgumentCaptor<Date> effectiveDate=ArgumentCaptor.forClass(Date.class);
+        verify(mapper).selectStaffAllocationPreview(eq(12L),effectiveDate.capture());
+        assertEquals(com.ruoyi.common.utils.DateUtils.getDate(),
+            com.ruoyi.common.utils.DateUtils.parseDateToStr("yyyy-MM-dd",effectiveDate.getValue()));
+        java.util.List<Map<String,Object>> periodProjects=(java.util.List<Map<String,Object>>)preview.get("periodProjects");
+        assertEquals(2,periodProjects.size());
+        assertEquals(Boolean.TRUE,periodProjects.get(0).get("editable"));
+        assertEquals("ENDED",periodProjects.get(1).get("periodState"));
     }
 
     @Test
@@ -632,7 +668,7 @@ class BusinessProjectProposalServiceImplTest
         service.update(proposal,9L,"applicant9");
         org.mockito.ArgumentCaptor<Map<String,Object>> saved=org.mockito.ArgumentCaptor.forClass(Map.class);verify(mapper).insertStaffingLine(saved.capture());
         assertEquals("UNLIMITED",saved.getValue().get("participationMode"));assertEquals(null,saved.getValue().get("planEndDate"));
-        assertEquals("PERCENTAGE",saved.getValue().get("inputUnit"));assertEquals(BigDecimal.ZERO,saved.getValue().get("inputQuantity"));assertEquals(1L,saved.getValue().get("unitPolicyId"));
+        assertEquals("PERCENTAGE",saved.getValue().get("inputUnit"));assertEquals(new BigDecimal("2"),saved.getValue().get("inputQuantity"));assertEquals(1L,saved.getValue().get("unitPolicyId"));
     }
 
     @Test
@@ -780,30 +816,49 @@ class BusinessProjectProposalServiceImplTest
 
     @ParameterizedTest
     @CsvSource({"PROFIT", "VALUE"})
-    void bothModesRequireExpensePlanBeforeLaunch(String mode)
+    void bothModesAllowEmptyRevenueAndExpensePlansBeforeLaunch(String mode)
     {
-        proposal.setAccountingMode(mode);proposal.setEstimatedRevenue(new BigDecimal("100"));proposal.setRevenueLines(Collections.singletonList(BusinessProjectWorkServiceTest.row("scenario","BASE","expectedAmount",100)));
+        proposal.setAccountingMode(mode);proposal.setRevenueLines(Collections.emptyList());
         proposal.setTargetLines(Collections.singletonList(BusinessProjectWorkServiceTest.row("targetName","验收目标")));
         proposal.setExpenseLines(Collections.emptyList());
-        ServiceException error=assertThrows(ServiceException.class,()->service.validateAccountingRequirements(proposal));
-        org.junit.jupiter.api.Assertions.assertTrue(error.getMessage().contains("业务支出计划"));
-        proposal.setExpenseLines(Collections.singletonList(expensePlanLine()));
-        proposal.setRiskSummary(null);
         org.junit.jupiter.api.Assertions.assertDoesNotThrow(()->service.validateAccountingRequirements(proposal));
     }
 
+    @Test
+    void assignedSubprojectOwnerCanOpenAndEditMainOwnersDraft()
+    {
+        proposal.setParentProjectId(55L);proposal.setAssignedOwnerUserId(10L);proposal.setStatus("DRAFT");
+        when(mapper.selectById(77L)).thenReturn(proposal);
+
+        BusinessProjectProposal result=service.get(77L,10L,false,false);
+
+        assertEquals(Boolean.TRUE,result.getCanOpen());
+        assertEquals(Boolean.TRUE,result.getCanEdit());
+    }
+
+    @Test
+    void mainOwnerMustHandChildDraftToAssignedOwnerForLaunch()
+    {
+        proposal.setParentProjectId(55L);proposal.setAssignedOwnerUserId(10L);proposal.setStatus("DRAFT");
+        when(mapper.selectById(77L)).thenReturn(proposal);
+
+        ServiceException error=assertThrows(ServiceException.class,()->service.submit(77L,9L,"main-owner"));
+
+        assertEquals("请由子项目负责人补充成员、投入比例和执行资料后启动项目",error.getMessage());
+        verify(projectService,never()).createApprovedProject(any(),any(),any());
+    }
+
     @ParameterizedTest
-    @CsvSource({"BASE,11,0,true", "BASE,0,100,false", "OPTIMISTIC,11,100,false", "CONSERVATIVE,11,100,false"})
-    void plannedRevenueRequirementDoesNotUseCurrentPeriodTotal(String scenario,String amount,String periodTotal,boolean allowed)
+    @CsvSource({"BASE,11,0", "BASE,0,100", "OPTIMISTIC,11,100", "CONSERVATIVE,11,100"})
+    void optionalRevenuePlanDoesNotChangeLaunchEligibility(String scenario,String amount,String periodTotal)
     {
         proposal.setAccountingMode("PROFIT");
         proposal.setEstimatedRevenue(new BigDecimal(periodTotal));
         proposal.setRevenueLines(Collections.singletonList(BusinessProjectWorkServiceTest.row(
             "scenario",scenario,"expectedAmount",amount,"expectedDate","2026-10-01","occurrenceType","DAILY")));
-        proposal.setExpenseLines(Collections.singletonList(expensePlanLine()));
+        proposal.setExpenseLines(Collections.emptyList());
         proposal.setTargetLines(Collections.singletonList(BusinessProjectWorkServiceTest.row("targetName","验收目标")));
-        if(allowed)org.junit.jupiter.api.Assertions.assertDoesNotThrow(()->service.validateAccountingRequirements(proposal));
-        else assertThrows(ServiceException.class,()->service.validateAccountingRequirements(proposal));
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(()->service.validateAccountingRequirements(proposal));
     }
 
     private void stubAcceptanceTarget()
@@ -815,7 +870,7 @@ class BusinessProjectProposalServiceImplTest
 
     @ParameterizedTest
     @CsvSource({"COST,0,false,false", "COST,0,true,false", "PROFIT,0,false,false", "PROFIT,100,false,false",
-        "PROFIT,0,true,false", "PROFIT,100,true,true",
+        "PROFIT,0,true,true", "PROFIT,100,true,true",
         "VALUE,0,false,false", "VALUE,0,true,true", "HYBRID,100,false,false",
         "HYBRID,0,true,false", "HYBRID,100,true,false"})
     void accountingModeRequirementsAreCheckedAtLaunch(String mode,String revenue,boolean target,boolean allowed)

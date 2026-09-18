@@ -92,8 +92,9 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     {
         BusinessProjectProposal proposal = require(proposalId);
         boolean applicant = userId.equals(proposal.getApplicantUserId());
+        boolean assignedOwner = isAssignedSubprojectOwner(proposal, userId);
         boolean reviewer = companyAccess.allowed(userId,proposal.getCompanyDeptId(),"BUSINESS");
-        if (!viewAll && !applicant && !reviewer)
+        if (!viewAll && !applicant && !assignedOwner && !reviewer)
         {
             throw new ServiceException("无权查看该立项申请");
         }
@@ -178,11 +179,14 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     public BusinessProjectProposal update(BusinessProjectProposal input, Long userId, String userName)
     {
         BusinessProjectProposal current = require(input == null ? null : input.getProposalId());
-        requireApplicant(current, userId);
+        requireCollaborator(current, userId);
         requireEditable(current);
         if (!java.util.Objects.equals(input.getParentProjectId(), current.getParentProjectId()))
             throw new ServiceException("归属主项目不可修改");
-        input.setApplicantUserId(userId);
+        if (isAssignedSubprojectOwner(current, userId)
+            && !java.util.Objects.equals(input.getAssignedOwnerUserId(), current.getAssignedOwnerUserId()))
+            throw new ServiceException("子项目负责人不能更换本人");
+        input.setApplicantUserId(current.getApplicantUserId());
         input.setApplicantName(current.getApplicantName());
         if (input.getVersion() == null || !input.getVersion().equals(current.getVersion())) throw changed();
         input.setVersion(current.getVersion());
@@ -214,8 +218,10 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     public BusinessProjectProposal submit(Long proposalId, Long userId, String userName)
     {
         BusinessProjectProposal current = require(proposalId);
-        requireApplicant(current, userId);
+        requireCollaborator(current, userId);
         requireEditable(current);
+        if (current.getParentProjectId() != null && !isAssignedSubprojectOwner(current, userId))
+            throw new ServiceException("请由子项目负责人补充成员、投入比例和执行资料后启动项目");
         hydratePlanLines(current);
         normalizeAndValidate(current);
         validateBusinessPlanForLaunch(current);
@@ -301,12 +307,13 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         if(proposal==null)throw new ServiceException("请填写立项预算资料");
         if(proposal.getProposalId()!=null)
         {
-            BusinessProjectProposal current=require(proposal.getProposalId());requireApplicant(current,userId);requireEditable(current);
+            BusinessProjectProposal current=require(proposal.getProposalId());requireCollaborator(current,userId);requireEditable(current);
             if (!java.util.Objects.equals(proposal.getParentProjectId(), current.getParentProjectId())) throw new ServiceException("归属主项目不可修改");
             proposal.setTemplateVersion(current.getTemplateVersion());
+            proposal.setApplicantUserId(current.getApplicantUserId());
+            proposal.setApplicantName(current.getApplicantName());
         }
-        else proposal.setTemplateVersion("LIGHT_V1");
-        proposal.setApplicantUserId(userId);
+        else { proposal.setTemplateVersion("LIGHT_V1"); proposal.setApplicantUserId(userId); }
         bindSubprojectOwner(proposal, false);
         return budgetService.estimate(proposal);
     }
@@ -334,7 +341,8 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         if (template == null) throw new ServiceException("项目模板版本不存在或未启用");
         if (proposal.getCompanyDeptId() != null && mapper.selectCompany(proposal.getCompanyDeptId()) == null)
             throw new ServiceException("请选择有效归属公司");
-        bindSubprojectOwner(proposal, false);
+        // 子项目草稿的保存动作就是交接动作，必须先明确接收的子负责人。
+        bindSubprojectOwner(proposal, proposal.getParentProjectId() != null);
         proposal.setSponsorOwnerName(proposal.getSponsorOwnerUserId() == null ? "" : displayName(requireActiveBoss(proposal.getSponsorOwnerUserId())));
         proposal.setProjectName(draftText(proposal.getProjectName(), 160, "项目名称"));
         proposal.setObjective(draftText(proposal.getObjective(), 1000, "项目目标"));
@@ -363,7 +371,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         draft.put("revenueLines", draftLines(proposal.getRevenueLines(), "scenario,revenueType,itemName,unitPrice,quantity,conversionRate,expectedAmount,occurrenceType,expectedDate,assumptionText"));
         draft.put("expenseLines", draftLines(proposal.getExpenseLines(), "expenseCategory,itemName,purpose,counterparty,amount,occurrenceType,occurDate,expenseType,hasQuotation"));
         draft.put("targetLines", draftLines(proposal.getTargetLines(), "targetType,targetName,targetValue,unit,dueDate,acceptanceEvidence,weight"));
-        draft.put("staffingLines", draftLines(proposal.getStaffingLines(), "userId,userName,roleName,participationMode,planStartDate,planEndDate,calendarId,inputUnit,inputQuantity,unitPolicyId,note"));
+        draft.put("staffingLines", draftLines(proposal.getStaffingLines(), "userId,userName,roleName,participationMode,planStartDate,planEndDate,calendarId,inputUnit,inputQuantity,unitPolicyId,note,allocationPlan"));
         try {
             Map<String,Object> snapshot = objectMapper.readValue(StringUtils.defaultIfBlank(text(template.get("snapshotJson")), "{}"), Map.class);
             snapshot.put("draftPlan", draft); snapshot.put("budget", budget);
@@ -611,9 +619,17 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
                     ||proposal.getPlanEndDate()!=null&&to!=null&&to.after(proposal.getPlanEndDate()))
                     throw new ServiceException("请填写有效的人员参与方式和项目范围内的日期");
                 if(line.get("calendarId")==null)throw new ServiceException("人员计划必须选择工作日历");
+                // 旧草稿没有保存投入比例；读取后按原有的全量投入补齐，避免历史草稿无法继续。
+                BigDecimal inputQuantity=line.get("inputQuantity")==null
+                    ? new BigDecimal("100") : nonNegative(line.get("inputQuantity"),"人员投入比例");
+                if(inputQuantity.compareTo(BigDecimal.ZERO)==0)inputQuantity=new BigDecimal("100");
+                if(inputQuantity.compareTo(BigDecimal.ZERO)<=0||inputQuantity.compareTo(new BigDecimal("100"))>0
+                    ||inputQuantity.stripTrailingZeros().scale()>2)
+                    throw new ServiceException("人员投入比例必须大于0且不超过100%，最多两位小数");
                 line.put("userName",displayStaffName(staff));line.put("roleName",StringUtils.defaultIfEmpty(text(staff.get("positionName")),"项目成员"));line.put("headcount",1);
                 line.put("participationMode",participationMode);line.put("planStartDate",from);line.put("planEndDate",to);
-                line.put("inputUnit","PERCENTAGE");line.put("inputQuantity",BigDecimal.ZERO);line.put("unitPolicyId",1L);
+                line.put("inputUnit","PERCENTAGE");line.put("inputQuantity",inputQuantity);line.put("unitPolicyId",1L);
+                normalizeAllocationPlan(line, inputQuantity, from);
                 line.put("allocationPercent",null);line.put("estimatedCost",null);
                 for(String sensitive:Arrays.asList("costPolicyId","costPolicyVersion","monthlyCostSnapshot","standardWorkDaysSnapshot","dailyCostSnapshot","costCurrency"))line.put(sensitive,null);
                 headcount++;continue;
@@ -780,15 +796,6 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         String mode = proposal.getAccountingMode();
         if (!Arrays.asList("PROFIT", "VALUE").contains(mode))
             throw new ServiceException("请将立项核算方式选择为盈利型或价值型后再启动；历史项目不受影响");
-        // The current budget period may precede the first planned receipt.
-        // Validate the plan itself, not the income calculated for that period.
-        boolean hasBaseRevenue = proposal.getRevenueLines() != null && proposal.getRevenueLines().stream()
-            .anyMatch(line -> "BASE".equals(code(line.get("scenario"), "BASE"))
-                && nonNegative(line.get("expectedAmount"), "预计收入").signum() > 0);
-        if ("PROFIT".equals(mode) && !hasBaseRevenue)
-            throw new ServiceException("盈利型项目启动前须填写预计收入，合计须大于0；可先保存草稿");
-        if (proposal.getExpenseLines() == null || proposal.getExpenseLines().isEmpty())
-            throw new ServiceException("项目启动前须填写至少一项业务支出计划；可先保存草稿");
         if (proposal.getTargetLines() == null || proposal.getTargetLines().isEmpty())
             throw new ServiceException("项目启动前须填写至少一项可验收目标；可先保存草稿");
     }
@@ -843,8 +850,82 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             {
                 String issue=com.ruoyi.business.support.BusinessProposalPlanDates.issue(line.get(dateField),proposal.getPlanStartDate(),proposal.getPlanEndDate(),label,i+1);
                 if(issue!=null)throw new ServiceException(issue);
+                if ("收入测算".equals(label) || "支出计划".equals(label))
+                {
+                    issue=com.ruoyi.business.support.BusinessProposalPlanDates.afterStartMonthIssue(line.get(dateField),proposal.getPlanStartDate(),label,i+1);
+                    if(issue!=null)throw new ServiceException(issue);
+                }
             }
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void normalizeAllocationPlan(Map<String,Object> line, BigDecimal currentPercent, Date effectiveDate)
+    {
+        effectiveDate = allocationEffectiveDate(effectiveDate);
+        Long staffUserId = longValue(line.get("userId"));
+        List<Map<String,Object>> current = allocationPreviewRows(staffUserId, effectiveDate);
+        Object rawPlan = line.get("allocationPlan");
+        if (rawPlan == null && StringUtils.isNotBlank(text(line.get("allocationPlanJson"))))
+        {
+            try { rawPlan = objectMapper.readValue(text(line.get("allocationPlanJson")), Map.class); }
+            catch (Exception ex) { throw new ServiceException("人员跨项目投入计划格式不正确"); }
+        }
+        if (current.isEmpty())
+        {
+            line.put("allocationPlan", null); line.put("allocationPlanJson", null); return;
+        }
+        if (!(rawPlan instanceof Map))
+            throw new ServiceException(displayStaffName(mapper.selectProposalStaff(staffUserId, effectiveDate))
+                + "已参与其他项目，请查看并调整跨项目投入分配");
+        Map<String,Object> plan = (Map<String,Object>) rawPlan;
+        String expectedDate = new java.text.SimpleDateFormat("yyyy-MM-dd").format(effectiveDate);
+        if (!expectedDate.equals(text(plan.get("effectiveDate"))))
+            throw new ServiceException("投入分配生效日期已变化，请重新加载跨项目投入分配");
+        String submittedToken = text(plan.get("versionToken"));
+        if (!allocationPreviewToken(current).equals(submittedToken == null ? "" : submittedToken))
+            throw new ServiceException("人员的其他项目投入已变化，请重新加载后调整");
+        Object rawAllocations = plan.get("allocations");
+        if (!(rawAllocations instanceof List)) throw new ServiceException("请填写人员在全部项目中的投入比例");
+        Map<Long,BigDecimal> submitted = new LinkedHashMap<>();
+        for (Object item : (List<?>) rawAllocations)
+        {
+            if (!(item instanceof Map)) throw new ServiceException("跨项目投入比例格式不正确");
+            Map<String,Object> allocation = (Map<String,Object>) item;
+            Long projectId = longValue(allocation.get("projectId"));
+            BigDecimal value;
+            try { value = new BigDecimal(String.valueOf(allocation.get("allocationValue"))); }
+            catch (Exception ex) { throw new ServiceException("跨项目投入比例必须是有效数字"); }
+            if (projectId == null || value.signum() < 0 || value.compareTo(new BigDecimal("100")) > 0
+                || value.stripTrailingZeros().scale() > 2 || submitted.put(projectId, value) != null)
+                throw new ServiceException("每个其他项目的投入比例必须在0%至100%之间，最多两位小数且不能重复");
+        }
+        Set<Long> required = new HashSet<>();
+        for (Map<String,Object> row : current) required.add(longValue(row.get("projectId")));
+        if (!required.equals(submitted.keySet())) throw new ServiceException("人员参与的项目已变化，请重新加载跨项目投入分配");
+        BigDecimal total = currentPercent;
+        for (BigDecimal value : submitted.values()) total = total.add(value);
+        if (total.compareTo(new BigDecimal("100")) != 0)
+            throw new ServiceException("人员全部项目投入比例合计必须等于100%，当前为" + total.stripTrailingZeros().toPlainString() + "%");
+        String reason = text(plan.get("reason"));
+        if (StringUtils.isBlank(reason)) throw new ServiceException("请填写跨项目投入调整原因");
+        if (reason.length() > 500) throw new ServiceException("跨项目投入调整原因不能超过500字");
+        List<Map<String,Object>> allocations = new ArrayList<>();
+        for (Map<String,Object> existing : current)
+        {
+            Long projectId = longValue(existing.get("projectId"));
+            Map<String,Object> safe = new LinkedHashMap<>();
+            safe.put("projectId", projectId); safe.put("projectNo", existing.get("projectNo"));
+            safe.put("projectName", existing.get("projectName")); safe.put("ownerUserId", existing.get("ownerUserId"));
+            safe.put("ownerName", existing.get("ownerName")); safe.put("originalValue", existing.get("allocationValue"));
+            safe.put("allocationValue", submitted.get(projectId)); allocations.add(safe);
+        }
+        Map<String,Object> safePlan = new LinkedHashMap<>();
+        safePlan.put("effectiveDate", expectedDate); safePlan.put("versionToken", allocationPreviewToken(current));
+        safePlan.put("reason", reason); safePlan.put("allocations", allocations);
+        try { line.put("allocationPlanJson", objectMapper.writeValueAsString(safePlan)); }
+        catch (Exception ex) { throw new ServiceException("人员跨项目投入计划无法保存"); }
+        line.put("allocationPlan", safePlan);
     }
 
     private void hydratePlanLines(BusinessProjectProposal proposal)
@@ -859,6 +940,11 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             for(Map<String,Object> source:proposal.getStaffingLines()){
                 if(source==null){staffing.add(null);continue;}
                 Map<String,Object> line=new LinkedHashMap<>(source);
+                if(StringUtils.isNotBlank(text(line.get("allocationPlanJson"))))
+                {
+                    try { line.put("allocationPlan", objectMapper.readValue(text(line.get("allocationPlanJson")), Map.class)); }
+                    catch (Exception ex) { throw new ServiceException("人员跨项目投入计划无法读取，请重新设置"); }
+                }
                 line.put("participationMode",com.ruoyi.business.support.BusinessProposalParticipation.mode(line,proposal));staffing.add(line);
             }
             proposal.setStaffingLines(staffing);
@@ -1003,6 +1089,114 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         return safe;
     }
 
+    @Override
+    public Map<String, Object> staffAllocationPreview(Long companyDeptId, Long staffUserId,
+        String effectiveDate, String periodEndDate, Long userId)
+    {
+        requireActiveUser(userId);
+        if (companyDeptId == null || mapper.selectCompany(companyDeptId) == null)
+            throw new ServiceException("请选择有效归属公司");
+        Date periodStart = DateUtils.parseDate(effectiveDate);
+        Date periodEnd = StringUtils.isBlank(periodEndDate) ? null : DateUtils.parseDate(periodEndDate);
+        if (periodStart == null || StringUtils.isNotBlank(periodEndDate) && periodEnd == null)
+            throw new ServiceException("请选择有效的人员参与周期");
+        if (periodEnd != null && periodEnd.before(periodStart))
+            throw new ServiceException("人员参与结束日期不能早于开始日期");
+        Date date = allocationEffectiveDate(periodStart);
+        Map<String,Object> staff = mapper.selectProposalStaff(staffUserId, date);
+        if (staff == null || !companyDeptId.equals(longValue(staff.get("companyDeptId"))))
+            throw new ServiceException("人员不属于当前公司的有效任职范围");
+        List<Map<String,Object>> projects = allocationPreviewRows(staffUserId, date);
+        List<Map<String,Object>> periodProjects = mapper.selectStaffAllocationPeriodProjects(staffUserId,
+            periodStart, periodEnd);
+        if (periodProjects == null) periodProjects = new ArrayList<>();
+        Set<Long> editableProjects = new HashSet<>();
+        for (Map<String,Object> row : projects) editableProjects.add(longValue(row.get("projectId")));
+        for (Map<String,Object> row : periodProjects)
+        {
+            boolean editable = editableProjects.contains(longValue(row.get("projectId")));
+            row.put("editable", editable);
+            if (editable) row.put("periodState", "CURRENT");
+            else
+            {
+                Date projectStart = DateUtils.parseDate(row.get("projectStartDate"));
+                Date projectEnd = DateUtils.parseDate(row.get("projectEndDate"));
+                row.put("periodState", projectEnd != null && projectEnd.before(date) ? "ENDED"
+                    : projectStart != null && projectStart.after(date) ? "UPCOMING" : "PERIOD");
+            }
+        }
+        BigDecimal total = BigDecimal.ZERO;
+        for (Map<String,Object> row : projects) total = total.add(nonNegative(row.get("allocationValue"), "项目投入比例"));
+        Map<String,Object> result = new LinkedHashMap<>();
+        result.put("userId", staffUserId); result.put("userName", displayStaffName(staff));
+        result.put("effectiveDate", new java.text.SimpleDateFormat("yyyy-MM-dd").format(date));
+        result.put("periodStartDate", new java.text.SimpleDateFormat("yyyy-MM-dd").format(periodStart));
+        result.put("periodEndDate", periodEnd == null ? null : new java.text.SimpleDateFormat("yyyy-MM-dd").format(periodEnd));
+        result.put("projects", projects); result.put("totalPercent", total);
+        result.put("periodProjects", periodProjects);
+        result.put("versionToken", allocationPreviewToken(projects));
+        return result;
+    }
+
+    /**
+     * A proposal may be entered after its planned start date. Allocation changes must not be
+     * previewed in the past, otherwise projects that started between the planned date and today
+     * disappear from the workspace even though the employee is currently assigned to them.
+     */
+    private Date allocationEffectiveDate(Date requestedDate)
+    {
+        Date today = DateUtils.parseDate(DateUtils.getDate());
+        return requestedDate.before(today) ? today : requestedDate;
+    }
+
+    private List<Map<String,Object>> allocationPreviewRows(Long staffUserId, Date effectiveDate)
+    {
+        List<Map<String,Object>> rows = mapper.selectStaffAllocationPreview(staffUserId, effectiveDate);
+        List<Map<String,Object>> timeline = mapper.selectStaffAllocationTimeline(staffUserId);
+        if (timeline != null && !timeline.isEmpty())
+        {
+            Map<Long,Map<String,Object>> weights = com.ruoyi.business.support.BusinessAllocationWeights.at(timeline,
+                java.time.LocalDate.parse(DateUtils.parseDateToStr("yyyy-MM-dd", effectiveDate)));
+            Set<Long> weightedProjects = new HashSet<>();
+            for (Map<String,Object> period : timeline)
+                weightedProjects.add(longValue(period.get("projectId")));
+            List<Map<String,Object>> effectiveRows = new ArrayList<>();
+            for (Map<String,Object> row : rows)
+            {
+                Long projectId = longValue(row.get("projectId"));
+                Map<String,Object> weight = weights.get(projectId);
+                if (weight == null && weightedProjects.contains(projectId)) continue;
+                Map<String,Object> copy = new LinkedHashMap<>(row);
+                if (weight != null)
+                {
+                    copy.put("allocationValue", weight.get("allocationValue"));
+                    copy.put("autoRedistributed", weight.get("autoRedistributed"));
+                }
+                effectiveRows.add(copy);
+            }
+            rows = effectiveRows;
+        }
+        Set<Long> projects = new HashSet<>();
+        for (Map<String,Object> row : rows)
+        {
+            Long projectId = longValue(row.get("projectId"));
+            if (projectId == null || !projects.add(projectId))
+                throw new ServiceException("该人员存在重叠的项目投入记录，请先在项目投入中处理");
+        }
+        return rows;
+    }
+
+    private String allocationPreviewToken(List<Map<String,Object>> rows)
+    {
+        StringBuilder value = new StringBuilder();
+        for (Map<String,Object> row : rows)
+            value.append(row.get("projectId")).append(':').append(row.get("allocationId")).append(':')
+                .append(row.get("allocationVersion")).append(':').append(row.get("ownerUserId"))
+                .append(':').append(row.get("allocationValue")).append(':').append(row.get("confirmationStatus"))
+                .append(':').append(row.get("allocationHistoryToken")).append(';');
+        return value.toString();
+    }
+
     private boolean canReadCompanyRates(Long userId,Long companyDeptId)
     {
         return SecurityUtils.isAdmin(userId) || companyAccess.allowed(userId,companyDeptId,"COST_READ") || (mapper.selectBossOptions(null).stream().noneMatch(row -> String.valueOf(userId).equals(String.valueOf(row.get("userId")))) && companyDeptId!=null && mapper.canReadCompanyRates(userId,companyDeptId)>0);
@@ -1059,6 +1253,18 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         if (!userId.equals(proposal.getApplicantUserId())) throw new ServiceException("只能操作本人创建的立项申请");
     }
 
+    private boolean isAssignedSubprojectOwner(BusinessProjectProposal proposal, Long userId)
+    {
+        return proposal != null && proposal.getParentProjectId() != null
+            && userId != null && userId.equals(proposal.getAssignedOwnerUserId());
+    }
+
+    private void requireCollaborator(BusinessProjectProposal proposal, Long userId)
+    {
+        if (!userId.equals(proposal.getApplicantUserId()) && !isAssignedSubprojectOwner(proposal, userId))
+            throw new ServiceException("只有主负责人或指定的子项目负责人可以操作该立项申请");
+    }
+
     private void requireEditable(BusinessProjectProposal proposal)
     {
         if (!Arrays.asList("DRAFT", "PENDING", "RETURNED", "WITHDRAWN").contains(proposal.getStatus()))
@@ -1067,9 +1273,9 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
 
     private void decorate(BusinessProjectProposal proposal, Long userId, boolean boss, boolean viewAll)
     {
-        proposal.setCanOpen(viewAll || userId.equals(proposal.getApplicantUserId())
+        proposal.setCanOpen(viewAll || userId.equals(proposal.getApplicantUserId()) || isAssignedSubprojectOwner(proposal,userId)
             || companyAccess.allowed(userId,proposal.getCompanyDeptId(),"BUSINESS"));
-        proposal.setCanEdit(userId.equals(proposal.getApplicantUserId())
+        proposal.setCanEdit((userId.equals(proposal.getApplicantUserId()) || isAssignedSubprojectOwner(proposal,userId))
             && Arrays.asList("DRAFT", "PENDING", "RETURNED", "WITHDRAWN").contains(proposal.getStatus()));
         proposal.setCanReview(boss && companyAccess.allowed(userId,proposal.getCompanyDeptId(),"BUSINESS")
             && "PENDING".equals(proposal.getStatus()));

@@ -71,6 +71,16 @@ public class BusinessProjectProposalController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('business:project:proposal:list')")
+    @GetMapping("/staff-allocation-preview")
+    public AjaxResult staffAllocationPreview(@RequestParam Long companyDeptId,
+        @RequestParam("userId") Long staffUserId, @RequestParam String effectiveDate,
+        @RequestParam(required = false) String periodEndDate)
+    {
+        return success(proposalService.staffAllocationPreview(companyDeptId, staffUserId,
+            effectiveDate, periodEndDate, userId()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:proposal:list')")
     @GetMapping("/{proposalId}")
     public AjaxResult detail(@PathVariable("proposalId") Long proposalId)
     {

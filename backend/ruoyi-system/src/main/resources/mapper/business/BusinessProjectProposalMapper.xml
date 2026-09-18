@@ -103,7 +103,7 @@
         left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
         left join biz_project parent on parent.project_id=p.parent_project_id and parent.del_flag='0'
         where p.del_flag='0'
-        <if test="viewAll != true">and p.applicant_user_id=#{userId}</if>
+        <if test="viewAll != true">and (p.applicant_user_id=#{userId} or p.assigned_owner_user_id=#{userId})</if>
         <if test="status != null and status != ''">and p.status=#{status}</if>
         <if test="keyword != null and keyword != ''">
             and (p.project_name like concat('%',#{keyword},'%') or p.proposal_no like concat('%',#{keyword},'%'))
@@ -268,11 +268,11 @@
     <insert id="insertStaffingLine" parameterType="map">
         insert into biz_project_proposal_staffing(proposal_id,user_id,user_name,role_name,participation_mode,headcount,allocation_percent,
           plan_start_date,plan_end_date,person_months,cost_policy_id,cost_policy_version,monthly_cost_snapshot,
-          standard_work_days_snapshot,daily_cost_snapshot,cost_currency,estimated_cost,note,input_unit,input_quantity,calendar_id,unit_policy_id,sort_order,create_time)
+          standard_work_days_snapshot,daily_cost_snapshot,cost_currency,estimated_cost,note,input_unit,input_quantity,allocation_plan_json,calendar_id,unit_policy_id,sort_order,create_time)
         values(#{proposalId},#{userId},#{userName},#{roleName},#{participationMode},#{headcount},#{allocationPercent},
           #{planStartDate},#{planEndDate},#{personMonths},#{costPolicyId},#{costPolicyVersion},
           #{monthlyCostSnapshot},#{standardWorkDaysSnapshot},#{dailyCostSnapshot},#{costCurrency},
-          #{estimatedCost},#{note},#{inputUnit},#{inputQuantity},#{calendarId},#{unitPolicyId},#{sortOrder},sysdate())
+          #{estimatedCost},#{note},#{inputUnit},#{inputQuantity},#{allocationPlanJson},#{calendarId},#{unitPolicyId},#{sortOrder},sysdate())
     </insert>
     <insert id="insertTargetLine" parameterType="map">
         insert into biz_project_proposal_target(proposal_id,target_type,target_name,target_value,unit,due_date,
@@ -298,7 +298,7 @@
           person_months personMonths,cost_policy_id costPolicyId,cost_policy_version costPolicyVersion,
           monthly_cost_snapshot monthlyCostSnapshot,standard_work_days_snapshot standardWorkDaysSnapshot,
           daily_cost_snapshot dailyCostSnapshot,cost_currency costCurrency,estimated_cost estimatedCost,note,
-          input_unit inputUnit,input_quantity inputQuantity,calendar_id calendarId,unit_policy_id unitPolicyId
+          input_unit inputUnit,input_quantity inputQuantity,allocation_plan_json allocationPlanJson,calendar_id calendarId,unit_policy_id unitPolicyId
         from biz_project_proposal_staffing where proposal_id=#{proposalId} order by sort_order,staffing_line_id
     </select>
     <select id="selectTargetLines" resultType="map">
@@ -409,6 +409,76 @@
           <if test="companyDeptId != null">and company.dept_id=#{companyDeptId}</if>
           and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT'
         order by profile.position_name,u.nick_name,u.user_id
+    </select>
+
+    <select id="selectStaffAllocationPreview" resultType="map">
+        select p.project_id projectId,p.project_no projectNo,p.project_name projectName,
+          p.main_owner_user_id ownerUserId,p.main_owner_name ownerName,
+          coalesce(a.allocation_value,0) allocationValue,a.allocation_id allocationId,
+          a.version allocationVersion,a.confirmation_status confirmationStatus,
+          (select concat(count(*),':',coalesce(max(h.allocation_id),0),':',coalesce(sum(h.version),0))
+             from biz_project_staff_allocation h where h.user_id=m.user_id) allocationHistoryToken
+        from biz_project_member m
+        join biz_project p on p.project_id=m.project_id and p.del_flag='0'
+          and p.status in ('PLANNING','ACTIVE','PAUSED','ACCEPTANCE')
+          and coalesce(p.accounting_state,'OPEN')&lt;&gt;'CLOSED'
+        left join biz_project_staff_allocation a on a.project_id=m.project_id and a.user_id=m.user_id
+          and a.status='ACTIVE' and a.allocation_mode='PERCENTAGE'
+          and a.effective_from&lt;=#{effectiveDate}
+          and (a.effective_to is null or a.effective_to&gt;=#{effectiveDate})
+        where m.user_id=#{userId} and m.status='0' and m.member_role in ('OWNER','DEPUTY','MEMBER')
+          and (m.joined_date is null or m.joined_date&lt;=#{effectiveDate})
+          and (m.left_date is null or m.left_date&gt;=#{effectiveDate})
+        order by p.project_id
+    </select>
+
+    <select id="selectStaffAllocationTimeline" resultType="map">
+        select a.project_id projectId,a.allocation_id allocationId,a.allocation_value allocationValue,
+          a.effective_from effectiveFrom,a.effective_to effectiveTo,a.confirmation_status confirmationStatus,
+          a.version allocationVersion,
+          greatest(coalesce(p.plan_start_date,p.actual_start_date),coalesce(p.actual_start_date,p.plan_start_date)) projectStartDate,
+          coalesce(p.actual_end_date,p.plan_end_date) projectEndDate
+        from biz_project_staff_allocation a join biz_project p on p.project_id=a.project_id
+        where a.user_id=#{userId} and a.status='ACTIVE' and a.allocation_mode='PERCENTAGE'
+          and p.del_flag='0' and p.cost_policy_version='MEMBER_DAYS_V1'
+      order by a.effective_from,a.project_id,a.allocation_id
+    </select>
+
+    <select id="selectStaffAllocationPeriodProjects" resultType="map">
+        select p.project_id projectId,p.project_no projectNo,p.project_name projectName,
+          p.main_owner_user_id ownerUserId,p.main_owner_name ownerName,p.status projectStatus,
+          coalesce(p.actual_start_date,p.plan_start_date,m.joined_date) projectStartDate,
+          coalesce(p.actual_end_date,p.plan_end_date,m.left_date) projectEndDate,
+          m.joined_date joinedDate,m.left_date leftDate,
+          coalesce((select a.allocation_value from biz_project_staff_allocation a
+            where a.project_id=p.project_id and a.user_id=m.user_id and a.status='ACTIVE'
+              and a.allocation_mode='PERCENTAGE'
+              and (#{periodEnd} is null or a.effective_from&lt;=#{periodEnd})
+              and (a.effective_to is null or a.effective_to&gt;=#{periodStart})
+            order by a.effective_from desc,a.allocation_id desc limit 1),0) allocationValue,
+          (select a.effective_from from biz_project_staff_allocation a
+            where a.project_id=p.project_id and a.user_id=m.user_id and a.status='ACTIVE'
+              and a.allocation_mode='PERCENTAGE'
+              and (#{periodEnd} is null or a.effective_from&lt;=#{periodEnd})
+              and (a.effective_to is null or a.effective_to&gt;=#{periodStart})
+            order by a.effective_from desc,a.allocation_id desc limit 1) allocationEffectiveFrom,
+          (select a.effective_to from biz_project_staff_allocation a
+            where a.project_id=p.project_id and a.user_id=m.user_id and a.status='ACTIVE'
+              and a.allocation_mode='PERCENTAGE'
+              and (#{periodEnd} is null or a.effective_from&lt;=#{periodEnd})
+              and (a.effective_to is null or a.effective_to&gt;=#{periodStart})
+            order by a.effective_from desc,a.allocation_id desc limit 1) allocationEffectiveTo
+        from biz_project_member m
+        join biz_project p on p.project_id=m.project_id and p.del_flag='0'
+          and p.status not in ('DRAFT','CANCELED')
+        where m.user_id=#{userId} and m.status='0' and m.member_role in ('OWNER','DEPUTY','MEMBER')
+          and (#{periodEnd} is null or m.joined_date is null or m.joined_date&lt;=#{periodEnd})
+          and (m.left_date is null or m.left_date&gt;=#{periodStart})
+          and (#{periodEnd} is null or coalesce(p.actual_start_date,p.plan_start_date,m.joined_date) is null
+            or coalesce(p.actual_start_date,p.plan_start_date,m.joined_date)&lt;=#{periodEnd})
+          and (coalesce(p.actual_end_date,p.plan_end_date,m.left_date) is null
+            or coalesce(p.actual_end_date,p.plan_end_date,m.left_date)&gt;=#{periodStart})
+        order by coalesce(p.actual_start_date,p.plan_start_date,m.joined_date),p.project_id
     </select>
 
     <select id="selectBossOptions" resultType="map">

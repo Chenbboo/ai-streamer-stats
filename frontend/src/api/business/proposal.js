@@ -6,6 +6,7 @@ export const listProposalDirectory = params => request({ url: '/business/project
 export const getProjectProposal = id => request({ url: `/business/project-proposal/${id}`, method: 'get' })
 export const getProjectProposalOptions = () => request({ url: '/business/project-proposal/options', method: 'get' })
 export const getProjectProposalStaffOptions = params => request({ url: '/business/project-proposal/staff-options', method: 'get', params })
+export const getProjectProposalStaffAllocationPreview = params => request({ url: '/business/project-proposal/staff-allocation-preview', method: 'get', params })
 export const addProjectProposal = data => request({ url: '/business/project-proposal', method: 'post', data })
 export const updateProjectProposal = data => request({ url: '/business/project-proposal', method: 'put', data })
 export const deleteProjectProposal = id => request({ url: `/business/project-proposal/${id}`, method: 'delete' })

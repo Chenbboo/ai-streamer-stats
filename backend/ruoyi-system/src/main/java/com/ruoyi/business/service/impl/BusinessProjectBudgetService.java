@@ -55,6 +55,17 @@ public class BusinessProjectBudgetService
     public Map<String,Object> estimate(BusinessProjectProposal proposal) {
         ensureOwner(proposal);
         Map<String,Object> result=estimate(proposal,false);
+        if(proposal.getPlanStartDate()!=null){
+            LocalDate first=date(proposal.getPlanStartDate()).withDayOfMonth(1);
+            LocalDate last=proposal.getPlanEndDate()==null?first.plusMonths(11):date(proposal.getPlanEndDate()).withDayOfMonth(1);
+            List<Map<String,Object>> forecasts=new ArrayList<Map<String,Object>>();
+            for(LocalDate month=first;!month.isAfter(last)&&forecasts.size()<60;month=month.plusMonths(1))
+            {
+                Map<String,Object> forecast=monthlyForecast(proposal,month,false);
+                forecast.put("month",month.toString().substring(0,7));forecasts.add(forecast);
+            }
+            result.put("monthlyForecasts",forecasts);
+        }
         if(proposal.getPlanStartDate()!=null&&proposal.getPlanEndDate()==null){
             LocalDate first=date(proposal.getPlanStartDate()).withDayOfMonth(1);
             result.put("firstMonth",monthlyForecast(proposal,first,false));
@@ -176,7 +187,9 @@ public class BusinessProjectBudgetService
                     }
                     else if(projectEnd==null)personnel=personnel.add(monthly.multiply(new BigDecimal("QUARTER".equals(cycle)?3:1)));
                     else {if(member.get("dailyCost")==null)throw new ServiceException("缺少日用人成本");personnel=personnel.add(new BigDecimal(String.valueOf(member.get("dailyCost"))).multiply(BigDecimal.valueOf(java.time.temporal.ChronoUnit.DAYS.between(start,end)+1)));}
-                    addLegacyDailyCosts(dailyPersonnel,start,end,personnel.subtract(previousPersonnel),projectEnd==null&&"WEEK".equals(cycle));
+                    BigDecimal staffCost=personnel.subtract(previousPersonnel);
+                    addLegacyDailyCosts(dailyPersonnel,start,end,staffCost,projectEnd==null&&"WEEK".equals(cycle));
+                    staffStatus.put("amount",staffCost.setScale(2,RoundingMode.HALF_UP));staffStatus.put("currency",currency);
                     continue;
                 }
                 String participationMode=com.ruoyi.business.support.BusinessProposalParticipation.mode(staff,proposal);
@@ -191,7 +204,14 @@ public class BusinessProjectBudgetService
                 if(pricedTo.isBefore(pricedFrom))continue;
                 Map<String,Object> planned=new LinkedHashMap<String,Object>(staff);
                 planned.put("planStartDate",pricedFrom.toString());planned.put("planEndDate",pricedTo.toString());
-                planned.put("inputUnit","PERCENTAGE");planned.put("inputQuantity",100);planned.put("unitPolicyId",1L);
+                BigDecimal inputQuantity=staff.get("inputQuantity")==null?new BigDecimal("100"):new BigDecimal(String.valueOf(staff.get("inputQuantity")));
+                // 兼容改版前以 0 表示“仅参与”的草稿；新表单只允许录入 0 以上的比例。
+                if(inputQuantity.compareTo(BigDecimal.ZERO)==0)inputQuantity=new BigDecimal("100");
+                if(inputQuantity.compareTo(BigDecimal.ZERO)<=0||inputQuantity.compareTo(new BigDecimal("100"))>0)
+                    throw new ServiceException("人员投入比例必须大于0且不超过100%");
+                // 预算按每个有效工作日的完整日成本乘投入比例计算。这里用 100% 只取得工作日，
+                // 避免 8.33% 等比例换算成分钟时产生无意义的整数分钟校验误差。
+                planned.put("inputUnit","PERCENTAGE");planned.put("inputQuantity",new BigDecimal("100"));planned.put("unitPolicyId",1L);
                 List<Map<String,Object>> days=work.plannedWorkDays(planned);
                 Map<String,Object> calendar=mapper.selectCalendar(Long.valueOf(String.valueOf(planned.get("calendarId"))));
                 List<Map<String,Object>> rates=mapper.selectBudgetRates(userId,start.toString(),end.toString());
@@ -208,7 +228,7 @@ public class BusinessProjectBudgetService
                     if(matches.size()!=1){(matches.isEmpty()?missingDates:overlapDates).add(d);continue;}
                     Map<String,Object> rate=matches.get(0);
                     if(!currency.equals(String.valueOf(rate.get("currency")))){currencyDates.add(d);continue;}
-                    BigDecimal dayCost=pricing.amount(rate,calendar,d,new BigDecimal("100"));
+                    BigDecimal dayCost=pricing.amount(rate,calendar,d,inputQuantity);
                     staffCost=staffCost.add(dayCost);dailyPersonnel.merge(d,dayCost,BigDecimal::add);
                     Map<String,Object> period=new LinkedHashMap<>();
                     period.put("effectiveFrom",date(rate.get("effectiveFrom")).toString());
@@ -220,6 +240,7 @@ public class BusinessProjectBudgetService
                 addDateIssue(staffIssues,overlapDates,"存在重叠成本费率");
                 addDateIssue(staffIssues,currencyDates,"成本币种与项目币种不一致");
                 staffStatus.put("ratePeriods",new ArrayList<>(usedPeriods.values()));
+                if(staffIssues.isEmpty()){staffStatus.put("amount",staffCost.setScale(2,RoundingMode.HALF_UP));staffStatus.put("currency",currency);}
                 personnel=personnel.add(staffCost);
             }
             catch(ServiceException ex){staffIssues.add(ex.getMessage());}
@@ -263,6 +284,10 @@ public class BusinessProjectBudgetService
         int index=0;for(Map<String,Object> line:rows(lines)){
             String issue=com.ruoyi.business.support.BusinessProposalPlanDates.issue(line.get(field),proposal.getPlanStartDate(),proposal.getPlanEndDate(),label,++index);
             if(issue!=null)issues.add(issue);
+            if(("收入测算".equals(label)||"支出计划".equals(label))&&issue==null){
+                issue=com.ruoyi.business.support.BusinessProposalPlanDates.afterStartMonthIssue(line.get(field),proposal.getPlanStartDate(),label,index);
+                if(issue!=null)issues.add(issue);
+            }
         }
     }
     private void addDateIssue(List<String> issues,List<LocalDate> dates,String reason){

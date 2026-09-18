@@ -2043,6 +2043,29 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
+    void proposalRatioBecomesFormalProjectAllocationAndCannotOverbookPerson()
+    {
+        BusinessProject project=project(88L,9L,"ACTIVE","APPROVED");
+        project.setCostPolicyVersion(BusinessMemberDayCostService.POLICY);
+        BusinessProjectMember member=new BusinessProjectMember();member.setProjectId(88L);member.setUserId(12L);
+        member.setUserNameSnapshot("成员十二");member.setMemberRole("MEMBER");member.setJoinedDate(new Date());
+        when(mapper.selectUserAllocationWorkspace(eq(12L),any(Date.class))).thenReturn(Collections.emptyList());
+        when(mapper.sumAllocationPercentAtDate(eq(12L),any(Date.class))).thenReturn(new BigDecimal("30"));
+
+        org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"ensureDefaultProjectWeight",
+            project,member,"owner",new BigDecimal("40"));
+
+        ArgumentCaptor<BusinessProjectStaffAllocation> allocation=ArgumentCaptor.forClass(BusinessProjectStaffAllocation.class);
+        verify(mapper).insertProjectStaffAllocation(allocation.capture());
+        assertEquals(new BigDecimal("40.00"),allocation.getValue().getAllocationValue());
+        assertEquals("PENDING",allocation.getValue().getConfirmationStatus());
+
+        ServiceException error=assertThrows(ServiceException.class,()->org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+            service,"ensureDefaultProjectWeight",project,member,"owner",new BigDecimal("80")));
+        assertTrue(error.getMessage().contains("本项目最多可设置70%"));
+    }
+
+    @Test
     void independentFinanceRoleCanMaintainExplicitDailyRateOnlyInsideOwnCompany()
     {
         when(mapper.countUserRoleByKey(80L,"company_owner")).thenReturn(0);
@@ -2703,6 +2726,36 @@ class BusinessProjectServiceImplTest
         assertEquals(Arrays.asList(new BigDecimal("60"),new BigDecimal("40")),Arrays.asList(saved.getAllValues().get(0).getAllocationValue(),saved.getAllValues().get(1).getAllocationValue()));
         verify(memberDays).synchronizeAllocationChange(93L,java.sql.Date.valueOf("2026-09-11"),"owner9");
         verify(memberDays).synchronizeAllocationChange(94L,java.sql.Date.valueOf("2026-09-11"),"owner9");
+    }
+
+    @Test
+    void proposalAllocationPlanAddsNewProjectAtRequestedRatio()
+    {
+        Date effective=java.sql.Date.valueOf("2026-09-11");
+        Map<String,Object> previous=row("projectId",93L,"projectNo","XM93","projectName","既有项目",
+            "ownerUserId",9L,"ownerName","负责人九","allocationId",1L,"allocationVersion",0,
+            "allocationValue",new BigDecimal("60"),"confirmationStatus","CONFIRMED","allocationHistoryToken","1:1:0");
+        Map<String,Object> createdRow=row("projectId",94L,"projectNo","XM94","projectName","本次立项",
+            "ownerUserId",9L,"ownerName","负责人九","allocationId",null,"allocationVersion",null,
+            "allocationValue",BigDecimal.ZERO,"confirmationStatus",null,"allocationHistoryToken","1:1:0");
+        when(mapper.selectActiveUserById(11L)).thenReturn(row("nickName","成员十一"));
+        when(mapper.selectUserAllocationWorkspace(eq(11L),any(Date.class))).thenReturn(Arrays.asList(previous,createdRow));
+        BusinessProject oldProject=project(93L,9L,"ACTIVE","APPROVED");oldProject.setCostPolicyVersion(BusinessMemberDayCostService.POLICY);
+        BusinessProject newProject=project(94L,9L,"ACTIVE","APPROVED");newProject.setProjectName("本次立项");newProject.setMainOwnerName("负责人九");newProject.setCostPolicyVersion(BusinessMemberDayCostService.POLICY);
+        when(mapper.selectProjectById(93L)).thenReturn(oldProject);when(mapper.selectProjectById(94L)).thenReturn(newProject);
+        Map<String,Object> plan=row("effectiveDate","2026-09-11","versionToken","93:1:0:9:60:CONFIRMED:1:1:0;",
+            "reason","立项时重新安排投入","allocations",Collections.singletonList(row("projectId",93L,"allocationValue",60)));
+        Map<String,Object> line=row("userId",11L,"inputQuantity",40,"allocationPlan",plan);
+        BusinessProjectProposal proposal=new BusinessProjectProposal();proposal.setStaffingLines(Collections.singletonList(line));
+        BusinessProjectMember member=new BusinessProjectMember();member.setUserId(11L);member.setUserNameSnapshot("成员十一");member.setMemberRole("MEMBER");member.setJoinedDate(java.sql.Date.valueOf("2026-09-01"));
+
+        org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"applyProposalProjectWeight",
+            newProject,member,proposal,"owner9",true);
+
+        ArgumentCaptor<BusinessProjectStaffAllocation> saved=ArgumentCaptor.forClass(BusinessProjectStaffAllocation.class);
+        verify(mapper).insertProjectStaffAllocation(saved.capture());
+        assertEquals(94L,saved.getValue().getProjectId());assertEquals(new BigDecimal("40"),saved.getValue().getAllocationValue());
+        verify(memberDays).synchronizeAllocationChange(94L,effective,"负责人九");
     }
 
     @Test

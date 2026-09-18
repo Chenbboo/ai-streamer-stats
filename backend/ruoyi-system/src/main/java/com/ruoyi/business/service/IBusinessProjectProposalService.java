@@ -20,4 +20,6 @@ public interface IBusinessProjectProposalService
     Map<String, Object> options(Long userId);
     Map<String, Object> estimateBudget(BusinessProjectProposal proposal, Long userId);
     List<Map<String, Object>> staffOptions(Long companyDeptId, String effectiveDate, Long userId);
+    Map<String, Object> staffAllocationPreview(Long companyDeptId, Long staffUserId,
+        String effectiveDate, String periodEndDate, Long userId);
 }
