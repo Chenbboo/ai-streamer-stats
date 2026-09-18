@@ -193,14 +193,34 @@ public class BusinessProjectHierarchyMapperIntegrationTest
         }
     }
 
-    @Test void assigningParentOwnerCanSeeCreatedChildButNotOtherChildren() throws Exception {
+    @Test void parentOwnerCanSeeAllDirectChildrenButNotUnrelatedOrDeletedChildren() throws Exception {
         try (SqlSession session=factory.openSession();Statement sql=session.getConnection().createStatement()) {
             sql.execute("update biz_project set applicant_user_id=9 where project_id=10");
             BusinessProjectMapper mapper=session.getMapper(BusinessProjectMapper.class);
-            Map<String,Object> query=query(9L,false,false,"Needle");
-            assertEquals(10L,mapper.selectProjectRoots(query).get(0).getMatchedChildId());
-            query.remove("keyword");query.put("parentId",1L);
-            assertEquals(1,mapper.selectProjectList(query).size());assertEquals(10L,mapper.selectProjectList(query).get(0).getProjectId());
+            for (boolean boss : new boolean[] {false, true}) {
+                Map<String,Object> query=query(9L,false,boss,"Needle");
+                List<BusinessProject> roots=mapper.selectProjectRoots(query);
+                assertEquals(1,roots.size());
+                assertEquals(1L,roots.get(0).getProjectId());
+                assertEquals(10L,roots.get(0).getMatchedChildId());
+
+                // The current parent owner can also find a child they did not create.
+                query.put("keyword","Secret");
+                roots=mapper.selectProjectRoots(query);
+                assertEquals(1,roots.size());
+                assertEquals(11L,roots.get(0).getMatchedChildId());
+
+                query.remove("keyword");query.put("parentId",1L);
+                List<BusinessProject> children=mapper.selectProjectList(query);
+                Set<Long> childIds=new HashSet<>();
+                children.forEach(child -> childIds.add(child.getProjectId()));
+                assertEquals(2,children.size());
+                assertEquals(new HashSet<>(Arrays.asList(10L,11L)),childIds);
+
+                // Parent ownership does not grant access under another parent.
+                query.put("parentId",3L);
+                assertTrue(mapper.selectProjectList(query).isEmpty());
+            }
         }
     }
 
