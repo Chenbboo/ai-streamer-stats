@@ -82,7 +82,7 @@ class BusinessProjectBudgetServiceTest
     {
         p.setPlanStartDate(Date.valueOf("2026-08-01"));staff.put("planStartDate","2026-08-01");
         p.getBudget().put("cycle","WEEK");p.getBudget().put("anchorDate","2026-09-14");
-        p.getBudget().put("businessAmount",2000);
+        p.getBudget().put("businessAmount",6800);
         p.setRevenueLines(Arrays.asList(row("scenario","BASE","expectedAmount",1000,"occurrenceType","ONE_TIME","expectedDate","2026-09-15"),
             row("scenario","BASE","expectedAmount",7000,"occurrenceType","ONE_TIME","expectedDate","2026-09-01")));
         p.setExpenseLines(Arrays.asList(row("amount",800,"occurrenceType","ONE_TIME","occurDate","2026-09-15"),
@@ -139,6 +139,34 @@ class BusinessProjectBudgetServiceTest
     {p.setExpenseLines(Arrays.asList(row("amount",100,"occurDate","2026-10-01"),row("amount",300)));Map<String,Object> b=service.estimate(p);assertEquals(new BigDecimal("300.00"),b.get("plannedBusinessAmount"));p.getBudget().put("businessAmount",200);assertEquals("PENDING",service.estimate(p).get("status"));}
     @Test void emptyPersonnelPlanMeansZeroAndInvalidMoneyIsRejected()
     {p.setStaffingLines(Collections.emptyList());assertEquals(new BigDecimal("500.00"),service.estimate(p).get("totalAmount"));p.getBudget().put("businessAmount",-1);assertThrows(ServiceException.class,()->service.estimate(p));p.getBudget().put("businessAmount","0.001");assertThrows(ServiceException.class,()->service.estimate(p));}
+
+    @Test void totalBudgetCannotBeReducedBelowExpensesOutsideCurrentPeriod()
+    {
+        p.setStaffingLines(Collections.emptyList());
+        p.setExpenseLines(Arrays.asList(row("amount",100,"occurDate","2026-10-01"),row("amount",300)));
+        p.getBudget().put("businessAmount",350);
+        Map<String,Object> budget=service.estimate(p);
+        assertEquals(new BigDecimal("300.00"),budget.get("plannedBusinessAmount"));
+        assertEquals("PENDING",budget.get("status"));
+        assertTrue(((List<?>)budget.get("issues")).contains("业务预算不能低于全部支出计划金额合计 400.00 CNY"));
+        p.getBudget().put("businessAmount",450);
+        budget=service.estimate(p);
+        assertEquals("READY",budget.get("status"));
+        assertEquals(new BigDecimal("450.00"),budget.get("businessAmount"));
+        assertEquals(new BigDecimal("450.00"),budget.get("totalAmount"));
+    }
+
+    @Test void unspecifiedBusinessBudgetDefaultsToAllExpenseRows()
+    {
+        p.setStaffingLines(Collections.emptyList());
+        p.getBudget().remove("businessAmount");
+        p.setExpenseLines(Arrays.asList(row("amount",100,"occurDate","2026-10-01"),row("amount",300)));
+        Map<String,Object> budget=service.estimate(p);
+        assertEquals(new BigDecimal("400.00"),budget.get("businessAmount"));
+        assertEquals("READY",budget.get("status"));
+        p.setBudget(null);
+        assertEquals(new BigDecimal("400.00"),service.estimate(p).get("businessAmount"));
+    }
     @Test void invalidOrEmptyRowsCannotDisappear()
     {p.setStaffingLines(Arrays.asList((Map<String,Object>)null));assertThrows(ServiceException.class,()->service.estimate(p));}
 

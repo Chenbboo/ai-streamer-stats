@@ -73,6 +73,7 @@ public interface IBusinessProjectService
     BusinessProject transition(Long projectId, String action, String comment,
         Long userId, String userName, boolean boss);
     BusinessProjectMember saveMember(BusinessProjectMember member, Long userId, String userName, boolean boss);
+    Map<String,Object> memberAllocationPreview(Long projectId, Long staffUserId, Long userId, boolean boss);
     void removeMember(Long projectId, Long memberUserId, Long userId, String userName, boolean boss);
     void removeMember(Long projectId, Long memberUserId, boolean retainTodayCost,
         Long userId, String userName, boolean boss);

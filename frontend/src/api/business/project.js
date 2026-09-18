@@ -39,6 +39,7 @@ export const submitBusinessProjectStageAcceptance = (id, data) => request({ url:
 export const reviewBusinessProjectStageAcceptance = (id, milestoneId, data) => request({ url: `/business/project/${id}/stage-acceptance/${milestoneId}/review`, method: 'put', data })
 export const transitionBusinessProject = (id, data) => request({ url: `/business/project/${id}/transition`, method: 'post', data })
 export const saveBusinessProjectMember = data => request({ url: '/business/project/member', method: 'post', data })
+export const getBusinessMemberAllocationPreview = (projectId, userId) => request({ url: `/business/project/${projectId}/member-allocation-preview`, method: 'get', params: { userId } })
 export const removeBusinessProjectMember = (projectId, userId, retainTodayCost = false) => request({ url: `/business/project/${projectId}/member/${userId}`, method: 'delete', params: { retainTodayCost } })
 export const saveBusinessMilestone = data => request({ url: '/business/project/milestone', method: 'post', data })
 export const removeBusinessMilestone = (projectId, id) => request({ url: `/business/project/${projectId}/milestone/${id}`, method: 'delete' })

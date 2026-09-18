@@ -150,9 +150,21 @@ public class BusinessProjectBudgetService
         validateLineDates(proposal,proposal.getExpenseLines(),"occurDate","支出计划",issues);
         if(!"NO_TOTAL".equals(proposal.getGoalMode()))validateLineDates(proposal,proposal.getTargetLines(),"dueDate","量化目标",issues);
         BigDecimal external=plannedAmount(proposal.getExpenseLines(),"amount","occurDate",start,end,false,issues);
-        BigDecimal business=proposal.getBudget()==null||!"TOTAL".equals(mode)?external:money(input.get("businessAmount"),"业务预算",issues);
+        BigDecimal expensePlanTotal=BigDecimal.ZERO.setScale(2);
+        if ("TOTAL".equals(mode) && !resourcePlan)
+            for (Map<String,Object> line : rows(proposal.getExpenseLines()))
+                if (line.get("amount") != null && !"".equals(line.get("amount")))
+                    expensePlanTotal=expensePlanTotal.add(money(line.get("amount"),"计划支出",issues));
+        BigDecimal business=external;
+        if ("TOTAL".equals(mode))
+        {
+            if (!resourcePlan && input.get("businessAmount")==null) business=expensePlanTotal;
+            else if (proposal.getBudget()!=null) business=money(input.get("businessAmount"),"业务预算",issues);
+        }
         BigDecimal revenue=plannedAmount(proposal.getRevenueLines(),"expectedAmount","expectedDate",start,end,true,issues);
         if(business!=null&&external.compareTo(business)>0)issues.add("业务预算不能低于本期支出计划合计 "+external.toPlainString()+" "+currency);
+        if("TOTAL".equals(mode)&&!resourcePlan&&business!=null&&expensePlanTotal.compareTo(business)>0)
+            issues.add("业务预算不能低于全部支出计划金额合计 "+expensePlanTotal.toPlainString()+" "+currency);
         Map<LocalDate,BigDecimal> dailyPersonnel=new TreeMap<>();
         BusinessPersonnelCost pricing=new BusinessPersonnelCost();
         result.put("personnelCostRule",BusinessPersonnelCost.MONTHLY_RULE);

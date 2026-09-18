@@ -135,7 +135,7 @@ async function reviewAllocation(decision){
   try{const response=await reviewBusinessStaffAllocation(pendingRequest.value.requestId,{decision,comment:reviewComment.value.trim()});ElMessage.success(requestStatus[response.data.status]||'已确认，等待其他负责人');await loadAllocation();await load();emit('changed')}
   finally{allocationSaving.value=false}
 }
-defineExpose({openAllocation})
+defineExpose({openAllocation,reload:load})
 watch(() => props.projectId, () => { data.value = {}; load() }, { immediate: true })
 </script>
 <style scoped>

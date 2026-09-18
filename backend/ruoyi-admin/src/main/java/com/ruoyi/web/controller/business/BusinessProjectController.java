@@ -280,6 +280,13 @@ public class BusinessProjectController extends BaseController
         return success(projectService.staffAllocationWorkspace(userId, date, currentUserId(), isBoss()));
     }
 
+    @PreAuthorize("@ss.hasPermi('business:project:member')")
+    @GetMapping("/project/{projectId}/member-allocation-preview")
+    public AjaxResult memberAllocationPreview(@PathVariable Long projectId, @RequestParam Long userId)
+    {
+        return success(projectService.memberAllocationPreview(projectId, userId, currentUserId(), isBoss()));
+    }
+
     @PreAuthorize("@ss.hasPermi('business:project:allocation')")
     @Log(title = "项目投入权重", businessType = BusinessType.UPDATE)
     @PostMapping("/project/staff-allocation/workspace")

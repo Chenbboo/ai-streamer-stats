@@ -81,6 +81,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
 
     @Autowired
     private BusinessProjectMapper mapper;
+    @Autowired private com.ruoyi.business.mapper.BusinessProjectProposalMapper proposalMapper;
 
     @Autowired private com.ruoyi.business.mapper.BusinessAllocationRequestMapper allocationRequests;
     private final com.fasterxml.jackson.databind.ObjectMapper allocationJson = new com.fasterxml.jackson.databind.ObjectMapper();
@@ -1278,6 +1279,15 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     private Map<String, Object> saveStaffAllocationDistribution(Map<String, Object> body,
         Long userId, String userName, boolean boss, boolean confirmed)
     {
+        return saveStaffAllocationDistribution(body, userId, userName, boss, confirmed, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> saveStaffAllocationDistribution(Map<String, Object> body,
+        Long userId, String userName, boolean boss, boolean confirmed, Long managedProjectId)
+    {
+        if (managedProjectId != null) requireManage(requireProjectForUpdate(managedProjectId), userId, boss);
+        boolean canView = boss || managedProjectId != null;
         if (body == null || body.get("userId") == null) throw new ServiceException("请选择人员");
         Long staffUserId = Long.valueOf(String.valueOf(body.get("userId")));
         allocationRequests.lockEmployee(staffUserId);
@@ -1288,7 +1298,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         String reason = body.get("reason") == null ? null : String.valueOf(body.get("reason")).trim();
         if (StringUtils.isBlank(reason)) throw new ServiceException("请填写调整原因");
         if (reason.length() > 500) throw new ServiceException("调整原因不能超过500字");
-        Map<String, Object> current = staffAllocationWorkspace(staffUserId, effectiveDate, userId, boss);
+        Map<String, Object> current = staffAllocationWorkspace(staffUserId, effectiveDate, userId, canView);
         String expectedToken = body.get("versionToken") == null ? "" : String.valueOf(body.get("versionToken"));
         if (!expectedToken.equals(String.valueOf(current.get("versionToken"))))
             throw new ServiceException("投入权重已被其他人修改，请刷新后重新调整");
@@ -1311,6 +1321,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         List<Map<String, Object>> projects = (List<Map<String, Object>>) current.get("projects");
         Set<Long> required = new HashSet<Long>();
         for (Map<String, Object> row : projects) required.add(Long.valueOf(String.valueOf(row.get("projectId"))));
+        if (managedProjectId != null && !required.contains(managedProjectId))
+            throw new ServiceException("人员尚未加入当前项目，请刷新后重试");
         if (!required.equals(submitted.keySet())) throw new ServiceException("必须填写该人员当前参与的全部项目");
         if (total.compareTo(new BigDecimal("100")) != 0)
             throw new ServiceException("所有项目投入权重合计必须等于100%，当前为" + total.stripTrailingZeros().toPlainString() + "%");
@@ -1335,6 +1347,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             Long ownerId = Long.valueOf(String.valueOf(row.get("ownerUserId")));
             if (ownerId.equals(userId)) applicantOwnsProject = true;
             Long projectId = Long.valueOf(String.valueOf(row.get("projectId")));
+            if (projectId.equals(managedProjectId)) applicantOwnsProject = true;
             if (decimal(row.get("allocationValue")).compareTo(submitted.get(projectId)) != 0
                 || "PENDING".equals(row.get("confirmationStatus"))) {
                 affectedOwners.putIfAbsent(ownerId, row); affectedProjects.add(projectId);
@@ -1368,7 +1381,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
                 review.put("status", entry.getKey().equals(userId) ? "APPROVED" : "PENDING");
                 allocationRequests.insertReview(review);
             }
-            Map<String,Object> result = staffAllocationWorkspace(staffUserId, effectiveDate, userId, boss);
+            Map<String,Object> result = staffAllocationWorkspace(staffUserId, effectiveDate, userId, canView);
             result.put("outcome", "PENDING");
             return result;
         }
@@ -1398,7 +1411,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
                 staffName + " / 项目投入权重 / " + submitted.get(projectId).stripTrailingZeros().toPlainString() + "% / " + reason);
         }
         for (Long projectId : ordered) if (affectedProjects.contains(projectId)) memberDays.synchronizeAllocationChange(projectId, effectiveDate, userName);
-        Map<String,Object> result = staffAllocationWorkspace(staffUserId, effectiveDate, userId, boss);
+        Map<String,Object> result = staffAllocationWorkspace(staffUserId, effectiveDate, userId, canView);
         result.put("outcome", "APPLIED");
         return result;
     }
@@ -1572,6 +1585,13 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         }
 
         Map<String,Object> plan = (Map<String,Object>) rawPlan;
+        applyProjectMemberAllocationPlan(project, member, plan, ratio,
+            project.getMainOwnerUserId(), project.getMainOwnerName(), false, false);
+    }
+
+    private void applyProjectMemberAllocationPlan(BusinessProject project, BusinessProjectMember member,
+        Map<String,Object> plan, BigDecimal ratio, Long userId, String userName, boolean boss, boolean addingMember)
+    {
         Date effectiveDate = DateUtils.parseDate(String.valueOf(plan.get("effectiveDate")));
         if (effectiveDate == null || member.getJoinedDate() == null
             || effectiveDate.before(member.getJoinedDate()))
@@ -1601,6 +1621,13 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (!expected.equals(requested.keySet()))
             throw new ServiceException(member.getUserNameSnapshot() + "参与的项目已变化，请重新加载跨项目投入分配");
 
+        if (addingMember && requested.isEmpty())
+        {
+            ensureDefaultProjectWeight(project, member, userName, ratio);
+            member.setAllocationOutcome("APPLIED");
+            return;
+        }
+
         List<Map<String,Object>> allocations = new ArrayList<>();
         for (Map.Entry<Long,BigDecimal> entry : requested.entrySet())
         {
@@ -1618,7 +1645,61 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         body.put("reason", plan.get("reason"));
         body.put("versionToken", allocationVersionToken(workspace));
         body.put("allocations", allocations);
-        saveStaffAllocationDistribution(body, project.getMainOwnerUserId(), project.getMainOwnerName(), false, false);
+        Map<String,Object> result = saveStaffAllocationDistribution(body, userId, userName, boss, false,
+            addingMember ? project.getProjectId() : null);
+        if (addingMember) member.setAllocationOutcome(String.valueOf(result.get("outcome")));
+    }
+
+    private Date newMemberAllocationDate(BusinessProject project)
+    {
+        Date today = DateUtils.parseDate(DateUtils.getDate());
+        Date start = project.getPlanStartDate();
+        return start != null && start.after(today) ? normalizeLeaveDate(start, "项目开始日期不正确") : today;
+    }
+
+    @Override
+    public Map<String,Object> memberAllocationPreview(Long projectId, Long staffUserId, Long userId, boolean boss)
+    {
+        BusinessProject project = mapper.selectProjectById(projectId);
+        if (project == null) throw new ServiceException("项目不存在");
+        requireManage(project, userId, boss);
+        ensureMutable(project);
+        if (!BusinessMemberDayCostService.enabled(project)) throw new ServiceException("历史项目不支持投入权重调整");
+        if (staffUserId == null) throw new ServiceException("请选择人员");
+        Map<String,Object> staff = requireActiveUser(staffUserId);
+        if (mapper.selectMemberRole(projectId, staffUserId) != null)
+            throw new ServiceException("人员已在本项目中，请刷新成员列表");
+        Date effectiveDate = newMemberAllocationDate(project);
+        Date periodStart = project.getPlanStartDate() == null ? effectiveDate : project.getPlanStartDate();
+        Date periodEnd = project.getPlanEndDate();
+        List<Map<String,Object>> projects = effectiveAllocationWorkspace(staffUserId, effectiveDate);
+        Set<Long> currentIds = new HashSet<>();
+        for (Map<String,Object> row : projects)
+            if (!currentIds.add(Long.valueOf(String.valueOf(row.get("projectId")))))
+                throw new ServiceException("该人员存在重叠的投入记录，请先处理");
+        List<Map<String,Object>> periodProjects = new ArrayList<>();
+        List<Map<String,Object>> stored = proposalMapper.selectStaffAllocationPeriodProjects(staffUserId, periodStart, periodEnd);
+        if (stored != null) for (Map<String,Object> row : stored)
+        {
+            if (projectId.equals(Long.valueOf(String.valueOf(row.get("projectId"))))) continue;
+            Map<String,Object> copy = new LinkedHashMap<>(row);
+            boolean editable = currentIds.contains(Long.valueOf(String.valueOf(row.get("projectId"))));
+            Date start = DateUtils.parseDate(row.get("projectStartDate"));
+            Date end = DateUtils.parseDate(row.get("projectEndDate"));
+            copy.put("editable", editable);
+            copy.put("periodState", editable ? "CURRENT" : end != null && end.before(effectiveDate) ? "ENDED"
+                : start != null && start.after(effectiveDate) ? "UPCOMING" : "PERIOD");
+            periodProjects.add(copy);
+        }
+        Map<String,Object> result = new LinkedHashMap<>();
+        result.put("userId", staffUserId); result.put("userName", displayName(staff));
+        result.put("effectiveDate", DateUtils.parseDateToStr("yyyy-MM-dd", effectiveDate));
+        result.put("periodStartDate", DateUtils.parseDateToStr("yyyy-MM-dd", periodStart));
+        result.put("periodEndDate", periodEnd == null ? null : DateUtils.parseDateToStr("yyyy-MM-dd", periodEnd));
+        result.put("projects", projects); result.put("periodProjects", periodProjects);
+        result.put("versionToken", allocationVersionToken(projects));
+        result.put("hasPendingRequest", allocationRequests.selectPending(staffUserId) != null);
+        return result;
     }
 
     private void ensureDefaultProjectWeight(BusinessProject project, BusinessProjectMember member, String userName,
@@ -1657,7 +1738,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         allocation.setRemark(proposalRatio == null
             ? (available.compareTo(new BigDecimal("100")) == 0
                 ? "首次参与项目，系统默认投入权重100%" : "新增参与项目，待负责人重新分配投入权重")
-            : (used.signum() > 0 ? "立项设置投入比例，待相关项目负责人确认" : "立项设置投入比例并生效"));
+            : (used.signum() > 0 ? "设置投入比例，待相关项目负责人确认" : "设置投入比例并生效"));
         mapper.insertProjectStaffAllocation(allocation);
     }
 
@@ -2007,7 +2088,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public BusinessProjectMember saveMember(BusinessProjectMember member, Long userId, String userName, boolean boss)
     {
         BusinessProject project = requireProjectForUpdate(member.getProjectId());
@@ -2023,6 +2104,25 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         member.setJoinedDate(member.getJoinedDate() == null ? new Date() : member.getJoinedDate());
         String currentRole = mapper.selectMemberRole(project.getProjectId(), member.getUserId());
         requireDeputyAssignmentAuthority(project, userId, boss, currentRole, member.getMemberRole());
+        boolean hasAllocationPlan = member.getAllocationPlan() != null;
+        if (hasAllocationPlan)
+        {
+            if (currentRole != null || member.getMemberId() != null)
+                throw new ServiceException("人员已在本项目中，请刷新成员列表");
+            if (!BusinessMemberDayCostService.enabled(project) || "OBSERVER".equals(member.getMemberRole()))
+                throw new ServiceException("当前成员角色或项目不支持投入分配");
+            Date effectiveDate = newMemberAllocationDate(project);
+            if (!DateUtils.parseDateToStr("yyyy-MM-dd", effectiveDate).equals(String.valueOf(member.getAllocationPlan().get("effectiveDate"))))
+                throw new ServiceException("投入分配生效日期已变化，请重新加载");
+            BigDecimal percent = member.getAllocationPercent();
+            if (percent == null || percent.signum() <= 0 || percent.compareTo(new BigDecimal("100")) > 0
+                || percent.stripTrailingZeros().scale() > 2)
+                throw new ServiceException("成员投入比例必须大于0且不超过100%，最多保留两位小数");
+            allocationRequests.lockEmployee(member.getUserId());
+            if (allocationRequests.selectPending(member.getUserId()) != null)
+                throw new ServiceException("该员工已有待确认的投入调整，请先处理");
+            member.setJoinedDate(effectiveDate);
+        }
         if(BusinessMemberDayCostService.enabled(project)){
             memberDays.archiveMembership(project.getProjectId(),member.getUserId());
             Date roleDate=member.getRoleEffectiveDate()==null?DateUtils.parseDate(DateUtils.getDate()):member.getRoleEffectiveDate();
@@ -2031,7 +2131,11 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         }
         mapper.upsertMember(member);
         if (BusinessMemberDayCostService.enabled(project) && !"OBSERVER".equals(member.getMemberRole()))
-            ensureDefaultProjectWeight(project, member, userName);
+        {
+            if (hasAllocationPlan)
+                applyProjectMemberAllocationPlan(project, member, member.getAllocationPlan(), member.getAllocationPercent(), userId, userName, boss, true);
+            else ensureDefaultProjectWeight(project, member, userName, member.getAllocationPercent());
+        }
         grantProjectUser(member.getUserId(), false);
         if ("DEPUTY".equals(currentRole) || "DEPUTY".equals(member.getMemberRole()))
             syncProjectDeputyRole(member.getUserId());

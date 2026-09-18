@@ -65,6 +65,7 @@ class BusinessProjectServiceImplTest
 
     @Mock
     private BusinessProjectMapper mapper;
+    @Mock private com.ruoyi.business.mapper.BusinessProjectProposalMapper proposalMapper;
     @Mock private com.ruoyi.business.mapper.BusinessAllocationRequestMapper allocationRequests;
 
     @Mock
@@ -724,6 +725,210 @@ class BusinessProjectServiceImplTest
         verify(mapper).insertUserRole(10L, 18L);
         verify(mapper).insertUserRole(10L, 20L);
         verify(onlineUserPermissionService).refreshAfterCommit(10L);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "30"})
+    void addingMemberSavesSelectedAllocationWithExistingConfirmationRules(String used)
+    {
+        BusinessProjectMember member = allocationMember("MEMBER");
+        member.setAllocationPercent(new BigDecimal("25.50"));
+        when(mapper.sumAllocationPercentAtDate(eq(10L), any(Date.class))).thenReturn(new BigDecimal(used));
+
+        service.saveMember(member, 1L, "admin", true);
+
+        ArgumentCaptor<BusinessProjectStaffAllocation> allocation = ArgumentCaptor.forClass(BusinessProjectStaffAllocation.class);
+        verify(mapper).upsertMember(member);
+        verify(mapper).insertProjectStaffAllocation(allocation.capture());
+        assertEquals(new BigDecimal("25.50"), allocation.getValue().getAllocationValue());
+        assertEquals(Long.valueOf(52L), allocation.getValue().getProjectId());
+        assertEquals(Long.valueOf(10L), allocation.getValue().getUserId());
+        assertEquals("0".equals(used) ? "CONFIRMED" : "PENDING", allocation.getValue().getConfirmationStatus());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "-1", "100.01", "80"})
+    void addingMemberRejectsInvalidOrOverbookedAllocation(String percent)
+    {
+        BusinessProjectMember member = allocationMember("MEMBER");
+        member.setAllocationPercent(new BigDecimal(percent));
+        when(mapper.sumAllocationPercentAtDate(eq(10L), any(Date.class))).thenReturn(new BigDecimal("30"));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveMember(member, 1L, "admin", true));
+
+        assertTrue(error.getMessage().contains("80".equals(percent) ? "本项目最多可设置70%" : "必须大于0且不超过100%"));
+        verify(mapper, never()).insertProjectStaffAllocation(any());
+    }
+
+    @Test
+    void addingObserverDoesNotCreateCostAllocation()
+    {
+        BusinessProjectMember member = allocationMember("OBSERVER");
+        member.setAllocationPercent(new BigDecimal("50"));
+
+        service.saveMember(member, 1L, "admin", true);
+
+        verify(mapper).upsertMember(member);
+        verify(mapper, never()).insertProjectStaffAllocation(any());
+    }
+
+    @Test
+    void addingMemberWithoutExplicitAllocationKeepsDefaultBehavior()
+    {
+        BusinessProjectMember member = allocationMember("MEMBER");
+        when(mapper.sumAllocationPercentAtDate(eq(10L), any(Date.class))).thenReturn(new BigDecimal("30"));
+
+        service.saveMember(member, 1L, "admin", true);
+
+        ArgumentCaptor<BusinessProjectStaffAllocation> allocation = ArgumentCaptor.forClass(BusinessProjectStaffAllocation.class);
+        verify(mapper).insertProjectStaffAllocation(allocation.capture());
+        assertEquals(0, new BigDecimal("70").compareTo(allocation.getValue().getAllocationValue()));
+    }
+
+    private BusinessProjectMember allocationMember(String role)
+    {
+        BusinessProject project = project(52L, 1L, "ACTIVE", "APPROVED");
+        project.setCostPolicyVersion(BusinessMemberDayCostService.POLICY);
+        when(mapper.selectProjectById(52L)).thenReturn(project);
+        when(mapper.selectActiveUserById(10L)).thenReturn(Collections.singletonMap("nickName", "成员十"));
+        BusinessProjectMember member = new BusinessProjectMember();
+        member.setProjectId(52L);
+        member.setUserId(10L);
+        member.setMemberRole(role);
+        return member;
+    }
+
+    @Test
+    void memberPreviewIncludesEndedAndUpcomingPeriodProjects()
+    {
+        allocationMember("MEMBER");
+        Date today = com.ruoyi.common.utils.DateUtils.parseDate(com.ruoyi.common.utils.DateUtils.getDate());
+        when(proposalMapper.selectStaffAllocationPeriodProjects(eq(10L), any(Date.class), any()))
+            .thenReturn(Arrays.asList(row("projectId",90L,"projectEndDate","2000-01-01","allocationValue",20),
+                row("projectId",91L,"projectStartDate","2099-01-01","allocationValue",30)));
+        Map<String,Object> preview = service.memberAllocationPreview(52L,10L,1L,false);
+        List<Map<String,Object>> period = (List<Map<String,Object>>)preview.get("periodProjects");
+        assertEquals(2,period.size());
+        assertEquals("ENDED",period.get(0).get("periodState"));
+        assertEquals("UPCOMING",period.get(1).get("periodState"));
+        assertEquals(false,period.get(0).get("editable"));
+        assertEquals(com.ruoyi.common.utils.DateUtils.parseDateToStr("yyyy-MM-dd",today),preview.get("effectiveDate"));
+    }
+
+    @Test
+    void ordinaryMemberCannotPreviewAnotherEmployeesAllocation()
+    {
+        BusinessProject p=project(52L,1L,"ACTIVE","APPROVED");
+        p.setCostPolicyVersion(BusinessMemberDayCostService.POLICY);
+        when(mapper.selectProjectById(52L)).thenReturn(p);
+        when(mapper.selectMemberRole(52L,12L)).thenReturn("MEMBER");
+        assertThrows(ServiceException.class,()->service.memberAllocationPreview(52L,10L,12L,false));
+        verify(mapper,never()).selectUserAllocationWorkspace(anyLong(),any(Date.class));
+    }
+
+    @Test
+    void addingMemberSavesAllProjectRatiosTogether()
+    {
+        BusinessProjectMember member = memberWithAllocationPlan(1L);
+        service.saveMember(member,1L,"admin",false);
+        ArgumentCaptor<BusinessProjectStaffAllocation> saved=ArgumentCaptor.forClass(BusinessProjectStaffAllocation.class);
+        verify(mapper,times(2)).insertProjectStaffAllocation(saved.capture());
+        assertEquals("APPLIED",member.getAllocationOutcome());
+        assertTrue(saved.getAllValues().stream().anyMatch(a->a.getProjectId().equals(52L)&&a.getAllocationValue().compareTo(new BigDecimal("40"))==0));
+        assertTrue(saved.getAllValues().stream().anyMatch(a->a.getProjectId().equals(93L)&&a.getAllocationValue().compareTo(new BigDecimal("60"))==0));
+        verify(allocationRequests,never()).insertRequest(any());
+    }
+
+    @Test
+    void memberWithoutOtherProjectsKeepsSelectedPercentage()
+    {
+        BusinessProjectMember member=allocationMember("MEMBER");
+        Map<String,Object> preview=service.memberAllocationPreview(52L,10L,1L,false);
+        member.setAllocationPercent(new BigDecimal("25.50"));
+        member.setAllocationPlan(row("effectiveDate",preview.get("effectiveDate"),"versionToken",preview.get("versionToken"),
+            "allocations",Collections.emptyList()));
+        service.saveMember(member,1L,"admin",false);
+        ArgumentCaptor<BusinessProjectStaffAllocation> saved=ArgumentCaptor.forClass(BusinessProjectStaffAllocation.class);
+        verify(mapper).insertProjectStaffAllocation(saved.capture());
+        assertEquals(new BigDecimal("25.50"),saved.getValue().getAllocationValue());
+        assertEquals("APPLIED",member.getAllocationOutcome());
+    }
+
+    @Test
+    void deputyAddingMemberRequestsConfirmationUnderTheirOwnIdentity()
+    {
+        BusinessProjectMember member=memberWithAllocationPlan(9L);
+        when(mapper.selectMemberRole(52L,12L)).thenReturn("DEPUTY");
+        when(mapper.selectActiveUserById(12L)).thenReturn(row("nickName","副负责人十二"));
+        service.saveMember(member,12L,"deputy12",false);
+        ArgumentCaptor<Map<String,Object>> request=ArgumentCaptor.forClass(Map.class);
+        verify(allocationRequests).insertRequest(request.capture());
+        assertEquals(12L,request.getValue().get("applicantId"));
+        assertEquals("PENDING",member.getAllocationOutcome());
+        verify(mapper,never()).insertProjectStaffAllocation(any());
+        ArgumentCaptor<Map<String,Object>> reviews=ArgumentCaptor.forClass(Map.class);
+        verify(allocationRequests,times(2)).insertReview(reviews.capture());
+        assertTrue(reviews.getAllValues().stream().allMatch(review->"PENDING".equals(review.get("status"))));
+    }
+
+    @Test
+    void addingMemberAcrossOwnersCreatesConfirmationWithoutChangingExistingRatios()
+    {
+        BusinessProjectMember member = memberWithAllocationPlan(9L);
+        when(mapper.selectActiveUserById(1L)).thenReturn(row("nickName","管理员"));
+        service.saveMember(member,1L,"admin",false);
+        assertEquals("PENDING",member.getAllocationOutcome());
+        ArgumentCaptor<Map<String,Object>> request=ArgumentCaptor.forClass(Map.class);
+        verify(allocationRequests).insertRequest(request.capture());
+        assertEquals(1L,request.getValue().get("applicantId"));
+        verify(mapper,never()).insertProjectStaffAllocation(any());
+        verify(allocationRequests,times(2)).insertReview(any());
+    }
+
+    @Test
+    void staleMemberAllocationPlanCannotOverwriteOtherProjects()
+    {
+        BusinessProjectMember member = memberWithAllocationPlan(1L);
+        member.getAllocationPlan().put("versionToken","stale");
+        ServiceException error=assertThrows(ServiceException.class,()->service.saveMember(member,1L,"admin",false));
+        assertTrue(error.getMessage().contains("其他项目投入已变化"));
+        verify(mapper,never()).insertProjectStaffAllocation(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings={"total","reason","projects","date","pending"})
+    void invalidMemberAllocationPlansAreRejected(String invalid)
+    {
+        BusinessProjectMember member = memberWithAllocationPlan(1L);
+        if("total".equals(invalid))member.setAllocationPercent(new BigDecimal("50"));
+        if("reason".equals(invalid))member.getAllocationPlan().put("reason","");
+        if("projects".equals(invalid))member.getAllocationPlan().put("allocations",Collections.emptyList());
+        if("date".equals(invalid))member.getAllocationPlan().put("effectiveDate","2000-01-01");
+        if("pending".equals(invalid))when(allocationRequests.selectPending(10L)).thenReturn(row("requestId",5L));
+        assertThrows(ServiceException.class,()->service.saveMember(member,1L,"admin",false));
+        verify(mapper,never()).insertProjectStaffAllocation(any());
+        verify(allocationRequests,never()).insertRequest(any());
+    }
+
+    private BusinessProjectMember memberWithAllocationPlan(Long otherOwner)
+    {
+        BusinessProjectMember member=allocationMember("MEMBER");
+        Map<String,Object> old=row("projectId",93L,"projectName","既有项目","ownerUserId",otherOwner,"ownerName","原负责人",
+            "allocationId",1L,"allocationVersion",0,"allocationValue",100,"confirmationStatus","CONFIRMED","allocationHistoryToken","1:1:0");
+        Map<String,Object> current=row("projectId",52L,"projectName","本项目","ownerUserId",1L,"ownerName","管理员",
+            "allocationValue",0,"allocationHistoryToken","1:1:0");
+        java.util.concurrent.atomic.AtomicBoolean added=new java.util.concurrent.atomic.AtomicBoolean();
+        when(mapper.selectUserAllocationWorkspace(eq(10L),any(Date.class)))
+            .thenAnswer(call->added.get()?Arrays.asList(current,old):Collections.singletonList(old));
+        lenient().doAnswer(call->{added.set(true);return 1;}).when(mapper).upsertMember(member);
+        BusinessProject other=project(93L,otherOwner,"ACTIVE","APPROVED");other.setCostPolicyVersion(BusinessMemberDayCostService.POLICY);
+        lenient().when(mapper.selectProjectById(93L)).thenReturn(other);
+        Map<String,Object> preview=service.memberAllocationPreview(52L,10L,1L,false);
+        member.setAllocationPercent(new BigDecimal("40"));
+        member.setAllocationPlan(row("effectiveDate",preview.get("effectiveDate"),"versionToken",preview.get("versionToken"),
+            "reason","新增成员分配投入","allocations",Collections.singletonList(row("projectId",93L,"allocationValue",60))));
+        return member;
     }
 
     @Test

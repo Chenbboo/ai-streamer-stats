@@ -63,6 +63,8 @@ class BusinessProjectControllerPermissionTest
         expected.put("deleteStaffCostPolicy", "@ss.hasAnyPermi('business:staff:cost,business:staff:list')");
         expected.put("voidStaffCostPolicy", "@ss.hasAnyPermi('business:staff:cost,business:staff:list')");
         expected.put("saveStaffAllocation", "@ss.hasPermi('business:project:allocation')");
+        expected.put("memberAllocationPreview", "@ss.hasPermi('business:project:member')");
+        expected.put("saveMember", "@ss.hasPermi('business:project:member')");
         expected.put("removeStaffAllocation", "@ss.hasPermi('business:project:allocation')");
         expected.put("confirmProjectEffortWeek", "@ss.hasPermi('business:project:allocation')");
         expected.put("confirmMemberEffort", "@ss.hasPermi('business:project:allocation')");
