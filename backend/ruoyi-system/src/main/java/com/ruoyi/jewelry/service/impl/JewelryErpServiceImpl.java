@@ -97,6 +97,110 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     }
 
     @Override
+    @Transactional
+    public int batchUpdateProducts(com.ruoyi.jewelry.domain.JewelryProductBatchUpdate request,
+        boolean fullEdit, String userName)
+    {
+        if (request == null || request.getProductIds() == null || request.getProductIds().isEmpty()
+            || request.getProductIds().size() > 200)
+            throw new ServiceException("请选择1到200件商品进行批量编辑");
+        Set<Long> uniqueIds = new java.util.TreeSet<Long>();
+        for (Long id : request.getProductIds())
+            if (id == null || id <= 0 || !uniqueIds.add(id))
+                throw new ServiceException("商品ID无效或重复，请重新选择");
+        Map<String, Object> input = request.getChanges();
+        if (input == null || input.isEmpty()) throw new ServiceException("请勾选需要修改的字段");
+        Set<String> allowed = new HashSet<String>(Arrays.asList("productName", "imageUrls"));
+        if (fullEdit) allowed.addAll(Arrays.asList("productType", "category", "specification", "unit",
+            "warningQty", "status", "defaultPackFee", "defaultShipFee", "defaultCertFee"));
+        Map<String, Object> changes = new HashMap<String, Object>();
+        for (Map.Entry<String, Object> entry : input.entrySet())
+        {
+            String key = entry.getKey();
+            if (!allowed.contains(key)) throw new ServiceException("无权批量修改该字段或字段不支持：" + key);
+            Object value = entry.getValue();
+            if (value == null) throw new ServiceException("已勾选的修改字段不能为null");
+            if ("warningQty".equals(key))
+            {
+                try
+                {
+                    int quantity = new BigDecimal(String.valueOf(value)).intValueExact();
+                    if (quantity < 0) throw new ArithmeticException();
+                    changes.put(key, quantity);
+                }
+                catch (NumberFormatException | ArithmeticException ex)
+                {
+                    throw new ServiceException("库存预警值必须是0到2147483647之间的整数");
+                }
+            }
+            else if (key.startsWith("default"))
+            {
+                BigDecimal fee = decimalValue(value, "默认费用");
+                if (fee.signum() < 0 || fee.compareTo(new BigDecimal("999999999999.99")) > 0
+                    || fee.stripTrailingZeros().scale() > 2)
+                    throw new ServiceException("默认费用必须为非负数、最多保留2位小数，且不能超过999999999999.99");
+                changes.put(key, fee);
+            }
+            else
+            {
+                if (!(value instanceof String)) throw new ServiceException("字段格式不正确：" + key);
+                String text = ((String) value).trim();
+                if ("productType".equals(key) && !PRODUCT_TYPES.contains(text))
+                    throw new ServiceException("商品类型不正确");
+                if ("specification".equals(key) && !SPECIFICATION_TYPES.contains(text))
+                    throw new ServiceException("规格类型不正确");
+                if ("status".equals(key) && !Arrays.asList("0", "1").contains(text))
+                    throw new ServiceException("商品状态不正确");
+                int maxLength = "productName".equals(key) ? 128 : "category".equals(key) ? 64
+                    : "imageUrls".equals(key) ? 500 : 16;
+                if (text.length() > maxLength) throw new ServiceException("字段内容过长：" + key);
+                if (("productName".equals(key) || "unit".equals(key)) && text.isEmpty())
+                    throw new ServiceException("商品名称和单位不能为空");
+                if ("imageUrls".equals(key) && text.contains(","))
+                    throw new ServiceException("每个商品只支持一张实物图片");
+                changes.put(key, text);
+            }
+        }
+        List<Long> ids = new java.util.ArrayList<Long>(uniqueIds);
+        if (mapper.lockProductIds(ids).size() != ids.size())
+            throw new ServiceException("部分商品已不存在，请刷新后重新选择；本次未修改任何商品");
+        mapper.batchUpdateProducts(ids, changes, userName);
+        return ids.size();
+    }
+
+    @Override
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+    public int deleteProducts(List<Long> productIds)
+    {
+        if (productIds == null || productIds.isEmpty() || productIds.size() > 200)
+            throw new ServiceException("请选择1到200件商品删除");
+        java.util.SortedSet<Long> uniqueIds = new java.util.TreeSet<Long>();
+        for (Long id : productIds)
+            if (id == null || id <= 0 || !uniqueIds.add(id))
+                throw new ServiceException("商品ID无效或重复，请重新选择");
+        List<Long> ids = new java.util.ArrayList<Long>(uniqueIds);
+        if (mapper.lockProductIds(ids).size() != ids.size())
+            throw new ServiceException("部分商品已不存在，请刷新后重新选择；本次未删除任何商品");
+        for (Long id : ids)
+        {
+            Map<String, Object> product = mapper.selectProductByIdForUpdate(id);
+            String name = textValue(product.get("sku"));
+            Map<String, Object> stock = mapper.selectStockForUpdate(id);
+            if (stock != null)
+                for (String key : Arrays.asList("onHandQty", "reservedOutQty", "inspectionQty",
+                    "inspectionReservedQty", "defectQty", "defectReservedQty", "inspectionCostAmount", "defectCostAmount"))
+                    if (decimal(stock.get(key)).signum() != 0)
+                        throw new ServiceException(name + "仍有库存、冻结或待检/次品余额，不能删除，请使用停用；本次未删除任何商品");
+            if (mapper.countProductReferences(id) > 0)
+                throw new ServiceException(name + "已有关联单据、库存流水或达人关系，不能删除，请使用停用；本次未删除任何商品");
+        }
+        mapper.deleteProductStock(ids);
+        if (mapper.deleteProducts(ids) != ids.size())
+            throw new ServiceException("商品数据已变化，请刷新后重试");
+        return ids.size();
+    }
+
+    @Override
     public List<Map<String, Object>> listSuppliers(Map<String, Object> query) { return mapper.selectSupplierList(query); }
 
     @Override
@@ -1004,7 +1108,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         for (JewelryDocumentItem item : document.getItems())
         {
             if (item.getProductId() == null) throw new ServiceException("请选择商品");
-            Map<String, Object> product = mapper.selectProductById(item.getProductId());
+            // Serialize new document references with product deletion.
+            Map<String, Object> product = mapper.selectProductByIdForUpdate(item.getProductId());
             if (product == null) throw new ServiceException("商品不存在或已删除");
             if (!"0".equals(String.valueOf(product.get("status"))))
                 throw new ServiceException("商品已停用，不能继续使用");

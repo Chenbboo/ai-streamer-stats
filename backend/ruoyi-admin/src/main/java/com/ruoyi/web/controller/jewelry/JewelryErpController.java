@@ -31,6 +31,7 @@ import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.jewelry.domain.JewelryDocument;
 import com.ruoyi.jewelry.domain.JewelryProductExportRow;
+import com.ruoyi.jewelry.domain.JewelryProductBatchUpdate;
 import com.ruoyi.jewelry.mapper.JewelryErpMapper;
 import com.ruoyi.jewelry.service.JewelryDocumentExcelService;
 import com.ruoyi.jewelry.service.IJewelryErpService;
@@ -194,6 +195,26 @@ public class JewelryErpController extends BaseController
         body.put(editing ? "updateBy" : "createBy", SecurityUtils.getUsername());
         body.put("status", defaultString(body.get("status"), "0"));
         return toAjax(service.saveProduct(body));
+    }
+
+    @Log(title = "珠宝商品删除", businessType = BusinessType.DELETE)
+    @PreAuthorize("@ss.hasPermi('jewelry:product:remove')")
+    @DeleteMapping("/product")
+    public AjaxResult deleteProducts(@RequestBody List<Long> productIds)
+    {
+        if (!hasPermission("jewelry:product:remove")) return error("无权删除商品");
+        return success(service.deleteProducts(productIds));
+    }
+
+    @Log(title = "珠宝商品批量编辑", businessType = BusinessType.UPDATE)
+    @PreAuthorize("@ss.hasAnyPermi('jewelry:product:edit,jewelry:product:basic-edit')")
+    @PutMapping("/product/batch")
+    public AjaxResult batchUpdateProducts(@RequestBody JewelryProductBatchUpdate body)
+    {
+        boolean fullEdit = hasPermission("jewelry:product:edit");
+        if (!fullEdit && !hasPermission("jewelry:product:basic-edit"))
+            return error("无权批量修改商品档案");
+        return success(service.batchUpdateProducts(body, fullEdit, SecurityUtils.getUsername()));
     }
 
     @PreAuthorize("@ss.hasPermi('jewelry:supplier:list')")

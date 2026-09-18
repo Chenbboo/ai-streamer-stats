@@ -7,6 +7,8 @@ export const updateJewelryStaff = (data) => request({ url: '/jewelry/staff', met
 export const listJewelryProducts = (params) => request({ url: '/jewelry/product/list', method: 'get', params })
 export const listJewelryProductOptions = (params) => request({ url: '/jewelry/product/options', method: 'get', params })
 export const saveJewelryProduct = (data) => request({ url: '/jewelry/product', method: 'post', data })
+export const batchUpdateJewelryProducts = (data) => request({ url: '/jewelry/product/batch', method: 'put', data })
+export const deleteJewelryProducts = (data) => request({ url: '/jewelry/product', method: 'delete', data })
 export const listJewelrySuppliers = (params) => request({ url: '/jewelry/supplier/list', method: 'get', params })
 export const saveJewelrySupplier = (data) => request({ url: '/jewelry/supplier', method: 'post', data })
 export const listJewelryInfluencers = (params) => request({ url: '/jewelry/influencer/list', method: 'get', params })

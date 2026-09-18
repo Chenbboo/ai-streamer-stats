@@ -343,12 +343,13 @@ insert into sys_menu(
 (3118, '修改商品名称图片', 3003, 3, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:product:basic-edit', '#', 'admin', sysdate(), '', null, '仅允许修改已有商品名称和图片', 'Sửa tên và ảnh sản phẩm'),
 (3119, '新增达人/主播', 3011, 1, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:influencer:add', '#', 'admin', sysdate(), '', null, '', 'Thêm KOL/Streamer'),
 (3120, '修改达人/主播', 3011, 2, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:influencer:edit', '#', 'admin', sysdate(), '', null, '', 'Sửa KOL/Streamer'),
-(3121, '修改达人商品固定价', 3011, 3, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:influencer:price', '#', 'admin', sysdate(), '', null, '', 'Sửa giá cố định theo sản phẩm');
+(3121, '修改达人商品固定价', 3011, 3, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:influencer:price', '#', 'admin', sysdate(), '', null, '', 'Sửa giá cố định theo sản phẩm'),
+(3122, '删除商品', 3003, 4, '#', '', '', '', 1, 0, 'F', '0', '0', 'jewelry:product:remove', '#', 'admin', sysdate(), '', null, '仅允许删除零库存且从未使用的商品', 'Xóa sản phẩm');
 
 -- 制单员菜单权限。
 insert ignore into sys_role_menu(role_id, menu_id)
 select r.role_id, m.menu_id from sys_role r
-join sys_menu m on m.menu_id in (3000,3002,3003,3004,3005,3006,3009,3010,3011,3103,3107,3108,3109,3110,3118,3119)
+join sys_menu m on m.menu_id in (3000,3002,3003,3004,3005,3006,3009,3010,3011,3103,3104,3107,3108,3109,3110,3118,3119,3122)
 where r.role_key = 'jewelry_maker' and r.del_flag = '0';
 
 -- 审核员菜单权限。

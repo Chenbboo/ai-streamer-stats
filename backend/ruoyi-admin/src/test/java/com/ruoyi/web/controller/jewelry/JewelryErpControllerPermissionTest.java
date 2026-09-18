@@ -42,6 +42,7 @@ import com.ruoyi.common.core.domain.model.LoginUser;
 import com.ruoyi.jewelry.service.JewelryDocumentExcelService;
 import com.ruoyi.jewelry.service.IJewelryErpService;
 import com.ruoyi.jewelry.domain.JewelryDocument;
+import com.ruoyi.jewelry.domain.JewelryProductBatchUpdate;
 
 class JewelryErpControllerPermissionTest
 {
@@ -254,9 +255,64 @@ class JewelryErpControllerPermissionTest
         verify(service).directAdjustCosts(document, 20L, "jewelry_admin", "jewelry_admin");
     }
 
+    @Test
+    void batchProductUpdatePreservesMakerReviewerAndAdminPermissions()
+    {
+        assertEquals("@ss.hasAnyPermi('jewelry:product:edit,jewelry:product:basic-edit')", authorization("batchUpdateProducts"));
+        IJewelryErpService service = mock(IJewelryErpService.class);
+        JewelryErpController controller = new JewelryErpController();
+        ReflectionTestUtils.setField(controller, "service", service);
+        JewelryProductBatchUpdate request = new JewelryProductBatchUpdate();
+        request.setProductIds(Arrays.asList(1L, 2L));
+        request.setChanges(Collections.<String, Object>singletonMap("productName", "新名称"));
+        loginAs("jewelry_reviewer", Collections.singleton("jewelry:product:list"));
+        assertFalse(controller.batchUpdateProducts(request).isSuccess());
+        loginAsMakerWithProductAdd();
+        assertFalse(controller.batchUpdateProducts(request).isSuccess());
+        verify(service, never()).batchUpdateProducts(any(), any(Boolean.class), any());
+        loginAs("jewelry_maker", Collections.singleton("jewelry:product:basic-edit"));
+        assertTrue(controller.batchUpdateProducts(request).isSuccess());
+        verify(service).batchUpdateProducts(request, false, "jewelry_maker");
+        loginAs("jewelry_admin", Collections.singleton("jewelry:product:edit"));
+        assertTrue(controller.batchUpdateProducts(request).isSuccess());
+        verify(service).batchUpdateProducts(request, true, "jewelry_admin");
+    }
+
     private void loginAsMakerWithProductAdd()
     {
         loginAs("jewelry_maker", Collections.singleton("jewelry:product:add"));
+    }
+
+    @Test
+    void productFullEditAndDeletePermitMakerAndAdminButNotReviewer()
+    {
+        assertEquals("@ss.hasPermi('jewelry:product:remove')", authorization("deleteProducts"));
+        IJewelryErpService service = mock(IJewelryErpService.class);
+        when(service.saveProduct(any())).thenReturn(1);
+        JewelryErpController controller = new JewelryErpController();
+        ReflectionTestUtils.setField(controller, "service", service);
+        JewelryProductBatchUpdate request = new JewelryProductBatchUpdate();
+        request.setProductIds(Arrays.asList(1L, 2L));
+        request.setChanges(Collections.<String, Object>singletonMap("productType", "SAMPLE"));
+        loginAs("jewelry_reviewer", Collections.singleton("jewelry:product:list"));
+        assertFalse(controller.deleteProducts(Arrays.asList(1L, 2L)).isSuccess());
+        assertFalse(controller.batchUpdateProducts(request).isSuccess());
+        verify(service, never()).deleteProducts(any());
+        for (String role : Arrays.asList("jewelry_maker", "jewelry_admin"))
+        {
+            loginAs(role, new HashSet<String>(Arrays.asList("jewelry:product:edit", "jewelry:product:remove")));
+            assertTrue(controller.batchUpdateProducts(request).isSuccess());
+            verify(service).batchUpdateProducts(request, true, role);
+            assertTrue(controller.deleteProducts(Arrays.asList(1L, 2L)).isSuccess());
+            Map<String, Object> product = new HashMap<String, Object>();
+            product.put("productId", 1L);
+            product.put("sku", "SKU-1");
+            product.put("productName", "商品");
+            assertTrue(controller.saveProduct(product).isSuccess());
+        }
+        verify(service, org.mockito.Mockito.times(2)).deleteProducts(Arrays.asList(1L, 2L));
+        verify(service, org.mockito.Mockito.times(2)).saveProduct(any());
+        verify(service, never()).updateProductBasic(any());
     }
 
     private void loginAs(String roleKey, java.util.Set<String> permissions)

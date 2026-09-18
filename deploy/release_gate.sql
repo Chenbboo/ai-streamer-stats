@@ -356,4 +356,15 @@ from (
   select count(*) from biz_staff_menu_permission permission
     where exists(select 1 from sys_user_role ur join sys_role role on role.role_id=ur.role_id
       where ur.user_id=permission.user_id and role.role_key='company_owner' and role.del_flag='0')
+  union all
+  select count(*) from sys_role r
+    cross join (select 'jewelry:product:edit' perm union all select 'jewelry:product:remove') required_perm
+    where r.role_key in ('jewelry_maker','jewelry_admin') and r.del_flag='0'
+      and not exists(select 1 from sys_role_menu rm join sys_menu m on m.menu_id=rm.menu_id
+        where rm.role_id=r.role_id and m.perms=required_perm.perm and m.status='0')
+  union all
+  select count(*) from sys_role r join sys_role_menu rm on rm.role_id=r.role_id
+    join sys_menu m on m.menu_id=rm.menu_id
+    where r.role_key='jewelry_reviewer' and r.del_flag='0'
+      and m.perms in ('jewelry:product:edit','jewelry:product:basic-edit','jewelry:product:remove')
 ) release_gate;

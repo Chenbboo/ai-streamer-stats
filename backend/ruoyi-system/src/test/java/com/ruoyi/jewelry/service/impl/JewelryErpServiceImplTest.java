@@ -31,6 +31,7 @@ import org.springframework.dao.DuplicateKeyException;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.jewelry.domain.JewelryDocument;
 import com.ruoyi.jewelry.domain.JewelryDocumentItem;
+import com.ruoyi.jewelry.domain.JewelryProductBatchUpdate;
 import com.ruoyi.jewelry.mapper.JewelryErpMapper;
 
 @ExtendWith(MockitoExtension.class)
@@ -55,6 +56,8 @@ class JewelryErpServiceImplTest
         lenient().when(mapper.updateDocumentStatus(anyLong(), anyString(), anyString(), anyLong(), anyString(),
             any(), any())).thenReturn(1);
         lenient().when(mapper.selectProductById(anyLong())).thenReturn(product());
+        lenient().when(mapper.selectProductByIdForUpdate(anyLong()))
+            .thenAnswer(invocation -> mapper.selectProductById(invocation.getArgument(0)));
         lenient().when(mapper.selectStockForUpdate(anyLong()))
             .thenReturn(stock(10, 0, 0, 0, 0, 0, "100.00", "0", "0"));
         lenient().when(mapper.selectSupplierById(anyLong())).thenReturn(activeSupplier());
@@ -879,6 +882,75 @@ class JewelryErpServiceImplTest
         ServiceException wrongSupplier = assertThrows(ServiceException.class,
             () -> service.saveDocument(supplierReturn, MAKER_ID, "maker"));
         assertTrue(wrongSupplier.getMessage().contains("供应商不一致"));
+    }
+
+    @Test
+    void deleteUnusedProductsValidatesAllBeforeDeletingInSortedOrder() throws Exception
+    {
+        when(mapper.lockProductIds(Arrays.asList(1L, 2L))).thenReturn(Arrays.asList(1L, 2L));
+        when(mapper.selectStockForUpdate(anyLong())).thenReturn(stock(0, 0, 0, 0, 0, 0, "100", "0", "0"));
+        when(mapper.deleteProducts(Arrays.asList(1L, 2L))).thenReturn(2);
+        assertEquals(2, service.deleteProducts(Arrays.asList(2L, 1L)));
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(mapper);
+        order.verify(mapper).countProductReferences(1L);
+        order.verify(mapper).countProductReferences(2L);
+        order.verify(mapper).deleteProductStock(Arrays.asList(1L, 2L));
+        order.verify(mapper).deleteProducts(Arrays.asList(1L, 2L));
+        assertEquals(org.springframework.transaction.annotation.Isolation.READ_COMMITTED,
+            JewelryErpServiceImpl.class.getMethod("deleteProducts", java.util.List.class)
+                .getAnnotation(org.springframework.transaction.annotation.Transactional.class).isolation());
+    }
+
+    @Test
+    void deleteRejectsEveryInventoryBucketAndCostBalanceWithoutPartialDeletion()
+    {
+        when(mapper.lockProductIds(Arrays.asList(1L, 2L))).thenReturn(Arrays.asList(1L, 2L));
+        when(mapper.selectStockForUpdate(1L)).thenReturn(stock(0, 0, 0, 0, 0, 0, "0", "0", "0"));
+        for (String key : Arrays.asList("onHandQty", "reservedOutQty", "inspectionQty", "inspectionReservedQty",
+            "defectQty", "defectReservedQty", "inspectionCostAmount", "defectCostAmount"))
+        {
+            Map<String, Object> balance = stock(0, 0, 0, 0, 0, 0, "0", "0", "0");
+            balance.put(key, BigDecimal.ONE);
+            when(mapper.selectStockForUpdate(2L)).thenReturn(balance);
+            assertTrue(assertThrows(ServiceException.class, () -> service.deleteProducts(Arrays.asList(1L, 2L)))
+                .getMessage().contains("停用"));
+        }
+        verify(mapper, never()).deleteProductStock(any());
+        verify(mapper, never()).deleteProducts(any());
+    }
+
+    @Test
+    void deleteRejectsHistoryEvenWhenAllInventoryIsZero()
+    {
+        when(mapper.lockProductIds(Arrays.asList(1L, 2L))).thenReturn(Arrays.asList(1L, 2L));
+        when(mapper.selectStockForUpdate(anyLong())).thenReturn(stock(0, 0, 0, 0, 0, 0, "0", "0", "0"));
+        when(mapper.countProductReferences(anyLong())).thenAnswer(invocation -> Long.valueOf(2L).equals(invocation.getArgument(0)) ? 1 : 0);
+        assertTrue(assertThrows(ServiceException.class, () -> service.deleteProducts(Arrays.asList(1L, 2L)))
+            .getMessage().contains("关联"));
+        verify(mapper, never()).deleteProductStock(any());
+        verify(mapper, never()).deleteProducts(any());
+    }
+
+    @Test
+    void deleteRejectsInvalidMissingAndOversizedSelections()
+    {
+        assertThrows(ServiceException.class, () -> service.deleteProducts(null));
+        assertThrows(ServiceException.class, () -> service.deleteProducts(java.util.Collections.emptyList()));
+        assertThrows(ServiceException.class, () -> service.deleteProducts(Arrays.asList(1L, 1L)));
+        assertThrows(ServiceException.class, () -> service.deleteProducts(Arrays.asList(0L)));
+        assertThrows(ServiceException.class, () -> service.deleteProducts(Arrays.asList((Long) null)));
+        assertThrows(ServiceException.class, () -> service.deleteProducts(java.util.Collections.nCopies(201, 1L)));
+        when(mapper.lockProductIds(Arrays.asList(1L, 2L))).thenReturn(Arrays.asList(1L));
+        assertThrows(ServiceException.class, () -> service.deleteProducts(Arrays.asList(1L, 2L)));
+        verify(mapper, never()).deleteProducts(any());
+    }
+
+    @Test
+    void deleteFailsTransactionIfDeletedCountChanges()
+    {
+        when(mapper.lockProductIds(Arrays.asList(1L))).thenReturn(Arrays.asList(1L));
+        when(mapper.selectStockForUpdate(1L)).thenReturn(null);
+        assertThrows(ServiceException.class, () -> service.deleteProducts(Arrays.asList(1L)));
     }
 
     @Test
@@ -2333,6 +2405,107 @@ class JewelryErpServiceImplTest
         verify(mapper).applyStock(eq(PRODUCT_ID), eq(10), eq(0), eq(0), eq(0), eq(0), eq(0),
             decimalEq("180"), decimalEq("0"), decimalEq("0"));
         verify(mapper).markOriginalReversed(9510L, "reviewer");
+    }
+
+    @Test
+    void batchProductUpdateOnlyPassesExplicitFieldsAndSortsLocks()
+    {
+        JewelryProductBatchUpdate request = batchRequest("productType", "SAMPLE");
+        request.setProductIds(Arrays.asList(2L, 1L));
+        when(mapper.lockProductIds(Arrays.asList(1L, 2L))).thenReturn(Arrays.asList(1L, 2L));
+        assertEquals(2, service.batchUpdateProducts(request, true, "admin"));
+        verify(mapper).batchUpdateProducts(Arrays.asList(1L, 2L), request.getChanges(), "admin");
+        verify(mapper, never()).updateProduct(any());
+        verify(mapper, never()).ensureStock(anyLong());
+    }
+
+    @Test
+    void makerBatchUpdateCanClearImageWithoutOverwritingName()
+    {
+        JewelryProductBatchUpdate request = batchRequest("imageUrls", "");
+        when(mapper.lockProductIds(Arrays.asList(1L, 2L))).thenReturn(Arrays.asList(1L, 2L));
+        assertEquals(2, service.batchUpdateProducts(request, false, "maker"));
+        verify(mapper).batchUpdateProducts(Arrays.asList(1L, 2L), request.getChanges(), "maker");
+    }
+
+    @Test
+    void makerBatchUpdateRejectsEveryProtectedField()
+    {
+        for (String key : Arrays.asList("productType", "category", "specification", "unit", "warningQty",
+            "status", "defaultPackFee", "defaultShipFee", "defaultCertFee", "sku", "avgCost", "onHandQty"))
+            assertThrows(ServiceException.class, () -> service.batchUpdateProducts(batchRequest(key, "0"), false, "maker"));
+        verify(mapper, never()).batchUpdateProducts(any(), any(), anyString());
+    }
+
+    @Test
+    void evenAdminBatchUpdateCannotChangeSkuStockOrAuditFields()
+    {
+        for (String key : Arrays.asList("sku", "avgCost", "onHandQty", "productId", "updateBy", "remark"))
+            assertThrows(ServiceException.class, () -> service.batchUpdateProducts(batchRequest(key, "0"), true, "admin"));
+        verify(mapper, never()).batchUpdateProducts(any(), any(), anyString());
+    }
+
+    @Test
+    void batchProductUpdateRejectsInvalidFieldsBeforeWriting()
+    {
+        Object[][] invalid = {{"productType", "OTHER"}, {"specification", "大号"}, {"status", "2"},
+            {"productName", " "}, {"unit", ""}, {"warningQty", -1}, {"warningQty", "1.5"},
+            {"warningQty", "2147483648"}, {"defaultPackFee", "-0.01"}, {"defaultPackFee", "1.001"},
+            {"defaultPackFee", ""}, {"defaultShipFee", "1000000000000"}, {"imageUrls", "/a.jpg,/b.jpg"},
+            {"category", null}};
+        for (Object[] input : invalid)
+            assertThrows(ServiceException.class,
+                () -> service.batchUpdateProducts(batchRequest((String) input[0], input[1]), true, "admin"));
+        verify(mapper, never()).batchUpdateProducts(any(), any(), anyString());
+    }
+
+    @Test
+    void batchProductUpdateRejectsEmptyDuplicateAndTooManyTargets()
+    {
+        JewelryProductBatchUpdate request = batchRequest("status", "1");
+        for (java.util.List<Long> ids : Arrays.asList(java.util.Collections.<Long>emptyList(),
+            Arrays.asList(1L, 1L), Arrays.asList(0L), Arrays.asList((Long) null),
+            java.util.Collections.nCopies(201, 1L)))
+        {
+            request.setProductIds(ids);
+            assertThrows(ServiceException.class, () -> service.batchUpdateProducts(request, true, "admin"));
+        }
+        request.setProductIds(Arrays.asList(1L));
+        request.getChanges().clear();
+        assertThrows(ServiceException.class, () -> service.batchUpdateProducts(request, true, "admin"));
+        verify(mapper, never()).batchUpdateProducts(any(), any(), anyString());
+    }
+
+    @Test
+    void batchProductUpdateRejectsMissingTargetWithoutPartialWrites() throws Exception
+    {
+        when(mapper.lockProductIds(Arrays.asList(1L, 2L))).thenReturn(Arrays.asList(1L));
+        assertThrows(ServiceException.class,
+            () -> service.batchUpdateProducts(batchRequest("status", "1"), true, "admin"));
+        verify(mapper, never()).batchUpdateProducts(any(), any(), anyString());
+        assertTrue(JewelryErpServiceImpl.class.getMethod("batchUpdateProducts", JewelryProductBatchUpdate.class,
+            boolean.class, String.class).isAnnotationPresent(org.springframework.transaction.annotation.Transactional.class));
+    }
+
+    @Test
+    void batchProductUpdatePreservesExplicitZeroAndEmptyCategory()
+    {
+        JewelryProductBatchUpdate request = batchRequest("category", "");
+        request.getChanges().put("warningQty", 0);
+        request.getChanges().put("defaultPackFee", BigDecimal.ZERO);
+        when(mapper.lockProductIds(Arrays.asList(1L, 2L))).thenReturn(Arrays.asList(1L, 2L));
+        service.batchUpdateProducts(request, true, "admin");
+        verify(mapper).batchUpdateProducts(Arrays.asList(1L, 2L), request.getChanges(), "admin");
+    }
+
+    private JewelryProductBatchUpdate batchRequest(String key, Object value)
+    {
+        JewelryProductBatchUpdate request = new JewelryProductBatchUpdate();
+        request.setProductIds(Arrays.asList(1L, 2L));
+        Map<String, Object> changes = new HashMap<String, Object>();
+        changes.put(key, value);
+        request.setChanges(changes);
+        return request;
     }
 
     private JewelryDocument document(Long id, String type, String status)

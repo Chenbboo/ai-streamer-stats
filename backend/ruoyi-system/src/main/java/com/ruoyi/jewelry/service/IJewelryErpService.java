@@ -10,6 +10,9 @@ public interface IJewelryErpService
     List<Map<String, Object>> listProducts(Map<String, Object> query);
     int saveProduct(Map<String, Object> product);
     int updateProductBasic(Map<String, Object> product);
+    int deleteProducts(List<Long> productIds);
+    int batchUpdateProducts(com.ruoyi.jewelry.domain.JewelryProductBatchUpdate request,
+        boolean fullEdit, String userName);
     List<Map<String, Object>> listSuppliers(Map<String, Object> query);
     int saveSupplier(Map<String, Object> supplier);
     List<Map<String, Object>> listInfluencers(Map<String, Object> query);

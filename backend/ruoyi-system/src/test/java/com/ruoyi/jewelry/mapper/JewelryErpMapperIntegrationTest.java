@@ -487,6 +487,153 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void batchProductPatchOnlyUpdatesSelectedFieldsAndRows()
+    {
+        for (int id = 1; id <= 3; id++)
+            execute("insert into jewelry_product(product_id,sku,product_name,product_type,category,specification,"
+                + "image_url,image_urls,unit,default_pack_fee,default_ship_fee,default_cert_fee,warning_qty,status)"
+                + " values(" + id + ",'SKU-" + id + "','原名" + id + "','FINISHED','旧分类','普通','/old.jpg','/old.jpg','只',1,2,3,5,'0')");
+        execute("insert into jewelry_stock(product_id,on_hand_qty,avg_cost) values(1,7,12.34)");
+        Map<String, Object> fields = new HashMap<String, Object>();
+        fields.put("productType", "SAMPLE");
+        fields.put("warningQty", 0);
+        fields.put("category", "");
+        try (SqlSession session = sqlSessionFactory.openSession(false))
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            assertEquals(Arrays.asList(1L, 2L), mapper.lockProductIds(Arrays.asList(1L, 2L)));
+            assertEquals(2, mapper.batchUpdateProducts(Arrays.asList(1L, 2L), fields, "admin"));
+            session.commit();
+        }
+        for (int id = 1; id <= 2; id++)
+        {
+            assertEquals("SAMPLE", stringValue("select product_type from jewelry_product where product_id=" + id));
+            assertEquals("原名" + id, stringValue("select product_name from jewelry_product where product_id=" + id));
+            assertEquals("/old.jpg", stringValue("select image_url from jewelry_product where product_id=" + id));
+            assertEquals("", stringValue("select category from jewelry_product where product_id=" + id));
+            assertEquals(0, intValue("select warning_qty from jewelry_product where product_id=" + id));
+            assertEquals("0", stringValue("select status from jewelry_product where product_id=" + id));
+            assertEquals("admin", stringValue("select update_by from jewelry_product where product_id=" + id));
+        }
+        assertEquals("FINISHED", stringValue("select product_type from jewelry_product where product_id=3"));
+        assertEquals(7, intValue("select on_hand_qty from jewelry_stock where product_id=1"));
+        assertEquals(new BigDecimal("12.340000"), decimalValue("select avg_cost from jewelry_stock where product_id=1"));
+    }
+
+    @Test
+    void productDeletionReferenceCheckIncludesDraftHistoryPricesAndBothBundleSides()
+    {
+        insertDocument(1L, "DELETE-GUARD", "PURCHASE_IN", "DRAFT", null);
+        insertItem(1L, 1L, null, 1L, 1);
+        execute("insert into jewelry_stock_transaction values(1,2,1,1,1,current_timestamp)");
+        execute("insert into jewelry_influencer_product_price(influencer_id,product_id,fixed_unit_price) values(1,3,1)");
+        execute("insert into jewelry_influencer_price_history(influencer_id,product_id,new_price,source_type,"
+            + "price_version,change_reason,operator_user_id,operator_name,create_time)"
+            + " values(1,4,1,'MANUAL',1,'test',1,'tester',current_timestamp)");
+        execute("insert into jewelry_influencer_bundle_item(influencer_id,main_product_id,addon_product_id,"
+            + "main_qty,addon_qty,source_document_id,last_sale_time) values(1,5,6,1,1,1,current_timestamp)");
+        try (SqlSession session = sqlSessionFactory.openSession(true))
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            for (long id = 1; id <= 6; id++) assertEquals(1, mapper.countProductReferences(id));
+            assertEquals(0, mapper.countProductReferences(7L));
+        }
+    }
+
+    @Test
+    void productDeletionRemovesOnlySelectedRowsAndStockAndSupportsRollback()
+    {
+        for (int id = 1; id <= 3; id++)
+        {
+            execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification) values(" + id + ",'SKU-" + id + "','未使用','FINISHED','普通')");
+            insertStock((long) id, 0, 0, 0, 0, 0, 0, "0");
+        }
+        try (SqlSession session = sqlSessionFactory.openSession(false))
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            assertEquals("SKU-1", mapper.selectProductByIdForUpdate(1L).get("sku"));
+            assertEquals(2, mapper.deleteProductStock(Arrays.asList(1L, 2L)));
+            assertEquals(2, mapper.deleteProducts(Arrays.asList(1L, 2L)));
+            session.rollback();
+        }
+        assertEquals(3, intValue("select count(*) from jewelry_product"));
+        assertEquals(3, intValue("select count(*) from jewelry_stock"));
+        try (SqlSession session = sqlSessionFactory.openSession(false))
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            mapper.deleteProductStock(Arrays.asList(1L, 2L));
+            mapper.deleteProducts(Arrays.asList(1L, 2L));
+            session.commit();
+        }
+        assertEquals(1, intValue("select count(*) from jewelry_product"));
+        assertEquals(3, intValue("select product_id from jewelry_product"));
+        assertEquals(3, intValue("select product_id from jewelry_stock"));
+    }
+
+    @Test
+    void productReferenceLockPreventsDeletionUntilDocumentCreationCommits() throws Exception
+    {
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification) values(1,'LOCK-1','锁定','FINISHED','普通')");
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch started = new CountDownLatch(1);
+        try (SqlSession writer = sqlSessionFactory.openSession(false))
+        {
+            writer.getMapper(JewelryErpMapper.class).selectProductByIdForUpdate(1L);
+            Future<Integer> references = executor.submit(() -> {
+                try (SqlSession deleting = sqlSessionFactory.openSession(false))
+                {
+                    started.countDown();
+                    JewelryErpMapper mapper = deleting.getMapper(JewelryErpMapper.class);
+                    mapper.lockProductIds(Collections.singletonList(1L));
+                    return mapper.countProductReferences(1L);
+                }
+            });
+            assertTrue(started.await(2, TimeUnit.SECONDS));
+            org.junit.jupiter.api.Assertions.assertThrows(java.util.concurrent.TimeoutException.class,
+                () -> references.get(150, TimeUnit.MILLISECONDS));
+            try (Statement statement = writer.getConnection().createStatement())
+            {
+                statement.execute("insert into jewelry_document_item(item_id,document_id,product_id,qty,sku_snapshot,product_name_snapshot) values(1,1,1,1,'LOCK-1','锁定')");
+            }
+            writer.commit(true);
+            assertEquals(1, references.get(3, TimeUnit.SECONDS));
+        }
+        finally { executor.shutdownNow(); }
+    }
+
+    @Test
+    void batchProductPatchSupportsImageClearAndRollsBackTogether()
+    {
+        for (int id = 1; id <= 2; id++)
+            execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification,image_url,image_urls)"
+                + " values(" + id + ",'SKU-" + id + "','旧名','FINISHED','普通','/old.jpg','/old.jpg')");
+        Map<String, Object> fields = new HashMap<String, Object>();
+        fields.put("productName", "统一名称");
+        fields.put("imageUrls", "");
+        fields.put("specification", "精品");
+        fields.put("unit", "个");
+        fields.put("status", "1");
+        fields.put("defaultPackFee", new BigDecimal("0"));
+        fields.put("defaultShipFee", new BigDecimal("1.23"));
+        fields.put("defaultCertFee", new BigDecimal("4.56"));
+        try (SqlSession session = sqlSessionFactory.openSession(false))
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            mapper.batchUpdateProducts(Arrays.asList(1L, 2L), fields, "admin");
+            session.rollback();
+        }
+        assertEquals(2, intValue("select count(*) from jewelry_product where product_name='旧名' and image_url='/old.jpg'"));
+        try (SqlSession session = sqlSessionFactory.openSession(false))
+        {
+            session.getMapper(JewelryErpMapper.class).batchUpdateProducts(Arrays.asList(1L, 2L), fields, "admin");
+            session.commit();
+        }
+        assertEquals(2, intValue("select count(*) from jewelry_product where product_name='统一名称' and image_url=''"
+            + " and image_urls='' and specification='精品' and unit='个' and status='1'"
+            + " and default_pack_fee=0 and default_ship_fee=1.23 and default_cert_fee=4.56"));
+    }
+
+    @Test
     void stockListQueryCanFilterByProductType()
     {
         MappedStatement statement = sqlSessionFactory.getConfiguration()

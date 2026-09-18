@@ -158,7 +158,7 @@
         </where>
         order by p.product_id desc
     </select>
-    <select id="selectProductById" resultType="java.util.LinkedHashMap">
+    <sql id="productByIdSql">
         select p.product_id productId,p.sku,p.product_name productName,p.product_type productType,
                p.category,p.specification,p.image_url imageUrl,p.image_urls imageUrls,p.unit,p.default_pack_fee defaultPackFee,
                p.default_ship_fee defaultShipFee,p.default_cert_fee defaultCertFee,
@@ -167,7 +167,29 @@
         from jewelry_product p
         left join jewelry_stock s on s.product_id=p.product_id
         where p.product_id=#{productId}
+    </sql>
+    <select id="selectProductById" resultType="java.util.LinkedHashMap">
+        <include refid="productByIdSql"/>
     </select>
+    <select id="selectProductByIdForUpdate" resultType="java.util.LinkedHashMap">
+        <include refid="productByIdSql"/> for update
+    </select>
+    <select id="countProductReferences" resultType="int">
+        select
+          (select count(*) from jewelry_document_item where product_id=#{productId})
+          + (select count(*) from jewelry_stock_transaction where product_id=#{productId})
+          + (select count(*) from jewelry_influencer_product_price where product_id=#{productId})
+          + (select count(*) from jewelry_influencer_price_history where product_id=#{productId})
+          + (select count(*) from jewelry_influencer_bundle_item where main_product_id=#{productId} or addon_product_id=#{productId})
+    </select>
+    <delete id="deleteProductStock">
+        delete from jewelry_stock where product_id in
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </delete>
+    <delete id="deleteProducts">
+        delete from jewelry_product where product_id in
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </delete>
     <insert id="insertProduct" useGeneratedKeys="true" keyProperty="productId">
         insert into jewelry_product(sku,product_name,product_type,category,specification,image_url,image_urls,unit,default_pack_fee,
           default_ship_fee,default_cert_fee,warning_qty,status,create_by,create_time,remark)
@@ -187,6 +209,30 @@
         set product_name=#{productName},image_url=#{imageUrl},image_urls=#{imageUrls},
             update_by=#{updateBy},update_time=sysdate()
         where product_id=#{productId}
+    </update>
+    <select id="lockProductIds" resultType="java.lang.Long">
+        select product_id from jewelry_product where product_id in
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        order by product_id for update
+    </select>
+    <update id="batchUpdateProducts">
+        update jewelry_product
+        <set>
+            <if test="changes.containsKey('productName')">product_name=#{changes.productName},</if>
+            <if test="changes.containsKey('productType')">product_type=#{changes.productType},</if>
+            <if test="changes.containsKey('category')">category=#{changes.category},</if>
+            <if test="changes.containsKey('specification')">specification=#{changes.specification},</if>
+            <if test="changes.containsKey('unit')">unit=#{changes.unit},</if>
+            <if test="changes.containsKey('imageUrls')">image_urls=#{changes.imageUrls},image_url=#{changes.imageUrls},</if>
+            <if test="changes.containsKey('warningQty')">warning_qty=#{changes.warningQty},</if>
+            <if test="changes.containsKey('status')">status=#{changes.status},</if>
+            <if test="changes.containsKey('defaultPackFee')">default_pack_fee=#{changes.defaultPackFee},</if>
+            <if test="changes.containsKey('defaultShipFee')">default_ship_fee=#{changes.defaultShipFee},</if>
+            <if test="changes.containsKey('defaultCertFee')">default_cert_fee=#{changes.defaultCertFee},</if>
+            update_by=#{userName},update_time=sysdate()
+        </set>
+        where product_id in
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
     </update>
     <update id="updateProductImagesIfEmpty">
         update jewelry_product

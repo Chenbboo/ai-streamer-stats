@@ -18,9 +18,16 @@ public interface JewelryErpMapper
 
     List<Map<String, Object>> selectProductList(Map<String, Object> query);
     Map<String, Object> selectProductById(Long productId);
+    Map<String, Object> selectProductByIdForUpdate(Long productId);
+    int countProductReferences(Long productId);
+    int deleteProductStock(@Param("ids") List<Long> ids);
+    int deleteProducts(@Param("ids") List<Long> ids);
     int insertProduct(Map<String, Object> product);
     int updateProduct(Map<String, Object> product);
     int updateProductBasic(Map<String, Object> product);
+    List<Long> lockProductIds(@Param("ids") List<Long> ids);
+    int batchUpdateProducts(@Param("ids") List<Long> ids, @Param("changes") Map<String, Object> changes,
+        @Param("userName") String userName);
     int updateProductImagesIfEmpty(@Param("productId") Long productId, @Param("imageUrl") String imageUrl,
         @Param("imageUrls") String imageUrls, @Param("userName") String userName);
     int ensureStock(Long productId);
