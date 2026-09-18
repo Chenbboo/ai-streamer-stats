@@ -3,6 +3,7 @@ package com.ruoyi.business.service;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.math.BigDecimal;
 import com.ruoyi.business.domain.BusinessOperatingFact;
 
 public interface IBusinessAccountingService
@@ -27,5 +28,7 @@ public interface IBusinessAccountingService
     void closeProjectAccounting(Long projectId,Date closeDate,String userName);
     BusinessOperatingFact recordProjectBonus(Long projectId,Date bizDate,java.math.BigDecimal amount,
         Long settlementId,Long userId,String userName);
+    void recordSubprojectFundingTransfer(Long parentProjectId,Long childProjectId,Long proposalId,
+        BigDecimal amount,String currency,String reason,Long userId,String userName);
     Map<String,Object> resultDetail(Long resultId,Long userId,boolean viewAll);
 }

@@ -24,6 +24,7 @@ import com.ruoyi.business.mapper.BusinessProjectProposalMapper;
 import com.ruoyi.business.mapper.BusinessProjectWorkMapper;
 import com.ruoyi.business.service.IBusinessProjectProposalService;
 import com.ruoyi.business.service.IBusinessProjectService;
+import com.ruoyi.business.service.IBusinessAccountingService;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.common.utils.StringUtils;
@@ -48,6 +49,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     @Autowired private ObjectMapper objectMapper;
     @Autowired private BusinessProjectWorkMapper workMapper;
     @Autowired private BusinessProjectBudgetService budgetService;
+    @Autowired private IBusinessAccountingService accountingService;
 
     @Override
     public List<BusinessProjectProposal> listOwn(Map<String, Object> query, Long userId, boolean viewAll)
@@ -162,6 +164,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         proposal.setApplicantName(displayName(applicant));
         if (StringUtils.isBlank(proposal.getTemplateVersion())) proposal.setTemplateVersion("LIGHT_V1");
         if("LEGACY_V1".equals(proposal.getTemplateVersion()))throw new ServiceException("新立项必须选择已发布标准模板，不能创建旧策略项目");
+        if (proposal.getParentProjectId() != null) prepareSubprojectHandoff(proposal);
         if (Boolean.TRUE.equals(proposal.getSaveAsDraft())) prepareIncompleteDraft(proposal);
         else normalizeAndValidate(proposal);
         proposal.setProposalNo("LX" + DateUtils.dateTimeNow("yyyyMMddHHmmss")
@@ -246,7 +249,11 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         savePlanLines(current);
         String fromStatus = current.getStatus();
         BusinessProject project = projectService.createApprovedProject(current, userId, userName);
-        if (mapper.activate(proposalId, userId, current.getVersion(), project.getProjectId(),
+        if (current.getParentProjectId() != null)
+            accountingService.recordSubprojectFundingTransfer(current.getParentProjectId(), project.getProjectId(),
+                current.getProposalId(), current.getParentFundingAmount(), current.getBaseCurrency(),
+                current.getParentFundingReason(), userId, userName);
+        if (mapper.activate(proposalId, current.getApplicantUserId(), current.getVersion(), project.getProjectId(),
             current.getApplicantName(), userName) != 1) throw changed();
         BusinessProjectProposal stored = require(proposalId);
         addEvent(stored, isNewTemplate(current) ? "SELF_AUTHORIZED" : "OWNER_LAUNCH", fromStatus, "APPROVED", userId, userName,
@@ -336,6 +343,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         }
         else { proposal.setTemplateVersion("LIGHT_V1"); proposal.setApplicantUserId(userId); }
         bindSubprojectOwner(proposal, false);
+        removeLegacyParentFundingRevenueLine(proposal);
         return budgetService.estimate(proposal);
     }
 
@@ -373,6 +381,20 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             proposal.setAssignedOwnerName(null);
             if (required) throw new ServiceException("请选择子项目负责人");
         } else proposal.setAssignedOwnerName(displayName(requireActiveUser(proposal.getAssignedOwnerUserId())));
+    }
+
+    /** The parent owner hands over governance and funding only; execution planning belongs to the child owner. */
+    private void prepareSubprojectHandoff(BusinessProjectProposal proposal)
+    {
+        proposal.setRevenueLines(Collections.emptyList());
+        proposal.setExpenseLines(Collections.emptyList());
+        proposal.setStaffingLines(Collections.emptyList());
+        if(proposal.getBudget()!=null)
+        {
+            Map<String,Object> budget=new LinkedHashMap<String,Object>(proposal.getBudget());
+            budget.put("businessAmount",BigDecimal.ZERO);
+            proposal.setBudget(budget);
+        }
     }
 
     /** Incomplete new-template drafts keep their input in the snapshot, never in executable plan lines. */
@@ -599,11 +621,8 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         BigDecimal available = decimal(summary.get("availableAmount"));
         if (proposal.getParentFundingAmount().compareTo(available) > 0)
             throw new ServiceException("子项目拨款额度超过主项目可用余额，当前可用 " + available.setScale(2, RoundingMode.HALF_UP) + " " + summary.get("currency"));
-        BigDecimal planned = validateFullPlan
-            ? proposal.getBudget() == null ? proposal.getBudgetLimit() : nullableDecimal(proposal.getBudget().get("totalAmount"))
-            : proposal.getBudget() == null ? null : nullableDecimal(proposal.getBudget().get("businessAmount"));
-        if (planned != null && planned.compareTo(proposal.getParentFundingAmount()) > 0)
-            throw new ServiceException("子项目人员预算与业务预算合计不能超过主项目拨款额度");
+        if (summary.get("currency") != null && !proposal.getBaseCurrency().equals(String.valueOf(summary.get("currency"))))
+            throw new ServiceException("子项目币种必须与主项目拨款币种一致");
     }
 
     private Map<String,Object> buildParentFundingSummary(Long parentProjectId, Long excludeProposalId)
@@ -655,6 +674,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     private void normalizeBusinessPlan(BusinessProjectProposal proposal)
     {
         budgetService.ensureOwner(proposal);
+        removeLegacyParentFundingRevenueLine(proposal);
         validatePlanDetails(proposal);
         List<Map<String, Object>> revenues = cleanLines(proposal.getRevenueLines(), "itemName");
         List<Map<String, Object>> expenses = cleanLines(proposal.getExpenseLines(), "itemName");
@@ -827,6 +847,15 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         }
     }
 
+    private void removeLegacyParentFundingRevenueLine(BusinessProjectProposal proposal)
+    {
+        if (proposal.getRevenueLines() == null) return;
+        List<Map<String,Object>> lines = new ArrayList<Map<String,Object>>();
+        for (Map<String,Object> line : proposal.getRevenueLines())
+            if (line != null && !"PARENT_FUNDING".equals(text(line.get("revenueType")))) lines.add(line);
+        proposal.setRevenueLines(lines);
+    }
+
     private void validateBusinessPlanForLaunch(BusinessProjectProposal proposal)
     {
         validateAccountingRequirements(proposal);
@@ -897,7 +926,8 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         String mode = proposal.getAccountingMode();
         if (!Arrays.asList("PROFIT", "VALUE").contains(mode))
             throw new ServiceException("请将立项核算方式选择为盈利型或价值型后再启动；历史项目不受影响");
-        if (proposal.getTargetLines() == null || proposal.getTargetLines().isEmpty())
+        if (proposal.getParentProjectId() == null
+            && (proposal.getTargetLines() == null || proposal.getTargetLines().isEmpty()))
             throw new ServiceException("项目启动前须填写至少一项可验收目标；可先保存草稿");
     }
 

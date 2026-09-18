@@ -92,6 +92,9 @@ public class BusinessProjectBudgetService
         Map<String,Object> input=new LinkedHashMap<String,Object>();if(source.getBudget()!=null)input.putAll(source.getBudget());
         input.put("cycle","MONTH");input.put("anchorDate",month.toString());copy.setBudget(input);
         if(recurringOnly){copy.setRevenueLines(recurring(source.getRevenueLines()));copy.setExpenseLines(recurring(source.getExpenseLines()));}
+        // 主项目拨款是一次性内部收入，只在子项目开始月份计入预测。
+        if(recurringOnly||date(source.getPlanStartDate())==null
+            ||!month.equals(date(source.getPlanStartDate()).withDayOfMonth(1)))copy.setParentFundingAmount(null);
         Map<String,Object> estimate=estimate(copy,false);
         Map<String,Object> result=new LinkedHashMap<String,Object>();
         for(String key:Arrays.asList("startDate","endDate","currency","revenueAmount","plannedBusinessAmount","personnelAmount","plannedTotalCost","profit","status","issues","staffingStatus","personnelCostRule"))result.put(key,estimate.get(key));
@@ -161,7 +164,10 @@ public class BusinessProjectBudgetService
             if (!resourcePlan && input.get("businessAmount")==null) business=expensePlanTotal;
             else if (proposal.getBudget()!=null) business=money(input.get("businessAmount"),"业务预算",issues);
         }
-        BigDecimal revenue=plannedAmount(proposal.getRevenueLines(),"expectedAmount","expectedDate",start,end,true,issues);
+        BigDecimal externalRevenue=plannedAmount(proposal.getRevenueLines(),"expectedAmount","expectedDate",start,end,true,issues);
+        BigDecimal fundingRevenue=proposal.getParentProjectId()==null||proposal.getParentFundingAmount()==null
+            ?BigDecimal.ZERO:proposal.getParentFundingAmount().setScale(2,RoundingMode.HALF_UP);
+        BigDecimal revenue=externalRevenue.add(fundingRevenue);
         if(business!=null&&external.compareTo(business)>0)issues.add("业务预算不能低于本期支出计划合计 "+external.toPlainString()+" "+currency);
         if("TOTAL".equals(mode)&&!resourcePlan&&business!=null&&expensePlanTotal.compareTo(business)>0)
             issues.add("业务预算不能低于全部支出计划金额合计 "+expensePlanTotal.toPlainString()+" "+currency);
@@ -265,7 +271,9 @@ public class BusinessProjectBudgetService
         result.put("businessAmount",business);result.put("personnelAmount",missing?null:personnel.setScale(2,RoundingMode.HALF_UP));
         result.put("totalAmount",missing||business==null?null:personnel.add(business).setScale(2,RoundingMode.HALF_UP));
         if(personnel.compareTo(new BigDecimal("99999999999999.99"))>0||business!=null&&personnel.add(business).compareTo(new BigDecimal("99999999999999.99"))>0)throw new ServiceException("合计预算超出金额上限");
-        result.put("plannedBusinessAmount",external);result.put("revenueAmount",revenue);result.put("status",issues.isEmpty()?"READY":"PENDING");
+        result.put("plannedBusinessAmount",external);result.put("externalRevenueAmount",externalRevenue);
+        result.put("parentFundingRevenue",fundingRevenue);
+        result.put("revenueAmount",revenue);result.put("status",issues.isEmpty()?"READY":"PENDING");
         BigDecimal plannedCost=missing?null:personnel.add(external).setScale(2,RoundingMode.HALF_UP);
         result.put("plannedTotalCost",plannedCost);result.put("profit",plannedCost==null?null:revenue.subtract(plannedCost));
         BigDecimal oneTime=external.subtract(plannedAmount(recurring(proposal.getExpenseLines()),"amount","occurDate",start,end,false,issues));

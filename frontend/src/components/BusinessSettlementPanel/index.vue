@@ -11,8 +11,8 @@
       <div class="actions heading-actions">
         <el-button size="small" link type="primary" @click="expanded=!expanded">{{ expanded?'收起详情':'查看详情' }}</el-button>
         <el-button size="small" icon="Refresh" :disabled="loading||closing" @click="loadStatus">刷新</el-button>
-        <el-button v-if="summary?.canEndDeliveryAwaitingCosts" v-hasPermi="['business:accounting:close']" size="small" type="primary" plain @click="openDeliveryEnd">结束交付，待月结</el-button>
-        <el-button v-if="summary?.canClose" v-hasPermi="['business:accounting:close']" size="small" type="warning" @click="openClose">{{ closeActionLabel }}</el-button>
+        <el-button v-if="summary?.canEndDeliveryAwaitingCosts" v-hasPermi="['business:accounting:close','business:project:manage']" size="small" type="primary" plain @click="openDeliveryEnd">结束交付，待月结</el-button>
+        <el-button v-if="summary?.canClose" v-hasPermi="['business:accounting:close','business:project:manage']" size="small" type="warning" @click="openClose">{{ closeActionLabel }}</el-button>
       </div>
     </div>
     <p v-if="expanded" class="policy-hint">{{ policyHint }}</p>
@@ -147,13 +147,14 @@ const deliveryEndDialog=ref(false),endingDelivery=ref(false),deliveryEndReason=r
 const feeForm=reactive({calculationMode:'FIXED',fixedAmount:null,profitRate:null,configReason:''})
 const paymentForm=reactive({amount:null,paidDate:'',method:'BANK',referenceNo:'',voucher:'',reason:''})
 const paymentMethods={BANK:'银行转账',WECHAT:'微信',ALIPAY:'支付宝',CASH:'现金',OTHER:'其他'}
-const blockerLabels={PENDING_AWARD:'奖金奖励单尚待处理或取消',PENDING_COST:'成员工作日缺少有效成本或日历',LEGACY_POLICY:'沿用原结项关账规则',DELIVERY_OPEN:'项目尚未完成交付或取消',ACCOUNTING_CLOSED:'项目核算已关闭',NOT_SPONSOR:'由项目归属老板办理核算关闭',MISSING_END_DATE:'缺少实际结束日期，请核对',PENDING_KPI:'仍有未完成KPI结算，包括尚未到期的周期',PENDING_EFFORT:'仍有投入待确认',PENDING_LEAVE:'仍有假勤待处理',PENDING_FACT:'仍有收支待确认或退回修改',MANAGEMENT_FEE_PENDING:'项目管理费尚未设置，请设置规则或明确不发放'}
+const blockerLabels={PENDING_AWARD:'奖金奖励单尚待处理或取消',PENDING_COST:'成员工作日缺少有效成本或日历',LEGACY_POLICY:'沿用原结项关账规则',DELIVERY_OPEN:'项目尚未完成交付或取消',ACCOUNTING_CLOSED:'项目核算已关闭',MISSING_END_DATE:'缺少实际结束日期，请核对',PENDING_KPI:'仍有未完成KPI结算，包括尚未到期的周期',PENDING_EFFORT:'仍有投入待确认',PENDING_LEAVE:'仍有假勤待处理',PENDING_FACT:'仍有收支待确认或退回修改',MANAGEMENT_FEE_PENDING:'项目管理费尚未设置，请设置规则或明确不发放'}
 const fee=computed(()=>summary.value?.managementFee||null)
 const pendingCounts=computed(()=>[['pendingKpiCount','KPI待结算'],['pendingFactCount','收支待处理'],['pendingPublicExpenseCount','公共费用待月结'],['pendingAwardCount','奖金待处理'],['pendingCostCount','人员成本待完善'],['pendingLeaveCount','假勤待处理']].map(([key,label])=>({key,label,count:Number(summary.value?.[key]||0)})).filter(item=>item.count>0))
 let requestSequence=0
 const displayProject=computed(()=>({...props.project,...(summary.value||{})}))
+const deliveryReviewer=computed(()=>props.project.parentId?'主项目主负责人':'归属老板')
 const showProfitMetrics=computed(()=>displayProject.value.accountingMode==='PROFIT')
-const policyHint=computed(()=>projectAccountingState(displayProject.value)==='CLOSED'?'项目已经结项并冻结，管理费成本已固定；付款凭证和受控调账仍可继续登记。':!isSeparatedDelivery(displayProject.value)?'本项目沿用原结项规则，历史记录和金额不自动迁移。':isDeliveryEnded(displayProject.value)?'交付已经结束，实际结束日期已固定。处理该日期前的结算待办后，确认最终核算并冻结。':'交付和KPI检查通过后，由归属老板确认结项。公共费用尚待月结时，可先结束交付并固定实际结束日期，月结后再完成核算。')
+const policyHint=computed(()=>projectAccountingState(displayProject.value)==='CLOSED'?'项目已经结项并冻结，管理费成本已固定；付款凭证和受控调账仍可继续登记。':!isSeparatedDelivery(displayProject.value)?'本项目沿用原结项规则，历史记录和金额不自动迁移。':isDeliveryEnded(displayProject.value)?'交付已经结束，实际结束日期已固定。处理该日期前的结算待办后，确认最终核算并冻结。':`交付和KPI检查通过后，由${deliveryReviewer.value}确认结项。公共费用尚待月结时，可先结束交付并固定实际结束日期，月结后再完成核算。`)
 const feeStatus=computed(()=>({INELIGIBLE:{label:'未达到条件',type:'info'},PENDING_CONFIG:{label:'待设置',type:'danger'},ESTIMATED:{label:'预计中',type:'primary'},PENDING_SETTLEMENT:{label:'待结算',type:'warning'},WAIVED:{label:'不发放',type:'info'},UNPAID:{label:'待支付',type:'danger'},PARTIAL:{label:'部分支付',type:'warning'},PAID:{label:'已结清',type:'success'}}[fee.value?.processStatus]||{label:'—',type:'info'}))
 const eligibilityText=computed(()=>{const count=Number(fee.value?.projectCount||0),threshold=Number(fee.value?.eligibilityThreshold||3);if(fee.value?.configured&&Number(fee.value?.eligibilityProjectCount)>=threshold&&count<threshold)return `当前在管 ${count} 个项目；设置时为 ${fee.value.eligibilityProjectCount} 个，规则继续有效`;return `负责人当前在管 ${count} 个项目 · ${count>=threshold?'已达到管理费条件':`还差 ${threshold-count} 个达到管理费条件`}`})
 const feeRule=computed(()=>fee.value?.calculationMode==='WAIVED'?'本项目明确不发放管理费':fee.value?.calculationMode==='FIXED'?`固定金额 ${money(fee.value.fixedAmount)} ${fee.value.currency}`:`管理费前利润 × ${fee.value?.profitRate||0}%`)

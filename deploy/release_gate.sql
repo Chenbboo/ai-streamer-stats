@@ -356,6 +356,9 @@ from (
   select if(count(*)=1,0,1) from information_schema.tables where table_schema=database()
     and table_name='biz_project_subproject_funding'
   union all
+  select if(count(*)=2,0,1) from biz_fact_category
+    where category_code in ('SUBPROJECT_FUNDING_COST','SUBPROJECT_FUNDING_REVENUE') and status='0'
+  union all
   select count(*) from biz_staff_menu_permission permission
     where exists(select 1 from sys_user_role ur join sys_role role on role.role_id=ur.role_id
       where ur.user_id=permission.user_id and role.role_key='company_owner' and role.del_flag='0')

@@ -7,7 +7,9 @@
   </select>
   <select id="selectCategories" resultType="map">
     select category_id categoryId,category_code categoryCode,category_name categoryName,fact_kind factKind,
-      default_sign defaultSign,unit_type unitType from biz_fact_category where status='0' order by sort_order,category_id
+      default_sign defaultSign,unit_type unitType from biz_fact_category
+    where status='0' and category_code not in ('SUBPROJECT_FUNDING_COST','SUBPROJECT_FUNDING_REVENUE')
+    order by sort_order,category_id
   </select>
   <select id="selectProjectOptions" resultType="map">
     select p.project_id projectId,p.project_no projectNo,p.project_name projectName,p.company_dept_id companyDeptId,

@@ -21,7 +21,19 @@
       </div>
     </header>
 
-    <div v-if="!loading && !project && !(allProjectsMode && projects.length)" class="no-project">
+    <el-alert v-if="proposalTodoFailed" class="owner-status-alert" title="子项目交接待办暂未加载，请刷新重试" type="warning" :closable="false" show-icon />
+
+    <section v-if="!loading && !project && !(allProjectsMode && projects.length) && crossProjectTodos.length" class="panel owner-todos">
+      <div class="panel-head"><div><h2>我的待办 <el-tag size="small" type="warning">{{ crossProjectTodos.length }} 项</el-tag></h2><p>子项目交接与验收事项</p></div></div>
+      <article v-for="item in crossProjectTodos" :key="item.key" class="owner-todo-row">
+        <span class="todo-dot urgent"></span>
+        <div class="todo-copy"><b>{{ item.title }}</b><small>{{ item.projectName }} · {{ item.detail }}</small></div>
+        <el-tag type="danger" size="small" effect="plain">优先处理</el-tag>
+        <el-button size="small" type="primary" plain @click="item.action==='proposal-handoff'?openProposalHandoff(item):openChildAcceptance(item)">{{ item.action==='proposal-handoff'?'去完善':'去验收' }}</el-button>
+      </article>
+    </section>
+
+    <div v-if="!loading && !project && !(allProjectsMode && projects.length) && !crossProjectTodos.length" class="no-project">
       <el-empty description="你目前还不是任何项目的主负责人">
         <p>你可以先发起立项申请；确认测算并自主启动后，你负责的正式项目会自动出现在这里。</p>
         <el-button v-hasPermi="['business:project:proposal:add']" type="primary" @click="openProposals">发起立项申请</el-button>
@@ -45,7 +57,7 @@
           <span :class="['todo-dot', { urgent: item.urgent }]"></span>
           <div class="todo-copy"><b>{{ item.title }}</b><small>{{ item.projectName }} · {{ item.detail }}</small></div>
           <el-tag v-if="item.urgent" type="danger" size="small" effect="plain">优先处理</el-tag>
-          <el-button size="small" type="primary" plain :disabled="loading || saving" @click="handleAllOwnerTodo(item)">{{ item.action==='allocation-review' ? '去确认' : item.action==='public-expense' ? '去分摊' : '去处理' }}</el-button>
+          <el-button size="small" type="primary" plain :disabled="loading || saving" @click="handleAllOwnerTodo(item)">{{ item.action==='proposal-handoff' ? '去完善' : item.action==='allocation-review' ? '去确认' : item.action==='public-expense' ? '去分摊' : '去处理' }}</el-button>
         </article>
         <el-button v-if="allOwnerTodos.length > 5" class="todo-expand" link type="primary" @click="allTodosExpanded = !allTodosExpanded">{{ allTodosExpanded ? '收起' : `查看全部 ${allOwnerTodos.length} 项` }}</el-button>
       </section>
@@ -112,7 +124,7 @@
           <span :class="['todo-dot', { urgent: item.urgent }]"></span>
           <div class="todo-copy"><b>{{ item.title }}</b><small>{{ item.detail }}</small></div>
           <el-tag v-if="item.urgent" type="danger" size="small" effect="plain">优先处理</el-tag>
-          <el-button size="small" type="primary" plain :disabled="loading || saving" @click="handleOwnerTodo(item)">{{ item.action==='allocation-review' ? '去确认' : item.action==='public-expense' ? '去分摊' : item.action==='effort' ? '确认' : item.action==='revenue' ? '去填写' : item.action==='kpi-settings' ? '去设置' : '去处理' }}</el-button>
+          <el-button size="small" type="primary" plain :disabled="loading || saving" @click="handleOwnerTodo(item)">{{ item.action==='proposal-handoff' ? '去完善' : item.action==='allocation-review' ? '去确认' : item.action==='public-expense' ? '去分摊' : item.action==='effort' ? '确认' : item.action==='revenue' ? '去填写' : item.action==='kpi-settings' ? '去设置' : '去处理' }}</el-button>
           <el-button v-if="item.action==='spend' && item.allowZero" size="small" :disabled="loading || saving" @click="confirmNoSpend">今日无支出</el-button>
           <el-button v-if="item.action==='revenue' && item.allowZero" size="small" :disabled="loading || saving" @click="confirmNoRevenue">今日无收入</el-button>
           <el-button v-if="item.action==='effort'" size="small" :disabled="loading || saving" @click="returnPendingEffort(item.item)">退回</el-button>
@@ -421,7 +433,8 @@ import BusinessProjectPlanPanel from '@/components/BusinessProjectPlanPanel/inde
 import BusinessSettlementPanel from '@/components/BusinessSettlementPanel/index.vue'
 import PublicExpenseOwnerPanel from '@/views/business/components/PublicExpenseOwnerPanel.vue'
 import { getProjectKpiWorkspace } from '@/api/business/kpi'
-import { buildOwnerTodos, buildPublicExpenseTodos, buildAllocationReviewTodos } from '@/utils/ownerTodos'
+import { listProjectProposals } from '@/api/business/proposal'
+import { buildOwnerTodos, buildPublicExpenseTodos, buildAllocationReviewTodos, buildProposalHandoffTodos, buildChildAcceptanceTodos } from '@/utils/ownerTodos'
 import { getOwnerPublicExpenseWorkspace } from '@/api/business/publicExpense'
 import { canContinueProjectSettlement, isSeparatedDelivery, isDeliveryEnded, projectAccountingState } from '@/utils/businessProjectState'
 
@@ -430,6 +443,19 @@ const userStore=useUserStore()
 const publicExpensePanel=ref(null)
 const publicExpenseBills=ref([]),publicExpenseTodoFailed=ref(false),publicExpenseTodoLoading=ref(false)
 const publicExpenseTodos=computed(()=>buildPublicExpenseTodos(publicExpenseBills.value))
+const handoffProposals=ref([]),proposalTodoFailed=ref(false)
+const proposalHandoffTodos=computed(()=>buildProposalHandoffTodos(handoffProposals.value,userStore.id))
+let proposalTodoRequest=0
+async function loadProposalTodos(){
+  const request=++proposalTodoRequest
+  proposalTodoFailed.value=false
+  try{
+    const response=await listProjectProposals({pageNum:1,pageSize:100,status:'DRAFT'})
+    if(request===proposalTodoRequest)handoffProposals.value=response.rows||[]
+  }catch{
+    if(request===proposalTodoRequest){handoffProposals.value=[];proposalTodoFailed.value=true}
+  }
+}
 const publicExpenseMonth=()=>today().slice(0,7)
 let expenseTodoRequest=0
 async function loadPublicExpenseTodos(){
@@ -448,9 +474,11 @@ const allProjectWorkspaces=ref([]),allProjectsLoadWarning=ref(false)
 let ownerRequest=0
 const workspaceTab=ref('execution'),workspaceTabs=ref(null),settlementSummary=ref({}),settlementLoadFailed=ref(false)
 const allocationReviewTodos=computed(()=>buildAllocationReviewTodos(data.value.pendingAllocationRequests||[],projects.value))
+const childAcceptanceTodos=computed(()=>buildChildAcceptanceTodos(data.value.pendingChildAcceptanceReviews||[]))
+const crossProjectTodos=computed(()=>[...proposalHandoffTodos.value,...childAcceptanceTodos.value])
 const ownerWorkPanel=ref(null)
 const ownerTodos=computed(()=>{
-  const rows=[...allocationReviewTodos.value,...publicExpenseTodos.value,...buildOwnerTodos({data:{...data.value,pendingAllocationRequests:[]},userId:userStore.id,today:today(),permissions:userStore.permissions,kpi:todoKpi.value})]
+  const rows=[...crossProjectTodos.value,...allocationReviewTodos.value,...publicExpenseTodos.value,...buildOwnerTodos({data:{...data.value,pendingAllocationRequests:[]},userId:userStore.id,today:today(),permissions:userStore.permissions,kpi:todoKpi.value})]
   if(Number(settlementSummary.value.pendingCostCount)>0)rows.push({key:'cost-setup',title:'完善人员成本',detail:'部分工作日缺少有效成本，请核对后补充',action:'people',urgent:true})
   if(Number(settlementSummary.value.pendingFactCount)>0)rows.push({key:'settlement-facts',title:'处理待结算收支',detail:settlementSummary.value.pendingFactCount+' 笔收支需要处理',action:'settlement',urgent:true})
   if(Number(settlementSummary.value.pendingAwardCount)>0)rows.push({key:'settlement-awards',title:'查看待处理奖金',detail:'奖金事项将在项目结算中列出',action:'settlement'})
@@ -466,7 +494,7 @@ const pagedParticipants=computed(()=>participantRows.value.slice((participantPag
 watch(()=>project.value?.projectId,()=>{participantPage.value=1})
 watch(()=>participantRows.value.length,total=>{participantPage.value=Math.min(participantPage.value,Math.max(1,Math.ceil(total/participantPageSize)))})
 const allProjectsMode=computed(()=>selectedProjectId.value===ALL_PROJECTS)
-const allOwnerTodos=computed(()=>[...allocationReviewTodos.value,...publicExpenseTodos.value,...allProjectWorkspaces.value.flatMap(entry=>{
+const allOwnerTodos=computed(()=>[...crossProjectTodos.value,...allocationReviewTodos.value,...publicExpenseTodos.value,...allProjectWorkspaces.value.flatMap(entry=>{
   const rows=buildOwnerTodos({data:{...entry,pendingAllocationRequests:[]},userId:userStore.id,today:today(),permissions:userStore.permissions,kpi:entry.kpi})
   const settlement=entry.settlement||{}
   if(Number(settlement.pendingCostCount)>0)rows.push({key:'cost-setup',title:'完善人员成本',detail:'部分工作日缺少有效成本，请核对后补充',action:'people',urgent:true})
@@ -550,7 +578,7 @@ const statusTone={DRAFT:'info',PLANNING:'warning',ACTIVE:'primary',PAUSED:'info'
 const projectStatusLabel=item=>item?.status==='ACCEPTANCE'&&item?.closeMethod==='STAGED_ACCEPTANCE'?'待结项':statusLabel[item?.status]||item?.status
 const managementLabel={LIGHT:'轻量管理',STANDARD:'标准管理',KEY_CONTROL:'重点监管',SIMPLE:'轻量管理',DELIVERY:'标准管理'}
 const closeMethodLabel={DIRECT:'直接结项',RESULT_ACCEPTANCE:'成果验收',STAGED_ACCEPTANCE:'阶段验收'}
-const governanceDescription=computed(()=>{const p=project.value;if(!p)return '';const cycle=p.governanceProfile?.reportCycle==='EXCEPTION'?'异常时更新':p.governanceProfile?.reportCycle==='WEEKLY_AND_EVENT'?'每周更新并在重大事件时专项汇报':'每周更新';const close={DIRECT:'负责人提交结项申请，由老板检验通过后结项。',RESULT_ACCEPTANCE:'负责人提交整体验收资料，由老板验收通过后结项。',STAGED_ACCEPTANCE:'负责人按里程碑提交成果，由老板逐项验收并最终确认结项。'}[p.closeMethod]||'';return `过程要求：${cycle}；${close}`})
+const governanceDescription=computed(()=>{const p=project.value;if(!p)return '';const cycle=p.governanceProfile?.reportCycle==='EXCEPTION'?'异常时更新':p.governanceProfile?.reportCycle==='WEEKLY_AND_EVENT'?'每周更新并在重大事件时专项汇报':'每周更新';const reviewer=p.parentId?'主项目主负责人':'归属老板';const close={DIRECT:`负责人提交结项申请，由${reviewer}检验通过后结项。`,RESULT_ACCEPTANCE:`负责人提交整体验收资料，由${reviewer}验收通过后结项。`,STAGED_ACCEPTANCE:`负责人按里程碑提交成果，由${reviewer}逐项验收并最终确认结项。`}[p.closeMethod]||'';return `过程要求：${cycle}；${close}`})
 const memberRoleLabel={OWNER:'主负责人',DEPUTY:'副负责人',MEMBER:'成员',OBSERVER:'观察者'}
 const memberRoleTone={OWNER:'primary',DEPUTY:'success',MEMBER:'info',OBSERVER:'warning'}
 const effortStatusLabel={UNSUBMITTED:'按计划执行',SUBMITTED:'待确认',CONFIRMED:'已确认',RETURNED:'已退回',LEAVE:'今日请假'}
@@ -619,6 +647,7 @@ function participantName(member){return member.userNameSnapshot||member.userName
 async function load(projectId){
   const request=++ownerRequest
   const expensesRequest=loadPublicExpenseTodos()
+  const proposalsRequest=loadProposalTodos()
   loading.value=true;todoKpi.value=null;todoLoadFailed.value=false;settlementSummary.value={};settlementLoadFailed.value=false
   try{
     if(projectId===ALL_PROJECTS){
@@ -663,9 +692,11 @@ async function load(projectId){
         : Promise.resolve()
       await Promise.all([statusRequest,kpiRequest])
     }
-  }finally{await expensesRequest;if(request===ownerRequest)loading.value=false}
+  }finally{await Promise.all([expensesRequest,proposalsRequest]);if(request===ownerRequest)loading.value=false}
 }
 function handleOwnerTodo(item){
+  if(item.action==='proposal-handoff')return openProposalHandoff(item)
+  if(item.action==='child-acceptance')return openChildAcceptance(item)
   if(item.action==='public-expense')return openPublicExpenseTodo(item)
   if(item.action==='allocation-review')return openAllocationReview(item)
   if(item.action==='people')return goToWorkspace('people')
@@ -702,7 +733,9 @@ async function goToWorkspace(tab){
 async function refreshWorkbench(){await Promise.all([load(selectedProjectId.value),publicExpensePanel.value?.refresh()])}
 function switchProject(id){workspaceTab.value='execution';load(id)}
 async function selectProject(projectId,tab){await load(projectId);if(tab)await goToWorkspace(tab)}
-async function handleAllOwnerTodo(item){if(item.action==='allocation-review')return openAllocationReview(item);if(item.action==='public-expense')return openPublicExpenseTodo(item);await load(item.projectId);await nextTick();return handleOwnerTodo(item)}
+async function handleAllOwnerTodo(item){if(item.action==='proposal-handoff')return openProposalHandoff(item);if(item.action==='child-acceptance')return openChildAcceptance(item);if(item.action==='allocation-review')return openAllocationReview(item);if(item.action==='public-expense')return openPublicExpenseTodo(item);await load(item.projectId);await nextTick();return handleOwnerTodo(item)}
+function openProposalHandoff(item){router.push({path:'/business/project-proposals',query:{id:item.proposalId,edit:'1'}})}
+function openChildAcceptance(item){router.push({path:'/business/projects',query:{id:item.projectId,tab:item.tab||'overview'}})}
 function openProject(){router.push({path:'/business/projects',query:{id:project.value.projectId}})}
 function openProjectAllocation(item){router.push({path:'/business/projects',query:{id:item.projectId,tab:'operating'}})}
 function openKpiBonus(){router.push({path:'/business/kpi-bonus',query:{projectId:project.value.projectId}})}

@@ -35,7 +35,7 @@ public class BusinessProjectProposal extends BaseEntity
     private String assignedOwnerName;
     private Long parentProjectId;
     private String parentProjectName;
-    /** 主项目正式分配给该子项目的额度，不作为重复支出记账。 */
+    /** 主项目正式拨付给子项目的额度：主项目记支出，子项目启动时记收入。 */
     private BigDecimal parentFundingAmount;
     private String parentFundingReason;
     private String projectType;

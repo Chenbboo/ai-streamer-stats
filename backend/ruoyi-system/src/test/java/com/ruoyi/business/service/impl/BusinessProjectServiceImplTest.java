@@ -1310,6 +1310,28 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
+    void parentProjectOwnerCanApproveChildDirectClose()
+    {
+        BusinessProject child = project(88L, 19L, "ACCEPTANCE", "APPROVED");
+        child.setParentId(880L); child.setCloseMethod("DIRECT");
+        child.setDeliveryPolicyVersion("SEPARATED_V1"); child.setAccountingState("OPEN");
+        BusinessProject parent = project(880L, 8L, "ACTIVE", "APPROVED");
+        when(mapper.selectProjectById(88L)).thenReturn(child);
+        when(mapper.selectProjectById(880L)).thenReturn(parent);
+        when(mapper.selectTasks(88L)).thenReturn(Collections.singletonList(completedTask("子项目交付")));
+        when(mapper.selectRisks(88L)).thenReturn(Collections.emptyList());
+        when(kpiMapper.selectPlanSummaries(88L)).thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
+        when(mapper.updateProjectStatus(88L, "ACCEPTANCE", "CLOSED", null, false, "parent8", 0)).thenReturn(1);
+        when(mapper.closeAccounting(88L, 1, "parent8")).thenReturn(1);
+
+        Map<String, Object> result = service.closeAccounting(88L, 0, "子项目验收通过", 8L, "parent8", false);
+
+        assertEquals("CLOSED", result.get("status"));
+        assertEquals("CLOSED", result.get("accountingState"));
+        verify(mapper).updateProjectStatus(88L, "ACCEPTANCE", "CLOSED", null, false, "parent8", 0);
+    }
+
+    @Test
     void assigningOneOffTaskStoresAssigneeAuditSnapshot()
     {
         BusinessProject project = project(85L, 9L, "ACTIVE", "APPROVED");
@@ -1530,6 +1552,70 @@ class BusinessProjectServiceImplTest
 
         assertTrue(error.getMessage().contains("只有老板"));
         verify(mapper, never()).reviewStageAcceptance(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void parentProjectOwnerCanApproveChildResultAcceptance()
+    {
+        BusinessProject pending = project(85L, 19L, "ACCEPTANCE", "APPROVED");
+        pending.setParentId(850L); pending.setCloseMethod("RESULT_ACCEPTANCE");
+        BusinessProject closed = project(85L, 19L, "CLOSED", "APPROVED");
+        closed.setParentId(850L); closed.setCloseMethod("RESULT_ACCEPTANCE");
+        BusinessProject parent = project(850L, 8L, "ACTIVE", "APPROVED");
+        BusinessProjectAcceptance acceptance = new BusinessProjectAcceptance();
+        acceptance.setAcceptanceId(8500L);
+        Map<String, Object> reviewer = new HashMap<String, Object>(); reviewer.put("nickName", "主负责人八");
+        when(mapper.selectProjectById(85L)).thenReturn(pending, closed);
+        when(mapper.selectProjectById(850L)).thenReturn(parent);
+        when(mapper.selectLatestPendingAcceptance(85L)).thenReturn(acceptance);
+        when(mapper.selectTasks(85L)).thenReturn(Collections.singletonList(completedTask("子项目交付")));
+        when(mapper.selectMilestones(85L)).thenReturn(Collections.emptyList());
+        when(mapper.selectRisks(85L)).thenReturn(Collections.emptyList());
+        when(kpiMapper.selectPlanSummaries(85L)).thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
+        when(mapper.selectActiveUserById(8L)).thenReturn(reviewer);
+        when(mapper.reviewAcceptance(8500L, "APPROVED", 8L, "主负责人八", "验收通过", "parent8")).thenReturn(1);
+        when(mapper.updateProjectStatus(85L, "ACCEPTANCE", "CLOSED", null, false, "parent8", 0)).thenReturn(1);
+
+        BusinessProject result = service.reviewAcceptance(85L, "APPROVED", "验收通过", 8L, "parent8", false);
+
+        assertEquals("CLOSED", result.getStatus());
+        verify(mapper).reviewAcceptance(8500L, "APPROVED", 8L, "主负责人八", "验收通过", "parent8");
+    }
+
+    @Test
+    void companyBossCannotApproveChildAcceptance()
+    {
+        BusinessProject child = project(86L, 19L, "ACCEPTANCE", "APPROVED");
+        child.setParentId(860L); child.setCloseMethod("RESULT_ACCEPTANCE");
+        BusinessProject parent = project(860L, 8L, "ACTIVE", "APPROVED");
+        when(mapper.selectProjectById(86L)).thenReturn(child);
+        when(mapper.selectProjectById(860L)).thenReturn(parent);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.reviewAcceptance(86L, "APPROVED", "老板验收", 23L, "boss23", true));
+
+        assertTrue(error.getMessage().contains("主项目主负责人"));
+        verify(mapper, never()).reviewAcceptance(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void parentProjectOwnerCanApproveChildMilestoneAcceptance()
+    {
+        BusinessProject active = project(87L, 19L, "ACTIVE", "APPROVED");
+        active.setParentId(870L); active.setCloseMethod("STAGED_ACCEPTANCE");
+        BusinessProject parent = project(870L, 8L, "ACTIVE", "APPROVED");
+        BusinessProjectStageAcceptance acceptance = new BusinessProjectStageAcceptance();
+        acceptance.setStageAcceptanceId(8700L);
+        Map<String, Object> reviewer = new HashMap<String, Object>(); reviewer.put("nickName", "主负责人八");
+        when(mapper.selectProjectById(87L)).thenReturn(active);
+        when(mapper.selectProjectById(870L)).thenReturn(parent);
+        when(mapper.selectLatestPendingStageAcceptance(87L, 501L)).thenReturn(acceptance);
+        when(mapper.selectActiveUserById(8L)).thenReturn(reviewer);
+        when(mapper.reviewStageAcceptance(8700L, "APPROVED", 8L, "主负责人八", "阶段通过", "parent8")).thenReturn(1);
+
+        service.reviewStageAcceptance(87L, 501L, "APPROVED", "阶段通过", 8L, "parent8", false);
+
+        verify(mapper).updateMilestoneStatus(87L, 501L, "DONE", "parent8");
     }
 
     @Test
@@ -2268,6 +2354,26 @@ class BusinessProjectServiceImplTest
         ServiceException error=assertThrows(ServiceException.class,()->org.springframework.test.util.ReflectionTestUtils.invokeMethod(
             service,"ensureDefaultProjectWeight",project,member,"owner",new BigDecimal("80")));
         assertTrue(error.getMessage().contains("本项目最多可设置70%"));
+    }
+
+    @Test
+    void fullyAllocatedPersonCanJoinBeforeRedistributingProjectWeights()
+    {
+        BusinessProject project=project(89L,9L,"ACTIVE","APPROVED");
+        project.setCostPolicyVersion(BusinessMemberDayCostService.POLICY);
+        BusinessProjectMember member=new BusinessProjectMember();member.setProjectId(89L);member.setUserId(12L);
+        member.setMemberRole("MEMBER");
+        when(mapper.selectProjectById(89L)).thenReturn(project);
+        when(mapper.selectMemberRole(89L,9L)).thenReturn("OWNER");
+        when(mapper.selectActiveUserById(12L)).thenReturn(row("userName","member12","nickName","成员十二"));
+        when(mapper.selectUserAllocationWorkspace(eq(12L),any(Date.class))).thenReturn(Collections.emptyList());
+        when(mapper.sumAllocationPercentAtDate(eq(12L),any(Date.class))).thenReturn(new BigDecimal("100"));
+
+        BusinessProjectMember saved=service.saveMember(member,9L,"owner9",false);
+
+        assertEquals("成员十二",saved.getUserNameSnapshot());
+        verify(mapper).upsertMember(member);
+        verify(mapper,never()).insertProjectStaffAllocation(any(BusinessProjectStaffAllocation.class));
     }
 
     @Test

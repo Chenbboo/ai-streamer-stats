@@ -48,11 +48,13 @@ class BusinessProjectWorkServiceTest
         org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
 }
 
-    @Test void initialChildPlanKeepsActualOperatorWithoutGrantingOngoingManagement() {
+    @Test void initialChildPlanAllowsChildOwnerAndKeepsActualOperator() {
         project.setParentId(2L);project.setSourceProposalId(3L);project.setApplicantUserId(9L);
         Map<String,Object> body=row("userId",10L,"effectiveFrom","2026-03-02","effectiveTo","2026-03-03","inputUnit","DAY","inputQuantity","0.5","calendarId",1L,"unitPolicyId",1L,"participationOnly",true);
         Map<String,Object> saved=service.saveInitialAssignment(project,body,9L,"总负责人");
         assertEquals(10L,saved.get("userId"));assertEquals("总负责人",saved.get("userName"));
+        saved=service.saveInitialAssignment(project,body,10L,"子负责人");
+        assertEquals(10L,saved.get("userId"));assertEquals("子负责人",saved.get("userName"));
         assertThrows(ServiceException.class,()->service.saveAssignment(1L,body,9L,"总负责人"));
         assertThrows(ServiceException.class,()->service.saveInitialAssignment(project,body,99L,"无关人员"));
     }

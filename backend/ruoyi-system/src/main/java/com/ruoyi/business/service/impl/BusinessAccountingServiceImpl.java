@@ -69,8 +69,10 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
                 &&(scoped.get("projectId")==null||String.valueOf(scoped.get("projectId")).equals(String.valueOf(p.get("projectId")))))
                 memberDays.synchronize(longValue(p.get("projectId")));
         Map<String,Object> result=new LinkedHashMap<String,Object>();
-        result.put("summary",mapper.selectDailySummary(scoped));
-        result.put("summaryByCurrency",mapper.selectDailySummaryByCurrency(scoped));
+        Map<String,Object> summary=mapper.selectDailySummary(scoped);
+        List<Map<String,Object>> summaryByCurrency=mapper.selectDailySummaryByCurrency(scoped);
+        result.put("summary",summary);
+        result.put("summaryByCurrency",summaryByCurrency);
         result.put("closedAdjustmentTotals",flows==null?Collections.emptyList():flows.adjustmentTotals(scoped));
         result.put("results",mapper.selectDailyResults(scoped));
         result.put("facts",mapper.selectFacts(scoped));
@@ -390,6 +392,59 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         return reversal;
     }
 
+    @Override
+    @Transactional
+    public void recordSubprojectFundingTransfer(Long parentProjectId,Long childProjectId,Long proposalId,
+        BigDecimal amount,String currency,String reason,Long userId,String userName)
+    {
+        if(parentProjectId==null||childProjectId==null||proposalId==null)
+            throw new ServiceException("子项目拨款关联信息不完整");
+        if(parentProjectId.equals(childProjectId))throw new ServiceException("主项目和子项目不能相同");
+        if(amount==null||amount.signum()<=0)throw new ServiceException("子项目拨款金额必须大于0");
+        Map<String,Object> parent=mapper.selectProjectForAccountingForUpdate(parentProjectId);
+        Map<String,Object> child=mapper.selectProjectForAccountingForUpdate(childProjectId);
+        if(parent==null||child==null)throw new ServiceException("拨款关联的主项目或子项目不存在");
+        ensureAccountingOpen(parent);ensureAccountingOpen(child);
+        if(!java.util.Objects.equals(longValue(parent.get("companyDeptId")),longValue(child.get("companyDeptId"))))
+            throw new ServiceException("主项目和子项目必须归属同一公司");
+        String transferCurrency=StringUtils.defaultIfBlank(currency,String.valueOf(parent.get("currency"))).trim().toUpperCase();
+        if(!transferCurrency.equals(String.valueOf(parent.get("currency")))
+            ||!transferCurrency.equals(String.valueOf(child.get("currency"))))
+            throw new ServiceException("主项目、子项目与拨款币种必须一致");
+        Date bizDate=day(new Date());
+        String parentKey="SUBPROJECT_FUNDING:"+proposalId+":PARENT";
+        String childKey="SUBPROJECT_FUNDING:"+proposalId+":CHILD";
+        BusinessOperatingFact existingParent=mapper.selectFactByIdempotencyKey(parentKey);
+        BusinessOperatingFact existingChild=mapper.selectFactByIdempotencyKey(childKey);
+        if(existingParent==null)insertFundingFact(parent,child,proposalId,amount,transferCurrency,reason,userId,userName,
+            "SUBPROJECT_FUNDING_COST","子项目拨款支出","COST","PARENT_COST",parentKey,bizDate);
+        if(existingChild==null)insertFundingFact(child,parent,proposalId,amount,transferCurrency,reason,userId,userName,
+            "SUBPROJECT_FUNDING_REVENUE","主项目拨款收入","REVENUE","CHILD_REVENUE",childKey,bizDate);
+        if(existingParent==null)recalculateInternal(parentProjectId,bizDate,userName);
+        if(existingChild==null)recalculateInternal(childProjectId,bizDate,userName);
+    }
+
+    private void insertFundingFact(Map<String,Object> project,Map<String,Object> counterparty,Long proposalId,
+        BigDecimal amount,String currency,String reason,Long userId,String userName,String categoryCode,
+        String categoryName,String factKind,String sourceType,String idempotencyKey,Date bizDate)
+    {
+        Map<String,Object> category=mapper.selectCategoryByCode(categoryCode);
+        if(category==null)throw new ServiceException("子项目拨款核算类别未启用，请先执行数据库升级");
+        BusinessOperatingFact fact=new BusinessOperatingFact();
+        fact.setProjectId(longValue(project.get("projectId")));fact.setCompanyDeptId(longValue(project.get("companyDeptId")));
+        fact.setBizDate(bizDate);fact.setCategoryId(longValue(category.get("categoryId")));
+        fact.setCategoryCode(categoryCode);fact.setCategoryName(categoryName);fact.setFactKind(factKind);
+        fact.setAmount(amount.setScale(2,java.math.RoundingMode.HALF_UP));fact.setCurrency(currency);
+        fact.setDescription(categoryName+"："+StringUtils.defaultIfBlank(reason,"主子项目内部转拨"));
+        fact.setCounterparty(String.valueOf(counterparty.get("projectName")));
+        fact.setSourceDomain("SUBPROJECT_FUNDING");fact.setSourceType(sourceType);
+        fact.setSourceId(String.valueOf(proposalId));fact.setSourceLineKey(String.valueOf(counterparty.get("projectId")));
+        fact.setStatus("CONFIRMED");fact.setIdempotencyKey(idempotencyKey);
+        fact.setConfirmedUserId(userId);fact.setConfirmedUserName(userName);fact.setConfirmedTime(new Date());
+        fact.setCreateUserId(userId);fact.setCreateBy(userName);fact.setRemark("内部转拨，公司合并报表抵销");
+        mapper.insertFact(fact);
+    }
+
     private BusinessOperatingFact saveFactInternal(BusinessOperatingFact fact,Long userId,String userName,
         boolean viewAll,boolean projectContributor)
     {
@@ -407,6 +462,8 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             throw new ServiceException("公司公共费用只能通过月结或公共费用调整入账，不能手工录入");
         if("PROJECT_MANAGEMENT_FEE".equals(String.valueOf(category.get("categoryCode"))))
             throw new ServiceException("项目管理费只能在关闭项目核算时由系统确认，不能手工录入");
+        if(String.valueOf(category.get("categoryCode")).startsWith("SUBPROJECT_FUNDING_"))
+            throw new ServiceException("子项目拨款收支由项目启动流程自动入账，不能手工录入");
         if(fact.getBizDate()==null)throw new ServiceException("请选择业务日期");
         ensureBusinessDate(project,fact.getBizDate(),false);
         if(StringUtils.isBlank(fact.getDescription()))throw new ServiceException("请填写收支说明");
@@ -736,6 +793,9 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
 
     private Map<String,Object> recalculateInternal(Long projectId,Date bizDate,String userName)
     {
+        // Accounting tables store a business day, not a timestamp. Normalizing here keeps every
+        // caller on the same key when selecting the next snapshot version and retiring the old one.
+        bizDate = java.sql.Date.valueOf(DateUtils.parseDateToStr("yyyy-MM-dd", bizDate));
         Map<String,Object> project=mapper.selectProjectForAccountingForUpdate(projectId);
         if(project==null||project.get("companyDeptId")==null)throw new ServiceException("项目不存在或未设置归属公司");
         ensureAccountingOpen(project);

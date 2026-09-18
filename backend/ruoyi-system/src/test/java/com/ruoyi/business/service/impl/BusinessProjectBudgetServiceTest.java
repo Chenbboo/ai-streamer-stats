@@ -49,6 +49,23 @@ class BusinessProjectBudgetServiceTest
         assertEquals("子负责人",p.getStaffingLines().get(0).get("userName"));
         service.ensureOwner(p);assertEquals(1,p.getStaffingLines().size());
     }
+    @Test void childFundingIsOneTimeForecastRevenueAndDoesNotCapBudget()
+    {
+        p.setParentProjectId(1L);p.setParentFundingAmount(new BigDecimal("2000"));
+        p.setPlanEndDate(Date.valueOf("2026-10-31"));p.setStaffingLines(Collections.emptyList());
+        p.getBudget().put("businessAmount",new BigDecimal("2600"));
+        p.setRevenueLines(Collections.emptyList());
+
+        Map<String,Object> budget=service.estimate(p);
+
+        assertEquals(new BigDecimal("2000.00"),budget.get("revenueAmount"));
+        assertEquals(new BigDecimal("0.00"),budget.get("externalRevenueAmount"));
+        assertEquals(new BigDecimal("2000.00"),budget.get("parentFundingRevenue"));
+        assertEquals(new BigDecimal("2600.00"),budget.get("totalAmount"));
+        List<Map<String,Object>> months=(List<Map<String,Object>>)budget.get("monthlyForecasts");
+        assertEquals(new BigDecimal("2000.00"),months.get(0).get("revenueAmount"));
+        assertEquals(new BigDecimal("0.00"),months.get(1).get("revenueAmount"));
+    }
     @Test void smallRevenueRetainsLargeNegativeMarginInsteadOfCappingLoss()
     {
         p.setPlanStartDate(Date.valueOf("2026-09-15"));p.setPlanEndDate(Date.valueOf("2026-09-24"));

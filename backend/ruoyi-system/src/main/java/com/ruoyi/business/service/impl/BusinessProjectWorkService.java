@@ -85,7 +85,8 @@ public class BusinessProjectWorkService
     Map<String,Object> saveInitialAssignment(BusinessProject project, Map<String,Object> body, Long actorId, String userName)
     {
         if (project.getSourceProposalId() == null || project.getParentId() == null
-            || !(actorId.equals(project.getApplicantUserId()) || actorId.equals(sponsor(project))))
+            || !(actorId.equals(project.getMainOwnerUserId())
+                || actorId.equals(project.getApplicantUserId()) || actorId.equals(sponsor(project))))
             throw new ServiceException("无权初始化立项人员计划");
         return persistAssignment(project, body, userName);
     }

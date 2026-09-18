@@ -94,7 +94,7 @@ class BusinessAccountingServiceImplTest
 
     @Test void dailyProfitIncludesManualAndPersonnelCostAndCreatesItems()
     {
-        Date day=new Date();Map<String,Object> project=project(21L,8L);
+        Date requestedAt=new Date();Date day=java.sql.Date.valueOf(com.ruoyi.common.utils.DateUtils.parseDateToStr("yyyy-MM-dd",requestedAt));Map<String,Object> project=project(21L,8L);
         when(mapper.selectProjectForAccounting(21L)).thenReturn(project);
         Map<String,Object> sums=new HashMap<String,Object>();sums.put("revenueAmount",new BigDecimal("1000"));
         sums.put("costAmount",new BigDecimal("200"));sums.put("adjustmentAmount",new BigDecimal("50"));sums.put("valueScore",BigDecimal.ZERO);
@@ -104,7 +104,7 @@ class BusinessAccountingServiceImplTest
         when(mapper.selectNextResultVersion(21L,day)).thenReturn(2);
         doAnswer(invocation->{((Map<String,Object>)invocation.getArgument(0)).put("resultId",99L);return 1;}).when(mapper).insertDailyResult(any());
 
-        Map<String,Object> result=service.recalculate(21L,day,8L,"boss8",false);
+        Map<String,Object> result=service.recalculate(21L,requestedAt,8L,"boss8",false);
 
         assertEquals(new BigDecimal("550"),result.get("profitAmount"));
         assertEquals(2,result.get("resultVersion"));
@@ -169,7 +169,7 @@ class BusinessAccountingServiceImplTest
 
     @Test void recalculationStoresOnePersonnelSnapshotItemPerPerson()
     {
-        Date day=new Date();Map<String,Object> project=project(22L,8L);
+        Date day=java.sql.Date.valueOf(com.ruoyi.common.utils.DateUtils.getDate());Map<String,Object> project=project(22L,8L);
         when(mapper.selectProjectForAccounting(22L)).thenReturn(project);
         when(mapper.sumProjectFacts(22L,day)).thenReturn(Collections.emptyMap());
         when(mapper.sumProjectPersonnelCost(22L,day)).thenReturn(new BigDecimal("137.931"));
@@ -326,7 +326,7 @@ class BusinessAccountingServiceImplTest
 
     private void assertBossEntryPosts(String kind, boolean returned)
     {
-        Date date=new Date();
+        Date date=java.sql.Date.valueOf(com.ruoyi.common.utils.DateUtils.getDate());
         when(mapper.selectProjectForAccounting(30L)).thenReturn(project(30L,8L));
         Map<String,Object> category=new HashMap<>();category.put("categoryCode",kind);
         category.put("categoryName",kind);category.put("factKind",kind);
@@ -670,6 +670,9 @@ class BusinessAccountingServiceImplTest
 
         verify(mapper,never()).insertFact(any());
     }
+
+    private Map<String,Object> category(Long id,String code)
+    {Map<String,Object> c=new HashMap<String,Object>();c.put("categoryId",id);c.put("categoryCode",code);return c;}
 
     private Map<String,Object> separatedProject(String status,String accountingState)
     {

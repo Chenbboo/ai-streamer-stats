@@ -151,6 +151,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         project.setEvents(mapper.selectEvents(projectId));
         project.setGovernanceProfile(buildGovernanceProfile(project));
         project.getGovernanceProfile().put("companyManager", companyAccess.project(project,userId));
+        project.getGovernanceProfile().put("acceptanceReviewer", canReviewProjectAcceptance(project, userId, boss));
+        project.getGovernanceProfile().put("acceptanceReviewerLabel",
+            project.getParentId() == null ? "归属老板" : "主项目主负责人");
         Map<String, Object> executionRelation = mapper.selectActiveExecutionRelation(projectId);
         if (executionRelation != null && executionRelation.get("sourceDomain") != null)
         {
@@ -265,9 +268,14 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         Long userId, String userName, boolean boss)
     {
         BusinessProject project = requireProjectForUpdate(projectId);
-        // A technical administrator's visibility is not a business sign-off responsibility.
-        if (!boss || userId == null || !companyAccess.project(project, userId))
-            throw new ServiceException("只有项目归属老板可以确认关闭核算");
+        // Child delivery is signed off by the current parent-project owner. Once delivery has
+        // ended, final accounting remains a company-owner responsibility.
+        if (BusinessProjectLifecycle.isTerminal(project.getStatus()))
+        {
+            if (!boss || userId == null || !companyAccess.project(project, userId))
+                throw new ServiceException("只有项目归属老板可以确认关闭核算");
+        }
+        else requireAcceptanceReviewer(project, userId, boss);
         if (version == null || !version.equals(project.getVersion())) throw changed();
         if (StringUtils.isBlank(reason) || reason.trim().length() > 2000)
             throw new ServiceException("请填写核算关闭说明，且不超过2000个字符");
@@ -300,8 +308,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         Long acceptanceId, boolean approveAcceptance, boolean separateLegacyAccounting, Long userId, String userName, boolean boss)
     {
         BusinessProject project = requireProjectForUpdate(projectId);
-        if (!boss || userId == null || !companyAccess.project(project, userId))
-            throw new ServiceException("只有项目归属老板可以确认结束交付");
+        requireAcceptanceReviewer(project, userId, boss);
         if (version == null || !version.equals(project.getVersion())) throw changed();
         if (StringUtils.isBlank(reason) || reason.trim().length() > 2000)
             throw new ServiceException("请填写交付结束说明，且不超过2000个字符");
@@ -364,7 +371,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         addSettlementBlocker(blockers, "DELIVERY_OPEN",
             deliveryIssue == null ? "项目交付尚未结束" : deliveryIssue, deliveryIssue == null ? 0 : 1);
         addSettlementBlocker(blockers, "ACCOUNTING_CLOSED", "项目核算已关闭", BusinessProjectLifecycle.isAccountingClosed(project) ? 1 : 0);
-        addSettlementBlocker(blockers, "NOT_SPONSOR", "需由获授权的公司老板确认", boss && userId != null && companyAccess.project(project, userId) ? 0 : 1);
+        boolean acceptanceReviewer = canReviewProjectAcceptance(project, userId, boss);
+        addSettlementBlocker(blockers, "NOT_SPONSOR", project.getParentId() == null
+            ? "需由获授权的公司老板确认" : "需由主项目主负责人确认", acceptanceReviewer ? 0 : 1);
         addSettlementBlocker(blockers, "MISSING_END_DATE", "缺少实际交付结束日期",
             BusinessProjectLifecycle.isTerminal(project.getStatus()) && project.getActualEndDate() == null ? 1 : 0);
         addSettlementBlocker(blockers, "PENDING_KPI", "KPI方案尚未完成结算或作废", kpiCount);
@@ -385,7 +394,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         result.put("version", project.getVersion());
         result.put("canClose", blockers.isEmpty());
         boolean deliveryActive = !BusinessProjectLifecycle.isTerminal(project.getStatus()) && !BusinessProjectLifecycle.isAccountingClosed(project);
-        boolean sponsor = boss && userId != null && companyAccess.project(project, userId);
+        boolean sponsor = acceptanceReviewer;
         String deliveryEndIssue = !deliveryActive ? "项目交付已经结束"
             : (!BusinessProjectLifecycle.isSeparated(project) || "RESULT_ACCEPTANCE".equals(effectiveCloseMethod(project))) ? unifiedCloseReadinessIssue(project, true) : deliveryIssue;
         boolean canEndDelivery = deliveryActive && sponsor && deliveryEndIssue == null && publicExpenseCount > 0
@@ -1715,6 +1724,10 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
                 && row.get("allocationId") != null) return;
         BigDecimal used = decimal(mapper.sumAllocationPercentAtDate(member.getUserId(), effectiveDate));
         BigDecimal available = new BigDecimal("100").subtract(used).max(BigDecimal.ZERO);
+        // A member whose existing projects already use 100% still needs to be added before the
+        // cross-project workspace can show the new project. Keep the new project at 0% here; the
+        // caller immediately opens the same complete allocation editor used for normal changes.
+        if (proposalRatio == null && available.signum() == 0) return;
         BigDecimal requested = proposalRatio == null ? available : proposalRatio.setScale(2, RoundingMode.HALF_UP);
         if (requested.signum() <= 0 || requested.compareTo(new BigDecimal("100")) > 0)
             throw new ServiceException(member.getUserNameSnapshot() + "的项目投入比例必须大于0且不超过100%");
@@ -1849,7 +1862,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (mapper.updateProjectStatus(projectId, "ACTIVE", "ACCEPTANCE", null, false, userName, project.getVersion()) != 1)
             throw changed();
         addEvent(projectId, "REQUEST_ACCEPTANCE", "ACTIVE", "ACCEPTANCE", userId, userName,
-            "负责人提交成果验收，等待老板检验：" + acceptance.getResultSummary());
+            "负责人提交成果验收，等待" + acceptanceReviewerLabel(project) + "检验：" + acceptance.getResultSummary());
         return getProject(projectId, userId, SecurityUtils.isAdmin(userId), boss);
     }
 
@@ -1859,7 +1872,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         Long userId, String userName, boolean boss)
     {
         BusinessProject project = requireProjectForUpdate(projectId);
-        requireBoss(project, userId, boss);
+        requireAcceptanceReviewer(project, userId, boss);
         requireStatus(project, "ACCEPTANCE");
         if (!"RESULT_ACCEPTANCE".equals(effectiveCloseMethod(project)))
             throw new ServiceException("当前项目不使用成果验收结项");
@@ -1935,7 +1948,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (mapper.insertStageAcceptance(acceptance) != 1) throw new ServiceException("提交阶段验收失败");
         mapper.updateMilestoneStatus(projectId, milestone.getMilestoneId(), "REVIEWING", userName);
         addEvent(projectId, "REQUEST_STAGE_ACCEPTANCE", "ACTIVE", "ACTIVE", userId, userName,
-            "负责人提交里程碑“" + milestone.getMilestoneName() + "”验收，等待老板检验");
+            "负责人提交里程碑“" + milestone.getMilestoneName() + "”验收，等待" + acceptanceReviewerLabel(project) + "检验");
         return getProject(projectId, userId, SecurityUtils.isAdmin(userId), boss);
     }
 
@@ -1945,7 +1958,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         Long userId, String userName, boolean boss)
     {
         BusinessProject project = requireProjectForUpdate(projectId);
-        requireBoss(project, userId, boss);
+        requireAcceptanceReviewer(project, userId, boss);
         requireStatus(project, "ACTIVE");
         if (!"APPROVED".equals(decision) && !"RETURNED".equals(decision)) throw new ServiceException("验收决定不正确");
         if ("RETURNED".equals(decision) && StringUtils.isBlank(comment)) throw new ServiceException("退回原因不能为空");
@@ -2041,7 +2054,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         }
         else if ("RETURN_ACTIVE".equals(action))
         {
-            requireBoss(project, userId, boss); requireStatus(project, "ACCEPTANCE");
+            requireAcceptanceReviewer(project, userId, boss); requireStatus(project, "ACCEPTANCE");
             if ("RESULT_ACCEPTANCE".equals(effectiveCloseMethod(project)))
                 throw new ServiceException("请在验收资料中填写意见并退回执行");
             if (StringUtils.isBlank(comment)) throw new ServiceException("退回原因不能为空");
@@ -2049,7 +2062,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         }
         else if ("CLOSE".equals(action))
         {
-            requireBoss(project, userId, boss);
+            requireAcceptanceReviewer(project, userId, boss);
             String closeMethod = effectiveCloseMethod(project);
             if ("RESULT_ACCEPTANCE".equals(closeMethod))
                 throw new ServiceException("该项目需提交成果验收资料并评审通过后结项");
@@ -2060,7 +2073,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             }
             else
             {
-                if (!"ACTIVE".equals(project.getStatus()) && !"ACCEPTANCE".equals(project.getStatus()))
+                if (project.getParentId() != null) requireStatus(project, "ACCEPTANCE");
+                else if (!"ACTIVE".equals(project.getStatus()) && !"ACCEPTANCE".equals(project.getStatus()))
                     throw new ServiceException("当前项目状态不允许执行此操作");
                 if ("KEY_CONTROL".equals(normalizeManagementMode(project.getManagementMode()))) ensureKeyMilestonesReady(projectId);
             }
@@ -3053,6 +3067,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         result.put("pendingEffortRequests", pendingEffortRequests == null
             ? Collections.<Map<String, Object>>emptyList() : pendingEffortRequests);
         result.put("pendingAllocationRequests", allocationRequests.selectOwnerPending(userId));
+        List<Map<String, Object>> acceptanceTodos = mapper.selectParentOwnerAcceptanceTodos(userId);
+        result.put("pendingChildAcceptanceReviews", acceptanceTodos == null
+            ? Collections.<Map<String, Object>>emptyList() : acceptanceTodos);
         if (projects.isEmpty()) return result;
 
         Long selectedId = projectId == null ? projects.get(0).getProjectId() : projectId;
@@ -3422,10 +3439,11 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     private void requireAccess(BusinessProject project, Long userId, boolean viewAll, boolean boss)
     {
         if (viewAll) return;
-        if (project.getParentId() != null && userId.equals(project.getApplicantUserId())) {
+        if (project.getParentId() != null) {
             BusinessProject parent = mapper.selectProjectById(project.getParentId());
-            if (parent != null && (userId.equals(parent.getMainOwnerUserId())
-                || Arrays.asList("OWNER", "DEPUTY").contains(mapper.selectMemberRole(parent.getProjectId(), userId)))) return;
+            if (parent != null && userId.equals(parent.getMainOwnerUserId())) return;
+            if (userId.equals(project.getApplicantUserId()) && parent != null
+                && Arrays.asList("OWNER", "DEPUTY").contains(mapper.selectMemberRole(parent.getProjectId(), userId))) return;
         }
         if (boss)
         {
@@ -3495,6 +3513,27 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (!boss) throw new ServiceException("只有老板可以执行此操作");
         if (!SecurityUtils.isAdmin(userId) && !companyAccess.project(project, userId))
             throw new ServiceException("无权操作未授权公司的项目");
+    }
+
+    private boolean canReviewProjectAcceptance(BusinessProject project, Long userId, boolean boss)
+    {
+        if (project == null || userId == null) return false;
+        if (project.getParentId() == null)
+            return boss && (SecurityUtils.isAdmin(userId) || companyAccess.project(project, userId));
+        BusinessProject parent = mapper.selectProjectById(project.getParentId());
+        return parent != null && userId.equals(parent.getMainOwnerUserId());
+    }
+
+    private void requireAcceptanceReviewer(BusinessProject project, Long userId, boolean boss)
+    {
+        if (canReviewProjectAcceptance(project, userId, boss)) return;
+        if (project.getParentId() == null) throw new ServiceException("只有老板可以执行此操作");
+        throw new ServiceException("只有主项目主负责人可以验收子项目");
+    }
+
+    private String acceptanceReviewerLabel(BusinessProject project)
+    {
+        return project.getParentId() == null ? "归属老板" : "主项目主负责人";
     }
 
     private void requireStatus(BusinessProject project, String expected)

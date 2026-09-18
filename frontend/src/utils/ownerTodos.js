@@ -105,3 +105,41 @@ export function buildAllocationReviewTodos(requests = [], projects = []) {
     projectName: projects.find(project => String(project.projectId) === String(item.projectId))?.projectName || '跨项目投入调整'
   }))
 }
+
+// A handed-off child proposal is not a formal project yet, but it is already the
+// assigned owner's responsibility and therefore belongs in the owner workbench.
+export function buildProposalHandoffTodos(proposals = [], userId) {
+  const same = (a, b) => a != null && b != null && String(a) === String(b)
+  return proposals.filter(item => item?.parentProjectId && item.status === 'DRAFT'
+    && same(item.assignedOwnerUserId, userId) && item.canEdit !== false)
+    .map(item => ({
+      key: `proposal-handoff-${item.proposalId}`,
+      title: '子项目待你完善并启动',
+      detail: `${item.parentProjectName || '主项目'}已转交 · ${item.planStartDate || '开始日期待完善'} 至 ${item.planEndDate || '不限期'}`,
+      action: 'proposal-handoff',
+      urgent: true,
+      proposalId: item.proposalId,
+      projectName: item.projectName || '待完善子项目'
+    }))
+}
+
+// Child projects remain owned by their child owner, so their acceptance reviews are
+// cross-project duties of the parent project's current main owner.
+export function buildChildAcceptanceTodos(reviews = []) {
+  return reviews.map(item => {
+    const stage = item.reviewType === 'STAGE_ACCEPTANCE'
+    const result = item.reviewType === 'RESULT_ACCEPTANCE'
+    return {
+      key: `child-acceptance-${item.reviewType}-${item.projectId}-${item.milestoneId || 'project'}`,
+      title: stage ? '验收子项目阶段成果' : result ? '验收子项目成果' : '审核子项目结项',
+      detail: stage
+        ? `${item.childOwnerName || '子项目负责人'}提交 · ${item.milestoneName || '未命名里程碑'}`
+        : `${item.childOwnerName || '子项目负责人'}提交 · 归属${item.parentProjectName || '主项目'}`,
+      action: 'child-acceptance',
+      tab: stage ? 'stageAcceptance' : result ? 'acceptance' : 'overview',
+      urgent: true,
+      projectId: item.projectId,
+      projectName: item.projectName || '子项目'
+    }
+  })
+}

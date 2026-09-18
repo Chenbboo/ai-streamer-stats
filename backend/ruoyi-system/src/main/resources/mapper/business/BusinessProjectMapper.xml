@@ -169,10 +169,10 @@
                 </when>
                 <when test="viewAll == true"/>
                 <when test="boss == true">
-                    and (<include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include> or (p.applicant_user_id=#{userId} and (parent.main_owner_user_id=#{userId} or exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=parent.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY')))))
+                    and (<include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include> or parent.main_owner_user_id=#{userId} or (p.applicant_user_id=#{userId} and exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=parent.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY'))))
                 </when>
                 <otherwise>
-                    and (p.main_owner_user_id=#{userId} or (p.applicant_user_id=#{userId} and (parent.main_owner_user_id=#{userId} or exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=parent.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY')))) or exists(
+                    and (p.main_owner_user_id=#{userId} or parent.main_owner_user_id=#{userId} or (p.applicant_user_id=#{userId} and exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=parent.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY'))) or exists(
                         select 1 from biz_project_member scope_member
                         where scope_member.project_id=p.project_id and scope_member.user_id=#{userId}
                           and scope_member.status='0'))
@@ -200,8 +200,8 @@
     <sql id="hierarchyAccess">
         <choose>
             <when test="viewAll == true">1=1</when>
-            <when test="boss == true">(<include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="${alias}.company_dept_id"/><property name="capability" value="BUSINESS"/></include> or (${alias}.applicant_user_id=#{userId} and exists(select 1 from biz_project hp where hp.project_id=${alias}.parent_id and hp.del_flag='0' and (hp.main_owner_user_id=#{userId} or exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=hp.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY'))))))</when>
-            <otherwise>(${alias}.main_owner_user_id=#{userId} or (${alias}.applicant_user_id=#{userId} and exists(select 1 from biz_project hp where hp.project_id=${alias}.parent_id and hp.del_flag='0' and (hp.main_owner_user_id=#{userId} or exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=hp.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY'))))) or exists(
+            <when test="boss == true">(<include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="${alias}.company_dept_id"/><property name="capability" value="BUSINESS"/></include> or exists(select 1 from biz_project hp where hp.project_id=${alias}.parent_id and hp.del_flag='0' and (hp.main_owner_user_id=#{userId} or (${alias}.applicant_user_id=#{userId} and exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=hp.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY'))))))</when>
+            <otherwise>(${alias}.main_owner_user_id=#{userId} or exists(select 1 from biz_project hp where hp.project_id=${alias}.parent_id and hp.del_flag='0' and (hp.main_owner_user_id=#{userId} or (${alias}.applicant_user_id=#{userId} and exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=hp.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY'))))) or exists(
                 select 1 from biz_project_member hm where hm.project_id=${alias}.project_id
                 and hm.user_id=#{userId} and hm.status='0'))</otherwise>
         </choose>
@@ -1306,8 +1306,9 @@
           sum(p.status='PAUSED') pausedCount,sum(p.status='ACCEPTANCE') acceptanceCount,
           sum(p.status='CLOSED') closedCount,
           sum(p.status='PLANNING' and p.baseline_status='SUBMITTED') pendingPlanCount,
-          sum(p.status='DRAFT' or (p.status='PLANNING' and p.baseline_status='SUBMITTED')
-            or p.status in ('PAUSED','ACCEPTANCE')) pendingDecisionCount,
+          sum((p.status='DRAFT' or (p.status='PLANNING' and p.baseline_status='SUBMITTED')
+            or p.status in ('PAUSED','ACCEPTANCE'))
+            and not (p.parent_id is not null and p.status='ACCEPTANCE')) pendingDecisionCount,
           sum(exists(select 1 from biz_project_task t where t.project_id=p.project_id
             and t.active_status='ACTIVE' and t.status&lt;&gt;'DONE' and t.due_date&lt;current_date())) overdueProjectCount,
           sum(exists(select 1 from biz_project_risk r where r.project_id=p.project_id
@@ -1370,6 +1371,7 @@
       where p.del_flag='0'
         and (p.status='DRAFT' or (p.status='PLANNING' and p.baseline_status='SUBMITTED')
           or p.status in ('PAUSED','ACCEPTANCE'))
+        and not (p.parent_id is not null and p.status='ACCEPTANCE')
       <include refid="dashboardScope"/>
       <include refid="dashboardOrder"/>
       limit #{offset},#{pageSize}
@@ -1548,6 +1550,7 @@
       left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
       where p.del_flag='0' and (p.status='DRAFT'
         or (p.status='PLANNING' and p.baseline_status='SUBMITTED') or p.status in ('PAUSED','ACCEPTANCE'))
+        and not (p.parent_id is not null and p.status='ACCEPTANCE')
       <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
     </sql>
     <sql id="bossPendingStageAcceptance">
@@ -1570,6 +1573,7 @@
         and milestone.project_id=acceptance.project_id
       left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
       where acceptance.review_status='PENDING'
+        and p.parent_id is null
       <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
     </sql>
     <!-- Match incentive canReview: actual sponsor, no self-approval, accounting open. -->
@@ -1650,7 +1654,7 @@
           <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>) accountingCount,
         (select count(*) from biz_project_stage_acceptance acceptance
           join biz_project p on p.project_id=acceptance.project_id and p.del_flag='0'
-          where acceptance.review_status='PENDING'
+          where acceptance.review_status='PENDING' and p.parent_id is null
           <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>) stageAcceptanceCount,
         (select count(*) from biz_project p
           left join biz_project_kpi_plan plan on plan.plan_id=(select latest.plan_id from biz_project_kpi_plan latest
@@ -1687,6 +1691,7 @@
           having costStatus&lt;&gt;'READY') personnel_issue) personnelCostCount,
         (select count(*) from biz_project p where p.del_flag='0' and (p.status='DRAFT'
           or (p.status='PLANNING' and p.baseline_status='SUBMITTED') or p.status in ('PAUSED','ACCEPTANCE'))
+          and not (p.parent_id is not null and p.status='ACCEPTANCE')
           <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>) projectCount
     </select>
     <select id="selectBossPendingPage" resultType="map">
@@ -1825,6 +1830,40 @@
         <if test="viewAll == false">and p.main_owner_user_id=#{userId}</if>
         order by e.biz_date desc,e.create_time desc,e.effort_id desc
         limit 100
+    </select>
+    <select id="selectParentOwnerAcceptanceTodos" resultType="map">
+        select 'RESULT_ACCEPTANCE' reviewType,child.project_id projectId,child.project_name projectName,
+          parent.project_id parentProjectId,parent.project_name parentProjectName,
+          child.main_owner_name childOwnerName,null milestoneId,null milestoneName,
+          acceptance.submitted_time submittedTime
+        from biz_project child
+        join biz_project parent on parent.project_id=child.parent_id and parent.del_flag='0'
+        join biz_project_acceptance acceptance on acceptance.project_id=child.project_id
+          and acceptance.review_status='PENDING'
+        where child.del_flag='0' and child.status='ACCEPTANCE' and child.close_method='RESULT_ACCEPTANCE'
+          and parent.main_owner_user_id=#{userId}
+        union all
+        select 'STAGE_ACCEPTANCE' reviewType,child.project_id projectId,child.project_name projectName,
+          parent.project_id parentProjectId,parent.project_name parentProjectName,
+          child.main_owner_name childOwnerName,acceptance.milestone_id milestoneId,
+          milestone.milestone_name milestoneName,acceptance.submitted_time submittedTime
+        from biz_project child
+        join biz_project parent on parent.project_id=child.parent_id and parent.del_flag='0'
+        join biz_project_stage_acceptance acceptance on acceptance.project_id=child.project_id
+          and acceptance.review_status='PENDING'
+        join biz_project_milestone milestone on milestone.milestone_id=acceptance.milestone_id
+          and milestone.project_id=child.project_id
+        where child.del_flag='0' and child.status='ACTIVE' and parent.main_owner_user_id=#{userId}
+        union all
+        select 'PROJECT_CLOSE' reviewType,child.project_id projectId,child.project_name projectName,
+          parent.project_id parentProjectId,parent.project_name parentProjectName,
+          child.main_owner_name childOwnerName,null milestoneId,null milestoneName,child.update_time submittedTime
+        from biz_project child
+        join biz_project parent on parent.project_id=child.parent_id and parent.del_flag='0'
+        where child.del_flag='0' and child.status='ACCEPTANCE'
+          and child.close_method in ('DIRECT','STAGED_ACCEPTANCE')
+          and parent.main_owner_user_id=#{userId}
+        order by submittedTime desc,projectId desc
     </select>
     <select id="selectEffortReport" resultMap="EffortResult">
         select * from biz_project_effort_report

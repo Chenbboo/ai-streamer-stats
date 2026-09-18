@@ -30,6 +30,7 @@ import com.ruoyi.business.domain.BusinessProjectProposal;
 import com.ruoyi.business.mapper.BusinessProjectProposalMapper;
 import com.ruoyi.business.mapper.BusinessProjectWorkMapper;
 import com.ruoyi.business.service.IBusinessProjectService;
+import com.ruoyi.business.service.IBusinessAccountingService;
 import com.ruoyi.common.exception.ServiceException;
 
 @ExtendWith(MockitoExtension.class)
@@ -41,6 +42,7 @@ class BusinessProjectProposalServiceImplTest
     @Mock private BusinessProjectWorkMapper workMapper;
     @Mock private IBusinessProjectService projectService;
     @Mock private BusinessProjectBudgetService budgetService;
+    @Mock private IBusinessAccountingService accountingService;
     @Spy private ObjectMapper objectMapper = new ObjectMapper();
     @InjectMocks private BusinessProjectProposalServiceImpl service;
 
@@ -329,6 +331,15 @@ class BusinessProjectProposalServiceImplTest
         verify(projectService).validateSubprojectParent(15L,23L,9L);
         verify(projectService,never()).createApprovedProject(any(),any(),any());
         verify(budgetService).apply(proposal);
+        verify(mapper).upsertParentFunding(proposal);
+    }
+
+    @Test
+    void childProjectMayLaunchWithoutOptionalAcceptanceTargets()
+    {
+        proposal.setParentProjectId(15L);
+        proposal.setTargetLines(Collections.emptyList());
+        service.validateAccountingRequirements(proposal);
     }
 
     private Map<String,Object> childParent(Long owner) {
@@ -373,24 +384,18 @@ class BusinessProjectProposalServiceImplTest
     }
 
     @Test
-    void childDraftBusinessBudgetCannotExceedFundingAmount()
+    void childBudgetMayExceedParentFundingAndExposeFundingGap()
     {
-        proposal.setProposalId(null);proposal.setSaveAsDraft(true);proposal.setParentProjectId(15L);
-        proposal.setAssignedOwnerUserId(10L);proposal.setParentFundingAmount(new BigDecimal("1000"));
+        proposal.setParentProjectId(15L);proposal.setBaseCurrency("CNY");proposal.setParentFundingAmount(new BigDecimal("1000"));
         proposal.setParentFundingReason("执行子项目");
-        proposal.setBudget(BusinessProjectWorkServiceTest.row("mode","TOTAL","businessAmount",new BigDecimal("1200")));
-        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
-        when(mapper.selectActiveUser(10L)).thenReturn(user(10L,"owner10","子负责人十"));
-        when(mapper.selectCompany(111L)).thenReturn(Collections.singletonMap("deptId",111L));
-        when(mapper.selectParentProject(15L)).thenReturn(childParent(9L));
+        proposal.setBudget(BusinessProjectWorkServiceTest.row("mode","TOTAL","businessAmount",new BigDecimal("1200"),
+            "totalAmount",new BigDecimal("1800")));
         when(mapper.selectParentFundingSummary(15L,null)).thenReturn(BusinessProjectWorkServiceTest.row(
             "budgetMode","TOTAL","totalAmount",new BigDecimal("10000"),"currency","CNY",
             "activeAllocatedAmount",BigDecimal.ZERO,"reservedAllocatedAmount",BigDecimal.ZERO));
 
-        ServiceException error=assertThrows(ServiceException.class,()->service.create(proposal,9L,"applicant9"));
-
-        assertEquals("子项目人员预算与业务预算合计不能超过主项目拨款额度",error.getMessage());
-        verify(mapper,never()).insertProposal(any());
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(()->
+            org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"validateParentFunding",proposal,null,true));
     }
 
     @Test void childOwnerIsRequiredAndExistingParentPermissionIsEnforced() {
@@ -494,10 +499,23 @@ class BusinessProjectProposalServiceImplTest
         verify(mapper,never()).submit(any(),any(),any(),any());
     }
 
-    @Test
-    void ownerLaunchesProjectAfterCompleteBusinessPlanWithoutBossApproval()
+    @ParameterizedTest
+    @CsvSource({"9,false", "10,true"})
+    void ownerLaunchesProjectAfterCompleteBusinessPlanWithoutBossApproval(Long actorUserId,boolean childProject)
     {
         proposal.setStatus("DRAFT");
+        if(childProject)
+        {
+            proposal.setParentProjectId(55L);proposal.setAssignedOwnerUserId(actorUserId);
+            proposal.setParentFundingAmount(new BigDecimal("2000"));proposal.setParentFundingReason("子项目拨款");
+            when(mapper.selectParentProject(55L)).thenReturn(BusinessProjectWorkServiceTest.row(
+                "projectId",55L,"sponsorOwnerUserId",23L,"baseCurrency","CNY"));
+            when(mapper.selectParentFundingSummary(55L,77L)).thenReturn(BusinessProjectWorkServiceTest.row(
+                "budgetMode","TOTAL","totalAmount",new BigDecimal("10000"),"activeAllocatedAmount",BigDecimal.ZERO,
+                "reservedAllocatedAmount",BigDecimal.ZERO,"currency","CNY"));
+            when(mapper.selectActiveUser(actorUserId)).thenReturn(user(actorUserId,"child-owner10","子负责人十"));
+        }
+        String actorUserName=childProject?"child-owner10":"applicant9";
         proposal.setKeyAssumptions("基准转化率可持续");
         proposal.setRiskSummary("流量波动可能影响收入");
         proposal.setStopLossRule("连续两周低于目标50%即停止新投入");
@@ -532,14 +550,14 @@ class BusinessProjectProposalServiceImplTest
         when(mapper.updateComputedPlan(proposal)).thenReturn(1);
         when(mapper.selectTargetLines(77L)).thenReturn(Collections.singletonList(target));
         BusinessProject project = new BusinessProject(); project.setProjectId(88L);
-        when(projectService.createApprovedProject(proposal,9L,"applicant9")).thenReturn(project);
+        when(projectService.createApprovedProject(proposal,actorUserId,actorUserName)).thenReturn(project);
         doAnswer(invocation -> {
             proposal.setStatus("APPROVED"); proposal.setCreatedProjectId(88L); proposal.setVersion(3);
             return 1;
-        }).when(mapper).activate(77L,9L,2,88L,"申请人九","applicant9");
+        }).when(mapper).activate(77L,9L,2,88L,"申请人九",actorUserName);
         when(mapper.selectEvents(77L)).thenReturn(Collections.<Map<String,Object>>emptyList());
 
-        BusinessProjectProposal launched = service.submit(77L,9L,"applicant9");
+        BusinessProjectProposal launched = service.submit(77L,actorUserId,actorUserName);
 
         assertEquals("APPROVED",launched.getStatus());
         assertEquals(88L,launched.getCreatedProjectId());
@@ -547,7 +565,10 @@ class BusinessProjectProposalServiceImplTest
         assertEquals(new BigDecimal("800.00"),launched.getEstimatedTotalCost());
         assertEquals(new BigDecimal("1200.00"),launched.getExpectedProfit());
         assertEquals(1,launched.getPlannedHeadcount());
-        verify(projectService).createApprovedProject(proposal,9L,"applicant9");
+        verify(projectService).createApprovedProject(proposal,actorUserId,actorUserName);
+        if(childProject)
+            verify(accountingService).recordSubprojectFundingTransfer(55L,88L,77L,new BigDecimal("2000.00"),"CNY",
+                "子项目拨款",actorUserId,actorUserName);
         verify(mapper,never()).submit(any(),any(),any(),any());
         verify(mapper,never()).review(any(),any(),any(),any(),any(),any(),any(),any(),any());
     }

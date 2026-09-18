@@ -249,6 +249,7 @@ public interface BusinessProjectMapper
     List<Map<String, Object>> selectMyEfforts(@Param("userId") Long userId, @Param("bizDate") String bizDate);
     List<Map<String, Object>> selectOwnerPendingEffortRequests(@Param("userId") Long userId,
         @Param("viewAll") boolean viewAll);
+    List<Map<String, Object>> selectParentOwnerAcceptanceTodos(@Param("userId") Long userId);
     BusinessProjectEffort selectEffortReport(@Param("projectId") Long projectId,
         @Param("userId") Long userId, @Param("bizDate") java.util.Date bizDate);
     java.math.BigDecimal sumUserEffectiveEffortExcludingProject(@Param("userId") Long userId,

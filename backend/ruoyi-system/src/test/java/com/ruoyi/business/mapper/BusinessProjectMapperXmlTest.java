@@ -84,6 +84,36 @@ class BusinessProjectMapperXmlTest
     }
 
     @Test
+    void childAcceptanceIsRoutedToParentOwnerInsteadOfBossQueue()
+    {
+        InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
+        assertNotNull(input);
+        String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+
+        int ownerStart = xml.indexOf("<select id=\"selectParentOwnerAcceptanceTodos\"");
+        int ownerEnd = xml.indexOf("</select>", ownerStart);
+        assertTrue(ownerStart >= 0 && ownerEnd > ownerStart);
+        String ownerQuery = xml.substring(ownerStart, ownerEnd);
+        assertTrue(ownerQuery.contains("parent.main_owner_user_id=#{userId}"));
+        assertTrue(ownerQuery.contains("'RESULT_ACCEPTANCE' reviewType"));
+        assertTrue(ownerQuery.contains("'STAGE_ACCEPTANCE' reviewType"));
+        assertTrue(ownerQuery.contains("'PROJECT_CLOSE' reviewType"));
+
+        int bossStageStart = xml.indexOf("<sql id=\"bossPendingStageAcceptance\"");
+        int bossStageEnd = xml.indexOf("</sql>", bossStageStart);
+        assertTrue(xml.substring(bossStageStart, bossStageEnd).contains("p.parent_id is null"));
+        int bossProjectStart = xml.indexOf("<sql id=\"bossPendingProject\"");
+        int bossProjectEnd = xml.indexOf("</sql>", bossProjectStart);
+        assertTrue(xml.substring(bossProjectStart, bossProjectEnd)
+            .contains("not (p.parent_id is not null and p.status='ACCEPTANCE')"));
+        int dashboardStart = xml.indexOf("<select id=\"selectDashboardDecisionPage\"");
+        int dashboardEnd = xml.indexOf("</select>", dashboardStart);
+        assertTrue(xml.substring(dashboardStart, dashboardEnd)
+            .contains("not (p.parent_id is not null and p.status='ACCEPTANCE')"));
+    }
+
+    @Test
     void removingMemberUnassignsRoutineWithoutHidingItsHistory()
     {
         InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");

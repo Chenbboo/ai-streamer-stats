@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildOwnerTodos, buildPublicExpenseTodos, buildAllocationReviewTodos } from './ownerTodos.js'
+import { buildOwnerTodos, buildPublicExpenseTodos, buildAllocationReviewTodos, buildProposalHandoffTodos, buildChildAcceptanceTodos } from './ownerTodos.js'
 
 const expense = { allocationId: 51, billStatus: 'PUBLISHED', status: 'DRAFT', companyName: '上海公司', month: '2026-09', remainingAmount: 200, amount: 500, currency: 'CNY' }
 test('published owner expense produces a todo linking the exact allocation and month', () => {
@@ -82,4 +82,28 @@ test('reviewer queue includes other-project adjustments once and carries exact e
   assert.deepEqual(buildAllocationReviewTodos([]),[])
   for(const status of ['APPROVED','APPLIED','REJECTED','WITHDRAWN'])
     assert.deepEqual(buildAllocationReviewTodos([{...request,status}],projects),[])
+})
+
+test('assigned child draft appears as an urgent owner handoff todo only for its child owner', () => {
+  const proposal={proposalId:18,parentProjectId:3,parentProjectName:'主项目',projectName:'子项目X',status:'DRAFT',assignedOwnerUserId:9,planStartDate:'2026-09-01',planEndDate:'2026-09-30',canEdit:true}
+  const todos=buildProposalHandoffTodos([proposal],9)
+  assert.equal(todos.length,1)
+  assert.equal(todos[0].action,'proposal-handoff')
+  assert.equal(todos[0].proposalId,18)
+  assert.equal(todos[0].urgent,true)
+  assert.match(todos[0].detail,/主项目已转交/)
+  assert.deepEqual(buildProposalHandoffTodos([proposal],10),[])
+  assert.deepEqual(buildProposalHandoffTodos([{...proposal,status:'APPROVED'}],9),[])
+  assert.deepEqual(buildProposalHandoffTodos([{...proposal,canEdit:false}],9),[])
+})
+
+test('parent owner receives direct links for every kind of child acceptance review', () => {
+  const todos=buildChildAcceptanceTodos([
+    {reviewType:'RESULT_ACCEPTANCE',projectId:21,projectName:'子项目A',parentProjectName:'主项目',childOwnerName:'子负责人'},
+    {reviewType:'STAGE_ACCEPTANCE',projectId:22,projectName:'子项目B',milestoneId:5,milestoneName:'交付节点',childOwnerName:'子负责人'},
+    {reviewType:'PROJECT_CLOSE',projectId:23,projectName:'子项目C',parentProjectName:'主项目',childOwnerName:'子负责人'}
+  ])
+  assert.deepEqual(todos.map(item=>item.tab),['acceptance','stageAcceptance','overview'])
+  assert.equal(todos.every(item=>item.action==='child-acceptance'&&item.urgent),true)
+  assert.match(todos[1].detail,/交付节点/)
 })
