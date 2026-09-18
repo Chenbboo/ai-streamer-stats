@@ -4,20 +4,25 @@
 </template>
 
 <script setup>
-const props=defineProps({modelValue:String,startDate:String,endDate:String,deadline:Boolean,afterStartMonth:Boolean,dateType:{type:String,default:'month'}})
+const props=defineProps({modelValue:String,startDate:String,endDate:String,deadline:Boolean,afterStartMonth:Boolean,beforeStartMonths:{type:Number,default:0},afterEndMonths:{type:Number,default:0},dateType:{type:String,default:'month'}})
 const emit=defineEmits(['update:modelValue'])
 const monthOf=value=>value?.slice(0,7)||''
 function disabledMonth(date){
   const month=`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`
+  const startMonth=monthOf(props.startDate)
+  const endMonth=monthOf(props.endDate)
+  const firstMonth=props.afterStartMonth&&startMonth?shiftMonth(startMonth,1):startMonth?shiftMonth(startMonth,-props.beforeStartMonths):''
+  const lastMonth=endMonth?shiftMonth(endMonth,props.afterEndMonths):''
   if(props.dateType==='date'){
     const day=`${month}-${String(date.getDate()).padStart(2,'0')}`
-    const firstDay=props.afterStartMonth&&props.startDate?`${nextMonth(monthOf(props.startDate))}-01`:props.startDate
-    return !!firstDay&&day<firstDay||!!props.endDate&&day>props.endDate
+    const firstDay=firstMonth?`${firstMonth}-01`:''
+    const lastDay=lastMonth?`${lastMonth}-${new Date(Number(lastMonth.slice(0,4)),Number(lastMonth.slice(5,7)),0).getDate()}`:''
+    return !!firstDay&&day<firstDay||!!lastDay&&day>lastDay
   }
-  const firstMonth=props.afterStartMonth&&props.startDate?nextMonth(monthOf(props.startDate)):monthOf(props.startDate)
-  return !!firstMonth&&month<firstMonth||!!props.endDate&&month>monthOf(props.endDate)
+  return !!firstMonth&&month<firstMonth||!!lastMonth&&month>lastMonth
 }
-function nextMonth(month){const [year,value]=month.split('-').map(Number),date=new Date(year,value,1);return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`}
+function shiftMonth(month,offset){const [year,value]=month.split('-').map(Number),date=new Date(year,value-1+offset,1);return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`}
+const nextMonth=month=>shiftMonth(month,1)
 function selectMonth(value){
   if(!value){emit('update:modelValue',null);return}
   if(props.dateType==='date'){emit('update:modelValue',value);return}

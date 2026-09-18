@@ -353,6 +353,9 @@ from (
   select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
     and table_name='biz_project_proposal_staffing' and column_name='allocation_plan_json' and data_type='longtext'
   union all
+  select if(count(*)=1,0,1) from information_schema.tables where table_schema=database()
+    and table_name='biz_project_subproject_funding'
+  union all
   select count(*) from biz_staff_menu_permission permission
     where exists(select 1 from sys_user_role ur join sys_role role on role.role_id=ur.role_id
       where ur.user_id=permission.user_id and role.role_key='company_owner' and role.del_flag='0')

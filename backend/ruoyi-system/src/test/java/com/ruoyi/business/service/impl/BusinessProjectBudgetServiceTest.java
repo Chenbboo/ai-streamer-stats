@@ -107,8 +107,18 @@ class BusinessProjectBudgetServiceTest
         Map<String,Object> b=service.estimate(p);
         assertEquals("2027-12-01",b.get("anchorDate"));assertEquals("2027-12-15",b.get("startDate"));assertEquals("2028-02-29",b.get("endDate"));
     }
-    @Test void annualBudgetCycleIsRejected()
-    {p.getBudget().put("cycle","YEAR");assertThrows(ServiceException.class,()->service.estimate(p));}
+    @Test void annualBudgetUsesSelectedCalendarYear()
+    {
+        p.setStaffingLines(Collections.emptyList());p.getBudget().put("cycle","YEAR");p.getBudget().put("anchorDate","2027-08-15");
+        Map<String,Object> b=service.estimate(p);
+        assertEquals("2027-01-01",b.get("anchorDate"));assertEquals("2027-01-01",b.get("startDate"));assertEquals("2027-12-31",b.get("endDate"));
+    }
+    @Test void annualFirstPeriodIsClippedToProjectStart()
+    {
+        p.setStaffingLines(Collections.emptyList());p.setPlanStartDate(Date.valueOf("2026-09-15"));p.getBudget().put("cycle","YEAR");p.getBudget().put("anchorDate","2026-01-01");
+        Map<String,Object> b=service.estimate(p);
+        assertEquals("2026-09-15",b.get("startDate"));assertEquals("2026-12-31",b.get("endDate"));
+    }
     @Test void finiteProjectAlwaysUsesWholeProject()
     {p.setPlanEndDate(Date.valueOf("2026-10-31"));Map<String,Object> b=service.estimate(p);assertEquals("PROJECT",b.get("cycle"));assertEquals("2026-10-31",b.get("endDate"));}
     @Test void proposalInputRatioControlsPersonnelBudget()
@@ -210,14 +220,14 @@ class BusinessProjectBudgetServiceTest
         service.apply(p);assertEquals("READY",p.getBudget().get("status"));assertNull(p.getStartupBudgetLimit());assertNull(p.getDailyBudgetLimit());
         assertNull(p.getBudget().get("startupLimit"));assertNull(p.getBudget().get("dailyLimit"));
     }
-    @Test void previewAndSaveUseTheSameDateBoundaryError()
+    @Test void previewAndSaveUseTheSameExtendedExpenseDateBoundary()
     {
         p.setStaffingLines(Collections.emptyList());p.setPlanStartDate(Date.valueOf("2026-09-08"));p.setBudgetMode("DAILY");p.setDailyBudgetLimit(new BigDecimal("500"));
-        p.setExpenseLines(Collections.singletonList(row("expenseCategory","PROMOTION","itemName","推广","purpose","获客","amount",500,"occurrenceType","DAILY","occurDate","2026-09-02")));
+        p.setExpenseLines(Collections.singletonList(row("expenseCategory","PROMOTION","itemName","推广","purpose","获客","amount",500,"occurrenceType","DAILY","occurDate","2026-02-28")));
         Map<String,Object> b=service.estimate(p);
         ServiceException error=assertThrows(ServiceException.class,()->ReflectionTestUtils.invokeMethod(new BusinessProjectProposalServiceImpl(),"validatePlanDetails",p));
         assertEquals("PENDING",b.get("status"));assertTrue(((List<?>)b.get("issues")).contains(error.getMessage()));
-        p.getExpenseLines().get(0).put("occurDate","2026-10-01");assertEquals("READY",service.estimate(p).get("status"));
+        p.getExpenseLines().get(0).put("occurDate","2026-03-01");assertEquals("READY",service.estimate(p).get("status"));
     }
     @Test void periodForecastsExposeIndependentStaffGapsWithoutSalaryDetails()
     {

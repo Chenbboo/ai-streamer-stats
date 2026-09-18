@@ -80,6 +80,14 @@ public class BusinessProjectProposalController extends BaseController
             effectiveDate, periodEndDate, userId()));
     }
 
+    @PreAuthorize("@ss.hasAnyPermi('business:project:proposal:add,business:project:proposal:edit')")
+    @GetMapping("/parent-funding/{parentProjectId}")
+    public AjaxResult parentFunding(@PathVariable Long parentProjectId,
+        @RequestParam(required = false) Long proposalId)
+    {
+        return success(proposalService.parentFundingSummary(parentProjectId, proposalId, userId()));
+    }
+
     @PreAuthorize("@ss.hasPermi('business:project:proposal:list')")
     @GetMapping("/{proposalId}")
     public AjaxResult detail(@PathVariable("proposalId") Long proposalId)

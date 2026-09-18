@@ -19,6 +19,8 @@
         <result property="assignedOwnerName" column="assigned_owner_name"/>
         <result property="parentProjectId" column="parent_project_id"/>
         <result property="parentProjectName" column="parent_project_name"/>
+        <result property="parentFundingAmount" column="parent_funding_amount"/>
+        <result property="parentFundingReason" column="parent_funding_reason"/>
         <result property="projectType" column="project_type"/>
         <result property="accountingMode" column="accounting_mode"/>
         <result property="managementMode" column="management_mode"/>
@@ -83,6 +85,7 @@
         p.proposal_id,p.proposal_no,p.submission_version,p.project_name,p.template_version,p.template_snapshot_json,
         p.applicant_user_id,p.applicant_name,p.sponsor_owner_user_id,p.sponsor_owner_name,p.assigned_owner_user_id,p.assigned_owner_name,
         p.company_dept_id,company.dept_name company_name,p.parent_project_id,parent.project_name parent_project_name,
+        funding.amount parent_funding_amount,funding.reason parent_funding_reason,
         p.project_type,p.accounting_mode,p.management_mode,p.close_method,p.management_reason,p.acceptance_criteria,p.goal_mode,
         p.objective,p.application_reason,
         p.plan_start_date,p.plan_end_date,p.priority,p.base_currency,p.budget_limit,p.no_budget,
@@ -102,6 +105,7 @@
         from biz_project_proposal p
         left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
         left join biz_project parent on parent.project_id=p.parent_project_id and parent.del_flag='0'
+        left join biz_project_subproject_funding funding on funding.proposal_id=p.proposal_id
         where p.del_flag='0'
         <if test="viewAll != true">and (p.applicant_user_id=#{userId} or p.assigned_owner_user_id=#{userId})</if>
         <if test="status != null and status != ''">and p.status=#{status}</if>
@@ -116,6 +120,7 @@
         from biz_project_proposal p
         left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
         left join biz_project parent on parent.project_id=p.parent_project_id and parent.del_flag='0'
+        left join biz_project_subproject_funding funding on funding.proposal_id=p.proposal_id
         where p.del_flag='0' and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include>
         <if test="status != null and status != ''">and p.status=#{status}</if>
         <if test="status == null or status == ''">and p.status='PENDING'</if>
@@ -141,6 +146,7 @@
         from biz_project_proposal p
         left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
         left join biz_project parent on parent.project_id=p.parent_project_id and parent.del_flag='0'
+        left join biz_project_subproject_funding funding on funding.proposal_id=p.proposal_id
         where p.proposal_id=#{proposalId} and p.del_flag='0'
     </select>
 
@@ -185,6 +191,13 @@
           #{expectedMargin},#{breakEvenRevenue},
           #{peakCashNeed},#{plannedHeadcount},#{fundingPlan},#{keyAssumptions},#{riskSummary},#{stopLossRule},
           #{executionSource},'DRAFT',0,'0',#{createBy},sysdate(),#{createBy},sysdate(),#{remark})
+    </insert>
+
+    <insert id="upsertParentFunding" parameterType="com.ruoyi.business.domain.BusinessProjectProposal">
+        insert into biz_project_subproject_funding(proposal_id,parent_project_id,amount,reason,create_by,create_time,update_by,update_time)
+        values(#{proposalId},#{parentProjectId},#{parentFundingAmount},#{parentFundingReason},#{createBy},sysdate(),coalesce(#{updateBy},#{createBy}),sysdate())
+        on duplicate key update parent_project_id=values(parent_project_id),amount=values(amount),reason=values(reason),
+          update_by=values(update_by),update_time=sysdate()
     </insert>
 
     <update id="updateDraft" parameterType="com.ruoyi.business.domain.BusinessProjectProposal">
@@ -359,9 +372,26 @@
 
     <select id="selectParentProject" resultType="map">
         select project_id projectId,project_name projectName,
-          main_owner_user_id mainOwnerUserId,parent_id parentId,coalesce(sponsor_owner_user_id,initiator_user_id) sponsorOwnerUserId
+          main_owner_user_id mainOwnerUserId,parent_id parentId,coalesce(sponsor_owner_user_id,initiator_user_id) sponsorOwnerUserId,
+          budget_mode budgetMode,budget_limit budgetLimit,base_currency baseCurrency
         from biz_project where project_id=#{projectId} and del_flag='0'
           and status not in ('CLOSED','CANCELED') limit 1
+    </select>
+
+    <select id="selectParentFundingSummary" resultType="map">
+        select p.project_id parentProjectId,p.project_name parentProjectName,p.budget_mode budgetMode,
+          p.budget_limit totalAmount,p.base_currency currency,
+          coalesce((select sum(af.amount) from biz_project_proposal a
+            join biz_project_subproject_funding af on af.proposal_id=a.proposal_id
+            where a.parent_project_id=p.project_id and a.del_flag='0' and a.status='APPROVED'),0) activeAllocatedAmount,
+          coalesce((select sum(rf.amount) from biz_project_proposal q
+            join biz_project_subproject_funding rf on rf.proposal_id=q.proposal_id
+            where q.parent_project_id=p.project_id and q.del_flag='0'
+              and q.status in ('DRAFT','PENDING','RETURNED','WITHDRAWN')
+              and (#{excludeProposalId} is null or q.proposal_id&lt;&gt;#{excludeProposalId})),0) reservedAllocatedAmount
+        from biz_project p
+        where p.project_id=#{parentProjectId} and p.parent_id is null and p.del_flag='0'
+          and p.status not in ('CLOSED','CANCELED') limit 1
     </select>
 
     <select id="selectProposalStaff" resultType="map">

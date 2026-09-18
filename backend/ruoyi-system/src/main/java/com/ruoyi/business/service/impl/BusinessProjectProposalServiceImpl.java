@@ -168,9 +168,13 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             + IdUtils.fastSimpleUUID().substring(0, 4).toUpperCase());
         proposal.setCreateBy(userName);
         if (mapper.insertProposal(proposal) != 1) throw new ServiceException("创建立项申请失败");
+        if (proposal.getParentProjectId() != null && mapper.upsertParentFunding(proposal) < 1)
+            throw new ServiceException("保存子项目拨款失败");
         savePlanLines(proposal);
         BusinessProjectProposal stored = require(proposal.getProposalId());
-        addEvent(stored, "CREATE", null, "DRAFT", userId, userName, "创建立项申请草稿");
+        addEvent(stored, stored.getParentProjectId() == null ? "CREATE" : "HANDOFF", null, "DRAFT", userId, userName,
+            stored.getParentProjectId() == null ? "创建立项申请草稿"
+                : "主负责人已将申请转交给子项目负责人“" + stored.getAssignedOwnerName() + "”继续完善");
         return get(stored.getProposalId(), userId, false, false);
     }
 
@@ -183,9 +187,19 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         requireEditable(current);
         if (!java.util.Objects.equals(input.getParentProjectId(), current.getParentProjectId()))
             throw new ServiceException("归属主项目不可修改");
+        boolean legacyFundingBackfill = current.getParentProjectId() != null
+            && current.getParentFundingAmount() == null && userId.equals(current.getApplicantUserId());
+        if (current.getParentProjectId() != null && !isAssignedSubprojectOwner(current, userId) && !legacyFundingBackfill)
+            throw new ServiceException("申请已转交子项目负责人，请由子项目负责人继续完善");
         if (isAssignedSubprojectOwner(current, userId)
             && !java.util.Objects.equals(input.getAssignedOwnerUserId(), current.getAssignedOwnerUserId()))
             throw new ServiceException("子项目负责人不能更换本人");
+        if (current.getParentProjectId() != null && !legacyFundingBackfill)
+        {
+            // 额度由主项目负责人在交接时冻结，子项目负责人只能在该额度内完善计划。
+            input.setParentFundingAmount(current.getParentFundingAmount());
+            input.setParentFundingReason(current.getParentFundingReason());
+        }
         input.setApplicantUserId(current.getApplicantUserId());
         input.setApplicantName(current.getApplicantName());
         if (input.getVersion() == null || !input.getVersion().equals(current.getVersion())) throw changed();
@@ -196,6 +210,8 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         else normalizeAndValidate(input);
         input.setUpdateBy(userName);
         if (mapper.updateDraft(input) != 1) throw changed();
+        if (input.getParentProjectId() != null && mapper.upsertParentFunding(input) < 1)
+            throw new ServiceException("保存子项目拨款失败");
         savePlanLines(input);
         BusinessProjectProposal stored = require(input.getProposalId());
         addEvent(stored, "EDIT", current.getStatus(), stored.getStatus(), userId, userName, "修改立项申请草稿");
@@ -312,10 +328,34 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             proposal.setTemplateVersion(current.getTemplateVersion());
             proposal.setApplicantUserId(current.getApplicantUserId());
             proposal.setApplicantName(current.getApplicantName());
+            if (current.getParentProjectId() != null)
+            {
+                proposal.setParentFundingAmount(current.getParentFundingAmount());
+                proposal.setParentFundingReason(current.getParentFundingReason());
+            }
         }
         else { proposal.setTemplateVersion("LIGHT_V1"); proposal.setApplicantUserId(userId); }
         bindSubprojectOwner(proposal, false);
         return budgetService.estimate(proposal);
+    }
+
+    @Override
+    public Map<String,Object> parentFundingSummary(Long parentProjectId, Long proposalId, Long userId)
+    {
+        if (parentProjectId == null) throw new ServiceException("请选择主项目");
+        Map<String,Object> parent = mapper.selectParentProject(parentProjectId);
+        if (parent == null || parent.get("parentId") != null) throw new ServiceException("主项目不存在、已结束或不是主项目");
+        if (proposalId == null)
+        {
+            projectService.validateSubprojectParent(parentProjectId, longValue(parent.get("sponsorOwnerUserId")), userId);
+        }
+        else
+        {
+            BusinessProjectProposal proposal = require(proposalId);
+            if (!parentProjectId.equals(proposal.getParentProjectId())) throw new ServiceException("子项目与主项目不匹配");
+            requireCollaborator(proposal, userId);
+        }
+        return buildParentFundingSummary(parentProjectId, proposalId);
     }
 
     private void bindSubprojectOwner(BusinessProjectProposal proposal, boolean required)
@@ -328,6 +368,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         if (parent.get("parentId") != null) throw new ServiceException("仅支持主项目与子项目两级结构");
         proposal.setSponsorOwnerUserId(Long.valueOf(String.valueOf(parent.get("sponsorOwnerUserId"))));
         projectService.validateSubprojectParent(proposal.getParentProjectId(), proposal.getSponsorOwnerUserId(), proposal.getApplicantUserId());
+        proposal.setBaseCurrency(StringUtils.defaultIfBlank(text(parent.get("baseCurrency")), "CNY"));
         if (proposal.getAssignedOwnerUserId() == null) {
             proposal.setAssignedOwnerName(null);
             if (required) throw new ServiceException("请选择子项目负责人");
@@ -343,6 +384,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             throw new ServiceException("请选择有效归属公司");
         // 子项目草稿的保存动作就是交接动作，必须先明确接收的子负责人。
         bindSubprojectOwner(proposal, proposal.getParentProjectId() != null);
+        validateParentFunding(proposal, proposal.getProposalId(), false);
         proposal.setSponsorOwnerName(proposal.getSponsorOwnerUserId() == null ? "" : displayName(requireActiveBoss(proposal.getSponsorOwnerUserId())));
         proposal.setProjectName(draftText(proposal.getProjectName(), 160, "项目名称"));
         proposal.setObjective(draftText(proposal.getObjective(), 1000, "项目目标"));
@@ -531,7 +573,66 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             throw new ServiceException("项目执行系统类型不正确");
         normalizeBusinessPlan(proposal);
         if(isNewTemplate(proposal)||proposal.getBudget()!=null)budgetService.apply(proposal);
+        validateParentFunding(proposal, proposal.getProposalId(), true);
         if (isNewTemplate(proposal)||proposal.getBudget()!=null) updateGovernanceSnapshot(proposal, false);
+    }
+
+    private void validateParentFunding(BusinessProjectProposal proposal, Long excludeProposalId, boolean validateFullPlan)
+    {
+        if (proposal.getParentProjectId() == null)
+        {
+            proposal.setParentFundingAmount(null);
+            proposal.setParentFundingReason(null);
+            return;
+        }
+        BigDecimal amount = proposal.getParentFundingAmount();
+        if (amount == null || amount.signum() <= 0) throw new ServiceException("请填写大于0的子项目拨款额度");
+        if (amount.stripTrailingZeros().scale() > 2) throw new ServiceException("子项目拨款额度最多两位小数");
+        String reason = trim(proposal.getParentFundingReason());
+        if (StringUtils.isBlank(reason)) throw new ServiceException("请填写子项目拨款说明");
+        if (reason.length() > 500) throw new ServiceException("子项目拨款说明不能超过500个字符");
+        proposal.setParentFundingAmount(amount.setScale(2, RoundingMode.HALF_UP));
+        proposal.setParentFundingReason(reason);
+        Map<String,Object> summary = buildParentFundingSummary(proposal.getParentProjectId(), excludeProposalId);
+        if (!"TOTAL".equals(text(summary.get("budgetMode"))) || decimal(summary.get("totalAmount")).signum() <= 0)
+            throw new ServiceException("主项目必须先设置总额预算，才能向子项目拨款");
+        BigDecimal available = decimal(summary.get("availableAmount"));
+        if (proposal.getParentFundingAmount().compareTo(available) > 0)
+            throw new ServiceException("子项目拨款额度超过主项目可用余额，当前可用 " + available.setScale(2, RoundingMode.HALF_UP) + " " + summary.get("currency"));
+        BigDecimal planned = validateFullPlan
+            ? proposal.getBudget() == null ? proposal.getBudgetLimit() : nullableDecimal(proposal.getBudget().get("totalAmount"))
+            : proposal.getBudget() == null ? null : nullableDecimal(proposal.getBudget().get("businessAmount"));
+        if (planned != null && planned.compareTo(proposal.getParentFundingAmount()) > 0)
+            throw new ServiceException("子项目人员预算与业务预算合计不能超过主项目拨款额度");
+    }
+
+    private Map<String,Object> buildParentFundingSummary(Long parentProjectId, Long excludeProposalId)
+    {
+        Map<String,Object> stored = mapper.selectParentFundingSummary(parentProjectId, excludeProposalId);
+        if (stored == null) throw new ServiceException("主项目不存在或已结束");
+        Map<String,Object> result = new LinkedHashMap<String,Object>(stored);
+        BigDecimal total = decimal(stored.get("totalAmount"));
+        BigDecimal active = decimal(stored.get("activeAllocatedAmount"));
+        BigDecimal reserved = decimal(stored.get("reservedAllocatedAmount"));
+        BigDecimal available = total.subtract(active).subtract(reserved).max(BigDecimal.ZERO);
+        result.put("totalAmount", total.setScale(2, RoundingMode.HALF_UP));
+        result.put("activeAllocatedAmount", active.setScale(2, RoundingMode.HALF_UP));
+        result.put("reservedAllocatedAmount", reserved.setScale(2, RoundingMode.HALF_UP));
+        result.put("allocatedAmount", active.add(reserved).setScale(2, RoundingMode.HALF_UP));
+        result.put("availableAmount", available.setScale(2, RoundingMode.HALF_UP));
+        return result;
+    }
+
+    private BigDecimal decimal(Object value)
+    {
+        return value == null || StringUtils.isBlank(String.valueOf(value)) ? BigDecimal.ZERO : new BigDecimal(String.valueOf(value));
+    }
+
+    private BigDecimal nullableDecimal(Object value)
+    {
+        if (value == null || StringUtils.isBlank(String.valueOf(value))) return null;
+        try { return new BigDecimal(String.valueOf(value)); }
+        catch (NumberFormatException ex) { throw new ServiceException("预算金额格式不正确"); }
     }
 
     private void updateGovernanceSnapshot(BusinessProjectProposal proposal, boolean selfAuthorized)
@@ -848,13 +949,12 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             }
             if(StringUtils.isNotBlank(text(line.get(dateField))))
             {
-                String issue=com.ruoyi.business.support.BusinessProposalPlanDates.issue(line.get(dateField),proposal.getPlanStartDate(),proposal.getPlanEndDate(),label,i+1);
+                String issue="收入测算".equals(label)
+                    ? com.ruoyi.business.support.BusinessProposalPlanDates.revenueIssue(line.get(dateField),proposal.getPlanStartDate(),proposal.getPlanEndDate(),label,i+1)
+                    : "支出计划".equals(label)
+                        ? com.ruoyi.business.support.BusinessProposalPlanDates.expenseIssue(line.get(dateField),proposal.getPlanStartDate(),proposal.getPlanEndDate(),label,i+1)
+                        : com.ruoyi.business.support.BusinessProposalPlanDates.issue(line.get(dateField),proposal.getPlanStartDate(),proposal.getPlanEndDate(),label,i+1);
                 if(issue!=null)throw new ServiceException(issue);
-                if ("收入测算".equals(label) || "支出计划".equals(label))
-                {
-                    issue=com.ruoyi.business.support.BusinessProposalPlanDates.afterStartMonthIssue(line.get(dateField),proposal.getPlanStartDate(),label,i+1);
-                    if(issue!=null)throw new ServiceException(issue);
-                }
             }
         }
     }
@@ -1275,7 +1375,11 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     {
         proposal.setCanOpen(viewAll || userId.equals(proposal.getApplicantUserId()) || isAssignedSubprojectOwner(proposal,userId)
             || companyAccess.allowed(userId,proposal.getCompanyDeptId(),"BUSINESS"));
-        proposal.setCanEdit((userId.equals(proposal.getApplicantUserId()) || isAssignedSubprojectOwner(proposal,userId))
+        boolean draftEditor = proposal.getParentProjectId() == null
+            ? userId.equals(proposal.getApplicantUserId())
+            : isAssignedSubprojectOwner(proposal,userId)
+                || proposal.getParentFundingAmount() == null && userId.equals(proposal.getApplicantUserId());
+        proposal.setCanEdit(draftEditor
             && Arrays.asList("DRAFT", "PENDING", "RETURNED", "WITHDRAWN").contains(proposal.getStatus()));
         proposal.setCanReview(boss && companyAccess.allowed(userId,proposal.getCompanyDeptId(),"BUSINESS")
             && "PENDING".equals(proposal.getStatus()));

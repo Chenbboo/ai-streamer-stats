@@ -118,8 +118,8 @@ public class BusinessProjectBudgetService
         List<Map<String,Object>> basis=new ArrayList<Map<String,Object>>();
         LocalDate projectStart=date(proposal.getPlanStartDate()),projectEnd=date(proposal.getPlanEndDate());
         String cycle=projectEnd!=null?"PROJECT":String.valueOf(input.getOrDefault("cycle","MONTH"));
-        if(!Arrays.asList("PROJECT","WEEK","MONTH","QUARTER").contains(cycle)||projectEnd==null&&"PROJECT".equals(cycle))
-            throw new ServiceException("不限期项目请选择周度、月度或季度预算");
+        if(!Arrays.asList("PROJECT","WEEK","MONTH","QUARTER","YEAR").contains(cycle)||projectEnd==null&&"PROJECT".equals(cycle))
+            throw new ServiceException("不限期项目请选择周度、月度、季度或年度预算");
         LocalDate start=projectStart,end=projectEnd;
         if(projectStart==null)issues.add("请先填写项目开始日期");
         if(projectStart!=null&&projectEnd!=null&&projectEnd.isBefore(projectStart))issues.add("计划结束不能早于开始日期");
@@ -134,8 +134,8 @@ public class BusinessProjectBudgetService
             }
             else
             {
-                periodStart=anchor.withDayOfMonth(1);
-                int months="QUARTER".equals(cycle)?3:1;
+                periodStart="YEAR".equals(cycle)?anchor.withDayOfYear(1):anchor.withDayOfMonth(1);
+                int months="YEAR".equals(cycle)?12:"QUARTER".equals(cycle)?3:1;
                 end=periodStart.plusMonths(months).minusDays(1);
             }
             start=periodStart.isBefore(projectStart)?projectStart:periodStart;
@@ -185,7 +185,7 @@ public class BusinessProjectBudgetService
                         long weekdays=0;for(LocalDate day=start;!day.isAfter(end);day=day.plusDays(1))if(day.getDayOfWeek().getValue()<=5)weekdays++;
                         personnel=personnel.add(new BigDecimal(String.valueOf(member.get("dailyCost"))).multiply(BigDecimal.valueOf(weekdays)));
                     }
-                    else if(projectEnd==null)personnel=personnel.add(monthly.multiply(new BigDecimal("QUARTER".equals(cycle)?3:1)));
+                    else if(projectEnd==null)personnel=personnel.add(monthly.multiply(new BigDecimal("YEAR".equals(cycle)?12:"QUARTER".equals(cycle)?3:1)));
                     else {if(member.get("dailyCost")==null)throw new ServiceException("缺少日用人成本");personnel=personnel.add(new BigDecimal(String.valueOf(member.get("dailyCost"))).multiply(BigDecimal.valueOf(java.time.temporal.ChronoUnit.DAYS.between(start,end)+1)));}
                     BigDecimal staffCost=personnel.subtract(previousPersonnel);
                     addLegacyDailyCosts(dailyPersonnel,start,end,staffCost,projectEnd==null&&"WEEK".equals(cycle));
@@ -282,12 +282,13 @@ public class BusinessProjectBudgetService
 
     private void validateLineDates(BusinessProjectProposal proposal,List<Map<String,Object>> lines,String field,String label,List<String> issues){
         int index=0;for(Map<String,Object> line:rows(lines)){
-            String issue=com.ruoyi.business.support.BusinessProposalPlanDates.issue(line.get(field),proposal.getPlanStartDate(),proposal.getPlanEndDate(),label,++index);
+            ++index;
+            String issue="收入测算".equals(label)
+                ? com.ruoyi.business.support.BusinessProposalPlanDates.revenueIssue(line.get(field),proposal.getPlanStartDate(),proposal.getPlanEndDate(),label,index)
+                : "支出计划".equals(label)
+                    ? com.ruoyi.business.support.BusinessProposalPlanDates.expenseIssue(line.get(field),proposal.getPlanStartDate(),proposal.getPlanEndDate(),label,index)
+                    : com.ruoyi.business.support.BusinessProposalPlanDates.issue(line.get(field),proposal.getPlanStartDate(),proposal.getPlanEndDate(),label,index);
             if(issue!=null)issues.add(issue);
-            if(("收入测算".equals(label)||"支出计划".equals(label))&&issue==null){
-                issue=com.ruoyi.business.support.BusinessProposalPlanDates.afterStartMonthIssue(line.get(field),proposal.getPlanStartDate(),label,index);
-                if(issue!=null)issues.add(issue);
-            }
         }
     }
     private void addDateIssue(List<String> issues,List<LocalDate> dates,String reason){

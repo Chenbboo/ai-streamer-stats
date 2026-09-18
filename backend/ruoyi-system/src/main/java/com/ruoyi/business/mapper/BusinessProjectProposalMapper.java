@@ -12,6 +12,7 @@ public interface BusinessProjectProposalMapper
     List<BusinessProjectProposal> selectDirectory(Map<String, Object> query);
     BusinessProjectProposal selectById(Long proposalId);
     int insertProposal(BusinessProjectProposal proposal);
+    int upsertParentFunding(BusinessProjectProposal proposal);
     Long lockCreateApplicant(Long userId);
     Map<String,Object> selectCreateRequest(@Param("userId") Long userId, @Param("requestKey") String requestKey);
     int canReadCompanyRates(@Param("userId") Long userId, @Param("companyDeptId") Long companyDeptId);
@@ -49,6 +50,8 @@ public interface BusinessProjectProposalMapper
     Map<String, Object> selectActiveBoss(Long userId);
     Map<String, Object> selectCompany(Long deptId);
     Map<String, Object> selectParentProject(Long projectId);
+    Map<String, Object> selectParentFundingSummary(@Param("parentProjectId") Long parentProjectId,
+        @Param("excludeProposalId") Long excludeProposalId);
     Map<String, Object> selectProposalStaff(@Param("userId") Long userId,
         @Param("effectiveDate") java.util.Date effectiveDate);
     List<Map<String, Object>> selectStaffOptions(@Param("companyDeptId") Long companyDeptId,

@@ -35,6 +35,10 @@ public class BusinessProjectWorkController extends BaseController
     @Log(title="项目计划基线变更",businessType=BusinessType.INSERT)
     public AjaxResult change(@PathVariable Long projectId,@RequestBody Map<String,Object> body){return success(plans.request(projectId,body,getUserId(),getUsername()));}
 
+    @PostMapping("/{projectId}/plan-change-preview")
+    @PreAuthorize("@ss.hasPermi('business:project:edit')")
+    public AjaxResult previewChange(@PathVariable Long projectId,@RequestBody Map<String,Object> body){return success(plans.preview(projectId,body,getUserId()));}
+
     @PostMapping("/plan-changes/{changeId}/review")
     @PreAuthorize("@ss.hasPermi('business:project:manage')")
     @Log(title="项目计划变更复核",businessType=BusinessType.UPDATE)

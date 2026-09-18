@@ -35,6 +35,9 @@ public class BusinessProjectProposal extends BaseEntity
     private String assignedOwnerName;
     private Long parentProjectId;
     private String parentProjectName;
+    /** 主项目正式分配给该子项目的额度，不作为重复支出记账。 */
+    private BigDecimal parentFundingAmount;
+    private String parentFundingReason;
     private String projectType;
     private String accountingMode;
     private String managementMode;
@@ -134,6 +137,10 @@ public class BusinessProjectProposal extends BaseEntity
     public void setParentProjectId(Long parentProjectId) { this.parentProjectId = parentProjectId; }
     public String getParentProjectName() { return parentProjectName; }
     public void setParentProjectName(String parentProjectName) { this.parentProjectName = parentProjectName; }
+    public BigDecimal getParentFundingAmount() { return parentFundingAmount; }
+    public void setParentFundingAmount(BigDecimal parentFundingAmount) { this.parentFundingAmount = parentFundingAmount; }
+    public String getParentFundingReason() { return parentFundingReason; }
+    public void setParentFundingReason(String parentFundingReason) { this.parentFundingReason = parentFundingReason; }
     public String getProjectType() { return projectType; }
     public void setProjectType(String projectType) { this.projectType = projectType; }
     public String getAccountingMode() { return accountingMode; }

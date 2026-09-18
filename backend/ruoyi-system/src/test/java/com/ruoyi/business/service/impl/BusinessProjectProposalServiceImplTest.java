@@ -50,6 +50,7 @@ class BusinessProjectProposalServiceImplTest
     void setUp()
     {
         org.mockito.Mockito.lenient().when(workMapper.selectTemplate("LIGHT_V1")).thenReturn(BusinessProjectWorkServiceTest.row("templateVersion","LIGHT_V1","snapshotJson","{}","managementMode","LIGHT","closeMethod","DIRECT"));
+        org.mockito.Mockito.lenient().when(mapper.upsertParentFunding(any(BusinessProjectProposal.class))).thenReturn(1);
         proposal = new BusinessProjectProposal();
         proposal.setProposalId(77L);
         proposal.setProjectName("越南直播增长");
@@ -308,8 +309,12 @@ class BusinessProjectProposalServiceImplTest
     void childProposalUsesNormalCreateValidationAndPersistsParentBinding()
     {
         proposal.setProposalId(null); proposal.setParentProjectId(15L);proposal.setAssignedOwnerUserId(10L);
+        proposal.setParentFundingAmount(new BigDecimal("2000"));proposal.setParentFundingReason("子项目启动和人员费用");
         proposal.setSponsorOwnerUserId(999L);
         when(mapper.selectParentProject(15L)).thenReturn(childParent(9L));
+        when(mapper.selectParentFundingSummary(15L,null)).thenReturn(BusinessProjectWorkServiceTest.row(
+            "budgetMode","TOTAL","totalAmount",new BigDecimal("10000"),"currency","CNY",
+            "activeAllocatedAmount",new BigDecimal("3000"),"reservedAllocatedAmount",new BigDecimal("1000")));
         when(mapper.selectActiveUser(10L)).thenReturn(user(10L,"owner10","子负责人十"));
         when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
         when(mapper.selectCompany(111L)).thenReturn(Collections.singletonMap("deptId",111L));
@@ -327,7 +332,65 @@ class BusinessProjectProposalServiceImplTest
     }
 
     private Map<String,Object> childParent(Long owner) {
-        Map<String,Object> row=new java.util.HashMap<>();row.put("mainOwnerUserId",owner);row.put("sponsorOwnerUserId",23L);return row;
+        Map<String,Object> row=new java.util.HashMap<>();row.put("mainOwnerUserId",owner);row.put("sponsorOwnerUserId",23L);
+        row.put("budgetMode","TOTAL");row.put("budgetLimit",new BigDecimal("10000"));row.put("baseCurrency","CNY");return row;
+    }
+
+    @Test
+    void parentFundingSummaryExcludesCurrentDraftAndCalculatesAvailableAmount()
+    {
+        when(mapper.selectParentProject(15L)).thenReturn(childParent(9L));
+        when(mapper.selectById(77L)).thenReturn(proposal);
+        proposal.setParentProjectId(15L);proposal.setAssignedOwnerUserId(10L);
+        when(mapper.selectParentFundingSummary(15L,77L)).thenReturn(BusinessProjectWorkServiceTest.row(
+            "budgetMode","TOTAL","totalAmount",new BigDecimal("10000"),"currency","CNY",
+            "activeAllocatedAmount",new BigDecimal("3000"),"reservedAllocatedAmount",new BigDecimal("1500")));
+
+        Map<String,Object> summary=service.parentFundingSummary(15L,77L,10L);
+
+        assertEquals(new BigDecimal("4500.00"),summary.get("allocatedAmount"));
+        assertEquals(new BigDecimal("5500.00"),summary.get("availableAmount"));
+    }
+
+    @Test
+    void childDraftCannotReserveMoreThanParentAvailableBudget()
+    {
+        proposal.setProposalId(null);proposal.setSaveAsDraft(true);proposal.setParentProjectId(15L);
+        proposal.setAssignedOwnerUserId(10L);proposal.setParentFundingAmount(new BigDecimal("6000.01"));
+        proposal.setParentFundingReason("执行子项目");
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
+        when(mapper.selectActiveUser(10L)).thenReturn(user(10L,"owner10","子负责人十"));
+        when(mapper.selectCompany(111L)).thenReturn(Collections.singletonMap("deptId",111L));
+        when(mapper.selectParentProject(15L)).thenReturn(childParent(9L));
+        when(mapper.selectParentFundingSummary(15L,null)).thenReturn(BusinessProjectWorkServiceTest.row(
+            "budgetMode","TOTAL","totalAmount",new BigDecimal("10000"),"currency","CNY",
+            "activeAllocatedAmount",new BigDecimal("3000"),"reservedAllocatedAmount",new BigDecimal("1000")));
+
+        ServiceException error=assertThrows(ServiceException.class,()->service.create(proposal,9L,"applicant9"));
+
+        assertEquals("子项目拨款额度超过主项目可用余额，当前可用 6000.00 CNY",error.getMessage());
+        verify(mapper,never()).insertProposal(any());
+    }
+
+    @Test
+    void childDraftBusinessBudgetCannotExceedFundingAmount()
+    {
+        proposal.setProposalId(null);proposal.setSaveAsDraft(true);proposal.setParentProjectId(15L);
+        proposal.setAssignedOwnerUserId(10L);proposal.setParentFundingAmount(new BigDecimal("1000"));
+        proposal.setParentFundingReason("执行子项目");
+        proposal.setBudget(BusinessProjectWorkServiceTest.row("mode","TOTAL","businessAmount",new BigDecimal("1200")));
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
+        when(mapper.selectActiveUser(10L)).thenReturn(user(10L,"owner10","子负责人十"));
+        when(mapper.selectCompany(111L)).thenReturn(Collections.singletonMap("deptId",111L));
+        when(mapper.selectParentProject(15L)).thenReturn(childParent(9L));
+        when(mapper.selectParentFundingSummary(15L,null)).thenReturn(BusinessProjectWorkServiceTest.row(
+            "budgetMode","TOTAL","totalAmount",new BigDecimal("10000"),"currency","CNY",
+            "activeAllocatedAmount",BigDecimal.ZERO,"reservedAllocatedAmount",BigDecimal.ZERO));
+
+        ServiceException error=assertThrows(ServiceException.class,()->service.create(proposal,9L,"applicant9"));
+
+        assertEquals("子项目人员预算与业务预算合计不能超过主项目拨款额度",error.getMessage());
+        verify(mapper,never()).insertProposal(any());
     }
 
     @Test void childOwnerIsRequiredAndExistingParentPermissionIsEnforced() {
@@ -834,6 +897,22 @@ class BusinessProjectProposalServiceImplTest
 
         assertEquals(Boolean.TRUE,result.getCanOpen());
         assertEquals(Boolean.TRUE,result.getCanEdit());
+    }
+
+    @Test
+    void mainOwnerCanViewButCannotEditDraftAfterHandoff()
+    {
+        proposal.setParentProjectId(55L);proposal.setAssignedOwnerUserId(10L);proposal.setStatus("DRAFT");
+        proposal.setParentFundingAmount(new BigDecimal("2000"));proposal.setParentFundingReason("已拨款");
+        when(mapper.selectById(77L)).thenReturn(proposal);
+
+        BusinessProjectProposal result=service.get(77L,9L,false,false);
+
+        assertEquals(Boolean.TRUE,result.getCanOpen());
+        assertEquals(Boolean.FALSE,result.getCanEdit());
+        ServiceException error=assertThrows(ServiceException.class,()->service.update(proposal,9L,"main-owner"));
+        assertEquals("申请已转交子项目负责人，请由子项目负责人继续完善",error.getMessage());
+        verify(mapper,never()).updateDraft(any());
     }
 
     @Test
