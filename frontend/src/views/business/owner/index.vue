@@ -229,7 +229,7 @@
               <template v-if="project.progressReportId">
                 <div class="project-progress-meta"><span>{{ project.progressBizDate }} · {{ project.progressReporterName || project.mainOwnerName }}填报</span><el-tag v-if="todayProjectProgress" size="small" type="success">今日已填报</el-tag></div>
                 <p class="project-progress-summary">实际完成情况：{{ project.progressSummary }}</p>
-                <el-button v-if="project.progressEvidenceUrls" size="small" type="primary" plain @click="openProjectProgressEvidence">查看成果凭证（{{ evidenceCount(project.progressEvidenceUrls) }}）</el-button>
+                <el-button v-if="project.progressEvidenceUrls || project.progressEvidenceText" size="small" type="primary" plain @click="openProjectProgressEvidence">查看成果凭证</el-button>
               </template>
               <div v-else class="empty-block compact">负责人尚未填报项目整体进度</div>
             </div>
@@ -333,7 +333,12 @@
         <el-form-item label="项目名称"><el-input :model-value="projectProgressForm.projectName" disabled /></el-form-item>
         <el-form-item label="实际完成情况" required><el-input v-model="projectProgressForm.completionSummary" type="textarea" :rows="4" maxlength="2000" show-word-limit placeholder="请说明今天推动项目完成的内容和结果" /></el-form-item>
         <el-form-item label="项目进度" required><el-slider v-model="projectProgressForm.progress" show-input :min="0" :max="100" :disabled="Number(projectProgressForm.minimumProgress || 0) >= 100" @input="keepProjectProgress" /><small class="progress-tip">当前项目进度 {{ projectProgressForm.minimumProgress || 0 }}%，只能向上调整，与一次性任务进度无关。</small></el-form-item>
-        <el-form-item label="成果凭证" required><business-file-upload v-model="projectProgressForm.evidenceUrls" :project-id="projectProgressForm.projectId" /></el-form-item>
+        <el-form-item label="成果凭证" required>
+          <div class="progress-evidence-inputs">
+            <el-input v-model="projectProgressForm.evidenceText" type="textarea" :rows="3" maxlength="2000" show-word-limit placeholder="填写文字成果凭证，或在下方上传文件；至少提供一种" />
+            <business-file-upload v-model="projectProgressForm.evidenceUrls" :project-id="projectProgressForm.projectId" />
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer><el-button @click="projectProgressDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="submitProjectProgress">保存今日项目完成量</el-button></template>
     </el-dialog>
@@ -385,9 +390,10 @@
       <div class="evidence-dialog-summary">
         <span>{{ evidencePreview.assigneeName || '执行人' }}提交</span>
         <span>{{ evidencePreview.bizDate || accounting.bizDate || today() }}</span>
-        <span>共 {{ evidencePreview.files.length }} 个凭证</span>
+        <span>{{ evidencePreview.files.length }} 个文件</span>
       </div>
-      <business-file-upload
+      <p v-if="evidencePreview.evidenceText" class="evidence-text">{{ evidencePreview.evidenceText }}</p>
+      <business-file-upload v-if="evidencePreview.rawUrls"
         :model-value="evidencePreview.rawUrls"
         :project-id="evidencePreview.projectId || project?.projectId"
         disabled
@@ -595,7 +601,7 @@ const projectProgressForm=ref({})
 const routineReportForm=ref({})
 const dailyTargetForm=reactive({})
 const effortReturnForm=ref({userId:null,userName:'',bizDate:today(),reviewComment:''})
-const evidencePreview=ref({title:'',assigneeName:'',bizDate:'',rawUrls:'',projectId:null,files:[]})
+const evidencePreview=ref({title:'',assigneeName:'',bizDate:'',rawUrls:'',evidenceText:'',projectId:null,files:[]})
 function today(){return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Shanghai'})}
 function defaultFinancialDate(){return isLateSettlement.value?String(project.value.actualEndDate).slice(0,10):accounting.value.bizDate||today()}
 function disabledFinancialDate(date){const value=new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,10),end=String(project.value?.actualEndDate||today()).slice(0,10),start=String(project.value?.actualStartDate||project.value?.planStartDate||'').slice(0,10);return value>today()||(isLateSettlement.value&&(value>end||(start&&value<start)))}
@@ -604,9 +610,9 @@ function evidencePaths(value){return String(value||'').split(',').map(item=>item
 function evidenceCount(value){return evidencePaths(value).length}
 function evidenceName(path){const clean=path.split('?')[0];try{return decodeURIComponent(clean.slice(clean.lastIndexOf('/')+1))||'成果凭证'}catch{return clean.slice(clean.lastIndexOf('/')+1)||'成果凭证'}}
 function evidenceKind(path){const ext=path.split('?')[0].split('.').pop()?.toLowerCase();if(['jpg','jpeg','png','gif','webp','bmp'].includes(ext))return 'image';if(['mp4','mov','webm','ogg'].includes(ext))return 'video';return 'file'}
-function openEvidenceFiles(title,assigneeName,bizDate,urls){const files=evidencePaths(urls).map(path=>({path,name:evidenceName(path),kind:evidenceKind(path)}));evidencePreview.value={title,assigneeName,bizDate,rawUrls:urls,projectId:project.value?.projectId,files};evidenceDialog.value=true}
+function openEvidenceFiles(title,assigneeName,bizDate,urls,evidenceText=''){const files=evidencePaths(urls).map(path=>({path,name:evidenceName(path),kind:evidenceKind(path)}));evidencePreview.value={title,assigneeName,bizDate,rawUrls:urls,evidenceText,projectId:project.value?.projectId,files};evidenceDialog.value=true}
 function openEvidence(routine){openEvidenceFiles(routine.routineName,routine.assigneeName,accounting.value.bizDate||today(),routine.todayEvidenceUrls)}
-function openProjectProgressEvidence(){openEvidenceFiles(project.value.projectName,project.value.progressReporterName||project.value.mainOwnerName,project.value.progressBizDate,project.value.progressEvidenceUrls)}
+function openProjectProgressEvidence(){openEvidenceFiles(project.value.projectName,project.value.progressReporterName||project.value.mainOwnerName,project.value.progressBizDate,project.value.progressEvidenceUrls,project.value.progressEvidenceText)}
 function taskName(taskId){return [...(project.value?.tasks||[]),...(project.value?.inactiveTasks||[])].find(task=>Number(task.taskId)===Number(taskId))?.taskName||'一次性任务'}
 function taskFinishDate(task){return String(task.actualFinishTime||task.latestReport?.bizDate||'').slice(0,10)}
 function taskFinishTime(task){return task.actualFinishTime||task.latestReport?.bizDate||'未记录'}
@@ -791,9 +797,9 @@ async function submitRevenue(){
     await load(selectedProjectId.value)
   }finally{saving.value=false}
 }
-function openProjectProgressReport(){const current=Number(projectProgress.value||0),todayReport=todayProjectProgress.value||{};projectProgressForm.value={reportId:todayReport.reportId||null,projectId:project.value.projectId,bizDate:accounting.value.bizDate||today(),projectName:project.value.projectName,minimumProgress:current,progress:Number(todayReport.progress??current),completionSummary:todayReport.completionSummary||'',evidenceUrls:todayReport.evidenceUrls||''};projectProgressDialog.value=true}
+function openProjectProgressReport(){const current=Number(projectProgress.value||0),todayReport=todayProjectProgress.value||{};projectProgressForm.value={reportId:todayReport.reportId||null,projectId:project.value.projectId,bizDate:accounting.value.bizDate||today(),projectName:project.value.projectName,minimumProgress:current,progress:Number(todayReport.progress??current),completionSummary:todayReport.completionSummary||'',evidenceUrls:todayReport.evidenceUrls||'',evidenceText:todayReport.evidenceText||''};projectProgressDialog.value=true}
 function keepProjectProgress(value){const minimum=Number(projectProgressForm.value.minimumProgress||0);if(Number(value)<minimum)projectProgressForm.value.progress=minimum}
-async function submitProjectProgress(){const form=projectProgressForm.value;if(!form.completionSummary?.trim())return ElMessage.warning('请填写实际完成情况');if(form.progress===null||form.progress===undefined||Number(form.progress)<Number(form.minimumProgress||0)||Number(form.progress)>100)return ElMessage.warning(`项目进度只能增加，不能低于 ${form.minimumProgress||0}%`);if(!form.evidenceUrls)return ElMessage.warning('请上传成果凭证');saving.value=true;try{await submitBusinessProjectProgressReport(form);projectProgressDialog.value=false;ElMessage.success('今日项目完成量已保存并同步到老板工作台');await load(selectedProjectId.value)}finally{saving.value=false}}
+async function submitProjectProgress(){const form=projectProgressForm.value;if(!form.completionSummary?.trim())return ElMessage.warning('请填写实际完成情况');if(form.progress===null||form.progress===undefined||Number(form.progress)<Number(form.minimumProgress||0)||Number(form.progress)>100)return ElMessage.warning(`项目进度只能增加，不能低于 ${form.minimumProgress||0}%`);if(!form.evidenceUrls&&!form.evidenceText?.trim())return ElMessage.warning('请上传文件或填写文字成果凭证');saving.value=true;try{await submitBusinessProjectProgressReport({...form,evidenceText:form.evidenceText?.trim()||''});projectProgressDialog.value=false;ElMessage.success('今日项目完成量已保存并同步到老板工作台');await load(selectedProjectId.value)}finally{saving.value=false}}
 async function confirmEffort(item){
   saving.value=true
   try{
@@ -917,3 +923,7 @@ useBusinessRefreshOnReactivated(() => load(selectedProjectId.value || initialPro
 </style>
 
 <style scoped src="./workbench.css"></style>
+<style scoped>
+.progress-evidence-inputs{display:flex;width:100%;min-width:0;flex-direction:column;gap:12px}
+.evidence-text{margin:0 0 16px;padding:12px 14px;border-radius:8px;background:#f5f8fa;color:#405166;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
+</style>

@@ -104,8 +104,9 @@ public class BusinessProjectPlanService
         String priority=text(input.containsKey("priority")?input.get("priority"):p.getPriority());if(priority==null)priority="MEDIUM";
         String revenueModel=text(input.containsKey("revenueModel")?input.get("revenueModel"):previous.get("revenueModel"));
         if(projectName==null||projectName.isEmpty()||projectName.length()>160)throw new ServiceException("项目名称不能为空或超过160个字符");
-        if(objective==null||objective.isEmpty()||objective.length()>1000||criteria==null||criteria.isEmpty()||criteria.length()>2000)throw new ServiceException("范围目标和验收标准不能为空或超出长度");
-        if(applicationReason!=null&&applicationReason.length()>2000)throw new ServiceException("立项说明不能超过2000个字符");
+        if(objective==null||objective.isEmpty()||objective.length()>1000)throw new ServiceException("项目目标不能为空或超过1000个字符");
+        if(applicationReason==null||applicationReason.isEmpty()||applicationReason.length()>2000)throw new ServiceException("立项理由不能为空或超过2000个字符");
+        if(criteria!=null&&criteria.length()>2000)throw new ServiceException("验收标准不能超过2000个字符");
         if(revenueModel!=null&&revenueModel.length()>1000)throw new ServiceException("收入模式不能超过1000个字符");
         if(!Arrays.asList("LOW","MEDIUM","HIGH","URGENT").contains(priority))throw new ServiceException("项目优先级不正确");
         Date from=DateUtils.parseDate(input.get("planStartDate")),to=DateUtils.parseDate(input.get("planEndDate"));
@@ -113,8 +114,9 @@ public class BusinessProjectPlanService
         if(from==null||endText!=null&&!endText.isEmpty()&&to==null||to!=null&&to.before(from))throw new ServiceException("请填写有效的计划起止日期；不限期项目可以不设置结束日期");
         List<Map<String,Object>> revenueLines=planLines(input.containsKey("revenueLines")?input.get("revenueLines"):previous.get("revenueLines"),true,from,to);
         List<Map<String,Object>> expenseLines=planLines(input.containsKey("expenseLines")?input.get("expenseLines"):previous.get("expenseLines"),false,from,to);
+        List<Map<String,Object>> targetLines=targetLines(input.containsKey("targetLines")?input.get("targetLines"):previous.get("targetLines"),from,to);
         row.put("projectName",projectName);row.put("objective",objective);row.put("applicationReason",applicationReason);row.put("priority",priority);
-        row.put("acceptanceCriteria",criteria);row.put("revenueModel",revenueModel);row.put("revenueLines",revenueLines);row.put("expenseLines",expenseLines);
+        row.put("acceptanceCriteria",criteria);row.put("revenueModel",revenueModel);row.put("revenueLines",revenueLines);row.put("expenseLines",expenseLines);row.put("targetLines",targetLines);
         row.put("planStartDate",DateUtils.parseDateToStr("yyyy-MM-dd",from));row.put("planEndDate",to==null?null:DateUtils.parseDateToStr("yyyy-MM-dd",to));row.put("budgetLimit",money(input.get("budgetLimit")));
         if(p.getBudget()!=null)
         {
@@ -124,7 +126,7 @@ public class BusinessProjectPlanService
             if(to==null&&"PROJECT".equals(requested.get("cycle")))requested.put("cycle","MONTH");estimate.setBudget(requested);
             estimate.setBudgetMode(text(requested.get("mode")));estimate.setBudgetScope(text(requested.get("scope")));
             estimate.setDailyBudgetLimit(money(requested.get("dailyLimit")));estimate.setStartupBudgetLimit(money(requested.get("startupLimit")));estimate.setBudgetReason(text(requested.get("reason")));
-            estimate.setRevenueLines(revenueLines);estimate.setExpenseLines(expenseLines);estimate.setTargetLines(Collections.<Map<String,Object>>emptyList());estimate.setGoalMode("NO_TOTAL");
+            estimate.setRevenueLines(revenueLines);estimate.setExpenseLines(expenseLines);estimate.setTargetLines(targetLines);estimate.setGoalMode(p.getGoalMode()==null?"NO_TOTAL":p.getGoalMode());
             List<Map<String,Object>> staff=new ArrayList<Map<String,Object>>();
             for(Map<String,Object> assignment:mapper.selectAssignments(p.getProjectId()))if("ACTIVE".equals(assignment.get("status")))
             {Map<String,Object> person=new LinkedHashMap<String,Object>(assignment);person.put("planStartDate",person.get("effectiveFrom"));person.put("planEndDate",person.get("effectiveTo"));person.put("participationMode",person.getOrDefault("participationMode",person.get("effectiveTo")==null?"UNLIMITED":"CUSTOM"));staff.add(person);}
@@ -142,7 +144,12 @@ public class BusinessProjectPlanService
             row.put("budget",budget);row.put("budgetLimit","TOTAL".equals(budget.getOrDefault("mode","TOTAL"))?budget.get("totalAmount"):null);
             row.put("budgetMode",budget.getOrDefault("mode","TOTAL"));row.put("budgetScope",budget.getOrDefault("scope","FULL_COST"));
             row.put("dailyBudgetLimit",budget.get("dailyLimit"));row.put("startupBudgetLimit",budget.get("startupLimit"));row.put("budgetReason",budget.get("reason"));
-            try{Map<String,Object> snapshot=json.readValue(p.getTemplateSnapshotJson(),new TypeReference<Map<String,Object>>(){});snapshot.put("budget",budget);row.put("templateSnapshotJson",write(snapshot));}catch(Exception ex){throw new ServiceException("预算快照无法保存");}
+            try{
+                Map<String,Object> snapshot=json.readValue(p.getTemplateSnapshotJson(),new TypeReference<Map<String,Object>>(){});
+                snapshot.put("budget",budget);
+                snapshot.put("revenueLines",revenueLines);snapshot.put("expenseLines",expenseLines);snapshot.put("targetLines",targetLines);
+                row.put("templateSnapshotJson",write(snapshot));
+            }catch(Exception ex){throw new ServiceException("预算快照无法保存");}
         }
         return row;
     }
@@ -183,9 +190,35 @@ public class BusinessProjectPlanService
         }
         return result;
     }
+    private List<Map<String,Object>> targetLines(Object value,Date from,Date to)
+    {
+        if(value==null)return Collections.emptyList();
+        if(!(value instanceof List))throw new ServiceException("验收目标格式不正确");
+        List<?> source=(List<?>)value;if(source.size()>100)throw new ServiceException("验收目标最多100行");
+        List<Map<String,Object>> result=new ArrayList<Map<String,Object>>();int rowNo=0;
+        for(Object item:source)
+        {
+            rowNo++;if(!(item instanceof Map))throw new ServiceException("第"+rowNo+"行验收目标格式不正确");
+            Map<?,?> input=(Map<?,?>)item;Map<String,Object> line=new LinkedHashMap<String,Object>();
+            String type=required(input.get("targetType"),24,"目标类型",rowNo);
+            if(!Arrays.asList("FINANCIAL","QUANTITY","SCHEDULE","QUALITY","EFFICIENCY","GROWTH","CUSTOMER","COMPLIANCE","OTHER","DELIVERY").contains(type))throw new ServiceException("第"+rowNo+"行目标类型不正确");
+            line.put("targetType",type);line.put("targetName",required(input.get("targetName"),160,"目标名称",rowNo));
+            line.put("targetValue","DELIVERY".equals(type)?BigDecimal.ONE:targetValue(input.get("targetValue")));
+            if(line.get("targetValue")==null)throw new ServiceException("第"+rowNo+"行目标值不能为空");
+            line.put("unit","DELIVERY".equals(type)?"项":required(input.get("unit"),32,"目标单位",rowNo));
+            Object rawDate=input.get("dueDate");String dateIssue=com.ruoyi.business.support.BusinessProposalPlanDates.issue(rawDate,from,to,"验收目标",rowNo);
+            if(dateIssue!=null)throw new ServiceException(dateIssue);
+            Date date=DateUtils.parseDate(rawDate);line.put("dueDate",date==null?null:DateUtils.parseDateToStr("yyyy-MM-dd",date));
+            line.put("acceptanceEvidence",required(input.get("acceptanceEvidence"),500,"验收依据",rowNo));
+            if(input.get("weight")!=null)line.put("weight",input.get("weight"));
+            result.add(line);
+        }
+        return result;
+    }
     private String required(Object value,int limit,String label,int row){String s=text(value);if(s==null||s.isEmpty()||s.length()>limit)throw new ServiceException("第"+row+"行"+label+"不能为空或超过"+limit+"个字符");return s;}
     private String optional(Object value,int limit,String label,int row){String s=text(value);if(s!=null&&s.length()>limit)throw new ServiceException("第"+row+"行"+label+"不能超过"+limit+"个字符");return s;}
     private BigDecimal lineMoney(Object value,String label,int row){BigDecimal amount=money(value);if(amount==null)throw new ServiceException("第"+row+"行"+label+"不能为空");return amount;}
+    private BigDecimal targetValue(Object value){if(value==null||"".equals(value))return null;try{BigDecimal amount=new BigDecimal(String.valueOf(value));if(amount.signum()<0||amount.scale()>4)throw new Exception();return amount;}catch(Exception ex){throw new ServiceException("目标值须为非负且最多四位小数");}}
 
     private Map<String,Object> currentPlan(BusinessProject p,List<Map<String,Object>> baselines)
     {
@@ -198,9 +231,10 @@ public class BusinessProjectPlanService
             if(!result.containsKey("revenueModel")&&snapshot.get("revenueModel")!=null)result.put("revenueModel",snapshot.get("revenueModel"));
             if(!result.containsKey("revenueLines")&&snapshot.get("revenueLines") instanceof List)result.put("revenueLines",snapshot.get("revenueLines"));
             if(!result.containsKey("expenseLines")&&snapshot.get("expenseLines") instanceof List)result.put("expenseLines",snapshot.get("expenseLines"));
-            if(result.containsKey("revenueLines")&&result.containsKey("expenseLines"))break;
+            if(!result.containsKey("targetLines")&&snapshot.get("targetLines") instanceof List)result.put("targetLines",snapshot.get("targetLines"));
+            if(result.containsKey("revenueLines")&&result.containsKey("expenseLines")&&result.containsKey("targetLines"))break;
         }catch(Exception ignored){}
-        result.putIfAbsent("revenueLines",Collections.emptyList());result.putIfAbsent("expenseLines",Collections.emptyList());return result;
+        result.putIfAbsent("revenueLines",Collections.emptyList());result.putIfAbsent("expenseLines",Collections.emptyList());result.putIfAbsent("targetLines",Collections.emptyList());return result;
     }
     private boolean canReview(BusinessProject p,Map<String,Object> row,Long actor){return mutable(p)&&"SUBMITTED".equals(row.get("status"))&&companyAccess.project(p,actor)&&!actor.equals(id(row.get("requestUserId")));}
     private boolean mutable(BusinessProject p){return !BusinessProjectLifecycle.isAccountingClosed(p)&&!Arrays.asList("CLOSED","CANCELED","ACCEPTANCE").contains(p.getStatus());}

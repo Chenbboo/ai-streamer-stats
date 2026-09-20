@@ -35,6 +35,7 @@ public class BusinessProjectProgressReport extends BaseEntity
     private Integer progress;
     private String completionSummary;
     private String evidenceUrls;
+    private String evidenceText;
     private Long submittedUserId;
     private String submittedUserName;
     private Integer version;
@@ -51,6 +52,8 @@ public class BusinessProjectProgressReport extends BaseEntity
     public void setCompletionSummary(String completionSummary) { this.completionSummary = completionSummary; }
     public String getEvidenceUrls() { return evidenceUrls; }
     public void setEvidenceUrls(String evidenceUrls) { this.evidenceUrls = evidenceUrls; }
+    public String getEvidenceText() { return evidenceText; }
+    public void setEvidenceText(String evidenceText) { this.evidenceText = evidenceText; }
     public Long getSubmittedUserId() { return submittedUserId; }
     public void setSubmittedUserId(Long submittedUserId) { this.submittedUserId = submittedUserId; }
     public String getSubmittedUserName() { return submittedUserName; }

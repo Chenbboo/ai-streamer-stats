@@ -79,6 +79,7 @@ public class BusinessProject extends BaseEntity
     @JsonFormat(pattern = "yyyy-MM-dd") private Date progressBizDate;
     private String progressSummary;
     private String progressEvidenceUrls;
+    private String progressEvidenceText;
     private String progressReporterName;
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss") private Date progressReportTime;
     private Integer openRiskCount;
@@ -221,6 +222,8 @@ public class BusinessProject extends BaseEntity
     public void setProgressSummary(String progressSummary) { this.progressSummary = progressSummary; }
     public String getProgressEvidenceUrls() { return progressEvidenceUrls; }
     public void setProgressEvidenceUrls(String progressEvidenceUrls) { this.progressEvidenceUrls = progressEvidenceUrls; }
+    public String getProgressEvidenceText() { return progressEvidenceText; }
+    public void setProgressEvidenceText(String progressEvidenceText) { this.progressEvidenceText = progressEvidenceText; }
     public String getProgressReporterName() { return progressReporterName; }
     public void setProgressReporterName(String progressReporterName) { this.progressReporterName = progressReporterName; }
     public Date getProgressReportTime() { return progressReportTime; }

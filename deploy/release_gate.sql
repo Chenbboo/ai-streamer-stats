@@ -380,4 +380,8 @@ from (
       or (column_name='supplier_id' and data_type='bigint')
       or (column_name='supplier_name_snapshot' and data_type='varchar' and character_maximum_length>=128)
       or (column_name='sample_goods_no' and data_type='varchar' and character_maximum_length>=64))
+  union all
+  select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
+    and table_name='biz_project_progress_report' and column_name='evidence_text'
+    and data_type='varchar' and character_maximum_length>=2000
 ) release_gate;

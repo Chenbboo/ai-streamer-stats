@@ -980,6 +980,9 @@ select 1-count(*) as missing_progress_weight from information_schema.columns
 where table_schema=database() and table_name='biz_project' and column_name='progress_weight';
 select 1-count(*) as missing_progress_notifications from information_schema.tables
 where table_schema=database() and table_name='biz_project_progress_notification';
+select 1-count(*) as missing_progress_text_evidence from information_schema.columns
+where table_schema=database() and table_name='biz_project_progress_report'
+  and column_name='evidence_text' and data_type='varchar' and character_maximum_length>=2000;
 
 -- V086-V087 管理费：项目详情和负责人工作台均会读取，必须随代码同步升级。
 select 3-count(*) as missing_management_fee_tables from information_schema.tables

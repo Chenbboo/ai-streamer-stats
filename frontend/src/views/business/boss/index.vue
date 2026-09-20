@@ -236,7 +236,7 @@
           </div>
           <div v-if="row.progressReportId" class="latest-progress-report">
             <div><span>{{ row.progressBizDate }} · {{ row.progressReporterName || row.mainOwnerName }}填报</span><b>{{ row.progressSummary }}</b></div>
-            <el-button v-if="row.progressEvidenceUrls" size="small" type="primary" plain @click="openProgressEvidence(row)">成果凭证（{{ evidenceCount(row.progressEvidenceUrls) }}）</el-button>
+            <el-button v-if="row.progressEvidenceUrls || row.progressEvidenceText" size="small" type="primary" plain @click="openProgressEvidence(row)">成果凭证</el-button>
           </div>
           <div v-else-if="!['CLOSED','CANCELED'].includes(row.status)" class="latest-progress-empty">负责人尚未填报项目整体进度</div>
           <div class="project-card-foot">
@@ -311,7 +311,8 @@
 
     <el-dialog v-model="evidenceDialog" :title="`${evidencePreview.title || ''} · ${evidencePreview.label || '项目成果凭证'}`" width="min(840px, 96vw)" append-to-body destroy-on-close>
       <div class="evidence-dialog-summary"><span>{{ evidencePreview.submitter || '项目负责人' }}提交</span><span>{{ evidencePreview.date }}</span><span>共 {{ evidencePreview.files.length }} 个文件</span></div>
-      <business-file-upload
+      <p v-if="evidencePreview.evidenceText" class="evidence-text">{{ evidencePreview.evidenceText }}</p>
+      <business-file-upload v-if="evidencePreview.rawUrls"
         :model-value="evidencePreview.rawUrls"
         :project-id="evidencePreview.projectId"
         disabled
@@ -450,7 +451,7 @@ const evidenceCount = value => evidencePaths(value).length
 const evidenceName = path => { const clean = path.split('?')[0]; try { return decodeURIComponent(clean.slice(clean.lastIndexOf('/') + 1)) || '成果凭证' } catch { return clean.slice(clean.lastIndexOf('/') + 1) || '成果凭证' } }
 const evidenceKind = path => { const ext = path.split('?')[0].split('.').pop()?.toLowerCase(); if (['jpg','jpeg','png','gif','webp','bmp'].includes(ext)) return 'image'; if (['mp4','mov','webm','ogg'].includes(ext)) return 'video'; return 'file' }
 function buildEvidenceFiles(value) { return evidencePaths(value).map(path => ({ path, name: evidenceName(path), kind: evidenceKind(path) })) }
-function openProgressEvidence(row) { evidencePreview.value = { title: row.projectName, label: '项目成果凭证', submitter: row.progressReporterName || row.mainOwnerName, date: row.progressBizDate, rawUrls: row.progressEvidenceUrls, projectId: row.projectId, files: buildEvidenceFiles(row.progressEvidenceUrls) }; evidenceDialog.value = true }
+function openProgressEvidence(row) { evidencePreview.value = { title: row.projectName, label: '项目成果凭证', submitter: row.progressReporterName || row.mainOwnerName, date: row.progressBizDate, rawUrls: row.progressEvidenceUrls, evidenceText: row.progressEvidenceText, projectId: row.projectId, files: buildEvidenceFiles(row.progressEvidenceUrls) }; evidenceDialog.value = true }
 function openStageEvidence(row) { evidencePreview.value = { title: `${row.projectName} · ${row.milestoneName}`, label: '阶段验收文件', submitter: row.submitterName || row.mainOwnerName, date: row.submittedTime, rawUrls: row.attachmentUrls, projectId: row.projectId, files: buildEvidenceFiles(row.attachmentUrls) }; evidenceDialog.value = true }
 function projectIdFromRow(row) {
   if (idKey(row?.projectId)) return row.projectId
@@ -742,4 +743,7 @@ onBeforeUnmount(() => window.clearInterval(progressRefreshTimer))
 @media(max-width:1100px){.alert-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.owner-load-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.project-card-foot{align-items:flex-start;flex-wrap:wrap}.project-actions{width:100%;margin-left:0}}
 @media(max-width:860px){.finance-grid,.project-grid{grid-template-columns:1fr}.section-title--between{align-items:flex-start}.panel-actions{align-items:flex-end;flex-direction:column}}
 @media(max-width:760px){.business-page{padding:14px}.hero{align-items:flex-start;flex-direction:column;gap:20px;min-height:0;padding:24px}.hero-actions{width:100%}.hero-actions :deep(.el-button){flex:1;margin:0}.panel{padding:18px 14px}.decision-row{align-items:flex-start;flex-wrap:wrap;padding:16px 14px}.decision-copy{width:calc(100% - 26px)}.decision-actions{width:100%;padding-left:26px;justify-content:flex-start}.decision-actions :deep(.el-button){flex:1}.personnel-item{grid-template-columns:1fr auto;gap:4px 10px}.personnel-item>span{grid-column:1/2;white-space:normal}.personnel-item :deep(.el-button){grid-column:2;grid-row:1/3}.panel-actions{align-items:flex-end}.alert-grid,.owner-load-grid{grid-template-columns:1fr}.owner-load-panel .section-title>div{align-items:flex-start;flex-direction:column}.owner-dialog-summary{align-items:flex-start;flex-direction:column}.project-card{padding:16px 14px}.project-card-foot{align-items:flex-start}.project-actions{display:grid;grid-template-columns:1fr 1fr}.project-actions :deep(.el-button){width:100%}.project-pagination{align-items:flex-end;flex-direction:column}.cost-preview{margin-left:0}.latest-progress-report{align-items:flex-start;flex-direction:column}.evidence-dialog-summary{align-items:flex-start;flex-direction:column;gap:4px}.evidence-dialog-summary span+span:before{content:none}.evidence-preview-grid{grid-template-columns:1fr}.evidence-preview-item>.el-image,.evidence-preview-item>video{height:240px}:global(.el-dialog .cost-form .el-form-item){display:block}:global(.el-dialog .cost-form .el-form-item__label){width:auto!important;height:auto;margin-bottom:6px;padding:0}:global(.el-dialog .cost-form .el-form-item__content){margin-left:0!important}}
+</style>
+<style scoped>
+.evidence-text{margin:0 0 16px;padding:12px 14px;border-radius:8px;background:#f5f8fa;color:#405166;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
 </style>

@@ -32,8 +32,9 @@
       </div>
       <section class="content-section report-evidence">
         <div class="evidence-heading"><h4>成果凭证</h4><span v-if="activeReport.evidenceUrls">点击图片放大，点击文件名查看附件</span></div>
+        <p v-if="activeReport.evidenceText" class="summary-text">{{ activeReport.evidenceText }}</p>
         <BusinessFileUpload v-if="activeReport.evidenceUrls" :model-value="activeReport.evidenceUrls" :project-id="activeReport.projectId" disabled :drag="false" :is-show-tip="false" inline-document-preview />
-        <p v-else class="muted">本次汇报未上传成果凭证</p>
+        <p v-else-if="!activeReport.evidenceText" class="muted">本次汇报未填写成果凭证</p>
       </section>
       <el-collapse class="snapshot-sections">
         <el-collapse-item v-if="activeReport.syncTasks || activeReport.syncRoutines" title="本次同步的工作进度" name="synced">
@@ -58,7 +59,7 @@ const pageSize = 5
 const orderedReports = computed(() => [...(props.reports || [])].sort((a, b) => String(b.createTime || '').localeCompare(String(a.createTime || '')) || Number(b.reportId) - Number(a.reportId)))
 const filteredReports = computed(() => {
   const query = keyword.value.trim().toLowerCase()
-  return orderedReports.value.filter(report => !query || [report.projectNameSnapshot, report.submittedUserName, report.completionSummary, report.issuesRisks, report.nextPlan, report.createTime].some(value => String(value || '').toLowerCase().includes(query)))
+  return orderedReports.value.filter(report => !query || [report.projectNameSnapshot, report.submittedUserName, report.completionSummary, report.evidenceText, report.issuesRisks, report.nextPlan, report.createTime].some(value => String(value || '').toLowerCase().includes(query)))
 })
 const pageReports = computed(() => filteredReports.value.slice((page.value - 1) * pageSize, page.value * pageSize))
 const activeReport = computed(() => filteredReports.value.find(report => String(report.reportId) === activeId.value))

@@ -33,7 +33,7 @@ public class BusinessProjectHierarchyMapperIntegrationTest
             com.ruoyi.business.CompanyAccessTestSupport.grant(connection,102L,8L);
             sql.execute("create table biz_project_task(project_id bigint,active_status varchar(20),status varchar(20))");
             sql.execute("create table biz_project_risk(project_id bigint,status varchar(20))");
-            sql.execute("create table biz_project_progress_report(report_id bigint,project_id bigint,progress int,biz_date date,completion_summary varchar(100),evidence_urls varchar(100),submitted_user_name varchar(100),update_time timestamp,create_time timestamp)");
+            sql.execute("create table biz_project_progress_report(report_id bigint,project_id bigint,progress int,biz_date date,completion_summary varchar(100),evidence_urls varchar(100),evidence_text varchar(2000),submitted_user_name varchar(100),update_time timestamp,create_time timestamp)");
             sql.execute("update biz_project set project_name='Root alpha',main_owner_user_id=9,sponsor_owner_user_id=8 where project_id=1");
             sql.execute("insert into biz_project(project_id,parent_id,project_name,main_owner_user_id,sponsor_owner_user_id,status,management_mode,close_method,del_flag) values"
                 + "(2,null,'Root beta',9,8,'ACTIVE','LIGHT','DIRECT','0'),"

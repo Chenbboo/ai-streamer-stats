@@ -67,6 +67,7 @@
         <result property="progressBizDate" column="progress_biz_date"/>
         <result property="progressSummary" column="progress_summary"/>
         <result property="progressEvidenceUrls" column="progress_evidence_urls"/>
+        <result property="progressEvidenceText" column="progress_evidence_text"/>
         <result property="progressReporterName" column="progress_reporter_name"/>
         <result property="progressReportTime" column="progress_report_time"/>
         <result property="openRiskCount" column="open_risk_count"/>
@@ -135,15 +136,13 @@
         (select count(*) from biz_project_task t where t.project_id=p.project_id and t.active_status='ACTIVE') task_count,
         (select count(*) from biz_project_task t where t.project_id=p.project_id and t.active_status='ACTIVE' and t.status='DONE') completed_task_count,
         case
-          when exists(select 1 from biz_project c where c.parent_id=p.project_id and c.del_flag='0') then
-            (select round(sum(coalesce(c.progress_weight,1) * case when c.status='CLOSED' then 100 when c.status='CANCELED' then 0 else coalesce((select cr.progress from biz_project_progress_report cr where cr.project_id=c.project_id order by cr.report_id desc limit 1),0) end) / nullif(sum(coalesce(c.progress_weight,1)),0))
-             from biz_project c where c.parent_id=p.project_id and c.del_flag='0')
           when p.status='CLOSED' then 100
           when p.status='CANCELED' then 0
           else coalesce(latest_progress.progress,0)
         end progress_percent,
         latest_progress.report_id progress_report_id,latest_progress.biz_date progress_biz_date,
         latest_progress.completion_summary progress_summary,latest_progress.evidence_urls progress_evidence_urls,
+        latest_progress.evidence_text progress_evidence_text,
         latest_progress.submitted_user_name progress_reporter_name,
         coalesce(latest_progress.update_time,latest_progress.create_time) progress_report_time,
         (select count(*) from biz_project_risk r where r.project_id=p.project_id and r.status='OPEN') open_risk_count
@@ -1062,23 +1061,23 @@
         order by biz_date desc,report_id desc
     </select>
     <insert id="insertProjectProgressReport" parameterType="com.ruoyi.business.domain.BusinessProjectProgressReport" useGeneratedKeys="true" keyProperty="reportId">
-        insert into biz_project_progress_report(project_id,biz_date,progress,completion_summary,evidence_urls,
+        insert into biz_project_progress_report(project_id,biz_date,progress,completion_summary,evidence_urls,evidence_text,
           submitted_user_id,submitted_user_name,version,create_by,create_time,issues_risks,next_plan,
           sync_tasks,sync_routines,snapshot_json,parent_project_id,project_name_snapshot)
-        values(#{projectId},#{bizDate},#{progress},#{completionSummary},#{evidenceUrls},
+        values(#{projectId},#{bizDate},#{progress},#{completionSummary},#{evidenceUrls},#{evidenceText},
           #{submittedUserId},#{submittedUserName},#{version},#{createBy},#{createTime},#{issuesRisks},#{nextPlan},
           #{syncTasks},#{syncRoutines},#{snapshotJson},#{parentProjectId},#{projectNameSnapshot})
     </insert>
     <select id="selectProjectProgressReport" resultType="com.ruoyi.business.domain.BusinessProjectProgressReport">
         select report_id reportId,project_id projectId,biz_date bizDate,progress,
-          completion_summary completionSummary,evidence_urls evidenceUrls,submitted_user_id submittedUserId,
+          completion_summary completionSummary,evidence_urls evidenceUrls,evidence_text evidenceText,submitted_user_id submittedUserId,
           submitted_user_name submittedUserName,version,create_by createBy,create_time createTime,
           update_by updateBy,update_time updateTime
         from biz_project_progress_report where project_id=#{projectId} and biz_date=#{bizDate} order by report_id desc limit 1
     </select>
     <select id="selectLatestProjectProgressReport" resultType="com.ruoyi.business.domain.BusinessProjectProgressReport">
         select report_id reportId,project_id projectId,biz_date bizDate,progress,
-          completion_summary completionSummary,evidence_urls evidenceUrls,submitted_user_id submittedUserId,
+          completion_summary completionSummary,evidence_urls evidenceUrls,evidence_text evidenceText,submitted_user_id submittedUserId,
           submitted_user_name submittedUserName,version,create_by createBy,create_time createTime,
           update_by updateBy,update_time updateTime
         from biz_project_progress_report where project_id=#{projectId}

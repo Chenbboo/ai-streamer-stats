@@ -1,7 +1,7 @@
 <template>
   <section class="snapshot">
     <template v-if="snapshot">
-      <p v-if="archiveDetails">归档时间：{{ parseTime(snapshot.capturedAt) || '未记录' }} · 当时进度权重：{{ snapshot.progressWeight ?? 1 }}</p>
+      <p v-if="archiveDetails">归档时间：{{ parseTime(snapshot.capturedAt) || '未记录' }}</p>
       <template v-if="showTasks">
         <h4>一次性任务 · 已完成 {{ completion.done }} / {{ completion.total }}（{{ completion.percent }}%）</h4>
         <el-table :data="snapshot.tasks || []" size="small" empty-text="暂无一次性任务" max-height="300">

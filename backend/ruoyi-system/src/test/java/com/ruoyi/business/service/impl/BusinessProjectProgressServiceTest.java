@@ -33,6 +33,7 @@ class BusinessProjectProgressServiceTest {
     BusinessProjectProgressReport report() {
         BusinessProjectProgressReport report=new BusinessProjectProgressReport();
         report.setProjectId(20L);report.setProgress(40);report.setCompletionSummary("完成第一阶段");
+        report.setEvidenceText("成果链接：https://example.test/result");
         report.setIssuesRisks("无");report.setNextPlan("完成第二阶段");return report;
     }
     @Test void administratorAndParentOwnerCannotSubmitOnBehalfOfChildOwner() {
@@ -56,11 +57,24 @@ class BusinessProjectProgressServiceTest {
         input.setSubmittedUserName("冒名");input.setSnapshotJson("伪造");input.setSyncTasks(true);
         BusinessProjectProgressReport saved=service.submitProjectProgressReport(input,9L,"owner",false);
         assertEquals(31L,saved.getReportId());assertEquals(4,saved.getVersion());assertEquals(40,saved.getProgress());
+        assertEquals("成果链接：https://example.test/result",saved.getEvidenceText());
+        assertEquals("",saved.getEvidenceUrls());
         assertEquals(9L,saved.getSubmittedUserId());assertEquals("真实负责人",saved.getSubmittedUserName());
         assertTrue(saved.getCreateTime().getTime()>0);assertEquals(saved.getBizDate(),saved.getCreateTime());
         assertTrue(saved.getSnapshotJson().contains("已完成工作"));assertFalse(saved.getSnapshotJson().contains("伪造"));
         assertEquals(80,previous.getProgress());assertEquals(3,previous.getVersion());
         verify(mapper,times(2)).insertEvent(any());verify(progressMapper).notifyOwner(31L,8L);
+    }
+    @Test void parentOwnerCanReportProgressIndependentlyOfChildProjects() {
+        when(mapper.selectProjectByIdForUpdate(10L)).thenReturn(parent);
+        when(mapper.selectActiveUserById(8L)).thenReturn(Collections.singletonMap("nickName","主项目负责人"));
+        doAnswer(call->{((BusinessProjectProgressReport)call.getArgument(0)).setReportId(41L);return 1;})
+            .when(mapper).insertProjectProgressReport(any());
+        BusinessProjectProgressReport input=report();input.setProjectId(10L);input.setProgress(65);
+        BusinessProjectProgressReport saved=service.submitProjectProgressReport(input,8L,"parent",false);
+        assertEquals(41L,saved.getReportId());assertEquals(10L,saved.getProjectId());assertEquals(65,saved.getProgress());
+        verify(mapper,never()).countSubprojects(10L);
+        verify(progressMapper,never()).notifyOwner(anyLong(),anyLong());
     }
     @Test void requiredFieldsAndProgressRangeRejectBeforeWriting() {
         BusinessProjectProgressReport input=report();input.setCompletionSummary(" ");
@@ -92,6 +106,12 @@ class BusinessProjectProgressServiceTest {
         assertThrows(ServiceException.class,()->service.submitProjectProgressReport(input,9L,"owner",false));
         verify(mapper,never()).insertProjectProgressReport(any());
     }
+    @Test void textEvidenceHasLengthLimit() {
+        BusinessProjectProgressReport input=report();
+        input.setEvidenceText(String.join("",Collections.nCopies(2001,"字")));
+        assertThrows(ServiceException.class,()->service.submitProjectProgressReport(input,9L,"owner",false));
+        verify(mapper,never()).insertProjectProgressReport(any());
+    }
     @Test void parentOwnerGetsReadOnlyHistoryWithoutBeingMadeChildManager() {
         when(mapper.selectProjectById(20L)).thenReturn(child);
         when(progressMapper.archiveProject(10L)).thenReturn(parent);
@@ -112,10 +132,20 @@ class BusinessProjectProgressServiceTest {
         assertEquals(false,service.progressWorkspace(20L,8L,false,false).get("canSubmit"));
         verify(progressMapper).history(20L);
     }
-    @Test void childOwnerCannotChangeAggregationWeight() {
-        when(mapper.selectProjectByIdForUpdate(10L)).thenReturn(parent);
-        assertThrows(ServiceException.class,()->service.setProgressWeight(10L,20L,java.math.BigDecimal.TEN,9L,"child"));
+    @Test void legacyProgressWeightChangesAreRejected() {
+        ServiceException error=assertThrows(ServiceException.class,
+            ()->service.setProgressWeight(10L,20L,java.math.BigDecimal.TEN,8L,"parent"));
+        assertTrue(error.getMessage().contains("不再支持设置"));
         verify(progressMapper,never()).setWeight(anyLong(),anyLong(),any(),anyString());
+    }
+    @Test void parentProgressWorkspaceAllowsOwnerToSubmit() {
+        when(mapper.selectProjectById(10L)).thenReturn(parent);
+        when(mapper.selectActiveUserById(8L)).thenReturn(Collections.singletonMap("nickName","主项目负责人"));
+        Map<String,Object> workspace=service.progressWorkspace(10L,8L,false,false);
+        assertEquals(true,workspace.get("canSubmit"));
+        assertEquals(false,workspace.get("canConfigureWeights"));
+        parent.setGoalMode("NO_TOTAL");
+        assertEquals(false,service.progressWorkspace(10L,8L,false,false).get("canSubmit"));
     }
     @Test void formerParentOwnerSeesOnlyPreviouslyReceivedVersionsAndNoLiveSnapshot() {
         when(mapper.selectProjectById(20L)).thenReturn(child);

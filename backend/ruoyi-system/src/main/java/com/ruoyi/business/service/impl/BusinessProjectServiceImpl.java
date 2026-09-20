@@ -2424,8 +2424,6 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             throw new ServiceException("只能由项目主负责人本人汇报进度");
         if (!"ACTIVE".equals(project.getStatus()) && !"PAUSED".equals(project.getStatus()))
             throw new ServiceException("项目执行中或暂停时才能汇报进度");
-        if (project.getParentId() == null && mapper.countSubprojects(project.getProjectId()) > 0)
-            throw new ServiceException("总项目进度由子项目自动汇总，请在子项目汇报");
         if (project.getParentId() == null && "NO_TOTAL".equals(effectiveGoalMode(project)))
             throw new ServiceException("不计入总目标的持续经营项目无需填写项目完成百分比");
         if (report.getProgress() == null || report.getProgress() < 0 || report.getProgress() > 100)
@@ -2435,6 +2433,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         validateProgressText(report.getIssuesRisks(), "问题风险", false);
         validateProgressText(report.getNextPlan(), "下一步计划", false);
         if (report.getEvidenceUrls() == null) report.setEvidenceUrls("");
+        String evidenceText = report.getEvidenceText() == null ? "" : report.getEvidenceText().trim();
+        if (evidenceText.length() > 2000) throw new ServiceException("文字成果凭证不能超过2000字");
+        report.setEvidenceText(evidenceText);
         if (report.getEvidenceUrls().length() > 4000) throw new ServiceException("成果凭证文件过多");
         if (!report.getEvidenceUrls().isEmpty()) businessFileService.validateReferences(report.getEvidenceUrls(), project.getProjectId(), userId, false, SecurityUtils.isAdmin(userId));
         BusinessProjectProgressReport latest = mapper.selectLatestProjectProgressReport(project.getProjectId());
@@ -2476,15 +2477,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     @Override
     @Transactional
     public void setProgressWeight(Long parentId, Long projectId, BigDecimal weight, Long userId, String userName) {
-        BusinessProject parent = requireProjectForUpdate(parentId);
-        if (parent.getParentId() != null || !Objects.equals(userId,parent.getMainOwnerUserId()))
-            throw new ServiceException("仅总项目负责人可配置子项目权重");
-        ensureMutable(parent);
-        if (weight != null && (weight.signum() <= 0 || weight.compareTo(new BigDecimal("99999999")) > 0 || weight.scale() > 4))
-            throw new ServiceException("权重必须大于0、不超过99999999，最多4位小数；留空按1计算");
-        if (progressMapper.setWeight(projectId,parentId,weight,userName) != 1) throw new ServiceException("子项目不存在或不属于该总项目");
-        addEvent(parentId,"PROGRESS_WEIGHT",parent.getStatus(),parent.getStatus(),userId,userName,
-            "子项目 " + projectId + " 的进度权重调整为 " + (weight == null ? "默认等权1" : weight.toPlainString()));
+        throw new ServiceException("项目进度已改为负责人分别填报，不再支持设置子项目进度权重");
     }
 
     private Map<String,Object> progressSnapshot(BusinessProject project, Date now) {
@@ -2493,7 +2486,6 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         snapshot.put("projectId", project.getProjectId());
         snapshot.put("projectName", project.getProjectName());
         snapshot.put("parentProjectId", project.getParentId());
-        snapshot.put("progressWeight", project.getProgressWeight());
         snapshot.put("tasks", mapper.selectTasks(project.getProjectId()));
         snapshot.put("taskReports", progressMapper.taskReports(project.getProjectId()));
         List<BusinessProjectRoutine> routines = new ArrayList<>(mapper.selectRoutines(project.getProjectId(), now));
@@ -2534,9 +2526,10 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         Map<String,Object> result = new LinkedHashMap<>();
         result.put("projectId", projectId); result.put("projectName", project.getProjectName());
         result.put("parentId", project.getParentId()); result.put("progressPercent", project.getProgressPercent());
-        result.put("canConfigureWeights", project.getParentId() == null && Objects.equals(userId,project.getMainOwnerUserId())
-            && !"2".equals(project.getDelFlag()) && !Arrays.asList("CLOSED","CANCELED").contains(project.getStatus()));
-        result.put("canSubmit", !"2".equals(project.getDelFlag()) && Objects.equals(userId,project.getMainOwnerUserId()) && ("ACTIVE".equals(project.getStatus()) || "PAUSED".equals(project.getStatus())) && (project.getParentId() != null || mapper.countSubprojects(projectId) == 0));
+        result.put("canConfigureWeights", false);
+        result.put("canSubmit", !"2".equals(project.getDelFlag()) && Objects.equals(userId,project.getMainOwnerUserId())
+            && ("ACTIVE".equals(project.getStatus()) || "PAUSED".equals(project.getStatus()))
+            && (project.getParentId() != null || !"NO_TOTAL".equals(effectiveGoalMode(project))));
         result.put("reporterName", Objects.equals(userId,project.getMainOwnerUserId()) ? displayName(requireActiveUser(userId)) : null);
         result.put("serverTime", DateUtils.getNowDate());
         result.put("snapshot", progressSnapshot(project, DateUtils.getNowDate()));
@@ -2553,7 +2546,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
                 visibleIds.add(child.getProjectId());
                 Map<String,Object> summary = new LinkedHashMap<>();
                 summary.put("projectId",child.getProjectId()); summary.put("projectName",child.getProjectName());
-                summary.put("progressPercent",child.getProgressPercent()); summary.put("progressWeight",child.getProgressWeight());
+                summary.put("progressPercent",child.getProgressPercent());
                 summary.put("progressSummary",child.getProgressSummary()); summary.put("progressReportTime",child.getProgressReportTime());
                 summaries.add(summary);
             }

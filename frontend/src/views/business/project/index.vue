@@ -83,7 +83,7 @@
         <el-tabs ref="detailTabs" v-model="activeTab" class="project-detail-tabs">
           <el-tab-pane label="项目总览" name="overview">
             <section class="cockpit-hero">
-              <div v-if="detail.parentId || detail.subprojectCount || detail.goalMode!=='NO_TOTAL'"><span>{{ detail.subprojectCount ? '子项目加权汇总进度' : '项目整体完成率' }}</span><el-button class="progress-link" link type="primary" @click="progressPanel.open(detail)"><strong>{{ projectProgress(detail) }}%</strong></el-button><small v-if="detail.subprojectCount">点击展开各子项目进度与最新汇报</small><el-progress :percentage="projectProgress(detail)" :stroke-width="9" /></div>
+              <div v-if="detail.parentId || detail.goalMode!=='NO_TOTAL'"><span>项目整体完成率</span><el-button class="progress-link" link type="primary" @click="progressPanel.open(detail)"><strong>{{ projectProgress(detail) }}%</strong></el-button><small v-if="detail.subprojectCount">主项目进度由负责人填报，点击查看各子项目汇报</small><el-progress :percentage="projectProgress(detail)" :stroke-width="9" /></div>
               <div v-else><span>项目目标模式</span><strong>持续经营</strong><small>不填写虚假的总完成百分比，以每日目标和任务成果持续跟踪。</small></div>
               <div><span>计划时间进度</span><strong>{{ scheduleProgress }}%</strong><el-progress :percentage="scheduleProgress" :status="scheduleProgress>projectProgress(detail)?'warning':undefined" :stroke-width="9" /></div>
               <div><span>剩余时间</span><strong>{{ remainingDaysText }}</strong><small>{{ scheduleStatusText }}</small></div>

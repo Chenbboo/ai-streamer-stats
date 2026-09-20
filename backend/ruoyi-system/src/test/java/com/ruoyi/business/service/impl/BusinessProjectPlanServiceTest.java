@@ -66,6 +66,17 @@ class BusinessProjectPlanServiceTest
         Map<String,Object> input=change();input.put("planEndDate","not-a-date");
         assertThrows(ServiceException.class,()->service.request(1L,input,10L,"owner"));verify(mapper,never()).applyPlanChange(anyMap());
     }
+    @Test void planChangeMatchesProposalReasonAndOptionalAcceptanceCriteria()
+    {
+        Map<String,Object> input=change();input.put("acceptanceCriteria","");
+        when(mapper.applyPlanChange(anyMap())).thenReturn(1);
+        service.request(1L,input,10L,"owner");
+        ArgumentCaptor<Map<String,Object>> applied=ArgumentCaptor.forClass(Map.class);
+        verify(mapper).applyPlanChange(applied.capture());assertEquals("调整立项计划",applied.getValue().get("applicationReason"));
+        assertEquals("",applied.getValue().get("acceptanceCriteria"));
+        input.put("applicationReason","");
+        assertThrows(ServiceException.class,()->service.request(1L,input,10L,"owner"));
+    }
     @Test void financialPlanIsValidatedCalculatedAndStoredInNewBaseline() throws Exception
     {
         project.setTemplateSnapshotJson("{\"budget\":{\"mode\":\"TOTAL\",\"scope\":\"FULL_COST\",\"businessAmount\":500}}");
@@ -93,5 +104,23 @@ class BusinessProjectPlanServiceTest
         Map<String,Object> current=(Map<String,Object>)service.plan(1L,10L,false).get("currentPlan");
         assertEquals("按服务收费",current.get("revenueModel"));assertEquals("服务收入",((java.util.List<Map<String,Object>>)current.get("revenueLines")).get(0).get("itemName"));
     }
-    private Map<String,Object> change(){return row("version",3,"reason","增加交付验证","objective","完成成果交付","planStartDate","2026-01-01","planEndDate","2026-06-01","acceptanceCriteria","检查成果清单");}
+    @Test void planChangeLoadsAndReplacesSavedAcceptanceTargets() throws Exception
+    {
+        project.setTemplateSnapshotJson("{\"budget\":{\"mode\":\"TOTAL\"}}");
+        when(projectMapper.selectProjectById(1L)).thenReturn(project);
+        when(mapper.selectBaselines(1L)).thenReturn(java.util.Collections.singletonList(
+            row("baselineVersion",1,"snapshotJson","{\"targetLines\":[{\"targetType\":\"QUANTITY\",\"targetName\":\"旧目标\",\"targetValue\":1,\"unit\":\"个\",\"acceptanceEvidence\":\"验收文件\"}]}")));
+        Map<String,Object> current=(Map<String,Object>)service.plan(1L,10L,false).get("currentPlan");
+        assertEquals("旧目标",((java.util.List<Map<String,Object>>)current.get("targetLines")).get(0).get("targetName"));
+        Map<String,Object> input=change();
+        input.put("targetLines",java.util.Collections.singletonList(row("targetType","QUANTITY","targetName","新目标","targetValue",2.1234,"unit","个","acceptanceEvidence","新验收文件")));
+        when(budgets.estimate(any())).thenReturn(row("status","READY","mode","TOTAL","totalAmount",100));
+        when(mapper.applyPlanChange(anyMap())).thenReturn(1);
+        service.request(1L,input,10L,"owner");
+        ArgumentCaptor<Map<String,Object>> applied=ArgumentCaptor.forClass(Map.class);verify(mapper).applyPlanChange(applied.capture());
+        assertEquals("新目标",((java.util.List<Map<String,Object>>)applied.getValue().get("targetLines")).get(0).get("targetName"));
+        Map<String,Object> snapshot=json.readValue((String)applied.getValue().get("templateSnapshotJson"),Map.class);
+        assertEquals("新目标",((java.util.List<Map<String,Object>>)snapshot.get("targetLines")).get(0).get("targetName"));
+    }
+    private Map<String,Object> change(){return row("version",3,"reason","增加交付验证","objective","完成成果交付","applicationReason","调整立项计划","planStartDate","2026-01-01","planEndDate","2026-06-01","acceptanceCriteria","检查成果清单");}
 }

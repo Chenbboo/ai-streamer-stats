@@ -22,7 +22,7 @@ public interface BusinessProjectProgressMapper {
     List<Map<String,Object>> taskReports(Long id);
 
     String COLUMNS = "report_id reportId,project_id projectId,biz_date bizDate,progress,completion_summary completionSummary,"
-        + "evidence_urls evidenceUrls,submitted_user_id submittedUserId,submitted_user_name submittedUserName,version,"
+        + "evidence_urls evidenceUrls,evidence_text evidenceText,submitted_user_id submittedUserId,submitted_user_name submittedUserName,version,"
         + "create_time createTime,issues_risks issuesRisks,next_plan nextPlan,sync_tasks syncTasks,sync_routines syncRoutines,"
         + "snapshot_json snapshotJson,parent_project_id parentProjectId,project_name_snapshot projectNameSnapshot";
 
