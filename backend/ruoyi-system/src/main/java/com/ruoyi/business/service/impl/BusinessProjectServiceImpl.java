@@ -192,7 +192,20 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             {
                 BusinessProject context = new BusinessProject();
                 context.setProjectId(project.getProjectId());
-                context.setProjectName("主项目（仅展示层级）");
+                context.setProjectNo(project.getProjectNo());
+                context.setProjectName(project.getProjectName());
+                context.setCompanyName(project.getCompanyName());
+                context.setSponsorOwnerName(project.getSponsorOwnerName());
+                context.setInitiatorName(project.getInitiatorName());
+                context.setMainOwnerName(project.getMainOwnerName());
+                context.setManagementMode(project.getManagementMode());
+                context.setCloseMethod(project.getCloseMethod());
+                context.setProjectType(project.getProjectType());
+                context.setStatus(project.getStatus());
+                context.setAccountingMode(project.getAccountingMode());
+                context.setPlanStartDate(project.getPlanStartDate());
+                context.setPlanEndDate(project.getPlanEndDate());
+                context.setObjective(project.getObjective());
                 context.setContextOnly(true);
                 context.setMatchedChildId(project.getMatchedChildId());
                 rows.set(index, context);

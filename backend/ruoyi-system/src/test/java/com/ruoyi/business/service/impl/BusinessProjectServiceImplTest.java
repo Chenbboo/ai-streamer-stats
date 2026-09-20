@@ -3412,20 +3412,36 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
-    void rootPageMasksParentWithoutFetchingChildrenAndRetainsPaginationMetadata()
+    void rootPageShowsParentListFieldsWithoutExposingDetailsOrFetchingChildren()
     {
         BusinessProject parent = project(15L, 9L, "ACTIVE", "APPROVED");
-        parent.setObjective("confidential objective"); parent.setContextOnly(true); parent.setMatchedChildId(16L);
+        parent.setProjectNo("XM-15"); parent.setCompanyName("公司A");
+        parent.setSponsorOwnerName("老板A"); parent.setMainOwnerName("负责人A");
+        parent.setManagementMode("STANDARD"); parent.setObjective("项目目标");
+        parent.setBudgetLimit(new BigDecimal("1000"));
+        parent.setContextOnly(true); parent.setMatchedChildId(16L);
         com.github.pagehelper.Page<BusinessProject> page = new com.github.pagehelper.Page<>(2, 10);
         page.setTotal(25); page.add(parent);
         when(mapper.selectProjectRoots(any())).thenReturn(page);
         List<BusinessProject> hierarchy = service.projectHierarchy(Collections.emptyMap(), 10L, false, false);
         BusinessProject context = hierarchy.get(0);
-        assertTrue(context.isContextOnly()); assertEquals(null, context.getObjective());
-        assertEquals(null, context.getMainOwnerUserId()); assertEquals(16L, context.getMatchedChildId());
+        assertTrue(context.isContextOnly()); assertEquals("XM-15", context.getProjectNo());
+        assertEquals("公司A", context.getCompanyName()); assertEquals("老板A", context.getSponsorOwnerName());
+        assertEquals("负责人A", context.getMainOwnerName()); assertEquals("STANDARD", context.getManagementMode());
+        assertEquals("项目目标", context.getObjective());
+        assertEquals(null, context.getMainOwnerUserId()); assertEquals(null, context.getBudgetLimit());
+        assertEquals(16L, context.getMatchedChildId());
         assertTrue(hierarchy == page); assertEquals(25, page.getTotal());
         verify(mapper, never()).selectProjectList(any());
         verify(mapper, never()).selectProjectById(anyLong());
+    }
+
+    @Test
+    void childOwnerStillCannotOpenParentDetailWithoutParentMembership()
+    {
+        BusinessProject parent = project(15L, 9L, "ACTIVE", "APPROVED");
+        when(mapper.selectProjectById(15L)).thenReturn(parent);
+        assertThrows(ServiceException.class, () -> service.getProject(15L, 10L, false, false));
     }
 
     @Test

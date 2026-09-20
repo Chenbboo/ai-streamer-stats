@@ -3,14 +3,14 @@
   <el-alert v-else-if="childLoadFailed" title="部分子项目读取失败，请刷新重试" type="warning" :closable="false" show-icon><el-button link type="primary" @click="refresh">重新加载</el-button></el-alert>
   <el-table ref="tableRef" :data="visibleRows" row-key="projectId" v-loading="loading" :row-class-name="rowClass" empty-text="暂无匹配的主项目或子项目">
     <el-table-column label="项目名" min-width="220">
-      <template #default="{ row }"><div :data-project-id="row.projectId" :style="{ paddingLeft: `${row.depth * 22}px` }"><el-tag v-if="row.parentId" size="small" effect="plain" class="child-tag">子项目</el-tag><b>{{ row.projectName }}</b><small>{{ row.projectNo || (row.contextOnly ? '仅显示层级，详情按项目权限开放' : '—') }}</small></div></template>
+      <template #default="{ row }"><div :data-project-id="row.projectId" :style="{ paddingLeft: `${row.depth * 22}px` }"><el-tag v-if="row.parentId" size="small" effect="plain" class="child-tag">子项目</el-tag><b>{{ row.projectName }}</b><small>{{ row.projectNo || '—' }}</small><small v-if="row.contextOnly">仅显示基本信息，详情按项目权限开放</small></div></template>
     </el-table-column>
     <el-table-column prop="companyName" label="归属公司" min-width="130"><template #default="{ row }">{{ row.companyName || '—' }}</template></el-table-column>
     <el-table-column label="归属老板" min-width="90"><template #default="{ row }">{{ row.sponsorOwnerName || row.initiatorName || '—' }}</template></el-table-column>
     <el-table-column label="负责人" min-width="90"><template #default="{ row }">{{ row.mainOwnerName || '—' }}</template></el-table-column>
     <el-table-column label="治理方式" min-width="135"><template #default="{ row }">{{ managementLabels[row.managementMode] || '—' }}<small>{{ closeLabels[row.closeMethod] }}</small></template></el-table-column>
     <el-table-column label="类型" width="90"><template #default="{ row }">{{ typeLabels[row.projectType] || row.projectType || '—' }}</template></el-table-column>
-    <el-table-column label="交付 / 核算" min-width="160"><template #default="{ row }"><template v-if="!row.contextOnly"><BusinessProjectState :project="row"/><small>{{ accountingLabels[row.accountingMode] }}</small></template><span v-else>—</span></template></el-table-column>
+    <el-table-column label="交付 / 核算" min-width="160"><template #default="{ row }"><BusinessProjectState :project="row"/><small>{{ accountingLabels[row.accountingMode] }}</small></template></el-table-column>
     <el-table-column label="计划周期" min-width="185"><template #default="{ row }">{{ row.planStartDate ? `${row.planStartDate} 至 ${row.planEndDate || '不限期'}` : '—' }}</template></el-table-column>
     <el-table-column label="项目目标" min-width="160" show-overflow-tooltip><template #default="{ row }">{{ row.objective || '—' }}</template></el-table-column>
     <el-table-column label="成员 / 风险" width="130" align="center"><template #default="{ row }"><el-button v-if="!row.contextOnly" link type="primary" :aria-label="`查看${row.projectName}成员和风险详情`" @click.stop="showPeopleRisks(row)">{{ row.memberCount || 0 }} 人 / <span :class="{ danger: row.openRiskCount }">{{ row.openRiskCount || 0 }} 风险</span></el-button><span v-else>—</span></template></el-table-column>
@@ -46,8 +46,10 @@ const emit = defineEmits(['create', 'detail', 'deleted', 'progress'])
 const records = ref([]), loading = ref(false), deleting = ref(null), loadError = ref(false)
 const page = ref(1), pageSize = ref(10), total = ref(0), tableRef = ref(null)
 const children = ref({}), childLoading = ref({}), childErrors = ref({})
-const roots = computed(() => records.value.map(row => ({ ...row, children: children.value[row.projectId] || [], childLoading: !!childLoading.value[row.projectId], childError: !!childErrors.value[row.projectId] })))
-const visibleRows = computed(() => roots.value.flatMap(root => [{ ...root, depth: 0 }, ...(root.children || []).map(child => ({ ...child, depth: 1 }))]))
+const visibleRows = computed(() => records.value.flatMap(root => [
+  { ...root, depth: 0 },
+  ...(children.value[root.projectId] || []).map(child => ({ ...child, depth: 1 }))
+]))
 const childLoadFailed = computed(() => Object.values(childErrors.value).some(Boolean))
 const managementLabels = { LIGHT: '轻量模式', STANDARD: '标准模式', KEY_CONTROL: '重点监管', SIMPLE: '轻量模式', DELIVERY: '标准模式' }
 const closeLabels = { DIRECT: '直接结项', RESULT_ACCEPTANCE: '成果验收', STAGED_ACCEPTANCE: '阶段验收' }
