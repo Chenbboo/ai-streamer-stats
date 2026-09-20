@@ -1,10 +1,10 @@
 <template>
   <section class="personnel-pool" v-loading="loading">
-    <div class="heading"><div><h2>公共人员成本</h2><p>自动汇总人员月成本，扣除项目已承担金额；剩余成本按老板设置的部门、负责人比例分摊。</p></div><div class="actions"><el-button :disabled="disabled || saving" :loading="loading" @click="refreshPreview">刷新</el-button><el-button v-if="editable" type="primary" :disabled="disabled || loading || loadFailed || !previewLoaded || blocked" :loading="saving" @click="save">下一步：分摊给负责人</el-button><el-button v-else-if="bill?.status === 'PUBLISHED'" type="primary" :disabled="disabled || saving" @click="emit('recall')">退回修改</el-button></div></div>
+    <div class="heading"><div><h2>公共人员成本</h2><p>项目直接承担金额＝人员月成本 × 当月有效项目投入比例之和；剩余成本按老板设置的部门、负责人比例分摊。</p></div><div class="actions"><el-button :disabled="disabled || saving" :loading="loading" @click="refreshPreview">刷新</el-button><el-button v-if="editable" type="primary" :disabled="disabled || loading || loadFailed || !previewLoaded || blocked" :loading="saving" @click="save">下一步：分摊给负责人</el-button><el-button v-else-if="bill?.status === 'PUBLISHED'" type="primary" :disabled="disabled || saving" @click="emit('recall')">退回修改</el-button></div></div>
     <template v-if="snapshot">
       <div class="metrics"><div><span>人员月成本合计</span><b>{{ money(snapshot.totalAmount) }}</b></div><div><span>项目已承担金额</span><b>{{ money(Number(snapshot.projectAmount) + Number(snapshot.businessAmount)) }}</b></div><div><span>公共人员成本合计</span><b>{{ money(snapshot.publicAmount) }} {{ filters.currency }}</b></div><div><span>日暂估金额（÷ 21.75）</span><b>{{ money(snapshot.dailyReference) }}</b></div></div>
       <el-alert :type="snapshot.estimated ? 'warning' : 'success'" :closable="false" :title="snapshot.estimated ? '本月金额为整月暂估；月底请刷新整月人员成本，再与日常公共费用一起月结。' : '整月人员成本已保存，将与日常公共费用一起月结。'" />
-      <el-collapse><el-collapse-item title="查看人员成本来源（仅老板可见）"><el-table :data="snapshot.rows"><el-table-column prop="userName" label="人员" min-width="100"/><el-table-column prop="deptName" label="所属部门" min-width="110"/><el-table-column label="人员月成本" min-width="120"><template #default="{ row }">{{ money(row.totalAmount) }}</template></el-table-column><el-table-column label="项目已承担金额" min-width="130"><template #default="{ row }">{{ money(Number(row.projectAmount) + Number(row.businessAmount)) }}</template></el-table-column><el-table-column label="待分摊金额" min-width="120"><template #default="{ row }">{{ money(row.publicAmount) }}</template></el-table-column></el-table></el-collapse-item></el-collapse>
+      <el-collapse><el-collapse-item title="查看人员成本来源（仅老板可见）"><el-table :data="snapshot.rows"><el-table-column prop="userName" label="人员" min-width="100"/><el-table-column prop="deptName" label="所属部门" min-width="110"/><el-table-column label="人员月成本" min-width="120"><template #default="{ row }">{{ money(row.totalAmount) }}</template></el-table-column><el-table-column label="项目已承担金额" min-width="220"><template #default="{ row }">{{ money(Number(row.projectAmount) + Number(row.businessAmount)) }}<small v-for="item in row.projectAllocations || []" :key="item.projectId">{{ item.projectName }}：{{ item.allocationPercent }}% × {{ money(row.totalAmount) }} = {{ money(item.amount) }}</small></template></el-table-column><el-table-column label="待分摊金额" min-width="120"><template #default="{ row }">{{ money(row.publicAmount) }}</template></el-table-column></el-table></el-collapse-item></el-collapse>
     </template>
     <div class="current-source">
       <el-alert v-if="!snapshot" :title="bill?.status === 'PUBLISHED' ? '本月账单已下发，尚未加入公共人员成本。下方为人员数据预览，未计入费用；加入前需退回修改，修改后重新下发。' : bill?.status === 'SETTLED' ? '本月账单已结算，未包含公共人员成本。下方仅供核对，不改动已结算账单。' : '金额自动读取，无需重复填写。点击“下一步”，选择部门、负责人及分摊比例。'" type="info" :closable="false" show-icon/>
@@ -17,7 +17,7 @@
         <el-table :data="rows" class="source-preview" max-height="440" empty-text="所选公司、月份和币种暂无适用人员。请核对人员归属及成本设置。">
           <el-table-column prop="userName" label="人员" min-width="120"/><el-table-column prop="deptName" label="所属部门" min-width="110"/>
           <el-table-column label="人员月成本" min-width="130"><template #default="{ row }">{{ money(row.totalAmount) }}</template></el-table-column>
-          <el-table-column label="项目直接承担金额" min-width="160"><template #default="{ row }"><span>{{ row.projectIssues?.length ? '已测算：' : '' }}{{ money(row.projectAmount) }}</span><small v-if="row.projectIssues?.length" class="warning">部分日期待完善，非完整金额</small></template></el-table-column>
+          <el-table-column label="项目直接承担金额" min-width="230"><template #default="{ row }"><span>{{ money(row.projectAmount) }}</span><small v-for="item in row.projectAllocations || []" :key="item.projectId">{{ item.projectName }}：{{ item.allocationPercent }}% × {{ money(row.totalAmount) }} = {{ money(item.amount) }}</small><small v-if="row.projectIssues?.length" class="warning">投入比例待完善，暂不计入分摊</small></template></el-table-column>
           <el-table-column v-if="rows.some(row => businessAmount(row) > 0)" label="历史已入账扣除" min-width="130"><template #default="{ row }">{{ money(businessAmount(row)) }}</template></el-table-column>
           <el-table-column label="待分摊金额" min-width="130"><template #default="{ row }">{{ money(row.projectIssues?.length ? null : remainder(row)) }}</template></el-table-column>
           <el-table-column label="数据状态" min-width="250"><template #default="{ row }"><div class="review-status"><el-tag v-if="row.issues?.length" type="warning" effect="plain">月成本待完善</el-tag><el-tag v-if="row.projectIssues?.length" type="warning" effect="plain">项目成本待完善</el-tag><span v-if="!row.issues?.length && !row.projectIssues?.length">已自动计算</span><el-button v-else link type="primary" @click="showIssues(row)">查看原因</el-button></div></template></el-table-column>
@@ -26,9 +26,9 @@
       <p v-else-if="loading" class="note">正在获取本公司人员及项目成本…</p>
     </div>
     <el-alert v-if="rows.some(row => businessAmount(row) > 0)" class="note" type="info" :closable="false" title="历史已关联的人员支出继续自动扣除，避免重复分摊。"/>
-    <p class="note">人员金额只读；需要调整时请到人员成本设置修改。公共人员成本单独设置部门、负责人比例。负责人分摊到项目后，日结果按月分摊金额 ÷ 21.75 暂估；月结以实际月分摊金额替换暂估金额，不重复扣费。</p>
+    <p class="note">按月计价的人员，其月成本与人员成本设置中的月度内部费率一致；月内多次调价时按生效期间折算。需要调整金额时请到人员成本设置修改。公共人员成本单独设置部门、负责人比例。负责人分摊到项目后，日结果按月分摊金额 ÷ 21.75 暂估；月结以实际月分摊金额替换暂估金额，不重复扣费。</p>
     <el-dialog v-model="issuesDialog" :title="`${selectedRow?.userName || ''} · 成本核对原因`" width="min(720px, 94vw)" append-to-body>
-      <p class="issue-intro">人员月成本与项目承担成本分别核算。月成本已设置，也需要项目投入比例、确认状态和工作日历完整，才能算出项目承担金额。</p>
+      <p class="issue-intro">项目直接承担金额按人员月成本和当月有效投入比例计算。请核对成本币种及投入比例的确认状态。</p>
       <section v-for="group in issueGroups" :key="group.title" class="issue-group">
         <h3>{{ group.title }}</h3>
         <article v-for="(issue, index) in group.items" :key="index" class="issue-item">
@@ -57,7 +57,7 @@ const issueGroups = computed(() => {
   const row = selectedRow.value || {}
   return [
     { title: '人员月成本', items: row.issueDetails || (row.issues || []).map(reason => ({ reason })), help: '请到人员成本设置补齐金额和生效期间，并核对入职日期、工作日历，再返回刷新。' },
-    { title: '项目直接承担成本', items: row.projectIssueDetails || (row.projectIssues || []).map(reason => ({ reason })), help: '请在对应项目的人员工作日成本中补齐缺项；涉及投入分配的，需由相关负责人确认。完善后刷新。' }
+    { title: '项目直接承担成本', items: row.projectIssueDetails || (row.projectIssues || []).map(reason => ({ reason })), help: '请在对应项目中补齐或确认投入比例，然后返回刷新。' }
   ].filter(group => group.items.length)
 })
 function formatDates(dates) {

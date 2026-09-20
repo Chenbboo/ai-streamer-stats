@@ -3131,6 +3131,27 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             accounting.put("dailySpend",zero);
         }
         accounting.put("dailySpendItems",dailySpendItems);
+        BigDecimal personnelCost=BigDecimal.ZERO;
+        int pendingPersonnelCount=0;
+        if(BusinessMemberDayCostService.enabled(detail)||"ACTUAL_WORK_V1".equals(detail.getCostPolicyVersion()))
+        {
+            List<Map<String,Object>> costItems=BusinessMemberDayCostService.enabled(detail)
+                ?memberDays.dayCosts(selectedId,java.sql.Date.valueOf(today))
+                :workMapper.selectWorkCosts(selectedId,java.sql.Date.valueOf(today));
+            if(costItems!=null)for(Map<String,Object> item:costItems)
+                if("PRICED".equals(item.get("pricingStatus"))&&item.get("amount")!=null)
+                    personnelCost=personnelCost.add(new BigDecimal(String.valueOf(item.get("amount"))));
+                else pendingPersonnelCount++;
+        }
+        else
+        {
+            BigDecimal legacyCost=accountingMapper.sumProjectPersonnelCost(selectedId,java.sql.Date.valueOf(today));
+            if(legacyCost!=null)personnelCost=legacyCost;
+        }
+        personnelCost=personnelCost.setScale(2,RoundingMode.HALF_UP);
+        accounting.put("personnelCost",personnelCost);
+        accounting.put("pendingPersonnelCount",pendingPersonnelCount);
+        accounting.put("todaySpendAmount",dailySpendTotal.add(personnelCost));
         accounting.put("dailyRevenue", accountingMapper.selectProjectRevenueSummary(selectedId,
             java.sql.Date.valueOf(today)));
         List<Map<String, Object>> revenueCategories = new ArrayList<Map<String, Object>>();

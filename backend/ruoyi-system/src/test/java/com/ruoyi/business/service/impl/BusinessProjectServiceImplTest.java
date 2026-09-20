@@ -33,6 +33,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import com.ruoyi.business.domain.BusinessProject;
+import com.ruoyi.business.domain.BusinessOperatingFact;
 import com.ruoyi.business.domain.BusinessProjectProposal;
 import com.ruoyi.business.domain.BusinessProjectAcceptance;
 import com.ruoyi.business.domain.BusinessProjectStageAcceptance;
@@ -448,6 +449,29 @@ class BusinessProjectServiceImplTest
         assertEquals(Collections.singletonList(costCategory),accounting.get("expenseCategories"));
         assertEquals(dailyRevenue,accounting.get("dailyRevenue"));
         assertEquals(Collections.singletonList(taskReport),result.get("taskReports"));
+    }
+
+    @Test
+    void ownerWorkbenchTodaySpendIncludesPricedPersonnelAndConfirmedProjectCost()
+    {
+        BusinessProject owned=project(81L,23L,"ACTIVE","APPROVED");
+        owned.setCostPolicyVersion(BusinessMemberDayCostService.POLICY);
+        when(mapper.selectProjectList(any())).thenReturn(Collections.singletonList(owned));
+        when(mapper.selectProjectById(81L)).thenReturn(owned);
+        BusinessOperatingFact expense=new BusinessOperatingFact();
+        expense.setStatus("CONFIRMED");expense.setAmount(new BigDecimal("35.20"));
+        when(accountingMapper.selectProjectDailySpendItems(eq(81L),any(Date.class)))
+            .thenReturn(Collections.singletonList(expense));
+        Map<String,Object> priced=new HashMap<>();priced.put("pricingStatus","PRICED");priced.put("amount",new BigDecimal("40.125"));
+        Map<String,Object> pending=new HashMap<>();pending.put("pricingStatus","PENDING_COST");
+        when(memberDays.dayCosts(eq(81L),any(Date.class))).thenReturn(Arrays.asList(priced,pending));
+
+        Map<?,?> accounting=(Map<?,?>)service.ownerWorkbench(81L,23L,false).get("accounting");
+
+        assertEquals(new BigDecimal("35.20"),((Map<?,?>)accounting.get("dailySpend")).get("amount"));
+        assertEquals(new BigDecimal("40.13"),accounting.get("personnelCost"));
+        assertEquals(new BigDecimal("75.33"),accounting.get("todaySpendAmount"));
+        assertEquals(1,accounting.get("pendingPersonnelCount"));
     }
 
     @Test

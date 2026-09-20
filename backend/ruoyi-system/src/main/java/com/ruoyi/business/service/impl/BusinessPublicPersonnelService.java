@@ -4,8 +4,8 @@ import java.math.*;
 import java.time.*;
 import java.util.*;
 import com.alibaba.fastjson2.JSON;
-import com.ruoyi.business.domain.BusinessProject;
 import com.ruoyi.business.mapper.*;
+import com.ruoyi.business.support.BusinessAllocationWeights;
 import com.ruoyi.business.support.BusinessPersonnelCost;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
@@ -18,8 +18,6 @@ public class BusinessPublicPersonnelService {
     @Autowired private BusinessPublicExpenseMapper mapper;
     @Autowired private BusinessProjectMapper projects;
     @Autowired private BusinessProjectWorkMapper work;
-    @Autowired private BusinessMemberDayCostMapper costs;
-    @Autowired private BusinessMemberDayCostService memberCosts;
 
     public Map<String,Object> preview(Long company,String month,String currency) {
         YearMonth period=YearMonth.parse(month);
@@ -32,6 +30,7 @@ public class BusinessPublicPersonnelService {
             List<Map<String,Object>> rates=work.selectBudgetRates(userId,from.toString(),to.toString());
             if(!rates.isEmpty()&&rates.stream().noneMatch(r->currency.equals(r.get("currency"))))continue;
             Set<String> issues=new LinkedHashSet<>();BigDecimal total=BigDecimal.ZERO;
+            boolean pricedWorkingDay=false;
             List<Map<String,Object>> details=new ArrayList<>();
             for(LocalDate date=from;!date.isAfter(to);date=date.plusDays(1)) {
                 if(person.get("hireDate")!=null&&date.isBefore(day(person.get("hireDate"))))continue;
@@ -43,44 +42,90 @@ public class BusinessPublicPersonnelService {
                 if(matches.size()!=1){addIssue(issues,details,matches.isEmpty()?(rates.isEmpty()?"本月未设置人员成本":"部分工作日缺少有效人员成本"):"人员成本生效日期重叠",date,null,null);continue;}
                 if(!currency.equals(matches.get(0).get("currency"))){addIssue(issues,details,"人员成本币种与所选币种不一致",date,null,null);continue;}
                 total=total.add(pricing.amount(matches.get(0),calendar,date,new BigDecimal("100")));
+                pricedWorkingDay=true;
             }
             if("LEFT".equals(person.get("employmentStatus")))addIssue(issues,details,"离职人员请核对实际月成本",null,null,null);
+            // One effective monthly policy is the person's monthly cost source. Keep the
+            // public-expense amount equal to that rate even in the month of hire; project
+            // cost is still deducted only for the days actually worked on projects.
+            if(issues.isEmpty()&&pricedWorkingDay&&rates.size()==1&&"MONTHLY".equals(rates.get(0).get("costMode")))
+                total=new BigDecimal(String.valueOf(rates.get(0).get("unitCost"))).setScale(2,RoundingMode.HALF_UP);
             Map<String,Object> row=new LinkedHashMap<>(person);
             row.put("calculatedAmount",issues.isEmpty()?total:null);row.put("totalAmount",issues.isEmpty()?total:null);
             row.put("projectAmount",BigDecimal.ZERO);row.put("businessFactIds",new ArrayList<>());row.put("reason","");
             row.put("issueDetails",details);row.put("projectIssueDetails",new ArrayList<Map<String,Object>>());
             row.put("issues",new ArrayList<>(issues));row.put("projectIssues",new ArrayList<String>());people.put(userId,row);
         }
+        LocalDate asOf=period.equals(YearMonth.now())?LocalDate.now():to;
         Set<String> issues=new LinkedHashSet<>();
-        for(Long projectId:mapper.selectPersonnelProjects(company,month)) {
-            BusinessProject p=projects.selectProjectById(projectId);if(p==null)continue;
-            if(!BusinessMemberDayCostService.enabled(p)) {
-                // A historical costing policy cannot be silently treated as zero direct labour.
-                for(Map<String,Object> m:work.selectMembers(projectId))if(people.containsKey(id(m.get("userId"))))
-                    issues.add(p.getProjectName()+" 使用历史人员核算方式，请先核对迁移后再启用公共人员分摊");
-                continue;
+        for(Map.Entry<Long,Map<String,Object>> entry:people.entrySet())
+            applyProjectAllocation(entry.getKey(),entry.getValue(),from,asOf,currency);
+        Map<String,Object> out=new LinkedHashMap<>();out.put("rows",new ArrayList<>(people.values()));out.put("issues",new ArrayList<>(issues));
+        out.put("businessFacts",mapper.selectPersonnelBusinessFacts(company,month,currency));out.put("allocationAsOf",asOf.toString());
+        out.put("month",month);out.put("currency",currency);out.put("estimated",!period.isBefore(YearMonth.now()));return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void applyProjectAllocation(Long userId,Map<String,Object> person,LocalDate from,LocalDate asOf,String currency) {
+        List<Map<String,Object>> timeline=projects.selectUserAllocationTimeline(userId);
+        if(timeline==null)timeline=Collections.emptyList();
+        Map<Long,Map<String,Object>> weights=BusinessAllocationWeights.at(timeline,asOf);
+        LocalDate effectiveDate=asOf;
+        // A completed project is still part of its final active month.
+        for(LocalDate date=asOf;weights.isEmpty()&&!date.isBefore(from);date=date.minusDays(1)) {
+            weights=BusinessAllocationWeights.at(timeline,date);
+            if(!weights.isEmpty())effectiveDate=date;
+        }
+        List<Map<String,Object>> breakdown=new ArrayList<>();
+        BigDecimal totalPercent=BigDecimal.ZERO,cumulativeAmount=BigDecimal.ZERO;
+        for(Map.Entry<Long,Map<String,Object>> allocation:weights.entrySet()) {
+            Long projectId=allocation.getKey();
+            com.ruoyi.business.domain.BusinessProject project=projects.selectProjectById(projectId);
+            String name=project==null?"未知项目":project.getProjectName();
+            Map<String,Object> weight=allocation.getValue();
+            BigDecimal percent=decimal(weight.get("allocationValue"));
+            if(project==null||!currency.equals(project.getBaseCurrency()))
+                addProjectIssue(person,"项目币种与人员月成本不一致",projectId,name);
+            if("PENDING".equals(weight.get("confirmationStatus")))
+                addProjectIssue(person,"项目投入比例待负责人确认",projectId,name);
+            if(percent.signum()<0||percent.compareTo(new BigDecimal("100"))>0)
+                addProjectIssue(person,"项目投入比例须在0%至100%之间",projectId,name);
+            Map<String,Object> detail=new LinkedHashMap<>();
+            detail.put("projectId",projectId);detail.put("projectName",name);detail.put("allocationPercent",percent);
+            totalPercent=totalPercent.add(percent);
+            if(person.get("totalAmount")!=null) {
+                BigDecimal through=decimal(person.get("totalAmount")).multiply(totalPercent)
+                    .divide(new BigDecimal("100"),2,RoundingMode.HALF_UP);
+                detail.put("amount",through.subtract(cumulativeAmount));cumulativeAmount=through;
             }
-            LocalDate end=to;
-            java.util.Date projectEnd=p.getActualEndDate()!=null?p.getActualEndDate():p.getPlanEndDate();
-            if(projectEnd!=null&&day(projectEnd).isBefore(end))end=day(projectEnd);
-            List<Map<String,Object>> direct="CLOSED".equals(p.getAccountingState())?costs.selectCosts(projectId):
-                end.isBefore(from)?Collections.emptyList():memberCosts.calculate(p,from,end);
-            for(Map<String,Object> cost:direct) {
-                LocalDate date=day(cost.get("bizDate"));if(date.isBefore(from)||date.isAfter(to))continue;
-                Map<String,Object> person=people.get(id(cost.get("userId")));if(person==null)continue;
-                if(!currency.equals(cost.get("currency"))||!"PRICED".equals(cost.get("pricingStatus"))||cost.get("amount")==null) {
-                    @SuppressWarnings("unchecked") List<String> pending=(List<String>)person.get("projectIssues");
-                    String reason=currency.equals(cost.get("currency"))?projectIssue(cost):"项目人员成本币种不一致";
-                    String issue="项目「"+p.getProjectName()+"」："+reason;
-                    if(!pending.contains(issue))pending.add(issue);
-                    @SuppressWarnings("unchecked") List<Map<String,Object>> details=(List<Map<String,Object>>)person.get("projectIssueDetails");
-                    addIssue(null,details,reason,date,projectId,p.getProjectName());
-                } else person.put("projectAmount",decimal(person.get("projectAmount")).add(decimal(cost.get("amount"))));
+            breakdown.add(detail);
+        }
+        if(totalPercent.compareTo(new BigDecimal("100"))>0)
+            addProjectIssue(person,"项目投入比例合计超过100%，请先调整",null,null);
+        // The active member workspace also exposes projects whose allocation has not been set.
+        if(YearMonth.from(effectiveDate).equals(YearMonth.now())) {
+            List<Map<String,Object>> memberships=projects.selectUserAllocationWorkspace(userId,java.sql.Date.valueOf(effectiveDate));
+            if(memberships!=null)for(Map<String,Object> member:memberships) {
+                Long projectId=id(member.get("projectId"));
+                if(weights.containsKey(projectId))continue;
+                com.ruoyi.business.domain.BusinessProject project=projects.selectProjectById(projectId);
+                if(project!=null&&project.getPlanStartDate()!=null&&day(project.getPlanStartDate()).isAfter(effectiveDate))continue;
+                if(project!=null&&project.getPlanEndDate()!=null&&day(project.getPlanEndDate()).isBefore(effectiveDate))continue;
+                addProjectIssue(person,"缺少当前有效的项目投入比例",projectId,String.valueOf(member.get("projectName")));
             }
         }
-        Map<String,Object> out=new LinkedHashMap<>();out.put("rows",new ArrayList<>(people.values()));out.put("issues",new ArrayList<>(issues));
-        out.put("businessFacts",mapper.selectPersonnelBusinessFacts(company,month,currency));
-        out.put("month",month);out.put("currency",currency);out.put("estimated",!period.isBefore(YearMonth.now()));return out;
+        person.put("allocationAsOf",effectiveDate.toString());
+        person.put("projectAllocations",breakdown);
+        person.put("projectAllocationPercent",totalPercent);
+        person.put("projectAmount",person.get("totalAmount")==null||!((List<?>)person.get("projectIssues")).isEmpty()?null:cumulativeAmount);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void addProjectIssue(Map<String,Object> person,String reason,Long projectId,String projectName) {
+        String issue=projectName==null?reason:"项目「"+projectName+"」："+reason;
+        List<String> pending=(List<String>)person.get("projectIssues");
+        if(!pending.contains(issue))pending.add(issue);
+        addIssue(null,(List<Map<String,Object>>)person.get("projectIssueDetails"),reason,null,projectId,projectName);
     }
 
     /** Carry forward only previously recorded expense links; payroll always comes from cost policies. */
@@ -169,16 +214,9 @@ public class BusinessPublicPersonnelService {
     }
     @SuppressWarnings("unchecked")
     private static void stripDiagnostics(Map<String,Object> snapshot) {
+        snapshot.remove("allocationAsOf");
         for(Map<String,Object> row:(List<Map<String,Object>>)snapshot.get("rows"))
-            for(String key:Arrays.asList("issues","projectIssues","issueDetails","projectIssueDetails"))row.remove(key);
-    }
-    private static String projectIssue(Map<String,Object> cost) {
-        Object issue=cost.get("issue");
-        if(issue==null&&cost.get("basisJson")!=null) {
-            try { issue=JSON.parseObject(String.valueOf(cost.get("basisJson"))).get("issue"); }
-            catch(RuntimeException ignored) { /* Keep an explicit unknown cause for historical records. */ }
-        }
-        return issue==null||String.valueOf(issue).trim().isEmpty()?"项目成本尚未核算，请核对该项目的人员成本明细":String.valueOf(issue);
+            for(String key:Arrays.asList("issues","projectIssues","issueDetails","projectIssueDetails","allocationAsOf","projectAllocations","projectAllocationPercent"))row.remove(key);
     }
     @SuppressWarnings("unchecked")
     private static void addIssue(Set<String> summaries,List<Map<String,Object>> details,String reason,LocalDate date,Long projectId,String projectName) {

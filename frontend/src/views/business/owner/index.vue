@@ -46,7 +46,7 @@
         <article><span>全部待办</span><b :class="{'stat-attention':allOwnerTodos.length}">{{ allOwnerTodos.length }}<small>项</small></b><p>{{ allUrgentTodoCount ? allUrgentTodoCount + ' 项优先处理' : '暂无紧急事项' }}</p></article>
         <article><span>未完成任务</span><b>{{ allOpenTaskCount }}<small>项</small></b><p :class="{'stat-attention':allOverdueTaskCount}">{{ allOverdueTaskCount ? allOverdueTaskCount + ' 项已逾期' : '全部按计划推进' }}</p></article>
         <article><span>今日确认收入</span><b class="all-currency-total">{{ allRevenueTotal }}</b><p>汇总全部负责项目</p></article>
-        <article><span>今日花费</span><b class="all-currency-total">{{ allSpendTotal }}</b><p>共 {{ allSpendItemCount }} 笔，不含人员成本</p></article>
+        <article><span>今日花费</span><el-tooltip placement="top" effect="light"><template #content><div v-for="item in allSpendBreakdown" :key="item.currency" class="spend-tooltip-group"><strong>{{ item.currency }}</strong><div>人员成本：{{ money(item.personnel) }} {{ item.currency }}</div><div>项目成本：{{ money(item.project) }} {{ item.currency }}</div></div></template><b class="all-currency-total spend-hover">{{ allSpendTotal }}</b></el-tooltip><p>人员成本 + 项目成本</p></article>
       </section>
 
       <section class="panel owner-todos">
@@ -83,7 +83,7 @@
               <el-table-column label="项目" min-width="210" fixed="left"><template #default="{row}"><div class="all-project-name"><b>{{ row.project.projectName }}</b><small>{{ row.project.companyName || '归属公司待设置' }}</small></div></template></el-table-column>
               <el-table-column label="参项人员" min-width="115"><template #default="{row}">{{ row.project.members?.length || 0 }} 人</template></el-table-column>
               <el-table-column label="今日确认收入" min-width="170"><template #default="{row}"><b class="amount-profit">{{ money(row.accounting?.dailyRevenue?.confirmedAmount) }} {{ row.project.baseCurrency || 'CNY' }}</b><small class="table-subtext">{{ row.accounting?.dailyRevenue?.draftCount || 0 }} 笔待确认</small></template></el-table-column>
-              <el-table-column label="今日花费" min-width="170"><template #default="{row}"><b>{{ money(row.accounting?.dailySpend?.amount) }} {{ row.accounting?.dailySpend?.currency || row.project.baseCurrency || 'CNY' }}</b><small class="table-subtext">{{ row.accounting?.dailySpendItems?.length || 0 }} 笔</small></template></el-table-column>
+              <el-table-column label="今日花费" min-width="170"><template #default="{row}"><el-tooltip placement="top" effect="light"><template #content><div>人员成本：{{ money(row.accounting?.personnelCost) }} {{ row.project.baseCurrency || 'CNY' }}</div><div>项目成本：{{ money(row.accounting?.dailySpend?.amount) }} {{ row.project.baseCurrency || 'CNY' }}</div><div v-if="row.accounting?.pendingPersonnelCount">{{ row.accounting.pendingPersonnelCount }} 项人员成本待计价</div></template><b class="spend-hover">{{ money(row.accounting?.todaySpendAmount) }} {{ row.project.baseCurrency || 'CNY' }}</b></el-tooltip><small class="table-subtext">人员成本 + 项目成本</small></template></el-table-column>
               <el-table-column label="人员成本配置" min-width="155"><template #default="{row}"><el-tag :type="entryPersonnelIssueCount(row)?'warning':'success'" effect="plain">{{ entryPersonnelIssueCount(row) ? entryPersonnelIssueCount(row)+' 项待完善' : '正常' }}</el-tag></template></el-table-column>
               <el-table-column label="操作" width="105" fixed="right"><template #default="{row}"><el-button link type="primary" @click="selectProject(row.project.projectId,'people')">查看明细</el-button></template></el-table-column>
             </el-table>
@@ -114,7 +114,7 @@
         <article><span>待办事项</span><b :class="{'stat-attention':ownerTodos.length}">{{ ownerTodos.length }}<small>项</small></b><p>{{ urgentTodoCount ? urgentTodoCount + ' 项优先处理' : '当前项目' }}</p></article>
         <article><span>未完成任务</span><b>{{ openTasks.length }}<small>项</small></b><p :class="{'stat-attention':overdueTaskCount}">{{ overdueTaskCount ? overdueTaskCount + ' 项已逾期' : '按计划推进' }}</p></article>
         <article><span>今日确认收入</span><b>{{ money(dailyRevenue.confirmedAmount || 0) }}<small>{{ project.baseCurrency || 'CNY' }}</small></b><p>{{ Number(dailyRevenue.draftCount || 0) ? dailyRevenue.draftCount + ' 笔待确认' : Number(dailyRevenue.confirmedCount || 0) ? '已计入项目核算' : '今日尚未填报' }}</p></article>
-        <article><span>今日花费</span><b>{{ accounting.dailySpend ? money(accounting.dailySpend.amount) : '未填报' }}<small v-if="accounting.dailySpend">{{ accounting.dailySpend.currency || project.baseCurrency || 'CNY' }}</small></b><p>共 {{ accounting.dailySpendItems?.length || 0 }} 笔，不含人员成本</p></article>
+        <article><span>今日花费</span><el-tooltip placement="top" effect="light"><template #content><div>人员成本：{{ money(accounting.personnelCost) }} {{ project.baseCurrency || 'CNY' }}</div><div>项目成本：{{ money(accounting.dailySpend?.amount) }} {{ project.baseCurrency || 'CNY' }}</div><div v-if="accounting.pendingPersonnelCount">{{ accounting.pendingPersonnelCount }} 项人员成本待计价</div></template><b class="spend-hover">{{ money(accounting.todaySpendAmount) }}<small>{{ project.baseCurrency || 'CNY' }}</small></b></el-tooltip><p>人员成本 + 项目成本</p></article>
       </section>
       <section class="panel owner-todos">
         <div class="panel-head"><div><h2>我的待办 <el-tag size="small" :type="ownerTodos.length ? 'warning' : 'success'">{{ ownerTodos.length }} 项</el-tag></h2><p>{{ project.projectName }} · 同时显示跨项目投入调整待确认事项</p></div></div>
@@ -513,9 +513,19 @@ const allUrgentTodoCount=computed(()=>allOwnerTodos.value.filter(item=>item.urge
 const allActiveProjectCount=computed(()=>allProjectWorkspaces.value.filter(item=>item.project.status==='ACTIVE').length)
 const allOpenTaskCount=computed(()=>allProjectWorkspaces.value.reduce((sum,item)=>sum+entryOpenTasks(item).length,0))
 const allOverdueTaskCount=computed(()=>allProjectWorkspaces.value.reduce((sum,item)=>sum+entryOverdueTasks(item),0))
-const allSpendItemCount=computed(()=>allProjectWorkspaces.value.reduce((sum,item)=>sum+(item.accounting?.dailySpendItems?.length||0),0))
 const allRevenueTotal=computed(()=>currencyTotal(allProjectWorkspaces.value,item=>item.accounting?.dailyRevenue?.confirmedAmount))
-const allSpendTotal=computed(()=>currencyTotal(allProjectWorkspaces.value,item=>item.accounting?.dailySpend?.amount))
+const allSpendTotal=computed(()=>currencyTotal(allProjectWorkspaces.value,item=>item.accounting?.todaySpendAmount))
+const allSpendBreakdown=computed(()=>{
+  const groups=new Map()
+  for(const entry of allProjectWorkspaces.value){
+    const currency=entry.project?.baseCurrency||'CNY'
+    const group=groups.get(currency)||{currency,personnel:0,project:0}
+    group.personnel+=Number(entry.accounting?.personnelCost||0)
+    group.project+=Number(entry.accounting?.dailySpend?.amount||0)
+    groups.set(currency,group)
+  }
+  return [...groups.values()]
+})
 const operating=computed(()=>data.value.operating||{}),accounting=computed(()=>data.value.accounting||{})
 const revenueCategories=computed(()=>accounting.value.revenueCategories||[])
 const expenseCategories=computed(()=>accounting.value.expenseCategories||[])
@@ -924,6 +934,11 @@ useBusinessRefreshOnReactivated(() => load(selectedProjectId.value || initialPro
 
 <style scoped src="./workbench.css"></style>
 <style scoped>
+.spend-hover{display:inline-block;margin-top:8px;cursor:help;text-decoration:underline dotted #9aa9b7;text-underline-offset:4px}
 .progress-evidence-inputs{display:flex;width:100%;min-width:0;flex-direction:column;gap:12px}
 .evidence-text{margin:0 0 16px;padding:12px 14px;border-radius:8px;background:#f5f8fa;color:#405166;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
+</style>
+<style>
+.spend-tooltip-group+.spend-tooltip-group{margin-top:8px;padding-top:8px;border-top:1px solid #e7edf2}
+.spend-tooltip-group strong{display:block;margin-bottom:4px}
 </style>

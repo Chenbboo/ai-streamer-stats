@@ -17,27 +17,71 @@ class BusinessPublicPersonnelServiceTest {
     BusinessPublicExpenseMapper mapper=mock(BusinessPublicExpenseMapper.class);
     BusinessProjectMapper projects=mock(BusinessProjectMapper.class);
     BusinessProjectWorkMapper work=mock(BusinessProjectWorkMapper.class);
-    BusinessMemberDayCostMapper costs=mock(BusinessMemberDayCostMapper.class);
-    BusinessMemberDayCostService memberCosts=mock(BusinessMemberDayCostService.class);
     @BeforeEach void setup(){
         ReflectionTestUtils.setField(service,"mapper",mapper);ReflectionTestUtils.setField(service,"projects",projects);
-        ReflectionTestUtils.setField(service,"work",work);ReflectionTestUtils.setField(service,"costs",costs);ReflectionTestUtils.setField(service,"memberCosts",memberCosts);
+        ReflectionTestUtils.setField(service,"work",work);
         when(mapper.selectPersonnelStaff(10L,"2025-02")).thenAnswer(call->new ArrayList<>(Arrays.asList(row("userId",2L,"userName","人事","deptId",11L,"deptName","人事部"))));
         when(work.selectCalendars()).thenReturn(Arrays.asList(row("calendarId",1L,"workingWeekdays","1,2,3,4,5","dailyMinutes",480)));
         when(work.selectBudgetRates(2L,"2025-02-01","2025-02-28")).thenReturn(Arrays.asList(row("costMode","MONTHLY","unitCost",bd("10000.00"),"currency","CNY")));
     }
     Map<String,Object> edit(){return row("userId",2L,"totalAmount",bd("10000.00"),"reason","","businessFactIds",new ArrayList<>());}
-    @Test void fullMonthPayrollMinusPartialProjectCostKeepsOnlyResidual(){
-        project(false);when(memberCosts.calculate(any(),any(),any())).thenReturn(Arrays.asList(row("userId",2L,"bizDate","2025-02-03","pricingStatus","PRICED","currency","CNY","amount",bd("4000.00"))));
+    @Test void hireMonthUsesTheSameMonthlyAmountAsInternalRate(){
+        when(mapper.selectPersonnelStaff(10L,"2025-02")).thenReturn(Arrays.asList(
+            row("userId",2L,"userName","新入职员工","deptId",11L,"deptName","人事部","hireDate","2025-02-10")));
+        assertEquals(bd("10000.00"),previewPerson().get("totalAmount"));
+        Map<String,Object> result=service.automaticSnapshot(10L,"2025-02","CNY",null);
+        assertEquals(bd("10000.00"),result.get("totalAmount"));
+        assertEquals(bd("10000.00"),result.get("publicAmount"));
+    }
+    @Test void monthlyCostTimesProjectAllocationKeepsOnlyResidual(){
+        project(false);
         Map<String,Object> result=service.snapshot(10L,"2025-02","CNY",Arrays.asList(edit()));
         assertEquals(bd("10000.00"),result.get("totalAmount"));assertEquals(bd("6000.00"),result.get("publicAmount"));assertEquals(bd("275.86"),result.get("dailyReference"));
     }
-    @Test void closedProjectPersonnelStillDeducted(){
-        project(true);when(costs.selectCosts(3L)).thenReturn(Arrays.asList(row("userId",2L,"bizDate","2025-02-03","pricingStatus","PRICED","currency","CNY","amount",bd("10000.00"))));
-        assertEquals(bd("0.00"),service.snapshot(10L,"2025-02","CNY",Arrays.asList(edit())).get("publicAmount"));verify(memberCosts,never()).calculate(any(),any(),any());
+    @SuppressWarnings("unchecked")
+    @Test void twoProjectPercentagesProduceTheAmountsInTheExample(){
+        when(work.selectBudgetRates(2L,"2025-02-01","2025-02-28")).thenReturn(Arrays.asList(
+            row("costMode","MONTHLY","unitCost",bd("11250.00"),"currency","CNY")));
+        for(long projectId:new long[]{3L,4L}) {
+            BusinessProject project=new BusinessProject();project.setProjectId(projectId);
+            project.setProjectName(projectId==3L?"管理系统":"算命系统");project.setBaseCurrency("CNY");
+            when(projects.selectProjectById(projectId)).thenReturn(project);
+        }
+        when(projects.selectUserAllocationTimeline(2L)).thenReturn(Arrays.asList(
+            row("projectId",3L,"allocationId",30L,"allocationValue",bd("60.00"),"effectiveFrom","2025-02-01"),
+            row("projectId",4L,"allocationId",40L,"allocationValue",bd("40.00"),"effectiveFrom","2025-02-01")));
+        Map<String,Object> person=previewPerson();
+        assertEquals(bd("11250.00"),person.get("projectAmount"));
+        List<Map<String,Object>> details=(List<Map<String,Object>>)person.get("projectAllocations");
+        assertEquals(bd("6750.00"),details.get(0).get("amount"));
+        assertEquals(bd("4500.00"),details.get(1).get("amount"));
     }
-    @Test void pendingProjectCostCannotBePassedOffAsZero(){
-        project(false);when(memberCosts.calculate(any(),any(),any())).thenReturn(Arrays.asList(row("userId",2L,"bizDate","2025-02-03","pricingStatus","PENDING","currency","CNY")));
+    @SuppressWarnings("unchecked")
+    @Test void fourProjectsAtTwentyFivePercentEachConserveMonthlyCost(){
+        when(work.selectBudgetRates(2L,"2025-02-01","2025-02-28")).thenReturn(Arrays.asList(
+            row("costMode","MONTHLY","unitCost",bd("9375.00"),"currency","CNY")));
+        List<Map<String,Object>> allocations=new ArrayList<>();
+        for(long projectId=3L;projectId<=6L;projectId++) {
+            BusinessProject project=new BusinessProject();project.setProjectId(projectId);
+            project.setProjectName("项目"+projectId);project.setBaseCurrency("CNY");
+            when(projects.selectProjectById(projectId)).thenReturn(project);
+            allocations.add(row("projectId",projectId,"allocationId",projectId*10,
+                "allocationValue",bd("25.00"),"effectiveFrom","2025-02-01"));
+        }
+        when(projects.selectUserAllocationTimeline(2L)).thenReturn(allocations);
+        Map<String,Object> person=previewPerson();
+        assertEquals(bd("9375.00"),person.get("projectAmount"));
+        for(Map<String,Object> detail:(List<Map<String,Object>>)person.get("projectAllocations"))
+            assertEquals(bd("2343.75"),detail.get("amount"));
+    }
+    @Test void completedProjectAllocationStillAppliesToItsFinalMonth(){
+        project(true);
+        assertEquals(bd("0.00"),service.snapshot(10L,"2025-02","CNY",Arrays.asList(edit())).get("publicAmount"));
+    }
+    @Test void pendingAllocationCannotBePassedOffAsZero(){
+        project(false);
+        when(projects.selectUserAllocationTimeline(2L)).thenReturn(Arrays.asList(
+            row("projectId",3L,"allocationId",30L,"allocationValue",bd("40.00"),"effectiveFrom","2025-02-01","confirmationStatus","PENDING")));
         assertThrows(ServiceException.class,()->service.snapshot(10L,"2025-02","CNY",Arrays.asList(edit())));
     }
     @Test void linkedOutsourcingExpenseDeductedAndDuplicateLinksRejected(){
@@ -56,7 +100,7 @@ class BusinessPublicPersonnelServiceTest {
         Map<String,Object> saved=service.snapshot(10L,"2025-02","CNY",Arrays.asList(edit()));
         Map<String,Object> bill=row("companyDeptId",10L,"month","2025-02","currency","CNY","personnelSnapshot",JSON.toJSONString(saved));
         assertDoesNotThrow(()->service.validateSettlement(bill));
-        project(false);when(memberCosts.calculate(any(),any(),any())).thenReturn(Arrays.asList(row("userId",2L,"bizDate","2025-02-03","pricingStatus","PRICED","currency","CNY","amount",bd("1.00"))));
+        project(false);
         assertThrows(ServiceException.class,()->service.validateSettlement(bill));
     }
     @Test void estimatesUse2175ButSettlementConservesMonthIncludingShortProjects(){
@@ -81,18 +125,16 @@ class BusinessPublicPersonnelServiceTest {
         person=previewPerson();assertEquals(Arrays.asList("部分工作日缺少有效人员成本"),person.get("issues"));
         assertEquals(Arrays.asList("2025-02-03"),((Map<?,?>)((List<?>)person.get("issueDetails")).get(0)).get("dates"));
     }
-    @Test void projectReasonsAreGroupedByProjectAndCauseWithoutLosingDates(){
+    @Test void pendingProjectAllocationShowsProjectAndCause(){
         project(false);projects.selectProjectById(3L).setProjectName("3");
-        when(memberCosts.calculate(any(),any(),any())).thenReturn(Arrays.asList(
-            row("userId",2L,"bizDate","2025-02-03","pricingStatus","PENDING","currency","CNY","issue","缺少该日期有效的项目投入权重"),
-            row("userId",2L,"bizDate","2025-02-04","pricingStatus","PENDING","currency","CNY","issue","缺少该日期有效的项目投入权重"),
-            row("userId",2L,"bizDate","2025-02-05","pricingStatus","PENDING","currency","CNY","basisJson","{\"issue\":\"人员投入待确认，请由相关项目负责人确认分配\"}")));
+        when(projects.selectUserAllocationTimeline(2L)).thenReturn(Arrays.asList(
+            row("projectId",3L,"allocationId",30L,"allocationValue",bd("40.00"),"effectiveFrom","2025-02-01","confirmationStatus","PENDING")));
         Map<String,Object> person=previewPerson();
         assertNotNull(person.get("totalAmount"));
-        List<?> details=(List<?>)person.get("projectIssueDetails");assertEquals(2,details.size());
+        assertNull(person.get("projectAmount"));
+        List<?> details=(List<?>)person.get("projectIssueDetails");assertEquals(1,details.size());
         Map<?,?> first=(Map<?,?>)details.get(0);assertEquals("3",first.get("projectName"));assertEquals(3L,first.get("projectId"));
-        assertEquals(Arrays.asList("2025-02-03","2025-02-04"),first.get("dates"));
-        assertEquals("人员投入待确认，请由相关项目负责人确认分配",((Map<?,?>)details.get(1)).get("reason"));
+        assertEquals("项目投入比例待负责人确认",first.get("reason"));
         assertTrue(((List<?>)person.get("projectIssues")).get(0).toString().startsWith("项目「3」"));
         assertThrows(ServiceException.class,()->service.snapshot(10L,"2025-02","CNY",Arrays.asList(edit())));
     }
@@ -106,7 +148,7 @@ class BusinessPublicPersonnelServiceTest {
         assertDoesNotThrow(()->service.validateSettlement(row("companyDeptId",10L,"month","2025-02","currency","CNY","personnelSnapshot",JSON.toJSONString(saved))));
     }
     @Test void automaticSnapshotUsesPoliciesAndDeductsProjectCosts() {
-        project(false);when(memberCosts.calculate(any(),any(),any())).thenReturn(Arrays.asList(row("userId",2L,"bizDate","2025-02-03","pricingStatus","PRICED","currency","CNY","amount",bd("4000.00"))));
+        project(false);
         Map<String,Object> old=row("rows",Arrays.asList(row("userId",2L,"totalAmount",bd("99999.00"),"businessFactIds",Collections.emptyList())));
         Map<String,Object> saved=service.automaticSnapshot(10L,"2025-02","CNY",old);
         assertEquals("AUTOMATIC",saved.get("sourceMode"));assertEquals(bd("10000.00"),saved.get("totalAmount"));assertEquals(bd("6000.00"),saved.get("publicAmount"));
@@ -115,10 +157,11 @@ class BusinessPublicPersonnelServiceTest {
         when(work.selectBudgetRates(anyLong(),anyString(),anyString())).thenReturn(Arrays.asList(row("costMode","MONTHLY","unitCost",bd("12000.00"),"currency","CNY")));
         assertThrows(ServiceException.class,()->service.validateSettlement(bill));
     }
-    @Test void automaticSnapshotRejectsMissingMonthlyCoverageAndPendingDirectCost() {
+    @Test void automaticSnapshotRejectsMissingMonthlyCoverageAndPendingAllocation() {
         when(work.selectBudgetRates(anyLong(),anyString(),anyString())).thenReturn(Arrays.asList(row("costMode","MONTHLY","unitCost",bd("10000.00"),"currency","CNY","effectiveFrom","2025-02-04")));
         assertTrue(assertThrows(ServiceException.class,()->service.automaticSnapshot(10L,"2025-02","CNY",null)).getMessage().contains("人员成本设置"));
-        setup();project(false);when(memberCosts.calculate(any(),any(),any())).thenReturn(Arrays.asList(row("userId",2L,"bizDate","2025-02-03","pricingStatus","PENDING","currency","CNY")));
+        setup();project(false);when(projects.selectUserAllocationTimeline(2L)).thenReturn(Arrays.asList(
+            row("projectId",3L,"allocationId",30L,"allocationValue",bd("40.00"),"effectiveFrom","2025-02-01","confirmationStatus","PENDING")));
         assertThrows(ServiceException.class,()->service.automaticSnapshot(10L,"2025-02","CNY",null));
     }
     @Test void automaticRefreshPreservesHistoricalDeductionWithoutNewUserInput() {
@@ -131,7 +174,9 @@ class BusinessPublicPersonnelServiceTest {
         assertThrows(ServiceException.class,()->service.automaticSnapshot(10L,"2025-02","CNY",old));
     }
     void project(boolean closed){
-        when(mapper.selectPersonnelProjects(10L,"2025-02")).thenReturn(Arrays.asList(3L));BusinessProject p=new BusinessProject();p.setProjectId(3L);p.setProjectName("项目");p.setCostPolicyVersion("MEMBER_DAYS_V1");p.setBaseCurrency("CNY");p.setAccountingState(closed?"CLOSED":"OPEN");when(projects.selectProjectById(3L)).thenReturn(p);
+        BusinessProject p=new BusinessProject();p.setProjectId(3L);p.setProjectName("项目");p.setCostPolicyVersion("MEMBER_DAYS_V1");p.setBaseCurrency("CNY");p.setAccountingState(closed?"CLOSED":"OPEN");when(projects.selectProjectById(3L)).thenReturn(p);
+        when(projects.selectUserAllocationTimeline(2L)).thenReturn(Arrays.asList(row("projectId",3L,"allocationId",30L,
+            "allocationValue",bd(closed?"100.00":"40.00"),"effectiveFrom","2025-02-01","projectEndDate","2025-02-28")));
     }
     static BigDecimal bd(String s){return new BigDecimal(s);}
     static Map<String,Object> row(Object...pairs){Map<String,Object> m=new LinkedHashMap<>();for(int i=0;i<pairs.length;i+=2)m.put((String)pairs[i],pairs[i+1]);return m;}
