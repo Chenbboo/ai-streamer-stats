@@ -885,6 +885,238 @@ class JewelryErpServiceImplTest
     }
 
     @Test
+    void sampleReceiptDraftAcceptsOnlySampleProductsAndAlwaysHasZeroCost()
+    {
+        JewelryDocument document = document(null, "SAMPLE_IN", null);
+        JewelryDocumentItem item = item(null, 3, "99.99");
+        item.setBizDate(java.sql.Date.valueOf("2026-09-18"));
+        item.setSupplierId(1L);
+        item.setSampleGoodsNo("  YP-001  ");
+        item.setImageUrls("/profile/upload/sample.jpg");
+        item.setUnitCost(decimal("88.88"));
+        item.setPackFee(decimal("4.00"));
+        document.setSupplierId(9L);
+        document.setExternalNo("not applicable");
+        document.setItems(Arrays.asList(item));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("SAMPLE"));
+        when(mapper.insertDocument(document)).thenAnswer(call -> { document.setDocumentId(7001L); return 1; });
+        when(mapper.selectDocumentById(7001L)).thenReturn(document);
+        when(mapper.selectDocumentItems(7001L)).thenReturn(document.getItems());
+
+        service.saveDocument(document, MAKER_ID, "maker");
+
+        assertTrue(document.getDocNo().startsWith("YP"));
+        assertEquals(null, document.getSupplierId());
+        assertEquals(null, document.getExternalNo());
+        assertMoney("0", item.getUnitPrice());
+        assertMoney("0", item.getUnitCost());
+        assertMoney("0", item.getPackFee());
+        assertMoney("0", item.getAmount());
+        assertMoney("0", item.getCostAmount());
+        assertMoney("0", document.getTotalAmount());
+        assertMoney("0", document.getTotalCost());
+        assertEquals(3, document.getTotalQty());
+        assertEquals(java.sql.Date.valueOf("2026-09-18"), document.getBizDate());
+        assertEquals(1L, item.getSupplierId());
+        assertEquals("Test supplier", item.getSupplierNameSnapshot());
+        assertEquals("YP-001", item.getSampleGoodsNo());
+        assertEquals("/profile/upload/sample.jpg", item.getImageUrls());
+    }
+
+    @Test
+    void sampleReceiptRequiresEveryLineDate()
+    {
+        JewelryDocument document = document(null, "SAMPLE_IN", null);
+        document.setItems(Arrays.asList(item(null, 1, "0")));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("SAMPLE"));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveDocument(document, MAKER_ID, "maker"));
+
+        assertTrue(error.getMessage().contains("每行"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void sampleReceiptAllowsSameProductOnDifferentDatesAndUsesEarliestForHeader()
+    {
+        JewelryDocument document = document(null, "SAMPLE_IN", null);
+        JewelryDocumentItem later = item(null, 2, "0");
+        later.setBizDate(java.sql.Date.valueOf("2026-09-20"));
+        later.setSupplierId(1L);
+        later.setSampleGoodsNo("YP-001");
+        JewelryDocumentItem earlier = item(null, 3, "0");
+        earlier.setBizDate(java.sql.Date.valueOf("2026-09-18"));
+        earlier.setSupplierId(1L);
+        earlier.setSampleGoodsNo("YP-001");
+        document.setItems(Arrays.asList(later, earlier));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("SAMPLE"));
+        when(mapper.insertDocument(document)).thenAnswer(call -> { document.setDocumentId(7010L); return 1; });
+        when(mapper.selectDocumentById(7010L)).thenReturn(document);
+        when(mapper.selectDocumentItems(7010L)).thenReturn(document.getItems());
+
+        service.saveDocument(document, MAKER_ID, "maker");
+
+        assertEquals(java.sql.Date.valueOf("2026-09-18"), document.getBizDate());
+        assertEquals(5, document.getTotalQty());
+    }
+
+    @Test
+    void sampleReceiptRejectsSameProductOnSameDate()
+    {
+        JewelryDocument document = document(null, "SAMPLE_IN", null);
+        JewelryDocumentItem first = item(null, 2, "0");
+        JewelryDocumentItem second = item(null, 3, "0");
+        first.setBizDate(java.sql.Date.valueOf("2026-09-18"));
+        second.setBizDate(java.sql.Date.valueOf("2026-09-18"));
+        first.setSupplierId(1L);
+        second.setSupplierId(1L);
+        first.setSampleGoodsNo("YP-001");
+        second.setSampleGoodsNo("YP-001");
+        document.setItems(Arrays.asList(first, second));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("SAMPLE"));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveDocument(document, MAKER_ID, "maker"));
+
+        assertTrue(error.getMessage().contains("供应商和货号"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void sampleReceiptRequiresSupplierOnEveryLine()
+    {
+        JewelryDocument document = document(null, "SAMPLE_IN", null);
+        JewelryDocumentItem item = item(null, 1, "0");
+        item.setBizDate(java.sql.Date.valueOf("2026-09-18"));
+        document.setItems(Arrays.asList(item));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("SAMPLE"));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveDocument(document, MAKER_ID, "maker"));
+
+        assertTrue(error.getMessage().contains("每行样品商品的供应商"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void sampleReceiptAllowsSameProductAndDateFromDifferentSuppliers()
+    {
+        JewelryDocument document = document(null, "SAMPLE_IN", null);
+        JewelryDocumentItem first = item(null, 1, "0");
+        JewelryDocumentItem second = item(null, 2, "0");
+        first.setBizDate(java.sql.Date.valueOf("2026-09-18"));
+        second.setBizDate(java.sql.Date.valueOf("2026-09-18"));
+        first.setSupplierId(1L);
+        second.setSupplierId(2L);
+        first.setSampleGoodsNo("YP-001");
+        second.setSampleGoodsNo("YP-001");
+        document.setItems(Arrays.asList(first, second));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("SAMPLE"));
+        when(mapper.insertDocument(document)).thenAnswer(call -> { document.setDocumentId(7011L); return 1; });
+        when(mapper.selectDocumentById(7011L)).thenReturn(document);
+        when(mapper.selectDocumentItems(7011L)).thenReturn(document.getItems());
+
+        service.saveDocument(document, MAKER_ID, "maker");
+
+        assertEquals(3, document.getTotalQty());
+        assertEquals(1L, first.getSupplierId());
+        assertEquals(2L, second.getSupplierId());
+    }
+
+    @Test
+    void sampleReceiptRequiresGoodsNumberOnEveryLine()
+    {
+        JewelryDocument document = document(null, "SAMPLE_IN", null);
+        JewelryDocumentItem item = item(null, 1, "0");
+        item.setBizDate(java.sql.Date.valueOf("2026-09-18"));
+        item.setSupplierId(1L);
+        document.setItems(Arrays.asList(item));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("SAMPLE"));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveDocument(document, MAKER_ID, "maker"));
+
+        assertTrue(error.getMessage().contains("每行样品商品的货号"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void sampleReceiptAllowsSameProductDateAndSupplierWithDifferentGoodsNumbers()
+    {
+        JewelryDocument document = document(null, "SAMPLE_IN", null);
+        JewelryDocumentItem first = item(null, 1, "0");
+        JewelryDocumentItem second = item(null, 2, "0");
+        first.setBizDate(java.sql.Date.valueOf("2026-09-18"));
+        second.setBizDate(java.sql.Date.valueOf("2026-09-18"));
+        first.setSupplierId(1L);
+        second.setSupplierId(1L);
+        first.setSampleGoodsNo("YP-001");
+        second.setSampleGoodsNo("YP-002");
+        document.setItems(Arrays.asList(first, second));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("SAMPLE"));
+        when(mapper.insertDocument(document)).thenAnswer(call -> { document.setDocumentId(7012L); return 1; });
+        when(mapper.selectDocumentById(7012L)).thenReturn(document);
+        when(mapper.selectDocumentItems(7012L)).thenReturn(document.getItems());
+
+        service.saveDocument(document, MAKER_ID, "maker");
+
+        assertEquals(3, document.getTotalQty());
+        assertEquals("YP-001", first.getSampleGoodsNo());
+        assertEquals("YP-002", second.getSampleGoodsNo());
+    }
+
+    @Test
+    void sampleReceiptRejectsOtherProductTypes()
+    {
+        JewelryDocument document = document(null, "SAMPLE_IN", null);
+        document.setItems(Arrays.asList(item(null, 1, "0")));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveDocument(document, MAKER_ID, "maker"));
+
+        assertTrue(error.getMessage().contains("样品商品"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void sampleReceiptPostsWithOneApprovalAndIncreasesStockAtZeroCost()
+    {
+        JewelryDocument document = document(7002L, "SAMPLE_IN", "PENDING_FIRST");
+        JewelryDocumentItem item = item(7003L, 3, "0");
+        stubDocument(document, item);
+        when(mapper.selectStockForUpdate(PRODUCT_ID)).thenReturn(stock(10, 0, 0, 0, 0, 0, "0", "0", "0"));
+
+        service.approve(7002L, "通过", null, REVIEWER_ONE_ID, "reviewer");
+
+        verify(mapper).applyStock(eq(PRODUCT_ID), eq(13), eq(0), eq(0), eq(0), eq(0), eq(0),
+            decimalEq("0"), decimalEq("0"), decimalEq("0"));
+        assertMoney("0", item.getCostAmount());
+        verify(mapper).updateDocumentStatus(7002L, "PENDING_FIRST", "POSTED",
+            REVIEWER_ONE_ID, "reviewer", null, 1);
+    }
+
+    @Test
+    void sampleReceiptReversalRemovesItsZeroCostStock()
+    {
+        JewelryDocument source = document(7004L, "SAMPLE_IN", "POSTED");
+        JewelryDocument reversal = document(7005L, "REVERSAL", "PENDING_FIRST");
+        reversal.setSourceDocumentId(7004L);
+        JewelryDocumentItem item = item(7006L, 3, "0");
+        stubDocument(reversal, item);
+        when(mapper.selectDocumentByIdForUpdate(7004L)).thenReturn(source);
+        when(mapper.selectStockForUpdate(PRODUCT_ID)).thenReturn(stock(13, 3, 0, 0, 0, 0, "0", "0", "0"));
+        when(mapper.markOriginalReversed(7004L, "reviewer")).thenReturn(1);
+
+        service.approve(7005L, "", null, REVIEWER_ONE_ID, "reviewer");
+
+        verify(mapper).applyStock(eq(PRODUCT_ID), eq(10), eq(0), eq(0), eq(0), eq(0), eq(0),
+            decimalEq("0"), decimalEq("0"), decimalEq("0"));
+        verify(mapper).markOriginalReversed(7004L, "reviewer");
+    }
+
+    @Test
     void deleteUnusedProductsValidatesAllBeforeDeletingInSortedOrder() throws Exception
     {
         when(mapper.lockProductIds(Arrays.asList(1L, 2L))).thenReturn(Arrays.asList(1L, 2L));
@@ -2137,7 +2369,7 @@ class JewelryErpServiceImplTest
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.submit(407L, MAKER_ID, "maker"));
 
-        assertTrue(error.getMessage().contains("存在待审核采购入库单"));
+        assertTrue(error.getMessage().contains("存在待审核入库单"));
         verify(mapper, never()).updateDocumentStatus(eq(407L), anyString(), anyString(), anyLong(), anyString(),
             any(), any());
     }

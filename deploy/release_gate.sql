@@ -373,4 +373,11 @@ from (
     join sys_menu m on m.menu_id=rm.menu_id
     where r.role_key='jewelry_reviewer' and r.del_flag='0'
       and m.perms in ('jewelry:product:edit','jewelry:product:basic-edit','jewelry:product:remove')
+  union all
+  select if(count(*)=4,0,1) from information_schema.columns where table_schema=database()
+    and table_name='jewelry_document_item'
+    and ((column_name='biz_date' and data_type='date')
+      or (column_name='supplier_id' and data_type='bigint')
+      or (column_name='supplier_name_snapshot' and data_type='varchar' and character_maximum_length>=128)
+      or (column_name='sample_goods_no' and data_type='varchar' and character_maximum_length>=64))
 ) release_gate;

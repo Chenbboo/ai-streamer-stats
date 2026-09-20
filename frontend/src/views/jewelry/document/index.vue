@@ -23,9 +23,10 @@
         <el-alert v-if="form.docType === 'REVERSAL'" :title="isDualApproval(form)?'该红冲涉及库存调整，仍需审核员初审和管理员复核后入账。':'红冲单明细来自原单，不允许修改；提交后由审核员审核通过即可入账。'" type="warning" :closable="false" show-icon />
         <el-alert v-if="form.docType === 'STOCK_ADJUST'" title="库存调整单提交后先由审核员初审，再由管理员复核；复核通过后才真正调整库存。" type="warning" :closable="false" show-icon />
         <el-alert v-if="form.docType === 'COST_ADJUST'" title="库存成本调价单提交后，将先由审核员审核，再由管理员复核；复核通过后才修改库存平均成本。审批期间对应SKU不能采购入库。" type="warning" :closable="false" show-icon />
+        <el-alert v-if="form.docType === 'SAMPLE_IN'" title="每行分别填写货号、样品商品、业务日期、供应商和数量，可上传实物图片；单价与本次入库成本固定为0。审核通过后增加库存。" type="info" :closable="false" show-icon />
         <el-form :model="form" label-position="top"><div class="sheet-head">
           <el-form-item label="单据类型" required><el-select v-model="form.docType" :disabled="readonly" @change="typeChanged"><el-option v-for="o in editableTypes" :key="o.value" :label="o.label" :value="o.value"/></el-select></el-form-item>
-          <el-form-item  :label="isTransfer(form)?'调货时间':'业务日期'" required><el-date-picker v-model="form.bizDate" value-format="YYYY-MM-DD" :disabled="readonly"/></el-form-item>
+          <el-form-item v-if="form.docType!=='SAMPLE_IN'" :label="isTransfer(form)?'调货时间':'业务日期'" required><el-date-picker v-model="form.bizDate" value-format="YYYY-MM-DD" :disabled="readonly"/></el-form-item>
           <el-form-item v-if="form.docType==='PURCHASE_IN'" label="约定退货日期">
             <el-date-picker v-model="form.supplierReturnDate" type="date" value-format="YYYY-MM-DD"
               placeholder="留空按统一退货期限" clearable :disabled="readonly"/>
@@ -42,7 +43,7 @@
                 :label="`${d.docNo} · ${d.bizDate} · 采购 ¥${fourDecimalMoney(Math.abs(Number(d.totalAmount||0)))}`" :value="d.documentId"/>
             </el-select>
           </el-form-item>
-          <el-form-item v-if="!isTransfer(form)" label="外部单号"><el-input v-model="form.externalNo" :disabled="readonly"/></el-form-item>
+          <el-form-item v-if="!isTransfer(form) && form.docType!=='SAMPLE_IN'" label="外部单号"><el-input v-model="form.externalNo" :disabled="readonly"/></el-form-item>
           <el-form-item v-if="form.docType==='CUSTOMER_RETURN'" label="原销售单（可选）">
             <el-select v-model="form.sourceDocumentId" filterable clearable :disabled="readonly" @change="salesSourceChanged">
               <el-option v-for="d in salesDocuments" :key="d.documentId"
@@ -99,7 +100,7 @@
               <el-progress :percentage="importProgress.percentage" :stroke-width="5" :show-text="false" />
             </div>
             <el-button icon="Download" @click="downloadImportTemplate">下载模板</el-button>
-            <el-upload action="#" :accept="form.docType==='PURCHASE_IN'?'.xlsx':'.xls,.xlsx'" :auto-upload="false" :show-file-list="false"
+            <el-upload action="#" :accept="['PURCHASE_IN','SAMPLE_IN'].includes(form.docType)?'.xlsx':'.xls,.xlsx'" :auto-upload="false" :show-file-list="false"
               :on-change="handleImportFile">
               <el-button type="primary" plain icon="Upload" :loading="importLoading">Excel导入</el-button>
             </el-upload>
@@ -108,6 +109,12 @@
         <div v-if="isTransfer(form)" class="item-toolbar"><b>商品明细</b><span>仅扣减当前仓库库存；接收方另做采购入库。</span></div>
         <el-table :data="form.items" border class="item-table" :row-class-name="bundleRowClass">
           <el-table-column type="index" width="50" label="#" />
+          <el-table-column v-if="form.docType==='SAMPLE_IN'" label="货号" width="180">
+            <template #default="{row}">
+              <span v-if="readonly">{{row.sampleGoodsNo || '—'}}</span>
+              <el-input v-else v-model.trim="row.sampleGoodsNo" maxlength="64" placeholder="请输入货号" />
+            </template>
+          </el-table-column>
           <el-table-column label="商品" min-width="390">
             <template #default="{ row }">
               <div class="product-picker">
@@ -119,6 +126,17 @@
                 <el-button v-if="form.docType==='SALES_OUT' && !readonly && canAddAddon(row)" type="warning" plain icon="Plus"
                   @click="addAddon(row)">搭售商品</el-button>
               </div>
+            </template>
+          </el-table-column>
+          <el-table-column v-if="form.docType==='SAMPLE_IN'" label="业务日期" width="180">
+            <template #default="{row}"><el-date-picker v-model="row.bizDate" type="date" value-format="YYYY-MM-DD" placeholder="请选择日期" :disabled="readonly" style="width:100%" /></template>
+          </el-table-column>
+          <el-table-column v-if="form.docType==='SAMPLE_IN'" label="供应商" width="190">
+            <template #default="{row}">
+              <span v-if="readonly">{{row.supplierNameSnapshot || '—'}}</span>
+              <el-select v-else v-model="row.supplierId" filterable clearable placeholder="请选择供应商">
+                <el-option v-for="supplier in suppliers" :key="supplier.supplierId" :label="supplier.supplierName" :value="supplier.supplierId" />
+              </el-select>
             </template>
           </el-table-column>
           <el-table-column v-if="showSalesBundleColumns" label="销售角色" width="130">
@@ -148,7 +166,7 @@
           <el-table-column v-if="form.docType==='ASSEMBLY'" label="角色" width="90">
             <template #default="{row}"><el-tag :type="row.itemRole==='OUTPUT'?'success':'warning'" effect="plain">{{row.itemRole==='OUTPUT'?'成品产出':'散件投入'}}</el-tag></template>
           </el-table-column>
-          <el-table-column v-if="form.docType==='PURCHASE_IN' || (readonly && form.items.some(item=>item.imageUrls))" label="实物图片" width="190">
+          <el-table-column v-if="['PURCHASE_IN','SAMPLE_IN'].includes(form.docType) || (readonly && form.items.some(item=>item.imageUrls))" label="实物图片" width="190">
             <template #default="{row}">
               <image-upload v-model="row.imageUrls" :limit="1" :file-size="8" :disabled="readonly"/>
             </template>
@@ -249,7 +267,7 @@
           <span v-if="form.docType==='SALES_OUT'">预计净入账 <b>¥ {{ money(estimatedNetReceipt) }}</b></span>
           <span v-if="canViewFinance && form.docType==='SALES_OUT'" :class="{loss:estimatedProfit<0}">预计毛利 <b>¥ {{ money(estimatedProfit) }}</b></span>
         </div>
-        <div class="sheet-foot"><el-form label-width="110px"><el-form-item v-if="needsReason" :label="reasonLabel" required><el-input v-model="form.returnReason" :disabled="readonly"/></el-form-item><el-form-item v-if="readonly && form.docType==='CUSTOMER_RETURN' && form.unlinkedReason" label="历史未关联原因"><el-input v-model="form.unlinkedReason" disabled/></el-form-item><el-form-item v-if="!isTransfer(form)" label="备注"><el-input v-model="form.remark" :disabled="readonly"/></el-form-item></el-form></div>
+        <div class="sheet-foot"><el-form label-width="110px"><el-form-item v-if="needsReason" :label="reasonLabel" required><el-input v-model="form.returnReason" :disabled="readonly"/></el-form-item><el-form-item v-if="readonly && form.docType==='CUSTOMER_RETURN' && form.unlinkedReason" label="历史未关联原因"><el-input v-model="form.unlinkedReason" disabled/></el-form-item><el-form-item v-if="!isTransfer(form) && form.docType!=='SAMPLE_IN'" label="备注"><el-input v-model="form.remark" :disabled="readonly"/></el-form-item></el-form></div>
       </div>
       <template #footer>
         <el-button :disabled="!!savingAction" @click="dialog=false">关闭</el-button>
@@ -300,10 +318,15 @@
         </el-table-column>
         <el-table-column prop="sku" label="SKU" width="150"/>
         <el-table-column prop="productName" label="商品名称" min-width="160"/>
+        <el-table-column v-if="form.docType==='SAMPLE_IN'" prop="sampleGoodsNo" label="货号" min-width="130"/>
+        <el-table-column v-if="form.docType==='SAMPLE_IN'" prop="bizDate" label="业务日期" width="118"/>
+        <el-table-column v-if="form.docType==='SAMPLE_IN'" prop="supplierNameSnapshot" label="供应商" min-width="130">
+          <template #default="{row}">{{row.supplierNameSnapshot||row.supplierInput||'—'}}</template>
+        </el-table-column>
         <el-table-column v-if="form.docType==='PURCHASE_IN'" label="商品类型" width="110" align="center">
           <template #default="{row}">{{jewelryProductType(row.productType)?.label||'—'}}</template>
         </el-table-column>
-        <el-table-column v-if="form.docType==='PURCHASE_IN'" label="图片" width="82" align="center">
+        <el-table-column v-if="['PURCHASE_IN','SAMPLE_IN'].includes(form.docType)" label="图片" width="82" align="center">
           <template #default="{row}">
             <el-image v-if="row.imageUrl" :src="imageSrc(row.imageUrl)" :preview-src-list="[imageSrc(row.imageUrl)]"
               preview-teleported fit="cover" style="width:46px;height:46px"/>
@@ -312,7 +335,7 @@
         </el-table-column>
         <el-table-column v-if="form.docType!=='STOCK_ADJUST'" prop="qty" label="数量" width="86" align="right"/>
         <el-table-column v-if="form.docType==='STOCK_ADJUST'" prop="countedQty" label="实盘数量" width="100" align="right"/>
-        <el-table-column v-if="form.docType!=='STOCK_ADJUST'" :label="priceLabel" width="110" align="right"><template #default="{row}">{{unitPriceText(row.unitPrice)}}</template></el-table-column>
+        <el-table-column v-if="!['STOCK_ADJUST','SAMPLE_IN'].includes(form.docType)" :label="priceLabel" width="110" align="right"><template #default="{row}">{{unitPriceText(row.unitPrice)}}</template></el-table-column>
         <el-table-column v-if="form.docType==='SALES_OUT'" prop="otherFee1" label="其他1/件" width="95" align="right"/>
         <el-table-column v-if="form.docType==='SALES_OUT'" prop="otherFee2" label="其他2/件" width="95" align="right"/>
         <el-table-column v-if="form.docType==='SALES_OUT'" prop="otherFee3" label="其他3/件" width="95" align="right"/>
@@ -321,7 +344,7 @@
         <el-table-column prop="errorMessage" label="校验结果" min-width="240">
           <template #default="{row}"><span :class="{ 'import-error': !row.valid }">{{row.errorMessage || '校验通过'}}</span></template>
         </el-table-column>
-        <el-table-column v-if="form.docType==='PURCHASE_IN'" label="操作" width="82" align="center" fixed="right">
+        <el-table-column v-if="['PURCHASE_IN','SAMPLE_IN'].includes(form.docType)" label="操作" width="82" align="center" fixed="right">
           <template #default="{$index}">
             <el-button link type="danger" icon="Delete" @click="removeImportPreviewRow($index)">删除</el-button>
           </template>
@@ -376,11 +399,11 @@ const canViewFinance=computed(()=>userStore.roles.some(role=>['admin','jewelry_a
 const canDeleteDraft=row=>row.status==='DRAFT'&&String(row.creatorUserId)===String(userStore.id)
 const isDualApproval=row=>['STOCK_ADJUST','COST_ADJUST'].includes(row?.docType)||(row?.docType==='REVERSAL'&&['STOCK_ADJUST','COST_ADJUST'].includes(row?.sourceDocType))
 const isTransfer=row=>row?.docType==='TRANSFER_OUT'||(row?.docType==='REVERSAL'&&row?.sourceDocType==='TRANSFER_OUT')
-const types=[{value:'PURCHASE_IN',label:'采购入库'},{value:'SALES_OUT',label:'销售出库'},{value:'SUPPLIER_RETURN',label:'供应商退货'},{value:'CUSTOMER_RETURN',label:'客户退货'},{value:'RETURN_INSPECT',label:'退货质检'},{value:'STOCK_ADJUST',label:'库存调整'},{value:'COST_ADJUST',label:'库存成本调价'},{value:'TRANSFER_OUT',label:'仓库调货'},{value:'ASSEMBLY',label:'手工组装'},{value:'REVERSAL',label:'红冲单'}]
+const types=[{value:'PURCHASE_IN',label:'采购入库'},{value:'SAMPLE_IN',label:'样品入库'},{value:'SALES_OUT',label:'销售出库'},{value:'SUPPLIER_RETURN',label:'供应商退货'},{value:'CUSTOMER_RETURN',label:'客户退货'},{value:'RETURN_INSPECT',label:'退货质检'},{value:'STOCK_ADJUST',label:'库存调整'},{value:'COST_ADJUST',label:'库存成本调价'},{value:'TRANSFER_OUT',label:'仓库调货'},{value:'ASSEMBLY',label:'手工组装'},{value:'REVERSAL',label:'红冲单'}]
 const editableTypes=types.filter(item=>!['REVERSAL','ASSEMBLY'].includes(item.value))
 const statuses=[{value:'DRAFT',label:'草稿'},{value:'PENDING_FIRST',label:'待审核'},{value:'PENDING_SECOND',label:'待审核'},{value:'POSTED',label:'已入账'},{value:'REJECTED',label:'已驳回'},{value:'REVERSED',label:'已红冲'}]
 const query=reactive({pageNum:1,pageSize:10,docNo:'',docType:'',status:''})
-const blankItem=()=>({productId:null,sourceItemId:null,itemRole:'NORMAL',bundleGroupNo:null,saleRole:'NORMAL',pricingMode:'SEPARATE',productTypeSnapshot:'',specificationSnapshot:'',imageUrls:'',qty:1,sourceQty:0,goodQty:0,defectQty:0,remainingInspectQty:0,remainingReturnQty:0,systemQty:0,countedQty:0,adjustmentQty:0,unitPrice:0,sourceUnitPrice:0,unitCost:0,packFee:0,shipFee:0,certFee:0,otherFee1:0,otherFee2:0,otherFee3:0,influencerPriceSnapshot:null,influencerPriceVersion:0,influencerPriceStatus:'',lineReason:''})
+const blankItem=()=>({productId:null,sourceItemId:null,itemRole:'NORMAL',bundleGroupNo:null,saleRole:'NORMAL',pricingMode:'SEPARATE',productTypeSnapshot:'',specificationSnapshot:'',imageUrls:'',bizDate:null,supplierId:null,supplierNameSnapshot:'',sampleGoodsNo:'',qty:1,sourceQty:0,goodQty:0,defectQty:0,remainingInspectQty:0,remainingReturnQty:0,systemQty:0,countedQty:0,adjustmentQty:0,unitPrice:0,sourceUnitPrice:0,unitCost:0,packFee:0,shipFee:0,certFee:0,otherFee1:0,otherFee2:0,otherFee3:0,influencerPriceSnapshot:null,influencerPriceVersion:0,influencerPriceStatus:'',lineReason:''})
 const blank=()=>({documentId:null,docType:'PURCHASE_IN',bizDate:new Date().toISOString().slice(0,10),supplierReturnDate:null,supplierId:null,supplierNameSnapshot:'',sourceWarehouse:'',targetWarehouse:'',externalNo:'',salesChannel:'',influencerId:null,influencerName:'',influencerPriceSnapshot:null,influencerPriceVersion:0,platformRate:0,commissionRate:0,taxRate:0,returnReason:'',sourceDocumentId:null,sourceDocNo:'',unlinkedReason:'',actualRefundAmount:null,riskStatus:'',remark:'',items:[blankItem()]})
 const form=reactive(blank())
 const serverRiskStatus=ref('')
@@ -391,9 +414,9 @@ const showQuantityColumn=computed(()=>!showInspectColumns.value&&!showAdjustment
 const needsSupplier=computed(()=>['PURCHASE_IN','SUPPLIER_RETURN'].includes(form.docType))
 const needsSalesChannel=computed(()=>['SALES_OUT','CUSTOMER_RETURN'].includes(form.docType))
 const showPriceColumn=computed(()=>['PURCHASE_IN','SALES_OUT','SUPPLIER_RETURN','CUSTOMER_RETURN','COST_ADJUST'].includes(form.docType))
-const showCostColumn=computed(()=>!isTransfer(form)&&(form.docType==='COST_ADJUST'||(canViewFinance.value&&form.docType!=='PURCHASE_IN')))
+const showCostColumn=computed(()=>!isTransfer(form)&&form.docType!=='SAMPLE_IN'&&(form.docType==='COST_ADJUST'||(canViewFinance.value&&form.docType!=='PURCHASE_IN')))
 const showSalesBundleColumns=computed(()=>['SALES_OUT','CUSTOMER_RETURN'].includes(form.docType)||(readonly.value&&form.items?.some(item=>['MAIN','ADDON'].includes(item.saleRole))))
-const excelImportSupported=computed(()=>['PURCHASE_IN','SALES_OUT','STOCK_ADJUST'].includes(form.docType))
+const excelImportSupported=computed(()=>['PURCHASE_IN','SAMPLE_IN','SALES_OUT','STOCK_ADJUST'].includes(form.docType))
 const priceLabel=computed(()=>form.docType==='PURCHASE_IN'?'采购单价':form.docType==='SALES_OUT'?'成交单价':form.docType==='SUPPLIER_RETURN'?'实际退货单价':form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId?'实际退款单价':form.docType==='COST_ADJUST'?'调整后平均成本':'原成交单价')
 const unitPricePrecision=computed(()=>isFourDecimalUnitPriceDocument(form)?4:2)
 const unitPriceStep=computed(()=>isFourDecimalUnitPriceDocument(form)?0.0001:0.01)
@@ -506,8 +529,8 @@ async function preload(){const [p,s,i,sales,returns]=await Promise.all([listJewe
 async function reloadProducts(purpose){const r=await listJewelryProductOptions({status:'0',...(purpose?{purpose}:{})});products.value=r.data||[]}
 async function load(){loading.value=true;try{const r=await listJewelryDocuments(query);rows.value=r.rows||[];total.value=r.total||0}finally{loading.value=false}}
 function open(){actualRefundManuallyEdited.value=false;Object.assign(form,blank());purchaseDocuments.value=[];influencerProductPrices.value=[];influencerBundleItems.value=[];readonly.value=false;dialog.value=true}
-function normalizeLoadedDocument(){form.items=(form.items||[]).map(item=>{const normalized={...blankItem(),...item,remainingInspectQty:item.remainingInspectQty??(form.docType==='RETURN_INSPECT'?Number(item.goodQty||0)+Number(item.defectQty||0):0),saleRole:item.saleRole||'NORMAL',pricingMode:item.pricingMode||'SEPARATE'};normalized.influencerPriceStatus=Number(normalized.influencerPriceVersion||0)>0?'PRICED':normalized.influencerPriceSnapshot!=null?'PENDING':'';if(form.docType==='SALES_OUT'&&normalized.saleRole==='ADDON'&&normalized.productTypeSnapshot==='ACCESSORY'){normalized.pricingMode='INCLUDED';normalized.unitPrice=0;normalized.packFee=0;normalized.shipFee=0;normalized.certFee=0;normalized.otherFee1=0;normalized.otherFee2=0;normalized.otherFee3=0;clearRowInfluencerPrice(normalized)}return normalized});if(form.docType==='CUSTOMER_RETURN'&&form.actualRefundAmount===null)form.actualRefundAmount=Math.abs(Number(form.totalAmount||0))}
-async function edit(row){Object.assign(form,(await getJewelryDocument(row.documentId)).data);normalizeLoadedDocument();actualRefundManuallyEdited.value=form.docType==='CUSTOMER_RETURN'&&form.actualRefundAmount!==null;if(form.influencerId&&['SALES_OUT','CUSTOMER_RETURN'].includes(form.docType)){await loadInfluencerReferences(form.influencerId);if(form.docType==='SALES_OUT'||!form.sourceDocumentId)applyInfluencerPriceToRows()}else{influencerProductPrices.value=[];influencerBundleItems.value=[]}if(form.docType==='COST_ADJUST')await reloadProducts('COST_ADJUST');if(form.docType==='SUPPLIER_RETURN'){await loadSupplierReturnSources(form.supplierId);if(form.sourceDocumentId)await loadSupplierReturnSource(form.sourceDocumentId,true)}if(form.docType==='CUSTOMER_RETURN'&&form.sourceDocumentId)await loadCustomerReturnSource(form.sourceDocumentId,true);if(form.docType==='RETURN_INSPECT'&&form.sourceDocumentId)await loadInspectionSource(form.sourceDocumentId,true);readonly.value=false;dialog.value=true}
+function normalizeLoadedDocument(){form.items=(form.items||[]).map(item=>{const normalized={...blankItem(),...item,remainingInspectQty:item.remainingInspectQty??(form.docType==='RETURN_INSPECT'?Number(item.goodQty||0)+Number(item.defectQty||0):0),saleRole:item.saleRole||'NORMAL',pricingMode:item.pricingMode||'SEPARATE'};if(form.docType==='SAMPLE_IN'&&!normalized.bizDate)normalized.bizDate=form.bizDate;normalized.influencerPriceStatus=Number(normalized.influencerPriceVersion||0)>0?'PRICED':normalized.influencerPriceSnapshot!=null?'PENDING':'';if(form.docType==='SALES_OUT'&&normalized.saleRole==='ADDON'&&normalized.productTypeSnapshot==='ACCESSORY'){normalized.pricingMode='INCLUDED';normalized.unitPrice=0;normalized.packFee=0;normalized.shipFee=0;normalized.certFee=0;normalized.otherFee1=0;normalized.otherFee2=0;normalized.otherFee3=0;clearRowInfluencerPrice(normalized)}return normalized});if(form.docType==='CUSTOMER_RETURN'&&form.actualRefundAmount===null)form.actualRefundAmount=Math.abs(Number(form.totalAmount||0))}
+async function edit(row){Object.assign(form,(await getJewelryDocument(row.documentId)).data);normalizeLoadedDocument();actualRefundManuallyEdited.value=form.docType==='CUSTOMER_RETURN'&&form.actualRefundAmount!==null;if(form.influencerId&&['SALES_OUT','CUSTOMER_RETURN'].includes(form.docType)){await loadInfluencerReferences(form.influencerId);if(form.docType==='SALES_OUT'||!form.sourceDocumentId)applyInfluencerPriceToRows()}else{influencerProductPrices.value=[];influencerBundleItems.value=[]}await reloadProducts(form.docType==='COST_ADJUST'?'COST_ADJUST':undefined);if(form.docType==='SUPPLIER_RETURN'){await loadSupplierReturnSources(form.supplierId);if(form.sourceDocumentId)await loadSupplierReturnSource(form.sourceDocumentId,true)}if(form.docType==='CUSTOMER_RETURN'&&form.sourceDocumentId)await loadCustomerReturnSource(form.sourceDocumentId,true);if(form.docType==='RETURN_INSPECT'&&form.sourceDocumentId)await loadInspectionSource(form.sourceDocumentId,true);readonly.value=false;dialog.value=true}
 async function view(row){Object.assign(form,(await getJewelryDocument(row.documentId)).data);normalizeLoadedDocument();if(form.influencerId)await loadInfluencerReferences(form.influencerId);else{influencerProductPrices.value=[];influencerBundleItems.value=[]}readonly.value=true;dialog.value=true}
 const normalizedSaleRole=row=>row?.saleRole||'NORMAL'
 const normalizedPricingMode=row=>row?.pricingMode||'SEPARATE'
@@ -601,6 +624,7 @@ async function influencerChanged(id){
 }
 const availableProducts=row=>{
   let available=products.value
+  if(form.docType==='SAMPLE_IN')available=available.filter(product=>product.productType==='SAMPLE')
   return normalizedSaleRole(row)==='ADDON'?available.filter(product=>product.productType!=='FINISHED'):available
 }
 const saleGroupKey=row=>normalizedSaleRole(row)==='NORMAL'?'NORMAL':String(row.bundleGroupNo||'')
@@ -609,13 +633,15 @@ const nextBundleGroupNo=()=>Math.max(0,...form.items.map(item=>Number(item.bundl
 function productChanged(row){
   const product=productOf(row)
   if(!product)return
+  if(form.docType==='SAMPLE_IN'&&product.productType!=='SAMPLE'){proxy.$modal.msgWarning('样品入库只能选择样品商品');row.productId=null;return}
   if(normalizedSaleRole(row)==='ADDON'&&product.productType==='FINISHED'){proxy.$modal.msgWarning('搭售商品不能选择成品商品');row.productId=null;return}
   if(normalizedSaleRole(row)==='MAIN'&&product.productType!=='FINISHED'){proxy.$modal.msgWarning('销售组合主商品必须选择成品商品');row.productId=null;return}
-  const duplicate=form.items.some(item=>item!==row&&item.productId===row.productId&&(form.docType!=='SALES_OUT'||saleGroupKey(item)===saleGroupKey(row)))
-  if(duplicate){proxy.$modal.msgWarning(form.docType==='SALES_OUT'?'同一销售组合中不能重复选择同一商品':'同一商品不能重复，请直接修改已有行的数量');row.productId=null;return}
+  const duplicate=form.items.some(item=>item!==row&&item.productId===row.productId&&(form.docType==='SAMPLE_IN'?Boolean(item.bizDate&&row.bizDate&&item.bizDate===row.bizDate&&item.supplierId&&row.supplierId&&item.supplierId===row.supplierId&&item.sampleGoodsNo&&row.sampleGoodsNo&&item.sampleGoodsNo.trim()===row.sampleGoodsNo.trim()):form.docType!=='SALES_OUT'||saleGroupKey(item)===saleGroupKey(row)))
+  if(duplicate){proxy.$modal.msgWarning(form.docType==='SALES_OUT'?'同一销售组合中不能重复选择同一商品':form.docType==='SAMPLE_IN'?'同一商品、日期、供应商和货号不能重复，请合并数量':'同一商品不能重复，请直接修改已有行的数量');row.productId=null;return}
   row.productTypeSnapshot=product.productType||''
   row.specificationSnapshot=product.specification||''
   row.unitCost=Number(product.avgCost||0)
+  if(form.docType==='SAMPLE_IN')row.unitCost=0
   row.systemQty=Number(product.onHandQty||0)
   row.countedQty=Number(product.onHandQty||0)
   if(form.docType==='COST_ADJUST'){
@@ -680,7 +706,7 @@ async function handleImportFile(uploadFile){
   importCompression.value=null
   try{
     let importFile=uploadFile.raw
-    if(form.docType==='PURCHASE_IN'&&String(importFile.name||'').toLowerCase().endsWith('.xlsx')){
+    if(['PURCHASE_IN','SAMPLE_IN'].includes(form.docType)&&String(importFile.name||'').toLowerCase().endsWith('.xlsx')){
       importProgress.active=true
       importProgress.percentage=0
       importProgress.text='准备压缩'
@@ -729,8 +755,8 @@ async function applyImportRows(){
       const product=productMap.get(String(row.sku||'').trim().toUpperCase())
       if(!product)throw new Error(`SKU ${row.sku} 导入后未找到商品档案`)
       item.productId=product.productId
-      item.imageUrls=row.imageUrls||row.imageUrl||product.imageUrls||product.imageUrl||''
-      item.unitCost=Number(product.avgCost||0)
+      item.imageUrls=form.docType==='SAMPLE_IN'?(row.imageUrls||row.imageUrl||''):(row.imageUrls||row.imageUrl||product.imageUrls||product.imageUrl||'')
+      item.unitCost=form.docType==='SAMPLE_IN'?0:Number(product.avgCost||0)
       item.systemQty=Number(product.onHandQty||0)
       item.countedQty=Number(product.onHandQty||0)
       item.packFee=Number(product.defaultPackFee||0)
@@ -742,6 +768,15 @@ async function applyImportRows(){
       }else{
         item.qty=Number(row.qty||0)
         item.unitPrice=Number(row.unitPrice||0)
+        if(form.docType==='SAMPLE_IN'){
+          item.sampleGoodsNo=row.sampleGoodsNo||''
+          item.bizDate=row.bizDate||null
+          item.supplierId=row.supplierId||null
+          item.supplierNameSnapshot=row.supplierNameSnapshot||''
+          item.packFee=0
+          item.shipFee=0
+          item.certFee=0
+        }
         if(form.docType==='SALES_OUT'){
           item.packFee=Number(row.packFee||0)
           item.shipFee=Number(row.shipFee||0)
@@ -761,6 +796,21 @@ function removeImportPreviewRow(index){
   const rows=[...(importPreview.value.rows||[])]
   if(index<0||index>=rows.length)return
   rows.splice(index,1)
+  if(form.docType==='SAMPLE_IN'){
+    const duplicateMessage='同一商品、业务日期、供应商和货号重复，请合并数量'
+    const counts=new Map()
+    const keyOf=row=>row.productId&&row.bizDate&&row.supplierId&&row.sampleGoodsNo
+      ?`${row.productId}:${row.bizDate}:${row.supplierId}:${row.sampleGoodsNo.trim()}`:null
+    rows.forEach(row=>{const key=keyOf(row);if(key)counts.set(key,(counts.get(key)||0)+1)})
+    rows.forEach(row=>{
+      const errors=String(row.errorMessage||'').split('；').filter(message=>message&&message!==duplicateMessage)
+      const key=keyOf(row)
+      if(key&&counts.get(key)>1)errors.push(duplicateMessage)
+      row.errorMessage=errors.join('；')
+      row.valid=!errors.length
+      row.status=row.valid?'VALID':'ERROR'
+    })
+  }
   importPreview.value={
     ...importPreview.value,
     rows,
@@ -883,8 +933,13 @@ async function inspectionSourceChanged(id){
   try{await loadInspectionSource(id,false)}catch(error){form.sourceDocumentId=null;form.items=[blankItem()];proxy.$modal.msgError(error?.message||'加载客户退货单失败')}
 }
 function actualRefundTotalChanged(){actualRefundManuallyEdited.value=true}
-async function typeChanged(){form.sourceWarehouse='';form.targetWarehouse='';form.supplierReturnDate=null;actualRefundManuallyEdited.value=false;form.items=[blankItem()];form.supplierId=null;form.supplierNameSnapshot='';form.salesChannel='';form.influencerId=null;form.influencerName='';influencerProductPrices.value=[];form.influencerPriceSnapshot=null;form.influencerPriceVersion=0;form.platformRate=0;form.commissionRate=0;form.taxRate=0;form.returnReason='';form.sourceDocumentId=null;form.sourceDocNo='';form.unlinkedReason='';form.actualRefundAmount=null;purchaseDocuments.value=[];importPreview.value={};importCompression.value=null;if(form.docType==='COST_ADJUST')await reloadProducts('COST_ADJUST')}
+async function typeChanged(){form.sourceWarehouse='';form.targetWarehouse='';form.supplierReturnDate=null;actualRefundManuallyEdited.value=false;form.items=[blankItem()];form.supplierId=null;form.supplierNameSnapshot='';form.salesChannel='';form.influencerId=null;form.influencerName='';influencerProductPrices.value=[];form.influencerPriceSnapshot=null;form.influencerPriceVersion=0;form.platformRate=0;form.commissionRate=0;form.taxRate=0;form.returnReason='';form.sourceDocumentId=null;form.sourceDocNo='';form.unlinkedReason='';form.actualRefundAmount=null;purchaseDocuments.value=[];importPreview.value={};importCompression.value=null;await reloadProducts(form.docType==='COST_ADJUST'?'COST_ADJUST':undefined)}
 function validateDocument(requireSubmit=false){
+  if(form.docType==='SAMPLE_IN'&&form.items.some(x=>productOf(x)?.productType!=='SAMPLE')){proxy.$modal.msgError('样品入库只能选择样品商品');return false}
+  if(form.docType==='SAMPLE_IN'&&form.items.some(x=>!x.bizDate)){proxy.$modal.msgError('请填写每行样品商品的业务日期');return false}
+  if(form.docType==='SAMPLE_IN'&&form.items.some(x=>!x.supplierId)){proxy.$modal.msgError('请填写每行样品商品的供应商');return false}
+  if(form.docType==='SAMPLE_IN'&&form.items.some(x=>!x.sampleGoodsNo?.trim())){proxy.$modal.msgError('请填写每行样品商品的货号');return false}
+  if(form.docType==='SAMPLE_IN'&&new Set(form.items.map(x=>`${x.productId}:${x.bizDate}:${x.supplierId}:${x.sampleGoodsNo.trim()}`)).size!==form.items.length){proxy.$modal.msgError('同一商品、业务日期、供应商和货号不能重复，请合并数量');return false}
   if(isTransfer(form)){
     if(!form.sourceWarehouse?.trim()||!form.targetWarehouse?.trim()){proxy.$modal.msgError('请填写出库仓库和入库仓库');return false}
     if(form.sourceWarehouse.trim().toLowerCase()===form.targetWarehouse.trim().toLowerCase()){proxy.$modal.msgError('出库仓库与入库仓库不能相同');return false}

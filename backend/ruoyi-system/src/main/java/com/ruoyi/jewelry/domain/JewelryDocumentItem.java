@@ -1,6 +1,8 @@
 package com.ruoyi.jewelry.domain;
 
 import java.math.BigDecimal;
+import java.util.Date;
+import com.fasterxml.jackson.annotation.JsonFormat;
 
 public class JewelryDocumentItem
 {
@@ -17,6 +19,11 @@ public class JewelryDocumentItem
     private String productTypeSnapshot;
     private String specificationSnapshot;
     private String imageUrls;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private Date bizDate;
+    private Long supplierId;
+    private String supplierNameSnapshot;
+    private String sampleGoodsNo;
     private Integer qty;
     private Integer goodQty;
     private Integer defectQty;
@@ -68,6 +75,14 @@ public class JewelryDocumentItem
     public void setSpecificationSnapshot(String specificationSnapshot) { this.specificationSnapshot = specificationSnapshot; }
     public String getImageUrls() { return imageUrls; }
     public void setImageUrls(String imageUrls) { this.imageUrls = imageUrls; }
+    public Date getBizDate() { return bizDate; }
+    public void setBizDate(Date bizDate) { this.bizDate = bizDate; }
+    public Long getSupplierId() { return supplierId; }
+    public void setSupplierId(Long supplierId) { this.supplierId = supplierId; }
+    public String getSupplierNameSnapshot() { return supplierNameSnapshot; }
+    public void setSupplierNameSnapshot(String supplierNameSnapshot) { this.supplierNameSnapshot = supplierNameSnapshot; }
+    public String getSampleGoodsNo() { return sampleGoodsNo; }
+    public void setSampleGoodsNo(String sampleGoodsNo) { this.sampleGoodsNo = sampleGoodsNo; }
     public Integer getQty() { return qty; }
     public void setQty(Integer qty) { this.qty = qty; }
     public Integer getGoodQty() { return goodQty; }

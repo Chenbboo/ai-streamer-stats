@@ -29,7 +29,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
 {
     private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(6);
     private static final Set<String> EDITABLE_DOCUMENT_TYPES = Collections.unmodifiableSet(
-        new HashSet<String>(Arrays.asList("PURCHASE_IN", "SALES_OUT", "SUPPLIER_RETURN",
+        new HashSet<String>(Arrays.asList("PURCHASE_IN", "SAMPLE_IN", "SALES_OUT", "SUPPLIER_RETURN",
             "CUSTOMER_RETURN", "RETURN_INSPECT", "STOCK_ADJUST", "COST_ADJUST", "ASSEMBLY", "TRANSFER_OUT")));
     private static final Set<String> PRODUCT_TYPES = Collections.unmodifiableSet(
         new HashSet<String>(Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE", "SAMPLE")));
@@ -548,7 +548,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         syncPendingInfluencerProductPrices(document, userName);
         for (JewelryDocumentItem item : document.getItems())
         {
-            if ("PURCHASE_IN".equals(document.getDocType()))
+            if ("PURCHASE_IN".equals(document.getDocType()) || "SAMPLE_IN".equals(document.getDocType()))
             {
                 item.setImageUrls(singleImage(item.getImageUrls()));
             }
@@ -731,7 +731,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         reversal.setSourceDocumentId(sourceDocumentId);
         reversal.setTotalQty(-nonNegative(source.getTotalQty()));
         int reversalAmountScale = isFourDecimalTransactionAmount(source.getDocType()) ? 4 : 2;
-        int reversalCostScale = "PURCHASE_IN".equals(source.getDocType()) ? 4 : 2;
+        int reversalCostScale = isInboundReceipt(source.getDocType()) ? 4 : 2;
         reversal.setTotalAmount(money(source.getTotalAmount()).negate()
             .setScale(reversalAmountScale, RoundingMode.HALF_UP));
         reversal.setTotalCost(money(source.getTotalCost()).negate()
@@ -824,7 +824,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         {
             validateCostAdjustmentSnapshot(document);
         }
-        if ("PURCHASE_IN".equals(document.getDocType()) || isCostChangeDocument(document))
+        if (isInboundReceipt(document.getDocType()) || isCostChangeDocument(document))
         {
             validateCostChangeConflicts(document);
         }
@@ -890,7 +890,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             if ("STOCK_ADJUST".equals(document.getDocType()))
                 applyStockAdjustmentCostOverrides(document, stockAdjustmentCosts, userId, userName);
         }
-        else if ("PURCHASE_IN".equals(document.getDocType()))
+        else if (isInboundReceipt(document.getDocType()))
         {
             validateCostChangeConflicts(document);
         }
@@ -1030,6 +1030,27 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             document.setSourceWarehouse(null);
             document.setTargetWarehouse(null);
         }
+        if ("SAMPLE_IN".equals(document.getDocType()))
+        {
+            document.setSupplierId(null);
+            document.setSupplierNameSnapshot(null);
+            document.setSourceDocumentId(null);
+            document.setExternalNo(null);
+            document.setRemark(null);
+            document.setReturnReason(null);
+            document.setSalesChannel(null);
+            document.setInfluencerId(null);
+            document.setInfluencerName(null);
+            document.setInfluencerPriceSnapshot(null);
+            document.setInfluencerPriceVersion(null);
+            document.setActualRefundAmount(null);
+            document.setPlatformRate(ZERO);
+            document.setCommissionRate(ZERO);
+            document.setTaxRate(ZERO);
+            document.setLaborFee(ZERO);
+            document.setProcessingFee(ZERO);
+            document.setOtherFee(ZERO);
+        }
         if ("PURCHASE_IN".equals(document.getDocType()) && document.getSupplierReturnDate() != null)
         {
             SimpleDateFormat dayFormat = new SimpleDateFormat("yyyy-MM-dd");
@@ -1103,6 +1124,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         }
         Map<Integer, Integer> salesMainCounts = new HashMap<Integer, Integer>();
         Map<Integer, Integer> salesAddonCounts = new HashMap<Integer, Integer>();
+        Date earliestSampleDate = null;
+        SimpleDateFormat sampleDayFormat = new SimpleDateFormat("yyyy-MM-dd");
+        sampleDayFormat.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Shanghai"));
         int assemblyOutputs = 0;
         int assemblyComponents = 0;
         for (JewelryDocumentItem item : document.getItems())
@@ -1117,6 +1141,44 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             item.setProductNameSnapshot(String.valueOf(product.get("productName")));
             item.setProductTypeSnapshot(textValue(product.get("productType")));
             item.setSpecificationSnapshot(textValue(product.get("specification")));
+            if ("SAMPLE_IN".equals(document.getDocType()))
+            {
+                if (!"SAMPLE".equals(item.getProductTypeSnapshot()))
+                    throw new ServiceException("样品入库只能选择样品商品");
+                if (item.getBizDate() == null)
+                    throw new ServiceException("请填写每行样品商品的业务日期");
+                if (item.getSupplierId() == null)
+                    throw new ServiceException("请填写每行样品商品的供应商");
+                String sampleGoodsNo = text(item.getSampleGoodsNo()).trim();
+                if (sampleGoodsNo.isEmpty()) throw new ServiceException("请填写每行样品商品的货号");
+                if (sampleGoodsNo.length() > 64) throw new ServiceException("样品货号不能超过64个字符");
+                item.setSampleGoodsNo(sampleGoodsNo);
+                Map<String, Object> sampleSupplier = mapper.selectSupplierById(item.getSupplierId());
+                if (sampleSupplier == null || !"0".equals(textValue(sampleSupplier.get("status"))))
+                    throw new ServiceException("样品入库供应商不存在或已停用");
+                item.setSupplierNameSnapshot(textValue(sampleSupplier.get("supplierName")));
+                if (earliestSampleDate == null || item.getBizDate().before(earliestSampleDate))
+                    earliestSampleDate = item.getBizDate();
+                item.setItemRole("NORMAL");
+                item.setSourceItemId(null);
+                item.setInfluencerPriceSnapshot(null);
+                item.setInfluencerPriceVersion(null);
+                item.setUnitPrice(ZERO);
+                item.setUnitCost(ZERO);
+                item.setSourceUnitPrice(ZERO);
+                item.setGoodQty(0);
+                item.setDefectQty(0);
+                item.setAdjustmentQty(0);
+                item.setLineReason(null);
+                clearNonSalesFees(item);
+            }
+            else
+            {
+                item.setBizDate(null);
+                item.setSupplierId(null);
+                item.setSupplierNameSnapshot(null);
+                item.setSampleGoodsNo(null);
+            }
             if (item.getItemRole() == null || item.getItemRole().trim().isEmpty()) item.setItemRole("NORMAL");
             if (!"SALES_OUT".equals(document.getDocType()) && !"CUSTOMER_RETURN".equals(document.getDocType()))
             {
@@ -1133,9 +1195,13 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             }
             else if (!"CUSTOMER_RETURN".equals(document.getDocType())
                 && !"RETURN_INSPECT".equals(document.getDocType())
-                && !itemKeys.add(String.valueOf(item.getProductId())))
+                && !itemKeys.add("SAMPLE_IN".equals(document.getDocType())
+                    ? item.getProductId() + ":" + sampleDayFormat.format(item.getBizDate()) + ":" + item.getSupplierId() + ":" + item.getSampleGoodsNo()
+                    : String.valueOf(item.getProductId())))
             {
-                throw new ServiceException("同一商品不能在一张单据中重复出现");
+                throw new ServiceException("SAMPLE_IN".equals(document.getDocType())
+                    ? "同一商品、业务日期、供应商和货号不能在样品入库单中重复出现"
+                    : "同一商品不能在一张单据中重复出现");
             }
             if ("ASSEMBLY".equals(document.getDocType()))
             {
@@ -1326,6 +1392,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             if (!"RETURN_INSPECT".equals(document.getDocType()) && !"STOCK_ADJUST".equals(document.getDocType())
                 && item.getQty() <= 0) throw new ServiceException("商品数量必须大于0");
         }
+        if ("SAMPLE_IN".equals(document.getDocType())) document.setBizDate(earliestSampleDate);
         if ("SALES_OUT".equals(document.getDocType()))
         {
             validateSalesBundleGroups(salesMainCounts, salesAddonCounts);
@@ -1493,7 +1560,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         for (JewelryDocumentItem item : document.getItems())
         {
             int qty = effectiveQty(document.getDocType(), item);
-            boolean purchase = "PURCHASE_IN".equals(document.getDocType());
+            boolean purchase = isInboundReceipt(document.getDocType());
             boolean fourDecimalUnitPrice = isFourDecimalTransactionAmount(document.getDocType());
             BigDecimal price = fourDecimalUnitPrice
                 ? money(item.getUnitPrice()).setScale(4, RoundingMode.HALF_UP)
@@ -1532,7 +1599,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 otherFee2 = ZERO;
                 otherFee3 = ZERO;
             }
-            if ("PURCHASE_IN".equals(document.getDocType()))
+            if (purchase)
             {
                 cost = price;
             }
@@ -1615,7 +1682,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         }
         document.setPlatformRate(platformRate); document.setCommissionRate(commissionRate); document.setTaxRate(taxRate);
         int totalAmountScale = isFourDecimalTransactionAmount(document.getDocType()) ? 4 : 2;
-        int totalCostScale = "PURCHASE_IN".equals(document.getDocType()) ? 4 : 2;
+        int totalCostScale = isInboundReceipt(document.getDocType()) ? 4 : 2;
         document.setTotalQty(totalQty);
         document.setTotalAmount(totalAmount.setScale(totalAmountScale, RoundingMode.HALF_UP));
         document.setTotalCost(totalCost.setScale(totalCostScale, RoundingMode.HALF_UP));
@@ -1911,7 +1978,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         for (JewelryDocumentItem item : reversal.getItems())
         {
             int rows = 1;
-            if ("PURCHASE_IN".equals(source.getDocType()))
+            if (isInboundReceipt(source.getDocType()))
                 rows = mapper.reserveOutbound(item.getProductId(), item.getQty());
             else if ("CUSTOMER_RETURN".equals(source.getDocType()))
                 rows = mapper.reserveInspection(item.getProductId(), item.getQty());
@@ -1935,7 +2002,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         for (JewelryDocumentItem item : reversal.getItems())
         {
             int rows = 1;
-            if ("PURCHASE_IN".equals(source.getDocType()))
+            if (isInboundReceipt(source.getDocType()))
                 rows = mapper.releaseOutbound(item.getProductId(), item.getQty());
             else if ("CUSTOMER_RETURN".equals(source.getDocType()))
                 rows = mapper.releaseInspection(item.getProductId(), item.getQty());
@@ -1987,7 +2054,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             BigDecimal inspectionCost = decimal(stock.get("inspectionCostAmount"));
             BigDecimal defectCost = decimal(stock.get("defectCostAmount"));
             int qty = item.getQty();
-            if ("PURCHASE_IN".equals(document.getDocType()))
+            if (isInboundReceipt(document.getDocType()))
             {
                 BigDecimal purchaseCost = money(item.getUnitPrice());
                 BigDecimal incomingCost = purchaseCost.multiply(BigDecimal.valueOf(qty));
@@ -2163,7 +2230,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         }
         document.setTotalQty(totalQty);
         int amountScale = isFourDecimalTransactionAmount(document.getDocType()) ? 4 : 2;
-        int costScale = "PURCHASE_IN".equals(document.getDocType()) ? 4 : 2;
+        int costScale = isInboundReceipt(document.getDocType()) ? 4 : 2;
         document.setTotalAmount(totalAmount.setScale(amountScale, RoundingMode.HALF_UP));
         document.setTotalCost(totalCost.setScale(costScale, RoundingMode.HALF_UP));
         document.setTotalProfit(totalProfit.setScale(2, RoundingMode.HALF_UP));
@@ -2325,7 +2392,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             BigDecimal originalUnitCost = money(item.getUnitCost());
             String sourceType = source.getDocType();
 
-            if ("PURCHASE_IN".equals(sourceType))
+            if (isInboundReceipt(sourceType))
             {
                 int qty = item.getQty();
                 onHand -= qty;
@@ -2569,15 +2636,15 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             for (JewelryDocumentItem candidate : document.getItems())
                 if (productId.equals(candidate.getProductId())) { item = candidate; break; }
             String productName = item == null ? "该商品" : item.getProductNameSnapshot();
-            if ("PURCHASE_IN".equals(document.getDocType()))
+            if (isInboundReceipt(document.getDocType()))
             {
                 if (mapper.countPendingCostChangesByProduct(productId) > 0)
-                    throw new ServiceException(productName + " 正在进行库存成本调价，采购入库暂不能提交或入账");
+                    throw new ServiceException(productName + " 正在进行库存成本调价，入库暂不能提交或入账");
             }
             else if (isCostChangeDocument(document)
                 && mapper.countPendingPurchasesByProduct(productId) > 0)
             {
-                throw new ServiceException(productName + " 存在待审核采购入库单，请先完成或撤回采购单");
+                throw new ServiceException(productName + " 存在待审核入库单，请先完成或撤回入库单");
             }
         }
     }
@@ -2684,6 +2751,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         item.setProductTypeSnapshot(source.getProductTypeSnapshot());
         item.setSpecificationSnapshot(source.getSpecificationSnapshot());
         item.setImageUrls(source.getImageUrls());
+        item.setBizDate(source.getBizDate());
+        item.setSupplierId(source.getSupplierId());
+        item.setSupplierNameSnapshot(source.getSupplierNameSnapshot());
+        item.setSampleGoodsNo(source.getSampleGoodsNo());
         item.setQty(source.getQty());
         item.setGoodQty(source.getGoodQty());
         item.setDefectQty(source.getDefectQty());
@@ -2701,7 +2772,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         item.setOtherFee2(source.getOtherFee2());
         item.setOtherFee3(source.getOtherFee3());
         int amountScale = isFourDecimalTransactionAmount(sourceDocType) ? 4 : 2;
-        int costScale = "PURCHASE_IN".equals(sourceDocType) ? 4 : 2;
+        int costScale = isInboundReceipt(sourceDocType) ? 4 : 2;
         item.setAmount(money(source.getAmount()).negate().setScale(amountScale, RoundingMode.HALF_UP));
         item.setCostAmount(money(source.getCostAmount()).negate().setScale(costScale, RoundingMode.HALF_UP));
         item.setProfitAmount(money(source.getProfitAmount()).negate().setScale(2, RoundingMode.HALF_UP));
@@ -2749,6 +2820,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     {
         String prefix;
         if ("PURCHASE_IN".equals(type)) prefix = "RK";
+        else if ("SAMPLE_IN".equals(type)) prefix = "YP";
         else if ("SALES_OUT".equals(type)) prefix = "CK";
         else if ("TRANSFER_OUT".equals(type)) prefix = "DH";
         else if ("SUPPLIER_RETURN".equals(type)) prefix = "TG";
@@ -2835,6 +2907,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     }
 
     private boolean isOutbound(String type) { return "SALES_OUT".equals(type) || "SUPPLIER_RETURN".equals(type) || "TRANSFER_OUT".equals(type); }
+    private boolean isInboundReceipt(String type) { return "PURCHASE_IN".equals(type) || "SAMPLE_IN".equals(type); }
     private boolean isFourDecimalTransactionAmount(String type)
     {
         return "PURCHASE_IN".equals(type) || "SUPPLIER_RETURN".equals(type)

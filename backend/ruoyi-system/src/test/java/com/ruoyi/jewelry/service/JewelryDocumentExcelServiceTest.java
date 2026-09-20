@@ -46,6 +46,8 @@ class JewelryDocumentExcelServiceTest
         "商品类型（新商品必填）", "分类", "规格类型（新商品必填）", "单位", "数量", "采购单价", "商品图片" };
     private static final String[] SALES_HEADERS = new String[] { "SKU", "数量", "成交单价", "包装费/件",
         "物流费/件", "鉴定费/件", "其他1/件", "其他2/件", "其他3/件" };
+    private static final String[] SAMPLE_HEADERS = new String[] { "货号", "SKU", "业务日期",
+        "供应商编码或名称", "数量", "商品图片" };
     private static final byte[] PNG = Base64.getDecoder().decode(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
 
@@ -155,6 +157,101 @@ class JewelryDocumentExcelServiceTest
             assertEquals(16 * 256, sheet.getColumnWidth(8));
             assertEquals(HorizontalAlignment.RIGHT, sheet.getRow(1).getCell(8).getCellStyle().getAlignment());
         }
+    }
+
+    @Test
+    void sampleTemplateHasPerLineFieldsAndTextGoodsNumber() throws Exception
+    {
+        try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(service.createTemplate("SAMPLE_IN"))))
+        {
+            XSSFSheet sheet = workbook.getSheet("导入数据");
+            for (int i = 0; i < SAMPLE_HEADERS.length; i++)
+                assertEquals(SAMPLE_HEADERS[i], sheet.getRow(0).getCell(i).getStringCellValue());
+            assertEquals("@", sheet.getRow(1).getCell(0).getCellStyle().getDataFormatString());
+            assertEquals("@", sheet.getRow(1).getCell(1).getCellStyle().getDataFormatString());
+            assertEquals("yyyy-mm-dd", sheet.getRow(1).getCell(2).getCellStyle().getDataFormatString());
+            assertEquals(36f, sheet.getRow(1).getHeightInPoints(), 0.1f);
+            assertEquals("样品入库模板填写说明",
+                workbook.getSheet("填写说明").getRow(0).getCell(0).getStringCellValue());
+        }
+    }
+
+    @Test
+    void samplePreviewMapsGoodsDateSupplierAndZeroCostWithoutImage() throws Exception
+    {
+        Map<String, Object> sample = product("SAMPLE-1", 2, 0);
+        sample.put("productType", "SAMPLE");
+        when(mapper.selectProductList(any())).thenReturn(Collections.singletonList(sample));
+        when(mapper.selectSupplierList(any())).thenReturn(Collections.singletonList(supplier()));
+
+        Map<String, Object> result = service.preview("SAMPLE_IN", workbook(SAMPLE_HEADERS,
+            new Object[] { "0007", "SAMPLE-1", "2026-09-20", "SUP-1", 2, "" },
+            new Object[] { "0008", "SAMPLE-1", "2026/9/21", "测试供应商", 3, "" }), false);
+
+        assertEquals(2, result.get("validCount"));
+        assertEquals(0, result.get("errorCount"));
+        assertEquals("0007", rows(result).get(0).get("sampleGoodsNo"));
+        assertEquals("2026-09-20", rows(result).get(0).get("bizDate"));
+        assertEquals("2026-09-21", rows(result).get(1).get("bizDate"));
+        assertEquals(9L, rows(result).get(0).get("supplierId"));
+        assertEquals("测试供应商", rows(result).get(1).get("supplierNameSnapshot"));
+        assertEquals(BigDecimal.ZERO, rows(result).get(0).get("unitPrice"));
+        assertFalse(rows(result).get(0).containsKey("imageUrl"));
+    }
+
+    @Test
+    void samplePreviewRejectsDuplicateCompositeAndWrongProductType() throws Exception
+    {
+        Map<String, Object> sample = product("SAMPLE-1", 2, 0);
+        sample.put("productType", "SAMPLE");
+        Map<String, Object> finished = product("FINISHED-1", 2, 0);
+        finished.put("productId", 2L);
+        when(mapper.selectProductList(any())).thenReturn(java.util.Arrays.asList(sample, finished));
+        when(mapper.selectSupplierList(any())).thenReturn(Collections.singletonList(supplier()));
+
+        Map<String, Object> result = service.preview("SAMPLE_IN", workbook(SAMPLE_HEADERS,
+            new Object[] { "G-1", "SAMPLE-1", "2026-09-20", "SUP-1", 1, "" },
+            new Object[] { "G-1", "SAMPLE-1", "2026-09-20", "测试供应商", 2, "" },
+            new Object[] { "G-2", "FINISHED-1", "2026-09-20", "SUP-1", 1, "" }), false);
+
+        assertEquals(3, result.get("errorCount"));
+        assertTrue(String.valueOf(rows(result).get(0).get("errorMessage")).contains("重复"));
+        assertTrue(String.valueOf(rows(result).get(1).get("errorMessage")).contains("重复"));
+        assertTrue(String.valueOf(rows(result).get(2).get("errorMessage")).contains("只能选择样品商品"));
+    }
+
+    @Test
+    void samplePreviewRejectsUnknownSupplierAndInvalidDate() throws Exception
+    {
+        Map<String, Object> sample = product("SAMPLE-1", 2, 0);
+        sample.put("productType", "SAMPLE");
+        when(mapper.selectProductList(any())).thenReturn(Collections.singletonList(sample));
+        when(mapper.selectSupplierList(any())).thenReturn(Collections.singletonList(supplier()));
+
+        Map<String, Object> result = service.preview("SAMPLE_IN", workbook(SAMPLE_HEADERS,
+            new Object[] { "G-1", "SAMPLE-1", "2026-13-40", "不存在", 0, "" }), false);
+
+        assertEquals(1, result.get("errorCount"));
+        String errors = String.valueOf(rows(result).get(0).get("errorMessage"));
+        assertTrue(errors.contains("业务日期格式"));
+        assertTrue(errors.contains("供应商不存在"));
+        assertTrue(errors.contains("数量必须是正整数"));
+    }
+
+    @Test
+    void samplePreviewStoresOptionalEmbeddedImage() throws Exception
+    {
+        Map<String, Object> sample = product("SAMPLE-1", 2, 0);
+        sample.put("productType", "SAMPLE");
+        when(mapper.selectProductList(any())).thenReturn(Collections.singletonList(sample));
+        when(mapper.selectSupplierList(any())).thenReturn(Collections.singletonList(supplier()));
+        new RuoYiConfig().setProfile(tempDir.toString());
+
+        Map<String, Object> result = service.preview("SAMPLE_IN", imageWorkbook(SAMPLE_HEADERS,
+            new Object[] { "G-1", "SAMPLE-1", "2026-09-20", "SUP-1", 1, "" }, 5, PNG), false);
+
+        assertEquals(0, result.get("errorCount"));
+        assertTrue(String.valueOf(rows(result).get(0).get("imageUrl")).startsWith("/profile/jewelry/import/"));
     }
 
     @Test
@@ -280,11 +377,17 @@ class JewelryDocumentExcelServiceTest
 
     private ByteArrayInputStream purchaseWorkbookWithImage(Object[] values, byte[] image) throws Exception
     {
+        return imageWorkbook(PURCHASE_HEADERS, values, 8, image);
+    }
+
+    private ByteArrayInputStream imageWorkbook(String[] headers, Object[] values, int imageColumn,
+        byte[] image) throws Exception
+    {
         try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream())
         {
             XSSFSheet sheet = workbook.createSheet("导入数据");
             Row header = sheet.createRow(0);
-            for (int i = 0; i < PURCHASE_HEADERS.length; i++) header.createCell(i).setCellValue(PURCHASE_HEADERS[i]);
+            for (int i = 0; i < headers.length; i++) header.createCell(i).setCellValue(headers[i]);
             Row row = sheet.createRow(1);
             for (int column = 0; column < values.length; column++)
             {
@@ -295,9 +398,9 @@ class JewelryDocumentExcelServiceTest
             int pictureId = workbook.addPicture(image, Workbook.PICTURE_TYPE_PNG);
             XSSFDrawing drawing = sheet.createDrawingPatriarch();
             XSSFClientAnchor anchor = new XSSFClientAnchor();
-            anchor.setCol1(8);
+            anchor.setCol1(imageColumn);
             anchor.setRow1(1);
-            anchor.setCol2(9);
+            anchor.setCol2(imageColumn + 1);
             anchor.setRow2(2);
             drawing.createPicture(anchor, pictureId);
             workbook.write(output);
@@ -328,6 +431,15 @@ class JewelryDocumentExcelServiceTest
         product.put("reservedOutQty", reservedOutQty);
         product.put("avgCost", new BigDecimal("100.00"));
         return product;
+    }
+
+    private Map<String, Object> supplier()
+    {
+        Map<String, Object> supplier = new HashMap<String, Object>();
+        supplier.put("supplierId", 9L);
+        supplier.put("supplierCode", "SUP-1");
+        supplier.put("supplierName", "测试供应商");
+        return supplier;
     }
 
     @SuppressWarnings("unchecked")

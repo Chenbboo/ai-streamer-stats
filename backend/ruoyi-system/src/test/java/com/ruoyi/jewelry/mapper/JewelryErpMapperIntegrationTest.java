@@ -915,17 +915,19 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
-    void pendingCostAdjustmentAndPurchaseQueriesAreScopedBySku()
+    void pendingCostAdjustmentAndInboundQueriesAreScopedBySku()
     {
         insertDocument(1L, "COST-PENDING", "COST_ADJUST", "PENDING_FIRST", null);
         insertDocument(2L, "COST-POSTED", "COST_ADJUST", "POSTED", null);
         insertDocument(3L, "COST-REVERSAL", "REVERSAL", "PENDING_SECOND", 2L);
         insertDocument(4L, "PURCHASE-PENDING", "PURCHASE_IN", "PENDING_FIRST", null);
         insertDocument(5L, "COST-DRAFT", "COST_ADJUST", "DRAFT", null);
+        insertDocument(6L, "SAMPLE-PENDING", "SAMPLE_IN", "PENDING_FIRST", null);
         insertItem(101L, 1L, null, 10L, 1);
         insertItem(102L, 3L, null, 11L, 1);
         insertItem(103L, 4L, null, 12L, 1);
         insertItem(104L, 5L, null, 13L, 1);
+        insertItem(105L, 6L, null, 14L, 1);
 
         try (SqlSession session = sqlSessionFactory.openSession())
         {
@@ -934,8 +936,42 @@ class JewelryErpMapperIntegrationTest
             assertEquals(1, mapper.countPendingCostChangesByProduct(11L));
             assertEquals(0, mapper.countPendingCostChangesByProduct(13L));
             assertEquals(1, mapper.countPendingPurchasesByProduct(12L));
+            assertEquals(1, mapper.countPendingPurchasesByProduct(14L));
             assertEquals(0, mapper.countPendingPurchasesByProduct(10L));
             assertEquals("COST_ADJUST", mapper.selectDocumentById(3L).getSourceDocType());
+        }
+    }
+
+    @Test
+    void sampleItemBusinessDatePersistsIndependentlyOfDocumentDate()
+    {
+        insertDocument(70L, "SAMPLE-DRAFT", "SAMPLE_IN", "DRAFT", null);
+        insertItem(701L, 70L, null, 10L, 1);
+
+        try (SqlSession session = sqlSessionFactory.openSession(false))
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            JewelryDocumentItem item = mapper.selectDocumentItems(70L).get(0);
+            item.setItemId(null);
+            item.setBizDate(java.sql.Date.valueOf("2026-09-18"));
+            item.setSupplierId(11L);
+            item.setSupplierNameSnapshot("供应商甲");
+            item.setSampleGoodsNo("YP-001");
+            item.setImageUrls("/profile/upload/sample.jpg");
+            mapper.insertDocumentItem(item);
+            session.commit();
+        }
+
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            List<JewelryDocumentItem> items = mapper.selectDocumentItems(70L);
+            assertEquals(null, items.get(0).getBizDate());
+            assertEquals(java.sql.Date.valueOf("2026-09-18"), items.get(1).getBizDate());
+            assertEquals(11L, items.get(1).getSupplierId());
+            assertEquals("供应商甲", items.get(1).getSupplierNameSnapshot());
+            assertEquals("YP-001", items.get(1).getSampleGoodsNo());
+            assertEquals("/profile/upload/sample.jpg", items.get(1).getImageUrls());
         }
     }
 
@@ -1237,7 +1273,8 @@ class JewelryErpMapperIntegrationTest
             + "item_role varchar(16) not null default 'NORMAL',source_item_id bigint,bundle_group_no int,"
             + "sale_role varchar(16) not null default 'NORMAL',pricing_mode varchar(16) not null default 'SEPARATE',"
             + "sku_snapshot varchar(64) not null,product_name_snapshot varchar(128) not null,"
-            + "product_type_snapshot varchar(16),specification_snapshot varchar(16),image_urls varchar(1000),"
+            + "product_type_snapshot varchar(16),specification_snapshot varchar(16),image_urls varchar(1000),biz_date date,"
+            + "supplier_id bigint,supplier_name_snapshot varchar(128),sample_goods_no varchar(64),"
             + "qty int not null default 0,good_qty int not null default 0,defect_qty int not null default 0,"
             + "system_qty int,counted_qty int,adjustment_qty int not null default 0,"
             + "unit_price decimal(18,6) not null default 0,influencer_price_snapshot decimal(18,4),"

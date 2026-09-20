@@ -62,6 +62,10 @@
         <result property="productTypeSnapshot" column="product_type_snapshot"/>
         <result property="specificationSnapshot" column="specification_snapshot"/>
         <result property="imageUrls" column="image_urls"/>
+        <result property="bizDate" column="biz_date"/>
+        <result property="supplierId" column="supplier_id"/>
+        <result property="supplierNameSnapshot" column="supplier_name_snapshot"/>
+        <result property="sampleGoodsNo" column="sample_goods_no"/>
         <result property="qty" column="qty"/>
         <result property="goodQty" column="good_qty"/>
         <result property="defectQty" column="defect_qty"/>
@@ -451,7 +455,7 @@
         ),
         original_inbound as (
           select t.product_id,t.transaction_id,d.document_id,d.doc_no,d.supplier_name_snapshot,
-            d.doc_type,d.biz_date origin_date,
+            d.doc_type,coalesce(inbound_item.biz_date,d.biz_date) origin_date,
             case when d.doc_type='PURCHASE_IN' then coalesce(d.supplier_return_date,
               timestampadd(DAY,rc.return_days,d.biz_date)) else null end deadline,
             case when d.doc_type='PURCHASE_IN'
@@ -459,6 +463,7 @@
               else t.on_hand_change end layer_qty
           from jewelry_stock_transaction t
           join jewelry_document d on d.document_id=t.document_id
+          join jewelry_document_item inbound_item on inbound_item.item_id=t.item_id
           cross join return_config rc
           left join supplier_returned sr on sr.source_item_id=t.item_id
           where t.on_hand_change &gt; 0 and d.status='POSTED'
@@ -773,7 +778,7 @@
         from jewelry_document d
         join jewelry_document_item i on i.document_id=d.document_id
         where i.product_id=#{productId}
-          and d.doc_type='PURCHASE_IN'
+          and d.doc_type in ('PURCHASE_IN','SAMPLE_IN')
           and d.status in ('PENDING_FIRST','PENDING_SECOND')
     </select>
     <select id="selectReturnedQtyBySourceItem" resultType="int">
@@ -943,12 +948,12 @@
     </delete>
     <insert id="insertDocumentItem" useGeneratedKeys="true" keyProperty="itemId">
         insert into jewelry_document_item(document_id,product_id,item_role,source_item_id,bundle_group_no,sale_role,pricing_mode,
-          sku_snapshot,product_name_snapshot,product_type_snapshot,specification_snapshot,image_urls,
+          sku_snapshot,product_name_snapshot,product_type_snapshot,specification_snapshot,image_urls,biz_date,supplier_id,supplier_name_snapshot,sample_goods_no,
           qty,good_qty,defect_qty,system_qty,counted_qty,adjustment_qty,unit_price,
           influencer_price_snapshot,influencer_price_version,unit_cost,pack_fee,ship_fee,
           cert_fee,other_fee1,other_fee2,other_fee3,amount,cost_amount,profit_amount,profit_rate,line_reason)
         values(#{documentId},#{productId},#{itemRole},#{sourceItemId},#{bundleGroupNo},#{saleRole},#{pricingMode},
-          #{skuSnapshot},#{productNameSnapshot},#{productTypeSnapshot},#{specificationSnapshot},#{imageUrls},#{qty},#{goodQty},
+          #{skuSnapshot},#{productNameSnapshot},#{productTypeSnapshot},#{specificationSnapshot},#{imageUrls},#{bizDate},#{supplierId},#{supplierNameSnapshot},#{sampleGoodsNo},#{qty},#{goodQty},
           #{defectQty},#{systemQty},#{countedQty},#{adjustmentQty},#{unitPrice},
           #{influencerPriceSnapshot},#{influencerPriceVersion},#{unitCost},#{packFee},#{shipFee},
           #{certFee},#{otherFee1},#{otherFee2},#{otherFee3},#{amount},#{costAmount},#{profitAmount},#{profitRate},#{lineReason})

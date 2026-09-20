@@ -172,7 +172,7 @@ const profitDialog=ref(false),profitLoading=ref(false),profitDetail=ref(null)
 const approvalStatuses=['PENDING','PENDING_FIRST','PENDING_SECOND']
 const query=reactive({pageNum:1,pageSize:10,status:'PENDING'})
 const isTransfer=row=>row?.docType==='TRANSFER_OUT'||(row?.docType==='REVERSAL'&&row?.sourceDocType==='TRANSFER_OUT')
-const typeLabels={TRANSFER_OUT:'仓库调货',PURCHASE_IN:'采购入库',SALES_OUT:'销售出库',SUPPLIER_RETURN:'供应商退货',CUSTOMER_RETURN:'客户退货',RETURN_INSPECT:'退货质检',STOCK_ADJUST:'库存调整',COST_ADJUST:'库存成本调价',ASSEMBLY:'手工组装',REVERSAL:'红冲单'}
+const typeLabels={TRANSFER_OUT:'仓库调货',PURCHASE_IN:'采购入库',SAMPLE_IN:'样品入库',SALES_OUT:'销售出库',SUPPLIER_RETURN:'供应商退货',CUSTOMER_RETURN:'客户退货',RETURN_INSPECT:'退货质检',STOCK_ADJUST:'库存调整',COST_ADJUST:'库存成本调价',ASSEMBLY:'手工组装',REVERSAL:'红冲单'}
 const typeLabel=value=>typeLabels[value]||value
 const isDualApproval=row=>['STOCK_ADJUST','COST_ADJUST'].includes(row?.docType)||(row?.docType==='REVERSAL'&&['STOCK_ADJUST','COST_ADJUST'].includes(row?.sourceDocType))
 const isCostAdjustment=row=>row?.docType==='COST_ADJUST'||(row?.docType==='REVERSAL'&&row?.sourceDocType==='COST_ADJUST')

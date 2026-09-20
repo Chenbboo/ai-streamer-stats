@@ -411,8 +411,8 @@ public class JewelryErpController extends BaseController
         if (file.getSize() > 200L * 1024 * 1024) return error("Excel文件不能超过200MB");
         String name = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase();
         if (!name.endsWith(".xlsx") && !name.endsWith(".xls")) return error("仅支持xls和xlsx文件");
-        if ("PURCHASE_IN".equals(docType) && !name.endsWith(".xlsx"))
-            return error("采购入库模板包含商品图片，仅支持xlsx文件");
+        if (("PURCHASE_IN".equals(docType) || "SAMPLE_IN".equals(docType)) && !name.endsWith(".xlsx"))
+            return error("含商品图片的入库模板仅支持xlsx文件");
         return success(documentExcelService.preview(docType, file.getInputStream(),
             hasPermission("jewelry:product:add")));
     }
