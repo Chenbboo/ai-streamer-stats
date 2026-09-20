@@ -501,7 +501,9 @@ public class BusinessIncentiveServiceImpl implements IBusinessIncentiveService
     private void requireRuleManager(BusinessProject project, Long userId, boolean viewAll)
     { if (!canManageRules(project, userId, viewAll)) throw new ServiceException("只有项目主负责人、归属老板或管理员可以设置奖金方案"); }
     private void requireView(BusinessProject project, Long userId, boolean viewAll)
-    { if (!viewAll && !owner(project, userId) && !sponsor(project, userId)) throw new ServiceException("无权查看该项目的奖金激励"); }
+    { if (!viewAll && !owner(project, userId) && !sponsor(project, userId)
+        && !com.ruoyi.business.support.BusinessProjectReadAccess.isParentOwner(project,userId,projectMapper))
+        throw new ServiceException("无权查看该项目的奖金激励"); }
     private String required(String value, String name, int max)
     { if (StringUtils.isBlank(value) || value.trim().length() > max) throw new ServiceException(name + "不能为空且不能超过 " + max + " 个字"); return value.trim(); }
     private Long number(Object value) { return value == null ? null : Long.valueOf(String.valueOf(value)); }

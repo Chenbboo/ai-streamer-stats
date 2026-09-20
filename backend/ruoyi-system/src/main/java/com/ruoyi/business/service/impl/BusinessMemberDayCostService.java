@@ -13,6 +13,7 @@ import com.ruoyi.business.domain.BusinessProject;
 import com.ruoyi.business.mapper.*;
 import com.ruoyi.business.service.IBusinessAccountingService;
 import com.ruoyi.business.support.BusinessProjectLifecycle;
+import com.ruoyi.business.support.BusinessProjectReadAccess;
 import com.ruoyi.business.support.BusinessPersonnelCost;
 import com.ruoyi.business.support.BusinessAllocationWeights;
 import com.ruoyi.common.exception.ServiceException;
@@ -34,6 +35,7 @@ public class BusinessMemberDayCostService {
     public int pending(Long projectId){return mapper.countPending(projectId);}
     public void archiveMembership(Long projectId,Long userId){mapper.archiveMembership(projectId,userId);}
     public List<Map<String,Object>> dayCosts(Long projectId,Date date){return mapper.selectDayCosts(projectId,date);}
+    public int deleteRemovalDayCost(Long projectId,Long userId,Date date){return mapper.deleteRemovalDayCost(projectId,userId,date);}
 
     public void saveRole(Long projectId,Long userId,Date date,String role,String operator){mapper.saveRolePeriod(projectId,userId,date,role,operator);}
     // A priced day is an accounting fact. Later policy/role/calendar changes never rewrite it.
@@ -213,7 +215,8 @@ public class BusinessMemberDayCostService {
         BusinessProject p=projects.selectProjectById(projectId);if(p==null)throw new ServiceException("项目不存在");
         if(!enabled(p))throw new ServiceException("该历史项目保留原核算结果，请在项目核算中查看");
         boolean manager=admin||actor.equals(p.getMainOwnerUserId())||companyAccess.project(p,actor);
-        if(!manager&&work.selectMembers(projectId).stream().noneMatch(m->actor.equals(id(m.get("userId")))&&"0".equals(String.valueOf(m.get("status")))))throw new ServiceException("无权查看项目人员成本");
+        if(!manager&&!BusinessProjectReadAccess.isParentOwner(p,actor,projects)
+            &&work.selectMembers(projectId).stream().noneMatch(m->actor.equals(id(m.get("userId")))&&"0".equals(String.valueOf(m.get("status")))))throw new ServiceException("无权查看项目人员成本");
         LocalDate to=query.get("dateTo")==null?LocalDate.now():day(query.get("dateTo"));LocalDate from=query.get("dateFrom")==null?to.withDayOfMonth(1):day(query.get("dateFrom"));
         if(from==null||to==null||to.isBefore(from)||to.toEpochDay()-from.toEpochDay()>730)throw new ServiceException("请选择两年以内的日期范围");
         LocalDate start=projectStart(p);if(start!=null&&start.isAfter(from))from=start;

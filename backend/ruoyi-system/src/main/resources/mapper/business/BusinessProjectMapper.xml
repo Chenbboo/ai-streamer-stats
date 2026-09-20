@@ -817,7 +817,9 @@
     </insert>
 
     <update id="leaveMember">
-        update biz_project_member set status='1',left_date=current_date(),update_by=#{userName},update_time=sysdate()
+        update biz_project_member set status='1',
+          left_date=case when #{retainTodayCost} then current_date() else date_sub(current_date(),interval 1 day) end,
+          update_by=#{userName},update_time=sysdate()
         where project_id=#{projectId} and user_id=#{userId} and status='0' and member_role&lt;&gt;'OWNER'
     </update>
     <update id="unassignOpenMemberTasks">

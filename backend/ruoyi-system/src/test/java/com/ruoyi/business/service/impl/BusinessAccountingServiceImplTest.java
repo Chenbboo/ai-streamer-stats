@@ -82,6 +82,19 @@ class BusinessAccountingServiceImplTest
         verify(mapper,never()).selectDailySummary(any());
     }
 
+    @Test void parentOwnerCanReadChildCockpitButCannotSubmitChildFacts()
+    {
+        Map<String,Object> child=project(11L,8L);child.put("mainOwnerUserId",30L);
+        child.put("parentId",7L);child.put("parentMainOwnerUserId",9L);
+        when(mapper.selectProjectForAccounting(11L)).thenReturn(child);
+        assertDoesNotThrow(()->service.projectDashboard(11L,Collections.emptyMap(),9L,false));
+        BusinessOperatingFact fact=new BusinessOperatingFact();fact.setProjectId(11L);
+        assertThrows(ServiceException.class,()->service.saveProjectDailySpend(fact,9L,"parent-owner",false));
+        verify(mapper,never()).insertFact(any());
+        child.put("parentMainOwnerUserId",88L);
+        assertThrows(ServiceException.class,()->service.projectDashboard(11L,Collections.emptyMap(),9L,false));
+    }
+
     @Test void otherBossCannotCreateFactForForeignProject()
     {
         Map<String,Object> project=project(20L,8L);

@@ -7,11 +7,12 @@
     <collection property="tiers" column="ruleId" select="selectRuleTiers"/>
   </resultMap>
   <select id="selectProjects" resultType="map">
-    select project_id projectId,project_no projectNo,project_name projectName,status,
-      company_dept_id companyDeptId,base_currency currency,accounting_state accountingState
-    from biz_project where del_flag='0'
-    <if test="viewAll == false">and (main_owner_user_id=#{userId} or <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="biz_project.company_dept_id"/><property name="capability" value="BUSINESS"/></include>)</if>
-    order by update_time desc,project_id desc
+    select p.project_id projectId,p.project_no projectNo,p.project_name projectName,p.status,
+      p.company_dept_id companyDeptId,p.base_currency currency,p.accounting_state accountingState
+    from biz_project p left join biz_project parent on parent.project_id=p.parent_id and parent.del_flag='0'
+    where p.del_flag='0'
+    <if test="viewAll == false">and (p.main_owner_user_id=#{userId} or parent.main_owner_user_id=#{userId} or <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include>)</if>
+    order by p.update_time desc,p.project_id desc
   </select>
   <sql id="ruleColumns">
     rule_id ruleId,project_id projectId,rule_version ruleVersion,rule_name ruleName,policy_version policyVersion,

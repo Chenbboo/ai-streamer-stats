@@ -43,6 +43,7 @@ import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.file.FileUploadUtils;
 import com.ruoyi.business.domain.BusinessProject;
 import com.ruoyi.business.mapper.BusinessProjectMapper;
+import com.ruoyi.business.support.BusinessProjectReadAccess;
 
 /**
  * 公司经营模块统一附件上传：保留原件，并为图片生成 WebP 预览与缩略图。
@@ -226,11 +227,11 @@ public class BusinessFileService
         url = normalizeResourceUrl(url);
         String original = originalResourceUrl(url);
         Long embeddedProjectId = namespacedProjectId(original);
-        if (embeddedProjectId != null) return hasProjectAccess(embeddedProjectId, userId, boss, admin);
+        if (embeddedProjectId != null) return hasProjectReadAccess(embeddedProjectId, userId, boss, admin);
         List<Long> projectIds = projectMapper.selectAttachmentProjectIds(original);
         if (projectIds == null || projectIds.isEmpty()) return false;
         for (Long projectId : projectIds)
-            if (hasProjectAccess(projectId, userId, boss, admin)) return true;
+            if (hasProjectReadAccess(projectId, userId, boss, admin)) return true;
         return false;
     }
 
@@ -283,6 +284,13 @@ public class BusinessFileService
         String role = projectMapper.selectMemberRole(projectId, userId);
         if (role != null) return true;
         return companyAccess.project(project,userId);
+    }
+
+    private boolean hasProjectReadAccess(Long projectId, Long userId, boolean boss, boolean admin)
+    {
+        if (hasProjectAccess(projectId, userId, boss, admin)) return true;
+        BusinessProject project = projectMapper.selectProjectById(projectId);
+        return BusinessProjectReadAccess.isParentOwner(project, userId, projectMapper);
     }
 
     private void validateFileSignature(MultipartFile file, String extension) throws Exception

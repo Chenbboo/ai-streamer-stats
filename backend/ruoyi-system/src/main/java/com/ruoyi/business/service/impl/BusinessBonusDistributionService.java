@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.business.domain.*;
 import com.ruoyi.business.mapper.*;
+import com.ruoyi.business.support.BusinessProjectReadAccess;
 import com.ruoyi.common.exception.ServiceException;
 
 /** Personal allocation and payment evidence never generate or confirm cost facts. */
@@ -38,7 +39,7 @@ public class BusinessBonusDistributionService
         BusinessProject p=project(projectId,false);
         boolean manager=admin||owner(p,userId)||sponsor(p,userId);
         boolean payer=sponsor(p,userId)||(finance&&mapper.companyAccess(projectId,userId)>0);
-        boolean full=manager||payer;
+        boolean full=manager||payer||BusinessProjectReadAccess.isParentOwner(p,userId,projects);
         out.put("project",map("projectId",p.getProjectId(),"projectName",p.getProjectName(),"baseCurrency",p.getBaseCurrency()));
         out.put("manager",manager); out.put("personal",!full);
         out.put("canAllocate",owner(p,userId)); out.put("canPay",payer);

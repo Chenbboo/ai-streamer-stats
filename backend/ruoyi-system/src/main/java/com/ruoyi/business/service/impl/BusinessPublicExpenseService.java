@@ -313,7 +313,9 @@ public class BusinessPublicExpenseService
     {
         BusinessProject project=projects.selectProjectById(projectId);if(project==null||"2".equals(project.getDelFlag()))throw error("项目不存在");
         boolean leader=false;for(Map<String,Object> company:mapper.selectCompanies(userId))if(Objects.equals(id(company.get("companyDeptId")),project.getCompanyDeptId()))leader=true;
-        if(!viewAll&&!leader&&!Objects.equals(userId,project.getMainOwnerUserId())&&!Objects.equals(userId,project.getSponsorOwnerUserId())&&!Objects.equals(userId,project.getInitiatorUserId())&&accounting.selectAccountingMemberRole(projectId,userId)==null)throw error("无权查看该项目公共费用");
+        if(!viewAll&&!leader&&!Objects.equals(userId,project.getMainOwnerUserId())&&!Objects.equals(userId,project.getSponsorOwnerUserId())&&!Objects.equals(userId,project.getInitiatorUserId())
+            &&!com.ruoyi.business.support.BusinessProjectReadAccess.isParentOwner(project,userId,projects)
+            &&accounting.selectAccountingMemberRole(projectId,userId)==null)throw error("无权查看该项目公共费用");
         Map<String,Object> out=mapper.readProjectCosts(projectId,month(month).toString());if(out==null)out=map("monthAmount",BigDecimal.ZERO);
         List<Map<String,Object>> history=mapper.selectProjectHistory(projectId),selected=new ArrayList<>();String selectedMonth=month(month).toString();
         for(Map<String,Object> row:history)if(selectedMonth.equals(row.get("month")))selected.add(row);

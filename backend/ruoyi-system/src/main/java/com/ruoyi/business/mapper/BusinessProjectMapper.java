@@ -120,7 +120,7 @@ public interface BusinessProjectMapper
     int countManagedProjectMember(@Param("ownerUserId") Long ownerUserId, @Param("staffUserId") Long staffUserId);
     int upsertMember(BusinessProjectMember member);
     int leaveMember(@Param("projectId") Long projectId, @Param("userId") Long userId,
-        @Param("userName") String userName);
+        @Param("retainTodayCost") boolean retainTodayCost, @Param("userName") String userName);
     int unassignOpenMemberTasks(@Param("projectId") Long projectId, @Param("userId") Long userId,
         @Param("userName") String userName);
     int unassignActiveMemberRoutines(@Param("projectId") Long projectId, @Param("userId") Long userId,

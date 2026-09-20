@@ -3,6 +3,7 @@
     <div class="heading"><div><h3>人员工作日成本</h3></div><div class="heading-actions"><el-button v-if="canManage" type="primary" @click="openAllocation">申请调整投入</el-button><el-button icon="Refresh" @click="load">刷新</el-button></div></div>
     <el-alert v-if="data.overdue" title="项目已超过计划结束日，仍参与的成员继续按工作日计费，请更新项目计划。" type="warning" :closable="false" show-icon />
     <el-date-picker v-model="dates" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" :clearable="false" @change="load" />
+    <p class="history-hint">此处按所选日期展示已发生的成本。人员移除后，退出前的历史成本仍会保留；移除当天是否计费以移除时的选择为准。</p>
     <el-alert v-if="data.pendingCount" title="部分人员成本待完善，请查看下方说明，确认投入分配或完善成本、工作日历。" type="warning" :closable="false" show-icon />
     <p>本期累计：<b>{{ data.totalAmount == null ? '待完善成本' : money(data.totalAmount) + ' ' + (data.currency || '') }}</b><span class="hint">（截至今天）</span></p>
     <el-table :data="pagedCostRows" empty-text="所选期间没有应计费的成员工作日">

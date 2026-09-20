@@ -32,6 +32,7 @@ import com.ruoyi.business.service.IBusinessAccountingService;
 import com.ruoyi.business.service.IBusinessProjectKpiService;
 import com.ruoyi.business.service.BusinessFileService;
 import com.ruoyi.business.support.BusinessProjectLifecycle;
+import com.ruoyi.business.support.BusinessProjectReadAccess;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.StringUtils;
 
@@ -738,6 +739,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         if (viewAll) return;
         if (boss && companyAccess.project(project, userId)) return;
         if (userId.equals(project.getMainOwnerUserId())) return;
+        if (BusinessProjectReadAccess.isParentOwner(project, userId, projectMapper)) return;
         throw new ServiceException("无权查看该项目KPI奖金");
     }
 

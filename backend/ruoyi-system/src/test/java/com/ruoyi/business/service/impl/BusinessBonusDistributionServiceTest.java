@@ -43,6 +43,16 @@ class BusinessBonusDistributionServiceTest
  BusinessBonusAllocationLine line(Long user,String amount){BusinessBonusAllocationLine l=new BusinessBonusAllocationLine();l.setUserId(user);l.setUserName("client spoof");l.setAmount(new BigDecimal(amount));l.setReason("contribution");return l;}
  BusinessBonusAllocation draft(){BusinessBonusAllocation b=new BusinessBonusAllocation();b.setAwardId(2L);b.setMode("AMOUNT");b.setReason("allocation");b.setRequestKey("request1");b.setLines(Arrays.asList(line(30L,"60.00")));return b;}
  BusinessBonusPayment payment(){BusinessBonusPayment p=new BusinessBonusPayment();p.setLineId(4L);p.setAmount(new BigDecimal("30.00"));p.setPaidDate(new Date());p.setMethod("BANK");p.setReferenceNo("bank1");p.setVoucher("/profile/upload/2026/09/proof.pdf");p.setReason("paid");p.setRequestKey("pay1");return p;}
+ @Test void parentOwnerSeesFullChildDistributionWithoutPaymentOrAllocationAuthority(){
+  project.setParentId(2L);BusinessProject parent=new BusinessProject();parent.setProjectId(2L);parent.setMainOwnerUserId(99L);
+  when(projects.selectProjectById(2L)).thenReturn(parent);
+  when(mapper.projects(99L,false,false)).thenReturn(Arrays.asList(Collections.<String,Object>singletonMap("projectId",1L)));
+  when(mapper.allocations(1L)).thenReturn(Arrays.asList(batch));
+  Map<String,Object> result=service.workspace(1L,99L,false,false);
+  assertEquals(false,result.get("manager"));assertEquals(false,result.get("personal"));
+  assertEquals(false,result.get("canAllocate"));assertEquals(false,result.get("canPay"));
+  assertEquals(1,((List<?>)result.get("allocations")).size());
+ }
  @Test void onlyActualOwnerCanAllocateIncludingAdministrator(){
   for(Long actor:Arrays.asList(20L,30L,50L,1L,999L))assertThrows(ServiceException.class,()->service.save(draft(),actor,"user"));
   verify(mapper,never()).insertAllocation(any());

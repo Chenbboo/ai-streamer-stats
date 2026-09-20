@@ -938,7 +938,7 @@ class BusinessProjectServiceImplTest
         when(mapper.selectProjectById(53L)).thenReturn(project);
         when(mapper.selectMemberRole(53L, 9L)).thenReturn("OWNER");
         when(mapper.selectMemberRole(53L, 10L)).thenReturn("DEPUTY");
-        when(mapper.leaveMember(53L, 10L, "owner9")).thenReturn(1);
+        when(mapper.leaveMember(53L, 10L, false, "owner9")).thenReturn(1);
         when(mapper.closeMemberAllocations(53L, 10L, false, "owner9")).thenReturn(1);
         when(mapper.selectRoleIdByKey("project_deputy")).thenReturn(20L);
         when(mapper.countActiveProjectMembershipByRole(10L, "DEPUTY")).thenReturn(0);
@@ -951,6 +951,40 @@ class BusinessProjectServiceImplTest
         verify(accountingService).recalculatePersonnelCost(eq(53L), any(Date.class), eq("owner9"));
         verify(mapper).deleteUserRole(10L, 20L);
         verify(onlineUserPermissionService).refreshAfterCommit(10L);
+    }
+
+    @Test
+    void removingMemberWithoutTodayCostRecalculatesTheRemovalDay()
+    {
+        BusinessProject project = project(53L, 9L, "ACTIVE", "APPROVED");
+        project.setCostPolicyVersion(BusinessMemberDayCostService.POLICY);
+        when(mapper.selectProjectById(53L)).thenReturn(project);
+        when(mapper.selectMemberRole(53L, 9L)).thenReturn("OWNER");
+        when(mapper.selectMemberRole(53L, 10L)).thenReturn("MEMBER");
+        when(mapper.leaveMember(53L, 10L, false, "owner9")).thenReturn(1);
+        when(memberDays.deleteRemovalDayCost(eq(53L), eq(10L), any(Date.class))).thenReturn(1);
+
+        service.removeMember(53L, 10L, false, 9L, "owner9", false);
+
+        verify(memberDays).synchronize(53L);
+        verify(accountingService).recalculatePersonnelCost(eq(53L), any(Date.class), eq("owner9"));
+    }
+
+    @Test
+    void removingMemberAfterTodayWorkKeepsTheRemovalDayCost()
+    {
+        BusinessProject project = project(53L, 9L, "ACTIVE", "APPROVED");
+        project.setCostPolicyVersion(BusinessMemberDayCostService.POLICY);
+        when(mapper.selectProjectById(53L)).thenReturn(project);
+        when(mapper.selectMemberRole(53L, 9L)).thenReturn("OWNER");
+        when(mapper.selectMemberRole(53L, 10L)).thenReturn("MEMBER");
+        when(mapper.leaveMember(53L, 10L, true, "owner9")).thenReturn(1);
+
+        service.removeMember(53L, 10L, true, 9L, "owner9", false);
+
+        verify(memberDays, never()).deleteRemovalDayCost(eq(53L), eq(10L), any(Date.class));
+        verify(memberDays).synchronize(53L);
+        verify(accountingService, never()).recalculatePersonnelCost(eq(53L), any(Date.class), eq("owner9"));
     }
 
     @Test
@@ -2212,6 +2246,28 @@ class BusinessProjectServiceImplTest
         assertEquals(new BigDecimal("400"), visible.get("allocatedCost"));
         assertEquals(null, visible.get("unitCost"));
         assertEquals(false, config.get("rawCostVisible"));
+    }
+
+    @Test
+    void parentOwnerCanSeeChildProjectRawStaffCost()
+    {
+        BusinessProject child = project(82L, 30L, "ACTIVE", "APPROVED");
+        child.setParentId(13L);
+        BusinessProject parent = project(13L, 9L, "ACTIVE", "APPROVED");
+        Map<String, Object> allocation = new HashMap<String, Object>();
+        allocation.put("userId", 30L);
+        allocation.put("unitCost", new BigDecimal("800"));
+        when(mapper.selectProjectById(82L)).thenReturn(child);
+        when(mapper.selectProjectById(13L)).thenReturn(parent);
+        when(mapper.selectProjectStaffAllocations(82L)).thenReturn(Collections.singletonList(allocation));
+        when(mapper.selectProjectKpis(82L)).thenReturn(Collections.emptyList());
+        when(mapper.selectBudgetHistory(82L)).thenReturn(Collections.emptyList());
+
+        Map<String, Object> config = service.operatingConfig(82L, 9L, false, false);
+
+        Map<?, ?> visible = ((List<Map<String, Object>>) config.get("staffAllocations")).get(0);
+        assertEquals(new BigDecimal("800"), visible.get("unitCost"));
+        assertEquals(true, config.get("rawCostVisible"));
     }
 
     @Test

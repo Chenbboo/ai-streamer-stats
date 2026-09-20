@@ -164,7 +164,9 @@
     where project_id=#{projectId} and biz_date=#{bizDate} and fact_kind='REVENUE'
   </select>
   <sql id="projectAccountingColumns">
-    select project_id projectId,project_name projectName,company_dept_id companyDeptId,accounting_mode accountingMode,
+    select project_id projectId,parent_id parentId,
+      (select parent.main_owner_user_id from biz_project parent where parent.project_id=biz_project.parent_id and parent.del_flag='0') parentMainOwnerUserId,
+      project_name projectName,company_dept_id companyDeptId,accounting_mode accountingMode,
       base_currency currency,budget_limit budgetLimit,
       coalesce(sponsor_owner_user_id,initiator_user_id) initiatorUserId,
       coalesce(sponsor_owner_name,initiator_name) initiatorName,

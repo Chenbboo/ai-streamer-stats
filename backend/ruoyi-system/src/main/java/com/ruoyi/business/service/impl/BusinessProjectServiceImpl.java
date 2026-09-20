@@ -803,7 +803,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         result.put("budgetHistory", mapper.selectBudgetHistory(projectId));
         result.put("kpis", mapper.selectProjectKpis(projectId));
         List<Map<String, Object>> allocations = mapper.selectProjectStaffAllocations(projectId);
-        if (!boss && !viewAll)
+        boolean rawCostVisible = boss || viewAll
+            || com.ruoyi.business.support.BusinessProjectReadAccess.isParentOwner(project, userId, mapper);
+        if (!rawCostVisible)
         {
             for (Map<String, Object> row : allocations)
             {
@@ -815,7 +817,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             }
         }
         result.put("staffAllocations", allocations);
-        result.put("rawCostVisible", boss || viewAll);
+        result.put("rawCostVisible", rawCostVisible);
         Map<String, Object> relation = mapper.selectActiveExecutionRelation(projectId);
         if (relation != null && "LIVE".equals(String.valueOf(relation.get("sourceDomain"))))
         {
@@ -2176,13 +2178,19 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (project.getMainOwnerUserId().equals(memberUserId)) throw new ServiceException("不能移除项目主负责人");
         String currentRole = mapper.selectMemberRole(projectId, memberUserId);
         requireDeputyAssignmentAuthority(project, userId, boss, currentRole, null);
-        if (mapper.leaveMember(projectId, memberUserId, userName) != 1) throw new ServiceException("项目成员不存在或已经退出");
+        if (mapper.leaveMember(projectId, memberUserId, retainTodayCost, userName) != 1) throw new ServiceException("项目成员不存在或已经退出");
         if ("DEPUTY".equals(currentRole)) syncProjectDeputyRole(memberUserId);
         mapper.closeMemberWorkPeriods(projectId, memberUserId, userName);
         int taskCount = mapper.unassignOpenMemberTasks(projectId, memberUserId, userName);
         int routineCount = mapper.unassignActiveMemberRoutines(projectId, memberUserId, userName);
         int allocationCount = mapper.closeMemberAllocations(projectId, memberUserId, retainTodayCost, userName);
-        if(BusinessMemberDayCostService.enabled(project))memberDays.synchronize(projectId);
+        if(BusinessMemberDayCostService.enabled(project))
+        {
+            Date today = normalizeLeaveDate(DateUtils.getNowDate(), "日期不正确");
+            int removedTodayCost = retainTodayCost ? 0 : memberDays.deleteRemovalDayCost(projectId, memberUserId, today);
+            memberDays.synchronize(projectId);
+            if (removedTodayCost > 0) accountingService.recalculatePersonnelCost(projectId, today, userName);
+        }
         if (allocationCount > 0&&!BusinessMemberDayCostService.enabled(project))
         {
             Date today = normalizeLeaveDate(DateUtils.getNowDate(), "日期不正确");
@@ -2190,8 +2198,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         }
         addEvent(projectId, "MEMBER_REMOVE", project.getStatus(), project.getStatus(), userId, userName,
             "移除账号ID " + memberUserId + "；解除未完成任务 " + taskCount + " 项，解除持续工作负责人 "
-                + routineCount + " 项；" + (BusinessMemberDayCostService.enabled(project)?"人员成本按参与起止日期内的工作日计算，含退出当日":
-                (retainTodayCost ? "保留移除当日人员成本" : "移除当日不再计人员成本")));
+                + routineCount + " 项；" + (retainTodayCost ? "保留移除当日人员成本" : "移除当日不再计人员成本"));
     }
 
     @Override

@@ -713,7 +713,7 @@ async function confirmMemberRemoval(row){
 }
 async function chooseMemberRemovalCost(){
   try{
-    await ElMessageBox.confirm('请选择移除当天的人员成本处理方式。若员工今天没有参与项目，选择“今天不计成本”；若员工今天已经工作，选择“保留今天成本”。','移除当日成本',{type:'warning',confirmButtonText:'今天不计成本',cancelButtonText:'保留今天成本',distinguishCancelAndClose:true,closeOnClickModal:false})
+    await ElMessageBox.confirm('请选择移除当天的人员成本处理方式。若员工今天没有参与项目，选择“今天不计成本”；若员工今天已经工作，选择“保留今天成本”。移除前已发生的成本仍保留。','移除当日成本',{type:'warning',confirmButtonText:'今天不计成本',cancelButtonText:'保留今天成本',distinguishCancelAndClose:true,closeOnClickModal:false})
     return false
   }catch(action){
     if(action==='cancel')return true
@@ -724,7 +724,7 @@ async function removeItem(kind,row){
   let memberImpact=null
   if(kind==='member'){
     memberImpact=await confirmMemberRemoval(row)
-    memberImpact.retainTodayCost=usesActualWork.value?true:await chooseMemberRemovalCost()
+    memberImpact.retainTodayCost=await chooseMemberRemovalCost()
   }
   else if(kind==='task')await ElMessageBox.confirm(`确定停用“${row.taskName}”吗？任务资料、填报和本次执行区间都会保留。`,'停用一次性任务',{type:'warning'})
   else await ElMessageBox.confirm('确定删除这条记录吗？','确认删除',{type:'warning'})
@@ -735,6 +735,7 @@ async function removeItem(kind,row){
     ElMessage.success(affected?`成员已移除，已同步处理 ${affected} 项未完成工作`:'成员已移除')
   }else ElMessage.success(kind==='task'?'任务已停用，历史记录已保留':'删除成功')
   await refreshDetail()
+  if(kind==='member')await projectWorkPanel.value?.reload()
 }
 const money=value=>value===null||value===undefined?'—':Number(value).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:4})
 const signedMoney=value=>value==null?'—':`${Number(value)>0?'+':''}${money(value)}`

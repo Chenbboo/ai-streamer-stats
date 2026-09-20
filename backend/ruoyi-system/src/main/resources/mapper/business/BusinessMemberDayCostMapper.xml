@@ -18,6 +18,7 @@
   <select id="selectCosts" resultType="map">select <include refid="columns"/> from biz_project_member_day_cost where project_id=#{projectId} order by biz_date,user_id</select>
   <select id="selectDayCosts" resultType="map">select <include refid="columns"/> from biz_project_member_day_cost where project_id=#{projectId} and biz_date=#{bizDate} order by user_id</select>
   <delete id="deleteDay">delete from biz_project_member_day_cost where project_id=#{projectId} and biz_date=#{bizDate}</delete>
+  <delete id="deleteRemovalDayCost">delete from biz_project_member_day_cost where project_id=#{projectId} and user_id=#{userId} and biz_date=#{bizDate}</delete>
   <insert id="insertCost">insert into biz_project_member_day_cost(project_id,user_id,user_name,biz_date,amount,currency,pricing_status,issue,rate_policy_id,calendar_id,basis_json,update_time) values(#{projectId},#{userId},#{userName},#{bizDate},#{amount},#{currency},#{pricingStatus},#{issue},#{ratePolicyId},#{calendarId},#{basisJson},sysdate())</insert>
   <select id="countPending" resultType="int">select count(*) from biz_project_member_day_cost where project_id=#{projectId} and pricing_status='PENDING'</select>
   <select id="selectLegacyResultDates" resultType="string">select date_format(r.biz_date,'%Y-%m-%d') from biz_project_daily_result r where r.project_id=#{projectId} and r.is_current='1' and not exists(select 1 from biz_project_daily_result_item i where i.result_id=r.result_id and i.component_code='PERSONNEL_COST' and i.calculation_detail like '成员参与期间有效工作日%')</select>

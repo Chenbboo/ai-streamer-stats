@@ -16,6 +16,7 @@ import com.ruoyi.business.domain.BusinessProject;
 import com.ruoyi.business.mapper.BusinessProjectMapper;
 import com.ruoyi.business.mapper.BusinessProjectWorkMapper;
 import com.ruoyi.business.support.BusinessProjectLifecycle;
+import com.ruoyi.business.support.BusinessProjectReadAccess;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
 
@@ -50,10 +51,11 @@ public class BusinessProjectWorkService
         requireProject(p);
         List<Map<String,Object>> members=mapper.selectMembers(projectId);
         boolean manager=isManager(p,actorId), member=hasMember(members,actorId);
-        if(!admin&&!manager&&!member)throw new ServiceException("无权查看该项目工作记录");
+        boolean parentOwner=BusinessProjectReadAccess.isParentOwner(p,actorId,projectMapper);
+        if(!admin&&!manager&&!member&&!parentOwner)throw new ServiceException("无权查看该项目工作记录");
         Map<String,Object> q=new HashMap<String,Object>();
         if(query!=null){q.put("dateFrom",query.get("dateFrom"));q.put("dateTo",query.get("dateTo"));}
-        q.put("projectId",projectId);if(!admin&&!manager)q.put("userId",actorId);
+        q.put("projectId",projectId);if(!admin&&!manager&&!parentOwner)q.put("userId",actorId);
         List<Map<String,Object>> entries=mapper.selectEntries(q);
         for(Map<String,Object> row:entries)decorate(p,row,actorId);
         List<Map<String,Object>> assignments=mapper.selectAssignments(projectId);
@@ -185,7 +187,9 @@ public class BusinessProjectWorkService
     public List<Map<String,Object>> history(Long entryId,Long actorId,boolean admin)
     {
         Map<String,Object> row=requireEntry(entryId);BusinessProject p=projectMapper.selectProjectById(id(row.get("projectId")));requireProject(p);
-        if(!admin&&!isManager(p,actorId)&&!actorId.equals(id(row.get("userId"))))throw new ServiceException("无权查看工作记录历史");return mapper.selectAudit(entryId);
+        if(!admin&&!isManager(p,actorId)
+            &&!BusinessProjectReadAccess.isParentOwner(p,actorId,projectMapper)
+            &&!actorId.equals(id(row.get("userId"))))throw new ServiceException("无权查看工作记录历史");return mapper.selectAudit(entryId);
     }
 
     @Transactional(isolation=Isolation.READ_COMMITTED)

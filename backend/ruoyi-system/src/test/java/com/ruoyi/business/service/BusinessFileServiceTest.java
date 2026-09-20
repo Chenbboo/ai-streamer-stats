@@ -87,6 +87,17 @@ class BusinessFileServiceTest
             service.normalizeResourceUrl("/profile/upload\\business\\130\\20/proof.jpg"));
     }
 
+    @Test
+    void parentOwnerCanDownloadChildAttachmentButCannotUploadOrBindIt()
+    {
+        BusinessProject child=new BusinessProject();child.setProjectId(3L);child.setParentId(1L);child.setMainOwnerUserId(4L);
+        when(projectMapper.selectProjectById(3L)).thenReturn(child);
+        String resource="/profile/upload/business/4/3/proof.pdf";
+        assertTrue(service.canAccessResource(resource,2L,false,false));
+        assertFalse(service.canAccessResource(resource,99L,false,false));
+        assertThrows(ServiceException.class,()->service.upload(new MockMultipartFile("file","proof.pdf","application/pdf",new byte[]{1}),3L,2L,false,false));
+    }
+
     private Path resource(Object url)
     {
         String relative = String.valueOf(url).replaceFirst("^/profile/", "");

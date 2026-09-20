@@ -126,7 +126,14 @@ public class BusinessFlowService {
    return p;
  }
  @Transactional
- public List<Map<String,Object>> adjustments(Long id,Long actor,boolean admin){accessibleProject(id,actor,admin);return flows.adjustments(id);}
+ public List<Map<String,Object>> adjustments(Long id,Long actor,boolean admin){
+   BusinessProject p=projects.selectProjectById(id);
+   if(p==null)throw new ServiceException("项目不存在");
+   if(!admin&&!companyAccess.project(p,actor)&&!actor.equals(p.getMainOwnerUserId())
+       &&!com.ruoyi.business.support.BusinessProjectReadAccess.isParentOwner(p,actor,projects))
+     throw new ServiceException("无权查看该项目调整");
+   return flows.adjustments(id);
+ }
  @Transactional
  public Map<String,Object> requestAdjustment(Long id,Map<String,Object> input,Long actor,String name,boolean admin){
    BusinessProject p=accessibleProject(id,actor,admin);

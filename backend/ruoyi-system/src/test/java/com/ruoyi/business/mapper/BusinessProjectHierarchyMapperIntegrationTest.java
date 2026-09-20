@@ -224,6 +224,19 @@ public class BusinessProjectHierarchyMapperIntegrationTest
         }
     }
 
+    @Test void assigningParentOwnerCanSeeAllItsChildren() throws Exception {
+        try (SqlSession session=factory.openSession();Statement sql=session.getConnection().createStatement()) {
+            sql.execute("update biz_project set applicant_user_id=9 where project_id=10");
+            BusinessProjectMapper mapper=session.getMapper(BusinessProjectMapper.class);
+            Map<String,Object> query=query(9L,false,false,"Needle");
+            assertEquals(10L,mapper.selectProjectRoots(query).get(0).getMatchedChildId());
+            query.remove("keyword");query.put("parentId",1L);
+            List<BusinessProject> children=mapper.selectProjectList(query);
+            assertEquals(2,children.size());
+            assertEquals(new HashSet<>(Arrays.asList(10L,11L)),children.stream().map(BusinessProject::getProjectId).collect(java.util.stream.Collectors.toSet()));
+        }
+    }
+
     @Test void deputyCanSeeOnlyChildrenTheyCreated() throws Exception {
         try (SqlSession session=factory.openSession();Statement sql=session.getConnection().createStatement()) {
             sql.execute("insert into biz_project_member(member_id,project_id,user_id,member_role,status) values(999,1,7,'DEPUTY','0')");

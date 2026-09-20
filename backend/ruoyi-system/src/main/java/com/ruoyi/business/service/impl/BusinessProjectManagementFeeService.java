@@ -43,7 +43,9 @@ public class BusinessProjectManagementFeeService
         BusinessProject project=project(projectId,false);
         boolean sponsor=sponsor(project,userId),owner=userId!=null&&userId.equals(project.getMainOwnerUserId());
         boolean member=userId!=null&&accounting.selectAccountingMemberRole(projectId,userId)!=null;
-        if(!viewAll&&!sponsor&&!owner&&!member)throw error("无权查看该项目管理费");
+        if(!viewAll&&!sponsor&&!owner&&!member
+            &&!com.ruoyi.business.support.BusinessProjectReadAccess.isParentOwner(project,userId,projects))
+            throw error("无权查看该项目管理费");
         return build(project,mapper.selectFee(projectId),userId,sponsor,payer);
     }
 

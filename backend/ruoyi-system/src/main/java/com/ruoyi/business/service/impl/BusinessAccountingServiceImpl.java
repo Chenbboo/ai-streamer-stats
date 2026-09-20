@@ -858,7 +858,9 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         Map<String,Object> project=mapper.selectProjectForAccounting(projectId);
         if(project==null)throw new ServiceException("项目不存在");
         boolean owner=String.valueOf(userId).equals(String.valueOf(project.get("mainOwnerUserId")));
-        if(!viewAll&&!owner&&!companyAccess.project(projectId,userId))throw new ServiceException("无权查看该项目经营数据");
+        boolean parentOwner=userId!=null&&project.get("parentId")!=null
+            &&String.valueOf(userId).equals(String.valueOf(project.get("parentMainOwnerUserId")));
+        if(!viewAll&&!owner&&!parentOwner&&!companyAccess.project(projectId,userId))throw new ServiceException("无权查看该项目经营数据");
         Map<String,Object> scoped=query==null?new HashMap<String,Object>():new HashMap<String,Object>(query);
         scoped.put("projectId",projectId);
         // The project boundary was explicitly checked above. The generic dashboard's non-admin

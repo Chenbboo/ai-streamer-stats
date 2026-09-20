@@ -11,6 +11,7 @@ public interface BusinessMemberDayCostMapper {
     List<Map<String,Object>> selectCosts(@Param("projectId") Long projectId);
     List<Map<String,Object>> selectDayCosts(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     int deleteDay(@Param("projectId") Long projectId,@Param("bizDate") String bizDate);
+    int deleteRemovalDayCost(@Param("projectId") Long projectId,@Param("userId") Long userId,@Param("bizDate") Date bizDate);
     int insertCost(Map<String,Object> row);
     int countPending(@Param("projectId") Long projectId);
     List<String> selectLegacyResultDates(@Param("projectId") Long projectId);

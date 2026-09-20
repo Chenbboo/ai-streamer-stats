@@ -120,6 +120,12 @@ class BusinessMemberDayCostServiceTest {
         member.put("memberRole","OBSERVER");assertTrue(week().isEmpty());
         assertThrows(ServiceException.class,()->service.workspace(1L,Collections.emptyMap(),99L,false));
     }
+    @Test void parentOwnerCanReadChildPersonnelCostsButUnrelatedUserCannot(){
+        project.setParentId(2L);BusinessProject parent=new BusinessProject();parent.setProjectId(2L);parent.setMainOwnerUserId(99L);
+        when(projects.selectProjectById(2L)).thenReturn(parent);
+        assertDoesNotThrow(()->service.workspace(1L,Collections.emptyMap(),99L,false));
+        assertThrows(ServiceException.class,()->service.workspace(1L,Collections.emptyMap(),88L,false));
+    }
     @Test void repeatedSynchronizationDoesNotCreateMoreAccountingVersions(){
         project.setActualEndDate(Date.valueOf("2026-09-04"));
         List<Map<String,Object>> rows=week();when(costs.selectCosts(1L)).thenReturn(Collections.emptyList(),rows);

@@ -6,8 +6,10 @@
    and (d.dept_id=p.company_dept_id or find_in_set(p.company_dept_id,d.ancestors)))</sql>
  <select id="companyAccess" resultType="int">select count(*) from biz_project p where p.project_id=#{projectId} and p.del_flag='0' and <include refid="companyScope"/></select>
  <select id="projects" resultType="map">
-  select p.project_id projectId,p.project_name projectName from biz_project p where p.del_flag='0'
-  <if test="!admin">and (p.main_owner_user_id=#{userId} or <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include>
+  select p.project_id projectId,p.project_name projectName from biz_project p
+  left join biz_project parent on parent.project_id=p.parent_id and parent.del_flag='0'
+  where p.del_flag='0'
+  <if test="!admin">and (p.main_owner_user_id=#{userId} or parent.main_owner_user_id=#{userId} or <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include>
    <if test="finance">or <include refid="companyScope"/></if>
    or exists(select 1 from biz_bonus_allocation b join biz_bonus_allocation_line l on l.allocation_id=b.allocation_id
       where b.project_id=p.project_id and b.status='APPROVED' and l.user_id=#{userId}))
