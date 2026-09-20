@@ -384,4 +384,7 @@ from (
   select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
     and table_name='biz_project_progress_report' and column_name='evidence_text'
     and data_type='varchar' and character_maximum_length>=2000
+  union all
+  select if(count(*)=1,0,1) from information_schema.tables where table_schema=database()
+    and table_name='jewelry_supplier_return_mail_log'
 ) release_gate;

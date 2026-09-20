@@ -47,6 +47,17 @@ user:
 
 # Spring配置
 spring:
+  mail:
+    host: ${JEWELRY_ALERT_SMTP_HOST:smtp.163.com}
+    port: ${JEWELRY_ALERT_SMTP_PORT:465}
+    username: ${JEWELRY_ALERT_MAIL_FROM:}
+    password: ${JEWELRY_ALERT_SMTP_AUTH_CODE:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.ssl.enable: true
+      mail.smtp.connectiontimeout: 10000
+      mail.smtp.timeout: 10000
+      mail.smtp.writetimeout: 10000
   # 资源信息
   messages:
     # 国际化资源文件路径
@@ -89,6 +100,13 @@ spring:
         max-active: 8
         # #连接池最大阻塞等待时间（使用负值表示没有限制）
         max-wait: -1ms
+
+jewelry:
+  alert:
+    mail:
+      enabled: ${JEWELRY_ALERT_MAIL_ENABLED:false}
+      to: ${JEWELRY_ALERT_MAIL_TO:}
+      cron: ${JEWELRY_ALERT_MAIL_CRON:0 0 9 * * *}
 
 # token配置
 token:

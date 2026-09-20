@@ -619,6 +619,21 @@
         select coalesce(max(cast(config_value as unsigned)),25)
         from sys_config where config_key='jewelry.stock.warning.days'
     </select>
+    <insert id="claimSupplierReturnMail">
+        insert ignore into jewelry_supplier_return_mail_log
+          (alert_date,recipients,warning_count,status,create_time)
+        values(#{alertDate},#{recipients},#{warningCount},'SENDING',now())
+    </insert>
+    <update id="markSupplierReturnMailSent">
+        update jewelry_supplier_return_mail_log
+        set status='SENT',sent_time=now(),error_message=null
+        where alert_date=#{alertDate} and status='SENDING'
+    </update>
+    <update id="markSupplierReturnMailFailed">
+        update jewelry_supplier_return_mail_log
+        set status='FAILED',error_message=#{errorMessage}
+        where alert_date=#{alertDate} and status='SENDING'
+    </update>
     <insert id="upsertStockWarningDays">
         insert into sys_config(config_name,config_key,config_value,config_type,create_by,create_time,remark)
         values('珠宝ERP库存时间预警天数','jewelry.stock.warning.days',#{days},'Y',#{userName},sysdate(),

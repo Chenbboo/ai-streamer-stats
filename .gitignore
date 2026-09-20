@@ -49,6 +49,7 @@ uploads/
 # ==================== Environment ====================
 .env.local
 .env.*.local
+backend/config/application.properties
 
 # ==================== Misc ====================
 logs/
