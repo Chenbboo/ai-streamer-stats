@@ -84,6 +84,7 @@ public class JewelryDocumentExcelService
     private static final int MAX_SOURCE_IMAGE_BYTES = 50 * 1024 * 1024;
     private static final int MAX_IMAGE_DIMENSION = 1600;
     private static final String IMAGE_HEADER = "商品图片";
+    private static final String SAMPLE_IMAGE_HEADER = "实物图片";
     private static final Pattern CELL_IMAGE_FORMULA =
         Pattern.compile("DISPIMG\\(\\\"([^\\\"]+)\\\"", Pattern.CASE_INSENSITIVE);
     private static final String CELL_IMAGES_PART = "/xl/cellimages.xml";
@@ -158,12 +159,19 @@ public class JewelryDocumentExcelService
             DataFormatter formatter = new DataFormatter(Locale.CHINA);
             FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
             Map<String, Integer> columns = readHeaders(headerRow, formatter, evaluator);
+            if ("SAMPLE_IN".equals(docType))
+            {
+                aliasHeader(columns, "商品", "SKU");
+                aliasHeader(columns, "供应商", "供应商编码或名称");
+                aliasHeader(columns, SAMPLE_IMAGE_HEADER, IMAGE_HEADER);
+            }
             for (String required : requiredHeaders(docType))
             {
                 if (!columns.containsKey(required)) throw new ServiceException("Excel缺少必填列：" + required);
             }
             Map<Integer, EmbeddedImage> embeddedImages = ("PURCHASE_IN".equals(docType) || "SAMPLE_IN".equals(docType))
-                ? extractEmbeddedImages((XSSFSheet) sheet, columns.get(IMAGE_HEADER))
+                ? extractEmbeddedImages((XSSFSheet) sheet,
+                    columns.get("SAMPLE_IN".equals(docType) ? SAMPLE_IMAGE_HEADER : IMAGE_HEADER))
                 : Collections.<Integer, EmbeddedImage>emptyMap();
 
             Map<String, Map<String, Object>> products = loadProducts();
@@ -350,7 +358,8 @@ public class JewelryDocumentExcelService
     {
         Map<String, Object> row = new LinkedHashMap<String, Object>();
         row.put("rowNumber", rowNumber);
-        row.put("sku", value(source, columns, "SKU", formatter, evaluator).trim());
+        row.put("sku", value(source, columns, "SAMPLE_IN".equals(docType) ? "商品" : "SKU",
+            formatter, evaluator).trim());
         if ("PURCHASE_IN".equals(docType))
         {
             row.put("productName", value(source, columns, "商品名称（新商品必填）", formatter, evaluator).trim());
@@ -367,7 +376,7 @@ public class JewelryDocumentExcelService
         {
             row.put("sampleGoodsNo", value(source, columns, "货号", formatter, evaluator).trim());
             row.put("bizDate", sampleDate(source.getCell(columns.get("业务日期")), formatter, evaluator));
-            row.put("supplierInput", value(source, columns, "供应商编码或名称", formatter, evaluator).trim());
+            row.put("supplierInput", value(source, columns, "供应商", formatter, evaluator).trim());
             row.put("qty", integerValue(value(source, columns, "数量", formatter, evaluator)));
             row.put("unitPrice", BigDecimal.ZERO);
         }
@@ -490,6 +499,12 @@ public class JewelryDocumentExcelService
         return headers;
     }
 
+    private void aliasHeader(Map<String, Integer> headers, String current, String previous)
+    {
+        if (!headers.containsKey(current) && headers.containsKey(previous))
+            headers.put(current, headers.get(previous));
+    }
+
     private boolean rowIsEmpty(Row row, DataFormatter formatter, FormulaEvaluator evaluator)
     {
         for (int i = 0; i < row.getLastCellNum(); i++)
@@ -543,7 +558,7 @@ public class JewelryDocumentExcelService
             return new String[] { "SKU", "商品名称（新商品必填）", "商品类型（新商品必填）",
                 "分类", "规格类型（新商品必填）", "单位", "数量", "采购单价", IMAGE_HEADER };
         if ("SAMPLE_IN".equals(docType))
-            return new String[] { "货号", "SKU", "业务日期", "供应商编码或名称", "数量", IMAGE_HEADER };
+            return new String[] { "货号", "商品", "业务日期", "供应商", SAMPLE_IMAGE_HEADER, "数量" };
         if ("SALES_OUT".equals(docType))
             return new String[] { "SKU", "数量", "成交单价", "包装费/件", "物流费/件", "鉴定费/件",
                 "其他1/件", "其他2/件", "其他3/件" };
@@ -564,10 +579,10 @@ public class JewelryDocumentExcelService
                 "图片应完整放在对应单元格内，并设置为随单元格移动和调整大小。",
                 "确认导入时系统会先创建商品档案。单次最多500行，禁止重复SKU。" };
         if ("SAMPLE_IN".equals(docType))
-            return new String[] { "一行填写一个样品，货号、已启用样品商品SKU、业务日期、供应商和数量必填。",
+            return new String[] { "一行填写一个样品，货号、商品、业务日期、供应商和数量必填；商品列填写已启用样品商品的SKU编码。",
                 "业务日期填写yyyy-MM-dd；供应商填写已启用供应商的编码或名称，名称重名时请填编码。",
-                "货号与SKU是不同字段；货号最多64字符，作为文本填写可保留前导零。",
-                "可在商品图片列为每行插入一张图片，图片仅作为该入库明细的实物凭证，不修改商品档案。",
+                "货号与商品SKU编码是不同字段；货号最多64字符，作为文本填写可保留前导零。",
+                "可在实物图片列为每行插入一张图片，图片仅作为该入库明细的实物凭证，不修改商品档案。",
                 "同一商品可填写多行，但相同商品、日期、供应商、货号必须合并数量；数量须为正整数。",
                 "单价和本次入库成本固定为0；导入只填入当前单据，仍须提交并审核后入账。单次最多500行。" };
         if ("SALES_OUT".equals(docType))
@@ -602,7 +617,7 @@ public class JewelryDocumentExcelService
         if ("PURCHASE_IN".equals(docType))
             widths = new int[] { 18, 28, 24, 18, 24, 12, 12, 16, 20 };
         else if ("SAMPLE_IN".equals(docType))
-            widths = new int[] { 20, 20, 18, 26, 12, 20 };
+            widths = new int[] { 20, 20, 18, 26, 20, 12 };
         else if ("SALES_OUT".equals(docType))
             widths = new int[] { 20, 12, 16, 16, 16, 16, 16, 16, 16 };
         else
@@ -643,7 +658,8 @@ public class JewelryDocumentExcelService
                 else if (header.endsWith("/件") || "成交单价".equals(header))
                     cell.setCellStyle(moneyStyle);
                 else if ("商品类型（新商品必填）".equals(header) || "规格类型（新商品必填）".equals(header)
-                    || "单位".equals(header) || IMAGE_HEADER.equals(header)) cell.setCellStyle(centerStyle);
+                    || "单位".equals(header) || IMAGE_HEADER.equals(header)
+                    || SAMPLE_IMAGE_HEADER.equals(header)) cell.setCellStyle(centerStyle);
                 else cell.setCellStyle(textStyle);
             }
         }

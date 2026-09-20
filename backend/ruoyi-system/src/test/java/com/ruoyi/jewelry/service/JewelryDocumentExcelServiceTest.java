@@ -46,7 +46,9 @@ class JewelryDocumentExcelServiceTest
         "商品类型（新商品必填）", "分类", "规格类型（新商品必填）", "单位", "数量", "采购单价", "商品图片" };
     private static final String[] SALES_HEADERS = new String[] { "SKU", "数量", "成交单价", "包装费/件",
         "物流费/件", "鉴定费/件", "其他1/件", "其他2/件", "其他3/件" };
-    private static final String[] SAMPLE_HEADERS = new String[] { "货号", "SKU", "业务日期",
+    private static final String[] SAMPLE_HEADERS = new String[] { "货号", "商品", "业务日期",
+        "供应商", "实物图片", "数量" };
+    private static final String[] LEGACY_SAMPLE_HEADERS = new String[] { "货号", "SKU", "业务日期",
         "供应商编码或名称", "数量", "商品图片" };
     private static final byte[] PNG = Base64.getDecoder().decode(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
@@ -170,6 +172,8 @@ class JewelryDocumentExcelServiceTest
             assertEquals("@", sheet.getRow(1).getCell(0).getCellStyle().getDataFormatString());
             assertEquals("@", sheet.getRow(1).getCell(1).getCellStyle().getDataFormatString());
             assertEquals("yyyy-mm-dd", sheet.getRow(1).getCell(2).getCellStyle().getDataFormatString());
+            assertEquals(HorizontalAlignment.CENTER, sheet.getRow(1).getCell(4).getCellStyle().getAlignment());
+            assertEquals(HorizontalAlignment.RIGHT, sheet.getRow(1).getCell(5).getCellStyle().getAlignment());
             assertEquals(36f, sheet.getRow(1).getHeightInPoints(), 0.1f);
             assertEquals("样品入库模板填写说明",
                 workbook.getSheet("填写说明").getRow(0).getCell(0).getStringCellValue());
@@ -185,8 +189,8 @@ class JewelryDocumentExcelServiceTest
         when(mapper.selectSupplierList(any())).thenReturn(Collections.singletonList(supplier()));
 
         Map<String, Object> result = service.preview("SAMPLE_IN", workbook(SAMPLE_HEADERS,
-            new Object[] { "0007", "SAMPLE-1", "2026-09-20", "SUP-1", 2, "" },
-            new Object[] { "0008", "SAMPLE-1", "2026/9/21", "测试供应商", 3, "" }), false);
+            new Object[] { "0007", "SAMPLE-1", "2026-09-20", "SUP-1", "", 2 },
+            new Object[] { "0008", "SAMPLE-1", "2026/9/21", "测试供应商", "", 3 }), false);
 
         assertEquals(2, result.get("validCount"));
         assertEquals(0, result.get("errorCount"));
@@ -200,6 +204,21 @@ class JewelryDocumentExcelServiceTest
     }
 
     @Test
+    void samplePreviewAcceptsPreviouslyDownloadedTemplate() throws Exception
+    {
+        Map<String, Object> sample = product("SAMPLE-1", 2, 0);
+        sample.put("productType", "SAMPLE");
+        when(mapper.selectProductList(any())).thenReturn(Collections.singletonList(sample));
+        when(mapper.selectSupplierList(any())).thenReturn(Collections.singletonList(supplier()));
+
+        Map<String, Object> result = service.preview("SAMPLE_IN", workbook(LEGACY_SAMPLE_HEADERS,
+            new Object[] { "G-1", "SAMPLE-1", "2026-09-20", "SUP-1", 1, "" }), false);
+
+        assertEquals(1, result.get("validCount"));
+        assertEquals("SAMPLE-1", rows(result).get(0).get("sku"));
+    }
+
+    @Test
     void samplePreviewRejectsDuplicateCompositeAndWrongProductType() throws Exception
     {
         Map<String, Object> sample = product("SAMPLE-1", 2, 0);
@@ -210,9 +229,9 @@ class JewelryDocumentExcelServiceTest
         when(mapper.selectSupplierList(any())).thenReturn(Collections.singletonList(supplier()));
 
         Map<String, Object> result = service.preview("SAMPLE_IN", workbook(SAMPLE_HEADERS,
-            new Object[] { "G-1", "SAMPLE-1", "2026-09-20", "SUP-1", 1, "" },
-            new Object[] { "G-1", "SAMPLE-1", "2026-09-20", "测试供应商", 2, "" },
-            new Object[] { "G-2", "FINISHED-1", "2026-09-20", "SUP-1", 1, "" }), false);
+            new Object[] { "G-1", "SAMPLE-1", "2026-09-20", "SUP-1", "", 1 },
+            new Object[] { "G-1", "SAMPLE-1", "2026-09-20", "测试供应商", "", 2 },
+            new Object[] { "G-2", "FINISHED-1", "2026-09-20", "SUP-1", "", 1 }), false);
 
         assertEquals(3, result.get("errorCount"));
         assertTrue(String.valueOf(rows(result).get(0).get("errorMessage")).contains("重复"));
@@ -229,7 +248,7 @@ class JewelryDocumentExcelServiceTest
         when(mapper.selectSupplierList(any())).thenReturn(Collections.singletonList(supplier()));
 
         Map<String, Object> result = service.preview("SAMPLE_IN", workbook(SAMPLE_HEADERS,
-            new Object[] { "G-1", "SAMPLE-1", "2026-13-40", "不存在", 0, "" }), false);
+            new Object[] { "G-1", "SAMPLE-1", "2026-13-40", "不存在", "", 0 }), false);
 
         assertEquals(1, result.get("errorCount"));
         String errors = String.valueOf(rows(result).get(0).get("errorMessage"));
@@ -248,7 +267,7 @@ class JewelryDocumentExcelServiceTest
         new RuoYiConfig().setProfile(tempDir.toString());
 
         Map<String, Object> result = service.preview("SAMPLE_IN", imageWorkbook(SAMPLE_HEADERS,
-            new Object[] { "G-1", "SAMPLE-1", "2026-09-20", "SUP-1", 1, "" }, 5, PNG), false);
+            new Object[] { "G-1", "SAMPLE-1", "2026-09-20", "SUP-1", "", 1 }, 4, PNG), false);
 
         assertEquals(0, result.get("errorCount"));
         assertTrue(String.valueOf(rows(result).get(0).get("imageUrl")).startsWith("/profile/jewelry/import/"));
