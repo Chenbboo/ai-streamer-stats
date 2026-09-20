@@ -452,8 +452,9 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
-    void ownerWorkbenchTodaySpendIncludesPricedPersonnelAndConfirmedProjectCost()
+    void ownerWorkbenchYesterdaySpendUsesYesterdayCostsWithoutChangingTodayEntry()
     {
+        java.time.LocalDate yesterday=java.time.LocalDate.now().minusDays(1);
         BusinessProject owned=project(81L,23L,"ACTIVE","APPROVED");
         owned.setCostPolicyVersion(BusinessMemberDayCostService.POLICY);
         when(mapper.selectProjectList(any())).thenReturn(Collections.singletonList(owned));
@@ -462,16 +463,23 @@ class BusinessProjectServiceImplTest
         expense.setStatus("CONFIRMED");expense.setAmount(new BigDecimal("35.20"));
         when(accountingMapper.selectProjectDailySpendItems(eq(81L),any(Date.class)))
             .thenReturn(Collections.singletonList(expense));
+        Map<String,Object> confirmedCosts=new HashMap<>();confirmedCosts.put("costAmount",new BigDecimal("70.20"));
+        when(accountingMapper.sumProjectFacts(81L,java.sql.Date.valueOf(yesterday))).thenReturn(confirmedCosts);
         Map<String,Object> priced=new HashMap<>();priced.put("pricingStatus","PRICED");priced.put("amount",new BigDecimal("40.125"));
         Map<String,Object> pending=new HashMap<>();pending.put("pricingStatus","PENDING_COST");
-        when(memberDays.dayCosts(eq(81L),any(Date.class))).thenReturn(Arrays.asList(priced,pending));
+        when(memberDays.calculate(owned,yesterday,yesterday))
+            .thenReturn(Arrays.asList(priced,pending));
 
         Map<?,?> accounting=(Map<?,?>)service.ownerWorkbench(81L,23L,false).get("accounting");
+        Map<?,?> yesterdaySpend=(Map<?,?>)accounting.get("yesterdaySpend");
 
         assertEquals(new BigDecimal("35.20"),((Map<?,?>)accounting.get("dailySpend")).get("amount"));
-        assertEquals(new BigDecimal("40.13"),accounting.get("personnelCost"));
-        assertEquals(new BigDecimal("75.33"),accounting.get("todaySpendAmount"));
-        assertEquals(1,accounting.get("pendingPersonnelCount"));
+        assertEquals(yesterday.toString(),yesterdaySpend.get("bizDate"));
+        assertEquals(new BigDecimal("40.13"),yesterdaySpend.get("personnelCost"));
+        assertEquals(new BigDecimal("70.20"),yesterdaySpend.get("projectCost"));
+        assertEquals(new BigDecimal("110.33"),yesterdaySpend.get("amount"));
+        assertEquals(1,yesterdaySpend.get("pendingPersonnelCount"));
+        verify(accountingMapper).selectProjectDailySpendItems(81L,java.sql.Date.valueOf(yesterday.plusDays(1)));
     }
 
     @Test

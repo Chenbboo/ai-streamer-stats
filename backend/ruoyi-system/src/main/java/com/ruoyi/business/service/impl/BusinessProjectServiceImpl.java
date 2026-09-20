@@ -3131,13 +3131,20 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             accounting.put("dailySpend",zero);
         }
         accounting.put("dailySpendItems",dailySpendItems);
+        String yesterday=java.time.LocalDate.parse(today).minusDays(1).toString();
+        java.sql.Date yesterdayDate=java.sql.Date.valueOf(yesterday);
+        Map<String,Object> confirmedFacts=accountingMapper.sumProjectFacts(selectedId,yesterdayDate);
+        BigDecimal projectCost=decimal(confirmedFacts==null?null:confirmedFacts.get("costAmount"))
+            .setScale(2,RoundingMode.HALF_UP);
         BigDecimal personnelCost=BigDecimal.ZERO;
         int pendingPersonnelCount=0;
         if(BusinessMemberDayCostService.enabled(detail)||"ACTUAL_WORK_V1".equals(detail.getCostPolicyVersion()))
         {
             List<Map<String,Object>> costItems=BusinessMemberDayCostService.enabled(detail)
-                ?memberDays.dayCosts(selectedId,java.sql.Date.valueOf(today))
-                :workMapper.selectWorkCosts(selectedId,java.sql.Date.valueOf(today));
+                ?BusinessProjectLifecycle.isAccountingClosed(detail)
+                    ?memberDays.dayCosts(selectedId,yesterdayDate)
+                    :memberDays.calculate(detail,java.time.LocalDate.parse(yesterday),java.time.LocalDate.parse(yesterday))
+                :workMapper.selectWorkCosts(selectedId,yesterdayDate);
             if(costItems!=null)for(Map<String,Object> item:costItems)
                 if("PRICED".equals(item.get("pricingStatus"))&&item.get("amount")!=null)
                     personnelCost=personnelCost.add(new BigDecimal(String.valueOf(item.get("amount"))));
@@ -3145,13 +3152,17 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         }
         else
         {
-            BigDecimal legacyCost=accountingMapper.sumProjectPersonnelCost(selectedId,java.sql.Date.valueOf(today));
+            BigDecimal legacyCost=accountingMapper.sumProjectPersonnelCost(selectedId,yesterdayDate);
             if(legacyCost!=null)personnelCost=legacyCost;
         }
         personnelCost=personnelCost.setScale(2,RoundingMode.HALF_UP);
-        accounting.put("personnelCost",personnelCost);
-        accounting.put("pendingPersonnelCount",pendingPersonnelCount);
-        accounting.put("todaySpendAmount",dailySpendTotal.add(personnelCost));
+        Map<String,Object> yesterdaySpend=new LinkedHashMap<>();
+        yesterdaySpend.put("bizDate",yesterday);
+        yesterdaySpend.put("personnelCost",personnelCost);
+        yesterdaySpend.put("projectCost",projectCost);
+        yesterdaySpend.put("pendingPersonnelCount",pendingPersonnelCount);
+        yesterdaySpend.put("amount",projectCost.add(personnelCost));
+        accounting.put("yesterdaySpend",yesterdaySpend);
         accounting.put("dailyRevenue", accountingMapper.selectProjectRevenueSummary(selectedId,
             java.sql.Date.valueOf(today)));
         List<Map<String, Object>> revenueCategories = new ArrayList<Map<String, Object>>();
