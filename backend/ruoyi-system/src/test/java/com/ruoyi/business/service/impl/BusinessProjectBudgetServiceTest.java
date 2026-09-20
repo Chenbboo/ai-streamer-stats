@@ -150,8 +150,8 @@ class BusinessProjectBudgetServiceTest
     {when(mapper.selectBudgetRates(eq(7L),anyString(),anyString())).thenReturn(Collections.emptyList());service.apply(p);assertNull(p.getBudgetLimit());assertNull(p.getEstimatedPersonnelCost());assertEquals("PENDING",p.getBudget().get("status"));when(mapper.selectBudgetRates(eq(7L),anyString(),anyString())).thenReturn(Arrays.asList(rate,rate));assertNull(service.estimate(p).get("personnelAmount"));}
     @Test void currencyMismatchAndDuplicateMembersAreNotSilentlyAccepted()
     {rate.put("currency","USD");assertEquals("PENDING",service.estimate(p).get("status"));rate.put("currency","CNY");p.setStaffingLines(Arrays.asList(staff,new HashMap<>(staff)));assertEquals("PENDING",service.estimate(p).get("status"));}
-    @Test void unauthorizedCompanyCannotExposeAggregateRates()
-    {p.setCompanyDeptId(99L);assertNull(service.estimate(p).get("personnelAmount"));verify(mapper,never()).selectBudgetRates(anyLong(),anyString(),anyString());}
+    @Test void crossCompanyStaffCanBeIncludedInProposalBudget()
+    {p.setCompanyDeptId(99L);Map<String,Object> budget=service.estimate(p);assertEquals("READY",budget.get("status"));assertEquals(new BigDecimal("22000.00"),budget.get("personnelAmount"));}
     @Test void datedExpensesOutsidePeriodAreExcludedUndatedExpensesCount()
     {p.setExpenseLines(Arrays.asList(row("amount",100,"occurDate","2026-10-01"),row("amount",300)));Map<String,Object> b=service.estimate(p);assertEquals(new BigDecimal("300.00"),b.get("plannedBusinessAmount"));p.getBudget().put("businessAmount",200);assertEquals("PENDING",service.estimate(p).get("status"));}
     @Test void emptyPersonnelPlanMeansZeroAndInvalidMoneyIsRejected()

@@ -436,7 +436,6 @@
             and (policy.effective_to is null or policy.effective_to&gt;=#{effectiveDate})
           order by policy.policy_version desc limit 1)
         where u.del_flag='0' and u.status='0'
-          <if test="companyDeptId != null">and company.dept_id=#{companyDeptId}</if>
           and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT'
         order by profile.position_name,u.nick_name,u.user_id
     </select>

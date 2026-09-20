@@ -187,8 +187,8 @@ public class BusinessProjectBudgetService
                 Long userId=staff.get("userId")==null?null:Long.valueOf(String.valueOf(staff.get("userId")));
                 if(userId==null||!resourcePlan&&!people.add(userId))throw new ServiceException("请选择不同的具体人员");
                 Map<String,Object> member=proposals.selectProposalStaff(userId,proposal.getPlanStartDate());
-                if(member==null||proposal.getCompanyDeptId()==null||!String.valueOf(proposal.getCompanyDeptId()).equals(String.valueOf(member.get("companyDeptId"))))
-                    throw new ServiceException("人员不属于所选公司的有效任职范围");
+                if(member==null||member.get("userId")==null||member.get("companyDeptId")==null)
+                    throw new ServiceException("人员不在有效任职范围");
                 label=String.valueOf(member.getOrDefault("nickName",member.getOrDefault("accountName",label)));
                 if(start==null||end==null)throw new ServiceException("请先确定预算期间");
                 if("LEGACY_V1".equals(proposal.getTemplateVersion())||proposal.getTemplateVersion()==null)

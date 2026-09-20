@@ -729,7 +729,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             {
                 if(selectedUserId==null||!selectedUsers.add(selectedUserId))throw new ServiceException("人员计划须选择不同的具体人员");
                 Map<String,Object> staff=mapper.selectProposalStaff(selectedUserId,proposal.getPlanStartDate());
-                if(staff==null||!proposal.getCompanyDeptId().equals(longValue(staff.get("companyDeptId"))))throw new ServiceException("人员不在当前公司有效任职范围");
+                if(staff==null||staff.get("userId")==null||longValue(staff.get("companyDeptId"))==null)throw new ServiceException("人员不在有效任职范围");
                 String participationMode=com.ruoyi.business.support.BusinessProposalParticipation.mode(line,proposal);
                 if(!Arrays.asList("FOLLOW_PROJECT","CUSTOM","UNLIMITED").contains(participationMode))throw new ServiceException("人员参与方式不正确");
                 Date from,to;
@@ -769,9 +769,8 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             Map<String, Object> staff = mapper.selectProposalStaff(selectedUserId, proposal.getPlanStartDate());
             if (staff == null || staff.get("userId") == null)
                 throw new ServiceException("所选人员不存在、已停用或已经离职");
-            Long staffCompanyId = longValue(staff.get("companyDeptId"));
-            if (!proposal.getCompanyDeptId().equals(staffCompanyId))
-                throw new ServiceException(displayStaffName(staff) + "不属于当前归属公司");
+            if (longValue(staff.get("companyDeptId")) == null)
+                throw new ServiceException(displayStaffName(staff) + "不在有效任职范围");
             String costMode = text(staff.get("costMode"));
             BigDecimal monthlyCost = "MONTHLY".equals(costMode) && staff.get("monthlyCost") != null
                 ? nonNegative(staff.get("monthlyCost"), "人员月度成本") : null;
@@ -1207,11 +1206,16 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             throw new ServiceException("请选择有效归属公司");
         Date date = StringUtils.isBlank(effectiveDate) ? new Date() : DateUtils.parseDate(effectiveDate);
         if (date == null) throw new ServiceException("计划开始日期格式不正确");
-        boolean visible=canReadCompanyRates(userId,companyDeptId);
         List<Map<String,Object>> safe=new ArrayList<>();
-        for(Map<String,Object> original:mapper.selectStaffOptions(companyDeptId,date))
+        // 立项预算已按所选成员计算成本；有项目公司成本权限的规划人需要查看跨公司成员的费率。
+        boolean projectRatesVisible=canReadCompanyRates(userId,companyDeptId);
+        Map<Long,Boolean> rateVisibility=new HashMap<>();
+        for(Map<String,Object> original:mapper.selectStaffOptions(date))
         {
             Map<String,Object> row=new LinkedHashMap<>(original);
+            Long staffCompanyId=longValue(row.get("companyDeptId"));
+            boolean visible=projectRatesVisible || staffCompanyId!=null && rateVisibility.computeIfAbsent(staffCompanyId,
+                id->canReadCompanyRates(userId,id));
             if(!visible)for(String field:Arrays.asList("costPolicyId","costPolicyVersion","costMode","monthlyCost","standardWorkDays","dailyCost","costCurrency"))row.remove(field);
             row.put("rawCostVisible",visible);
             safe.add(row);
@@ -1234,8 +1238,8 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             throw new ServiceException("人员参与结束日期不能早于开始日期");
         Date date = allocationEffectiveDate(periodStart);
         Map<String,Object> staff = mapper.selectProposalStaff(staffUserId, date);
-        if (staff == null || !companyDeptId.equals(longValue(staff.get("companyDeptId"))))
-            throw new ServiceException("人员不属于当前公司的有效任职范围");
+        if (staff == null || staff.get("userId") == null || longValue(staff.get("companyDeptId")) == null)
+            throw new ServiceException("人员不在有效任职范围");
         List<Map<String,Object>> projects = allocationPreviewRows(staffUserId, date);
         List<Map<String,Object>> periodProjects = mapper.selectStaffAllocationPeriodProjects(staffUserId,
             periodStart, periodEnd);

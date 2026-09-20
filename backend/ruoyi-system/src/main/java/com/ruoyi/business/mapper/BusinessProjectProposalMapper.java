@@ -54,8 +54,7 @@ public interface BusinessProjectProposalMapper
         @Param("excludeProposalId") Long excludeProposalId);
     Map<String, Object> selectProposalStaff(@Param("userId") Long userId,
         @Param("effectiveDate") java.util.Date effectiveDate);
-    List<Map<String, Object>> selectStaffOptions(@Param("companyDeptId") Long companyDeptId,
-        @Param("effectiveDate") java.util.Date effectiveDate);
+    List<Map<String, Object>> selectStaffOptions(@Param("effectiveDate") java.util.Date effectiveDate);
     List<Map<String, Object>> selectStaffAllocationPreview(@Param("userId") Long userId,
         @Param("effectiveDate") java.util.Date effectiveDate);
     List<Map<String, Object>> selectStaffAllocationPeriodProjects(@Param("userId") Long userId,

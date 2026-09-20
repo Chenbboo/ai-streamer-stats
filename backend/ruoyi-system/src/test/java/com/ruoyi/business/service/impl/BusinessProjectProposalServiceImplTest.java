@@ -87,8 +87,8 @@ class BusinessProjectProposalServiceImplTest
         if(userId!=1L)when(mapper.canReadCompanyRates(userId,111L)).thenReturn(1);
         when(mapper.selectActiveUser(userId)).thenReturn(BusinessProjectWorkServiceTest.row("userId",userId));
         when(mapper.selectCompany(111L)).thenReturn(BusinessProjectWorkServiceTest.row("deptId",111L));
-        when(mapper.selectStaffOptions(eq(111L),any())).thenReturn(Collections.singletonList(
-            BusinessProjectWorkServiceTest.row("userId",7L,"monthlyCost",new BigDecimal("21750"),"dailyCost",new BigDecimal("1000"),"costCurrency","CNY","costMode","MONTHLY")));
+        when(mapper.selectStaffOptions(any())).thenReturn(Collections.singletonList(
+            BusinessProjectWorkServiceTest.row("userId",7L,"companyDeptId",111L,"monthlyCost",new BigDecimal("21750"),"dailyCost",new BigDecimal("1000"),"costCurrency","CNY","costMode","MONTHLY")));
         Map<String,Object> staff=service.staffOptions(111L,"2026-09-01",userId).get(0);
         assertEquals(visible,staff.get("rawCostVisible"));
         assertEquals(visible,staff.containsKey("monthlyCost"));assertEquals(visible,staff.containsKey("dailyCost"));
@@ -103,7 +103,7 @@ class BusinessProjectProposalServiceImplTest
         when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"planner","立项人员"));
         when(mapper.selectCompany(111L)).thenReturn(Collections.singletonMap("deptId",111L));
         when(mapper.selectProposalStaff(eq(12L),any(Date.class))).thenReturn(
-            BusinessProjectWorkServiceTest.row("userId",12L,"companyDeptId",111L,"nickName","成员十二"));
+            BusinessProjectWorkServiceTest.row("userId",12L,"companyDeptId",222L,"nickName","成员十二"));
         Map<String,Object> project=BusinessProjectWorkServiceTest.row("projectId",88L,"projectNo","XM88",
             "projectName","既有项目","ownerUserId",23L,"ownerName","负责人二十三","allocationValue",new BigDecimal("65"),
             "allocationId",9L,"allocationVersion",2,"confirmationStatus","CONFIRMED","allocationHistoryToken","1:9:2");
@@ -137,13 +137,34 @@ class BusinessProjectProposalServiceImplTest
     {
         when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"planner","立项人员"));
         when(mapper.selectCompany(222L)).thenReturn(Collections.singletonMap("deptId",222L));
-        Map<String,Object> original=BusinessProjectWorkServiceTest.row("userId",7L,"nickName","其他公司人员",
+        Map<String,Object> original=BusinessProjectWorkServiceTest.row("userId",7L,"companyDeptId",222L,"nickName","其他公司人员",
             "monthlyCost",22000,"dailyCost",1000,"standardWorkDays",22,"costMode","MONTHLY",
             "costCurrency","CNY","costPolicyId",1L,"costPolicyVersion",2);
-        when(mapper.selectStaffOptions(eq(222L),any())).thenReturn(Collections.singletonList(original));
+        when(mapper.selectStaffOptions(any())).thenReturn(Collections.singletonList(original));
         Map<String,Object> safe=service.staffOptions(222L,"2026-09-01",9L).get(0);
-        assertEquals(BusinessProjectWorkServiceTest.row("userId",7L,"nickName","其他公司人员","rawCostVisible",false),safe);
+        assertEquals(BusinessProjectWorkServiceTest.row("userId",7L,"companyDeptId",222L,"nickName","其他公司人员","rawCostVisible",false),safe);
         assertEquals(22000,original.get("monthlyCost"));
+    }
+
+    @Test
+    void projectCompanyCostAccessAlsoShowsCrossCompanyStaffRates()
+    {
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"planner","立项人员"));
+        when(mapper.selectCompany(111L)).thenReturn(Collections.singletonMap("deptId",111L));
+        when(mapper.canReadCompanyRates(9L,111L)).thenReturn(1);
+        when(mapper.selectStaffOptions(any())).thenReturn(java.util.Arrays.asList(
+            BusinessProjectWorkServiceTest.row("userId",7L,"companyDeptId",111L,"monthlyCost",1000,"dailyCost",50),
+            BusinessProjectWorkServiceTest.row("userId",8L,"companyDeptId",222L,"monthlyCost",2000,"dailyCost",100)));
+
+        java.util.List<Map<String,Object>> staff=service.staffOptions(111L,"2026-09-01",9L);
+
+        assertEquals(2,staff.size());
+        assertEquals(1000,staff.get(0).get("monthlyCost"));
+        assertEquals(true,staff.get(0).get("rawCostVisible"));
+        assertEquals(8L,staff.get(1).get("userId"));
+        assertEquals(2000,staff.get(1).get("monthlyCost"));
+        assertEquals(100,staff.get(1).get("dailyCost"));
+        assertEquals(true,staff.get(1).get("rawCostVisible"));
     }
 
     @Test
@@ -191,14 +212,14 @@ class BusinessProjectProposalServiceImplTest
         when(mapper.selectCompany(999L)).thenReturn(null);
         assertThrows(ServiceException.class,()->service.staffOptions(null,"2026-09-01",9L));
         assertThrows(ServiceException.class,()->service.staffOptions(999L,"2026-09-01",9L));
-        verify(mapper,never()).selectStaffOptions(any(),any());
+        verify(mapper,never()).selectStaffOptions(any());
     }
 
     @Test
     void staffOptionsRejectInactivePlanner()
     {
         assertThrows(ServiceException.class,()->service.staffOptions(111L,"2026-09-01",9L));
-        verify(mapper,never()).selectStaffOptions(any(),any());
+        verify(mapper,never()).selectStaffOptions(any());
     }
 
     @Test
@@ -723,7 +744,7 @@ class BusinessProjectProposalServiceImplTest
         when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"applicant9","申请人九"));
         when(mapper.selectActiveBoss(23L)).thenReturn(user(23L,"boss23","审批老板"));
         when(mapper.selectCompany(111L)).thenReturn(Collections.<String,Object>singletonMap("deptId",111L));
-        when(mapper.selectProposalStaff(eq(12L),any(Date.class))).thenReturn(BusinessProjectWorkServiceTest.row("userId",12L,"companyDeptId",111L,"nickName","成员十二"));
+        when(mapper.selectProposalStaff(eq(12L),any(Date.class))).thenReturn(BusinessProjectWorkServiceTest.row("userId",12L,"companyDeptId",222L,"nickName","成员十二"));
         when(mapper.updateDraft(proposal)).thenReturn(1);
         service.update(proposal,9L,"applicant9");
         org.mockito.ArgumentCaptor<Map<String,Object>> staffArg=org.mockito.ArgumentCaptor.forClass(Map.class);

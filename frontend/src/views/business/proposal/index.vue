@@ -77,7 +77,7 @@
             </div>
             <div class="handoff-funding-card"><div><span>主项目拨款收入</span><b>{{ money(form.parentFundingAmount,form.baseCurrency) }}</b><small>启动项目时自动计入子项目收入，不限制执行预算</small></div><div><span>拨款说明</span><b>{{ form.parentFundingReason || '—' }}</b></div></div>
           </section></el-col>
-          <el-col v-if="canConfigureStaffing" :span="24"><div class="plan-section form-section"><div class="plan-section-head"><div><h3 :class="{'required-section':requiredPlanSections.staffing}"><span class="section-index">02</span>人员与投入比例</h3><p>在立项阶段一次设置，启动后直接形成项目人员计划</p></div><el-button size="small" type="primary" plain @click="addStaffing">增加人员</el-button></div>
+          <el-col v-if="canConfigureStaffing" :span="24"><div class="plan-section form-section"><div class="plan-section-head"><div><h3 :class="{'required-section':requiredPlanSections.staffing}"><span class="section-index">02</span>人员与投入比例</h3><p>可选择其他公司的有效在职人员，启动后直接形成项目人员计划</p></div><el-button size="small" type="primary" plain @click="addStaffing">增加人员</el-button></div>
             <el-table :data="form.staffingLines" size="small" empty-text="暂无人员，可启动后添加">
               <el-table-column label="人员" label-class-name="required-column" min-width="300"><template #default="{row}"><el-select v-model="row.userId" filterable style="width:100%" :disabled="!form.companyDeptId || isOwnerStaff(row)" :placeholder="form.companyDeptId ? '选择人员' : '请先选择归属公司'" @change="staffChanged(row)"><el-option v-if="row.userId && !options.staff.some(item=>Number(item.userId)===Number(row.userId))" :value="row.userId" :label="row.userName || (isOwnerStaff(row) ? (userStore.nickName || userStore.name) : String(row.userId))" /><el-option v-for="item in options.staff" :key="item.userId" :label="staffOptionLabel(item)" :value="item.userId" :disabled="staffAlreadySelected(item.userId,row)" /></el-select><div v-if="isNewTemplate" style="margin-top:8px"><div class="staff-rate-status"><span :class="staffBudgetStatus(row)?.status==='PENDING'?'danger-text':''">{{ staffBudgetStatus(row)?.issues?.join('；') || (budgetLoading?'计算中…':staffBudgetStatus(row)?'费率完整':'待计算') }}</span><details v-if="staffBudgetStatus(row)?.ratePeriods?.length" class="inline-help"><summary>费率详情</summary><small v-for="period in staffBudgetStatus(row).ratePeriods" :key="period.version + ':' + period.effectiveFrom" class="field-help">v{{ period.version }}：{{ period.effectiveFrom }} 至 {{ period.effectiveTo || '不限期' }}</small></details></div></div></template></el-table-column>
 
@@ -520,8 +520,8 @@ async function refreshStaffOptions(){
     if(!row.userId)continue
     const item=options.staff.find(option=>Number(option.userId)===Number(row.userId))
     if(item)syncStaffRow(row,item)
-    else if(isOwnerStaff(row)){ElMessage.warning('负责人不在所选公司的有效人员范围，请核对公司与人员资料')}
-    else {row.userId=null;row.userName='';row.roleName='';row.estimatedCost=null;row.allocationPlan=null;ElMessage.warning('部分人员不在所选公司或日期的有效任职范围，请重新选择；参与方式和日期已保留')}
+    else if(isOwnerStaff(row)){ElMessage.warning('负责人不在有效人员范围，请核对人员资料')}
+    else {row.userId=null;row.userName='';row.roleName='';row.estimatedCost=null;row.allocationPlan=null;ElMessage.warning('部分人员不在所选日期的有效任职范围，请重新选择；参与方式和日期已保留')}
   }
 }
 const staffOptionLabel=item=>{const name=item.nickName&&item.nickName!==item.accountName?`${item.nickName}（${item.accountName}）`:item.nickName||item.accountName;return `${name} · ${item.companyName||'未归属公司'} · ${item.positionName||'项目成员'}`}
