@@ -3,9 +3,7 @@ select sum(problem_rows) as total_problem_rows
 from (
   select if(count(*)=2,0,1) problem_rows
   from sys_dept
-  where del_flag='0' and status='0'
-    and ((dept_id=110 and dept_name='上海美丸文化公司')
-      or (dept_id=111 and dept_name='越南meimaru公司'))
+  where del_flag='0' and status='0' and dept_id in (110,111)
 
   union all
   select if(count(*)=2,0,1)
