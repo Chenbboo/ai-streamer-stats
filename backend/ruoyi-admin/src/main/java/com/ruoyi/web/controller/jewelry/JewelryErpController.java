@@ -319,6 +319,13 @@ public class JewelryErpController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('jewelry:stock:list')")
+    @GetMapping("/stock/sample-inbounds/{productId}")
+    public AjaxResult sampleInboundDetails(@PathVariable Long productId)
+    {
+        return success(service.listSampleInboundDetails(productId));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:stock:list')")
     @GetMapping("/stock/transactions")
     public TableDataInfo transactions(@RequestParam Map<String, Object> query)
     {

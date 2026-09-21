@@ -670,6 +670,67 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void sampleInboundDetailsUseEachPostedItemDateAndCurrentReturnPeriod()
+    {
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification) values"
+            + "(1,'SAMPLE-1','样品一','SAMPLE','普通'),(2,'SAMPLE-2','样品二','SAMPLE','普通'),"
+            + "(3,'FINISHED-1','成品','FINISHED','普通')");
+        execute("insert into sys_config(config_key,config_value) values('jewelry.supplier.return.days','10')");
+        insertDocument(1L, "SAMPLE-POSTED", "SAMPLE_IN", "POSTED", null);
+        insertDocument(2L, "SAMPLE-REVERSED", "SAMPLE_IN", "REVERSED", null);
+        insertDocument(3L, "SAMPLE-DRAFT", "SAMPLE_IN", "DRAFT", null);
+        insertDocument(4L, "PURCHASE-POSTED", "PURCHASE_IN", "POSTED", null);
+        insertDocument(5L, "OTHER-SAMPLE", "SAMPLE_IN", "POSTED", null);
+        insertDocument(6L, "FINISHED-SAMPLE", "SAMPLE_IN", "POSTED", null);
+        insertItem(11L, 1L, null, 1L, 2);
+        insertItem(12L, 1L, null, 1L, 3);
+        insertItem(21L, 2L, null, 1L, 4);
+        insertItem(31L, 3L, null, 1L, 5);
+        insertItem(41L, 4L, null, 1L, 6);
+        insertItem(51L, 5L, null, 2L, 7);
+        insertItem(61L, 6L, null, 3L, 8);
+        insertStock(1L, 3, 1, 1, 0, 0, 0, "100.00");
+        execute("update jewelry_document_item set biz_date=timestampadd(DAY,-6,current_date),"
+            + "sample_goods_no='YP-11',supplier_name_snapshot='供应商甲' where item_id=11");
+        execute("update jewelry_document_item set biz_date=timestampadd(DAY,-3,current_date),"
+            + "sample_goods_no='YP-12',supplier_name_snapshot='供应商乙' where item_id=12");
+
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            List<Map<String, Object>> details = mapper.selectSampleInboundDetails(1L);
+            assertEquals(2, details.size());
+            assertEquals(3, ((Number) details.get(0).get("stockAgeDays")).intValue());
+            assertEquals(7, ((Number) details.get(0).get("supplierReturnDays")).intValue());
+            assertEquals("YP-12", details.get(0).get("goodsNo"));
+            assertEquals(3, ((Number) details.get(0).get("inboundQty")).intValue());
+            assertEquals(3, ((Number) details.get(0).get("totalStockQty")).intValue());
+            assertEquals(3, ((Number) details.get(0).get("onHandQty")).intValue());
+            assertEquals(1, ((Number) details.get(0).get("reservedOutQty")).intValue());
+            assertEquals(2, ((Number) details.get(0).get("availableQty")).intValue());
+            assertEquals("供应商乙", details.get(0).get("supplierName"));
+            assertEquals("SAMPLE-POSTED", details.get(0).get("docNo"));
+            assertEquals(java.time.LocalDate.now().plusDays(7).toString(),
+                String.valueOf(details.get(0).get("supplierReturnDate")).substring(0, 10));
+            assertEquals(6, ((Number) details.get(1).get("stockAgeDays")).intValue());
+            assertEquals(4, ((Number) details.get(1).get("supplierReturnDays")).intValue());
+            assertEquals(1, ((Number) details.get(1).get("totalStockQty")).intValue());
+            assertEquals(0, ((Number) details.get(1).get("onHandQty")).intValue());
+            assertEquals(4, details.stream().mapToInt(row -> ((Number) row.get("totalStockQty")).intValue()).sum());
+            assertEquals(3, details.stream().mapToInt(row -> ((Number) row.get("onHandQty")).intValue()).sum());
+            assertEquals(1, mapper.selectSampleInboundDetails(2L).size());
+            assertTrue(mapper.selectSampleInboundDetails(3L).isEmpty());
+        }
+
+        execute("update sys_config set config_value='20' where config_key='jewelry.supplier.return.days'");
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            assertEquals(17, ((Number) session.getMapper(JewelryErpMapper.class)
+                .selectSampleInboundDetails(1L).get(0).get("supplierReturnDays")).intValue());
+        }
+    }
+
+    @Test
     void staffListReturnsOneRowWhenUserAlsoHasANonJewelryRole()
     {
         execute("insert into sys_user(user_id,user_name,status,del_flag) values(1,'erp-admin','0','0')");

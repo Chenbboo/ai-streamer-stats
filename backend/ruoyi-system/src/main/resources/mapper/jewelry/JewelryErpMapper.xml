@@ -615,6 +615,63 @@
         </where>
         order by p.product_id desc
     </select>
+    <resultMap id="sampleInboundDetailMap" type="java.util.LinkedHashMap">
+        <result property="itemId" column="item_id"/>
+        <result property="inboundDate" column="inbound_date"/>
+        <result property="stockAgeDays" column="stock_age_days"/>
+        <result property="supplierReturnDate" column="supplier_return_date"/>
+        <result property="supplierReturnDays" column="supplier_return_days"/>
+        <result property="goodsNo" column="sample_goods_no"/>
+        <result property="inboundQty" column="qty"/>
+        <result property="totalStockQty" column="total_stock_qty"/>
+        <result property="onHandQty" column="on_hand_qty"/>
+        <result property="reservedOutQty" column="reserved_out_qty"/>
+        <result property="availableQty" column="available_qty"/>
+        <result property="supplierName" column="supplier_name_snapshot"/>
+        <result property="docNo" column="doc_no"/>
+    </resultMap>
+    <select id="selectSampleInboundDetails" resultMap="sampleInboundDetailMap">
+        with inbound_rows as (
+          select i.item_id,coalesce(i.biz_date,d.biz_date) inbound_date,
+            i.sample_goods_no,i.qty,i.supplier_name_snapshot,d.doc_no,
+            coalesce(s.on_hand_qty,0) current_on_hand,
+            coalesce(s.reserved_out_qty,0) current_reserved,
+            coalesce(s.on_hand_qty+s.inspection_qty+s.defect_qty,0) current_total,
+            row_number() over(order by coalesce(i.biz_date,d.biz_date) desc,i.item_id desc) inbound_rank,
+            sum(i.qty) over() inbound_total,
+            sum(i.qty) over(order by coalesce(i.biz_date,d.biz_date) desc,i.item_id desc
+              rows between unbounded preceding and current row) cumulative_qty
+          from jewelry_document_item i
+          join jewelry_document d on d.document_id=i.document_id
+          join jewelry_product p on p.product_id=i.product_id and p.product_type='SAMPLE'
+          left join jewelry_stock s on s.product_id=i.product_id
+          where i.product_id=#{productId} and d.doc_type='SAMPLE_IN' and d.status='POSTED'
+        ), allocated_rows as (
+          select r.*,
+            greatest(least(r.current_total,r.cumulative_qty)
+              - least(r.current_total,r.cumulative_qty-r.qty),0)
+              + case when r.inbound_rank=1 then greatest(r.current_total-r.inbound_total,0) else 0 end total_stock_qty,
+            greatest(least(r.current_on_hand,r.cumulative_qty)
+              - least(r.current_on_hand,r.cumulative_qty-r.qty),0)
+              + case when r.inbound_rank=1 then greatest(r.current_on_hand-r.inbound_total,0) else 0 end on_hand_qty,
+            greatest(least(r.current_reserved,r.cumulative_qty)
+              - least(r.current_reserved,r.cumulative_qty-r.qty),0)
+              + case when r.inbound_rank=1 then greatest(r.current_reserved-r.inbound_total,0) else 0 end reserved_out_qty
+          from inbound_rows r
+        )
+        select i.item_id,i.inbound_date,
+          timestampdiff(DAY,i.inbound_date,curdate()) stock_age_days,
+          timestampadd(DAY,rc.return_days,i.inbound_date) supplier_return_date,
+          timestampdiff(DAY,curdate(),timestampadd(DAY,rc.return_days,
+            i.inbound_date)) supplier_return_days,
+          i.sample_goods_no,i.qty,i.total_stock_qty,i.on_hand_qty,i.reserved_out_qty,
+          (i.on_hand_qty-i.reserved_out_qty) available_qty,i.supplier_name_snapshot,i.doc_no
+        from allocated_rows i
+        cross join (select coalesce(max(case when cast(config_value as decimal(10,0)) between 1 and 365
+          then cast(config_value as decimal(10,0)) end),25) return_days
+          from sys_config where config_key='jewelry.supplier.return.days') rc
+        order by i.inbound_date desc,i.item_id desc
+    </select>
     <select id="selectStockWarningDays" resultType="java.lang.Integer">
         select coalesce(max(cast(config_value as unsigned)),25)
         from sys_config where config_key='jewelry.stock.warning.days'

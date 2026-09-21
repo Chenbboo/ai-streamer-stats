@@ -23,6 +23,7 @@ public interface IJewelryErpService
     List<Map<String, Object>> listInfluencerPriceHistory(Long influencerId);
     List<Map<String, Object>> listInfluencerBundleItems(Long influencerId);
     List<Map<String, Object>> listStock(Map<String, Object> query);
+    List<Map<String, Object>> listSampleInboundDetails(Long productId);
     List<Map<String, Object>> listTransactions(Map<String, Object> query);
     int getStockWarningDays();
     int getSupplierReturnDays();
