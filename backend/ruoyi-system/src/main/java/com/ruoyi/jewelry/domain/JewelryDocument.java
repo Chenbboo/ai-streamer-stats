@@ -21,6 +21,7 @@ public class JewelryDocument extends BaseEntity
     private String status;
     private Long supplierId;
     private String supplierNameSnapshot;
+    private String itemSupplierNames;
     private String salesChannel;
     private String externalNo;
     private String sourceWarehouse;
@@ -78,6 +79,8 @@ public class JewelryDocument extends BaseEntity
     public void setSupplierId(Long supplierId) { this.supplierId = supplierId; }
     public String getSupplierNameSnapshot() { return supplierNameSnapshot; }
     public void setSupplierNameSnapshot(String supplierNameSnapshot) { this.supplierNameSnapshot = supplierNameSnapshot; }
+    public String getItemSupplierNames() { return itemSupplierNames; }
+    public void setItemSupplierNames(String itemSupplierNames) { this.itemSupplierNames = itemSupplierNames; }
     public String getSalesChannel() { return salesChannel; }
     public void setSalesChannel(String salesChannel) { this.salesChannel = salesChannel; }
     public String getExternalNo() { return externalNo; }

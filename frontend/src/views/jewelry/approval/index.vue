@@ -5,7 +5,7 @@
       <el-table-column prop="docNo" label="单号" width="190"/>
       <el-table-column label="类型" width="150"><template #default="{row}">{{typeLabel(row.docType)}}</template></el-table-column>
       <el-table-column prop="bizDate" label="业务日期" width="110"/>
-      <el-table-column label="业务对象" min-width="150"><template #default="{row}">{{isTransfer(row)?`${row.sourceWarehouse || '—'} → ${row.targetWarehouse || '—'}`:row.supplierNameSnapshot || row.salesChannel || (row.docType==='ASSEMBLY'?'手工组装成品':row.docType==='COST_ADJUST'?'库存成本调整':'—')}}</template></el-table-column>
+      <el-table-column label="业务对象" min-width="150"><template #default="{row}">{{isTransfer(row)?`${row.sourceWarehouse || '—'} → ${row.targetWarehouse || '—'}`:row.supplierNameSnapshot || row.itemSupplierNames || row.salesChannel || (row.docType==='ASSEMBLY'?'手工组装成品':row.docType==='COST_ADJUST'?'库存成本调整':'—')}}</template></el-table-column>
       <el-table-column prop="totalQty" label="数量" width="90"/>
       <el-table-column label="金额/成本" width="120" align="right"><template #default="{row}">{{documentMoney(row.docType==='ASSEMBLY'?row.totalCost:row.totalAmount,row)}}</template></el-table-column>
       <el-table-column label="毛利" width="120" align="right"><template #default="{row}"><span v-if="isTransfer(row)||['ASSEMBLY','COST_ADJUST'].includes(row.docType)">—</span><el-button v-else link class="profit-link" :class="{loss:Number(row.totalProfit)<0}" title="查看毛利计算明细" @click="showProfit(row)">{{money(row.totalProfit)}}</el-button></template></el-table-column>
@@ -19,6 +19,7 @@
       <el-descriptions v-if="detail" :column="4" border>
         <el-descriptions-item label="单号">{{detail.docNo}}</el-descriptions-item>
         <el-descriptions-item label="类型">{{typeLabel(detail.docType)}}</el-descriptions-item>
+        <el-descriptions-item label="供应商">{{supplierNames(detail)}}</el-descriptions-item>
         <el-descriptions-item v-if="detail.docType==='PURCHASE_IN'" label="约定退货日期">{{detail.supplierReturnDate || '按统一退货期限'}}</el-descriptions-item>
         <el-descriptions-item v-if="isTransfer(detail)" label="出库仓库">{{detail.sourceWarehouse}}</el-descriptions-item>
         <el-descriptions-item v-if="isTransfer(detail)" label="入库仓库">{{detail.targetWarehouse}}</el-descriptions-item>
@@ -66,6 +67,7 @@
         </el-table-column>
         <el-table-column prop="skuSnapshot" label="SKU"/>
         <el-table-column prop="productNameSnapshot" label="商品"/>
+        <el-table-column label="供应商" min-width="140"><template #default="{row}">{{row.supplierNameSnapshot || detail.supplierNameSnapshot || '未记录'}}</template></el-table-column>
         <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="systemQty" label="系统库存"/>
         <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="countedQty" label="实盘库存"/>
         <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="adjustmentQty" label="差异"/>
@@ -174,6 +176,11 @@ const query=reactive({pageNum:1,pageSize:10,status:'PENDING'})
 const isTransfer=row=>row?.docType==='TRANSFER_OUT'||(row?.docType==='REVERSAL'&&row?.sourceDocType==='TRANSFER_OUT')
 const typeLabels={TRANSFER_OUT:'仓库调货',PURCHASE_IN:'采购入库',SAMPLE_IN:'样品入库',SALES_OUT:'销售出库',SUPPLIER_RETURN:'供应商退货',CUSTOMER_RETURN:'客户退货',RETURN_INSPECT:'退货质检',STOCK_ADJUST:'库存调整',COST_ADJUST:'库存成本调价',ASSEMBLY:'手工组装',REVERSAL:'红冲单'}
 const typeLabel=value=>typeLabels[value]||value
+const supplierNames=document=>{
+  const names=[document?.supplierNameSnapshot,...String(document?.itemSupplierNames||'').split('、'),...(document?.items||[]).map(item=>item.supplierNameSnapshot)]
+    .map(value=>String(value||'').trim()).filter(Boolean)
+  return [...new Set(names)].join('、')||'未记录'
+}
 const isDualApproval=row=>['STOCK_ADJUST','COST_ADJUST'].includes(row?.docType)||(row?.docType==='REVERSAL'&&['STOCK_ADJUST','COST_ADJUST'].includes(row?.sourceDocType))
 const isCostAdjustment=row=>row?.docType==='COST_ADJUST'||(row?.docType==='REVERSAL'&&row?.sourceDocType==='COST_ADJUST')
 const isAdministrator=()=>((userStore.roles||[]).some(role=>['admin','jewelry_admin'].includes(role)))

@@ -11,6 +11,7 @@
         <result property="status" column="status"/>
         <result property="supplierId" column="supplier_id"/>
         <result property="supplierNameSnapshot" column="supplier_name_snapshot"/>
+        <result property="itemSupplierNames" column="item_supplier_names"/>
         <result property="salesChannel" column="sales_channel"/>
         <result property="externalNo" column="external_no"/>
         <result property="sourceWarehouse" column="source_warehouse"/>
@@ -780,7 +781,10 @@
     </select>
 
     <select id="selectDocumentList" resultMap="documentMap">
-        select d.*,src.doc_type source_doc_type,src.doc_no source_doc_no
+        select d.*,src.doc_type source_doc_type,src.doc_no source_doc_no,
+          (select group_concat(distinct i.supplier_name_snapshot order by i.supplier_name_snapshot separator '、')
+           from jewelry_document_item i where i.document_id=d.document_id
+             and i.supplier_name_snapshot is not null and i.supplier_name_snapshot&lt;&gt;'') item_supplier_names
         from jewelry_document d
         left join jewelry_document src on src.document_id=d.source_document_id
         <where>

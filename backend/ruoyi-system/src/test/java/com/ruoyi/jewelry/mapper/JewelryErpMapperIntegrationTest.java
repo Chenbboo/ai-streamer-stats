@@ -976,6 +976,27 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void pendingSampleListShowsSuppliersStoredOnItems()
+    {
+        insertDocument(1L, "SAMPLE-PENDING", "SAMPLE_IN", "PENDING_FIRST", null);
+        insertItem(11L, 1L, null, 10L, 1);
+        insertItem(12L, 1L, null, 10L, 1);
+        execute("update jewelry_document_item set supplier_name_snapshot='供应商甲' where item_id=11");
+        execute("update jewelry_document_item set supplier_name_snapshot='供应商乙' where item_id=12");
+
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryDocument query = new JewelryDocument();
+            query.setStatus("PENDING");
+            JewelryDocument sample = session.getMapper(JewelryErpMapper.class).selectDocumentList(query).get(0);
+            List<String> names = Arrays.asList(sample.getItemSupplierNames().split("、"));
+            assertEquals(2, names.size());
+            assertTrue(names.contains("供应商甲"));
+            assertTrue(names.contains("供应商乙"));
+        }
+    }
+
+    @Test
     void pendingCostAdjustmentAndInboundQueriesAreScopedBySku()
     {
         insertDocument(1L, "COST-PENDING", "COST_ADJUST", "PENDING_FIRST", null);
