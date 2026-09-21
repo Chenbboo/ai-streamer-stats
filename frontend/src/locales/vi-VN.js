@@ -1,4 +1,8 @@
 export default {
+  navigation: {
+    assetLoadFailed: 'Chưa mở được trang mới do không tải được tài nguyên. Vui lòng kiểm tra kết nối rồi tải lại.',
+    failed: 'Không thể chuyển trang. Vui lòng thử lại hoặc tải lại trang.'
+  },
   bossReview: {
     "title": "Tổng kết kinh doanh",
     "timezone": "Giờ Bắc Kinh",

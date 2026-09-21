@@ -1,4 +1,8 @@
 export default {
+  navigation: {
+    assetLoadFailed: '新页面暂未打开，页面资源加载失败。请检查网络后刷新重试。',
+    failed: '页面切换失败，请重试或刷新页面。'
+  },
   bossReview: {
     "title": "经营回顾",
     "timezone": "北京时间",
