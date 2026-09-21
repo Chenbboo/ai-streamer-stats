@@ -109,7 +109,7 @@
         <el-form-item v-if="reportForm.targetMode!=='NONE'" label="实际完成" required><el-input-number v-model="reportForm.actualValue" :min="0" :precision="4" style="width:100%" /></el-form-item>
         <el-form-item label="今日说明" required><el-input v-model="reportForm.summary" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
         <el-form-item v-if="needsReason" label="未达原因" required><el-input v-model="reportForm.issueReason" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
-        <el-form-item label="成果凭证" :required="reportForm.evidenceRequired==='1'"><business-file-upload v-model="reportForm.evidenceUrls" :project-id="reportForm.projectId" /></el-form-item>
+        <el-form-item label="成果凭证（选填）"><business-file-upload v-model="reportForm.evidenceUrls" :project-id="reportForm.projectId" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="reportDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="submitRoutine">保存今日完成量</el-button></template>
     </el-dialog>
@@ -120,7 +120,7 @@
         <el-form-item label="任务内容"><el-input :model-value="taskReportForm.taskName" disabled /></el-form-item>
         <el-form-item label="实际完成情况" required><el-input v-model="taskReportForm.completionSummary" type="textarea" :rows="4" maxlength="1000" show-word-limit placeholder="请用文字说明今日实际完成的内容" /></el-form-item>
         <el-form-item label="任务进度" required><el-slider v-model="taskReportForm.progress" show-input :min="0" :max="100" :disabled="Number(taskReportForm.minimumProgress || 0) >= 100" @input="keepTaskProgress" /><small class="progress-tip">当前进度 {{ taskReportForm.minimumProgress || 0 }}%，只能向上调整。</small></el-form-item>
-        <el-form-item label="成果凭证" required><business-file-upload v-model="taskReportForm.evidenceUrls" :project-id="taskReportForm.projectId" /></el-form-item>
+        <el-form-item label="成果凭证（选填）"><business-file-upload v-model="taskReportForm.evidenceUrls" :project-id="taskReportForm.projectId" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="taskReportDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="submitTask">保存今日完成量</el-button></template>
     </el-dialog>
@@ -178,13 +178,12 @@ async function load(){loading.value=true;try{const payload=(await getBusinessWor
 watch(()=>route.query.projectId,value=>{const requested=projectOptions.value.find(project=>String(project.projectId)===String(value));selectedProjectId.value=requested?.projectId??ALL_PROJECTS})
 function changePeriod(){load()}
 function goToday(){anchorDate.value=today();load()}
-function openRoutineReport(routine){reportForm.value={reportId:routine.todayReportId||null,routineId:routine.routineId,projectId:routine.projectId,bizDate:data.value.today,routineName:routine.routineName,frequency:routine.frequency,targetMode:routine.targetMode||'FIXED',todayTarget:routine.todayTarget,actualValue:routine.todayReportId?Number(routine.todayActual):null,unit:routine.unit,summary:routine.todaySummary||'',issueReason:routine.todayIssueReason||'',evidenceUrls:routine.todayEvidenceUrls||'',evidenceRequired:routine.evidenceRequired,version:null};reportDialog.value=true}
+function openRoutineReport(routine){reportForm.value={reportId:routine.todayReportId||null,routineId:routine.routineId,projectId:routine.projectId,bizDate:data.value.today,routineName:routine.routineName,frequency:routine.frequency,targetMode:routine.targetMode||'FIXED',todayTarget:routine.todayTarget,actualValue:routine.todayReportId?Number(routine.todayActual):null,unit:routine.unit,summary:routine.todaySummary||'',issueReason:routine.todayIssueReason||'',evidenceUrls:routine.todayEvidenceUrls||'',version:null};reportDialog.value=true}
 async function submitRoutine(){
   const form=reportForm.value
   if(form.targetMode!=='NONE'&&(form.actualValue===null||form.actualValue===undefined||Number(form.actualValue)<0))return ElMessage.warning('请填写实际完成量')
   if(!form.summary?.trim())return ElMessage.warning('请填写今日完成说明')
   if(needsReason.value&&!form.issueReason?.trim())return ElMessage.warning('未达到每日目标时请填写原因')
-  if(form.evidenceRequired==='1'&&!form.evidenceUrls)return ElMessage.warning('该工作要求上传成果凭证')
   form.actualValue=form.targetMode==='NONE'?0:form.actualValue
   form.issueReason=needsReason.value?form.issueReason.trim():null
   saving.value=true
@@ -211,7 +210,7 @@ async function submitRoutine(){
 }
 function openTaskReport(task){const minimumProgress=Number(task.progress||0);taskReportForm.value={reportId:task.todayTaskReportId||null,taskId:task.taskId,projectId:task.projectId,bizDate:data.value.today,taskName:task.taskName,minimumProgress,progress:Math.max(minimumProgress,Number(task.todayProgress??minimumProgress)),completionSummary:task.todayCompletionSummary||'',evidenceUrls:task.todayEvidenceUrls||''};taskReportDialog.value=true}
 function keepTaskProgress(value){const minimum=Number(taskReportForm.value.minimumProgress||0);if(Number(value)<minimum)taskReportForm.value.progress=minimum}
-async function submitTask(){const form=taskReportForm.value;if(!form.completionSummary?.trim())return ElMessage.warning('请填写实际完成情况');if(form.progress===null||form.progress===undefined||Number(form.progress)<Number(form.minimumProgress||0)||Number(form.progress)>100)return ElMessage.warning(`任务进度只能增加，不能低于 ${form.minimumProgress||0}%`);if(!form.evidenceUrls)return ElMessage.warning('请上传成果凭证');saving.value=true;try{await submitBusinessTaskReport(form);taskReportDialog.value=false;await load();ElMessage.success('今日任务完成量已保存')}finally{saving.value=false}}
+async function submitTask(){const form=taskReportForm.value;if(!form.completionSummary?.trim())return ElMessage.warning('请填写实际完成情况');if(form.progress===null||form.progress===undefined||Number(form.progress)<Number(form.minimumProgress||0)||Number(form.progress)>100)return ElMessage.warning(`任务进度只能增加，不能低于 ${form.minimumProgress||0}%`);saving.value=true;try{await submitBusinessTaskReport(form);taskReportDialog.value=false;await load();ElMessage.success('今日任务完成量已保存')}finally{saving.value=false}}
 function beginEffortAdjustment(item){item._savedActualPercent=Number(item.actualPercent||0);item._savedDeviationReason=item.deviationReason||'';item.editing=true}
 function cancelEffortAdjustment(item){item.actualPercent=item._savedActualPercent;item.deviationReason=item._savedDeviationReason;item.editing=false}
 async function saveEffort(item){const actual=Number(item.actualPercent);if(item.reportStatus==='LEAVE')return ElMessage.info('考勤显示当天不计人员投入，无需填报');if(!Number.isFinite(actual)||actual<0||actual>100)return ElMessage.warning('当天实际投入必须在0%到100%之间');if(item.reportStatus==='UNSUBMITTED'&&actual===Number(item.plannedPercent)){item.editing=false;return ElMessage.info('实际投入与计划一致，无需申报')}if(actual!==Number(item.plannedPercent)&&!item.deviationReason?.trim())return ElMessage.warning('实际投入与计划不一致时请填写偏差原因');savingEffortId.value=item.projectId;try{await saveBusinessWorkEffort({projectId:item.projectId,bizDate:anchorDate.value,actualPercent:actual,deviationReason:actual===Number(item.plannedPercent)?'':item.deviationReason||''});ElMessage.success('投入偏差已提交负责人确认');await load()}finally{savingEffortId.value=null}}

@@ -873,6 +873,25 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
+    void returningMemberWithEndedAllocationCanJoinAndReallocate()
+    {
+        BusinessProjectMember member = memberWithAllocationPlan(1L);
+        java.time.LocalDate yesterday = java.time.LocalDate.now().minusDays(1);
+        when(mapper.selectUserAllocationTimeline(10L)).thenReturn(Collections.singletonList(
+            row("projectId",52L,"allocationId",5L,"allocationValue",10,
+                "effectiveFrom",yesterday.minusDays(1).toString(),"effectiveTo",yesterday.toString(),
+                "confirmationStatus","CONFIRMED")));
+
+        service.saveMember(member,1L,"admin",false);
+
+        ArgumentCaptor<BusinessProjectStaffAllocation> saved=ArgumentCaptor.forClass(BusinessProjectStaffAllocation.class);
+        verify(mapper,times(2)).insertProjectStaffAllocation(saved.capture());
+        assertEquals("APPLIED",member.getAllocationOutcome());
+        assertTrue(saved.getAllValues().stream().anyMatch(a->a.getProjectId().equals(52L)
+            && a.getAllocationValue().compareTo(new BigDecimal("40"))==0));
+    }
+
+    @Test
     void memberWithoutOtherProjectsKeepsSelectedPercentage()
     {
         BusinessProjectMember member=allocationMember("MEMBER");
@@ -1435,9 +1454,11 @@ class BusinessProjectServiceImplTest
         BusinessProjectRoutine routine = new BusinessProjectRoutine();
         routine.setProjectId(86L); routine.setRoutineName("每日发布视频"); routine.setFrequency("WEEKLY");
         routine.setTargetValue(BigDecimal.TEN); routine.setUnit("条"); routine.setAssigneeUserId(14L);
+        routine.setEvidenceRequired("1");
         service.saveRoutine(routine, 9L, "zhangsan", false);
 
         assertEquals("DAILY", routine.getFrequency());
+        assertEquals("0", routine.getEvidenceRequired());
         ArgumentCaptor<Map<String, Object>> event = mapCaptor();
         verify(mapper).insertEvent(event.capture());
         assertEquals("ROUTINE_SAVE", event.getValue().get("eventType"));
@@ -1932,12 +1953,13 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
-    void dynamicRoutineReportStoresPublishedTargetSnapshot()
+    void dynamicRoutineReportStoresPublishedTargetSnapshotWithoutEvidenceDespiteLegacySetting()
     {
         BusinessProject project = project(74L, 9L, "ACTIVE", "APPROVED");
         BusinessProjectRoutine routine = new BusinessProjectRoutine();
         routine.setRoutineId(113L); routine.setProjectId(74L); routine.setTargetMode("DAILY_DYNAMIC");
         routine.setStatus("ACTIVE"); routine.setUnit("条"); routine.setAssigneeUserId(9L);
+        routine.setEvidenceRequired("1");
         BusinessProjectRoutineDailyTarget daily = new BusinessProjectRoutineDailyTarget();
         daily.setTargetValue(new BigDecimal("12"));
         Map<String, Object> user = new HashMap<String, Object>(); user.put("nickName", "员工九");
@@ -2080,6 +2102,34 @@ class BusinessProjectServiceImplTest
         assertTrue(error.getMessage().contains("今日已登记请假"));
         verify(mapper, never()).updateTask(any());
         verify(mapper, never()).upsertTaskReport(any());
+    }
+
+    @Test
+    void oneOffTaskReportRequiresSummaryAndProgressButAcceptsNoEvidence()
+    {
+        BusinessProject project = project(76L, 9L, "ACTIVE", "APPROVED");
+        BusinessProjectTask task = new BusinessProjectTask();
+        task.setTaskId(31L); task.setProjectId(76L); task.setTaskName("今日任务");
+        task.setAssigneeUserId(9L); task.setStatus("TODO"); task.setProgress(0); task.setVersion(0);
+        when(mapper.selectTaskById(31L)).thenReturn(task);
+        when(mapper.selectProjectById(76L)).thenReturn(project);
+        BusinessProjectTaskReport report = new BusinessProjectTaskReport();
+        report.setTaskId(31L);
+
+        assertThrows(ServiceException.class, () -> service.submitTaskReport(report, 9L, "employee9"));
+        report.setProgress(10);
+        assertThrows(ServiceException.class, () -> service.submitTaskReport(report, 9L, "employee9"));
+
+        report.setCompletionSummary("完成今日工作");
+        when(mapper.updateTask(task)).thenReturn(1);
+        when(mapper.selectActiveUserById(9L)).thenReturn(row("userId",9L,"nickName","成员九"));
+        when(mapper.selectTaskReport(eq(31L),any(Date.class))).thenReturn(report);
+        service.submitTaskReport(report, 9L, "employee9");
+
+        assertEquals("", report.getEvidenceUrls());
+        verify(mapper).upsertTaskReport(report);
+        verify(businessFileService, never()).validateReferences(any(), any(), any(),
+            org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.anyBoolean());
     }
 
     @Test

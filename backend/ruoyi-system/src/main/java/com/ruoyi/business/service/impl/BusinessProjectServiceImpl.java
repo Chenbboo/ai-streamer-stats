@@ -1547,7 +1547,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         for(Map<String,Object> row:rows){
             Long projectId=Long.valueOf(String.valueOf(row.get("projectId")));
             Map<String,Object> weight=weights.get(projectId);
-            if(weight==null&&weightedProjects.contains(projectId))continue;
+            // A returning member can have an ended allocation for this project but no allocation
+            // for the new join date. Keep the active membership at 0% so it can be reassigned.
+            if(weight==null&&weightedProjects.contains(projectId)&&row.get("allocationId")!=null)continue;
             Map<String,Object> copy=new LinkedHashMap<>(row);
             if(weight!=null){copy.put("allocationValue",weight.get("allocationValue"));copy.put("autoRedistributed",weight.get("autoRedistributed"));}
             result.add(copy);
@@ -2392,10 +2394,10 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (report.getProgress() < (task.getProgress() == null ? 0 : task.getProgress()))
             throw new ServiceException("任务进度只能增加，不能低于当前进度");
         if (StringUtils.isBlank(report.getCompletionSummary())) throw new ServiceException("请填写实际完成情况");
-        if (StringUtils.isBlank(report.getEvidenceUrls())) throw new ServiceException("请上传成果凭证");
+        if (StringUtils.isBlank(report.getEvidenceUrls())) report.setEvidenceUrls("");
         if (report.getCompletionSummary().length() > 2000) throw new ServiceException("实际完成情况不能超过2000字");
         if (report.getEvidenceUrls().length() > 4000) throw new ServiceException("成果凭证文件过多");
-        businessFileService.validateReferences(report.getEvidenceUrls(), project.getProjectId(), userId, false, SecurityUtils.isAdmin(userId));
+        if (!report.getEvidenceUrls().isEmpty()) businessFileService.validateReferences(report.getEvidenceUrls(), project.getProjectId(), userId, false, SecurityUtils.isAdmin(userId));
         report.setCompletionSummary(report.getCompletionSummary().trim());
 
         task.setProgress(report.getProgress());
@@ -2636,7 +2638,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (routine.getStartDate() == null) throw new ServiceException("请选择开始日期");
         if (routine.getEndDate() != null && routine.getEndDate().before(routine.getStartDate()))
             throw new ServiceException("结束日期不能早于开始日期");
-        if (!"1".equals(routine.getEvidenceRequired())) routine.setEvidenceRequired("0");
+        routine.setEvidenceRequired("0");
         if (routine.getRoutineId() == null)
         {
             routine.setStatus("ACTIVE"); routine.setVersion(0); routine.setCreateBy(userName);
@@ -2801,8 +2803,6 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             if (report.getIssueReason().length() > 500) throw new ServiceException("未达原因不能超过500个字符");
         }
         else report.setIssueReason(null);
-        if ("1".equals(routine.getEvidenceRequired()) && StringUtils.isBlank(report.getEvidenceUrls()))
-            throw new ServiceException("该工作要求上传成果凭证");
         businessFileService.validateReferences(report.getEvidenceUrls(), project.getProjectId(), userId, false, SecurityUtils.isAdmin(userId));
         report.setProjectId(project.getProjectId()); report.setTargetSnapshot(effectiveTarget);
         report.setUnit(routine.getUnit()); report.setSubmittedUserId(userId);

@@ -1710,7 +1710,7 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         result.put("project", projectIdentity(detail));
         result.put("members", copyFields(detail.getMembers(), "memberId", "userId", "userNameSnapshot", "memberRole", "joinedDate"));
         result.put("routines", copyFields(detail.getRoutines(), "routineId", "routineName", "frequency", "targetValue",
-            "unit", "assigneeUserId", "assigneeName", "startDate", "endDate", "evidenceRequired", "todayTarget", "todayActual",
+            "unit", "assigneeUserId", "assigneeName", "startDate", "endDate", "todayTarget", "todayActual",
             "cumulativeActual", "todayReportId", "todaySummary", "todayIssueReason", "remark"));
         result.put("tasks", copyFields(detail.getTasks(), "taskId", "taskName", "assigneeUserId", "assigneeName", "status", "progress",
             "priority", "planStartDate", "dueDate", "actualFinishTime", "remark"));
@@ -3209,7 +3209,7 @@ public class BusinessAiServiceImpl implements IBusinessAiService
         result.put("members", copyFields(detail.getMembers(), "userId", "userNameSnapshot", "memberRole", "joinedDate"));
         result.put("tasks", copyFields(detail.getTasks(), "taskId", "taskName", "assigneeName", "priority", "planStartDate", "dueDate", "remark"));
         result.put("routines", copyFields(detail.getRoutines(), "routineId", "routineName", "frequency", "targetValue", "unit",
-            "assigneeName", "startDate", "endDate", "evidenceRequired", "remark"));
+            "assigneeName", "startDate", "endDate", "remark"));
         result.put("milestones", copyFields(detail.getMilestones(), "milestoneId", "milestoneName", "planDate", "weight", "remark"));
         result.put("risks", copyFields(detail.getRisks(), "riskId", "riskTitle", "severity", "probability", "ownerName", "dueDate", "status", "responsePlan"));
         result.put("kpis", copyFields(operating.get("kpis"), "kpiId", "kpiName", "targetValue", "unit", "periodType", "ownerName", "weight"));

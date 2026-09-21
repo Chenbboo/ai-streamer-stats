@@ -30,7 +30,7 @@
       <el-form-item v-if="allocations.length" label="调整原因" required label-width="80px">
         <el-input v-model="reason" type="textarea" :rows="2" maxlength="500" show-word-limit placeholder="请填写本次跨项目投入调整原因" :disabled="saving || preview.hasPendingRequest" />
       </el-form-item>
-      <el-alert type="info" :closable="false" show-icon title="周期内已结束或尚未开始的项目仅展示历史投入；当前生效项目可调整。涉及其他负责人时，保存后将发起确认。" />
+      <el-alert type="info" :closable="false" show-icon title="投入比例决定人员在各项目的计划投入和人员成本。同一次保存会添加本项目成员并调整当前项目比例；涉及其他负责人时，确认后生效。" />
     </template>
   </section>
 </template>

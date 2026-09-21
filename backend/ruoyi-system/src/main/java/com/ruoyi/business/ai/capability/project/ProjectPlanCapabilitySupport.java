@@ -164,7 +164,6 @@ public class ProjectPlanCapabilitySupport
             row.put("frequency", value.getFrequency()); row.put("targetValue", value.getTargetValue());
             row.put("unit", value.getUnit()); row.put("assigneeName", value.getAssigneeName());
             row.put("startDate", date(value.getStartDate())); row.put("endDate", date(value.getEndDate()));
-            row.put("evidenceRequired", value.getEvidenceRequired());
             rows.add(row);
         }
         return rows;
