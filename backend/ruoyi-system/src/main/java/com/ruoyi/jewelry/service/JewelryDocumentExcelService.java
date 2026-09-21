@@ -159,8 +159,11 @@ public class JewelryDocumentExcelService
             DataFormatter formatter = new DataFormatter(Locale.CHINA);
             FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
             Map<String, Integer> columns = readHeaders(headerRow, formatter, evaluator);
+            boolean legacySampleSkuHeader = "SAMPLE_IN".equals(docType)
+                && !columns.containsKey("商品") && columns.containsKey("SKU");
             if ("SAMPLE_IN".equals(docType))
             {
+                aliasHeader(columns, "SKU", "货号");
                 aliasHeader(columns, "商品", "SKU");
                 aliasHeader(columns, "供应商", "供应商编码或名称");
                 aliasHeader(columns, SAMPLE_IMAGE_HEADER, IMAGE_HEADER);
@@ -174,9 +177,12 @@ public class JewelryDocumentExcelService
                     columns.get("SAMPLE_IN".equals(docType) ? SAMPLE_IMAGE_HEADER : IMAGE_HEADER))
                 : Collections.<Integer, EmbeddedImage>emptyMap();
 
-            Map<String, Map<String, Object>> products = loadProducts();
+            Map<String, List<Map<String, Object>>> products = loadProducts();
+            Set<String> disabledSampleSkus = "SAMPLE_IN".equals(docType)
+                ? loadDisabledProductSkus() : Collections.<String>emptySet();
             Map<String, List<Map<String, Object>>> suppliers = "SAMPLE_IN".equals(docType)
                 ? loadSuppliers() : Collections.<String, List<Map<String, Object>>>emptyMap();
+            Map<String, String> sampleNamesBySku = new HashMap<String, String>();
             List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
             Map<String, Integer> skuCounts = new HashMap<String, Integer>();
             for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++)
@@ -186,7 +192,8 @@ public class JewelryDocumentExcelService
                 if (rows.size() >= MAX_ROWS) throw new ServiceException("单次最多导入" + MAX_ROWS + "行");
                 Map<String, Object> row = parseRow(docType, source, rowIndex + 1, columns, formatter, evaluator);
                 String skuKey = normalizeSku(string(row.get("sku")));
-                skuCounts.put(skuKey, skuCounts.containsKey(skuKey) ? skuCounts.get(skuKey) + 1 : 1);
+                String countKey = skuCountKey(row);
+                skuCounts.put(countKey, skuCounts.getOrDefault(countKey, 0) + 1);
                 rows.add(row);
             }
             if (rows.isEmpty()) throw new ServiceException("Excel中没有可导入的数据");
@@ -194,16 +201,58 @@ public class JewelryDocumentExcelService
             int validCount = 0;
             int errorCount = 0;
             int newProductCount = 0;
+            Set<String> validNewSkus = new HashSet<String>();
             for (Map<String, Object> row : rows)
             {
                 List<String> errors = new ArrayList<String>();
                 String skuKey = normalizeSku(string(row.get("sku")));
                 if (skuKey.isEmpty()) errors.add("SKU不能为空");
-                if (!"SAMPLE_IN".equals(docType) && !skuKey.isEmpty() && skuCounts.get(skuKey) > 1)
+                if ("SAMPLE_IN".equals(docType) && string(row.get("sku")).length() > 64)
+                    errors.add("SKU不能超过64字符");
+                if (!"SAMPLE_IN".equals(docType) && !skuKey.isEmpty()
+                    && skuCounts.get(skuCountKey(row)) > 1)
                     errors.add("Excel中SKU重复");
-                Map<String, Object> product = products.get(skuKey);
+                List<Map<String, Object>> matches = products.getOrDefault(skuKey, Collections.emptyList());
+                String inputType = string(row.get("productType"));
+                String normalizedType = inputType.isEmpty() ? null : normalizeProductType(inputType);
+                if (!inputType.isEmpty() && normalizedType == null)
+                    errors.add("商品类型只能选择成品商品、散件商品、配件商品、福利商品或样品商品");
+                Map<String, Object> product = findProduct(docType, matches, normalizedType);
+                if (!"SAMPLE_IN".equals(docType) && inputType.isEmpty() && matches.size() > 1)
+                    errors.add("同一SKU存在多个商品类型，请填写商品类型");
+                if ("SAMPLE_IN".equals(docType) && !legacySampleSkuHeader)
+                {
+                    String inputName = string(row.get("productInput"));
+                    if (inputName.isEmpty()) errors.add("商品不能为空");
+                    else if (inputName.length() > 128) errors.add("商品名称不能超过128字符");
+                    if (product != null && !inputName.isEmpty()
+                        && !inputName.equals(string(product.get("productName"))))
+                        errors.add("SKU与商品名称不一致");
+                    if (!skuKey.isEmpty() && !inputName.isEmpty())
+                    {
+                        String previousName = sampleNamesBySku.putIfAbsent(skuKey, inputName);
+                        if (previousName != null && !previousName.equals(inputName))
+                            errors.add("同一SKU的商品名称不一致");
+                    }
+                }
+                if ("SAMPLE_IN".equals(docType) && product != null)
+                    row.put("sku", product.get("sku"));
                 boolean newProduct = product == null;
-                if (newProduct && !"PURCHASE_IN".equals(docType)) errors.add("SKU不存在");
+                if (newProduct && "SAMPLE_IN".equals(docType) && !skuKey.isEmpty() && errors.isEmpty())
+                {
+                    if (disabledSampleSkus.contains(skuKey)) errors.add("SKU已存在但商品已停用，请先启用商品");
+                    else if (legacySampleSkuHeader) errors.add("SKU不存在");
+                    else if (!allowNewProduct) errors.add("当前账号无权新增商品档案");
+                    else
+                    {
+                        row.put("productName", row.get("productInput"));
+                        row.put("productType", "SAMPLE");
+                        row.put("specification", "普通");
+                        row.put("unit", "件");
+                    }
+                }
+                if (newProduct && !"PURCHASE_IN".equals(docType) && !"SAMPLE_IN".equals(docType))
+                    errors.add("SKU不存在");
                 if (newProduct && "PURCHASE_IN".equals(docType))
                 {
                     if (!allowNewProduct) errors.add("当前账号无权新增商品档案");
@@ -217,7 +266,6 @@ public class JewelryDocumentExcelService
                 }
                 if (!newProduct && "PURCHASE_IN".equals(docType))
                 {
-                    String inputType = string(row.get("productType"));
                     String currentType = string(product.get("productType"));
                     if (!inputType.isEmpty())
                     {
@@ -238,20 +286,15 @@ public class JewelryDocumentExcelService
                 }
                 if ("SAMPLE_IN".equals(docType))
                 {
-                    if (product != null && !"SAMPLE".equals(string(product.get("productType"))))
-                        errors.add("样品入库只能选择样品商品");
-                    String goodsNo = string(row.get("sampleGoodsNo"));
-                    if (goodsNo.isEmpty()) errors.add("货号不能为空");
-                    else if (goodsNo.length() > 64) errors.add("货号不能超过64字符");
                     if (string(row.get("bizDate")).isEmpty()) errors.add("业务日期格式应为yyyy-MM-dd");
                     String supplierInput = string(row.get("supplierInput"));
-                    List<Map<String, Object>> matches = suppliers.get(supplierInput);
+                    List<Map<String, Object>> supplierMatches = suppliers.get(supplierInput);
                     if (supplierInput.isEmpty()) errors.add("供应商不能为空");
-                    else if (matches == null || matches.isEmpty()) errors.add("供应商不存在或已停用");
-                    else if (matches.size() > 1) errors.add("供应商名称重复，请填写供应商编码");
+                    else if (supplierMatches == null || supplierMatches.isEmpty()) errors.add("供应商不存在或已停用");
+                    else if (supplierMatches.size() > 1) errors.add("供应商名称重复，请填写供应商编码");
                     else
                     {
-                        Map<String, Object> supplier = matches.get(0);
+                        Map<String, Object> supplier = supplierMatches.get(0);
                         row.put("supplierId", supplier.get("supplierId"));
                         row.put("supplierNameSnapshot", supplier.get("supplierName"));
                     }
@@ -291,6 +334,7 @@ public class JewelryDocumentExcelService
                 {
                     row.put("productId", product.get("productId"));
                     row.put("productName", product.get("productName"));
+                    row.put("productType", product.get("productType"));
                     row.put("unitCost", decimal(product.get("avgCost")));
                     row.put("systemQty", integer(product.get("onHandQty")));
                     row.put("availableQty", integer(product.get("onHandQty")) - integer(product.get("reservedOutQty")));
@@ -302,7 +346,7 @@ public class JewelryDocumentExcelService
                 if (errors.isEmpty())
                 {
                     validCount++;
-                    if (newProduct) newProductCount++;
+                    if (newProduct && validNewSkus.add(string(row.get("sku")) + ":" + string(row.get("productType")))) newProductCount++;
                 }
                 else errorCount++;
             }
@@ -312,8 +356,8 @@ public class JewelryDocumentExcelService
                 Map<String, Integer> sampleCounts = new HashMap<String, Integer>();
                 for (Map<String, Object> row : rows)
                 {
-                    if (row.get("productId") == null || row.get("supplierId") == null
-                        || string(row.get("bizDate")).isEmpty() || string(row.get("sampleGoodsNo")).isEmpty()) continue;
+                    if (string(row.get("sku")).isEmpty() || row.get("supplierId") == null
+                        || string(row.get("bizDate")).isEmpty()) continue;
                     String key = sampleKey(row);
                     sampleCounts.put(key, sampleCounts.containsKey(key) ? sampleCounts.get(key) + 1 : 1);
                 }
@@ -321,18 +365,26 @@ public class JewelryDocumentExcelService
                 errorCount = 0;
                 for (Map<String, Object> row : rows)
                 {
-                    if (row.get("productId") != null && row.get("supplierId") != null
+                    if (!string(row.get("sku")).isEmpty() && row.get("supplierId") != null
                         && sampleCounts.getOrDefault(sampleKey(row), 0) > 1)
                     {
                         row.put("errorMessage", string(row.get("errorMessage"))
                             + (string(row.get("errorMessage")).isEmpty() ? "" : "；")
-                            + "同一商品、业务日期、供应商和货号重复，请合并数量");
+                            + "同一SKU、业务日期和供应商重复，请合并数量");
                         row.put("valid", false);
                         row.put("status", "ERROR");
                     }
                     if (Boolean.TRUE.equals(row.get("valid"))) validCount++;
                     else errorCount++;
                 }
+            }
+            if ("SAMPLE_IN".equals(docType))
+            {
+                validNewSkus.clear();
+                for (Map<String, Object> row : rows)
+                    if (Boolean.TRUE.equals(row.get("valid")) && Boolean.TRUE.equals(row.get("newProduct")))
+                        validNewSkus.add(string(row.get("sku")));
+                newProductCount = validNewSkus.size();
             }
 
             Map<String, Object> result = new LinkedHashMap<String, Object>();
@@ -358,8 +410,10 @@ public class JewelryDocumentExcelService
     {
         Map<String, Object> row = new LinkedHashMap<String, Object>();
         row.put("rowNumber", rowNumber);
-        row.put("sku", value(source, columns, "SAMPLE_IN".equals(docType) ? "商品" : "SKU",
-            formatter, evaluator).trim());
+        String sku = value(source, columns, "SKU", formatter, evaluator).trim();
+        row.put("sku", sku);
+        if ("SAMPLE_IN".equals(docType))
+            row.put("productInput", value(source, columns, "商品", formatter, evaluator).trim());
         if ("PURCHASE_IN".equals(docType))
         {
             row.put("productName", value(source, columns, "商品名称（新商品必填）", formatter, evaluator).trim());
@@ -374,7 +428,6 @@ public class JewelryDocumentExcelService
         }
         else if ("SAMPLE_IN".equals(docType))
         {
-            row.put("sampleGoodsNo", value(source, columns, "货号", formatter, evaluator).trim());
             row.put("bizDate", sampleDate(source.getCell(columns.get("业务日期")), formatter, evaluator));
             row.put("supplierInput", value(source, columns, "供应商", formatter, evaluator).trim());
             row.put("qty", integerValue(value(source, columns, "数量", formatter, evaluator)));
@@ -382,6 +435,7 @@ public class JewelryDocumentExcelService
         }
         else if ("SALES_OUT".equals(docType))
         {
+            row.put("productType", value(source, columns, "商品类型", formatter, evaluator).trim());
             row.put("qty", integerValue(value(source, columns, "数量", formatter, evaluator)));
             row.put("unitPrice", decimalValue(value(source, columns, "成交单价", formatter, evaluator)));
             row.put("packFee", decimalValue(value(source, columns, "包装费/件", formatter, evaluator)));
@@ -393,6 +447,7 @@ public class JewelryDocumentExcelService
         }
         else
         {
+            row.put("productType", value(source, columns, "商品类型", formatter, evaluator).trim());
             row.put("countedQty", integerValue(value(source, columns, "实盘数量", formatter, evaluator)));
             row.put("lineReason", value(source, columns, "调整原因", formatter, evaluator).trim());
         }
@@ -433,15 +488,54 @@ public class JewelryDocumentExcelService
             errors.add(label + "必须是大于等于0的数字");
     }
 
-    private Map<String, Map<String, Object>> loadProducts()
+    private Map<String, List<Map<String, Object>>> loadProducts()
     {
         Map<String, Object> query = new HashMap<String, Object>();
         query.put("status", "0");
-        Map<String, Map<String, Object>> result = new HashMap<String, Map<String, Object>>();
+        Map<String, List<Map<String, Object>>> result = new HashMap<String, List<Map<String, Object>>>();
         for (Map<String, Object> product : mapper.selectProductList(query))
         {
-            result.put(normalizeSku(string(product.get("sku"))), product);
+            result.computeIfAbsent(normalizeSku(string(product.get("sku"))), ignored -> new ArrayList<Map<String, Object>>())
+                .add(product);
         }
+        return result;
+    }
+
+    private Map<String, Object> findProduct(String docType, List<Map<String, Object>> matches, String inputType)
+    {
+        if ("SAMPLE_IN".equals(docType))
+            return matches.stream().filter(product -> "SAMPLE".equals(string(product.get("productType"))))
+                .findFirst().orElse(null);
+        if (inputType != null)
+        {
+            for (Map<String, Object> product : matches)
+                if (inputType.equals(string(product.get("productType")))) return product;
+            if ("PURCHASE_IN".equals(docType))
+            {
+                for (Map<String, Object> product : matches)
+                    if (!"SAMPLE".equals(inputType) && !"SAMPLE".equals(string(product.get("productType"))))
+                        return product;
+            }
+            return null;
+        }
+        return matches.size() == 1 ? matches.get(0) : null;
+    }
+
+    private String skuCountKey(Map<String, Object> row)
+    {
+        String type = string(row.get("productType"));
+        String normalizedType = normalizeProductType(type);
+        return normalizeSku(string(row.get("sku"))) + ":" + (normalizedType == null ? type : normalizedType);
+    }
+
+    private Set<String> loadDisabledProductSkus()
+    {
+        Map<String, Object> query = new HashMap<String, Object>();
+        query.put("status", "1");
+        Set<String> result = new HashSet<String>();
+        for (Map<String, Object> product : mapper.selectProductList(query))
+            if ("SAMPLE".equals(string(product.get("productType"))))
+                result.add(normalizeSku(string(product.get("sku"))));
         return result;
     }
 
@@ -467,8 +561,10 @@ public class JewelryDocumentExcelService
 
     private String sampleKey(Map<String, Object> row)
     {
-        return string(row.get("productId")) + ":" + string(row.get("bizDate")) + ":"
-            + string(row.get("supplierId")) + ":" + string(row.get("sampleGoodsNo"));
+        String productKey = row.get("productId") == null ? "sku:" + normalizeSku(string(row.get("sku")))
+            : "id:" + string(row.get("productId"));
+        return productKey + ":" + string(row.get("bizDate")) + ":"
+            + string(row.get("supplierId"));
     }
 
     private String sampleDate(Cell cell, DataFormatter formatter, FormulaEvaluator evaluator)
@@ -558,38 +654,40 @@ public class JewelryDocumentExcelService
             return new String[] { "SKU", "商品名称（新商品必填）", "商品类型（新商品必填）",
                 "分类", "规格类型（新商品必填）", "单位", "数量", "采购单价", IMAGE_HEADER };
         if ("SAMPLE_IN".equals(docType))
-            return new String[] { "货号", "商品", "业务日期", "供应商", SAMPLE_IMAGE_HEADER, "数量" };
+            return new String[] { "SKU", "商品", "业务日期", "供应商", SAMPLE_IMAGE_HEADER, "数量" };
         if ("SALES_OUT".equals(docType))
             return new String[] { "SKU", "数量", "成交单价", "包装费/件", "物流费/件", "鉴定费/件",
-                "其他1/件", "其他2/件", "其他3/件" };
-        return new String[] { "SKU", "实盘数量", "调整原因" };
+                "其他1/件", "其他2/件", "其他3/件", "商品类型" };
+        return new String[] { "SKU", "实盘数量", "调整原因", "商品类型" };
     }
 
     private List<String> requiredHeaders(String docType)
     {
-        return Arrays.asList(headers(docType));
+        String[] headers = headers(docType);
+        return Arrays.asList(("SALES_OUT".equals(docType) || "STOCK_ADJUST".equals(docType))
+            ? Arrays.copyOf(headers, headers.length - 1) : headers);
     }
 
     private String[] guide(String docType)
     {
         if ("PURCHASE_IN".equals(docType))
-            return new String[] { "一行填写一个SKU，数量必须为正整数。", "已有SKU只需填写SKU、数量和采购单价。",
-                "新SKU必须填写商品名称、商品类型和规格类型；商品类型从四种固定选项中选择，规格类型只能选择“精品”或“普通”。",
+            return new String[] { "一行填写一个SKU，数量必须为正整数。已有SKU只需填写SKU、数量和采购单价；同一SKU有多个商品类型时须填写商品类型。",
+                "新商品必须填写商品名称、商品类型和规格类型；商品类型从五种固定选项中选择，规格类型只能选择“精品”或“普通”。",
                 "每行只能在“商品图片”列插入一张JPG或PNG图片；已有档案图片的SKU可不重复插图。",
                 "图片应完整放在对应单元格内，并设置为随单元格移动和调整大小。",
-                "确认导入时系统会先创建商品档案。单次最多500行，禁止重复SKU。" };
+                "确认导入时系统会先创建商品档案。单次最多500行，同一商品不可重复；同一SKU的不同商品类型可分行填写。" };
         if ("SAMPLE_IN".equals(docType))
-            return new String[] { "一行填写一个样品，货号、商品、业务日期、供应商和数量必填；商品列填写已启用样品商品的SKU编码。",
+            return new String[] { "一行填写一个样品，手动填写SKU、商品名称、业务日期、供应商和数量；SKU用于匹配或新建样品商品。",
                 "业务日期填写yyyy-MM-dd；供应商填写已启用供应商的编码或名称，名称重名时请填编码。",
-                "货号与商品SKU编码是不同字段；货号最多64字符，作为文本填写可保留前导零。",
+                "SKU最多64字符，作为文本填写可保留前导零；已有样品SKU的商品名称必须与样品档案一致。",
                 "可在实物图片列为每行插入一张图片，图片仅作为该入库明细的实物凭证，不修改商品档案。",
-                "同一商品可填写多行，但相同商品、日期、供应商、货号必须合并数量；数量须为正整数。",
-                "单价和本次入库成本固定为0；导入只填入当前单据，仍须提交并审核后入账。单次最多500行。" };
+                "同一SKU可填写多行，但相同SKU、日期和供应商必须合并数量；数量须为正整数。",
+                "未建档的SKU在确认导入时按填写的商品名称新建样品商品，需商品新增权限。单价和本次入库成本固定为0；仍须提交并审核后入账。单次最多500行。" };
         if ("SALES_OUT".equals(docType))
-            return new String[] { "一行填写一个SKU，SKU必须已存在。", "销售数量不能超过当前可用库存。",
-                "费用均按每件填写，未发生费用时填写0。", "单次最多500行，禁止重复SKU。" };
-        return new String[] { "一行填写一个SKU，SKU必须已存在。", "实盘数量必须为大于等于0的整数。",
-            "每一行都必须填写调整原因。", "单次最多500行，禁止重复SKU。" };
+            return new String[] { "一行填写一个SKU，SKU必须已存在；同一SKU有多种商品类型时填写商品类型。", "销售数量不能超过当前可用库存。",
+                "费用均按每件填写，未发生费用时填写0。", "单次最多500行，同一商品不可重复。" };
+        return new String[] { "一行填写一个SKU，SKU必须已存在；同一SKU有多种商品类型时填写商品类型。", "实盘数量必须为大于等于0的整数。",
+            "每一行都必须填写调整原因。", "单次最多500行，同一商品不可重复。" };
     }
 
     private CellStyle createHeaderStyle(Workbook workbook)
@@ -619,9 +717,9 @@ public class JewelryDocumentExcelService
         else if ("SAMPLE_IN".equals(docType))
             widths = new int[] { 20, 20, 18, 26, 20, 12 };
         else if ("SALES_OUT".equals(docType))
-            widths = new int[] { 20, 12, 16, 16, 16, 16, 16, 16, 16 };
+            widths = new int[] { 20, 12, 16, 16, 16, 16, 16, 16, 16, 18 };
         else
-            widths = new int[] { 20, 14, 36 };
+            widths = new int[] { 20, 14, 36, 18 };
         for (int i = 0; i < headers.length; i++)
             data.setColumnWidth(i, widths[Math.min(i, widths.length - 1)] * 256);
     }

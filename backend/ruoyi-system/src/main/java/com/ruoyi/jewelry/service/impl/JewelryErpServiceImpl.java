@@ -1137,6 +1137,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             if (product == null) throw new ServiceException("商品不存在或已删除");
             if (!"0".equals(String.valueOf(product.get("status"))))
                 throw new ServiceException("商品已停用，不能继续使用");
+            String submittedSku = text(item.getSkuSnapshot()).trim();
+            if ("SAMPLE_IN".equals(document.getDocType()) && !submittedSku.isEmpty()
+                && !submittedSku.equalsIgnoreCase(textValue(product.get("sku"))))
+                throw new ServiceException("样品入库SKU与所选商品不一致");
             item.setSkuSnapshot(String.valueOf(product.get("sku")));
             item.setProductNameSnapshot(String.valueOf(product.get("productName")));
             item.setProductTypeSnapshot(textValue(product.get("productType")));
@@ -1149,10 +1153,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     throw new ServiceException("请填写每行样品商品的业务日期");
                 if (item.getSupplierId() == null)
                     throw new ServiceException("请填写每行样品商品的供应商");
+                // Keep legacy goods numbers on existing rows, but new sample receipts use the product SKU.
                 String sampleGoodsNo = text(item.getSampleGoodsNo()).trim();
-                if (sampleGoodsNo.isEmpty()) throw new ServiceException("请填写每行样品商品的货号");
-                if (sampleGoodsNo.length() > 64) throw new ServiceException("样品货号不能超过64个字符");
-                item.setSampleGoodsNo(sampleGoodsNo);
+                item.setSampleGoodsNo(sampleGoodsNo.isEmpty() ? null : sampleGoodsNo);
                 Map<String, Object> sampleSupplier = mapper.selectSupplierById(item.getSupplierId());
                 if (sampleSupplier == null || !"0".equals(textValue(sampleSupplier.get("status"))))
                     throw new ServiceException("样品入库供应商不存在或已停用");
@@ -1196,11 +1199,11 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             else if (!"CUSTOMER_RETURN".equals(document.getDocType())
                 && !"RETURN_INSPECT".equals(document.getDocType())
                 && !itemKeys.add("SAMPLE_IN".equals(document.getDocType())
-                    ? item.getProductId() + ":" + sampleDayFormat.format(item.getBizDate()) + ":" + item.getSupplierId() + ":" + item.getSampleGoodsNo()
+                    ? item.getProductId() + ":" + sampleDayFormat.format(item.getBizDate()) + ":" + item.getSupplierId()
                     : String.valueOf(item.getProductId())))
             {
                 throw new ServiceException("SAMPLE_IN".equals(document.getDocType())
-                    ? "同一商品、业务日期、供应商和货号不能在样品入库单中重复出现"
+                    ? "同一SKU、业务日期和供应商不能在样品入库单中重复出现"
                     : "同一商品不能在一张单据中重复出现");
             }
             if ("ASSEMBLY".equals(document.getDocType()))

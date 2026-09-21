@@ -979,7 +979,7 @@ class JewelryErpServiceImplTest
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.saveDocument(document, MAKER_ID, "maker"));
 
-        assertTrue(error.getMessage().contains("供应商和货号"));
+        assertTrue(error.getMessage().contains("SKU、业务日期和供应商"));
         verify(mapper, never()).insertDocument(any(JewelryDocument.class));
     }
 
@@ -1025,7 +1025,7 @@ class JewelryErpServiceImplTest
     }
 
     @Test
-    void sampleReceiptRequiresGoodsNumberOnEveryLine()
+    void sampleReceiptAllowsNoGoodsNumber()
     {
         JewelryDocument document = document(null, "SAMPLE_IN", null);
         JewelryDocumentItem item = item(null, 1, "0");
@@ -1033,16 +1033,17 @@ class JewelryErpServiceImplTest
         item.setSupplierId(1L);
         document.setItems(Arrays.asList(item));
         when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("SAMPLE"));
+        when(mapper.insertDocument(document)).thenAnswer(call -> { document.setDocumentId(7012L); return 1; });
+        when(mapper.selectDocumentById(7012L)).thenReturn(document);
+        when(mapper.selectDocumentItems(7012L)).thenReturn(document.getItems());
 
-        ServiceException error = assertThrows(ServiceException.class,
-            () -> service.saveDocument(document, MAKER_ID, "maker"));
+        service.saveDocument(document, MAKER_ID, "maker");
 
-        assertTrue(error.getMessage().contains("每行样品商品的货号"));
-        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+        assertEquals(null, item.getSampleGoodsNo());
     }
 
     @Test
-    void sampleReceiptAllowsSameProductDateAndSupplierWithDifferentGoodsNumbers()
+    void sampleReceiptRejectsSameProductDateAndSupplierWithDifferentLegacyGoodsNumbers()
     {
         JewelryDocument document = document(null, "SAMPLE_IN", null);
         JewelryDocumentItem first = item(null, 1, "0");
@@ -1055,15 +1056,11 @@ class JewelryErpServiceImplTest
         second.setSampleGoodsNo("YP-002");
         document.setItems(Arrays.asList(first, second));
         when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("SAMPLE"));
-        when(mapper.insertDocument(document)).thenAnswer(call -> { document.setDocumentId(7012L); return 1; });
-        when(mapper.selectDocumentById(7012L)).thenReturn(document);
-        when(mapper.selectDocumentItems(7012L)).thenReturn(document.getItems());
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveDocument(document, MAKER_ID, "maker"));
 
-        service.saveDocument(document, MAKER_ID, "maker");
-
-        assertEquals(3, document.getTotalQty());
-        assertEquals("YP-001", first.getSampleGoodsNo());
-        assertEquals("YP-002", second.getSampleGoodsNo());
+        assertTrue(error.getMessage().contains("同一SKU"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
     }
 
     @Test

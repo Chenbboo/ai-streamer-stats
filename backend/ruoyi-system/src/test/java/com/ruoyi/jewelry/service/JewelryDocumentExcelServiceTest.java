@@ -46,7 +46,7 @@ class JewelryDocumentExcelServiceTest
         "商品类型（新商品必填）", "分类", "规格类型（新商品必填）", "单位", "数量", "采购单价", "商品图片" };
     private static final String[] SALES_HEADERS = new String[] { "SKU", "数量", "成交单价", "包装费/件",
         "物流费/件", "鉴定费/件", "其他1/件", "其他2/件", "其他3/件" };
-    private static final String[] SAMPLE_HEADERS = new String[] { "货号", "商品", "业务日期",
+    private static final String[] SAMPLE_HEADERS = new String[] { "SKU", "商品", "业务日期",
         "供应商", "实物图片", "数量" };
     private static final String[] LEGACY_SAMPLE_HEADERS = new String[] { "货号", "SKU", "业务日期",
         "供应商编码或名称", "数量", "商品图片" };
@@ -162,7 +162,7 @@ class JewelryDocumentExcelServiceTest
     }
 
     @Test
-    void sampleTemplateHasPerLineFieldsAndTextGoodsNumber() throws Exception
+    void sampleTemplateHasManualSkuAndPerLineFields() throws Exception
     {
         try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(service.createTemplate("SAMPLE_IN"))))
         {
@@ -181,7 +181,7 @@ class JewelryDocumentExcelServiceTest
     }
 
     @Test
-    void samplePreviewMapsGoodsDateSupplierAndZeroCostWithoutImage() throws Exception
+    void samplePreviewMapsSkuDateSupplierAndZeroCostWithoutImage() throws Exception
     {
         Map<String, Object> sample = product("SAMPLE-1", 2, 0);
         sample.put("productType", "SAMPLE");
@@ -189,18 +189,168 @@ class JewelryDocumentExcelServiceTest
         when(mapper.selectSupplierList(any())).thenReturn(Collections.singletonList(supplier()));
 
         Map<String, Object> result = service.preview("SAMPLE_IN", workbook(SAMPLE_HEADERS,
-            new Object[] { "0007", "SAMPLE-1", "2026-09-20", "SUP-1", "", 2 },
-            new Object[] { "0008", "SAMPLE-1", "2026/9/21", "测试供应商", "", 3 }), false);
+            new Object[] { "SAMPLE-1", "测试商品", "2026-09-20", "SUP-1", "", 2 },
+            new Object[] { "SAMPLE-1", "测试商品", "2026/9/21", "测试供应商", "", 3 }), false);
 
         assertEquals(2, result.get("validCount"));
         assertEquals(0, result.get("errorCount"));
-        assertEquals("0007", rows(result).get(0).get("sampleGoodsNo"));
+        assertEquals("SAMPLE-1", rows(result).get(0).get("sku"));
         assertEquals("2026-09-20", rows(result).get(0).get("bizDate"));
         assertEquals("2026-09-21", rows(result).get(1).get("bizDate"));
         assertEquals(9L, rows(result).get(0).get("supplierId"));
         assertEquals("测试供应商", rows(result).get(1).get("supplierNameSnapshot"));
         assertEquals(BigDecimal.ZERO, rows(result).get(0).get("unitPrice"));
         assertFalse(rows(result).get(0).containsKey("imageUrl"));
+    }
+
+    @Test
+    void samplePreviewMatchesExistingProductByManualSku() throws Exception
+    {
+        Map<String, Object> sample = product("SAMPLE-1", 2, 0);
+        sample.put("productName", "苹果");
+        sample.put("productType", "SAMPLE");
+        when(mapper.selectProductList(any())).thenReturn(Collections.singletonList(sample));
+        when(mapper.selectSupplierList(any())).thenReturn(Collections.singletonList(supplier()));
+
+        Map<String, Object> result = service.preview("SAMPLE_IN", workbook(SAMPLE_HEADERS,
+            new Object[] { "SAMPLE-1", "苹果", "2026-06-05", "SUP-1", "", 10 }), true);
+
+        assertEquals(1, result.get("validCount"));
+        assertEquals(0, result.get("newProductCount"));
+        assertEquals("苹果", rows(result).get(0).get("productInput"));
+        assertEquals("SAMPLE-1", rows(result).get(0).get("sku"));
+        assertEquals(1L, rows(result).get(0).get("productId"));
+    }
+
+    @Test
+    void samplePreviewCreatesSeparateProductWhenNonSampleHasSameSku() throws Exception
+    {
+        Map<String, Object> accessory = product("SHARED-1", 8, 0);
+        accessory.put("productType", "ACCESSORY");
+        when(mapper.selectProductList(any())).thenReturn(Collections.singletonList(accessory));
+        when(mapper.selectSupplierList(any())).thenReturn(Collections.singletonList(supplier()));
+
+        Map<String, Object> result = service.preview("SAMPLE_IN", workbook(SAMPLE_HEADERS,
+            new Object[] { "SHARED-1", "新样品", "2026-06-05", "SUP-1", "", 2 }), true);
+
+        assertEquals(1, result.get("validCount"));
+        assertEquals(1, result.get("newProductCount"));
+        assertEquals("SAMPLE", rows(result).get(0).get("productType"));
+        assertFalse(rows(result).get(0).containsKey("productId"));
+    }
+
+    @Test
+    void samplePreviewUsesSampleStockWhenSkuIsShared() throws Exception
+    {
+        Map<String, Object> accessory = product("SHARED-1", 8, 0);
+        accessory.put("productType", "ACCESSORY");
+        Map<String, Object> sample = product("SHARED-1", 3, 0);
+        sample.put("productId", 2L);
+        sample.put("productType", "SAMPLE");
+        when(mapper.selectProductList(any())).thenReturn(java.util.Arrays.asList(accessory, sample));
+        when(mapper.selectSupplierList(any())).thenReturn(Collections.singletonList(supplier()));
+
+        Map<String, Object> result = service.preview("SAMPLE_IN", workbook(SAMPLE_HEADERS,
+            new Object[] { "SHARED-1", "测试商品", "2026-06-05", "SUP-1", "", 2 }), false);
+
+        assertEquals(0, result.get("errorCount"));
+        assertEquals(2L, rows(result).get(0).get("productId"));
+        assertEquals(3, rows(result).get(0).get("systemQty"));
+    }
+
+    @Test
+    void salesPreviewRequiresTypeForSharedSkuAndUsesSelectedStock() throws Exception
+    {
+        Map<String, Object> finished = product("SHARED-1", 9, 0);
+        Map<String, Object> sample = product("SHARED-1", 2, 0);
+        sample.put("productId", 2L);
+        sample.put("productType", "SAMPLE");
+        when(mapper.selectProductList(any())).thenReturn(java.util.Arrays.asList(finished, sample));
+
+        Map<String, Object> ambiguous = service.preview("SALES_OUT", workbook(SALES_HEADERS,
+            new Object[] { "SHARED-1", 1, 100, 0, 0, 0, 0, 0, 0 }), false);
+        assertEquals(1, ambiguous.get("errorCount"));
+        assertTrue(String.valueOf(rows(ambiguous).get(0).get("errorMessage")).contains("填写商品类型"));
+
+        String[] typedHeaders = java.util.Arrays.copyOf(SALES_HEADERS, SALES_HEADERS.length + 1);
+        typedHeaders[SALES_HEADERS.length] = "商品类型";
+        Map<String, Object> typed = service.preview("SALES_OUT", workbook(typedHeaders,
+            new Object[] { "SHARED-1", 1, 100, 0, 0, 0, 0, 0, 0, "样品商品" }), false);
+        assertEquals(0, typed.get("errorCount"));
+        assertEquals(2L, rows(typed).get(0).get("productId"));
+        assertEquals(2, rows(typed).get(0).get("systemQty"));
+    }
+
+    @Test
+    void samplePreviewCreatesOneNewProductForRepeatedSku() throws Exception
+    {
+        when(mapper.selectProductList(any())).thenReturn(Collections.emptyList());
+        when(mapper.selectSupplierList(any())).thenReturn(Collections.singletonList(supplier()));
+
+        Map<String, Object> result = service.preview("SAMPLE_IN", workbook(SAMPLE_HEADERS,
+            new Object[] { "APPLE-1", "苹果", "2026-06-05", "SUP-1", "", 10 },
+            new Object[] { "APPLE-1", "苹果", "2026-06-06", "SUP-1", "", 5 }), true);
+
+        assertEquals(2, result.get("validCount"));
+        assertEquals(1, result.get("newProductCount"));
+        String sku = String.valueOf(rows(result).get(0).get("sku"));
+        assertEquals("APPLE-1", sku);
+        assertEquals(sku, rows(result).get(1).get("sku"));
+        assertEquals("苹果", rows(result).get(0).get("productName"));
+        assertEquals("SAMPLE", rows(result).get(0).get("productType"));
+        assertEquals("NEW", rows(result).get(0).get("status"));
+    }
+
+    @Test
+    void samplePreviewRejectsDuplicateNewProductLine() throws Exception
+    {
+        when(mapper.selectProductList(any())).thenReturn(Collections.emptyList());
+        when(mapper.selectSupplierList(any())).thenReturn(Collections.singletonList(supplier()));
+
+        Map<String, Object> result = service.preview("SAMPLE_IN", workbook(SAMPLE_HEADERS,
+            new Object[] { "APPLE-1", "苹果", "2026-06-05", "SUP-1", "", 10 },
+            new Object[] { "APPLE-1", "苹果", "2026-06-05", "SUP-1", "", 5 }), true);
+
+        assertEquals(2, result.get("errorCount"));
+        assertEquals(0, result.get("newProductCount"));
+        assertTrue(String.valueOf(rows(result).get(0).get("errorMessage")).contains("重复"));
+    }
+
+    @Test
+    void samplePreviewRequiresProductPermissionAndMatchingName() throws Exception
+    {
+        Map<String, Object> first = product("SAMPLE-1", 2, 0);
+        first.put("productName", "已有样品");
+        first.put("productType", "SAMPLE");
+        when(mapper.selectProductList(any())).thenReturn(Collections.singletonList(first));
+        when(mapper.selectSupplierList(any())).thenReturn(Collections.singletonList(supplier()));
+
+        Map<String, Object> result = service.preview("SAMPLE_IN", workbook(SAMPLE_HEADERS,
+            new Object[] { "SAMPLE-1", "错误名称", "2026-06-05", "SUP-1", "", 1 },
+            new Object[] { "NEW-1", "新样品", "2026-06-05", "SUP-1", "", 1 }), false);
+
+        assertEquals(2, result.get("errorCount"));
+        assertTrue(String.valueOf(rows(result).get(0).get("errorMessage")).contains("SKU与商品名称不一致"));
+        assertTrue(String.valueOf(rows(result).get(1).get("errorMessage")).contains("无权新增商品"));
+    }
+
+    @Test
+    void samplePreviewDoesNotRecreateDisabledSku() throws Exception
+    {
+        Map<String, Object> disabled = product("OLD-SKU", 0, 0);
+        disabled.put("productType", "SAMPLE");
+        when(mapper.selectProductList(any())).thenAnswer(call -> {
+            Map<String, Object> query = call.getArgument(0);
+            return "1".equals(query.get("status"))
+                ? Collections.singletonList(disabled) : Collections.emptyList();
+        });
+        when(mapper.selectSupplierList(any())).thenReturn(Collections.singletonList(supplier()));
+
+        Map<String, Object> result = service.preview("SAMPLE_IN", workbook(SAMPLE_HEADERS,
+            new Object[] { "OLD-SKU", "测试商品", "2026-09-20", "SUP-1", "", 1 }), true);
+
+        assertEquals(1, result.get("errorCount"));
+        assertTrue(String.valueOf(rows(result).get(0).get("errorMessage")).contains("已停用"));
     }
 
     @Test
@@ -219,6 +369,19 @@ class JewelryDocumentExcelServiceTest
     }
 
     @Test
+    void legacySampleSkuColumnDoesNotCreateProductFromUnknownCode() throws Exception
+    {
+        when(mapper.selectProductList(any())).thenReturn(Collections.emptyList());
+        when(mapper.selectSupplierList(any())).thenReturn(Collections.singletonList(supplier()));
+
+        Map<String, Object> result = service.preview("SAMPLE_IN", workbook(LEGACY_SAMPLE_HEADERS,
+            new Object[] { "G-1", "UNKNOWN-SKU", "2026-09-20", "SUP-1", 1, "" }), true);
+
+        assertEquals(1, result.get("errorCount"));
+        assertTrue(String.valueOf(rows(result).get(0).get("errorMessage")).contains("SKU不存在"));
+    }
+
+    @Test
     void samplePreviewRejectsDuplicateCompositeAndWrongProductType() throws Exception
     {
         Map<String, Object> sample = product("SAMPLE-1", 2, 0);
@@ -229,14 +392,14 @@ class JewelryDocumentExcelServiceTest
         when(mapper.selectSupplierList(any())).thenReturn(Collections.singletonList(supplier()));
 
         Map<String, Object> result = service.preview("SAMPLE_IN", workbook(SAMPLE_HEADERS,
-            new Object[] { "G-1", "SAMPLE-1", "2026-09-20", "SUP-1", "", 1 },
-            new Object[] { "G-1", "SAMPLE-1", "2026-09-20", "测试供应商", "", 2 },
-            new Object[] { "G-2", "FINISHED-1", "2026-09-20", "SUP-1", "", 1 }), false);
+            new Object[] { "SAMPLE-1", "测试商品", "2026-09-20", "SUP-1", "", 1 },
+            new Object[] { "SAMPLE-1", "测试商品", "2026-09-20", "测试供应商", "", 2 },
+            new Object[] { "FINISHED-1", "测试商品", "2026-09-20", "SUP-1", "", 1 }), false);
 
         assertEquals(3, result.get("errorCount"));
         assertTrue(String.valueOf(rows(result).get(0).get("errorMessage")).contains("重复"));
         assertTrue(String.valueOf(rows(result).get(1).get("errorMessage")).contains("重复"));
-        assertTrue(String.valueOf(rows(result).get(2).get("errorMessage")).contains("只能选择样品商品"));
+        assertTrue(String.valueOf(rows(result).get(2).get("errorMessage")).contains("无权新增商品"));
     }
 
     @Test
@@ -248,7 +411,7 @@ class JewelryDocumentExcelServiceTest
         when(mapper.selectSupplierList(any())).thenReturn(Collections.singletonList(supplier()));
 
         Map<String, Object> result = service.preview("SAMPLE_IN", workbook(SAMPLE_HEADERS,
-            new Object[] { "G-1", "SAMPLE-1", "2026-13-40", "不存在", "", 0 }), false);
+            new Object[] { "SAMPLE-1", "测试商品", "2026-13-40", "不存在", "", 0 }), false);
 
         assertEquals(1, result.get("errorCount"));
         String errors = String.valueOf(rows(result).get(0).get("errorMessage"));
@@ -267,7 +430,7 @@ class JewelryDocumentExcelServiceTest
         new RuoYiConfig().setProfile(tempDir.toString());
 
         Map<String, Object> result = service.preview("SAMPLE_IN", imageWorkbook(SAMPLE_HEADERS,
-            new Object[] { "G-1", "SAMPLE-1", "2026-09-20", "SUP-1", "", 1 }, 4, PNG), false);
+            new Object[] { "SAMPLE-1", "测试商品", "2026-09-20", "SUP-1", "", 1 }, 4, PNG), false);
 
         assertEquals(0, result.get("errorCount"));
         assertTrue(String.valueOf(rows(result).get(0).get("imageUrl")).startsWith("/profile/jewelry/import/"));

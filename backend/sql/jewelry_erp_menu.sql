@@ -24,6 +24,7 @@ create table if not exists jewelry_product (
   sku varchar(64) not null comment 'SKU编码',
   product_name varchar(128) not null comment '商品名称',
   product_type varchar(16) not null default 'FINISHED' comment 'FINISHED成品商品 PART散件商品 ACCESSORY配件商品 WELFARE福利商品',
+  sku_scope tinyint generated always as (case when product_type = 'SAMPLE' then 1 else 0 end) stored comment '1样品 0其他商品',
   category varchar(64) default '' comment '商品分类',
   specification varchar(16) not null default '普通' comment '规格类型：精品或普通',
   image_url varchar(500) default '' comment '商品主图',
@@ -39,7 +40,7 @@ create table if not exists jewelry_product (
   update_time datetime default null,
   remark varchar(500) default null,
   primary key (product_id),
-  unique key uk_jewelry_product_sku (sku)
+  unique key uk_jewelry_product_sku_scope (sku, sku_scope)
 ) engine=InnoDB default charset=utf8mb4 comment='珠宝ERP商品档案';
 
 create table if not exists jewelry_supplier (

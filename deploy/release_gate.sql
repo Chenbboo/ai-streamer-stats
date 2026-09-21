@@ -385,4 +385,15 @@ from (
   union all
   select if(count(*)=1,0,1) from information_schema.tables where table_schema=database()
     and table_name='jewelry_supplier_return_mail_log'
+  union all
+  select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
+    and table_name='jewelry_product' and column_name='sku_scope'
+    and generation_expression like '%SAMPLE%'
+  union all
+  select if(count(*)=2,0,1) from information_schema.statistics where table_schema=database()
+    and table_name='jewelry_product' and index_name='uk_jewelry_product_sku_scope'
+    and non_unique=0
+  union all
+  select count(*) from information_schema.statistics where table_schema=database()
+    and table_name='jewelry_product' and index_name='uk_jewelry_product_sku'
 ) release_gate;
