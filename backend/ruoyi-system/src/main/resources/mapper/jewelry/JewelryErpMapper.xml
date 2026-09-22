@@ -564,6 +564,15 @@
         )
         , <include refid="supplierReturnDeadlineCtes"/>
         select p.product_id productId,p.sku,p.product_name productName,p.product_type productType,
+               (select group_concat(distinct coalesce(nullif(sp.supplier_name,''),
+                   nullif(si.supplier_name_snapshot,''),nullif(sd.supplier_name_snapshot,''))
+                   order by coalesce(nullif(sp.supplier_name,''),
+                   nullif(si.supplier_name_snapshot,''),nullif(sd.supplier_name_snapshot,'')) separator '、')
+                from jewelry_document_item si
+                join jewelry_document sd on sd.document_id=si.document_id
+                  and sd.status='POSTED' and sd.doc_type in ('PURCHASE_IN','SAMPLE_IN')
+                left join jewelry_supplier sp on sp.supplier_id=coalesce(si.supplier_id,sd.supplier_id)
+                where si.product_id=p.product_id) supplierNames,
                p.specification,p.category,p.warning_qty warningQty,
                (s.on_hand_qty+s.inspection_qty+s.defect_qty) totalStockQty,
                s.on_hand_qty onHandQty,s.reserved_out_qty reservedOutQty,
@@ -593,6 +602,17 @@
                 and (p.sku like concat('%',#{keyword},'%') or p.product_name like concat('%',#{keyword},'%'))
             </if>
             <if test="productType != null and productType != ''">and p.product_type=#{productType}</if>
+            <if test="inStockOnly != null and inStockOnly">
+                and (s.on_hand_qty+s.inspection_qty+s.defect_qty) &gt; 0
+            </if>
+            <if test="supplierIds != null and supplierIds.size() > 0">
+                and exists (select 1 from jewelry_document_item si
+                  join jewelry_document sd on sd.document_id=si.document_id
+                    and sd.status='POSTED' and sd.doc_type in ('PURCHASE_IN','SAMPLE_IN')
+                  where si.product_id=p.product_id
+                    and coalesce(si.supplier_id,sd.supplier_id) in
+                    <foreach collection="supplierIds" item="supplierId" open="(" separator="," close=")">#{supplierId}</foreach>)
+            </if>
             <if test="warningOnly != null">
                 <choose>
                     <when test="warningType == 'quantity'">
@@ -615,6 +635,19 @@
             </if>
         </where>
         order by p.product_id desc
+    </select>
+    <select id="selectStockSupplierOptions" resultType="java.util.LinkedHashMap">
+        select origins.supplierId,max(origins.supplierName) supplierName
+        from (select coalesce(i.supplier_id,d.supplier_id) supplierId,
+                coalesce(nullif(s.supplier_name,''),nullif(i.supplier_name_snapshot,''),
+                  nullif(d.supplier_name_snapshot,'')) supplierName
+              from jewelry_document_item i
+              join jewelry_document d on d.document_id=i.document_id
+                and d.status='POSTED' and d.doc_type in ('PURCHASE_IN','SAMPLE_IN')
+              left join jewelry_supplier s on s.supplier_id=coalesce(i.supplier_id,d.supplier_id)) origins
+        where origins.supplierId is not null
+        group by origins.supplierId
+        order by supplierName,origins.supplierId
     </select>
     <resultMap id="sampleInboundDetailMap" type="java.util.LinkedHashMap">
         <result property="itemId" column="item_id"/>

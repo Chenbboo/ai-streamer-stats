@@ -19,6 +19,7 @@ export const changeJewelryInfluencerPrice = (id, productId, data) => request({ u
 export const getJewelryInfluencerPriceHistory = (id) => request({ url: `/jewelry/influencer/${id}/price-history`, method: 'get' })
 export const getJewelryInfluencerBundleItems = (id) => request({ url: `/jewelry/influencer/${id}/bundle-items`, method: 'get' })
 export const listJewelryStock = (params) => request({ url: '/jewelry/stock/list', method: 'get', params })
+export const listJewelryStockSupplierOptions = () => request({ url: '/jewelry/stock/supplier-options', method: 'get' })
 export const listJewelrySampleInbounds = (productId) => request({ url: `/jewelry/stock/sample-inbounds/${productId}`, method: 'get' })
 export const listJewelryTransactions = (params) => request({ url: '/jewelry/stock/transactions', method: 'get', params })
 export const getJewelryStockWarningDays = () => request({ url: '/jewelry/stock/warning-days', method: 'get' })

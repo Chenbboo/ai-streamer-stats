@@ -1,36 +1,42 @@
 <template>
   <div class="app-container">
     <div ref="stockToolbar" class="stock-toolbar">
-      <el-form inline>
-        <el-form-item><el-input v-model="query.keyword" placeholder="SKU或商品名称" clearable/></el-form-item>
-        <el-form-item><el-select v-model="query.productType" placeholder="全部商品类型" clearable style="width:150px">
+      <el-form class="stock-filter-form" inline>
+        <el-form-item class="filter-keyword"><el-input v-model="query.keyword" placeholder="SKU或商品名称" clearable/></el-form-item>
+        <el-form-item class="filter-product-type"><el-select v-model="query.productType" placeholder="全部商品类型" clearable>
           <el-option v-for="item in jewelryProductTypes" :key="item.value" :label="item.label" :value="item.value"/>
         </el-select></el-form-item>
+        <el-form-item class="filter-supplier"><el-select v-model="query.supplierIds" multiple filterable clearable collapse-tags collapse-tags-tooltip
+          placeholder="全部供应商">
+          <el-option v-for="item in supplierOptions" :key="item.supplierId" :label="item.supplierName" :value="item.supplierId"/>
+        </el-select></el-form-item>
+        <el-form-item><el-tooltip content="按账面总库存筛选：可售、待检和次品库存合计大于0。"><el-button :type="query.inStockOnly?'primary':''" :plain="!query.inStockOnly" @click="toggleInStockOnly">只看有库存</el-button></el-tooltip></el-form-item>
         <el-form-item><el-checkbox v-model="query.warningOnly">只看预警</el-checkbox></el-form-item>
-        <el-form-item v-if="query.warningOnly"><el-select v-model="query.warningType" style="width:165px">
+        <el-form-item v-if="query.warningOnly" class="filter-warning-type"><el-select v-model="query.warningType">
           <el-option label="全部预警" value="all"/><el-option label="库存不足" value="quantity"/><el-option label="库龄超期" value="age"/>
           <el-option label="退供不足7天" value="supplierReturn"/>
         </el-select></el-form-item>
-        <el-form-item><el-button type="primary" icon="Search" @click="search">查询</el-button></el-form-item>
+        <el-form-item class="filter-search"><el-button type="primary" icon="Search" @click="search">查询</el-button></el-form-item>
       </el-form>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">
-      <div class="warning-setting">
-        <span>库龄预警</span>
-        <el-input-number v-if="canConfigureWarning" v-model="warningDays" :min="1" :max="365" controls-position="right"/>
-        <b v-else>{{ warningDays }}</b>
-        <span>天</span>
-        <el-button v-if="canConfigureWarning" type="primary" plain icon="Check"
-          :loading="savingWarning" @click="saveWarningDays">保存</el-button>
-      </div>
-      <div class="warning-setting">
-        <el-tooltip content="仅成品商品参与退货时间预警。采购业务日期加统一期限；采购单单独设置的约定退货日期优先，历史采购单同样适用。">
-          <span>供应商退货期限</span>
-        </el-tooltip>
-        <el-input-number v-if="canConfigureWarning" v-model="supplierReturnDays" :min="1" :max="365" :precision="0" controls-position="right"/>
-        <b v-else>{{supplierReturnDays}}</b><span>天</span>
-        <el-button v-if="canConfigureWarning" type="primary" plain icon="Check"
-          :loading="savingReturnDays" @click="saveReturnDays">保存</el-button>
-      </div>
+      <div class="stock-settings">
+        <span class="stock-settings-title">预警设置</span>
+        <div class="warning-setting">
+          <span>库龄预警</span>
+          <el-input-number v-if="canConfigureWarning" v-model="warningDays" :min="1" :max="365" controls-position="right"/>
+          <b v-else>{{ warningDays }}</b>
+          <span>天</span>
+          <el-button v-if="canConfigureWarning" type="primary" plain icon="Check"
+            :loading="savingWarning" @click="saveWarningDays">保存</el-button>
+        </div>
+        <div class="warning-setting">
+          <el-tooltip content="仅成品商品参与退货时间预警。采购业务日期加统一期限；采购单单独设置的约定退货日期优先，历史采购单同样适用。">
+            <span>供应商退货期限</span>
+          </el-tooltip>
+          <el-input-number v-if="canConfigureWarning" v-model="supplierReturnDays" :min="1" :max="365" :precision="0" controls-position="right"/>
+          <b v-else>{{supplierReturnDays}}</b><span>天</span>
+          <el-button v-if="canConfigureWarning" type="primary" plain icon="Check"
+            :loading="savingReturnDays" @click="saveReturnDays">保存</el-button>
+        </div>
       </div>
     </div>
     <el-table ref="stockTable" :max-height="tableMaxHeight" :data="rows" v-loading="loading" border
@@ -65,7 +71,7 @@
             </el-table>
           </div>
         </template>
-      </el-table-column><el-table-column prop="sku" label="SKU" width="140"/><el-table-column prop="productName" label="商品名称" min-width="180"/><el-table-column label="商品类型" width="110"><template #default="{row}"><el-tag :type="jewelryProductType(row.productType)?.tagType || 'info'" effect="plain">{{jewelryProductType(row.productType)?.label || row.productType || '—'}}</el-tag></template></el-table-column><el-table-column prop="specification" label="规格类型" width="100"><template #default="{row}">{{row.specification || '—'}}</template></el-table-column><el-table-column prop="totalStockQty" label="账面总库存" width="115" align="right"/><el-table-column v-if="appliedProductType!=='SAMPLE'" prop="onHandQty" label="可售库存" width="100" align="right"/><el-table-column v-if="appliedProductType!=='SAMPLE'" prop="reservedOutQty" label="出库冻结" width="100" align="right"/><el-table-column prop="availableQty" label="可用库存" width="100" align="right"><template #default="{row}"><span :class="{danger:row.quantityWarning}">{{row.availableQty}}</span></template></el-table-column><el-table-column prop="oldestInboundDate" :label="appliedProductType === 'SAMPLE' ? '入库时间' : '最早入库'" width="115">
+      </el-table-column><el-table-column prop="sku" label="SKU" width="140"/><el-table-column prop="productName" label="商品名称" min-width="180"/><el-table-column prop="supplierNames" label="供应商" min-width="160" show-overflow-tooltip><template #default="{row}">{{row.supplierNames || '—'}}</template></el-table-column><el-table-column label="商品类型" width="110"><template #default="{row}"><el-tag :type="jewelryProductType(row.productType)?.tagType || 'info'" effect="plain">{{jewelryProductType(row.productType)?.label || row.productType || '—'}}</el-tag></template></el-table-column><el-table-column prop="specification" label="规格类型" width="100"><template #default="{row}">{{row.specification || '—'}}</template></el-table-column><el-table-column prop="totalStockQty" label="账面总库存" width="115" align="right"/><el-table-column v-if="appliedProductType!=='SAMPLE'" prop="onHandQty" label="可售库存" width="100" align="right"/><el-table-column v-if="appliedProductType!=='SAMPLE'" prop="reservedOutQty" label="出库冻结" width="100" align="right"/><el-table-column prop="availableQty" label="可用库存" width="100" align="right"><template #default="{row}"><span :class="{danger:row.quantityWarning}">{{row.availableQty}}</span></template></el-table-column><el-table-column prop="oldestInboundDate" :label="appliedProductType === 'SAMPLE' ? '入库时间' : '最早入库'" width="115">
       <template #default="{row}">
         <el-tooltip v-if="Number(row.stockOriginFirstPurchase) && !Number(row.stockOriginUnknown)"
           content="退回商品存在多次采购，按首次采购入库日期计算库龄及退供期限，不代表已关联实际批次。">
@@ -96,7 +102,7 @@
 <script setup name="JewelryStock">
 import {useElementSize,useWindowSize} from '@vueuse/core'
 import useSettingsStore from '@/store/modules/settings'
-import {listJewelryStock,listJewelryTransactions,listJewelrySampleInbounds,getJewelryStockWarningDays,updateJewelryStockWarningDays} from '@/api/jewelry/erp'
+import {listJewelryStock,listJewelryStockSupplierOptions,listJewelryTransactions,listJewelrySampleInbounds,getJewelryStockWarningDays,updateJewelryStockWarningDays} from '@/api/jewelry/erp'
 import {getJewelrySupplierReturnDays,updateJewelrySupplierReturnDays} from '@/api/jewelry/erp'
 import useUserStore from '@/store/modules/user'
 import {jewelryProductType,jewelryProductTypes} from '@/utils/jewelryProduct'
@@ -123,8 +129,10 @@ const canConfigureWarning=computed(()=>userStore.roles.includes('admin')||userSt
 const {proxy}=getCurrentInstance()
 const routeWarningType=['quantity','age','supplierReturn'].includes(route.query.warningType)?route.query.warningType:'all'
 const appliedProductType=ref('')
-const rows=ref([]),flows=ref([]),total=ref(0),loading=ref(false),drawer=ref(false),warningDays=ref(25),savingWarning=ref(false);const query=reactive({pageNum:1,pageSize:10,keyword:'',productType:'',warningOnly:route.query.warningOnly==='true',warningType:routeWarningType})
-async function load(){loading.value=true;try{const productType=query.productType;const r=await listJewelryStock(query);rows.value=(r.rows||[]).map(row=>({...row,sampleInboundDetails:[],sampleInboundLoaded:false,sampleInboundLoading:false,sampleInboundError:false}));appliedProductType.value=productType;total.value=r.total||0;await nextTick();stockTable.value?.setScrollTop(0)}finally{loading.value=false}}
+const supplierOptions=ref([])
+const rows=ref([]),flows=ref([]),total=ref(0),loading=ref(false),drawer=ref(false),warningDays=ref(25),savingWarning=ref(false);const query=reactive({pageNum:1,pageSize:10,keyword:'',productType:'',supplierIds:[],inStockOnly:false,warningOnly:route.query.warningOnly==='true',warningType:routeWarningType})
+async function loadSupplierOptions(){supplierOptions.value=(await listJewelryStockSupplierOptions()).data||[]}
+async function load(){loading.value=true;try{const productType=query.productType;const r=await listJewelryStock({...query,supplierIds:query.supplierIds.join(',')});rows.value=(r.rows||[]).map(row=>({...row,sampleInboundDetails:[],sampleInboundLoaded:false,sampleInboundLoading:false,sampleInboundError:false}));appliedProductType.value=productType;total.value=r.total||0;await nextTick();stockTable.value?.setScrollTop(0)}finally{loading.value=false}}
 async function loadSampleInboundDetails(row){
   if(row.sampleInboundLoaded||row.sampleInboundLoading)return
   row.sampleInboundLoading=true
@@ -146,6 +154,7 @@ function returnCountdown(days){
   return count>0?`剩余 ${count} 天`:count===0?'今天到期':`已超期 ${Math.abs(count)} 天`
 }
 function search(){query.pageNum=1;load()}
+function toggleInStockOnly(){query.inStockOnly=!query.inStockOnly;search()}
 async function loadWarningDays(){warningDays.value=Number((await getJewelryStockWarningDays()).data||25)}
 async function saveWarningDays(){savingWarning.value=true;try{await updateJewelryStockWarningDays(warningDays.value);proxy.$modal.msgSuccess('库龄预警天数已更新');load()}finally{savingWarning.value=false}}
 async function showFlow(row){const r=await listJewelryTransactions({productId:row.productId,pageNum:1,pageSize:100});flows.value=r.rows||[];drawer.value=true}
@@ -154,12 +163,44 @@ watch(()=>[route.query.warningOnly,route.query.warningType],([warningOnly,warnin
   query.warningType=['quantity','age','supplierReturn'].includes(warningType)?warningType:'all'
   query.keyword=''
   query.productType=''
+  query.supplierIds=[]
+  query.inStockOnly=false
   query.pageNum=1
   load()
 })
-loadWarningDays();loadReturnDays();load()
+loadWarningDays();loadReturnDays();loadSupplierOptions();load()
 </script>
-<style scoped>.return-deadline{display:flex;flex-direction:column;align-items:center;gap:4px;padding:4px 0}.return-deadline small{color:#64748b;font-size:12px}.stock-toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.stock-toolbar :deep(.el-form-item){margin-bottom:14px}.warning-setting{display:flex;align-items:center;gap:8px;color:#64748b;font-size:13px;white-space:nowrap}.warning-setting .el-input-number{width:105px}.warning-setting b{color:#334155}.danger{color:#c2413a;font-weight:700}@media(max-width:900px){.stock-toolbar{align-items:stretch;flex-direction:column;gap:0}.warning-setting{margin-bottom:14px}}</style>
+<style scoped>
+.return-deadline{display:flex;flex-direction:column;align-items:center;gap:4px;padding:4px 0}
+.return-deadline small{color:#64748b;font-size:12px}
+.stock-toolbar{display:flex;flex-direction:column;gap:14px;margin-bottom:16px;padding:14px 16px;border:1px solid #e5eaf0;border-radius:8px;background:#fff}
+.stock-filter-form{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;width:100%}
+.stock-filter-form :deep(.el-form-item){margin:0}
+.stock-filter-form :deep(.el-form-item__content){width:100%}
+.stock-filter-form :deep(.el-input),.stock-filter-form :deep(.el-select){width:100%}
+.filter-keyword{flex:1 1 210px;max-width:260px}
+.filter-product-type{flex:0 0 180px}
+.filter-supplier{flex:0 1 240px;min-width:200px}
+.filter-warning-type{flex:0 0 170px}
+.stock-filter-form :deep(.filter-search){margin-left:auto}
+.stock-settings{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:12px 24px;padding-top:12px;border-top:1px solid #edf0f4}
+.stock-settings-title{margin-right:auto;color:#64748b;font-size:13px;font-weight:600}
+.warning-setting{display:flex;align-items:center;gap:8px;color:#64748b;font-size:13px;white-space:nowrap}
+.warning-setting .el-input-number{width:96px}
+.warning-setting b{color:#334155}
+.danger{color:#c2413a;font-weight:700}
+@media(max-width:1100px){
+  .stock-filter-form :deep(.filter-search){margin-left:0}
+  .stock-settings{justify-content:flex-start}
+  .stock-settings-title{width:100%;margin:0}
+}
+@media(max-width:640px){
+  .filter-keyword,.filter-product-type,.filter-supplier,.filter-warning-type{flex:1 1 100%;max-width:none;min-width:0}
+  .stock-filter-form :deep(.filter-search){flex:1 1 100%}
+  .stock-filter-form :deep(.filter-search .el-button){width:100%}
+  .warning-setting{flex-wrap:wrap;white-space:normal}
+}
+</style>
 <style scoped>
 .sample-expanded{padding-left:48px}
 .sample-expanded-state{color:#909399;padding:12px 0;font-size:13px}

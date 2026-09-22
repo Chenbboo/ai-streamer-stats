@@ -647,6 +647,35 @@ class JewelryErpMapperIntegrationTest
 
         String unfilteredSql = statement.getBoundSql(Collections.emptyMap()).getSql().replaceAll("\\s+", " ");
         assertFalse(unfilteredSql.contains("p.product_type=?"));
+
+        query.put("inStockOnly", true);
+        query.put("supplierIds", Arrays.asList(2L, 3L));
+        String selectedSql = statement.getBoundSql(query).getSql().replaceAll("\\s+", " ");
+        assertTrue(selectedSql.contains("(s.on_hand_qty+s.inspection_qty+s.defect_qty) > 0"));
+        assertTrue(selectedSql.matches("(?s).*coalesce\\(si\\.supplier_id,sd\\.supplier_id\\) in \\(\\s*\\?\\s*,\\s*\\?\\s*\\).*"));
+        assertFalse(unfilteredSql.contains("coalesce(si.supplier_id,sd.supplier_id) in"));
+    }
+
+    @Test
+    void stockSupplierOptionsIncludePostedPurchaseAndSampleSuppliers()
+    {
+        execute("insert into jewelry_supplier(supplier_id,supplier_name) values(1,'采购供应商'),(2,'样品供应商'),(3,'草稿供应商')");
+        insertDocument(1L, "PURCHASE-POSTED", "PURCHASE_IN", "POSTED", null);
+        insertDocument(2L, "SAMPLE-POSTED", "SAMPLE_IN", "POSTED", null);
+        insertDocument(3L, "SAMPLE-DRAFT", "SAMPLE_IN", "DRAFT", null);
+        insertItem(11L, 1L, null, 10L, 1);
+        insertItem(12L, 2L, null, 20L, 1);
+        insertItem(13L, 3L, null, 30L, 1);
+        execute("update jewelry_document set supplier_id=1,supplier_name_snapshot='采购供应商' where document_id=1");
+        execute("update jewelry_document_item set supplier_id=2,supplier_name_snapshot='样品供应商' where item_id=12");
+        execute("update jewelry_document_item set supplier_id=3,supplier_name_snapshot='草稿供应商' where item_id=13");
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            List<Map<String, Object>> options = session.getMapper(JewelryErpMapper.class).selectStockSupplierOptions();
+            assertEquals(2, options.size());
+            assertTrue(options.stream().anyMatch(item -> item.containsValue("采购供应商")));
+            assertTrue(options.stream().anyMatch(item -> item.containsValue("样品供应商")));
+        }
     }
 
     @Test
@@ -1313,6 +1342,7 @@ class JewelryErpMapperIntegrationTest
         execute("create table jewelry_staff (staff_id bigint primary key,user_id bigint,"
             + "staff_no varchar(32),real_name varchar(64),phone varchar(32),status char(1),"
             + "joined_date date,remark varchar(500))");
+        execute("create table jewelry_supplier (supplier_id bigint primary key,supplier_name varchar(128))");
         execute("create table jewelry_product ("
             + "product_id bigint auto_increment primary key,sku varchar(64) not null unique,"
             + "product_name varchar(128) not null,product_type varchar(16) not null,category varchar(64),"

@@ -303,6 +303,23 @@ public class JewelryErpController extends BaseController
     @GetMapping("/stock/list")
     public TableDataInfo stockList(@RequestParam Map<String, Object> query)
     {
+        if ("true".equalsIgnoreCase(string(query.get("inStockOnly")))) query.put("inStockOnly", true);
+        else query.remove("inStockOnly");
+        String selectedSuppliers = string(query.remove("supplierIds"));
+        if (!selectedSuppliers.isEmpty())
+        {
+            if (!selectedSuppliers.matches("[1-9][0-9]*(,[1-9][0-9]*){0,99}"))
+                throw new ServiceException("供应商筛选参数无效");
+            try
+            {
+                query.put("supplierIds", Arrays.stream(selectedSuppliers.split(","))
+                    .map(Long::parseLong).distinct().collect(Collectors.toList()));
+            }
+            catch (NumberFormatException ex)
+            {
+                throw new ServiceException("供应商筛选参数无效");
+            }
+        }
         if (!"true".equalsIgnoreCase(string(query.get("warningOnly"))))
         {
             query.remove("warningOnly");
@@ -316,6 +333,13 @@ public class JewelryErpController extends BaseController
         List<Map<String, Object>> rows = service.listStock(query);
         if (isMakerOnly()) removeKeys(rows, "avgCost", "stockAmount");
         return getDataTable(rows);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:stock:list')")
+    @GetMapping("/stock/supplier-options")
+    public AjaxResult stockSupplierOptions()
+    {
+        return success(mapper.selectStockSupplierOptions());
     }
 
     @PreAuthorize("@ss.hasPermi('jewelry:stock:list')")

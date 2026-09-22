@@ -66,6 +66,7 @@ public interface JewelryErpMapper
     List<Map<String, Object>> selectInfluencerBundleItems(Long influencerId);
 
     List<Map<String, Object>> selectStockList(Map<String, Object> query);
+    List<Map<String, Object>> selectStockSupplierOptions();
     List<Map<String, Object>> selectSampleInboundDetails(Long productId);
     int claimSupplierReturnMail(@Param("alertDate") java.time.LocalDate alertDate,
         @Param("recipients") String recipients, @Param("warningCount") int warningCount);
