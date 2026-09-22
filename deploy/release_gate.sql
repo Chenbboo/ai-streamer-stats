@@ -400,4 +400,20 @@ from (
   select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
     and table_name='biz_project_kpi_result' and column_name='actual_value'
     and data_type='decimal' and numeric_precision>=24 and numeric_scale>=8
+  union all
+  select if(count(*)=2,0,1) from information_schema.tables where table_schema=database()
+    and table_name in ('biz_project_delete_request','biz_project_delete_notification')
+  union all
+  select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
+    and table_name='biz_project_delete_request' and column_name='pending_project_id'
+    and generation_expression like '%PENDING%'
+  union all
+  select if(count(*)=1,0,1) from information_schema.statistics where table_schema=database()
+    and table_name='biz_project_delete_request' and index_name='uk_project_delete_pending'
+    and column_name='pending_project_id' and non_unique=0
+  union all
+  select if(count(*)=1,0,1) from information_schema.statistics where table_schema=database()
+    and table_name='biz_project_delete_notification'
+    and index_name='uk_project_delete_notification_request'
+    and column_name='request_id' and non_unique=0
 ) release_gate;

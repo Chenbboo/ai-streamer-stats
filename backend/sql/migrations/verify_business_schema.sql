@@ -1040,3 +1040,14 @@ select 1-count(*) as missing_kpi_actual_unit_precision from information_schema.c
 where table_schema=database() and table_name='biz_project_kpi_result'
   and column_name='actual_value' and data_type='decimal'
   and numeric_precision>=24 and numeric_scale>=8;
+
+-- V120-V121 project deletion requests and review-result notifications.
+select 2-count(*) as missing_project_deletion_tables from information_schema.tables
+where table_schema=database()
+  and table_name in ('biz_project_delete_request','biz_project_delete_notification');
+select 1-count(*) as missing_project_deletion_pending_index from information_schema.statistics
+where table_schema=database() and table_name='biz_project_delete_request'
+  and index_name='uk_project_delete_pending' and column_name='pending_project_id' and non_unique=0;
+select 1-count(*) as missing_project_deletion_notification_index from information_schema.statistics
+where table_schema=database() and table_name='biz_project_delete_notification'
+  and index_name='uk_project_delete_notification_request' and column_name='request_id' and non_unique=0;
