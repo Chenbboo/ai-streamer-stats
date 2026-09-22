@@ -7,7 +7,7 @@
           :key="item.value"
           :index="index"
           :class="item.elTagClass"
-        >{{ item.label + " " }}</span>
+        >{{ $tr(item.label) + " " }}</span>
         <el-tag
           v-else
           :disable-transitions="true"
@@ -15,7 +15,7 @@
           :index="index"
           :type="item.elTagType"
           :class="item.elTagClass"
-        >{{ item.label + " " }}</el-tag>
+        >{{ $tr(item.label) + " " }}</el-tag>
       </template>
     </template>
     <template v-if="unmatch && showValue">

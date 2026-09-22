@@ -1,3 +1,4 @@
+import { translateText } from '../../locales/translate.js'
 /* eslint-disable max-len */
 import { trigger } from './config'
 
@@ -8,8 +9,8 @@ export function dialogWrapper(str) {
   return `<el-dialog v-model="dialogVisible"  @open="onOpen" @close="onClose" title="Dialog Titile">
     ${str}
     <template #footer>
-      <el-button @click="close">取消</el-button>
-	  <el-button type="primary" @click="handelConfirm">确定</el-button>
+      <el-button @click="close">${translateText("取消")}</el-button>
+	  <el-button type="primary" @click="handelConfirm">${translateText("确定")}</el-button>
     </template>
   </el-dialog>`
 }
@@ -56,8 +57,8 @@ function buildFromBtns(conf, type) {
   let str = ''
   if (conf.formBtns && type === 'file') {
     str = `<el-form-item>
-          <el-button type="primary" @click="submitForm">提交</el-button>
-          <el-button @click="resetForm">重置</el-button>
+          <el-button type="primary" @click="submitForm">${translateText("提交")}</el-button>
+          <el-button @click="resetForm">${translateText("重置")}</el-button>
         </el-form-item>`
     if (someSpanIsNot24) {
       str = `<el-col :span="24">

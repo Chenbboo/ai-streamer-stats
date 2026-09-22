@@ -1,50 +1,50 @@
 <template>
-  <el-empty v-if="!reports?.length" description="尚无进度汇报" />
+  <el-empty v-if="!reports?.length" :description="$tr(&quot;尚无进度汇报&quot;)" />
   <div v-else class="report-browser">
-    <aside class="history-panel" aria-label="汇报历史列表">
-      <div class="history-heading"><h3>汇报记录</h3><span>{{ reports.length }} 条</span></div>
-      <el-input v-model="keyword" clearable placeholder="搜索汇报人或内容" aria-label="搜索汇报记录" prefix-icon="Search" />
-      <p class="history-caption">按提交时间倒序，点击查看详情</p>
+    <aside class="history-panel" :aria-label="$tr(&quot;汇报历史列表&quot;)">
+      <div class="history-heading"><h3>{{ $tr("汇报记录") }}</h3><span>{{ $tr("{0} 条", [reports.length]) }}</span></div>
+      <el-input v-model="keyword" clearable :placeholder="$tr(&quot;搜索汇报人或内容&quot;)" :aria-label="$tr(&quot;搜索汇报记录&quot;)" prefix-icon="Search" />
+      <p class="history-caption">{{ $tr("按提交时间倒序，点击查看详情") }}</p>
       <div class="history-list">
         <button v-for="report in pageReports" :key="report.reportId" type="button" class="history-item" :class="{ active: String(report.reportId) === activeId }" :aria-pressed="String(report.reportId) === activeId" @click="activeId = String(report.reportId)">
-          <span class="history-item-top"><b>第 {{ report.version }} 次汇报</b><span class="progress-number">{{ report.progress }}%</span></span>
-          <span v-if="linkProject" class="history-project">{{ report.projectNameSnapshot || '子项目' }}</span>
-          <span class="history-meta">{{ report.submittedUserName || '未记录汇报人' }} · {{ report.createTime || '未记录时间' }}</span>
-          <span class="history-excerpt">{{ report.completionSummary || '未填写阶段成果' }}</span>
-          <span v-if="String(report.reportId) === String(orderedReports[0]?.reportId)" class="latest-mark">最新汇报</span>
+          <span class="history-item-top"><b>{{ $tr("第 {0} 次汇报", [report.version]) }}</b><span class="progress-number">{{ report.progress }}%</span></span>
+          <span v-if="linkProject" class="history-project">{{ report.projectNameSnapshot || $tr("子项目") }}</span>
+          <span class="history-meta">{{ report.submittedUserName || $tr("未记录汇报人") }} · {{ report.createTime || $tr("未记录时间") }}</span>
+          <span class="history-excerpt">{{ report.completionSummary || $tr("未填写阶段成果") }}</span>
+          <span v-if="String(report.reportId) === String(orderedReports[0]?.reportId)" class="latest-mark">{{ $tr("最新汇报") }}</span>
         </button>
       </div>
-      <el-empty v-if="!filteredReports.length" :image-size="42" description="没有匹配的汇报" />
+      <el-empty v-if="!filteredReports.length" :image-size="42" :description="$tr(&quot;没有匹配的汇报&quot;)" />
       <el-pagination v-if="filteredReports.length > pageSize" v-model:current-page="page" :page-size="pageSize" :total="filteredReports.length" layout="prev, pager, next" :pager-count="5" small class="history-pagination" />
     </aside>
-    <article v-if="activeReport" :key="activeId" class="report-detail" aria-label="汇报详情">
+    <article v-if="activeReport" :key="activeId" class="report-detail" :aria-label="$tr(&quot;汇报详情&quot;)">
       <header class="detail-heading">
-        <div><span class="detail-eyebrow">{{ linkProject ? activeReport.projectNameSnapshot || '子项目汇报' : '项目进度汇报' }}</span><h3>第 {{ activeReport.version }} 次汇报<el-tag v-if="activeId === String(orderedReports[0]?.reportId)" size="small" effect="plain">最新</el-tag></h3></div>
-        <div class="detail-progress"><span>本次汇报进度</span><strong>{{ activeReport.progress }}<small>%</small></strong></div>
+        <div><span class="detail-eyebrow">{{ linkProject ? activeReport.projectNameSnapshot || $tr("子项目汇报") : $tr("项目进度汇报") }}</span><h3>{{ $tr("第 {0} 次汇报", [activeReport.version]) }}<el-tag v-if="activeId === String(orderedReports[0]?.reportId)" size="small" effect="plain">{{ $tr("最新") }}</el-tag></h3></div>
+        <div class="detail-progress"><span>{{ $tr("本次汇报进度") }}</span><strong>{{ activeReport.progress }}<small>%</small></strong></div>
       </header>
       <el-progress :percentage="Number(activeReport.progress) || 0" :show-text="false" :stroke-width="7" color="#328b80" />
-      <div class="detail-meta"><span>汇报人 <b>{{ activeReport.submittedUserName || '未记录' }}</b></span><span>提交时间 <b>{{ activeReport.createTime || '未记录' }}</b></span></div>
-      <el-button v-if="linkProject" link type="primary" @click="$emit('open-project', { projectId: activeReport.projectId, reportId: activeReport.reportId })">查看该子项目全部汇报 →</el-button>
-      <section class="content-section"><h4>阶段成果</h4><p class="summary-text">{{ activeReport.completionSummary || '本次未填写阶段成果' }}</p></section>
+      <div class="detail-meta"><span>{{ $tr("汇报人 ") }}<b>{{ activeReport.submittedUserName || $tr("未记录") }}</b></span><span>{{ $tr("提交时间 ") }}<b>{{ activeReport.createTime || $tr("未记录") }}</b></span></div>
+      <el-button v-if="linkProject" link type="primary" @click="$emit('open-project', { projectId: activeReport.projectId, reportId: activeReport.reportId })">{{ $tr("查看该子项目全部汇报 →") }}</el-button>
+      <section class="content-section"><h4>{{ $tr("阶段成果") }}</h4><p class="summary-text">{{ activeReport.completionSummary || $tr("本次未填写阶段成果") }}</p></section>
       <div class="followup-grid">
-        <section class="content-section"><h4>问题与风险</h4><p :class="{ muted: !activeReport.issuesRisks }">{{ activeReport.issuesRisks || '本次未填写' }}</p></section>
-        <section class="content-section"><h4>下一步计划</h4><p :class="{ muted: !activeReport.nextPlan }">{{ activeReport.nextPlan || '本次未填写' }}</p></section>
+        <section class="content-section"><h4>{{ $tr("问题与风险") }}</h4><p :class="{ muted: !activeReport.issuesRisks }">{{ activeReport.issuesRisks || $tr("本次未填写") }}</p></section>
+        <section class="content-section"><h4>{{ $tr("下一步计划") }}</h4><p :class="{ muted: !activeReport.nextPlan }">{{ activeReport.nextPlan || $tr("本次未填写") }}</p></section>
       </div>
       <section class="content-section report-evidence">
-        <div class="evidence-heading"><h4>成果凭证</h4><span v-if="activeReport.evidenceUrls">点击图片放大，点击文件名查看附件</span></div>
+        <div class="evidence-heading"><h4>{{ $tr("成果凭证") }}</h4><span v-if="activeReport.evidenceUrls">{{ $tr("点击图片放大，点击文件名查看附件") }}</span></div>
         <p v-if="activeReport.evidenceText" class="summary-text">{{ activeReport.evidenceText }}</p>
         <BusinessFileUpload v-if="activeReport.evidenceUrls" :model-value="activeReport.evidenceUrls" :project-id="activeReport.projectId" disabled :drag="false" :is-show-tip="false" inline-document-preview />
-        <p v-else-if="!activeReport.evidenceText" class="muted">本次汇报未填写成果凭证</p>
+        <p v-else-if="!activeReport.evidenceText" class="muted">{{ $tr("本次汇报未填写成果凭证") }}</p>
       </section>
       <el-collapse class="snapshot-sections">
-        <el-collapse-item v-if="activeReport.syncTasks || activeReport.syncRoutines" title="本次同步的工作进度" name="synced">
+        <el-collapse-item v-if="activeReport.syncTasks || activeReport.syncRoutines" :title="$tr(&quot;本次同步的工作进度&quot;)" name="synced">
           <ProgressSnapshot :snapshot="activeSnapshot" :show-tasks="!!activeReport.syncTasks" :show-routines="!!activeReport.syncRoutines" />
         </el-collapse-item>
-        <el-collapse-item title="提交时的完整项目档案" name="archive"><ProgressSnapshot :snapshot="activeSnapshot" archive-details /></el-collapse-item>
+        <el-collapse-item :title="$tr(&quot;提交时的完整项目档案&quot;)" name="archive"><ProgressSnapshot :snapshot="activeSnapshot" archive-details /></el-collapse-item>
       </el-collapse>
-      <p class="archive-note">历史汇报按提交时内容保留；需要纠正时，请提交新的汇报版本。</p>
+      <p class="archive-note">{{ $tr("历史汇报按提交时内容保留；需要纠正时，请提交新的汇报版本。") }}</p>
     </article>
-    <el-empty v-else class="empty-detail" description="请搜索或选择一条汇报" />
+    <el-empty v-else class="empty-detail" :description="$tr(&quot;请搜索或选择一条汇报&quot;)" />
   </div>
 </template>
 <script setup>

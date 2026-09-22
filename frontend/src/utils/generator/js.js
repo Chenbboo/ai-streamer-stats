@@ -1,3 +1,4 @@
+import { translateText } from '../../locales/translate.js'
 import { titleCase } from '@/utils/index'
 import { trigger } from './config'
 // 文件大小设置
@@ -136,9 +137,9 @@ function buildRules(conf, ruleList) {
     if (conf.required) {
       const type = Array.isArray(conf.defaultValue) ? "type: 'array'," : ''
       let message = Array.isArray(conf.defaultValue)
-        ? `请至少选择一个${conf.vModel}`
+        ? translateText("请至少选择一个{0}", [conf.vModel])
         : conf.placeholder
-      if (message === undefined) message = `${conf.label}不能为空`
+      if (message === undefined) message = translateText("{0}不能为空", [conf.label])
       rules.push(
         `{ required: true, ${type} message: '${message}', trigger: '${
           trigger[conf.tag]
@@ -222,14 +223,14 @@ function buildBeforeUpload(conf) {
   if (conf.fileSize) {
     rightSizeCode = `let isRightSize = file.size / ${unitNum} < ${conf.fileSize}
     if(!isRightSize){
-      proxy.$modal.msgError('文件大小超过 ${conf.fileSize}${conf.sizeUnit}')
+      proxy.$modal.msgError(${JSON.stringify(translateText("文件大小超过 {0}{1}", [conf.fileSize, conf.sizeUnit]))})
     }`
     returnList.push('isRightSize')
   }
   if (conf.accept) {
     acceptCode = `let isAccept = new RegExp('${conf.accept}').test(file.type)
     if(!isAccept){
-      proxy.$modal.msgError('应该选择${conf.accept}类型的文件')
+      proxy.$modal.msgError(${JSON.stringify(translateText("应该选择{0}类型的文件", [conf.accept]))})
     }`
     returnList.push('isAccept')
   }

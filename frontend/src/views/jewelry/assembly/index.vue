@@ -2,49 +2,49 @@
   <div class="app-container assembly-page">
     <div class="page-head">
       <div>
-        <h2>组装管理</h2>
-        <p>选择散件组装成品，审核员通过后自动完成库存转换</p>
+        <h2>{{ $tr("组装管理") }}</h2>
+        <p>{{ $tr("选择散件组装成品，审核员通过后自动完成库存转换") }}</p>
       </div>
-      <el-button type="primary" icon="Plus" v-hasPermi="['jewelry:assembly:add']" @click="openCreate">新建组装单</el-button>
+      <el-button type="primary" icon="Plus" v-hasPermi="['jewelry:assembly:add']" @click="openCreate">{{ $tr("新建组装单") }}</el-button>
     </div>
 
     <el-form inline class="filters">
-      <el-form-item><el-input v-model="query.docNo" placeholder="组装单号" clearable @keyup.enter="load"/></el-form-item>
+      <el-form-item><el-input v-model="query.docNo" :placeholder="$tr(&quot;组装单号&quot;)" clearable @keyup.enter="load"/></el-form-item>
       <el-form-item>
-        <el-select v-model="query.status" placeholder="全部状态" clearable style="width:140px">
+        <el-select v-model="query.status" :placeholder="$tr(&quot;全部状态&quot;)" clearable style="width:140px">
           <el-option v-for="item in statuses" :key="item.value" :label="item.label" :value="item.value"/>
         </el-select>
       </el-form-item>
-      <el-form-item><el-button icon="Search" @click="load">查询</el-button></el-form-item>
+      <el-form-item><el-button icon="Search" @click="load">{{ $tr("查询") }}</el-button></el-form-item>
     </el-form>
 
     <el-table :data="rows" v-loading="loading" border>
-      <el-table-column prop="docNo" label="组装单号" width="190"/>
-      <el-table-column prop="bizDate" label="业务日期" width="120"/>
-      <el-table-column prop="totalQty" label="成品数量" width="100" align="right"/>
-      <el-table-column prop="totalCost" label="组装总成本" width="130" align="right">
+      <el-table-column prop="docNo" :label="$tr(&quot;组装单号&quot;)" width="190"/>
+      <el-table-column prop="bizDate" :label="$tr(&quot;业务日期&quot;)" width="120"/>
+      <el-table-column prop="totalQty" :label="$tr(&quot;成品数量&quot;)" width="100" align="right"/>
+      <el-table-column prop="totalCost" :label="$tr(&quot;组装总成本&quot;)" width="130" align="right">
         <template #default="{row}">{{row.totalCost==null?'—':`¥ ${money(row.totalCost)}`}}</template>
       </el-table-column>
-      <el-table-column prop="creatorName" label="制单人" width="110"/>
-      <el-table-column label="状态" width="110">
+      <el-table-column prop="creatorName" :label="$tr(&quot;制单人&quot;)" width="110"/>
+      <el-table-column :label="$tr(&quot;状态&quot;)" width="110">
         <template #default="{row}"><el-tag :type="statusType(row.status)">{{labelOf(statuses,row.status)}}</el-tag></template>
       </el-table-column>
-      <el-table-column prop="createTime" label="创建时间" min-width="165"/>
-      <el-table-column label="操作" width="250" fixed="right">
+      <el-table-column prop="createTime" :label="$tr(&quot;创建时间&quot;)" min-width="165"/>
+      <el-table-column :label="$tr(&quot;操作&quot;)" width="250" fixed="right">
         <template #default="{row}">
-          <el-button link type="primary" @click="view(row)">查看</el-button>
-          <el-button v-if="['DRAFT','REJECTED'].includes(row.status)" link type="primary" v-hasPermi="['jewelry:assembly:add']" @click="openEdit(row)">编辑</el-button>
-          <el-button v-if="row.status==='DRAFT'" link type="success" v-hasPermi="['jewelry:document:submit']" @click="submit(row)">提交审核</el-button>
-          <el-button v-if="row.status==='PENDING_FIRST'" link type="warning" v-hasPermi="['jewelry:document:withdraw']" @click="withdraw(row)">撤回</el-button>
+          <el-button link type="primary" @click="view(row)">{{ $tr("查看") }}</el-button>
+          <el-button v-if="['DRAFT','REJECTED'].includes(row.status)" link type="primary" v-hasPermi="['jewelry:assembly:add']" @click="openEdit(row)">{{ $tr("编辑") }}</el-button>
+          <el-button v-if="row.status==='DRAFT'" link type="success" v-hasPermi="['jewelry:document:submit']" @click="submit(row)">{{ $tr("提交审核") }}</el-button>
+          <el-button v-if="row.status==='PENDING_FIRST'" link type="warning" v-hasPermi="['jewelry:document:withdraw']" @click="withdraw(row)">{{ $tr("撤回") }}</el-button>
         </template>
       </el-table-column>
     </el-table>
     <pagination v-show="total>0" v-model:page="query.pageNum" v-model:limit="query.pageSize" :total="total" @pagination="load"/>
 
-    <el-dialog v-model="dialog" :title="form.documentId?'编辑组装单':'新建组装单'" width="1080px" top="4vh" destroy-on-close>
+    <el-dialog v-model="dialog" :title="form.documentId?$tr(&quot;编辑组装单&quot;):$tr(&quot;新建组装单&quot;)" width="1080px" top="4vh" destroy-on-close>
       <el-alert
         v-if="partProducts.length===0"
-        title="当前没有可用散件，请先在商品档案中将商品设为“散件商品”并上传实物图片。"
+        :title="$tr(&quot;当前没有可用散件，请先在商品档案中将商品设为“散件商品”并上传实物图片。&quot;)"
         type="warning"
         :closable="false"
         show-icon
@@ -52,38 +52,38 @@
       />
       <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
         <section class="form-section">
-          <div class="section-title"><span>01</span><div><b>成品信息</b><small>本次组装后增加库存的成品</small></div></div>
+          <div class="section-title"><span>01</span><div><b>{{ $tr("成品信息") }}</b><small>{{ $tr("本次组装后增加库存的成品") }}</small></div></div>
           <div class="top-grid">
-            <el-form-item label="业务日期" prop="bizDate"><el-date-picker v-model="form.bizDate" type="date" value-format="YYYY-MM-DD"/></el-form-item>
-            <el-form-item label="成品来源"><el-segmented v-model="form.outputMode" :options="outputModes" @change="outputModeChanged"/></el-form-item>
-            <el-form-item label="组装数量" prop="outputQty"><el-input-number v-model="form.outputQty" :min="1" :precision="0"/></el-form-item>
+            <el-form-item :label="$tr(&quot;业务日期&quot;)" prop="bizDate"><el-date-picker v-model="form.bizDate" type="date" value-format="YYYY-MM-DD"/></el-form-item>
+            <el-form-item :label="$tr(&quot;成品来源&quot;)"><el-segmented v-model="form.outputMode" :options="outputModes" @change="outputModeChanged"/></el-form-item>
+            <el-form-item :label="$tr(&quot;组装数量&quot;)" prop="outputQty"><el-input-number v-model="form.outputQty" :min="1" :precision="0"/></el-form-item>
           </div>
-          <el-form-item v-if="form.outputMode==='EXISTING'" label="目标成品" prop="outputProductId">
-            <el-select v-model="form.outputProductId" filterable placeholder="选择成品SKU" class="output-select">
+          <el-form-item v-if="form.outputMode==='EXISTING'" :label="$tr(&quot;目标成品&quot;)" prop="outputProductId">
+            <el-select v-model="form.outputProductId" filterable :placeholder="$tr(&quot;选择成品SKU&quot;)" class="output-select">
               <el-option v-for="item in finishedProducts" :key="item.productId" :label="`${item.sku} · ${item.productName}`" :value="item.productId"/>
             </el-select>
           </el-form-item>
           <template v-else>
-            <el-alert title="保存组装草稿时会同步建立成品档案，初始库存为0；审核通过后才增加成品库存。" type="info" :closable="false" show-icon class="mb16"/>
+            <el-alert :title="$tr(&quot;保存组装草稿时会同步建立成品档案，初始库存为0；审核通过后才增加成品库存。&quot;)" type="info" :closable="false" show-icon class="mb16"/>
             <div class="new-product-grid">
-              <el-form-item label="新成品SKU" prop="newOutputProduct.sku"><el-input v-model="form.newOutputProduct.sku" maxlength="64" placeholder="请输入唯一SKU"/></el-form-item>
-              <el-form-item label="新成品名称" prop="newOutputProduct.productName"><el-input v-model="form.newOutputProduct.productName" maxlength="128"/></el-form-item>
-              <el-form-item label="分类"><el-input v-model="form.newOutputProduct.category" maxlength="64"/></el-form-item>
-              <el-form-item label="规格类型" prop="newOutputProduct.specification"><el-select v-model="form.newOutputProduct.specification" style="width:100%"><el-option v-for="item in jewelrySpecifications" :key="item.value" :label="item.label" :value="item.value"/></el-select></el-form-item>
-              <el-form-item label="单位"><el-input v-model="form.newOutputProduct.unit" maxlength="16"/></el-form-item>
-              <el-form-item label="库存预警值"><el-input-number v-model="form.newOutputProduct.warningQty" :min="0" :precision="0"/></el-form-item>
+              <el-form-item :label="$tr(&quot;新成品SKU&quot;)" prop="newOutputProduct.sku"><el-input v-model="form.newOutputProduct.sku" maxlength="64" :placeholder="$tr(&quot;请输入唯一SKU&quot;)"/></el-form-item>
+              <el-form-item :label="$tr(&quot;新成品名称&quot;)" prop="newOutputProduct.productName"><el-input v-model="form.newOutputProduct.productName" maxlength="128"/></el-form-item>
+              <el-form-item :label="$tr(&quot;分类&quot;)"><el-input v-model="form.newOutputProduct.category" maxlength="64"/></el-form-item>
+              <el-form-item :label="$tr(&quot;规格类型&quot;)" prop="newOutputProduct.specification"><el-select v-model="form.newOutputProduct.specification" style="width:100%"><el-option v-for="item in jewelrySpecifications" :key="item.value" :label="item.label" :value="item.value"/></el-select></el-form-item>
+              <el-form-item :label="$tr(&quot;单位&quot;)"><el-input v-model="form.newOutputProduct.unit" maxlength="16"/></el-form-item>
+              <el-form-item :label="$tr(&quot;库存预警值&quot;)"><el-input-number v-model="form.newOutputProduct.warningQty" :min="0" :precision="0"/></el-form-item>
             </div>
           </template>
-          <el-form-item label="成品参考图">
+          <el-form-item :label="$tr(&quot;成品参考图&quot;)">
             <image-upload v-model="form.outputImages" :limit="5" :file-size="8"/>
           </el-form-item>
         </section>
 
         <section class="form-section">
-          <div class="section-title"><span>02</span><div><b>散件清单</b><small>填写本批组装实际消耗的总数量</small></div></div>
+          <div class="section-title"><span>02</span><div><b>{{ $tr("散件清单") }}</b><small>{{ $tr("填写本批组装实际消耗的总数量") }}</small></div></div>
           <el-table :data="form.components" border>
             <el-table-column type="index" label="#" width="48"/>
-            <el-table-column label="散件" min-width="300">
+            <el-table-column :label="$tr(&quot;散件&quot;)" min-width="300">
               <template #default="{row}">
                 <el-select v-model="row.productId" filterable @change="componentChanged(row)">
                   <el-option
@@ -91,19 +91,19 @@
                     :key="item.productId"
                     :value="item.productId"
                     :disabled="componentUsed(item.productId,row)"
-                    :label="`${item.sku} · ${item.productName} · 可用${available(item)}`"
+                    :label="$tr(&quot;{0} · {1} · 可用{2}&quot;, [item.sku, item.productName, available(item)])"
                   />
                 </el-select>
               </template>
             </el-table-column>
-            <el-table-column label="图片" width="88">
+            <el-table-column :label="$tr(&quot;图片&quot;)" width="88">
               <template #default="{row}">
                 <el-image v-if="componentProduct(row)?.image" :src="imageSrc(componentProduct(row).image)" fit="cover" class="part-thumb" :preview-src-list="[imageSrc(componentProduct(row).image)]" preview-teleported/>
-                <span v-else class="no-image">无图</span>
+                <span v-else class="no-image">{{ $tr("无图") }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="可用库存" width="100" align="right"><template #default="{row}">{{componentProduct(row)?.availableQty??'—'}}</template></el-table-column>
-            <el-table-column label="本次用量" width="170">
+            <el-table-column :label="$tr(&quot;可用库存&quot;)" width="100" align="right"><template #default="{row}">{{componentProduct(row)?.availableQty??'—'}}</template></el-table-column>
+            <el-table-column :label="$tr(&quot;本次用量&quot;)" width="170">
               <template #default="{row}">
                 <el-input-number v-model="row.qty" :min="1" :max="Math.max(1,componentProduct(row)?.availableQty||1)" :precision="0"/>
               </template>
@@ -112,45 +112,45 @@
               <template #default="{$index}"><el-button link type="danger" icon="Delete" @click="removeComponent($index)"/></template>
             </el-table-column>
           </el-table>
-          <el-button class="add-line" icon="Plus" :disabled="!partProducts.length" @click="form.components.push(blankComponent())">添加散件</el-button>
+          <el-button class="add-line" icon="Plus" :disabled="!partProducts.length" @click="form.components.push(blankComponent())">{{ $tr("添加散件") }}</el-button>
         </section>
 
         <section class="form-section fees-section">
-          <div class="section-title"><span>03</span><div><b>组装费用</b><small>费用总额将计入本批成品成本</small></div></div>
+          <div class="section-title"><span>03</span><div><b>{{ $tr("组装费用") }}</b><small>{{ $tr("费用总额将计入本批成品成本") }}</small></div></div>
           <div class="fee-grid">
-            <el-form-item label="人工费总额"><el-input-number v-model="form.laborFee" :min="0" :precision="2"/></el-form-item>
-            <el-form-item label="加工费总额"><el-input-number v-model="form.processingFee" :min="0" :precision="2"/></el-form-item>
-            <el-form-item label="其他费用总额"><el-input-number v-model="form.otherFee" :min="0" :precision="2"/></el-form-item>
+            <el-form-item :label="$tr(&quot;人工费总额&quot;)"><el-input-number v-model="form.laborFee" :min="0" :precision="2"/></el-form-item>
+            <el-form-item :label="$tr(&quot;加工费总额&quot;)"><el-input-number v-model="form.processingFee" :min="0" :precision="2"/></el-form-item>
+            <el-form-item :label="$tr(&quot;其他费用总额&quot;)"><el-input-number v-model="form.otherFee" :min="0" :precision="2"/></el-form-item>
           </div>
-          <el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" maxlength="500" show-word-limit/></el-form-item>
+          <el-form-item :label="$tr(&quot;备注&quot;)"><el-input v-model="form.remark" type="textarea" :rows="2" maxlength="500" show-word-limit/></el-form-item>
         </section>
       </el-form>
       <template #footer>
-        <el-button @click="dialog=false">取消</el-button>
-        <el-button :loading="saving" @click="save(false)">保存草稿</el-button>
-        <el-button type="primary" :loading="saving" v-hasPermi="['jewelry:document:submit']" @click="save(true)">保存并提交审核</el-button>
+        <el-button @click="dialog=false">{{ $tr("取消") }}</el-button>
+        <el-button :loading="saving" @click="save(false)">{{ $tr("保存草稿") }}</el-button>
+        <el-button type="primary" :loading="saving" v-hasPermi="['jewelry:document:submit']" @click="save(true)">{{ $tr("保存并提交审核") }}</el-button>
       </template>
     </el-dialog>
 
-    <el-drawer v-model="drawer" title="组装单明细" size="72%">
+    <el-drawer v-model="drawer" :title="$tr(&quot;组装单明细&quot;)" size="72%">
       <template v-if="detail">
         <el-descriptions :column="4" border>
-          <el-descriptions-item label="组装单号">{{detail.docNo}}</el-descriptions-item>
-          <el-descriptions-item label="业务日期">{{detail.bizDate}}</el-descriptions-item>
-          <el-descriptions-item label="成品数量">{{detail.totalQty}}</el-descriptions-item>
-          <el-descriptions-item label="状态">{{labelOf(statuses,detail.status)}}</el-descriptions-item>
-          <el-descriptions-item label="人工费">¥ {{money(detail.laborFee)}}</el-descriptions-item>
-          <el-descriptions-item label="加工费">¥ {{money(detail.processingFee)}}</el-descriptions-item>
-          <el-descriptions-item label="其他费用">¥ {{money(detail.otherFee)}}</el-descriptions-item>
-          <el-descriptions-item label="组装总成本">{{detail.totalCost==null?'—':`¥ ${money(detail.totalCost)}`}}</el-descriptions-item>
+          <el-descriptions-item :label="$tr(&quot;组装单号&quot;)">{{detail.docNo}}</el-descriptions-item>
+          <el-descriptions-item :label="$tr(&quot;业务日期&quot;)">{{detail.bizDate}}</el-descriptions-item>
+          <el-descriptions-item :label="$tr(&quot;成品数量&quot;)">{{detail.totalQty}}</el-descriptions-item>
+          <el-descriptions-item :label="$tr(&quot;状态&quot;)">{{labelOf(statuses,detail.status)}}</el-descriptions-item>
+          <el-descriptions-item :label="$tr(&quot;人工费&quot;)">¥ {{money(detail.laborFee)}}</el-descriptions-item>
+          <el-descriptions-item :label="$tr(&quot;加工费&quot;)">¥ {{money(detail.processingFee)}}</el-descriptions-item>
+          <el-descriptions-item :label="$tr(&quot;其他费用&quot;)">¥ {{money(detail.otherFee)}}</el-descriptions-item>
+          <el-descriptions-item :label="$tr(&quot;组装总成本&quot;)">{{detail.totalCost==null?'—':`¥ ${money(detail.totalCost)}`}}</el-descriptions-item>
         </el-descriptions>
         <el-table :data="detail.items" border class="mt20">
-          <el-table-column label="用途" width="100"><template #default="{row}"><el-tag :type="row.itemRole==='OUTPUT'?'success':'info'">{{row.itemRole==='OUTPUT'?'成品产出':'散件投入'}}</el-tag></template></el-table-column>
+          <el-table-column :label="$tr(&quot;用途&quot;)" width="100"><template #default="{row}"><el-tag :type="row.itemRole==='OUTPUT'?'success':'info'">{{row.itemRole==='OUTPUT'?$tr("成品产出"):$tr("散件投入")}}</el-tag></template></el-table-column>
           <el-table-column prop="skuSnapshot" label="SKU" min-width="140"/>
-          <el-table-column prop="productNameSnapshot" label="商品" min-width="180"/>
-          <el-table-column prop="qty" label="数量" width="90" align="right"/>
-          <el-table-column prop="unitCost" label="单位成本" width="120" align="right"><template #default="{row}">{{row.unitCost==null?'—':money(row.unitCost)}}</template></el-table-column>
-          <el-table-column prop="costAmount" label="成本金额" width="120" align="right"><template #default="{row}">{{row.costAmount==null?'—':money(row.costAmount)}}</template></el-table-column>
+          <el-table-column prop="productNameSnapshot" :label="$tr(&quot;商品&quot;)" min-width="180"/>
+          <el-table-column prop="qty" :label="$tr(&quot;数量&quot;)" width="90" align="right"/>
+          <el-table-column prop="unitCost" :label="$tr(&quot;单位成本&quot;)" width="120" align="right"><template #default="{row}">{{row.unitCost==null?'—':money(row.unitCost)}}</template></el-table-column>
+          <el-table-column prop="costAmount" :label="$tr(&quot;成本金额&quot;)" width="120" align="right"><template #default="{row}">{{row.costAmount==null?'—':money(row.costAmount)}}</template></el-table-column>
         </el-table>
       </template>
     </el-drawer>
@@ -158,19 +158,21 @@
 </template>
 
 <script setup name="JewelryAssembly">
+import { translateText } from '@/locales/translate'
+
 import {listJewelryDocuments,getJewelryDocument,saveJewelryDocument,submitJewelryDocument,withdrawJewelryDocument,listJewelryProductOptions} from '@/api/jewelry/erp'
 import {jewelrySpecifications} from '@/utils/jewelryProduct'
 const {proxy}=getCurrentInstance()
 const loading=ref(false),rows=ref([]),total=ref(0),dialog=ref(false),drawer=ref(false),saving=ref(false),formRef=ref(),detail=ref(null)
 const products=ref([])
-const statuses=[{value:'DRAFT',label:'草稿'},{value:'PENDING_FIRST',label:'待审核'},{value:'PENDING_SECOND',label:'待审核'},{value:'POSTED',label:'已入账'},{value:'REJECTED',label:'已驳回'}]
-const outputModes=[{label:'选择已有成品',value:'EXISTING'},{label:'新建成品',value:'NEW'}]
+const statuses=[{value:'DRAFT',label:translateText("草稿")},{value:'PENDING_FIRST',label:translateText("待审核")},{value:'PENDING_SECOND',label:translateText("待审核")},{value:'POSTED',label:translateText("已入账")},{value:'REJECTED',label:translateText("已驳回")}]
+const outputModes=[{label:translateText("选择已有成品"),value:'EXISTING'},{label:translateText("新建成品"),value:'NEW'}]
 const query=reactive({pageNum:1,pageSize:10,docNo:'',docType:'ASSEMBLY',status:''})
 const blankComponent=()=>({productId:null,itemRole:'COMPONENT',qty:1})
 const blankNewProduct=()=>({sku:'',productName:'',category:'',specification:'普通',unit:'件',warningQty:5})
 const blankForm=()=>({documentId:null,bizDate:today(),outputMode:'EXISTING',outputProductId:null,newOutputProduct:blankNewProduct(),outputQty:1,outputImages:'',components:[blankComponent()],laborFee:0,processingFee:0,otherFee:0,remark:''})
 const form=reactive(blankForm())
-const rules={bizDate:[{required:true,message:'请选择业务日期'}],outputProductId:[{required:true,message:'请选择目标成品'}],'newOutputProduct.sku':[{required:true,message:'请输入新成品SKU'}],'newOutputProduct.productName':[{required:true,message:'请输入新成品名称'}],'newOutputProduct.specification':[{required:true,type:'enum',enum:jewelrySpecifications.map(item=>item.value),message:'请选择规格类型'}],outputQty:[{required:true,message:'请输入组装数量'}]}
+const rules={bizDate:[{required:true,message:translateText("请选择业务日期")}],outputProductId:[{required:true,message:translateText("请选择目标成品")}],'newOutputProduct.sku':[{required:true,message:translateText("请输入新成品SKU")}],'newOutputProduct.productName':[{required:true,message:translateText("请输入新成品名称")}],'newOutputProduct.specification':[{required:true,type:'enum',enum:jewelrySpecifications.map(item=>item.value),message:translateText("请选择规格类型")}],outputQty:[{required:true,message:translateText("请输入组装数量")}]}
 const baseUrl=import.meta.env.VITE_APP_BASE_API
 const imageSrc=url=>!url?'':/^https?:/i.test(url)?url:baseUrl+url
 const firstImage=item=>String(item.imageUrl||item.imageUrls||'').split(',').map(v=>v.trim()).find(Boolean)||''
@@ -208,12 +210,12 @@ async function openEdit(row){
   dialog.value=true
 }
 function outputModeChanged(){form.outputProductId=null;nextTick(()=>formRef.value?.clearValidate(['outputProductId','newOutputProduct.sku','newOutputProduct.productName']))}
-function componentChanged(row){const item=componentProduct(row);if(item&&item.availableQty<=0){proxy.$modal.msgWarning('该散件当前没有可用库存');row.productId=null}}
+function componentChanged(row){const item=componentProduct(row);if(item&&item.availableQty<=0){proxy.$modal.msgWarning(translateText("该散件当前没有可用库存"));row.productId=null}}
 function removeComponent(index){if(form.components.length===1){Object.assign(form.components[0],blankComponent());return}form.components.splice(index,1)}
 function validateComponents(){
-  if(!form.components.length||form.components.some(item=>!item.productId||Number(item.qty)<=0)){proxy.$modal.msgError('请完整填写散件清单');return false}
+  if(!form.components.length||form.components.some(item=>!item.productId||Number(item.qty)<=0)){proxy.$modal.msgError(translateText("请完整填写散件清单"));return false}
   const insufficient=form.components.find(item=>Number(item.qty)>Number(componentProduct(item)?.availableQty||0))
-  if(insufficient){proxy.$modal.msgError(`${componentProduct(insufficient)?.productName||'散件'}可用库存不足`);return false}
+  if(insufficient){proxy.$modal.msgError(translateText("{0}可用库存不足", [componentProduct(insufficient)?.productName||translateText("散件")]));return false}
   return true
 }
 function payload(){
@@ -230,7 +232,7 @@ async function save(andSubmit){
     if(andSubmit&&form.documentId){
       const current=(await getJewelryDocument(form.documentId)).data
       if(!['DRAFT','REJECTED'].includes(current.status)){
-        proxy.$modal.msgSuccess('该组装单已经提交，无需重复操作')
+        proxy.$modal.msgSuccess(translateText("该组装单已经提交，无需重复操作"))
         dialog.value=false
         load()
         return
@@ -244,18 +246,18 @@ async function save(andSubmit){
       try{
         await submitJewelryDocument(form.documentId)
       }catch(error){
-        proxy.$modal.msgWarning('组装草稿已保存，但提交结果未确认。请保留当前页面后重试，系统不会重复新建。')
+        proxy.$modal.msgWarning(translateText("组装草稿已保存，但提交结果未确认。请保留当前页面后重试，系统不会重复新建。"))
         return
       }
     }
-    proxy.$modal.msgSuccess(andSubmit?'组装单已提交审核':'组装草稿已保存')
+    proxy.$modal.msgSuccess(andSubmit?translateText("组装单已提交审核"):translateText("组装草稿已保存"))
     dialog.value=false
     load()
   }finally{saving.value=false}
 }
 async function view(row){detail.value=(await getJewelryDocument(row.documentId)).data;drawer.value=true}
-async function submit(row){await proxy.$modal.confirm(`确认提交组装单 ${row.docNo}？提交后将冻结所需散件。`);await submitJewelryDocument(row.documentId);proxy.$modal.msgSuccess('已提交审核');load()}
-async function withdraw(row){await proxy.$modal.confirm(`确认撤回组装单 ${row.docNo}？冻结的散件将被释放。`);await withdrawJewelryDocument(row.documentId);proxy.$modal.msgSuccess('已撤回');load()}
+async function submit(row){await proxy.$modal.confirm(translateText("确认提交组装单 {0}？提交后将冻结所需散件。", [row.docNo]));await submitJewelryDocument(row.documentId);proxy.$modal.msgSuccess(translateText("已提交审核"));load()}
+async function withdraw(row){await proxy.$modal.confirm(translateText("确认撤回组装单 {0}？冻结的散件将被释放。", [row.docNo]));await withdrawJewelryDocument(row.documentId);proxy.$modal.msgSuccess(translateText("已撤回"));load()}
 loadProducts();load()
 </script>
 

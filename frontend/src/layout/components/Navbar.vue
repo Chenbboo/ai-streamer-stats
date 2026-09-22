@@ -17,9 +17,7 @@
           </span>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="zh-CN" :disabled="language === 'zh-CN'">
-                中文
-              </el-dropdown-item>
+              <el-dropdown-item command="zh-CN" :disabled="language === 'zh-CN'">{{ $tr(" 中文 ") }}</el-dropdown-item>
               <el-dropdown-item command="vi-VN" :disabled="language === 'vi-VN'">
                 Tiếng Việt
               </el-dropdown-item>
@@ -31,18 +29,18 @@
 
         <screenfull id="screenfull" class="right-menu-item hover-effect" />
 
-        <el-tooltip content="主题模式" effect="dark" placement="bottom">
+        <el-tooltip :content="$tr(&quot;主题模式&quot;)" effect="dark" placement="bottom">
           <div class="right-menu-item hover-effect theme-switch-wrapper" @click="toggleTheme">
             <svg-icon v-if="settingsStore.isDark" icon-class="sunny" />
             <svg-icon v-if="!settingsStore.isDark" icon-class="moon" />
           </div>
         </el-tooltip>
 
-        <el-tooltip content="布局大小" effect="dark" placement="bottom">
+        <el-tooltip :content="$tr(&quot;布局大小&quot;)" effect="dark" placement="bottom">
           <size-select id="size-select" class="right-menu-item hover-effect" />
         </el-tooltip>
 
-        <el-tooltip content="消息通知" effect="dark" placement="bottom">
+        <el-tooltip :content="$tr(&quot;消息通知&quot;)" effect="dark" placement="bottom">
           <header-notice id="header-notice" class="right-menu-item hover-effect" />
         </el-tooltip>
 
@@ -54,16 +52,16 @@
         <template #dropdown>
           <el-dropdown-menu>
             <router-link to="/user/profile">
-              <el-dropdown-item>个人中心</el-dropdown-item>
+              <el-dropdown-item>{{ $tr("个人中心") }}</el-dropdown-item>
             </router-link>
             <el-dropdown-item command="setLayout" v-if="settingsStore.showSettings">
-                <span>布局设置</span>
+                <span>{{ $tr("布局设置") }}</span>
             </el-dropdown-item>
             <el-dropdown-item command="lockScreen">
-                <span>锁定屏幕</span>
+                <span>{{ $tr("锁定屏幕") }}</span>
             </el-dropdown-item>
             <el-dropdown-item divided command="logout">
-              <span>退出登录</span>
+              <span>{{ $tr("退出登录") }}</span>
             </el-dropdown-item>
           </el-dropdown-menu>
         </template>
@@ -73,6 +71,8 @@
 </template>
 
 <script setup>
+import { translateText } from '@/locales/translate'
+
 import { ElMessageBox } from 'element-plus'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
@@ -102,7 +102,7 @@ const settingsStore = useSettingsStore()
 const { locale } = useI18n()
 
 const language = ref(Cookies.get('language') || 'zh-CN')
-const currentLangLabel = computed(() => language.value === 'zh-CN' ? '中文' : 'Tiếng Việt')
+const currentLangLabel = computed(() => language.value === 'zh-CN' ? translateText("中文") : 'Tiếng Việt')
 
 function handleLanguageChange(lang) {
   language.value = lang
@@ -132,9 +132,9 @@ function handleCommand(command) {
 }
 
 function logout() {
-  ElMessageBox.confirm('确定注销并退出系统吗？', '提示', {
-    confirmButtonText: '确定',
-    cancelButtonText: '取消',
+  ElMessageBox.confirm(translateText("确定注销并退出系统吗？"), translateText("提示"), {
+    confirmButtonText: translateText("确定"),
+    cancelButtonText: translateText("取消"),
     type: 'warning'
   }).then(() => {
     userStore.logOut().then(() => {

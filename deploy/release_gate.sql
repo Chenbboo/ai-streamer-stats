@@ -416,4 +416,16 @@ from (
     and table_name='biz_project_delete_notification'
     and index_name='uk_project_delete_notification_request'
     and column_name='request_id' and non_unique=0
+  union all
+  select if(count(*)=2,0,1) from information_schema.tables where table_schema=database()
+    and table_name in ('jewelry_influencer_platform','jewelry_influencer_bundle_config')
+  union all
+  select if(count(*)=9,0,1) from information_schema.columns where table_schema=database()
+    and ((table_name='jewelry_influencer' and column_name='platform_code')
+      or (table_name='jewelry_influencer_product_price' and column_name in
+        ('commission_rate','platform_rate','tax_rate','pack_fee','ship_fee','cert_fee','binding_status','binding_remark')))
+  union all
+  select if(count(*)=3,0,1) from information_schema.columns where table_schema=database()
+    and table_name='jewelry_document_item'
+    and column_name in ('platform_rate_snapshot','commission_rate_snapshot','tax_rate_snapshot')
 ) release_gate;

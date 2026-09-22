@@ -2,47 +2,49 @@
   <article class="acceptance-card">
     <header>
       <div>
-        <el-tag size="small" type="warning">待老板验收</el-tag>
+        <el-tag size="small" type="warning">{{ $tr("待老板验收") }}</el-tag>
         <h3>{{ review.project?.projectName }}</h3>
-        <p>{{ review.project?.companyName }} · 负责人 {{ review.project?.mainOwnerName }}</p>
+        <p>{{ $tr("{0} · 负责人 {1}", [review.project?.companyName, review.project?.mainOwnerName]) }}</p>
       </div>
-      <div class="version">第 {{ review.acceptance?.submissionVersion }} 版<br><small>{{ review.acceptance?.submittedTime }}</small></div>
+      <div class="version">{{ $tr("第 {0} 版", [review.acceptance?.submissionVersion]) }}<br><small>{{ review.acceptance?.submittedTime }}</small></div>
     </header>
 
     <div class="summary-grid">
-      <div><small>一次性任务</small><b>{{ review.completedTaskCount }}/{{ review.taskCount }} 已完成</b></div>
-      <div><small>里程碑</small><b>{{ review.completedMilestoneCount }}/{{ review.milestoneCount }} 已完成</b></div>
-      <div><small>未关闭高风险</small><b :class="{ danger: review.openHighRiskCount > 0 }">{{ review.openHighRiskCount }} 项</b></div>
-      <div><small>交付凭证</small><b>{{ review.attachmentCount }} 份</b></div>
+      <div><small>{{ $tr("一次性任务") }}</small><b>{{ $tr("{0}/{1} 已完成", [review.completedTaskCount, review.taskCount]) }}</b></div>
+      <div><small>{{ $tr("里程碑") }}</small><b>{{ $tr("{0}/{1} 已完成", [review.completedMilestoneCount, review.milestoneCount]) }}</b></div>
+      <div><small>{{ $tr("未关闭高风险") }}</small><b :class="{ danger: review.openHighRiskCount > 0 }">{{ $tr("{0} 项", [review.openHighRiskCount]) }}</b></div>
+      <div><small>{{ $tr("交付凭证") }}</small><b>{{ $tr("{0} 份", [review.attachmentCount]) }}</b></div>
     </div>
 
-    <section><small>成果说明</small><p>{{ review.acceptance?.resultSummary || '负责人未填写成果说明' }}</p></section>
-    <section><small>交付内容</small><p>{{ review.acceptance?.deliverables || '负责人未填写交付内容' }}</p></section>
+    <section><small>{{ $tr("成果说明") }}</small><p>{{ review.acceptance?.resultSummary || $tr("负责人未填写成果说明") }}</p></section>
+    <section><small>{{ $tr("交付内容") }}</small><p>{{ review.acceptance?.deliverables || $tr("负责人未填写交付内容") }}</p></section>
 
     <section v-if="attachments.length" class="attachments">
-      <small>成果凭证</small>
-      <div><el-button v-for="(item,index) in attachments" :key="item" plain type="primary" @click="showAttachment(item)">查看凭证 {{ index + 1 }}</el-button></div>
+      <small>{{ $tr("成果凭证") }}</small>
+      <div><el-button v-for="(item,index) in attachments" :key="item" plain type="primary" @click="showAttachment(item)">{{ $tr("查看凭证 {0}", [index + 1]) }}</el-button></div>
     </section>
     <section v-if="review.warnings?.length" class="warnings">
-      <small>需要老板注意</small><p v-for="item in review.warnings" :key="item">{{ item }}</p>
+      <small>{{ $tr("需要老板注意") }}</small><p v-for="item in review.warnings" :key="item">{{ item }}</p>
     </section>
     <div class="recommendation" :class="review.canApprove?'can-approve':'cannot-approve'">{{ review.recommendation }}</div>
 
     <div v-if="!compact" class="decision-area">
-      <el-input v-model="returnReason" maxlength="300" placeholder="如需退回，请写明负责人要补充或修改什么" />
+      <el-input v-model="returnReason" maxlength="300" :placeholder="$tr(&quot;如需退回，请写明负责人要补充或修改什么&quot;)" />
       <div>
-        <el-button type="warning" plain :disabled="!returnReason.trim()" @click="returnAcceptance">退回负责人补充</el-button>
-        <el-button type="primary" :disabled="!review.canApprove" @click="approveAcceptance">验收通过并结项</el-button>
+        <el-button type="warning" plain :disabled="!returnReason.trim()" @click="returnAcceptance">{{ $tr("退回负责人补充") }}</el-button>
+        <el-button type="primary" :disabled="!review.canApprove" @click="approveAcceptance">{{ $tr("验收通过并结项") }}</el-button>
       </div>
     </div>
 
-    <el-dialog v-model="previewVisible" title="成果凭证" width="min(860px,92vw)" append-to-body>
+    <el-dialog v-model="previewVisible" :title="$tr(&quot;成果凭证&quot;)" width="min(860px,92vw)" append-to-body>
       <business-file-upload :model-value="previewUrl" :project-id="review.project?.projectId" disabled :drag="false" :is-show-tip="false" />
     </el-dialog>
   </article>
 </template>
 
 <script setup>
+import { translateText } from '@/locales/translate'
+
 const props=defineProps({review:{type:Object,required:true},compact:{type:Boolean,default:false}})
 const emit=defineEmits(['action'])
 const returnReason=ref('')
@@ -50,8 +52,8 @@ const previewVisible=ref(false)
 const previewUrl=ref('')
 const attachments=computed(()=>Array.isArray(props.review.attachmentList)?props.review.attachmentList:[])
 function showAttachment(value){previewUrl.value=value;previewVisible.value=true}
-function approveAcceptance(){emit('action',`验收通过并结项“${props.review.project?.projectName}”`)}
-function returnAcceptance(){emit('action',`退回验收“${props.review.project?.projectName}”，原因：${returnReason.value.trim()}`)}
+function approveAcceptance(){emit('action',translateText("验收通过并结项“{0}”", [props.review.project?.projectName]))}
+function returnAcceptance(){emit('action',translateText("退回验收“{0}”，原因：{1}", [props.review.project?.projectName, returnReason.value.trim()]))}
 </script>
 
 <style scoped>

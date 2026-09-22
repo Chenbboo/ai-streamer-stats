@@ -1,3 +1,4 @@
+import { translateText, getDisplayLocale } from '../locales/translate.js'
 import { parseTime } from './ruoyi'
 
 /**
@@ -32,28 +33,30 @@ export function formatTime(time, option) {
   const diff = (now - d) / 1000
 
   if (diff < 30) {
-    return '刚刚'
+    return translateText("刚刚")
   } else if (diff < 3600) {
     // less 1 hour
-    return Math.ceil(diff / 60) + '分钟前'
+    return translateText("{0}分钟前", [Math.ceil(diff / 60)])
   } else if (diff < 3600 * 24) {
-    return Math.ceil(diff / 3600) + '小时前'
+    return translateText("{0}小时前", [Math.ceil(diff / 3600)])
   } else if (diff < 3600 * 24 * 2) {
-    return '1天前'
+    return translateText("1天前")
   }
   if (option) {
     return parseTime(time, option)
+  } else if (getDisplayLocale() === 'vi-VN') {
+    return new Intl.DateTimeFormat('vi-VN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(d)
   } else {
     return (
       d.getMonth() +
       1 +
-      '月' +
+      translateText("月") +
       d.getDate() +
-      '日' +
+      translateText("日") +
       d.getHours() +
-      '时' +
+      translateText("时") +
       d.getMinutes() +
-      '分'
+      translateText("分")
     )
   }
 }

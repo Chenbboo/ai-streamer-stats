@@ -1,21 +1,18 @@
 <template>
-  <el-drawer v-model="visible" title="公告详情" direction="rtl" size="50%" append-to-body :before-close="handleClose" class="notice-detail-drawer">
+  <el-drawer v-model="visible" :title="$tr(&quot;公告详情&quot;)" direction="rtl" size="50%" append-to-body :before-close="handleClose" class="notice-detail-drawer">
     <div v-loading="loading" class="notice-detail-drawer__body">
       <div v-if="!detail" class="notice-empty">
         <el-icon><Document /></el-icon>
-        <span>暂无数据</span>
+        <span>{{ $tr("暂无数据") }}</span>
       </div>
       <div v-else class="notice-page">
         <div class="notice-type-wrap">
           <span v-if="detail.noticeType === '1'" class="notice-type-tag type-notify">
-            <el-icon><Bell /></el-icon> 通知
-          </span>
+            <el-icon><Bell /></el-icon>{{ $tr(" 通知 ") }}</span>
           <span v-else-if="detail.noticeType === '2'" class="notice-type-tag type-announce">
-            <el-icon><Message /></el-icon> 公告
-          </span>
+            <el-icon><Message /></el-icon>{{ $tr(" 公告 ") }}</span>
           <span v-else class="notice-type-tag type-notify">
-            <el-icon><Document /></el-icon> 消息
-          </span>
+            <el-icon><Document /></el-icon>{{ $tr(" 消息 ") }}</span>
         </div>
 
         <h1 class="notice-title">{{ detail.noticeTitle }}</h1>
@@ -31,7 +28,7 @@
           </span>
           <span class="meta-item">
             <span :class="['status-dot', isStatusNormal ? 'status-ok' : 'status-off']"></span>
-            <span>{{ isStatusNormal ? '正常' : '已关闭' }}</span>
+            <span>{{ isStatusNormal ? $tr("正常") : $tr("已关闭") }}</span>
           </span>
         </div>
 
@@ -44,8 +41,7 @@
         <div class="notice-body">
           <div v-if="hasContent" class="notice-content" v-html="detail.noticeContent" />
           <div v-else class="notice-empty notice-empty--inner">
-            <el-icon><Document /></el-icon> 暂无内容
-          </div>
+            <el-icon><Document /></el-icon>{{ $tr(" 暂无内容 ") }}</div>
         </div>
       </div>
     </div>

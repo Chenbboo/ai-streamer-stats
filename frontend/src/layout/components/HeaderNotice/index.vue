@@ -3,33 +3,30 @@
     <el-popover ref="noticePopover" placement="bottom-end" :width="320" trigger="click" v-model:visible="noticeVisible" popper-class="notice-popover">
       <!-- 弹出内容 -->
       <div class="notice-header">
-        <span class="notice-title">通知公告</span>
-        <span class="notice-mark-all" @click="markAllRead">全部已读</span>
+        <span class="notice-title">{{ $tr("通知公告") }}</span>
+        <span class="notice-mark-all" @click="markAllRead">{{ $tr("全部已读") }}</span>
       </div>
       <div v-if="noticeLoading" class="notice-loading">
-        <el-icon class="is-loading"><Loading /></el-icon> 加载中...
-      </div>
+        <el-icon class="is-loading"><Loading /></el-icon>{{ $tr(" 加载中... ") }}</div>
       <div v-else-if="noticeList.length === 0" class="notice-empty">
-        <el-icon style="font-size:24px;display:block;margin-bottom:6px;"><Postcard /></el-icon>
-        暂无公告
-      </div>
+        <el-icon style="font-size:24px;display:block;margin-bottom:6px;"><Postcard /></el-icon>{{ $tr(" 暂无公告 ") }}</div>
       <div v-else>
         <div v-for="item in noticeList" :key="item.noticeId" class="notice-item" :class="{ 'is-read': item.isRead }" @click="previewNotice(item)">
           <el-tag size="small" :type="item.noticeType === '1' ? 'warning' : 'success'" class="notice-tag">
-            {{ item.noticeType === '1' ? '通知' : '公告' }}
+            {{ item.noticeType === '1' ? $tr("通知") : $tr("公告") }}
           </el-tag>
           <span class="notice-item-title">{{ item.noticeTitle }}</span>
           <span class="notice-item-date">{{ item.createTime }}</span>
         </div>
       </div>
 
-<div class="notice-header"><span class="notice-title">子项目进度汇报</span><span>{{ progressNotices.filter(n=>!n.readTime).length }} 条未读</span></div>
-      <div v-if="progressError" class="notice-empty">汇报通知加载失败 <el-button link @click="loadProgress">重试</el-button></div>
-      <div v-else-if="!progressNotices.length" class="notice-empty">暂无进度汇报通知</div>
-      <div class="progress-notices"><button v-for="item in progressNotices" :key="item.notificationId" class="notice-item progress-notice" :class="{'is-read':item.readTime}" @click="openProgress(item)"><span class="notice-item-title">{{ item.projectName }} · {{ item.progress }}%<small>{{ item.reporterName }} · {{ parseTime(item.createTime) }}</small></span><el-tag v-if="!item.readTime" size="small">未读</el-tag></button></div>
-      <div v-if="deletionNotices.length || deletionError" class="notice-header"><span class="notice-title">项目删除审核结果</span><span>{{ deletionUnreadCount }} 条未读</span></div>
-      <div v-if="deletionError" class="notice-empty">审核通知加载失败 <el-button link @click="loadDeletion">重试</el-button></div>
-      <div class="progress-notices"><button v-for="item in deletionNotices" :key="item.notificationId" class="notice-item progress-notice" :class="{'is-read':item.readTime}" @click="openDeletion(item)"><span class="notice-item-title">{{ item.projectName }} · {{ item.status === 'APPROVED' ? '删除申请已通过' : '删除申请已驳回' }}<small>{{ item.reviewerName || '审核人' }} · {{ parseTime(item.reviewTime || item.createTime) }}</small></span><el-tag v-if="!item.readTime" size="small">未读</el-tag></button></div>
+<div class="notice-header"><span class="notice-title">{{ $tr("子项目进度汇报") }}</span><span>{{ $tr("{0} 条未读", [progressNotices.filter(n=>!n.readTime).length]) }}</span></div>
+      <div v-if="progressError" class="notice-empty">{{ $tr("汇报通知加载失败 ") }}<el-button link @click="loadProgress">{{ $tr("重试") }}</el-button></div>
+      <div v-else-if="!progressNotices.length" class="notice-empty">{{ $tr("暂无进度汇报通知") }}</div>
+      <div class="progress-notices"><button v-for="item in progressNotices" :key="item.notificationId" class="notice-item progress-notice" :class="{'is-read':item.readTime}" @click="openProgress(item)"><span class="notice-item-title">{{ item.projectName }} · {{ item.progress }}%<small>{{ item.reporterName }} · {{ parseTime(item.createTime) }}</small></span><el-tag v-if="!item.readTime" size="small">{{ $tr("未读") }}</el-tag></button></div>
+      <div v-if="deletionNotices.length || deletionError" class="notice-header"><span class="notice-title">{{ $tr("项目删除审核结果") }}</span><span>{{ $tr("{0} 条未读", [deletionUnreadCount]) }}</span></div>
+      <div v-if="deletionError" class="notice-empty">{{ $tr("审核通知加载失败 ") }}<el-button link @click="loadDeletion">{{ $tr("重试") }}</el-button></div>
+      <div class="progress-notices"><button v-for="item in deletionNotices" :key="item.notificationId" class="notice-item progress-notice" :class="{'is-read':item.readTime}" @click="openDeletion(item)"><span class="notice-item-title">{{ item.projectName }} · {{ item.status === 'APPROVED' ? $tr("删除申请已通过") : $tr("删除申请已驳回") }}<small>{{ item.reviewerName || $tr("审核人") }} · {{ parseTime(item.reviewTime || item.createTime) }}</small></span><el-tag v-if="!item.readTime" size="small">{{ $tr("未读") }}</el-tag></button></div>
       <!-- 触发器 -->
       <template #reference>
         <div class="right-menu-item hover-effect notice-trigger">
@@ -45,6 +42,8 @@
 </template>
 
 <script setup>
+import { translateText } from '@/locales/translate'
+
 import { getProgressNotifications, readProgressNotification, getBusinessProjectDeletionNotifications, readBusinessProjectDeletionNotification, readAllBusinessProjectDeletionNotifications } from '@/api/business/project'
 import { parseTime } from '@/utils/ruoyi'
 import { useRouter } from 'vue-router'
@@ -63,14 +62,14 @@ async function openProgress(item){noticeVisible.value=false;await router.push({p
 async function openDeletion(item){
   noticeVisible.value=false
   const lines=[
-    `项目：${item.projectName}`,
-    `结果：${item.status==='APPROVED'?'审核通过，项目已删除':'审核驳回，项目保留'}`,
-    `审核人：${item.reviewerName || '—'}`,
-    `申请原因：${item.reason || '—'}`,
-    `审核说明：${item.reviewComment || '无'}`
+    translateText("项目：{0}", [item.projectName]),
+    translateText("结果：{0}", [item.status==='APPROVED'?translateText("审核通过，项目已删除"):translateText("审核驳回，项目保留")]),
+    translateText("审核人：{0}", [item.reviewerName || '—']),
+    translateText("申请原因：{0}", [item.reason || '—']),
+    translateText("审核说明：{0}", [item.reviewComment || translateText("无")])
   ]
   try {
-    await ElMessageBox.alert(h('div', lines.map(line => h('p', { style: { margin: '0 0 8px' } }, line))), '项目删除审核结果', { confirmButtonText:'知道了' })
+    await ElMessageBox.alert(h('div', lines.map(line => h('p', { style: { margin: '0 0 8px' } }, line))), translateText("项目删除审核结果"), { confirmButtonText:translateText("知道了") })
     if(!item.readTime){await readBusinessProjectDeletionNotification(item.notificationId);item.readTime=new Date().toISOString()}
   } catch {/* Keep unread state if the dialog or acknowledgement is closed or fails. */}
 }

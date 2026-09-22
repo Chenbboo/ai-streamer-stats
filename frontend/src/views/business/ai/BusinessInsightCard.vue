@@ -4,71 +4,73 @@
       <div>
         <el-tag size="small" :type="statusType" effect="plain">{{ statusLabel }}</el-tag>
         <h3>{{ card.title }}</h3>
-        <p>{{ project.companyName || '未设置归属公司' }} · 负责人 {{ project.mainOwnerName || '待设置' }}</p>
+        <p>{{ $tr("{0} · 负责人 {1}", [project.companyName || $tr("未设置归属公司"), project.mainOwnerName || $tr("待设置")]) }}</p>
       </div>
-      <div class="insight-date"><span>{{ card.type === 'OPERATING_ANALYSIS' ? '经营分析卡' : '项目详情卡' }}</span><b>{{ card.bizDate || project.status || '' }}</b></div>
+      <div class="insight-date"><span>{{ card.type === 'OPERATING_ANALYSIS' ? $tr("经营分析卡") : $tr("项目详情卡") }}</span><b>{{ card.bizDate || project.status || '' }}</b></div>
     </header>
 
     <template v-if="card.type === 'OPERATING_ANALYSIS'">
       <div class="metric-grid">
-        <div><small>今日收入</small><b>{{ money(metrics.revenueAmount) }}</b></div>
-        <div><small>业务成本</small><b>{{ money(metrics.businessCost) }}</b></div>
-        <div><small>人员成本</small><b>{{ money(metrics.personnelCost) }}</b></div>
-        <div :class="{negative:Number(metrics.profitAmount)<0}"><small>今日经营结果</small><b>{{ money(metrics.profitAmount) }}</b></div>
+        <div><small>{{ $tr("今日收入") }}</small><b>{{ money(metrics.revenueAmount) }}</b></div>
+        <div><small>{{ $tr("业务成本") }}</small><b>{{ money(metrics.businessCost) }}</b></div>
+        <div><small>{{ $tr("人员成本") }}</small><b>{{ money(metrics.personnelCost) }}</b></div>
+        <div :class="{negative:Number(metrics.profitAmount)<0}"><small>{{ $tr("今日经营结果") }}</small><b>{{ money(metrics.profitAmount) }}</b></div>
       </div>
       <div v-if="hasBudget" class="budget-block">
-        <div><span>累计成本 {{ money(metrics.budgetSpent) }}</span><b>预算 {{ money(metrics.budgetLimit) }}</b></div>
+        <div><span>{{ $tr("累计成本 {0}", [money(metrics.budgetSpent)]) }}</span><b>{{ $tr("预算 {0}", [money(metrics.budgetLimit)]) }}</b></div>
         <el-progress :percentage="budgetPercent" :status="budgetPercent>100?'exception':undefined" :stroke-width="10" />
-        <small v-if="Number(metrics.overBudgetAmount)>0">已超出预算 {{ money(metrics.overBudgetAmount) }}</small>
+        <small v-if="Number(metrics.overBudgetAmount)>0">{{ $tr("已超出预算 {0}", [money(metrics.overBudgetAmount)]) }}</small>
       </div>
       <section class="detail-section">
-        <div class="section-title"><h4>人员成本明细</h4><span>对应到具体人员</span></div>
+        <div class="section-title"><h4>{{ $tr("人员成本明细") }}</h4><span>{{ $tr("对应到具体人员") }}</span></div>
         <div v-if="card.personnelItems?.length" class="person-list">
           <div v-for="(item,index) in card.personnelItems" :key="`${item.componentName}-${index}`">
-            <div><b>{{ item.componentName || '未命名人员' }}</b><small>{{ calculationText(item.calculationDetail) }}</small></div>
+            <div><b>{{ item.componentName || $tr("未命名人员") }}</b><small>{{ calculationText(item.calculationDetail) }}</small></div>
             <strong>{{ money(item.amount) }}</strong>
           </div>
         </div>
-        <p v-else class="empty">当天没有人员成本</p>
+        <p v-else class="empty">{{ $tr("当天没有人员成本") }}</p>
       </section>
-      <div v-if="card.warnings?.length" class="warning-box"><b>需要老板关注</b><p v-for="item in card.warnings" :key="item">{{ item }}</p></div>
+      <div v-if="card.warnings?.length" class="warning-box"><b>{{ $tr("需要老板关注") }}</b><p v-for="item in card.warnings" :key="item">{{ item }}</p></div>
     </template>
 
     <template v-else>
       <div class="project-summary">
-        <div><small>持续工作</small><b>{{ card.routines?.length || 0 }} 项</b></div>
-        <div><small>一次性任务</small><b>{{ card.tasks?.length || 0 }} 项</b></div>
-        <div><small>参项人员</small><b>{{ card.members?.length || 0 }} 人</b></div>
-        <div><small>项目 KPI</small><b>{{ card.kpis?.length || 0 }} 项</b></div>
-        <div><small>未关闭风险</small><b>{{ openRiskCount }} 项</b></div>
+        <div><small>{{ $tr("持续工作") }}</small><b>{{ $tr("{0} 项", [card.routines?.length || 0]) }}</b></div>
+        <div><small>{{ $tr("一次性任务") }}</small><b>{{ $tr("{0} 项", [card.tasks?.length || 0]) }}</b></div>
+        <div><small>{{ $tr("参项人员") }}</small><b>{{ $tr("{0} 人", [card.members?.length || 0]) }}</b></div>
+        <div><small>{{ $tr("项目 KPI") }}</small><b>{{ $tr("{0} 项", [card.kpis?.length || 0]) }}</b></div>
+        <div><small>{{ $tr("未关闭风险") }}</small><b>{{ $tr("{0} 项", [openRiskCount]) }}</b></div>
       </div>
-      <div class="objective"><small>项目目标</small><p>{{ project.objective || '尚未设置项目目标' }}</p></div>
+      <div class="objective"><small>{{ $tr("项目目标") }}</small><p>{{ project.objective || $tr("尚未设置项目目标") }}</p></div>
       <div class="project-columns">
-        <section><div class="section-title"><h4>参项人员</h4></div><div class="mini-list"><div v-for="item in card.members" :key="item.userId"><b>{{ item.userNameSnapshot }}</b><span>{{ roleLabel[item.memberRole] || item.memberRole }}</span></div><p v-if="!card.members?.length" class="empty">暂无参项人员</p></div></section>
-        <section><div class="section-title"><h4>工作安排</h4></div><div class="mini-list"><div v-for="item in workItems" :key="item.key"><b>{{ item.name }}</b><span>{{ item.assignee || '未指定' }}</span></div><p v-if="!workItems.length" class="empty">暂无工作安排</p></div></section>
+        <section><div class="section-title"><h4>{{ $tr("参项人员") }}</h4></div><div class="mini-list"><div v-for="item in card.members" :key="item.userId"><b>{{ item.userNameSnapshot }}</b><span>{{ roleLabel[item.memberRole] || item.memberRole }}</span></div><p v-if="!card.members?.length" class="empty">{{ $tr("暂无参项人员") }}</p></div></section>
+        <section><div class="section-title"><h4>{{ $tr("工作安排") }}</h4></div><div class="mini-list"><div v-for="item in workItems" :key="item.key"><b>{{ item.name }}</b><span>{{ item.assignee || $tr("未指定") }}</span></div><p v-if="!workItems.length" class="empty">{{ $tr("暂无工作安排") }}</p></div></section>
       </div>
     </template>
 
     <footer v-if="card.actions?.length" class="insight-actions">
-      <span>接下来可以直接让我</span>
+      <span>{{ $tr("接下来可以直接让我") }}</span>
       <div><el-button v-for="action in card.actions" :key="action.code" size="small" :type="action.code==='ADJUST_BUDGET'?'primary':''" @click="$emit('action',action.prompt)">{{ action.label }}</el-button></div>
     </footer>
   </section>
 </template>
 
 <script setup>
+import { translateText } from '@/locales/translate'
+
 const props=defineProps({card:{type:Object,required:true}})
 defineEmits(['action'])
 const project=computed(()=>props.card.project||{})
 const metrics=computed(()=>props.card.metrics||{})
 const statusType=computed(()=>props.card.status==='OVER_BUDGET'||props.card.status==='LOSS'?'danger':'success')
-const statusLabel=computed(()=>props.card.status==='OVER_BUDGET'?'已超预算':props.card.status==='LOSS'?'今日亏损':props.card.type==='PROJECT_OVERVIEW'?'项目详情':'经营正常')
+const statusLabel=computed(()=>props.card.status==='OVER_BUDGET'?translateText("已超预算"):props.card.status==='LOSS'?translateText("今日亏损"):props.card.type==='PROJECT_OVERVIEW'?translateText("项目详情"):translateText("经营正常"))
 const hasBudget=computed(()=>metrics.value.budgetLimit!==null&&metrics.value.budgetLimit!==undefined)
 const budgetPercent=computed(()=>{const limit=Number(metrics.value.budgetLimit||0);if(limit<=0)return Number(metrics.value.budgetSpent)>0?100:0;return Math.min(999,Math.round(Number(metrics.value.budgetSpent||0)/limit*100))})
 const openRiskCount=computed(()=>props.card.risks?.filter(item=>item.status==='OPEN').length||0)
-const roleLabel={OWNER:'主负责人',DEPUTY:'副负责人',MEMBER:'成员',OBSERVER:'观察者'}
+const roleLabel={OWNER:translateText("主负责人"),DEPUTY:translateText("副负责人"),MEMBER:translateText("成员"),OBSERVER:translateText("观察者")}
 const money=value=>`${Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})} ${project.value.baseCurrency||'CNY'}`
-const calculationText=value=>{if(!value)return '按当天有效投入核算';try{const data=typeof value==='string'?JSON.parse(value):value;const mode=data.allocationValue!==undefined?`投入 ${data.allocationValue}%`:'';return [mode,data.leave===true?'当天请假':''].filter(Boolean).join(' · ')||'按当天有效投入核算'}catch{return '按当天有效投入核算'}}
+const calculationText=value=>{if(!value)return translateText("按当天有效投入核算");try{const data=typeof value==='string'?JSON.parse(value):value;const mode=data.allocationValue!==undefined?translateText("投入 {0}%", [data.allocationValue]):'';return [mode,data.leave===true?translateText("当天请假"):''].filter(Boolean).join(' · ')||translateText("按当天有效投入核算")}catch{return translateText("按当天有效投入核算")}}
 const workItems=computed(()=>[...(props.card.routines||[]).map(item=>({key:`r-${item.routineId}`,name:item.routineName,assignee:item.assigneeName})),...(props.card.tasks||[]).map(item=>({key:`t-${item.taskId}`,name:item.taskName,assignee:item.assigneeName}))].slice(0,8))
 </script>
 

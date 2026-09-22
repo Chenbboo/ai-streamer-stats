@@ -1,40 +1,40 @@
 <template>
   <div class="app-container staff-page">
     <header class="hero">
-      <div><span class="eyebrow">COMPANY PEOPLE</span><h1>人员管理</h1><p>{{ canManagePeople ? '统一维护公司人员档案、组织关系和系统账号。' : '查看自己项目的成员及授权人员，维护成员的用人成本。' }}</p></div>
-      <el-button v-if="canManagePeople" type="primary" icon="Plus" @click="openCreate">新增人员</el-button>
+      <div><span class="eyebrow">COMPANY PEOPLE</span><h1>{{ $tr("人员管理") }}</h1><p>{{ canManagePeople ? $tr("统一维护公司人员档案、组织关系和系统账号。") : $tr("查看自己项目的成员及授权人员，维护成员的用人成本。") }}</p></div>
+      <el-button v-if="canManagePeople" type="primary" icon="Plus" @click="openCreate">{{ $tr("新增人员") }}</el-button>
     </header>
 
     <section class="panel search-panel">
       <el-form :model="query" inline>
-        <el-form-item label="人员"><el-input v-model="query.nickName" clearable placeholder="姓名" @keyup.enter="search" /></el-form-item>
-        <el-form-item label="组织"><el-tree-select v-model="query.deptId" :data="departments" :props="departmentTreeProps" check-strictly clearable placeholder="全部公司与部门" style="width:210px" /></el-form-item>
-        <el-form-item label="账号状态"><el-select v-model="query.status" clearable placeholder="全部" style="width:120px"><el-option label="正常" value="0"/><el-option label="停用" value="1"/></el-select></el-form-item>
-        <el-form-item><el-button type="primary" @click="search">查询</el-button><el-button @click="resetSearch">重置</el-button></el-form-item>
+        <el-form-item :label="$tr(&quot;人员&quot;)"><el-input v-model="query.nickName" clearable :placeholder="$tr(&quot;姓名&quot;)" @keyup.enter="search" /></el-form-item>
+        <el-form-item :label="$tr(&quot;组织&quot;)"><el-tree-select v-model="query.deptId" :data="departments" :props="departmentTreeProps" check-strictly clearable :placeholder="$tr(&quot;全部公司与部门&quot;)" style="width:210px" /></el-form-item>
+        <el-form-item :label="$tr(&quot;账号状态&quot;)"><el-select v-model="query.status" clearable :placeholder="$tr(&quot;全部&quot;)" style="width:120px"><el-option :label="$tr(&quot;正常&quot;)" value="0"/><el-option :label="$tr(&quot;停用&quot;)" value="1"/></el-select></el-form-item>
+        <el-form-item><el-button type="primary" @click="search">{{ $tr("查询") }}</el-button><el-button @click="resetSearch">{{ $tr("重置") }}</el-button></el-form-item>
       </el-form>
     </section>
 
     <section class="panel list-panel">
-      <div class="panel-head"><div><h2>公司人员</h2><p>共 {{ total }} 个有效人员账号，人员档案与原业务账号共用</p></div><el-button icon="Refresh" :loading="loading" @click="loadAll">刷新</el-button></div>
+      <div class="panel-head"><div><h2>{{ $tr("公司人员") }}</h2><p>{{ $tr("共 {0} 个有效人员账号，人员档案与原业务账号共用", [total]) }}</p></div><el-button icon="Refresh" :loading="loading" @click="loadAll">{{ $tr("刷新") }}</el-button></div>
 
-      <el-table class="desktop-table" :data="rows" v-loading="loading" empty-text="暂无人员">
-        <el-table-column label="人员" min-width="155"><template #default="{row}"><button class="person-link" @click="openDetail(row)"><b>{{ row.nickName }}</b><small>{{ row.employeeNo || row.userName }}</small></button></template></el-table-column>
-        <el-table-column label="所属公司" min-width="150"><template #default="{row}">{{ row.companyName || '集团层级' }}</template></el-table-column>
-        <el-table-column label="所属部门" min-width="150"><template #default="{row}">{{ row.deptName || '未设置' }}</template></el-table-column>
-        <el-table-column label="直属负责人" min-width="110"><template #default="{row}">{{ row.managerName || '—' }}</template></el-table-column>
-        <el-table-column label="联系方式" min-width="150"><template #default="{row}"><span>{{ formatPhone(row) }}</span><small>{{ row.email || '未设置邮箱' }}</small></template></el-table-column>
-        <el-table-column label="任职" width="105"><template #default="{row}"><el-tag :type="employmentTag(row.employmentStatus)">{{ employmentStatusLabel(row.employmentStatus) }}</el-tag><small>{{ employmentTypeLabel(row.employmentType) }}</small></template></el-table-column>
-        <el-table-column label="账号" width="90"><template #default="{row}"><el-switch v-model="row.status" active-value="0" inactive-value="1" :disabled="!canManagePeople || row.protectedAccount" @change="changeStatus(row)" /></template></el-table-column>
-        <el-table-column label="操作" width="150" fixed="right" align="center"><template #default="{row}">
+      <el-table class="desktop-table" :data="rows" v-loading="loading" :empty-text="$tr(&quot;暂无人员&quot;)">
+        <el-table-column :label="$tr(&quot;人员&quot;)" min-width="155"><template #default="{row}"><button class="person-link" @click="openDetail(row)"><b>{{ row.nickName }}</b><small>{{ row.employeeNo || row.userName }}</small></button></template></el-table-column>
+        <el-table-column :label="$tr(&quot;所属公司&quot;)" min-width="150"><template #default="{row}">{{ row.companyName || $tr("集团层级") }}</template></el-table-column>
+        <el-table-column :label="$tr(&quot;所属部门&quot;)" min-width="150"><template #default="{row}">{{ row.deptName || $tr("未设置") }}</template></el-table-column>
+        <el-table-column :label="$tr(&quot;直属负责人&quot;)" min-width="110"><template #default="{row}">{{ row.managerName || '—' }}</template></el-table-column>
+        <el-table-column :label="$tr(&quot;联系方式&quot;)" min-width="150"><template #default="{row}"><span>{{ formatPhone(row) }}</span><small>{{ row.email || $tr("未设置邮箱") }}</small></template></el-table-column>
+        <el-table-column :label="$tr(&quot;任职&quot;)" width="105"><template #default="{row}"><el-tag :type="employmentTag(row.employmentStatus)">{{ employmentStatusLabel(row.employmentStatus) }}</el-tag><small>{{ employmentTypeLabel(row.employmentType) }}</small></template></el-table-column>
+        <el-table-column :label="$tr(&quot;账号&quot;)" width="90"><template #default="{row}"><el-switch v-model="row.status" active-value="0" inactive-value="1" :disabled="!canManagePeople || row.protectedAccount" @change="changeStatus(row)" /></template></el-table-column>
+        <el-table-column :label="$tr(&quot;操作&quot;)" width="150" fixed="right" align="center"><template #default="{row}">
           <div class="row-actions">
-            <el-button link type="primary" @click="openDetail(row)">查看</el-button>
+            <el-button link type="primary" @click="openDetail(row)">{{ $tr("查看") }}</el-button>
             <el-dropdown v-if="canManagePeople || canManageRowCost(row)" trigger="click" @command="handlePersonCommand($event,row)">
-              <el-button link type="primary">设置<span class="dropdown-caret">⌄</span></el-button>
+              <el-button link type="primary">{{ $tr("设置") }}<span class="dropdown-caret">⌄</span></el-button>
               <template #dropdown><el-dropdown-menu>
-                <el-dropdown-item v-if="canManageRowCost(row)" command="cost">设置用人成本</el-dropdown-item>
-                <el-dropdown-item v-if="canManageDirectory(row)" command="menu">设置目录权限</el-dropdown-item>
-                <el-dropdown-item v-if="canManagePeople" command="edit">编辑人员资料</el-dropdown-item>
-                <el-dropdown-item v-if="canManagePeople && !row.protectedAccount" command="password" divided>重置密码</el-dropdown-item>
+                <el-dropdown-item v-if="canManageRowCost(row)" command="cost">{{ $tr("设置用人成本") }}</el-dropdown-item>
+                <el-dropdown-item v-if="canManageDirectory(row)" command="menu">{{ $tr("设置目录权限") }}</el-dropdown-item>
+                <el-dropdown-item v-if="canManagePeople" command="edit">{{ $tr("编辑人员资料") }}</el-dropdown-item>
+                <el-dropdown-item v-if="canManagePeople && !row.protectedAccount" command="password" divided>{{ $tr("重置密码") }}</el-dropdown-item>
               </el-dropdown-menu></template>
             </el-dropdown>
           </div>
@@ -44,113 +44,115 @@
       <div class="mobile-staff-list" v-loading="loading">
         <article v-for="row in rows" :key="row.userId" class="staff-card" @click="openDetail(row)">
           <div class="card-head"><div><b>{{ row.nickName }}</b><span>{{ row.employeeNo || row.userName }}</span></div><el-tag :type="employmentTag(row.employmentStatus)">{{ employmentStatusLabel(row.employmentStatus) }}</el-tag></div>
-          <p>{{ row.companyName || '集团层级' }} · {{ row.deptName || '未设置部门' }}</p>
-          <p>直属负责人：{{ row.managerName || '未设置' }}</p>
-          <div class="card-foot"><span>{{ formatPhone(row) }}</span><div class="row-actions" @click.stop><el-button link type="primary" @click="openDetail(row)">查看</el-button><el-dropdown v-if="canManagePeople || canManageRowCost(row)" trigger="click" @command="handlePersonCommand($event,row)"><el-button link type="primary">设置<span class="dropdown-caret">⌄</span></el-button><template #dropdown><el-dropdown-menu><el-dropdown-item v-if="canManageRowCost(row)" command="cost">设置用人成本</el-dropdown-item><el-dropdown-item v-if="canManageDirectory(row)" command="menu">设置目录权限</el-dropdown-item><el-dropdown-item v-if="canManagePeople" command="edit">编辑人员资料</el-dropdown-item><el-dropdown-item v-if="canManagePeople && !row.protectedAccount" command="password" divided>重置密码</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></div>
+          <p>{{ row.companyName || $tr("集团层级") }} · {{ row.deptName || $tr("未设置部门") }}</p>
+          <p>{{ $tr("直属负责人：{0}", [row.managerName || $tr("未设置")]) }}</p>
+          <div class="card-foot"><span>{{ formatPhone(row) }}</span><div class="row-actions" @click.stop><el-button link type="primary" @click="openDetail(row)">{{ $tr("查看") }}</el-button><el-dropdown v-if="canManagePeople || canManageRowCost(row)" trigger="click" @command="handlePersonCommand($event,row)"><el-button link type="primary">{{ $tr("设置") }}<span class="dropdown-caret">⌄</span></el-button><template #dropdown><el-dropdown-menu><el-dropdown-item v-if="canManageRowCost(row)" command="cost">{{ $tr("设置用人成本") }}</el-dropdown-item><el-dropdown-item v-if="canManageDirectory(row)" command="menu">{{ $tr("设置目录权限") }}</el-dropdown-item><el-dropdown-item v-if="canManagePeople" command="edit">{{ $tr("编辑人员资料") }}</el-dropdown-item><el-dropdown-item v-if="canManagePeople && !row.protectedAccount" command="password" divided>{{ $tr("重置密码") }}</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></div>
         </article>
-        <el-empty v-if="!loading && !rows.length" description="暂无人员" />
+        <el-empty v-if="!loading && !rows.length" :description="$tr(&quot;暂无人员&quot;)" />
       </div>
       <pagination v-show="total > 0" :total="total" v-model:page="query.pageNum" v-model:limit="query.pageSize" @pagination="load" />
     </section>
 
-    <el-dialog v-model="dialogOpen" class="staff-edit-dialog" :title="form.userId ? '编辑人员档案' : '新增人员'" width="760px" append-to-body :close-on-click-modal="false">
-      <el-alert v-if="form.protectedAccount" title="这是受保护账号：可以维护基础资料，但不能调整组织归属、直属负责人、任职状态、账号角色和密码。" type="warning" :closable="false" show-icon />
+    <el-dialog v-model="dialogOpen" class="staff-edit-dialog" :title="form.userId ? $tr(&quot;编辑人员档案&quot;) : $tr(&quot;新增人员&quot;)" width="760px" append-to-body :close-on-click-modal="false">
+      <el-alert v-if="form.protectedAccount" :title="$tr(&quot;这是受保护账号：可以维护基础资料，但不能调整组织归属、直属负责人、任职状态、账号角色和密码。&quot;)" type="warning" :closable="false" show-icon />
       <el-form ref="formRef" :model="form" :rules="rules" label-width="96px">
-        <h3 class="form-section">基本资料</h3>
+        <h3 class="form-section">{{ $tr("基本资料") }}</h3>
         <el-row :gutter="16">
-          <el-col :span="12"><el-form-item label="人员姓名" prop="nickName"><el-input v-model="form.nickName" maxlength="30" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="员工编号" prop="employeeNo"><el-input v-model="form.employeeNo" maxlength="32" placeholder="可选，保存后唯一" /></el-form-item></el-col>
-          <el-col v-if="!form.userId" :span="12"><el-form-item label="登录账号" prop="userName"><el-input v-model="form.userName" maxlength="30" /></el-form-item></el-col>
-          <el-col v-if="!form.userId" :span="12"><el-form-item label="初始密码" prop="password"><el-input v-model="form.password" type="password" show-password maxlength="20" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="国家/地区" prop="countryRegion"><el-select v-model="form.countryRegion" style="width:100%" @change="changeRegion"><el-option label="中国" value="CN"/><el-option label="越南" value="VN"/><el-option label="其他" value="OTHER"/></el-select></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="性别"><el-select v-model="form.sex" style="width:100%"><el-option label="男" value="0"/><el-option label="女" value="1"/><el-option label="未知" value="2"/></el-select></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="手机号码" prop="phonenumber"><div class="phone-input"><el-select v-model="form.phoneCountryCode" filterable allow-create default-first-option style="width:92px"><el-option label="+86" value="+86"/><el-option label="+84" value="+84"/></el-select><el-input v-model="form.phonenumber" maxlength="15" placeholder="6至15位数字" /></div></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="邮箱" prop="email"><el-input v-model="form.email" maxlength="50" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;人员姓名&quot;)" prop="nickName"><el-input v-model="form.nickName" maxlength="30" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;员工编号&quot;)" prop="employeeNo"><el-input v-model="form.employeeNo" maxlength="32" :placeholder="$tr(&quot;可选，保存后唯一&quot;)" /></el-form-item></el-col>
+          <el-col v-if="!form.userId" :span="12"><el-form-item :label="$tr(&quot;登录账号&quot;)" prop="userName"><el-input v-model="form.userName" maxlength="30" /></el-form-item></el-col>
+          <el-col v-if="!form.userId" :span="12"><el-form-item :label="$tr(&quot;初始密码&quot;)" prop="password"><el-input v-model="form.password" type="password" show-password maxlength="20" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;国家/地区&quot;)" prop="countryRegion"><el-select v-model="form.countryRegion" style="width:100%" @change="changeRegion"><el-option :label="$tr(&quot;中国&quot;)" value="CN"/><el-option :label="$tr(&quot;越南&quot;)" value="VN"/><el-option :label="$tr(&quot;其他&quot;)" value="OTHER"/></el-select></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;性别&quot;)"><el-select v-model="form.sex" style="width:100%"><el-option :label="$tr(&quot;男&quot;)" value="0"/><el-option :label="$tr(&quot;女&quot;)" value="1"/><el-option :label="$tr(&quot;未知&quot;)" value="2"/></el-select></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;手机号码&quot;)" prop="phonenumber"><div class="phone-input"><el-select v-model="form.phoneCountryCode" filterable allow-create default-first-option style="width:92px"><el-option label="+86" value="+86"/><el-option label="+84" value="+84"/></el-select><el-input v-model="form.phonenumber" maxlength="15" :placeholder="$tr(&quot;6至15位数字&quot;)" /></div></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;邮箱&quot;)" prop="email"><el-input v-model="form.email" maxlength="50" /></el-form-item></el-col>
         </el-row>
 
-        <h3 class="form-section">组织与任职</h3>
+        <h3 class="form-section">{{ $tr("组织与任职") }}</h3>
         <el-row :gutter="16">
-          <el-col :span="12"><el-form-item label="所属组织" prop="deptId"><el-tree-select v-model="form.deptId" :data="departments" :props="departmentTreeProps" check-strictly clearable :disabled="form.protectedAccount" style="width:100%" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="直属负责人"><el-select v-model="form.managerUserId" filterable clearable :disabled="form.protectedAccount" placeholder="请选择" style="width:100%"><el-option v-for="person in managerOptions" :key="person.userId" :value="person.userId" :label="`${person.nickName} · ${person.deptName || person.companyName || '集团'}`" /></el-select></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="工作地点"><el-input v-model="form.workLocation" maxlength="100" placeholder="例如：上海、胡志明市" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="用工类型"><el-select v-model="form.employmentType" style="width:100%"><el-option v-for="item in employmentTypes" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="任职状态"><el-select v-model="form.employmentStatus" :disabled="form.protectedAccount" style="width:100%"><el-option v-for="item in employmentStatuses" :key="item.value" :label="item.label" :value="item.value" :disabled="item.value==='LEFT'" /></el-select></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="入职日期"><el-date-picker v-model="form.hireDate" type="date" value-format="YYYY-MM-DD" placeholder="请选择" style="width:100%" /></el-form-item></el-col>
-          <el-col :span="24"><el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;所属组织&quot;)" prop="deptId"><el-tree-select v-model="form.deptId" :data="departments" :props="departmentTreeProps" check-strictly clearable :disabled="form.protectedAccount" style="width:100%" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;直属负责人&quot;)"><el-select v-model="form.managerUserId" filterable clearable :disabled="form.protectedAccount" :placeholder="$tr(&quot;请选择&quot;)" style="width:100%"><el-option v-for="person in managerOptions" :key="person.userId" :value="person.userId" :label="`${person.nickName} · ${person.deptName || person.companyName || $tr(&quot;集团&quot;)}`" /></el-select></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;工作地点&quot;)"><el-input v-model="form.workLocation" maxlength="100" :placeholder="$tr(&quot;例如：上海、胡志明市&quot;)" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;用工类型&quot;)"><el-select v-model="form.employmentType" style="width:100%"><el-option v-for="item in employmentTypes" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;任职状态&quot;)"><el-select v-model="form.employmentStatus" :disabled="form.protectedAccount" style="width:100%"><el-option v-for="item in employmentStatuses" :key="item.value" :label="item.label" :value="item.value" :disabled="item.value==='LEFT'" /></el-select></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;入职日期&quot;)"><el-date-picker v-model="form.hireDate" type="date" value-format="YYYY-MM-DD" :placeholder="$tr(&quot;请选择&quot;)" style="width:100%" /></el-form-item></el-col>
+          <el-col :span="24"><el-form-item :label="$tr(&quot;备注&quot;)"><el-input v-model="form.remark" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item></el-col>
         </el-row>
       </el-form>
-      <template #footer><div class="dialog-actions"><el-button @click="dialogOpen=false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存</el-button></div></template>
+      <template #footer><div class="dialog-actions"><el-button @click="dialogOpen=false">{{ $tr("取消") }}</el-button><el-button type="primary" :loading="saving" @click="save">{{ $tr("保存") }}</el-button></div></template>
     </el-dialog>
 
-    <el-drawer v-model="detailOpen" :title="`${selectedPerson?.nickName || ''} · 人员详情`" size="min(720px, 96vw)" append-to-body>
+    <el-drawer v-model="detailOpen" :title="$tr(&quot;{0} · 人员详情&quot;, [selectedPerson?.nickName || ''])" size="min(720px, 96vw)" append-to-body>
       <template v-if="selectedPerson">
         <div class="detail-identity"><div><b>{{ selectedPerson.nickName }}</b><span>{{ selectedPerson.userName }}</span></div><el-tag :type="selectedPerson.protectedAccount ? 'warning' : 'info'">{{ selectedPerson.accountType }}</el-tag></div>
-        <section class="detail-section"><h3>基本资料</h3><div class="detail-grid">
-          <div><span>员工编号</span><b>{{ selectedPerson.employeeNo || '未设置' }}</b></div><div><span>国家/地区</span><b>{{ regionLabel(selectedPerson.countryRegion) }}</b></div>
-          <div><span>手机号</span><b>{{ formatPhone(selectedPerson) }}</b></div><div><span>邮箱</span><b>{{ selectedPerson.email || '未设置' }}</b></div>
-          <div><span>性别</span><b>{{ sexLabel(selectedPerson.sex) }}</b></div><div><span>工作地点</span><b>{{ selectedPerson.workLocation || '未设置' }}</b></div>
+        <section class="detail-section"><h3>{{ $tr("基本资料") }}</h3><div class="detail-grid">
+          <div><span>{{ $tr("员工编号") }}</span><b>{{ selectedPerson.employeeNo || $tr("未设置") }}</b></div><div><span>{{ $tr("国家/地区") }}</span><b>{{ regionLabel(selectedPerson.countryRegion) }}</b></div>
+          <div><span>{{ $tr("手机号") }}</span><b>{{ formatPhone(selectedPerson) }}</b></div><div><span>{{ $tr("邮箱") }}</span><b>{{ selectedPerson.email || $tr("未设置") }}</b></div>
+          <div><span>{{ $tr("性别") }}</span><b>{{ sexLabel(selectedPerson.sex) }}</b></div><div><span>{{ $tr("工作地点") }}</span><b>{{ selectedPerson.workLocation || $tr("未设置") }}</b></div>
         </div></section>
-        <section class="detail-section"><h3>组织与任职</h3><div class="detail-grid">
-          <div><span>所属公司</span><b>{{ selectedPerson.companyName || '集团层级' }}</b></div><div><span>所属部门</span><b>{{ selectedPerson.deptName || '未设置' }}</b></div>
-          <div><span>直属负责人</span><b>{{ selectedPerson.managerName || '未设置' }}</b></div><div><span>工作地点</span><b>{{ selectedPerson.workLocation || '未设置' }}</b></div>
-          <div><span>用工类型</span><b>{{ employmentTypeLabel(selectedPerson.employmentType) }}</b></div><div><span>任职状态</span><b>{{ employmentStatusLabel(selectedPerson.employmentStatus) }}</b></div>
-          <div><span>入职日期</span><b>{{ selectedPerson.hireDate || '未设置' }}</b></div><div><span>系统角色</span><b>{{ selectedPerson.roleNames || selectedPerson.accountType }}</b></div>
+        <section class="detail-section"><h3>{{ $tr("组织与任职") }}</h3><div class="detail-grid">
+          <div><span>{{ $tr("所属公司") }}</span><b>{{ selectedPerson.companyName || $tr("集团层级") }}</b></div><div><span>{{ $tr("所属部门") }}</span><b>{{ selectedPerson.deptName || $tr("未设置") }}</b></div>
+          <div><span>{{ $tr("直属负责人") }}</span><b>{{ selectedPerson.managerName || $tr("未设置") }}</b></div><div><span>{{ $tr("工作地点") }}</span><b>{{ selectedPerson.workLocation || $tr("未设置") }}</b></div>
+          <div><span>{{ $tr("用工类型") }}</span><b>{{ employmentTypeLabel(selectedPerson.employmentType) }}</b></div><div><span>{{ $tr("任职状态") }}</span><b>{{ employmentStatusLabel(selectedPerson.employmentStatus) }}</b></div>
+          <div><span>{{ $tr("入职日期") }}</span><b>{{ selectedPerson.hireDate || $tr("未设置") }}</b></div><div><span>{{ $tr("系统角色") }}</span><b>{{ selectedPerson.roleNames || selectedPerson.accountType }}</b></div>
         </div></section>
-        <section v-if="canViewSelectedCost" class="detail-section"><div class="detail-section-head"><div><h3>用人成本</h3><p>设置成员成本和生效日期，查看成本调整历史。</p></div><el-button type="primary" plain @click="openCostPolicy">设置用人成本</el-button></div></section>
-        <section class="detail-section project-responsibility"><h3>项目责任</h3>
+        <section v-if="canViewSelectedCost" class="detail-section"><div class="detail-section-head"><div><h3>{{ $tr("用人成本") }}</h3><p>{{ $tr("设置成员成本和生效日期，查看成本调整历史。") }}</p></div><el-button type="primary" plain @click="openCostPolicy">{{ $tr("设置用人成本") }}</el-button></div></section>
+        <section class="detail-section project-responsibility"><h3>{{ $tr("项目责任") }}</h3>
           <div class="responsibility-summary" v-loading="projectLoading">
-            <div><span>主负责</span><b>{{ projectSummary.ownerCount }}</b></div><div><span>参与项目</span><b>{{ projectSummary.memberCount }}</b></div>
-            <div><span>可操作未结束</span><b>{{ projectSummary.openCount }}</b></div><div><span>可见任务完成</span><b>{{ projectSummary.completedTaskCount }}/{{ projectSummary.assignedTaskCount }}</b></div>
+            <div><span>{{ $tr("主负责") }}</span><b>{{ projectSummary.ownerCount }}</b></div><div><span>{{ $tr("参与项目") }}</span><b>{{ projectSummary.memberCount }}</b></div>
+            <div><span>{{ $tr("可操作未结束") }}</span><b>{{ projectSummary.openCount }}</b></div><div><span>{{ $tr("可见任务完成") }}</span><b>{{ projectSummary.completedTaskCount }}/{{ projectSummary.assignedTaskCount }}</b></div>
           </div>
           <div class="responsibility-list" v-loading="projectLoading">
             <article v-for="project in projectSummary.projects" :key="project.projectId" class="responsibility-card">
-              <div class="responsibility-card-head"><div><b>{{ project.projectName }}</b><span>{{ project.projectNo || '暂无项目编号' }}</span></div><el-tag size="small" type="warning">{{ project.initiatorName || '未知老板' }}立项</el-tag></div>
-              <div class="responsibility-meta"><span>{{ projectRoleLabel(project) }}</span><span v-if="project.status">{{ projectStatusLabel[project.status] || project.status }}</span><span v-if="project.canOpen">任务 {{ project.completedTaskCount || 0 }}/{{ project.assignedTaskCount || 0 }}</span></div>
-              <div class="responsibility-foot"><span v-if="!project.canOpen">仅展示项目归属，运营详情已隔离</span><el-button v-else link type="primary" @click="openPersonProject(project)">打开项目</el-button></div>
+              <div class="responsibility-card-head"><div><b>{{ project.projectName }}</b><span>{{ project.projectNo || $tr("暂无项目编号") }}</span></div><el-tag size="small" type="warning">{{ $tr("{0}立项", [project.initiatorName || $tr("未知老板")]) }}</el-tag></div>
+              <div class="responsibility-meta"><span>{{ projectRoleLabel(project) }}</span><span v-if="project.status">{{ projectStatusLabel[project.status] || project.status }}</span><span v-if="project.canOpen">{{ $tr("任务 {0}/{1}", [project.completedTaskCount || 0, project.assignedTaskCount || 0]) }}</span></div>
+              <div class="responsibility-foot"><span v-if="!project.canOpen">{{ $tr("仅展示项目归属，运营详情已隔离") }}</span><el-button v-else link type="primary" @click="openPersonProject(project)">{{ $tr("打开项目") }}</el-button></div>
             </article>
-            <el-empty v-if="!projectLoading && !projectSummary.projects.length" :image-size="72" description="暂未负责或参与项目" />
+            <el-empty v-if="!projectLoading && !projectSummary.projects.length" :image-size="72" :description="$tr(&quot;暂未负责或参与项目&quot;)" />
           </div>
         </section>
-        <section class="detail-section"><h3>系统账号</h3><div class="detail-grid">
-          <div><span>账号状态</span><b>{{ selectedPerson.status==='0' ? '正常' : '停用' }}</b></div><div><span>最后登录</span><b>{{ formatDate(selectedPerson.loginDate) }}</b></div>
+        <section class="detail-section"><h3>{{ $tr("系统账号") }}</h3><div class="detail-grid">
+          <div><span>{{ $tr("账号状态") }}</span><b>{{ selectedPerson.status==='0' ? $tr("正常") : $tr("停用") }}</b></div><div><span>{{ $tr("最后登录") }}</span><b>{{ formatDate(selectedPerson.loginDate) }}</b></div>
         </div></section>
         <BusinessDeparturePanel v-if="detailOpen && canManagePeople && !selectedPerson.protectedAccount" :person="selectedPerson" @changed="loadAll" @navigate="detailOpen=false" />
-        <div class="detail-actions"><el-button v-if="canManageDirectory(selectedPerson)" type="primary" plain @click="openMenuPermissions(selectedPerson);detailOpen=false">设置目录权限</el-button><el-button v-if="canManagePeople" type="primary" plain @click="openEdit(selectedPerson);detailOpen=false">编辑人员资料</el-button></div>
+        <div class="detail-actions"><el-button v-if="canManageDirectory(selectedPerson)" type="primary" plain @click="openMenuPermissions(selectedPerson);detailOpen=false">{{ $tr("设置目录权限") }}</el-button><el-button v-if="canManagePeople" type="primary" plain @click="openEdit(selectedPerson);detailOpen=false">{{ $tr("编辑人员资料") }}</el-button></div>
       </template>
     </el-drawer>
 
 
 
-    <el-dialog v-model="costDialog" :title="`${selectedPerson?.nickName || ''} · 用人成本`" width="min(1100px,96vw)" append-to-body destroy-on-close :close-on-click-modal="false">
+    <el-dialog v-model="costDialog" :title="$tr(&quot;{0} · 用人成本&quot;, [selectedPerson?.nickName || ''])" width="min(1100px,96vw)" append-to-body destroy-on-close :close-on-click-modal="false">
       <StaffCostPolicies v-if="costDialog" :key="selectedPerson.userId" :staff-user-id="Number(selectedPerson.userId)" embedded />
     </el-dialog>
 
-    <el-dialog v-model="menuDialog" class="staff-menu-dialog" :title="`${menuPolicy.nickName || ''} · 目录权限`" width="min(920px, 96vw)" append-to-body :close-on-click-modal="false">
-      <el-alert title="默认继承账号现有角色权限。老板可以设置所有账号的全部目录权限，包括其他老板和 admin。个人设置优先于角色默认权限，保存后会同时约束菜单显示和后端操作权限。" type="success" :closable="false" show-icon />
+    <el-dialog v-model="menuDialog" class="staff-menu-dialog" :title="$tr(&quot;{0} · 目录权限&quot;, [menuPolicy.nickName || ''])" width="min(920px, 96vw)" append-to-body :close-on-click-modal="false">
+      <el-alert :title="$tr(&quot;默认继承账号现有角色权限。老板可以设置所有账号的全部目录权限，包括其他老板和 admin。个人设置优先于角色默认权限，保存后会同时约束菜单显示和后端操作权限。&quot;)" type="success" :closable="false" show-icon />
       <div class="menu-toolbar">
-        <span><b>{{ menuPolicy.inherited ? '当前：继承角色' : '当前：个人设置' }}</b><small>左侧导航中的全部目录均可授权</small></span>
-        <div><el-button size="small" @click="setAllMenuLevels('HIDDEN')">全部不显示</el-button><el-button size="small" @click="setAllMenuLevels('READ')">全部仅查看</el-button><el-button size="small" @click="setAllMenuLevels('MAINTAIN')">全部可维护</el-button></div>
+        <span><b>{{ menuPolicy.inherited ? $tr("当前：继承角色") : $tr("当前：个人设置") }}</b><small>{{ $tr("左侧导航中的全部目录均可授权") }}</small></span>
+        <div><el-button size="small" @click="setAllMenuLevels('HIDDEN')">{{ $tr("全部不显示") }}</el-button><el-button size="small" @click="setAllMenuLevels('READ')">{{ $tr("全部仅查看") }}</el-button><el-button size="small" @click="setAllMenuLevels('MAINTAIN')">{{ $tr("全部可维护") }}</el-button></div>
       </div>
       <div class="menu-tree-wrap" v-loading="menuLoading">
         <el-tree :data="menuTree" node-key="menuId" default-expand-all :expand-on-click-node="false" :props="{label:'menuName',children:'children'}">
           <template #default="{data}">
             <div class="menu-node">
-              <div class="menu-node-name"><b>{{ data.menuName }}</b><small>角色默认：{{ menuLevelLabel(data.inheritedLevel) }}</small></div>
+              <div class="menu-node-name"><b>{{ data.menuName }}</b><small>{{ $tr("角色默认：{0}", [menuLevelLabel(data.inheritedLevel)]) }}</small></div>
               <el-radio-group :model-value="data.accessLevel" size="small" @change="setMenuLevel(data,$event)">
-                <el-radio-button label="HIDDEN">不显示</el-radio-button>
-                <el-radio-button label="READ" :disabled="levelDisabled(data,'READ')">仅查看</el-radio-button>
-                <el-radio-button label="MAINTAIN" :disabled="levelDisabled(data,'MAINTAIN')">可维护</el-radio-button>
+                <el-radio-button label="HIDDEN">{{ $tr("不显示") }}</el-radio-button>
+                <el-radio-button label="READ" :disabled="levelDisabled(data,'READ')">{{ $tr("仅查看") }}</el-radio-button>
+                <el-radio-button label="MAINTAIN" :disabled="levelDisabled(data,'MAINTAIN')">{{ $tr("可维护") }}</el-radio-button>
               </el-radio-group>
             </div>
           </template>
         </el-tree>
       </div>
-      <template #footer><div class="menu-dialog-footer"><el-button :disabled="menuPolicy.inherited" @click="restoreRoleMenus">恢复角色默认</el-button><span class="footer-spacer"></span><el-button @click="menuDialog=false">取消</el-button><el-button type="primary" :loading="menuSaving" @click="saveMenuPermissions">保存权限</el-button></div></template>
+      <template #footer><div class="menu-dialog-footer"><el-button :disabled="menuPolicy.inherited" @click="restoreRoleMenus">{{ $tr("恢复角色默认") }}</el-button><span class="footer-spacer"></span><el-button @click="menuDialog=false">{{ $tr("取消") }}</el-button><el-button type="primary" :loading="menuSaving" @click="saveMenuPermissions">{{ $tr("保存权限") }}</el-button></div></template>
     </el-dialog>
   </div>
 </template>
 
 <script setup name="BusinessStaff">
+import { translateText } from '@/locales/translate'
+
 import { ElMessage, ElMessageBox } from 'element-plus'
 import BusinessDeparturePanel from '@/components/BusinessDeparturePanel/index.vue'
 import { addBusinessStaff, changeBusinessStaffStatus, deleteBusinessStaffCostPolicy, getBusinessStaffCostPolicies, getBusinessStaffMenuPermissions, getBusinessStaffProjects, listBusinessDepartments, listBusinessStaff, listBusinessStaffOptions, resetBusinessStaffMenuPermissions, resetBusinessStaffPassword, saveBusinessStaffCostPolicy, saveBusinessStaffMenuPermissions, updateBusinessStaff, voidBusinessStaffCostPolicy } from '@/api/business/staff'
@@ -161,8 +163,8 @@ import { usePasswordRule } from '@/utils/passwordRule'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 
 const { pwdValidator, pwdPromptValidator } = usePasswordRule()
-const employmentTypes=[{label:'全职',value:'FULL_TIME'},{label:'兼职',value:'PART_TIME'},{label:'合同/外包',value:'CONTRACTOR'},{label:'实习',value:'INTERN'}]
-const employmentStatuses=[{label:'试用期',value:'PROBATION'},{label:'在职',value:'ACTIVE'},{label:'休假/暂离',value:'ON_LEAVE'},{label:'离职',value:'LEFT'}]
+const employmentTypes=[{label:translateText("全职"),value:'FULL_TIME'},{label:translateText("兼职"),value:'PART_TIME'},{label:translateText("合同/外包"),value:'CONTRACTOR'},{label:translateText("实习"),value:'INTERN'}]
+const employmentStatuses=[{label:translateText("试用期"),value:'PROBATION'},{label:translateText("在职"),value:'ACTIVE'},{label:translateText("休假/暂离"),value:'ON_LEAVE'},{label:translateText("离职"),value:'LEFT'}]
 const departmentTreeProps={value:'id',label:'label',children:'children'}
 const route=useRoute()
 const router=useRouter()
@@ -173,8 +175,8 @@ const menuDialog=ref(false),menuLoading=ref(false),menuSaving=ref(false),menuTre
 const formRef=ref(),rows=ref([]),total=ref(0),departments=ref([]),staffOptions=ref([]),selectedPerson=ref()
 const emptyProjectSummary=()=>({projects:[],ownerCount:0,memberCount:0,openCount:0,assignedTaskCount:0,completedTaskCount:0})
 const projectSummary=ref(emptyProjectSummary())
-const projectStatusLabel={DRAFT:'草稿',PLANNING:'规划中',ACTIVE:'执行中',PAUSED:'已暂停',ACCEPTANCE:'待验收',CLOSED:'已关闭',CANCELED:'已取消'}
-const costModeLabel={DAILY:'日成本',HOURLY:'时成本',MONTHLY:'月成本',FIXED_PROJECT:'项目固定成本',FIXED_TASK:'任务固定成本',VARIABLE:'浮动成本'}
+const projectStatusLabel={DRAFT:translateText("草稿"),PLANNING:translateText("规划中"),ACTIVE:translateText("执行中"),PAUSED:translateText("已暂停"),ACCEPTANCE:translateText("待验收"),CLOSED:translateText("已关闭"),CANCELED:translateText("已取消")}
+const costModeLabel={DAILY:translateText("日成本"),HOURLY:translateText("时成本"),MONTHLY:translateText("月成本"),FIXED_PROJECT:translateText("项目固定成本"),FIXED_TASK:translateText("任务固定成本"),VARIABLE:translateText("浮动成本")}
 const costDateColors=[
   {background:'#dff4ec',border:'#2f9a78',text:'#17634d'},
   {background:'#e5effd',border:'#4b82cf',text:'#2f5f9f'},
@@ -196,9 +198,9 @@ const query=reactive({pageNum:1,pageSize:10,userId:route.query.userId?Number(rou
 const form=reactive({})
 const managerOptions=computed(()=>staffOptions.value.filter(person=>person.userId!==form.userId))
 const rules={
-  nickName:[{required:true,message:'请输入人员姓名',trigger:'blur'}],userName:[{required:true,message:'请输入登录账号',trigger:'blur'}],password:pwdValidator.value,
-  employeeNo:[{max:32,message:'员工编号不能超过32个字符',trigger:'blur'}],deptId:[{required:true,message:'请选择所属公司或部门',trigger:'change'}],countryRegion:[{required:true,message:'请选择国家或地区',trigger:'change'}],
-  phonenumber:[{pattern:/^\d{6,15}$/,message:'请输入6至15位数字',trigger:'blur'}],email:[{type:'email',message:'邮箱格式不正确',trigger:'blur'}]
+  nickName:[{required:true,message:translateText("请输入人员姓名"),trigger:'blur'}],userName:[{required:true,message:translateText("请输入登录账号"),trigger:'blur'}],password:pwdValidator.value,
+  employeeNo:[{max:32,message:translateText("员工编号不能超过32个字符"),trigger:'blur'}],deptId:[{required:true,message:translateText("请选择所属公司或部门"),trigger:'change'}],countryRegion:[{required:true,message:translateText("请选择国家或地区"),trigger:'change'}],
+  phonenumber:[{pattern:/^\d{6,15}$/,message:translateText("请输入6至15位数字"),trigger:'blur'}],email:[{type:'email',message:translateText("邮箱格式不正确"),trigger:'blur'}]
 }
 
 const staffPayloadFields=['userId','nickName','userName','password','employeeNo','deptId','phoneCountryCode','phonenumber','email','countryRegion','sex','positionName','managerUserId','employmentType','employmentStatus','hireDate','workLocation','remark']
@@ -222,12 +224,12 @@ function resetSearch(){Object.assign(query,{pageNum:1,userId:null,nickName:'',de
 function openCreate(){resetForm();dialogOpen.value=true;nextTick(()=>formRef.value?.clearValidate())}
 function openEdit(row){resetForm(row);dialogOpen.value=true;nextTick(()=>formRef.value?.clearValidate())}
 async function openDetail(row){selectedPerson.value=row;detailOpen.value=true;projectSummary.value=emptyProjectSummary();costPolicies.value=[];projectLoading.value=true;try{const result=await getBusinessStaffProjects(row.userId);projectSummary.value=result.data||emptyProjectSummary()}finally{projectLoading.value=false}}
-function projectRoleLabel(project){if(project.responsibilityRole==='OWNER')return '主负责人';if(project.responsibilityRole==='DEPUTY')return '副负责人';if(project.responsibilityRole==='OBSERVER')return '观察者';return project.everOwner?'成员（曾任负责人）':'成员'}
+function projectRoleLabel(project){if(project.responsibilityRole==='OWNER')return translateText("主负责人");if(project.responsibilityRole==='DEPUTY')return translateText("副负责人");if(project.responsibilityRole==='OBSERVER')return translateText("观察者");return project.everOwner?translateText("成员（曾任负责人）"):translateText("成员")}
 function openPersonProject(project){detailOpen.value=false;router.push({path:'/business/projects',query:{id:project.projectId}})}
 function changeRegion(value){if(value==='CN')form.phoneCountryCode='+86';if(value==='VN')form.phoneCountryCode='+84'}
-async function save(){await formRef.value.validate();saving.value=true;try{const payload=staffPayload();form.userId?await updateBusinessStaff(payload):await addBusinessStaff(payload);ElMessage.success('人员档案已保存');dialogOpen.value=false;await loadAll()}finally{saving.value=false}}
-async function changeStatus(row){const previous=row.status==='0'?'1':'0';try{await ElMessageBox.confirm(`确定${row.status==='0'?'启用':'停用'}“${row.nickName}”的账号吗？`,'账号状态',{type:'warning'});await changeBusinessStaffStatus({userId:row.userId,status:row.status});ElMessage.success('状态已更新')}catch(error){row.status=previous;if(error!=='cancel')throw error}}
-async function resetPassword(row){const {value}=await ElMessageBox.prompt(`请输入“${row.nickName}”的新密码`,'重置密码',{inputType:'password',inputValidator:pwdPromptValidator,confirmButtonText:'确定',cancelButtonText:'取消'});await resetBusinessStaffPassword({userId:row.userId,password:value});ElMessage.success('密码已重置')}
+async function save(){await formRef.value.validate();saving.value=true;try{const payload=staffPayload();form.userId?await updateBusinessStaff(payload):await addBusinessStaff(payload);ElMessage.success(translateText("人员档案已保存"));dialogOpen.value=false;await loadAll()}finally{saving.value=false}}
+async function changeStatus(row){const previous=row.status==='0'?'1':'0';try{await ElMessageBox.confirm(translateText("确定{0}“{1}”的账号吗？", [row.status==='0'?translateText("启用"):translateText("停用"), row.nickName]),translateText("账号状态"),{type:'warning'});await changeBusinessStaffStatus({userId:row.userId,status:row.status});ElMessage.success(translateText("状态已更新"))}catch(error){row.status=previous;if(error!=='cancel')throw error}}
+async function resetPassword(row){const {value}=await ElMessageBox.prompt(translateText("请输入“{0}”的新密码", [row.nickName]),translateText("重置密码"),{inputType:'password',inputValidator:pwdPromptValidator,confirmButtonText:translateText("确定"),cancelButtonText:translateText("取消")});await resetBusinessStaffPassword({userId:row.userId,password:value});ElMessage.success(translateText("密码已重置"))}
 const money=value=>value===null||value===undefined?'—':Number(value).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:4})
 const selectedStandardDays=computed(()=>selectedPerson.value?.countryRegion==='VN'?26:selectedPerson.value?.countryRegion==='CN'?21.75:null)
 const calculatedDailyCost=computed(()=>costForm.unitCost!==null&&costForm.unitCost!==undefined&&selectedStandardDays.value?money(Number(costForm.unitCost)/selectedStandardDays.value):'—')
@@ -237,7 +239,7 @@ function costPoliciesForDate(day){const date=normalizedCostDate(day);if(!date)re
 function costDateClass(day){const matches=costPoliciesForDate(day);return {'has-cost':matches.length>0,'has-overlap':matches.length>1}}
 function costPolicyColor(policy){const index=activeCostPolicies.value.indexOf(policy);return costDateColors[(index<0?0:index)%costDateColors.length]}
 function costDateStyle(day){const matches=costPoliciesForDate(day);if(!matches.length)return {};const colors=matches.map(costPolicyColor);const background=colors.length===1?colors[0].background:`linear-gradient(135deg, ${colors.map((color,index)=>`${color.background} ${index*100/colors.length}% ${(index+1)*100/colors.length}%`).join(', ')})`;return {'--cost-date-background':background,'--cost-date-border':colors[0].border,'--cost-date-text':colors[0].text}}
-function costDateTitle(day){const matches=costPoliciesForDate(day);if(!matches.length)return '';return matches.map(policy=>`v${policy.policyVersion}：${money(policy.unitCost)} 元/月（${policy.effectiveFrom} 至 ${policy.effectiveTo||'长期'}）`).join('\n')}
+function costDateTitle(day){const matches=costPoliciesForDate(day);if(!matches.length)return '';return matches.map(policy=>translateText("v{0}：{1} 元/月（{2} 至 {3}）", [policy.policyVersion, money(policy.unitCost), policy.effectiveFrom, policy.effectiveTo||translateText("长期")])).join('\n')}
 function costPolicySwatchStyle(index){const color=costDateColors[index%costDateColors.length];return {background:color.background,borderColor:color.border}}
 function policyCanDelete(policy){return policy.status==='ACTIVE'&&Number(policy.referenceCount||0)===0&&normalizedCostDate(policy.effectiveFrom)>normalizedCostDate(new Date())}
 function costPolicyRowClass({row}){return row.status==='VOID'?'void-cost-policy-row':''}
@@ -246,24 +248,24 @@ async function retireCostPolicy(policy){
   try{
     retiringPolicyId.value=policy.policyId
     if(policyCanDelete(policy)){
-      await ElMessageBox.confirm(`确定删除尚未生效且未被引用的 v${policy.policyVersion} 成本版本吗？删除后无法恢复。`,'删除成本版本',{type:'warning',confirmButtonText:'确认删除',cancelButtonText:'取消'})
+      await ElMessageBox.confirm(translateText("确定删除尚未生效且未被引用的 v{0} 成本版本吗？删除后无法恢复。", [policy.policyVersion]),translateText("删除成本版本"),{type:'warning',confirmButtonText:translateText("确认删除"),cancelButtonText:translateText("取消")})
       await deleteBusinessStaffCostPolicy(policy.policyId)
-      ElMessage.success(`成本版本 v${policy.policyVersion} 已删除`)
+      ElMessage.success(translateText("成本版本 v{0} 已删除", [policy.policyVersion]))
     }else{
-      const {value}=await ElMessageBox.prompt(`作废后，v${policy.policyVersion} 将不再参与日历标记和当前成本核算，但历史记录会保留。`,'作废成本版本',{type:'warning',inputType:'textarea',inputPlaceholder:'请填写作废原因',inputValidator:value=>value?.trim()?value.trim().length<=500||'作废原因不能超过500个字符':'请填写作废原因',confirmButtonText:'确认作废',cancelButtonText:'取消'})
+      const {value}=await ElMessageBox.prompt(translateText("作废后，v{0} 将不再参与日历标记和当前成本核算，但历史记录会保留。", [policy.policyVersion]),translateText("作废成本版本"),{type:'warning',inputType:'textarea',inputPlaceholder:translateText("请填写作废原因"),inputValidator:value=>value?.trim()?value.trim().length<=500||translateText("作废原因不能超过500个字符"):translateText("请填写作废原因"),confirmButtonText:translateText("确认作废"),cancelButtonText:translateText("取消")})
       await voidBusinessStaffCostPolicy(policy.policyId,value.trim())
-      ElMessage.success(`成本版本 v${policy.policyVersion} 已作废`)
+      ElMessage.success(translateText("成本版本 v{0} 已作废", [policy.policyVersion]))
     }
     await reloadCostPolicies()
     await load()
   }catch(error){if(!['cancel','close'].includes(error))throw error}finally{retiringPolicyId.value=null}
 }
-function openCostPolicy(){if(!canManageSelectedCost.value)return ElMessage.warning('只能设置授权范围内成员的用人成本');detailOpen.value=false;costDialog.value=true}
+function openCostPolicy(){if(!canManageSelectedCost.value)return ElMessage.warning(translateText("只能设置授权范围内成员的用人成本"));detailOpen.value=false;costDialog.value=true}
 async function openCostPolicyFor(row){selectedPerson.value=row;await openCostPolicy()}
 function handlePersonCommand(command,row){if(command==='cost')return openCostPolicyFor(row);if(command==='menu')return openMenuPermissions(row);if(command==='edit')return openEdit(row);if(command==='password')return resetPassword(row)}
 const menuLevelRank={HIDDEN:0,READ:1,MAINTAIN:2,MIXED:-1}
-const menuLevelText={HIDDEN:'不显示',READ:'仅查看',MAINTAIN:'可维护',MIXED:'混合'}
-const menuLevelLabel=level=>menuLevelText[level]||'不显示'
+const menuLevelText={HIDDEN:translateText("不显示"),READ:translateText("仅查看"),MAINTAIN:translateText("可维护"),MIXED:translateText("混合")}
+const menuLevelLabel=level=>menuLevelText[level]||translateText("不显示")
 const levelDisabled=()=>false
 function walkMenuNodes(nodes,callback){nodes.forEach(node=>{callback(node);walkMenuNodes(node.children||[],callback)})}
 function deriveMenuDirectoryLevel(node){
@@ -280,25 +282,25 @@ function setMenuLevel(node,level){
 }
 function setAllMenuLevels(level){menuTree.value.forEach(node=>setMenuLevel(node,level))}
 async function openMenuPermissions(row){
-  if(!canManageDirectory(row))return ElMessage.warning('该账号不能设置个人目录权限')
+  if(!canManageDirectory(row))return ElMessage.warning(translateText("该账号不能设置个人目录权限"))
   menuDialog.value=true;menuLoading.value=true;menuTree.value=[]
   try{const result=await getBusinessStaffMenuPermissions(row.userId);Object.keys(menuPolicy).forEach(key=>delete menuPolicy[key]);Object.assign(menuPolicy,result.data||{});menuTree.value=menuPolicy.menus||[];refreshMenuDirectoryLevels()}finally{menuLoading.value=false}
 }
 function menuPermissionPayload(){const permissions=[];walkMenuNodes(menuTree.value,node=>{if(node.menuType==='C')permissions.push({menuId:node.menuId,accessLevel:node.accessLevel})});return {permissions}}
-async function saveMenuPermissions(){menuSaving.value=true;try{await saveBusinessStaffMenuPermissions(menuPolicy.userId,menuPermissionPayload());ElMessage.success('目录权限已保存，员工需要重新登录');menuDialog.value=false}finally{menuSaving.value=false}}
+async function saveMenuPermissions(){menuSaving.value=true;try{await saveBusinessStaffMenuPermissions(menuPolicy.userId,menuPermissionPayload());ElMessage.success(translateText("目录权限已保存，员工需要重新登录"));menuDialog.value=false}finally{menuSaving.value=false}}
 async function restoreRoleMenus(){
-  try{await ElMessageBox.confirm('恢复后，该员工将重新完全继承现有角色权限。确定继续吗？','恢复角色默认',{type:'warning'});menuSaving.value=true;await resetBusinessStaffMenuPermissions(menuPolicy.userId);ElMessage.success('已恢复角色默认权限');menuDialog.value=false}catch(error){if(!['cancel','close'].includes(error))throw error}finally{menuSaving.value=false}
+  try{await ElMessageBox.confirm(translateText("恢复后，该员工将重新完全继承现有角色权限。确定继续吗？"),translateText("恢复角色默认"),{type:'warning'});menuSaving.value=true;await resetBusinessStaffMenuPermissions(menuPolicy.userId);ElMessage.success(translateText("已恢复角色默认权限"));menuDialog.value=false}catch(error){if(!['cancel','close'].includes(error))throw error}finally{menuSaving.value=false}
 }
-async function saveCostPolicy(){if(costForm.unitCost===null||costForm.unitCost===undefined)return ElMessage.warning('请填写月度用人成本');if(!costForm.effectiveFrom)return ElMessage.warning('请选择生效日期');saving.value=true;try{await saveBusinessStaffCostPolicy(costForm);costPolicies.value=(await getBusinessStaffCostPolicies(selectedPerson.value.userId)).data||[];await load();costDialog.value=false;ElMessage.success('月度用人成本新版本已保存')}finally{saving.value=false}}
-function policyDailyCost(row){if(row.costMode!=='MONTHLY'||!row.standardWorkDays)return '按历史方式';return `${money(Number(row.unitCost)/Number(row.standardWorkDays))} 元/天`}
-function policyRule(row){if(row.costMode!=='MONTHLY')return costModeLabel[row.costMode]||row.costMode;return `${row.countryRegion==='VN'?'越南':row.countryRegion==='CN'?'中国':'其他'} / ${row.standardWorkDays} 天`}
-function formatDate(value){return value?String(value).replace('T',' ').slice(0,19):'尚未登录'}
-function formatPhone(row){return row?.phonenumber?`${row.phoneCountryCode||''} ${row.phonenumber}`.trim():'未设置手机'}
-function employmentTypeLabel(value){return employmentTypes.find(x=>x.value===value)?.label||'未设置'}
-function employmentStatusLabel(value){return employmentStatuses.find(x=>x.value===value)?.label||'未设置'}
+async function saveCostPolicy(){if(costForm.unitCost===null||costForm.unitCost===undefined)return ElMessage.warning(translateText("请填写月度用人成本"));if(!costForm.effectiveFrom)return ElMessage.warning(translateText("请选择生效日期"));saving.value=true;try{await saveBusinessStaffCostPolicy(costForm);costPolicies.value=(await getBusinessStaffCostPolicies(selectedPerson.value.userId)).data||[];await load();costDialog.value=false;ElMessage.success(translateText("月度用人成本新版本已保存"))}finally{saving.value=false}}
+function policyDailyCost(row){if(row.costMode!=='MONTHLY'||!row.standardWorkDays)return translateText("按历史方式");return translateText("{0} 元/天", [money(Number(row.unitCost)/Number(row.standardWorkDays))])}
+function policyRule(row){if(row.costMode!=='MONTHLY')return costModeLabel[row.costMode]||row.costMode;return translateText("{0} / {1} 天", [row.countryRegion==='VN'?translateText("越南"):row.countryRegion==='CN'?translateText("中国"):translateText("其他"), row.standardWorkDays])}
+function formatDate(value){return value?String(value).replace('T',' ').slice(0,19):translateText("尚未登录")}
+function formatPhone(row){return row?.phonenumber?`${row.phoneCountryCode||''} ${row.phonenumber}`.trim():translateText("未设置手机")}
+function employmentTypeLabel(value){return employmentTypes.find(x=>x.value===value)?.label||translateText("未设置")}
+function employmentStatusLabel(value){return employmentStatuses.find(x=>x.value===value)?.label||translateText("未设置")}
 function employmentTag(value){return value==='ACTIVE'?'success':value==='PROBATION'?'warning':value==='LEFT'?'info':''}
-function regionLabel(value){return value==='CN'?'中国':value==='VN'?'越南':value||'未设置'}
-function sexLabel(value){return value==='0'?'男':value==='1'?'女':'未知'}
+function regionLabel(value){return value==='CN'?translateText("中国"):value==='VN'?translateText("越南"):value||translateText("未设置")}
+function sexLabel(value){return value==='0'?translateText("男"):value==='1'?translateText("女"):translateText("未知")}
 loadAll()
 useBusinessRefreshOnReactivated(loadAll)
 </script>

@@ -1,99 +1,99 @@
 <template>
   <div class="proposal-page">
     <header class="page-head">
-      <div><h1>立项申请</h1></div>
-      <el-button v-hasPermi="['business:project:proposal:add']" type="primary" icon="Plus" @click="openForm()">新建立项申请</el-button>
+      <div><h1>{{ $tr("立项申请") }}</h1></div>
+      <el-button v-hasPermi="['business:project:proposal:add']" type="primary" icon="Plus" @click="openForm()">{{ $tr("新建立项申请") }}</el-button>
     </header>
 
 
 
     <el-tabs v-model="activeTab" class="proposal-tabs" @tab-change="loadActive">
-      <el-tab-pane label="我的申请" name="mine">
+      <el-tab-pane :label="$tr(&quot;我的申请&quot;)" name="mine">
         <el-card shadow="never">
-          <el-table :data="mineRows" v-loading="loading" empty-text="还没有立项申请" @row-click="openDetail">
-            <el-table-column label="申请" min-width="230"><template #default="{row}"><b>{{ row.projectName || '未命名草稿' }}</b><small>{{ row.proposalNo }}</small></template></el-table-column>
-            <el-table-column prop="sponsorOwnerName" label="归属老板" width="140" />
-            <el-table-column prop="companyName" label="归属公司" min-width="150" />
-            <el-table-column label="治理方式" min-width="170"><template #default="{row}"><b>{{ managementLabel[row.managementMode] || row.managementMode }}</b><small>{{ closeMethodLabel[row.closeMethod] || row.closeMethod }}</small></template></el-table-column>
-            <el-table-column label="状态" width="140"><template #default="{row}"><el-tag :type="proposalStatusTone(row)">{{ proposalStatusLabel(row) }}</el-tag></template></el-table-column>
-            <el-table-column label="计划周期" width="210"><template #default="{row}">{{ planPeriod(row) }}</template></el-table-column>
-            <el-table-column label="操作" width="235" fixed="right"><template #default="{row}"><div class="row-actions" @click.stop>
-              <el-button v-if="canEditProposal(row)" link type="primary" @click="openForm(row)">{{ row.parentProjectId ? '继续完善' : '编辑' }}</el-button>
-              <el-button v-if="canEditProposal(row)&&canLaunchProposal(row)" link type="success" @click="submitRow(row)">启动项目</el-button>
-              <el-button v-if="row.status==='PENDING'" link type="warning" @click="withdrawRow(row)">撤回</el-button>
-              <el-button v-if="row.status==='APPROVED'&&row.createdProjectId" link @click="openProject(row)">查看项目</el-button>
+          <el-table :data="mineRows" v-loading="loading" :empty-text="$tr(&quot;还没有立项申请&quot;)" @row-click="openDetail">
+            <el-table-column :label="$tr(&quot;申请&quot;)" min-width="230"><template #default="{row}"><b>{{ row.projectName || $tr("未命名草稿") }}</b><small>{{ row.proposalNo }}</small></template></el-table-column>
+            <el-table-column prop="sponsorOwnerName" :label="$tr(&quot;归属老板&quot;)" width="140" />
+            <el-table-column prop="companyName" :label="$tr(&quot;归属公司&quot;)" min-width="150" />
+            <el-table-column :label="$tr(&quot;治理方式&quot;)" min-width="170"><template #default="{row}"><b>{{ managementLabel[row.managementMode] || row.managementMode }}</b><small>{{ closeMethodLabel[row.closeMethod] || row.closeMethod }}</small></template></el-table-column>
+            <el-table-column :label="$tr(&quot;状态&quot;)" width="140"><template #default="{row}"><el-tag :type="proposalStatusTone(row)">{{ proposalStatusLabel(row) }}</el-tag></template></el-table-column>
+            <el-table-column :label="$tr(&quot;计划周期&quot;)" width="210"><template #default="{row}">{{ planPeriod(row) }}</template></el-table-column>
+            <el-table-column :label="$tr(&quot;操作&quot;)" width="235" fixed="right"><template #default="{row}"><div class="row-actions" @click.stop>
+              <el-button v-if="canEditProposal(row)" link type="primary" @click="openForm(row)">{{ row.parentProjectId ? $tr("继续完善") : $tr("编辑") }}</el-button>
+              <el-button v-if="canEditProposal(row)&&canLaunchProposal(row)" link type="success" @click="submitRow(row)">{{ $tr("启动项目") }}</el-button>
+              <el-button v-if="row.status==='PENDING'" link type="warning" @click="withdrawRow(row)">{{ $tr("撤回") }}</el-button>
+              <el-button v-if="row.status==='APPROVED'&&row.createdProjectId" link @click="openProject(row)">{{ $tr("查看项目") }}</el-button>
             </div></template></el-table-column>
           </el-table>
           <el-pagination v-model:current-page="minePage.pageNum" v-model:page-size="minePage.pageSize" :total="minePage.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next" @current-change="loadMine" @size-change="minePage.pageNum=1;loadMine()" style="margin-top:16px" />
         </el-card>
       </el-tab-pane>
 
-      <el-tab-pane v-if="canViewDirectory" label="全部立项申请" name="directory">
-        <el-card shadow="never"><el-table :data="directoryRows" v-loading="loading" empty-text="暂无立项申请"><el-table-column prop="projectName" label="项目名称" min-width="230"/><el-table-column prop="applicantName" label="主负责人/申请人" width="150"/><el-table-column label="当前处理人" width="150"><template #default="{row}">{{ row.parentProjectId && row.status==='DRAFT' ? (row.assignedOwnerName || '待指定') : (row.applicantName || '—') }}</template></el-table-column><el-table-column prop="sponsorOwnerName" label="归属老板" width="150"/><el-table-column label="状态" width="140"><template #default="{row}"><el-tag :type="proposalStatusTone(row)">{{ proposalStatusLabel(row) }}</el-tag></template></el-table-column><el-table-column label="权限" width="120"><template #default="{row}"><el-button v-if="row.canOpen" link type="primary" @click="openDetail(row)">查看详情</el-button></template></el-table-column></el-table><el-pagination v-model:current-page="directoryPage.pageNum" v-model:page-size="directoryPage.pageSize" :total="directoryPage.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next" @current-change="loadDirectory" @size-change="directoryPage.pageNum=1;loadDirectory()" style="margin-top:16px" /></el-card>
+      <el-tab-pane v-if="canViewDirectory" :label="$tr(&quot;全部立项申请&quot;)" name="directory">
+        <el-card shadow="never"><el-table :data="directoryRows" v-loading="loading" :empty-text="$tr(&quot;暂无立项申请&quot;)"><el-table-column prop="projectName" :label="$tr(&quot;项目名称&quot;)" min-width="230"/><el-table-column prop="applicantName" :label="$tr(&quot;主负责人/申请人&quot;)" width="150"/><el-table-column :label="$tr(&quot;当前处理人&quot;)" width="150"><template #default="{row}">{{ row.parentProjectId && row.status==='DRAFT' ? (row.assignedOwnerName || $tr("待指定")) : (row.applicantName || '—') }}</template></el-table-column><el-table-column prop="sponsorOwnerName" :label="$tr(&quot;归属老板&quot;)" width="150"/><el-table-column :label="$tr(&quot;状态&quot;)" width="140"><template #default="{row}"><el-tag :type="proposalStatusTone(row)">{{ proposalStatusLabel(row) }}</el-tag></template></el-table-column><el-table-column :label="$tr(&quot;权限&quot;)" width="120"><template #default="{row}"><el-button v-if="row.canOpen" link type="primary" @click="openDetail(row)">{{ $tr("查看详情") }}</el-button></template></el-table-column></el-table><el-pagination v-model:current-page="directoryPage.pageNum" v-model:page-size="directoryPage.pageSize" :total="directoryPage.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next" @current-change="loadDirectory" @size-change="directoryPage.pageNum=1;loadDirectory()" style="margin-top:16px" /></el-card>
       </el-tab-pane>
     </el-tabs>
 
     <el-dialog v-model="formVisible" :title="formDialogTitle" width="min(1180px,97vw)" :before-close="beforeFormClose" append-to-body>
       <el-form ref="formRef" class="proposal-form" :disabled="saving" :model="form" :rules="rules" :validate-on-rule-change="false" label-width="112px" require-asterisk-position="left" scroll-to-error :scroll-into-view-options="{block:'center',behavior:'smooth'}">
-        <p class="required-hint"><span>*</span> 启动前必填，可先存草稿</p>
-        <el-alert v-if="!isNewTemplate" title="沿用历史成本规则" type="warning" :closable="false" show-icon />
-        <el-alert v-if="isChildCreatorPhase" class="phase-alert" title="主负责人填写子项目基础信息" description="请填写基础信息、确定子负责人和拨款。验收目标选填；人员、额外收入、支出与执行预算由子负责人设置。" type="info" :closable="false" show-icon />
-        <el-alert v-else-if="isAssignedSubOwner" class="phase-alert" title="待你完成执行配置" description="主负责人已完成基础信息和拨款。请设置人员与投入比例、核对选填计划并完成预算后启动项目。" type="success" :closable="false" show-icon />
+        <p class="required-hint"><span>*</span>{{ $tr(" 启动前必填，可先存草稿") }}</p>
+        <el-alert v-if="!isNewTemplate" :title="$tr(&quot;沿用历史成本规则&quot;)" type="warning" :closable="false" show-icon />
+        <el-alert v-if="isChildCreatorPhase" class="phase-alert" :title="$tr(&quot;主负责人填写子项目基础信息&quot;)" :description="$tr(&quot;请填写基础信息、确定子负责人和拨款。验收目标选填；人员、额外收入、支出与执行预算由子负责人设置。&quot;)" type="info" :closable="false" show-icon />
+        <el-alert v-else-if="isAssignedSubOwner" class="phase-alert" :title="$tr(&quot;待你完成执行配置&quot;)" :description="$tr(&quot;主负责人已完成基础信息和拨款。请设置人员与投入比例、核对选填计划并完成预算后启动项目。&quot;)" type="success" :closable="false" show-icon />
         <el-row :gutter="16">
           <el-col v-if="!isAssignedSubOwner" :span="24"><section class="plan-section form-section basic-information-section">
-            <div class="plan-section-head"><div><h3><span class="section-index">01</span>基础信息</h3><p>填写项目归属、治理方式、目标和计划周期</p></div></div>
-            <el-form-item v-if="form.parentProjectId" label="主项目"><el-input :model-value="form.parentProjectName || `项目 #${form.parentProjectId}`" disabled /></el-form-item>
+            <div class="plan-section-head"><div><h3><span class="section-index">01</span>{{ $tr("基础信息") }}</h3><p>{{ $tr("填写项目归属、治理方式、目标和计划周期") }}</p></div></div>
+            <el-form-item v-if="form.parentProjectId" :label="$tr(&quot;主项目&quot;)"><el-input :model-value="form.parentProjectName || $tr(&quot;项目 #{0}&quot;, [form.parentProjectId])" disabled /></el-form-item>
             <el-row :gutter="16">
-          <el-col v-if="!form.parentProjectId" :span="12"><el-form-item label="申请人/负责人"><el-input :model-value="userStore.nickName || userStore.name" disabled /></el-form-item></el-col>
-          <el-col v-if="form.parentProjectId" :span="12"><el-form-item label="主负责人"><el-input :model-value="form.applicantName || userStore.nickName || userStore.name" disabled /></el-form-item></el-col>
-          <el-col v-if="form.parentProjectId" :span="12"><el-form-item label="子项目负责人" prop="assignedOwnerUserId"><el-select v-model="form.assignedOwnerUserId" filterable placeholder="选择子项目负责人" style="width:100%" :disabled="isAssignedSubOwner" @change="changeAssignedOwner"><el-option v-for="u in options.owners || []" :key="u.userId" :label="bossOptionLabel(u)" :value="u.userId" /></el-select><small class="field-help">子负责人负责选择成员、补充执行资料并启动项目</small></el-form-item></el-col>
-          <el-col v-else :span="12"><el-form-item label="归属老板" prop="sponsorOwnerUserId"><template #label><el-tooltip content="负责项目治理、验收和结算，不参与立项审批。"><span class="help-label" tabindex="0">归属老板 ⓘ</span></el-tooltip></template><el-select v-model="form.sponsorOwnerUserId" style="width:100%" placeholder="选择项目归属老板"><el-option v-for="item in options.bosses" :key="item.userId" :label="bossOptionLabel(item)" :value="item.userId" /></el-select></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="项目名称" prop="projectName"><el-input v-model="form.projectName" maxlength="160" show-word-limit /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="归属公司" prop="companyDeptId">
-            <el-select v-model="form.companyDeptId" filterable placeholder="请选择归属公司" no-data-text="暂无可选择的公司" style="width:100%" @change="changeCompany">
+          <el-col v-if="!form.parentProjectId" :span="12"><el-form-item :label="$tr(&quot;申请人/负责人&quot;)"><el-input :model-value="userStore.nickName || userStore.name" disabled /></el-form-item></el-col>
+          <el-col v-if="form.parentProjectId" :span="12"><el-form-item :label="$tr(&quot;主负责人&quot;)"><el-input :model-value="form.applicantName || userStore.nickName || userStore.name" disabled /></el-form-item></el-col>
+          <el-col v-if="form.parentProjectId" :span="12"><el-form-item :label="$tr(&quot;子项目负责人&quot;)" prop="assignedOwnerUserId"><el-select v-model="form.assignedOwnerUserId" filterable :placeholder="$tr(&quot;选择子项目负责人&quot;)" style="width:100%" :disabled="isAssignedSubOwner" @change="changeAssignedOwner"><el-option v-for="u in options.owners || []" :key="u.userId" :label="bossOptionLabel(u)" :value="u.userId" /></el-select><small class="field-help">{{ $tr("子负责人负责选择成员、补充执行资料并启动项目") }}</small></el-form-item></el-col>
+          <el-col v-else :span="12"><el-form-item :label="$tr(&quot;归属老板&quot;)" prop="sponsorOwnerUserId"><template #label><el-tooltip :content="$tr(&quot;负责项目治理、验收和结算，不参与立项审批。&quot;)"><span class="help-label" tabindex="0">{{ $tr("归属老板 ⓘ") }}</span></el-tooltip></template><el-select v-model="form.sponsorOwnerUserId" style="width:100%" :placeholder="$tr(&quot;选择项目归属老板&quot;)"><el-option v-for="item in options.bosses" :key="item.userId" :label="bossOptionLabel(item)" :value="item.userId" /></el-select></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;项目名称&quot;)" prop="projectName"><el-input v-model="form.projectName" maxlength="160" show-word-limit /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;归属公司&quot;)" prop="companyDeptId">
+            <el-select v-model="form.companyDeptId" filterable :placeholder="$tr(&quot;请选择归属公司&quot;)" :no-data-text="$tr(&quot;暂无可选择的公司&quot;)" style="width:100%" @change="changeCompany">
               <el-option v-for="company in options.companies" :key="company.deptId" :label="company.deptName" :value="company.deptId" />
             </el-select>
           </el-form-item></el-col>
-          <el-col :span="8"><el-form-item label="所属部门"><el-input :model-value="ownerDepartment" readonly :placeholder="form.parentProjectId && !form.assignedOwnerUserId ? '选择负责人后自动带入' : '负责人未设置所属部门'" /></el-form-item></el-col>
-          <el-col :span="8"><el-form-item label="核算方式" prop="accountingMode" required><el-select :model-value="accountingOptions[form.accountingMode] ? form.accountingMode : null" @update:model-value="form.accountingMode=$event" placeholder="请选择盈利型或价值型" style="width:100%"><el-option v-for="(item,value) in accountingOptions" :key="value" :label="`${item.label}（如：${item.example}）`" :value="value" class="accounting-mode-option"><span>{{ item.label }}（如：{{ item.example }}）</span><small>{{ item.description }}</small></el-option></el-select></el-form-item></el-col>
-          <el-col :span="8"><el-form-item label="管理模式" prop="managementMode" required><template #label><el-tooltip :content="managementOptions[form.managementMode]?.description"><span class="help-label" tabindex="0">管理模式 ⓘ</span></el-tooltip></template><el-select v-model="form.managementMode" style="width:100%"><el-option v-for="(item,value) in managementOptions" :key="value" :label="item.label" :value="value"><span>{{ item.label }}</span><small class="mode-option-hint">{{ item.hint }}</small></el-option></el-select></el-form-item></el-col>
+          <el-col :span="8"><el-form-item :label="$tr(&quot;所属部门&quot;)"><el-input :model-value="ownerDepartment" readonly :placeholder="form.parentProjectId && !form.assignedOwnerUserId ? $tr(&quot;选择负责人后自动带入&quot;) : $tr(&quot;负责人未设置所属部门&quot;)" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item :label="$tr(&quot;核算方式&quot;)" prop="accountingMode" required><el-select :model-value="accountingOptions[form.accountingMode] ? form.accountingMode : null" @update:model-value="form.accountingMode=$event" :placeholder="$tr(&quot;请选择盈利型或价值型&quot;)" style="width:100%"><el-option v-for="(item,value) in accountingOptions" :key="value" :label="$tr(&quot;{0}（如：{1}）&quot;, [item.label, item.example])" :value="value" class="accounting-mode-option"><span>{{ $tr("{0}（如：{1}）", [item.label, item.example]) }}</span><small>{{ item.description }}</small></el-option></el-select></el-form-item></el-col>
+          <el-col :span="8"><el-form-item :label="$tr(&quot;管理模式&quot;)" prop="managementMode" required><template #label><el-tooltip :content="managementOptions[form.managementMode]?.description"><span class="help-label" tabindex="0">{{ $tr("管理模式 ⓘ") }}</span></el-tooltip></template><el-select v-model="form.managementMode" style="width:100%"><el-option v-for="(item,value) in managementOptions" :key="value" :label="item.label" :value="value"><span>{{ item.label }}</span><small class="mode-option-hint">{{ item.hint }}</small></el-option></el-select></el-form-item></el-col>
 
-          <el-col :span="12"><el-form-item label="结项方式" prop="closeMethod" required><el-select v-model="form.closeMethod" style="width:100%"><el-option v-for="(item,value) in closeMethodOptions" :key="value" :label="item.label" :value="value" /></el-select><small class="field-help">{{ closeMethodOptions[form.closeMethod]?.description }}</small></el-form-item></el-col>
-          <el-col v-if="form.managementMode==='KEY_CONTROL'" :span="12"><el-form-item label="监管原因" prop="managementReason" required><el-input v-model="form.managementReason" type="textarea" :rows="2" maxlength="1000" show-word-limit placeholder="监管原因及重点" /></el-form-item></el-col>
-          <el-col :span="24"><el-form-item label="目标模式" prop="goalMode" required><el-radio-group v-model="form.goalMode"><el-radio value="TOTAL">项目总目标</el-radio><el-radio value="NO_TOTAL">持续经营（每日目标）</el-radio></el-radio-group></el-form-item></el-col><el-col :span="24"><el-form-item label="项目目标" prop="objective"><el-input v-model="form.objective" type="textarea" :rows="3" maxlength="1000" show-word-limit placeholder="填写整体目标；验收标准在下方填写" /></el-form-item></el-col>
-          <el-col :span="24"><el-form-item label="立项理由" prop="applicationReason"><el-input v-model="form.applicationReason" type="textarea" :rows="3" maxlength="2000" show-word-limit placeholder="现状、问题或机会" /></el-form-item></el-col>
-          <el-col :span="8"><el-form-item label="计划开始" prop="planStartDate" required><el-date-picker v-model="form.planStartDate" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" style="width:100%" @change="handleProjectPeriodChange" /></el-form-item></el-col>
-          <el-col :span="8"><el-form-item label="计划结束" prop="planEndDate" :required="!openEnded"><div class="end-date-line"><el-date-picker v-model="form.planEndDate" type="date" value-format="YYYY-MM-DD" :disabled="openEnded" :disabled-date="disablePlanEndDate" :placeholder="openEnded ? '不限期' : '结束日期'" style="width:100%" @change="handleProjectPeriodChange" /><el-checkbox v-model="openEnded" @change="handleOpenEndedChange">不限期</el-checkbox></div></el-form-item></el-col>
-          <el-col :span="8"><el-form-item label="优先级" prop="priority" required><el-select v-model="form.priority" style="width:100%"><el-option label="低" value="LOW"/><el-option label="中" value="MEDIUM"/><el-option label="高" value="HIGH"/></el-select></el-form-item></el-col>
-          <el-col :span="24"><el-form-item label="主要风险" prop="riskSummary"><el-input v-model="form.riskSummary" type="textarea" :rows="2" maxlength="2000" show-word-limit placeholder="收入、成本或进度风险（选填）" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;结项方式&quot;)" prop="closeMethod" required><el-select v-model="form.closeMethod" style="width:100%"><el-option v-for="(item,value) in closeMethodOptions" :key="value" :label="item.label" :value="value" /></el-select><small class="field-help">{{ closeMethodOptions[form.closeMethod]?.description }}</small></el-form-item></el-col>
+          <el-col v-if="form.managementMode==='KEY_CONTROL'" :span="12"><el-form-item :label="$tr(&quot;监管原因&quot;)" prop="managementReason" required><el-input v-model="form.managementReason" type="textarea" :rows="2" maxlength="1000" show-word-limit :placeholder="$tr(&quot;监管原因及重点&quot;)" /></el-form-item></el-col>
+          <el-col :span="24"><el-form-item :label="$tr(&quot;目标模式&quot;)" prop="goalMode" required><el-radio-group v-model="form.goalMode"><el-radio value="TOTAL">{{ $tr("项目总目标") }}</el-radio><el-radio value="NO_TOTAL">{{ $tr("持续经营（每日目标）") }}</el-radio></el-radio-group></el-form-item></el-col><el-col :span="24"><el-form-item :label="$tr(&quot;项目目标&quot;)" prop="objective"><el-input v-model="form.objective" type="textarea" :rows="3" maxlength="1000" show-word-limit :placeholder="$tr(&quot;填写整体目标；验收标准在下方填写&quot;)" /></el-form-item></el-col>
+          <el-col :span="24"><el-form-item :label="$tr(&quot;立项理由&quot;)" prop="applicationReason"><el-input v-model="form.applicationReason" type="textarea" :rows="3" maxlength="2000" show-word-limit :placeholder="$tr(&quot;现状、问题或机会&quot;)" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item :label="$tr(&quot;计划开始&quot;)" prop="planStartDate" required><el-date-picker v-model="form.planStartDate" type="date" value-format="YYYY-MM-DD" :placeholder="$tr(&quot;开始日期&quot;)" style="width:100%" @change="handleProjectPeriodChange" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item :label="$tr(&quot;计划结束&quot;)" prop="planEndDate" :required="!openEnded"><div class="end-date-line"><el-date-picker v-model="form.planEndDate" type="date" value-format="YYYY-MM-DD" :disabled="openEnded" :disabled-date="disablePlanEndDate" :placeholder="openEnded ? $tr(&quot;不限期&quot;) : $tr(&quot;结束日期&quot;)" style="width:100%" @change="handleProjectPeriodChange" /><el-checkbox v-model="openEnded" @change="handleOpenEndedChange">{{ $tr("不限期") }}</el-checkbox></div></el-form-item></el-col>
+          <el-col :span="8"><el-form-item :label="$tr(&quot;优先级&quot;)" prop="priority" required><el-select v-model="form.priority" style="width:100%"><el-option :label="$tr(&quot;低&quot;)" value="LOW"/><el-option :label="$tr(&quot;中&quot;)" value="MEDIUM"/><el-option :label="$tr(&quot;高&quot;)" value="HIGH"/></el-select></el-form-item></el-col>
+          <el-col :span="24"><el-form-item :label="$tr(&quot;主要风险&quot;)" prop="riskSummary"><el-input v-model="form.riskSummary" type="textarea" :rows="2" maxlength="2000" show-word-limit :placeholder="$tr(&quot;收入、成本或进度风险（选填）&quot;)" /></el-form-item></el-col>
             </el-row>
           </section></el-col>
           <el-col v-else :span="24"><section class="plan-section handoff-summary-section">
-            <div class="plan-section-head"><div><h3><span class="section-index">01</span>主负责人已确认的信息</h3><p>以下基础信息和拨款由主负责人交接，子负责人无需重复填写</p></div><el-tag type="success">已交接</el-tag></div>
+            <div class="plan-section-head"><div><h3><span class="section-index">01</span>{{ $tr("主负责人已确认的信息") }}</h3><p>{{ $tr("以下基础信息和拨款由主负责人交接，子负责人无需重复填写") }}</p></div><el-tag type="success">{{ $tr("已交接") }}</el-tag></div>
             <div class="handoff-summary-grid">
-              <div><span>主项目</span><b>{{ form.parentProjectName || `项目 #${form.parentProjectId}` }}</b></div><div><span>主负责人</span><b>{{ form.applicantName || '—' }}</b></div><div><span>子项目负责人</span><b>{{ form.assignedOwnerName || '—' }}</b></div><div><span>子项目名称</span><b>{{ form.projectName || '—' }}</b></div>
-              <div><span>归属公司</span><b>{{ ownerCompany || '—' }}</b></div><div><span>所属部门</span><b>{{ ownerDepartment || '—' }}</b></div><div><span>核算方式</span><b>{{ accountingLabel[form.accountingMode] || form.accountingMode }}</b></div><div><span>管理 / 结项</span><b>{{ managementLabel[form.managementMode] || form.managementMode }} · {{ closeMethodLabel[form.closeMethod] || form.closeMethod }}</b></div>
-              <div><span>计划周期</span><b>{{ planPeriod(form) }}</b></div><div><span>优先级</span><b>{{ {LOW:'低',MEDIUM:'中',HIGH:'高'}[form.priority] || '—' }}</b></div><div class="wide"><span>项目目标</span><b>{{ form.objective || '—' }}</b></div><div class="wide"><span>立项理由</span><b>{{ form.applicationReason || '—' }}</b></div>
+              <div><span>{{ $tr("主项目") }}</span><b>{{ form.parentProjectName || $tr("项目 #{0}", [form.parentProjectId]) }}</b></div><div><span>{{ $tr("主负责人") }}</span><b>{{ form.applicantName || '—' }}</b></div><div><span>{{ $tr("子项目负责人") }}</span><b>{{ form.assignedOwnerName || '—' }}</b></div><div><span>{{ $tr("子项目名称") }}</span><b>{{ form.projectName || '—' }}</b></div>
+              <div><span>{{ $tr("归属公司") }}</span><b>{{ ownerCompany || '—' }}</b></div><div><span>{{ $tr("所属部门") }}</span><b>{{ ownerDepartment || '—' }}</b></div><div><span>{{ $tr("核算方式") }}</span><b>{{ accountingLabel[form.accountingMode] || form.accountingMode }}</b></div><div><span>{{ $tr("管理 / 结项") }}</span><b>{{ managementLabel[form.managementMode] || form.managementMode }} · {{ closeMethodLabel[form.closeMethod] || form.closeMethod }}</b></div>
+              <div><span>{{ $tr("计划周期") }}</span><b>{{ planPeriod(form) }}</b></div><div><span>{{ $tr("优先级") }}</span><b>{{ {LOW:$tr("低"),MEDIUM:$tr("中"),HIGH:$tr("高")}[form.priority] || '—' }}</b></div><div class="wide"><span>{{ $tr("项目目标") }}</span><b>{{ form.objective || '—' }}</b></div><div class="wide"><span>{{ $tr("立项理由") }}</span><b>{{ form.applicationReason || '—' }}</b></div>
             </div>
-            <div class="handoff-funding-card"><div><span>主项目拨款收入</span><b>{{ money(form.parentFundingAmount,form.baseCurrency) }}</b><small>启动项目时自动计入子项目收入，不限制执行预算</small></div><div><span>拨款说明</span><b>{{ form.parentFundingReason || '—' }}</b></div></div>
+            <div class="handoff-funding-card"><div><span>{{ $tr("主项目拨款收入") }}</span><b>{{ money(form.parentFundingAmount,form.baseCurrency) }}</b><small>{{ $tr("启动项目时自动计入子项目收入，不限制执行预算") }}</small></div><div><span>{{ $tr("拨款说明") }}</span><b>{{ form.parentFundingReason || '—' }}</b></div></div>
           </section></el-col>
-          <el-col v-if="canConfigureStaffing" :span="24"><div class="plan-section form-section"><div class="plan-section-head"><div><h3 :class="{'required-section':requiredPlanSections.staffing}"><span class="section-index">02</span>人员与投入比例</h3><p>可选择其他公司的有效在职人员，启动后直接形成项目人员计划</p></div><el-button size="small" type="primary" plain @click="addStaffing">增加人员</el-button></div>
-            <el-table :data="form.staffingLines" size="small" empty-text="暂无人员，可启动后添加">
-              <el-table-column label="人员" label-class-name="required-column" min-width="300"><template #default="{row}"><el-select v-model="row.userId" filterable style="width:100%" :disabled="!form.companyDeptId || isOwnerStaff(row)" :placeholder="form.companyDeptId ? '选择人员' : '请先选择归属公司'" @change="staffChanged(row)"><el-option v-if="row.userId && !options.staff.some(item=>Number(item.userId)===Number(row.userId))" :value="row.userId" :label="row.userName || (isOwnerStaff(row) ? (userStore.nickName || userStore.name) : String(row.userId))" /><el-option v-for="item in options.staff" :key="item.userId" :label="staffOptionLabel(item)" :value="item.userId" :disabled="staffAlreadySelected(item.userId,row)" /></el-select><div v-if="isNewTemplate" style="margin-top:8px"><div class="staff-rate-status"><span :class="staffBudgetStatus(row)?.status==='PENDING'?'danger-text':''">{{ staffBudgetStatus(row)?.issues?.join('；') || (budgetLoading?'计算中…':staffBudgetStatus(row)?'费率完整':'待计算') }}</span><details v-if="staffBudgetStatus(row)?.ratePeriods?.length" class="inline-help"><summary>费率详情</summary><small v-for="period in staffBudgetStatus(row).ratePeriods" :key="period.version + ':' + period.effectiveFrom" class="field-help">v{{ period.version }}：{{ period.effectiveFrom }} 至 {{ period.effectiveTo || '不限期' }}</small></details></div></div></template></el-table-column>
+          <el-col v-if="canConfigureStaffing" :span="24"><div class="plan-section form-section"><div class="plan-section-head"><div><h3 :class="{'required-section':requiredPlanSections.staffing}"><span class="section-index">02</span>{{ $tr("人员与投入比例") }}</h3><p>{{ $tr("可选择其他公司的有效在职人员，启动后直接形成项目人员计划") }}</p></div><el-button size="small" type="primary" plain @click="addStaffing">{{ $tr("增加人员") }}</el-button></div>
+            <el-table :data="form.staffingLines" size="small" :empty-text="$tr(&quot;暂无人员，可启动后添加&quot;)">
+              <el-table-column :label="$tr(&quot;人员&quot;)" label-class-name="required-column" min-width="300"><template #default="{row}"><el-select v-model="row.userId" filterable style="width:100%" :disabled="!form.companyDeptId || isOwnerStaff(row)" :placeholder="form.companyDeptId ? $tr(&quot;选择人员&quot;) : $tr(&quot;请先选择归属公司&quot;)" @change="staffChanged(row)"><el-option v-if="row.userId && !options.staff.some(item=>Number(item.userId)===Number(row.userId))" :value="row.userId" :label="row.userName || (isOwnerStaff(row) ? (userStore.nickName || userStore.name) : String(row.userId))" /><el-option v-for="item in options.staff" :key="item.userId" :label="staffOptionLabel(item)" :value="item.userId" :disabled="staffAlreadySelected(item.userId,row)" /></el-select><div v-if="isNewTemplate" style="margin-top:8px"><div class="staff-rate-status"><span :class="staffBudgetStatus(row)?.status==='PENDING'?'danger-text':''">{{ staffBudgetStatus(row)?.issues?.join('；') || (budgetLoading?$tr("计算中…"):staffBudgetStatus(row)?$tr("费率完整"):$tr("待计算")) }}</span><details v-if="staffBudgetStatus(row)?.ratePeriods?.length" class="inline-help"><summary>{{ $tr("费率详情") }}</summary><small v-for="period in staffBudgetStatus(row).ratePeriods" :key="period.version + ':' + period.effectiveFrom" class="field-help">{{ $tr("v{0}：{1} 至 {2}", [period.version, period.effectiveFrom, period.effectiveTo || $tr("不限期")]) }}</small></details></div></div></template></el-table-column>
 
-              <el-table-column label="岗位/角色" min-width="125"><template #default="{row}">{{ row.roleName || '—' }}</template></el-table-column>
-              <el-table-column label="开始日月成本" min-width="155"><template #default="{row}">{{ staffRateDisplay(row,'monthlyCost') }}</template></el-table-column>
-              <el-table-column label="投入比例" label-class-name="required-column" min-width="220">
+              <el-table-column :label="$tr(&quot;岗位/角色&quot;)" min-width="125"><template #default="{row}">{{ $tr(row.roleName) || '—' }}</template></el-table-column>
+              <el-table-column :label="$tr(&quot;开始日月成本&quot;)" min-width="155"><template #default="{row}">{{ staffRateDisplay(row,'monthlyCost') }}</template></el-table-column>
+              <el-table-column :label="$tr(&quot;投入比例&quot;)" label-class-name="required-column" min-width="220">
                 <template #default="{row}">
-                  <div class="percentage-input"><el-input-number v-model="row.inputQuantity" :min="0.01" :max="100" :precision="2" :step="5" controls-position="right" aria-label="人员投入比例"/><span>%</span></div>
+                  <div class="percentage-input"><el-input-number v-model="row.inputQuantity" :min="0.01" :max="100" :precision="2" :step="5" controls-position="right" :aria-label="$tr(&quot;人员投入比例&quot;)"/><span>%</span></div>
                   <el-popover v-model:visible="allocationPopoverVisible[staffAllocationKey(row)]" placement="bottom-start" :width="720" trigger="click" @before-enter="loadStaffAllocationPlan(row,true)">
                     <template #reference><el-button class="allocation-link" link type="primary" :disabled="!row.userId || !row.planStartDate">{{ staffAllocationSummary(row) }}</el-button></template>
                     <div v-loading="staffAllocationLoading(row)" class="allocation-popover">
                       <template v-if="staffPeriodProjects(row).length">
-                        <div class="allocation-head"><div><b>{{ row.userName || '所选人员' }}在本项目周期内的项目投入</b><small>周期：{{ row.allocationPlan.periodStartDate }} 至 {{ row.allocationPlan.periodEndDate || '不限期' }}；当前调整生效日：{{ row.allocationPlan.effectiveDate }}</small></div><el-button size="small" type="primary" :loading="saving" :disabled="staffAllocationLoading(row)" @click="saveForm(false,true)">保存</el-button></div>
-                        <div class="allocation-row allocation-title"><span>项目 / 周期</span><span>负责人</span><span>投入比例</span></div>
+                        <div class="allocation-head"><div><b>{{ $tr("{0}在本项目周期内的项目投入", [row.userName || $tr("所选人员")]) }}</b><small>{{ $tr("周期：{0} 至 {1}；当前调整生效日：{2}", [row.allocationPlan.periodStartDate, row.allocationPlan.periodEndDate || $tr("不限期"), row.allocationPlan.effectiveDate]) }}</small></div><el-button size="small" type="primary" :loading="saving" :disabled="staffAllocationLoading(row)" @click="saveForm(false,true)">{{ $tr("保存") }}</el-button></div>
+                        <div class="allocation-row allocation-title"><span>{{ $tr("项目 / 周期") }}</span><span>{{ $tr("负责人") }}</span><span>{{ $tr("投入比例") }}</span></div>
                         <div v-for="item in row.allocationPlan.allocations" :key="`current:${item.projectId}`" class="allocation-row">
-                          <span><b>{{ item.projectName }}</b><small>{{ item.projectNo }} · 当前可调整</small></span><span>{{ item.ownerName || '—' }}</span>
+                          <span><b>{{ item.projectName }}</b><small>{{ $tr("{0} · 当前可调整", [item.projectNo]) }}</small></span><span>{{ item.ownerName || '—' }}</span>
                           <span class="percentage-input"><el-input-number v-model="item.allocationValue" :min="0" :max="100" :precision="2" :step="5" controls-position="right"/><em>%</em></span>
                         </div>
                         <div v-for="item in staffPeriodOnlyProjects(row)" :key="`period:${item.projectId}`" class="allocation-row period-only-project">
@@ -101,108 +101,110 @@
                           <span class="period-allocation"><b>{{ number(item.allocationValue).toFixed(2) }}%</b><small>{{ periodProjectLabel(item) }}</small></span>
                         </div>
                         <template v-if="row.allocationPlan.allocations?.length">
-                          <div class="allocation-row current-project"><span><b>{{ form.projectName || '本项目（待启动）' }}</b><small>本次立项</small></span><span>{{ proposalOwner?.nickName || proposalOwner?.userName || form.assignedOwnerName || userStore.nickName || userStore.name }}</span><span class="percentage-input"><el-input-number v-model="row.inputQuantity" :min="0.01" :max="100" :precision="2" :step="5" controls-position="right"/><em>%</em></span></div>
-                          <div class="allocation-total" :class="{'danger-text':staffAllocationTotal(row)!==100}"><span>当前生效项目合计</span><b>{{ staffAllocationTotal(row).toFixed(2) }}%</b><small>{{ staffAllocationTotal(row)===100?'分配完整':'合计必须等于 100%' }}</small></div>
-                          <div class="allocation-reason"><span class="required-mark" aria-hidden="true">*</span><el-input v-model="row.allocationPlan.reason" type="textarea" :rows="2" maxlength="500" show-word-limit placeholder="请填写本次跨项目投入调整原因"/></div>
-                          <el-alert class="allocation-alert" type="info" :closable="false" show-icon title="周期内已结束或尚未开始的项目只展示历史投入；当前生效项目可直接调整。涉及其他负责人时，启动后将自动发起确认。"/>
+                          <div class="allocation-row current-project"><span><b>{{ form.projectName || $tr("本项目（待启动）") }}</b><small>{{ $tr("本次立项") }}</small></span><span>{{ proposalOwner?.nickName || proposalOwner?.userName || form.assignedOwnerName || userStore.nickName || userStore.name }}</span><span class="percentage-input"><el-input-number v-model="row.inputQuantity" :min="0.01" :max="100" :precision="2" :step="5" controls-position="right"/><em>%</em></span></div>
+                          <div class="allocation-total" :class="{'danger-text':staffAllocationTotal(row)!==100}"><span>{{ $tr("当前生效项目合计") }}</span><b>{{ staffAllocationTotal(row).toFixed(2) }}%</b><small>{{ staffAllocationTotal(row)===100?$tr("分配完整"):$tr("合计必须等于 100%") }}</small></div>
+                          <div class="allocation-reason"><span class="required-mark" aria-hidden="true">*</span><el-input v-model="row.allocationPlan.reason" type="textarea" :rows="2" maxlength="500" show-word-limit :placeholder="$tr(&quot;请填写本次跨项目投入调整原因&quot;)"/></div>
+                          <el-alert class="allocation-alert" type="info" :closable="false" show-icon :title="$tr(&quot;周期内已结束或尚未开始的项目只展示历史投入；当前生效项目可直接调整。涉及其他负责人时，启动后将自动发起确认。&quot;)"/>
                         </template>
                       </template>
-                      <el-empty v-else :image-size="50" description="本项目周期内未参与其他项目，本项目比例可直接设置"/>
+                      <el-empty v-else :image-size="50" :description="$tr(&quot;本项目周期内未参与其他项目，本项目比例可直接设置&quot;)"/>
                     </div>
                   </el-popover>
                 </template>
               </el-table-column>
-              <el-table-column v-if="isNewTemplate" label="预计人员成本" min-width="200"><template #default="{row}"><b>{{ staffBudgetStatus(row)?.amount==null ? (budgetLoading?'计算中…':'待完善计划') : money(staffBudgetStatus(row).amount,staffBudgetStatus(row).currency||form.baseCurrency) }}</b><small class="estimated-daily-cost">预计日成本：{{ estimatedDailyCostDisplay(row) }}</small><small>按投入比例及预算期间计算</small></template></el-table-column>
+              <el-table-column v-if="isNewTemplate" :label="$tr(&quot;预计人员成本&quot;)" min-width="200"><template #default="{row}"><b>{{ staffBudgetStatus(row)?.amount==null ? (budgetLoading?$tr("计算中…"):$tr("待完善计划")) : money(staffBudgetStatus(row).amount,staffBudgetStatus(row).currency||form.baseCurrency) }}</b><small class="estimated-daily-cost">{{ $tr("预计日成本：{0}", [estimatedDailyCostDisplay(row)]) }}</small><small>{{ $tr("按投入比例及预算期间计算") }}</small></template></el-table-column>
               <template v-if="isNewTemplate">
-                <el-table-column label="参与方式" label-class-name="required-column" min-width="145"><template #default="{row}"><el-select v-model="row.participationMode" @change="handleStaffParticipationChange(row)"><el-option label="跟随项目" value="FOLLOW_PROJECT"/><el-option label="自定义时间" value="CUSTOM"/><el-option label="不限期" value="UNLIMITED" :disabled="!openEnded"/></el-select></template></el-table-column>
-                <el-table-column label="参与时间" label-class-name="required-column" min-width="320"><template #default="{row}"><span v-if="row.participationMode==='FOLLOW_PROJECT'">{{ planPeriod(form) }}</span><div v-else class="staff-period"><el-date-picker v-model="row.planStartDate" type="date" value-format="YYYY-MM-DD" :disabled-date="disableStaffStartDate" placeholder="开始日期" @change="handleStaffParticipationChange(row)" /><template v-if="row.participationMode==='CUSTOM'"><span>至</span><el-date-picker v-model="row.planEndDate" type="date" value-format="YYYY-MM-DD" :disabled-date="date=>disableStaffEndDate(date,row)" placeholder="结束日期" @change="handleStaffParticipationChange(row)" /></template><span v-else>至 不限期</span></div></template></el-table-column>
+                <el-table-column :label="$tr(&quot;参与方式&quot;)" label-class-name="required-column" min-width="145"><template #default="{row}"><el-select v-model="row.participationMode" @change="handleStaffParticipationChange(row)"><el-option :label="$tr(&quot;跟随项目&quot;)" value="FOLLOW_PROJECT"/><el-option :label="$tr(&quot;自定义时间&quot;)" value="CUSTOM"/><el-option :label="$tr(&quot;不限期&quot;)" value="UNLIMITED" :disabled="!openEnded"/></el-select></template></el-table-column>
+                <el-table-column :label="$tr(&quot;参与时间&quot;)" label-class-name="required-column" min-width="320"><template #default="{row}"><span v-if="row.participationMode==='FOLLOW_PROJECT'">{{ planPeriod(form) }}</span><div v-else class="staff-period"><el-date-picker v-model="row.planStartDate" type="date" value-format="YYYY-MM-DD" :disabled-date="disableStaffStartDate" :placeholder="$tr(&quot;开始日期&quot;)" @change="handleStaffParticipationChange(row)" /><template v-if="row.participationMode==='CUSTOM'"><span>{{ $tr("至") }}</span><el-date-picker v-model="row.planEndDate" type="date" value-format="YYYY-MM-DD" :disabled-date="date=>disableStaffEndDate(date,row)" :placeholder="$tr(&quot;结束日期&quot;)" @change="handleStaffParticipationChange(row)" /></template><span v-else>{{ $tr("至 不限期") }}</span></div></template></el-table-column>
               </template>
-              <el-table-column v-else label="历史预计成本" min-width="175"><template #default="{row}">{{ row.estimatedCost==null?'由后台核对':money(row.estimatedCost,row.costCurrency||form.baseCurrency) }}</template></el-table-column>
-              <el-table-column label="说明" min-width="150"><template #default="{row}"><el-input v-model="row.note" maxlength="500" placeholder="可选" /></template></el-table-column>
-              <el-table-column width="55"><template #default="{$index}"><el-button v-if="!isOwnerStaff(form.staffingLines[$index])" link type="danger" @click="form.staffingLines.splice($index,1)">删</el-button><span v-else>负责人</span></template></el-table-column>
-            </el-table><details v-if="isNewTemplate" class="inline-help"><summary>人员成本计算说明</summary><p>月成本按有效费率和这里填写的投入比例计入预算，不足整月按参与工作日折算。启动项目时，该比例同时写入项目投入分配；如该人员已有其他项目，请在投入比例下展开调整，全部有效项目合计须等于 100%。</p></details></div></el-col>
+              <el-table-column v-else :label="$tr(&quot;历史预计成本&quot;)" min-width="175"><template #default="{row}">{{ row.estimatedCost==null?$tr("由后台核对"):money(row.estimatedCost,row.costCurrency||form.baseCurrency) }}</template></el-table-column>
+              <el-table-column :label="$tr(&quot;说明&quot;)" min-width="150"><template #default="{row}"><el-input v-model="row.note" maxlength="500" :placeholder="$tr(&quot;可选&quot;)" /></template></el-table-column>
+              <el-table-column width="55"><template #default="{$index}"><el-button v-if="!isOwnerStaff(form.staffingLines[$index])" link type="danger" @click="form.staffingLines.splice($index,1)">{{ $tr("删") }}</el-button><span v-else>{{ $tr("负责人") }}</span></template></el-table-column>
+            </el-table><details v-if="isNewTemplate" class="inline-help"><summary>{{ $tr("人员成本计算说明") }}</summary><p>{{ $tr("月成本按有效费率和这里填写的投入比例计入预算，不足整月按参与工作日折算。启动项目时，该比例同时写入项目投入分配；如该人员已有其他项目，请在投入比例下展开调整，全部有效项目合计须等于 100%。") }}</p></details></div></el-col>
 
           <el-col :span="24"><ProposalPlanDetails :section-number="isChildCreatorPhase?'02':'03'" :date-type="planDateType" kind="targets" :form="form" :required-plan-sections="requiredPlanSections" :target-type-label="targetTypeLabel" :target-unit-options="targetUnitOptions" :revenue-type-label="revenueTypeLabel" :plan-end-date="openEnded ? null : form.planEndDate" :line-date-issue="lineDateIssue" @add-target="addTarget" @add-revenue="addRevenue" @change-target-type="changeTargetType" @change-currency="changeProjectCurrency" /></el-col>
-          <el-col v-if="!isChildCreatorPhase" :span="24"><el-alert v-if="form.parentProjectId" class="child-plan-alert" type="info" :closable="false" show-icon title="主项目拨款已计入子项目预计收入；下方只填写子项目自行产生的额外收入，避免重复计算。"/><ProposalPlanDetails :section-number="'04'" :date-type="planDateType" kind="revenue" :form="form" :required-plan-sections="requiredPlanSections" :target-type-label="targetTypeLabel" :target-unit-options="targetUnitOptions" :revenue-type-label="revenueTypeLabel" :plan-end-date="openEnded ? null : form.planEndDate" :line-date-issue="lineDateIssue" @add-target="addTarget" @add-revenue="addRevenue" @change-target-type="changeTargetType" @change-currency="changeProjectCurrency" /></el-col>
+          <el-col v-if="!isChildCreatorPhase" :span="24"><el-alert v-if="form.parentProjectId" class="child-plan-alert" type="info" :closable="false" show-icon :title="$tr(&quot;主项目拨款已计入子项目预计收入；下方只填写子项目自行产生的额外收入，避免重复计算。&quot;)"/><ProposalPlanDetails :section-number="'04'" :date-type="planDateType" kind="revenue" :form="form" :required-plan-sections="requiredPlanSections" :target-type-label="targetTypeLabel" :target-unit-options="targetUnitOptions" :revenue-type-label="revenueTypeLabel" :plan-end-date="openEnded ? null : form.planEndDate" :line-date-issue="lineDateIssue" @add-target="addTarget" @add-revenue="addRevenue" @change-target-type="changeTargetType" @change-currency="changeProjectCurrency" /></el-col>
 
-          <el-col v-if="!isChildCreatorPhase" :span="24"><ProposalExpenseLines section-number="05" :form="form" :description="form.parentProjectId ? '这里的支出全部属于子项目，由子负责人独立设置' : '可选择项目开始月前 6 个月；有限期项目最晚可选结束月后 6 个月'" :expense-category-label="expenseCategoryLabel" :date-type="planDateType" :plan-end-date="openEnded ? null : form.planEndDate" :line-date-issue="lineDateIssue" @add-expense="addExpense" @change-currency="changeProjectCurrency"/></el-col>
+          <el-col v-if="!isChildCreatorPhase" :span="24"><ProposalExpenseLines section-number="05" :form="form" :description="form.parentProjectId ? $tr(&quot;这里的支出全部属于子项目，由子负责人独立设置&quot;) : $tr(&quot;可选择项目开始月前 6 个月；有限期项目最晚可选结束月后 6 个月&quot;)" :expense-category-label="expenseCategoryLabel" :date-type="planDateType" :plan-end-date="openEnded ? null : form.planEndDate" :line-date-issue="lineDateIssue" @add-expense="addExpense" @change-currency="changeProjectCurrency"/></el-col>
           <el-col v-if="isChildCreatorPhase" :span="24"><section class="plan-section form-section parent-funding-panel creator-funding-section">
-            <div class="plan-section-head"><div><h3><span class="section-index">03</span>拨款设置</h3><p>主项目向子项目一次性拨款，子项目启动时自动生成双方收支</p></div><el-tag type="info">{{ form.baseCurrency }}</el-tag></div>
+            <div class="plan-section-head"><div><h3><span class="section-index">03</span>{{ $tr("拨款设置") }}</h3><p>{{ $tr("主项目向子项目一次性拨款，子项目启动时自动生成双方收支") }}</p></div><el-tag type="info">{{ form.baseCurrency }}</el-tag></div>
             <div class="parent-funding-summary">
-              <div><span>主项目总预算</span><b>{{ money(parentFunding.totalAmount,parentFunding.currency||form.baseCurrency) }}</b></div>
-              <div><span>已拨子项目</span><b>{{ money(number(parentFunding.activeAllocatedAmount)+number(parentFunding.reservedAllocatedAmount),parentFunding.currency||form.baseCurrency) }}</b></div>
-              <div><span>本次可分配</span><b class="success-text">{{ money(parentFunding.availableAmount,parentFunding.currency||form.baseCurrency) }}</b></div>
-              <div><span>拨款后余额</span><b>{{ money(parentFundingRemaining,parentFunding.currency||form.baseCurrency) }}</b></div>
+              <div><span>{{ $tr("主项目总预算") }}</span><b>{{ money(parentFunding.totalAmount,parentFunding.currency||form.baseCurrency) }}</b></div>
+              <div><span>{{ $tr("已拨子项目") }}</span><b>{{ money(number(parentFunding.activeAllocatedAmount)+number(parentFunding.reservedAllocatedAmount),parentFunding.currency||form.baseCurrency) }}</b></div>
+              <div><span>{{ $tr("本次可分配") }}</span><b class="success-text">{{ money(parentFunding.availableAmount,parentFunding.currency||form.baseCurrency) }}</b></div>
+              <div><span>{{ $tr("拨款后余额") }}</span><b>{{ money(parentFundingRemaining,parentFunding.currency||form.baseCurrency) }}</b></div>
             </div>
-            <el-row :gutter="16"><el-col :span="10"><el-form-item label="拨款额度" prop="parentFundingAmount"><el-input-number v-model="form.parentFundingAmount" :min="0.01" :max="parentFunding.availableAmount==null?99999999999999.99:Math.max(0.01,Number(parentFunding.availableAmount))" :precision="2" controls-position="right" style="width:100%" /></el-form-item></el-col><el-col :span="14"><el-form-item label="拨款说明" prop="parentFundingReason"><el-input v-model="form.parentFundingReason" type="textarea" :rows="2" maxlength="500" show-word-limit placeholder="说明拨款用途和额度依据" /></el-form-item></el-col></el-row>
-            <el-alert v-if="parentFunding.budgetMode&&parentFunding.budgetMode!=='TOTAL'" type="error" :closable="false" show-icon title="主项目必须先设置总额预算，才能向子项目拨款" />
-            <el-alert type="info" :closable="false" show-icon title="子项目启动时，系统自动记主项目拨款支出和子项目拨款收入；无需手工重复录入。" />
+            <el-row :gutter="16"><el-col :span="10"><el-form-item :label="$tr(&quot;拨款额度&quot;)" prop="parentFundingAmount"><el-input-number v-model="form.parentFundingAmount" :min="0.01" :max="parentFunding.availableAmount==null?99999999999999.99:Math.max(0.01,Number(parentFunding.availableAmount))" :precision="2" controls-position="right" style="width:100%" /></el-form-item></el-col><el-col :span="14"><el-form-item :label="$tr(&quot;拨款说明&quot;)" prop="parentFundingReason"><el-input v-model="form.parentFundingReason" type="textarea" :rows="2" maxlength="500" show-word-limit :placeholder="$tr(&quot;说明拨款用途和额度依据&quot;)" /></el-form-item></el-col></el-row>
+            <el-alert v-if="parentFunding.budgetMode&&parentFunding.budgetMode!=='TOTAL'" type="error" :closable="false" show-icon :title="$tr(&quot;主项目必须先设置总额预算，才能向子项目拨款&quot;)" />
+            <el-alert type="info" :closable="false" show-icon :title="$tr(&quot;子项目启动时，系统自动记主项目拨款支出和子项目拨款收入；无需手工重复录入。&quot;)" />
           </section></el-col>
 
           <el-col v-if="!isChildCreatorPhase" :span="24"><div class="plan-section form-section budget-plan-section">
-            <div class="plan-section-head"><div><h3><span class="section-index">06</span>执行预算</h3><p>根据人员投入和可选支出设置子项目预算</p></div></div>
+            <div class="plan-section-head"><div><h3><span class="section-index">06</span>{{ $tr("执行预算") }}</h3><p>{{ $tr("根据人员投入和可选支出设置子项目预算") }}</p></div></div>
             <div v-if="form.parentProjectId" class="parent-funding-panel child-funding-panel">
-              <div class="parent-funding-head"><div><h3>主项目拨款</h3><p>拨款是子项目收入，不是执行预算上限</p></div><el-tag type="success">已计入收入</el-tag></div>
+              <div class="parent-funding-head"><div><h3>{{ $tr("主项目拨款") }}</h3><p>{{ $tr("拨款是子项目收入，不是执行预算上限") }}</p></div><el-tag type="success">{{ $tr("已计入收入") }}</el-tag></div>
               <div class="parent-funding-summary">
-                <div><span>拨款收入</span><b class="success-text">{{ money(form.parentFundingAmount,form.baseCurrency) }}</b></div>
-                <div><span>额外预计收入</span><b>{{ budgetDisplay('externalRevenueAmount') }}</b></div>
-                <div><span>子项目计划总成本</span><b>{{ budgetDisplay('plannedTotalCost') }}</b></div>
-                <div><span>预计结余 / 缺口</span><b :class="planSummary.profit<0?'danger-text':'success-text'">{{ estimateMoney(planSummary.profit) }}</b></div>
+                <div><span>{{ $tr("拨款收入") }}</span><b class="success-text">{{ money(form.parentFundingAmount,form.baseCurrency) }}</b></div>
+                <div><span>{{ $tr("额外预计收入") }}</span><b>{{ budgetDisplay('externalRevenueAmount') }}</b></div>
+                <div><span>{{ $tr("子项目计划总成本") }}</span><b>{{ budgetDisplay('plannedTotalCost') }}</b></div>
+                <div><span>{{ $tr("预计结余 / 缺口") }}</span><b :class="planSummary.profit<0?'danger-text':'success-text'">{{ estimateMoney(planSummary.profit) }}</b></div>
               </div>
-              <p class="funding-limit-note">拨款说明：{{ form.parentFundingReason || '—' }}。预算超过拨款时仅显示资金缺口，不阻止启动。</p>
+              <p class="funding-limit-note">{{ $tr("拨款说明：{0}。预算超过拨款时仅显示资金缺口，不阻止启动。", [form.parentFundingReason || '—']) }}</p>
             </div>
             <el-row :gutter="24" class="budget-section-grid">
               <el-col :span="24"><BudgetControlFields v-model="form.budget" prop-prefix="budget" :startup-required="startupRequired" compact /></el-col>
-              <el-col :span="6"><el-form-item :label="form.budget.mode==='TOTAL'?'总预算上限':'本期计划预算'"><el-input :model-value="budgetDisplay('totalAmount')" readonly /><small class="field-help">人员预算＋业务预算</small></el-form-item></el-col>
-              <el-col :span="6"><el-form-item label="人员预算"><el-input :model-value="budgetDisplay('personnelAmount')" readonly /></el-form-item></el-col>
-              <el-col :span="12"><el-form-item label="业务预算" prop="budget.businessAmount" :required="form.budget.mode==='TOTAL'"><div class="business-budget-inputs"><el-input-number :model-value="form.budget.mode==='TOTAL'?businessBudgetAmount:budgetEstimate.plannedBusinessAmount" @update:model-value="businessBudgetAmount=$event" :disabled="form.budget.mode!=='TOTAL'" :min="form.budget.mode==='TOTAL'?businessExpenseTotal:0" :max="99999999999999.99" :precision="2" controls-position="right" /><el-form-item label="币种" prop="baseCurrency" label-width="50px" required class="budget-currency"><el-select :model-value="form.baseCurrency" @update:model-value="changeProjectCurrency" :disabled="!!form.parentProjectId" aria-label="预算币种"><el-option label="人民币（CNY）" value="CNY"/><el-option label="越南盾（VND）" value="VND"/><el-option label="美元（USD）" value="USD"/></el-select></el-form-item></div><small class="field-help">{{ form.budget.mode==='TOTAL' ? `支出计划合计 ${money(businessExpenseTotal,form.baseCurrency)}，仅可在合计基础上增加预算` : '按支出计划计算' }}</small></el-form-item></el-col>
-              <el-col v-if="openEnded" :span="8"><el-form-item label="预算周期" prop="budget.cycle" required><el-select v-model="form.budget.cycle" style="width:100%" @change="handleBudgetCycleChange"><el-option label="周度" value="WEEK"/><el-option label="月度" value="MONTH"/><el-option label="季度" value="QUARTER"/><el-option label="年度" value="YEAR"/></el-select></el-form-item></el-col>
+              <el-col :span="6"><el-form-item :label="form.budget.mode==='TOTAL'?$tr(&quot;总预算上限&quot;):$tr(&quot;本期计划预算&quot;)"><el-input :model-value="budgetDisplay('totalAmount')" readonly /><small class="field-help">{{ $tr("人员预算＋业务预算") }}</small></el-form-item></el-col>
+              <el-col :span="6"><el-form-item :label="$tr(&quot;人员预算&quot;)"><el-input :model-value="budgetDisplay('personnelAmount')" readonly /></el-form-item></el-col>
+              <el-col :span="12"><el-form-item :label="$tr(&quot;业务预算&quot;)" prop="budget.businessAmount" :required="form.budget.mode==='TOTAL'"><div class="business-budget-inputs"><el-input-number :model-value="form.budget.mode==='TOTAL'?businessBudgetAmount:budgetEstimate.plannedBusinessAmount" @update:model-value="businessBudgetAmount=$event" :disabled="form.budget.mode!=='TOTAL'" :min="form.budget.mode==='TOTAL'?businessExpenseTotal:0" :max="99999999999999.99" :precision="2" controls-position="right" /><el-form-item :label="$tr(&quot;币种&quot;)" prop="baseCurrency" label-width="50px" required class="budget-currency"><el-select :model-value="form.baseCurrency" @update:model-value="changeProjectCurrency" :disabled="!!form.parentProjectId" :aria-label="$tr(&quot;预算币种&quot;)"><el-option :label="$tr(&quot;人民币（CNY）&quot;)" value="CNY"/><el-option :label="$tr(&quot;越南盾（VND）&quot;)" value="VND"/><el-option :label="$tr(&quot;美元（USD）&quot;)" value="USD"/></el-select></el-form-item></div><small class="field-help">{{ form.budget.mode==='TOTAL' ? $tr("支出计划合计 {0}，仅可在合计基础上增加预算", [money(businessExpenseTotal,form.baseCurrency)]) : $tr("按支出计划计算") }}</small></el-form-item></el-col>
+              <el-col v-if="openEnded" :span="8"><el-form-item :label="$tr(&quot;预算周期&quot;)" prop="budget.cycle" required><el-select v-model="form.budget.cycle" style="width:100%" @change="handleBudgetCycleChange"><el-option :label="$tr(&quot;周度&quot;)" value="WEEK"/><el-option :label="$tr(&quot;月度&quot;)" value="MONTH"/><el-option :label="$tr(&quot;季度&quot;)" value="QUARTER"/><el-option :label="$tr(&quot;年度&quot;)" value="YEAR"/></el-select></el-form-item></el-col>
               <el-col v-if="openEnded" :span="12"><el-form-item :label="budgetPeriodFieldLabel" prop="budget.anchorDate" required><BudgetPeriodPicker v-model:anchor-date="form.budget.anchorDate" :cycle="form.budget.cycle" compact /></el-form-item></el-col>
-              <el-col :span="24"><p class="budget-period-summary">{{ budgetPeriodText }}</p><details class="inline-help"><summary>预算计算说明</summary><p v-if="openEnded">按所选预算周期测算，期满后在计划变更中续编。首期从项目开始日计算。<template v-if="form.budget.cycle==='WEEK'">周度为周一至周日。</template></p><p v-else>按整个项目期间测算。</p><p>人员预算按人员计划、日历和有效费率计算。未填日期的收支计入本期，业务预算未分配部分为计划余量。测算为计划估算，实际成本按项目核算规则计算。</p></details><el-alert v-if="budgetIssues.length" style="margin:10px 0" title="启动前需处理" :description="budgetIssues.join('；')" type="warning" :closable="false" show-icon /></el-col>
-              <el-col :span="24"><div v-if="budgetError || budgetLoading" class="budget-refresh-status" role="status" aria-live="polite"><span>{{ budgetError?'测算失败，请重试':'正在更新测算…' }}</span><el-button v-if="budgetError" link type="primary" @click="retryBudgetEstimate">重新测算</el-button></div></el-col>
-              <el-col v-if="isNewTemplate && form.staffingLines?.length" :span="24"><p class="field-help">已包含负责人人员成本</p></el-col>
-              <el-col :span="24" class="budget-result-block"><h3>本期预计收支</h3><div class="finance-summary"><div><span>预计收入</span><b>{{ estimateMoney(planSummary.revenue) }}</b></div><div><span>业务成本</span><b>{{ estimateMoney(planSummary.external) }}</b></div><div><span>人员成本</span><b>{{ estimateMoney(planSummary.personnel) }}</b></div><div><span>预计总成本</span><b>{{ estimateMoney(planSummary.total) }}</b></div><div><span>预计利润</span><b :class="planSummary.profit==null?'':planSummary.profit<0?'danger-text':'success-text'">{{ estimateMoney(planSummary.profit) }}</b></div><div><span>利润率</span><b>{{ isChildCreatorPhase?'待子负责人设置':budgetError?'测算未更新':budgetLoading?'计算中…':planSummary.margin===null?'待完善计划':`${planSummary.margin.toFixed(2)}%` }}</b></div></div></el-col>
-              <el-col v-if="budgetEstimate.monthlyForecasts?.length" :span="24"><div class="monthly-forecast"><div class="plan-section-head"><div><h3>按月预计收支与盈利</h3><p>从项目开始月逐月展示；不限期项目先展示未来 12 个月</p></div></div><el-table :data="budgetEstimate.monthlyForecasts" size="small" max-height="420"><el-table-column prop="month" label="月份" width="105"/><el-table-column label="预计收入" align="right"><template #default="{row}">{{ estimateMoney(row.revenueAmount) }}</template></el-table-column><el-table-column label="业务支出" align="right"><template #default="{row}">{{ estimateMoney(row.plannedBusinessAmount) }}</template></el-table-column><el-table-column label="人员成本" align="right"><template #default="{row}">{{ estimateMoney(row.personnelAmount) }}</template></el-table-column><el-table-column label="预计总成本" align="right"><template #default="{row}">{{ estimateMoney(row.plannedTotalCost) }}</template></el-table-column><el-table-column label="预计利润" align="right"><template #default="{row}"><b :class="Number(row.profit)<0?'danger-text':'success-text'">{{ estimateMoney(row.profit) }}</b></template></el-table-column></el-table></div></el-col>
+              <el-col :span="24"><p class="budget-period-summary">{{ budgetPeriodText }}</p><details class="inline-help"><summary>{{ $tr("预算计算说明") }}</summary><p v-if="openEnded">{{ $tr("按所选预算周期测算，期满后在计划变更中续编。首期从项目开始日计算。") }}<template v-if="form.budget.cycle==='WEEK'">{{ $tr("周度为周一至周日。") }}</template></p><p v-else>{{ $tr("按整个项目期间测算。") }}</p><p>{{ $tr("人员预算按人员计划、日历和有效费率计算。未填日期的收支计入本期，业务预算未分配部分为计划余量。测算为计划估算，实际成本按项目核算规则计算。") }}</p></details><el-alert v-if="budgetIssues.length" style="margin:10px 0" :title="$tr(&quot;启动前需处理&quot;)" :description="budgetIssues.join('；')" type="warning" :closable="false" show-icon /></el-col>
+              <el-col :span="24"><div v-if="budgetError || budgetLoading" class="budget-refresh-status" role="status" aria-live="polite"><span>{{ budgetError?$tr("测算失败，请重试"):$tr("正在更新测算…") }}</span><el-button v-if="budgetError" link type="primary" @click="retryBudgetEstimate">{{ $tr("重新测算") }}</el-button></div></el-col>
+              <el-col v-if="isNewTemplate && form.staffingLines?.length" :span="24"><p class="field-help">{{ $tr("已包含负责人人员成本") }}</p></el-col>
+              <el-col :span="24" class="budget-result-block"><h3>{{ $tr("本期预计收支") }}</h3><div class="finance-summary"><div><span>{{ $tr("预计收入") }}</span><b>{{ estimateMoney(planSummary.revenue) }}</b></div><div><span>{{ $tr("业务成本") }}</span><b>{{ estimateMoney(planSummary.external) }}</b></div><div><span>{{ $tr("人员成本") }}</span><b>{{ estimateMoney(planSummary.personnel) }}</b></div><div><span>{{ $tr("预计总成本") }}</span><b>{{ estimateMoney(planSummary.total) }}</b></div><div><span>{{ $tr("预计利润") }}</span><b :class="planSummary.profit==null?'':planSummary.profit<0?'danger-text':'success-text'">{{ estimateMoney(planSummary.profit) }}</b></div><div><span>{{ $tr("利润率") }}</span><b>{{ isChildCreatorPhase?$tr("待子负责人设置"):budgetError?$tr("测算未更新"):budgetLoading?$tr("计算中…"):planSummary.margin===null?$tr("待完善计划"):`${planSummary.margin.toFixed(2)}%` }}</b></div></div></el-col>
+              <el-col v-if="budgetEstimate.monthlyForecasts?.length" :span="24"><div class="monthly-forecast"><div class="plan-section-head"><div><h3>{{ $tr("按月预计收支与盈利") }}</h3><p>{{ $tr("从项目开始月逐月展示；不限期项目先展示未来 12 个月") }}</p></div></div><el-table :data="budgetEstimate.monthlyForecasts" size="small" max-height="420"><el-table-column prop="month" :label="$tr(&quot;月份&quot;)" width="105"/><el-table-column :label="$tr(&quot;预计收入&quot;)" align="right"><template #default="{row}">{{ estimateMoney(row.revenueAmount) }}</template></el-table-column><el-table-column :label="$tr(&quot;业务支出&quot;)" align="right"><template #default="{row}">{{ estimateMoney(row.plannedBusinessAmount) }}</template></el-table-column><el-table-column :label="$tr(&quot;人员成本&quot;)" align="right"><template #default="{row}">{{ estimateMoney(row.personnelAmount) }}</template></el-table-column><el-table-column :label="$tr(&quot;预计总成本&quot;)" align="right"><template #default="{row}">{{ estimateMoney(row.plannedTotalCost) }}</template></el-table-column><el-table-column :label="$tr(&quot;预计利润&quot;)" align="right"><template #default="{row}"><b :class="Number(row.profit)<0?'danger-text':'success-text'">{{ estimateMoney(row.profit) }}</b></template></el-table-column></el-table></div></el-col>
             </el-row>
           </div></el-col>
         </el-row>
       </el-form>
-      <template #footer><el-button @click="beforeFormClose()">取消</el-button><el-button :type="isChildCreatorPhase?'primary':'default'" :loading="saving" @click="saveForm(false)">{{ isChildCreatorPhase ? '保存并交给子负责人' : '保存草稿' }}</el-button><el-button v-if="canLaunchForm" type="primary" :loading="saving" @click="saveForm(true)">启动项目</el-button></template>
+      <template #footer><el-button @click="beforeFormClose()">{{ $tr("取消") }}</el-button><el-button :type="isChildCreatorPhase?'primary':'default'" :loading="saving" @click="saveForm(false)">{{ isChildCreatorPhase ? $tr("保存并交给子负责人") : $tr("保存草稿") }}</el-button><el-button v-if="canLaunchForm" type="primary" :loading="saving" @click="saveForm(true)">{{ $tr("启动项目") }}</el-button></template>
     </el-dialog>
 
     <el-drawer v-model="detailVisible" size="min(720px,94vw)" append-to-body>
-      <template #header><div><span class="eyebrow">{{ detail.proposalNo }}</span><h2>{{ detail.projectName || '未命名草稿' }}</h2></div></template>
-      <el-alert v-if="detail.parentProjectId&&detail.status==='DRAFT'" class="phase-alert" :title="Number(detail.assignedOwnerUserId)===currentUserId?'待你继续完善并启动项目':'已转交子项目负责人继续完善'" :description="`当前处理人：${detail.assignedOwnerName || '待指定子项目负责人'}`" type="warning" :closable="false" show-icon />
-      <div class="detail-grid"><div><span>主负责人</span><b>{{ detail.applicantName }}</b></div><div v-if="detail.parentProjectId"><span>当前处理人</span><b>{{ detail.assignedOwnerName }}</b></div><div v-if="detail.parentProjectId"><span>主项目拨款</span><b>{{ money(detail.parentFundingAmount,detail.baseCurrency) }}</b></div><div v-if="detail.parentProjectId"><span>拨款说明</span><b>{{ detail.parentFundingReason || '—' }}</b></div><div><span>归属老板</span><b>{{ detail.sponsorOwnerName }}</b></div><div><span>管理模式</span><b>{{ managementLabel[detail.managementMode] || detail.managementMode }}</b></div><div><span>结项方式</span><b>{{ closeMethodLabel[detail.closeMethod] || detail.closeMethod }}</b></div><div><span>计划周期</span><b>{{ planPeriod(detail) }}</b></div><div><span>预算控制</span><b>{{ detail.budgetMode==='NONE'?'不设上限':detail.budgetMode==='DAILY'?money(detail.dailyBudgetLimit,detail.baseCurrency)+' / 日':money(detail.budgetLimit,detail.baseCurrency) }}</b></div></div>
+      <template #header><div><span class="eyebrow">{{ detail.proposalNo }}</span><h2>{{ detail.projectName || $tr("未命名草稿") }}</h2></div></template>
+      <el-alert v-if="detail.parentProjectId&&detail.status==='DRAFT'" class="phase-alert" :title="Number(detail.assignedOwnerUserId)===currentUserId?$tr(&quot;待你继续完善并启动项目&quot;):$tr(&quot;已转交子项目负责人继续完善&quot;)" :description="$tr(&quot;当前处理人：{0}&quot;, [detail.assignedOwnerName || $tr(&quot;待指定子项目负责人&quot;)])" type="warning" :closable="false" show-icon />
+      <div class="detail-grid"><div><span>{{ $tr("主负责人") }}</span><b>{{ detail.applicantName }}</b></div><div v-if="detail.parentProjectId"><span>{{ $tr("当前处理人") }}</span><b>{{ detail.assignedOwnerName }}</b></div><div v-if="detail.parentProjectId"><span>{{ $tr("主项目拨款") }}</span><b>{{ money(detail.parentFundingAmount,detail.baseCurrency) }}</b></div><div v-if="detail.parentProjectId"><span>{{ $tr("拨款说明") }}</span><b>{{ detail.parentFundingReason || '—' }}</b></div><div><span>{{ $tr("归属老板") }}</span><b>{{ detail.sponsorOwnerName }}</b></div><div><span>{{ $tr("管理模式") }}</span><b>{{ managementLabel[detail.managementMode] || detail.managementMode }}</b></div><div><span>{{ $tr("结项方式") }}</span><b>{{ closeMethodLabel[detail.closeMethod] || detail.closeMethod }}</b></div><div><span>{{ $tr("计划周期") }}</span><b>{{ planPeriod(detail) }}</b></div><div><span>{{ $tr("预算控制") }}</span><b>{{ detail.budgetMode==='NONE'?$tr("不设上限"):detail.budgetMode==='DAILY'?money(detail.dailyBudgetLimit,detail.baseCurrency)+$tr(" / 日"):money(detail.budgetLimit,detail.baseCurrency) }}</b></div></div>
       <section v-if="detail.budget" class="detail-section budget-composition">
-        <div class="budget-composition-head"><div><h3>预算构成</h3><p>本预算期间的计划成本组成</p></div><span class="budget-cycle-tag">{{ {PROJECT:'整个项目',WEEK:'周度',MONTH:'月度',QUARTER:'季度',YEAR:'年度'}[detail.budget.cycle] }}</span></div>
-        <div class="budget-total-card"><div><span>本期计划预算</span><small>人员预算 + 业务预算</small></div><strong>{{ money(detail.budget.totalAmount,detail.baseCurrency) }}</strong></div>
+        <div class="budget-composition-head"><div><h3>{{ $tr("预算构成") }}</h3><p>{{ $tr("本预算期间的计划成本组成") }}</p></div><span class="budget-cycle-tag">{{ {PROJECT:$tr("整个项目"),WEEK:$tr("周度"),MONTH:$tr("月度"),QUARTER:$tr("季度"),YEAR:$tr("年度")}[detail.budget.cycle] }}</span></div>
+        <div class="budget-total-card"><div><span>{{ $tr("本期计划预算") }}</span><small>{{ $tr("人员预算 + 业务预算") }}</small></div><strong>{{ money(detail.budget.totalAmount,detail.baseCurrency) }}</strong></div>
         <div class="budget-breakdown">
-          <div class="budget-breakdown-card personnel"><span>人员预算</span><b>{{ money(detail.budget.personnelAmount,detail.baseCurrency) }}</b><small>按人员计划测算</small></div>
-          <div class="budget-breakdown-card business"><span>业务预算</span><b>{{ money(detail.budget.businessAmount,detail.baseCurrency) }}</b><small>按支出计划测算</small></div>
-          <div v-if="detail.budgetMode==='DAILY'" class="budget-breakdown-card startup"><span>启动预算</span><b>{{ money(detail.startupBudgetLimit,detail.baseCurrency) }}</b><small>项目启动时的预算额度</small></div>
+          <div class="budget-breakdown-card personnel"><span>{{ $tr("人员预算") }}</span><b>{{ money(detail.budget.personnelAmount,detail.baseCurrency) }}</b><small>{{ $tr("按人员计划测算") }}</small></div>
+          <div class="budget-breakdown-card business"><span>{{ $tr("业务预算") }}</span><b>{{ money(detail.budget.businessAmount,detail.baseCurrency) }}</b><small>{{ $tr("按支出计划测算") }}</small></div>
+          <div v-if="detail.budgetMode==='DAILY'" class="budget-breakdown-card startup"><span>{{ $tr("启动预算") }}</span><b>{{ money(detail.startupBudgetLimit,detail.baseCurrency) }}</b><small>{{ $tr("项目启动时的预算额度") }}</small></div>
         </div>
         <div class="budget-meta">
-          <div><span>预算期间</span><b>{{ detail.budget.startDate && detail.budget.endDate ? `${detail.budget.startDate} 至 ${detail.budget.endDate}` : '待完善日期并测算' }}</b></div>
-          <div v-if="detail.budgetMode==='DAILY'"><span>每日统计口径</span><b>{{ detail.budgetScope==='CASH_EXPENSE'?'仅外部支出':'全成本（外部支出、人员及奖金）' }}</b></div>
-          <div v-if="detail.budgetReason" class="budget-reason"><span>预算说明</span><b>{{ detail.budgetReason }}</b></div>
+          <div><span>{{ $tr("预算期间") }}</span><b>{{ detail.budget.startDate && detail.budget.endDate ? $tr("{0} 至 {1}", [detail.budget.startDate, detail.budget.endDate]) : $tr("待完善日期并测算") }}</b></div>
+          <div v-if="detail.budgetMode==='DAILY'"><span>{{ $tr("每日统计口径") }}</span><b>{{ detail.budgetScope==='CASH_EXPENSE'?$tr("仅外部支出"):$tr("全成本（外部支出、人员及奖金）") }}</b></div>
+          <div v-if="detail.budgetReason" class="budget-reason"><span>{{ $tr("预算说明") }}</span><b>{{ detail.budgetReason }}</b></div>
         </div>
         <el-alert v-if="detail.budget.status!=='READY'" :title="(detail.budget.issues||[]).join('；')" type="warning" :closable="false" />
       </section>
-      <section v-if="!detailIsIncompleteDraft" class="detail-section"><h3>经营测算</h3><div class="finance-summary compact"><div><span>预计收入</span><b>{{ money(detail.estimatedRevenue,detail.baseCurrency) }}</b></div><div><span>业务成本</span><b>{{ money(detail.estimatedExternalCost,detail.baseCurrency) }}</b></div><div><span>人员成本</span><b>{{ money(detail.estimatedPersonnelCost,detail.baseCurrency) }}</b></div><div><span>预计总成本</span><b>{{ money(detail.estimatedTotalCost,detail.baseCurrency) }}</b></div><div><span>预计利润</span><b>{{ money(detail.expectedProfit,detail.baseCurrency) }}</b></div><div><span>计划人数</span><b>{{ detail.plannedHeadcount || 0 }} 人</b></div></div></section>
-      <section v-if="detail.budget?.monthlyForecasts?.length" class="detail-section"><h3>按月预计收支与盈利</h3><el-table :data="detail.budget.monthlyForecasts" size="small" max-height="420"><el-table-column prop="month" label="月份" width="95"/><el-table-column label="收入"><template #default="{row}">{{ money(row.revenueAmount,detail.baseCurrency) }}</template></el-table-column><el-table-column label="总成本"><template #default="{row}">{{ money(row.plannedTotalCost,detail.baseCurrency) }}</template></el-table-column><el-table-column label="盈利"><template #default="{row}">{{ money(row.profit,detail.baseCurrency) }}</template></el-table-column></el-table></section>
-      <section v-if="detail.revenueLines?.length" class="detail-section"><h3>收入测算明细</h3><el-table :data="detail.revenueLines" size="small"><el-table-column v-if="detail.revenueLines.some(row=>row.scenario && row.scenario!=='BASE')" label="历史预测"><template #default="{row}">{{ !row.scenario || row.scenario==='BASE' ? '计入测算' : `${scenarioLabel[row.scenario] || '备选'}（未计入测算）` }}</template></el-table-column><el-table-column prop="itemName" label="收入项目"/><el-table-column label="预计金额"><template #default="{row}">{{ money(row.expectedAmount,detail.baseCurrency) }}</template></el-table-column><el-table-column prop="assumptionText" label="测算依据"/></el-table></section>
-      <section v-if="detail.expenseLines?.length" class="detail-section"><h3>支出计划明细</h3><el-table :data="detail.expenseLines" size="small"><el-table-column prop="itemName" label="支出项目"/><el-table-column prop="purpose" label="具体用途"/><el-table-column label="金额"><template #default="{row}">{{ money(row.amount,detail.baseCurrency) }}</template></el-table-column><el-table-column prop="counterparty" label="收款方"/></el-table></section>
-      <section v-if="detail.staffingLines?.length" class="detail-section"><h3>人员与投入比例</h3><el-table :data="detail.staffingLines" size="small"><el-table-column label="人员"><template #default="{row}">{{ row.userName || '历史岗位汇总' }}</template></el-table-column><el-table-column prop="roleName" label="岗位"/><el-table-column v-if="newTemplate(detail)" label="投入比例"><template #default="{row}">{{ row.inputQuantity ?? 100 }}%</template></el-table-column><template v-if="newTemplate(detail)"><el-table-column label="参与方式"><template #default="{row}">{{ participationLabel[staffParticipationMode(row,detail)] }}</template></el-table-column><el-table-column label="参与时间"><template #default="{row}">{{ shortDate(row.planStartDate) }} 至 {{ row.planEndDate?shortDate(row.planEndDate):'不限期' }}</template></el-table-column></template><el-table-column v-else label="历史预计成本"><template #default="{row}">{{ money(row.estimatedCost,row.costCurrency||detail.baseCurrency) }}</template></el-table-column></el-table><p v-if="newTemplate(detail)">人员与投入比例已在立项阶段确定，启动后直接形成项目人员计划。</p></section>
-      <section v-if="detail.targetLines?.length" class="detail-section"><h3>项目验收目标</h3><el-table :data="detail.targetLines" size="small"><el-table-column prop="targetName" label="目标"/><el-table-column label="目标值"><template #default="{row}">{{ row.targetType==='DELIVERY'?'通过验收':`${row.targetValue} ${row.unit}` }}</template></el-table-column><el-table-column prop="dueDate" label="完成日期"/><el-table-column prop="acceptanceEvidence" label="验收依据"/></el-table></section>
-      <section class="detail-section"><h3>项目目标</h3><p>{{ detail.objective }}</p></section><section class="detail-section"><h3>立项理由</h3><p>{{ detail.applicationReason }}</p></section><section v-if="detail.managementReason" class="detail-section"><h3>重点监管原因</h3><p>{{ detail.managementReason }}</p></section><section v-if="detail.acceptanceCriteria" class="detail-section"><h3>验收标准</h3><p>{{ detail.acceptanceCriteria }}</p></section><section v-if="detail.reviewComment" class="detail-section review-comment"><h3>审批/撤回意见</h3><p>{{ detail.reviewComment }}</p></section>
-      <section class="detail-section"><h3>操作记录</h3><el-timeline><el-timeline-item v-for="event in detail.events || []" :key="event.eventId" :timestamp="event.createTime"><b>{{ eventLabel[event.eventType] || event.eventType }}</b><p>{{ event.operatorName }}<span v-if="event.comment"> · {{ event.comment }}</span></p></el-timeline-item></el-timeline></section>
-      <div class="drawer-actions"><el-button v-if="canEditProposal(detail)" type="primary" @click="openForm(detail)">{{ detail.parentProjectId ? '继续完善' : '修改' }}</el-button><el-button v-if="canEditProposal(detail)&&canLaunchProposal(detail)" type="success" @click="submitRow(detail)">启动项目</el-button><el-button v-if="detail.status==='APPROVED'&&detail.createdProjectId" @click="openProject(detail)">查看正式项目</el-button></div>
+      <section v-if="!detailIsIncompleteDraft" class="detail-section"><h3>{{ $tr("经营测算") }}</h3><div class="finance-summary compact"><div><span>{{ $tr("预计收入") }}</span><b>{{ money(detail.estimatedRevenue,detail.baseCurrency) }}</b></div><div><span>{{ $tr("业务成本") }}</span><b>{{ money(detail.estimatedExternalCost,detail.baseCurrency) }}</b></div><div><span>{{ $tr("人员成本") }}</span><b>{{ money(detail.estimatedPersonnelCost,detail.baseCurrency) }}</b></div><div><span>{{ $tr("预计总成本") }}</span><b>{{ money(detail.estimatedTotalCost,detail.baseCurrency) }}</b></div><div><span>{{ $tr("预计利润") }}</span><b>{{ money(detail.expectedProfit,detail.baseCurrency) }}</b></div><div><span>{{ $tr("计划人数") }}</span><b>{{ $tr("{0} 人", [detail.plannedHeadcount || 0]) }}</b></div></div></section>
+      <section v-if="detail.budget?.monthlyForecasts?.length" class="detail-section"><h3>{{ $tr("按月预计收支与盈利") }}</h3><el-table :data="detail.budget.monthlyForecasts" size="small" max-height="420"><el-table-column prop="month" :label="$tr(&quot;月份&quot;)" width="95"/><el-table-column :label="$tr(&quot;收入&quot;)"><template #default="{row}">{{ money(row.revenueAmount,detail.baseCurrency) }}</template></el-table-column><el-table-column :label="$tr(&quot;总成本&quot;)"><template #default="{row}">{{ money(row.plannedTotalCost,detail.baseCurrency) }}</template></el-table-column><el-table-column :label="$tr(&quot;盈利&quot;)"><template #default="{row}">{{ money(row.profit,detail.baseCurrency) }}</template></el-table-column></el-table></section>
+      <section v-if="detail.revenueLines?.length" class="detail-section"><h3>{{ $tr("收入测算明细") }}</h3><el-table :data="detail.revenueLines" size="small"><el-table-column v-if="detail.revenueLines.some(row=>row.scenario && row.scenario!=='BASE')" :label="$tr(&quot;历史预测&quot;)"><template #default="{row}">{{ !row.scenario || row.scenario==='BASE' ? $tr("计入测算") : $tr("{0}（未计入测算）", [scenarioLabel[row.scenario] || $tr("备选")]) }}</template></el-table-column><el-table-column prop="itemName" :label="$tr(&quot;收入项目&quot;)"/><el-table-column :label="$tr(&quot;预计金额&quot;)"><template #default="{row}">{{ money(row.expectedAmount,detail.baseCurrency) }}</template></el-table-column><el-table-column prop="assumptionText" :label="$tr(&quot;测算依据&quot;)"/></el-table></section>
+      <section v-if="detail.expenseLines?.length" class="detail-section"><h3>{{ $tr("支出计划明细") }}</h3><el-table :data="detail.expenseLines" size="small"><el-table-column prop="itemName" :label="$tr(&quot;支出项目&quot;)"/><el-table-column prop="purpose" :label="$tr(&quot;具体用途&quot;)"/><el-table-column :label="$tr(&quot;金额&quot;)"><template #default="{row}">{{ money(row.amount,detail.baseCurrency) }}</template></el-table-column><el-table-column prop="counterparty" :label="$tr(&quot;收款方&quot;)"/></el-table></section>
+      <section v-if="detail.staffingLines?.length" class="detail-section"><h3>{{ $tr("人员与投入比例") }}</h3><el-table :data="detail.staffingLines" size="small"><el-table-column :label="$tr(&quot;人员&quot;)"><template #default="{row}">{{ row.userName || $tr("历史岗位汇总") }}</template></el-table-column><el-table-column prop="roleName" :label="$tr(&quot;岗位&quot;)" :formatter="(row, column, value) => $tr(value)"/><el-table-column v-if="newTemplate(detail)" :label="$tr(&quot;投入比例&quot;)"><template #default="{row}">{{ row.inputQuantity ?? 100 }}%</template></el-table-column><template v-if="newTemplate(detail)"><el-table-column :label="$tr(&quot;参与方式&quot;)"><template #default="{row}">{{ participationLabel[staffParticipationMode(row,detail)] }}</template></el-table-column><el-table-column :label="$tr(&quot;参与时间&quot;)"><template #default="{row}">{{ $tr("{0} 至 {1}", [shortDate(row.planStartDate), row.planEndDate?shortDate(row.planEndDate):$tr("不限期")]) }}</template></el-table-column></template><el-table-column v-else :label="$tr(&quot;历史预计成本&quot;)"><template #default="{row}">{{ money(row.estimatedCost,row.costCurrency||detail.baseCurrency) }}</template></el-table-column></el-table><p v-if="newTemplate(detail)">{{ $tr("人员与投入比例已在立项阶段确定，启动后直接形成项目人员计划。") }}</p></section>
+      <section v-if="detail.targetLines?.length" class="detail-section"><h3>{{ $tr("项目验收目标") }}</h3><el-table :data="detail.targetLines" size="small"><el-table-column prop="targetName" :label="$tr(&quot;目标&quot;)"/><el-table-column :label="$tr(&quot;目标值&quot;)"><template #default="{row}">{{ row.targetType==='DELIVERY'?$tr("通过验收"):`${row.targetValue} ${$tr(row.unit)}` }}</template></el-table-column><el-table-column prop="dueDate" :label="$tr(&quot;完成日期&quot;)"/><el-table-column prop="acceptanceEvidence" :label="$tr(&quot;验收依据&quot;)"/></el-table></section>
+      <section class="detail-section"><h3>{{ $tr("项目目标") }}</h3><p>{{ detail.objective }}</p></section><section class="detail-section"><h3>{{ $tr("立项理由") }}</h3><p>{{ detail.applicationReason }}</p></section><section v-if="detail.managementReason" class="detail-section"><h3>{{ $tr("重点监管原因") }}</h3><p>{{ detail.managementReason }}</p></section><section v-if="detail.acceptanceCriteria" class="detail-section"><h3>{{ $tr("验收标准") }}</h3><p>{{ detail.acceptanceCriteria }}</p></section><section v-if="detail.reviewComment" class="detail-section review-comment"><h3>{{ $tr("审批/撤回意见") }}</h3><p>{{ detail.reviewComment }}</p></section>
+      <section class="detail-section"><h3>{{ $tr("操作记录") }}</h3><el-timeline><el-timeline-item v-for="event in detail.events || []" :key="event.eventId" :timestamp="event.createTime"><b>{{ eventLabel[event.eventType] || event.eventType }}</b><p>{{ event.operatorName }}<span v-if="event.comment"> · {{ event.comment }}</span></p></el-timeline-item></el-timeline></section>
+      <div class="drawer-actions"><el-button v-if="canEditProposal(detail)" type="primary" @click="openForm(detail)">{{ detail.parentProjectId ? $tr("继续完善") : $tr("修改") }}</el-button><el-button v-if="canEditProposal(detail)&&canLaunchProposal(detail)" type="success" @click="submitRow(detail)">{{ $tr("启动项目") }}</el-button><el-button v-if="detail.status==='APPROVED'&&detail.createdProjectId" @click="openProject(detail)">{{ $tr("查看正式项目") }}</el-button></div>
     </el-drawer>
   </div>
 </template>
 
 <script setup name="BusinessProjectProposals">
+import { translateText, sourceText } from '@/locales/translate'
+
 import { onBeforeRouteLeave } from 'vue-router'
 import { newSubmissionId } from '@/utils/submission'
 import { sumExpenseAmounts, normalizeBusinessBudget, rebaseBusinessBudget } from '@/utils/proposalBudget'
@@ -231,8 +233,8 @@ const canLaunchProposal=row=>!row?.parentProjectId||Number(row.assignedOwnerUser
 const parentFundingRemaining=computed(()=>Math.max(0,Number(parentFunding.value.availableAmount||0)-Number(form.value.parentFundingAmount||0)))
 const canEditProposal=row=>row?.canEdit===true&&(!row.parentProjectId||Number(row.assignedOwnerUserId)===currentUserId.value||row.parentFundingAmount==null&&Number(row.applicantUserId)===currentUserId.value)
 const formDialogTitle=computed(()=>form.value.parentProjectId
-  ? form.value.proposalId ? '完善子项目立项申请' : '新建子项目并转交'
-  : form.value.proposalId ? '修改立项申请' : '新建立项申请')
+  ? form.value.proposalId ? translateText("完善子项目立项申请") : translateText("新建子项目并转交")
+  : form.value.proposalId ? translateText("修改立项申请") : translateText("新建立项申请"))
 const planDateType=computed(()=>openEnded.value&&form.value.budget?.cycle==='WEEK'?'date':'month')
 const minePage=reactive({pageNum:1,pageSize:20,total:0}),directoryPage=reactive({pageNum:1,pageSize:20,total:0})
 let formBaseline='',pendingCreate=null,closePrompt=null
@@ -245,7 +247,7 @@ async function confirmFormLeave(){
   if(closePrompt)return closePrompt
   closePrompt=(async()=>{
     try{
-      await ElMessageBox.confirm('表单有未保存的修改。保存草稿后离开，或放弃本次修改；关闭提示可继续编辑。','未保存的修改',{confirmButtonText:'保存草稿',cancelButtonText:'放弃修改',distinguishCancelAndClose:true,closeOnClickModal:false})
+      await ElMessageBox.confirm(translateText("表单有未保存的修改。保存草稿后离开，或放弃本次修改；关闭提示可继续编辑。"),translateText("未保存的修改"),{confirmButtonText:translateText("保存草稿"),cancelButtonText:translateText("放弃修改"),distinguishCancelAndClose:true,closeOnClickModal:false})
       return await saveForm(false)===true
     }catch(action){return action==='cancel'}
   })()
@@ -258,41 +260,41 @@ onMounted(()=>window.addEventListener('beforeunload',warnBeforeUnload))
 onBeforeUnmount(()=>window.removeEventListener('beforeunload',warnBeforeUnload))
 const forecastPanels=ref([])
 const canViewDirectory=computed(()=>userStore.roles.includes('admin')||userStore.permissions.includes('*:*:*')||userStore.permissions.includes('business:project:proposal:review'))
-const statusLabel={DRAFT:'草稿',PENDING:'待启动',RETURNED:'已退回',WITHDRAWN:'已撤回',APPROVED:'已启动'}
+const statusLabel={DRAFT:translateText("草稿"),PENDING:translateText("待启动"),RETURNED:translateText("已退回"),WITHDRAWN:translateText("已撤回"),APPROVED:translateText("已启动")}
 const statusTone={DRAFT:'info',PENDING:'warning',RETURNED:'danger',WITHDRAWN:'info',APPROVED:'success'}
 const proposalStatusLabel=row=>row?.parentProjectId&&row?.status==='DRAFT'
-  ? Number(row.assignedOwnerUserId)===currentUserId.value?'待我完善':'待子负责人完善'
+  ? Number(row.assignedOwnerUserId)===currentUserId.value?translateText("待我完善"):translateText("待子负责人完善")
   : statusLabel[row?.status]||row?.status||'—'
 const proposalStatusTone=row=>row?.parentProjectId&&row?.status==='DRAFT'?'warning':statusTone[row?.status]||'info'
-const accountingOptions={PROFIT:{label:'盈利型',example:'电商销售',description:'看收入、成本和赚了多少'},VALUE:{label:'价值型',example:'员工培训',description:'看投入多少，目标有没有完成'}}
-const accountingLabel={PROFIT:'盈利型',VALUE:'价值型',COST:'成本型（历史）',HYBRID:'混合型（历史）'}
-const revenueTypeLabel={SALES:'商品销售',SERVICE:'服务费',COMMISSION:'佣金',LIVE:'直播收入',OTHER:'其他'}
-const expenseCategoryLabel={PROCUREMENT:'采购',MARKETING:'推广',PLATFORM:'平台服务',TRAVEL:'差旅',OUTSOURCING:'外包',EQUIPMENT:'设备',LOGISTICS:'物流',OTHER:'其他'}
-const targetTypeLabel={FINANCIAL:'财务',QUANTITY:'数量',SCHEDULE:'进度',QUALITY:'质量',EFFICIENCY:'效率',GROWTH:'增长',CUSTOMER:'客户',COMPLIANCE:'合规',OTHER:'价值 / 其他',DELIVERY:'成果验收'}
+const accountingOptions={PROFIT:{label:translateText("盈利型"),example:translateText("电商销售"),description:translateText("看收入、成本和赚了多少")},VALUE:{label:translateText("价值型"),example:translateText("员工培训"),description:translateText("看投入多少，目标有没有完成")}}
+const accountingLabel={PROFIT:translateText("盈利型"),VALUE:translateText("价值型"),COST:translateText("成本型（历史）"),HYBRID:translateText("混合型（历史）")}
+const revenueTypeLabel={SALES:translateText("商品销售"),SERVICE:translateText("服务费"),COMMISSION:translateText("佣金"),LIVE:translateText("直播收入"),OTHER:translateText("其他")}
+const expenseCategoryLabel={PROCUREMENT:translateText("采购"),MARKETING:translateText("推广"),PLATFORM:translateText("平台服务"),TRAVEL:translateText("差旅"),OUTSOURCING:translateText("外包"),EQUIPMENT:translateText("设备"),LOGISTICS:translateText("物流"),OTHER:translateText("其他")}
+const targetTypeLabel={FINANCIAL:translateText("财务"),QUANTITY:translateText("数量"),SCHEDULE:translateText("进度"),QUALITY:translateText("质量"),EFFICIENCY:translateText("效率"),GROWTH:translateText("增长"),CUSTOMER:translateText("客户"),COMPLIANCE:translateText("合规"),OTHER:translateText("价值 / 其他"),DELIVERY:translateText("成果验收")}
 const targetUnitOptions=computed(()=>[...new Set(['个','件','条','次','人','单','份','套','台','场','天','小时','分钟',...(form.value.baseCurrency==='CNY'?['元','万元']:[form.value.baseCurrency||'CNY']),'VND','%','分'])])
-const scenarioLabel={CONSERVATIVE:'保守',BASE:'正常',OPTIMISTIC:'乐观'}
-const managementOptions={LIGHT:{label:'轻量',hint:'短周期、低风险',description:'适合周期短、范围清晰、风险较低的项目；保留任务、成本和KPI，风险按异常登记。'},STANDARD:{label:'标准',hint:'周度跟踪、里程碑',description:'启用周度跟踪、里程碑、风险台账和预算预警，适合多数跨成员项目。'},KEY_CONTROL:{label:'重点监管',hint:'高风险、公司级项目',description:'强化里程碑、风险、预算分级预警和治理变更审批，立项时必须说明监管原因。'}}
-const managementLabel={LIGHT:'轻量',STANDARD:'标准',KEY_CONTROL:'重点监管',SIMPLE:'轻量',DELIVERY:'标准'}
-const closeMethodOptions={DIRECT:{label:'直接结项',description:'老板检查后结项'},RESULT_ACCEPTANCE:{label:'成果验收',description:'提交交付资料，老板验收后结项'},STAGED_ACCEPTANCE:{label:'阶段验收',description:'逐阶段验收，全部通过后申请结项'}}
+const scenarioLabel={CONSERVATIVE:translateText("保守"),BASE:translateText("正常"),OPTIMISTIC:translateText("乐观")}
+const managementOptions={LIGHT:{label:translateText("轻量"),hint:translateText("短周期、低风险"),description:translateText("适合周期短、范围清晰、风险较低的项目；保留任务、成本和KPI，风险按异常登记。")},STANDARD:{label:translateText("标准"),hint:translateText("周度跟踪、里程碑"),description:translateText("启用周度跟踪、里程碑、风险台账和预算预警，适合多数跨成员项目。")},KEY_CONTROL:{label:translateText("重点监管"),hint:translateText("高风险、公司级项目"),description:translateText("强化里程碑、风险、预算分级预警和治理变更审批，立项时必须说明监管原因。")}}
+const managementLabel={LIGHT:translateText("轻量"),STANDARD:translateText("标准"),KEY_CONTROL:translateText("重点监管"),SIMPLE:translateText("轻量"),DELIVERY:translateText("标准")}
+const closeMethodOptions={DIRECT:{label:translateText("直接结项"),description:translateText("老板检查后结项")},RESULT_ACCEPTANCE:{label:translateText("成果验收"),description:translateText("提交交付资料，老板验收后结项")},STAGED_ACCEPTANCE:{label:translateText("阶段验收"),description:translateText("逐阶段验收，全部通过后申请结项")}}
 const closeMethodLabel=Object.fromEntries(Object.entries(closeMethodOptions).map(([key,item])=>[key,item.label]))
-const eventLabel={SELF_AUTHORIZED:'负责人自主启动',CREATE:'创建草稿',HANDOFF:'转交子负责人',EDIT:'修改草稿',SUBMIT:'提交审批',RESUBMIT:'重新提交',WITHDRAW:'撤回申请',RETURN:'退回修改',APPROVE:'批准立项',OWNER_LAUNCH:'负责人启动项目'}
+const eventLabel={SELF_AUTHORIZED:translateText("负责人自主启动"),CREATE:translateText("创建草稿"),HANDOFF:translateText("转交子负责人"),EDIT:translateText("修改草稿"),SUBMIT:translateText("提交审批"),RESUBMIT:translateText("重新提交"),WITHDRAW:translateText("撤回申请"),RETURN:translateText("退回修改"),APPROVE:translateText("批准立项"),OWNER_LAUNCH:translateText("负责人启动项目")}
 const requiredRule=(message,trigger='change')=>[{required:true,message,trigger,...(trigger==='blur'?{type:'string',whitespace:true}:{})}]
 const amountRule=(message,min=0)=>[{required:true,type:'number',min,max:99999999999999.99,message,trigger:'change'}]
 const rules=computed(()=>({
-  projectName:requiredRule('请输入项目名称','blur'),assignedOwnerUserId:form.value.parentProjectId?requiredRule('请选择子项目负责人'):[],sponsorOwnerUserId:form.value.parentProjectId?[]:requiredRule('请选择归属老板'),companyDeptId:requiredRule('请选择归属公司'),
-  goalMode:requiredRule('请选择目标模式'),
-  accountingMode:[{validator:(_rule,value,callback)=>callback(accountingOptions[value]?undefined:new Error('请选择盈利型或价值型')),trigger:'change'}],managementMode:requiredRule('请选择管理模式'),closeMethod:requiredRule('请选择结项方式'),
-  objective:requiredRule('请填写项目目标','blur'),applicationReason:requiredRule('请填写立项理由','blur'),planStartDate:requiredRule('请选择计划开始日期'),
-  planEndDate:openEnded.value?[]:requiredRule('请选择计划结束日期或勾选不限期'),priority:requiredRule('请选择优先级'),baseCurrency:requiredRule('请选择币种'),
-  parentFundingAmount:form.value.parentProjectId?amountRule('请填写大于0的子项目拨款额度',0.01):[],
-  parentFundingReason:form.value.parentProjectId?requiredRule('请填写子项目拨款说明','blur'):[],
-  managementReason:form.value.managementMode==='KEY_CONTROL'?requiredRule('请填写监管原因','blur'):[],
-  'budget.mode':requiredRule('请选择预算控制方式'),
-  'budget.scope':form.value.budget?.mode==='DAILY'?requiredRule('请选择每日统计口径'):[],
-  'budget.dailyLimit':form.value.budget?.mode==='DAILY'?amountRule('请填写大于0的每日预算上限',0.01):[],
-  'budget.startupLimit':startupRequired.value?amountRule('本期有一次性支出，请填写大于0的启动预算',0.01):[],
-  'budget.reason':form.value.budget?.mode==='NONE'?requiredRule('请说明不设预算上限的原因','blur'):[],
-  'budget.businessAmount':form.value.budget?.mode==='TOTAL'?amountRule('业务预算不能低于支出计划合计',businessExpenseTotal.value):[],'budget.cycle':openEnded.value?requiredRule('请选择预算周期'):[],'budget.anchorDate':openEnded.value?requiredRule(`请选择${budgetPeriodFieldLabel.value}`):[],riskSummary:[]
+  projectName:requiredRule(translateText("请输入项目名称"),'blur'),assignedOwnerUserId:form.value.parentProjectId?requiredRule(translateText("请选择子项目负责人")):[],sponsorOwnerUserId:form.value.parentProjectId?[]:requiredRule(translateText("请选择归属老板")),companyDeptId:requiredRule(translateText("请选择归属公司")),
+  goalMode:requiredRule(translateText("请选择目标模式")),
+  accountingMode:[{validator:(_rule,value,callback)=>callback(accountingOptions[value]?undefined:new Error(translateText("请选择盈利型或价值型"))),trigger:'change'}],managementMode:requiredRule(translateText("请选择管理模式")),closeMethod:requiredRule(translateText("请选择结项方式")),
+  objective:requiredRule(translateText("请填写项目目标"),'blur'),applicationReason:requiredRule(translateText("请填写立项理由"),'blur'),planStartDate:requiredRule(translateText("请选择计划开始日期")),
+  planEndDate:openEnded.value?[]:requiredRule(translateText("请选择计划结束日期或勾选不限期")),priority:requiredRule(translateText("请选择优先级")),baseCurrency:requiredRule(translateText("请选择币种")),
+  parentFundingAmount:form.value.parentProjectId?amountRule(translateText("请填写大于0的子项目拨款额度"),0.01):[],
+  parentFundingReason:form.value.parentProjectId?requiredRule(translateText("请填写子项目拨款说明"),'blur'):[],
+  managementReason:form.value.managementMode==='KEY_CONTROL'?requiredRule(translateText("请填写监管原因"),'blur'):[],
+  'budget.mode':requiredRule(translateText("请选择预算控制方式")),
+  'budget.scope':form.value.budget?.mode==='DAILY'?requiredRule(translateText("请选择每日统计口径")):[],
+  'budget.dailyLimit':form.value.budget?.mode==='DAILY'?amountRule(translateText("请填写大于0的每日预算上限"),0.01):[],
+  'budget.startupLimit':startupRequired.value?amountRule(translateText("本期有一次性支出，请填写大于0的启动预算"),0.01):[],
+  'budget.reason':form.value.budget?.mode==='NONE'?requiredRule(translateText("请说明不设预算上限的原因"),'blur'):[],
+  'budget.businessAmount':form.value.budget?.mode==='TOTAL'?amountRule(translateText("业务预算不能低于支出计划合计"),businessExpenseTotal.value):[],'budget.cycle':openEnded.value?requiredRule(translateText("请选择预算周期")):[],'budget.anchorDate':openEnded.value?requiredRule(translateText("请选择{0}", [budgetPeriodFieldLabel.value])):[],riskSummary:[]
 }))
 
 const isOwnerStaff=row=>Number(row.userId)===Number(form.value.parentProjectId?form.value.assignedOwnerUserId:(form.value.applicantUserId||userStore.id))
@@ -321,7 +323,7 @@ async function changeAssignedOwner(){
   if(isChildCreatorPhase.value)form.value.staffingLines=[]
   ensureOwnerStaff();await refreshStaffOptions();await refreshStaffAllocationPlans(true)
 }
-function ensureOwnerStaff(){if(!isNewTemplate.value||isChildCreatorPhase.value)return;const id=Number(form.value.parentProjectId?form.value.assignedOwnerUserId:(form.value.applicantUserId||userStore.id));if(!id||form.value.staffingLines.some(row=>Number(row.userId)===id))return;form.value.staffingLines.unshift({...emptyStaffing(),userId:id,userName:form.value.parentProjectId?form.value.assignedOwnerName:(userStore.nickName||userStore.name),roleName:'项目负责人'})}
+function ensureOwnerStaff(){if(!isNewTemplate.value||isChildCreatorPhase.value)return;const id=Number(form.value.parentProjectId?form.value.assignedOwnerUserId:(form.value.applicantUserId||userStore.id));if(!id||form.value.staffingLines.some(row=>Number(row.userId)===id))return;form.value.staffingLines.unshift({...emptyStaffing(),userId:id,userName:form.value.parentProjectId?form.value.assignedOwnerName:(userStore.nickName||userStore.name),roleName:translateText("项目负责人")})}
 const emptyStaffing=()=>({participationMode:'FOLLOW_PROJECT',planStartDate:form.value.planStartDate||null,planEndDate:openEnded.value?null:form.value.planEndDate||null,inputUnit:'PERCENTAGE',inputQuantity:100,calendarId:defaultCalendar(),unitPolicyId:defaultUnitPolicy(),userId:null,userName:'',roleName:'',costPolicyId:null,costPolicyVersion:null,monthlyCostSnapshot:null,standardWorkDaysSnapshot:null,dailyCostSnapshot:null,costCurrency:null,estimatedCost:null,note:''})
 const freshForm=()=>({assignedOwnerUserId:null,assignedOwnerName:'',parentProjectId:null,parentProjectName:'',parentFundingAmount:null,parentFundingReason:'',projectName:'',templateVersion:'LIGHT_V1',sponsorOwnerUserId:null,companyDeptId:null,projectType:'GENERAL',accountingMode:'PROFIT',managementMode:'LIGHT',closeMethod:'DIRECT',managementReason:'',acceptanceCriteria:'',objective:'',applicationReason:'',planStartDate:null,planEndDate:null,priority:'MEDIUM',baseCurrency:'CNY',budgetLimit:null,noBudget:'0',goalMode:'TOTAL',budget:{mode:'TOTAL',scope:'FULL_COST',dailyLimit:null,startupLimit:null,reason:'',cycle:'MONTH',anchorDate:null,businessAmount:0},revenueModel:'',peakCashNeed:null,riskSummary:'',revenueLines:[],expenseLines:[],staffingLines:[],targetLines:[]})
 const isNewTemplate=computed(()=>!!form.value.templateVersion&&form.value.templateVersion!=='LEGACY_V1')
@@ -336,18 +338,19 @@ const showTargetLines=computed(()=>true)
 const detailIsIncompleteDraft=computed(()=>{try{return !!JSON.parse(detail.value.templateSnapshotJson||'{}').draftPlan}catch{return false}})
 watch(()=>form.value.accountingMode,()=>nextTick(()=>formRef.value?.clearValidate()))
 async function showPlanError(message){
+  message=sourceText(message)
   const section=message.includes('收入')?'revenue':message.includes('目标')?'targets':message.includes('风险')?'risk':message.includes('支出')?'expenses':null
   await nextTick()
-  const heading=[...document.querySelectorAll('.proposal-form h3')].find(el=>el.textContent.includes(section==='revenue'?'收入测算':section==='targets'?'项目验收目标':message.includes('人员')?'人员计划':message.includes('预算')?'预算设置':'支出计划'))
+  const heading=[...document.querySelectorAll('.proposal-form h3')].find(el=>sourceText(el.textContent.replace(/^\d+/, '').trim()).includes(section==='revenue'?'收入测算':section==='targets'?'项目验收目标':message.includes('人员')?'人员计划':message.includes('预算')?'预算设置':'支出计划'))
   heading?.scrollIntoView({block:'center',behavior:'smooth'})
-  ElMessage.warning(message)
+  ElMessage.warning(translateText(message))
 }
 const defaultCalendar=()=>options.calendars.find(c=>coversWindow(c,form.value.planStartDate,form.value.planEndDate))?.calendarId??null
 const defaultUnitPolicy=()=>options.unitPolicies.find(p=>coversWindow(p,form.value.planStartDate,form.value.planEndDate))?.unitPolicyId??null
 const shortDate=value=>value?String(value).slice(0,10):''
 const coversWindow=(policy,from,to)=>(!from||!policy.effectiveFrom||shortDate(policy.effectiveFrom)<=shortDate(from))&&(!to||!policy.effectiveTo||shortDate(policy.effectiveTo)>=shortDate(to))
 const automaticCalendar=row=>options.calendars.find(c=>coversWindow(c,row.planStartDate,row.planEndDate))?.calendarId??null
-const participationLabel={FOLLOW_PROJECT:'跟随项目',CUSTOM:'自定义时间',UNLIMITED:'不限期'}
+const participationLabel={FOLLOW_PROJECT:translateText("跟随项目"),CUSTOM:translateText("自定义时间"),UNLIMITED:translateText("不限期")}
 const staffParticipationMode=(row,project)=>row.participationMode||(shortDate(row.planStartDate)===shortDate(project.planStartDate)&&(shortDate(row.planEndDate)||null)===(shortDate(project.planEndDate)||null)?'FOLLOW_PROJECT':!row.planEndDate?'UNLIMITED':'CUSTOM')
 
 const number=value=>Number(value)||0
@@ -366,7 +369,7 @@ let budgetTimer,budgetRequest=0
 const budgetRetry=ref(0)
 const retryBudgetEstimate=()=>{budgetRetry.value++}
 const budgetIssues=computed(()=>budgetError.value?[budgetError.value]:(budgetEstimate.value.issues||[]))
-const budgetPeriodFieldLabel=computed(()=>({WEEK:'预算所属周',MONTH:'预算所属月份',QUARTER:'预算起始月份',YEAR:'预算所属年度'}[form.value.budget?.cycle]||'预算所属期间'))
+const budgetPeriodFieldLabel=computed(()=>({WEEK:translateText("预算所属周"),MONTH:translateText("预算所属月份"),QUARTER:translateText("预算起始月份"),YEAR:translateText("预算所属年度")}[form.value.budget?.cycle]||translateText("预算所属期间")))
 // Derive the current period from inputs so required marks never depend on a stale estimate.
 const startupRequired=computed(()=>{
   if(form.value.budget?.mode!=='DAILY')return false
@@ -388,8 +391,8 @@ const startupRequired=computed(()=>{
     (!row.occurDate||(!from||shortDate(row.occurDate)>=from)&&(!to||shortDate(row.occurDate)<=to)))
 })
 function localDate(date){return date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0')}
-const budgetPeriodText=computed(()=>{if(isChildCreatorPhase.value)return '人员与投入比例由子负责人设置后计算完整预算';const b=budgetEstimate.value;return b.startDate&&b.endDate?`预算期间：${b.startDate} 至 ${b.endDate}（${{PROJECT:'整个项目',WEEK:'周度',MONTH:'月度',QUARTER:'季度',YEAR:'年度'}[b.cycle]||''}）`:'请选择项目日期与预算期间'})
-const budgetDisplay=key=>isChildCreatorPhase.value&&['totalAmount','personnelAmount'].includes(key)?'待子负责人设置':budgetError.value?'测算未更新':budgetLoading.value?'计算中…':budgetEstimate.value[key]==null?'待完善计划':money(budgetEstimate.value[key],form.value.baseCurrency)
+const budgetPeriodText=computed(()=>{if(isChildCreatorPhase.value)return translateText("人员与投入比例由子负责人设置后计算完整预算");const b=budgetEstimate.value;return b.startDate&&b.endDate?translateText("预算期间：{0} 至 {1}（{2}）", [b.startDate, b.endDate, {PROJECT:translateText("整个项目"),WEEK:translateText("周度"),MONTH:translateText("月度"),QUARTER:translateText("季度"),YEAR:translateText("年度")}[b.cycle]||'']):translateText("请选择项目日期与预算期间")})
+const budgetDisplay=key=>isChildCreatorPhase.value&&['totalAmount','personnelAmount'].includes(key)?translateText("待子负责人设置"):budgetError.value?translateText("测算未更新"):budgetLoading.value?translateText("计算中…"):budgetEstimate.value[key]==null?translateText("待完善计划"):money(budgetEstimate.value[key],form.value.baseCurrency)
 // Watch only fields consumed by budget calculation and date validation.
 // Editing descriptions must not trigger requests or disturb the form layout.
 const budgetCalculationInput=computed(()=>[
@@ -404,46 +407,46 @@ watch(()=>JSON.stringify(budgetCalculationInput.value),()=>{
   clearTimeout(budgetTimer);const request=++budgetRequest;budgetError.value=''
   if(!formVisible.value){budgetLoading.value=false;return}
   if(isChildCreatorPhase.value){budgetEstimate.value={};budgetLoading.value=false;return}
-  if(!form.value.planStartDate||!openEnded.value&&!form.value.planEndDate){budgetLoading.value=false;budgetError.value='请先填写项目起止日期，或选择不限期';return}
-  if(openEnded.value&&!form.value.budget.anchorDate){budgetLoading.value=false;budgetError.value='请选择预算所属期间';return}
+  if(!form.value.planStartDate||!openEnded.value&&!form.value.planEndDate){budgetLoading.value=false;budgetError.value=translateText("请先填写项目起止日期，或选择不限期");return}
+  if(openEnded.value&&!form.value.budget.anchorDate){budgetLoading.value=false;budgetError.value=translateText("请选择预算所属期间");return}
   budgetLoading.value=true
-  budgetTimer=setTimeout(async()=>{try{const res=await estimateProjectProposalBudget({...form.value,...budgetPolicyPayload(),revenueLines:[...(form.value.revenueLines||[])],budget:{...form.value.budget,businessAmount:businessBudgetAmount.value,cycle:openEnded.value?form.value.budget.cycle:'PROJECT'}});if(request===budgetRequest)budgetEstimate.value=res.data||{}}catch(e){if(request===budgetRequest)budgetError.value=e?.message||'预算计算未完成，请检查输入或稍后重试'}finally{if(request===budgetRequest)budgetLoading.value=false}},450)
+  budgetTimer=setTimeout(async()=>{try{const res=await estimateProjectProposalBudget({...form.value,...budgetPolicyPayload(),revenueLines:[...(form.value.revenueLines||[])],budget:{...form.value.budget,businessAmount:businessBudgetAmount.value,cycle:openEnded.value?form.value.budget.cycle:'PROJECT'}});if(request===budgetRequest)budgetEstimate.value=res.data||{}}catch(e){if(request===budgetRequest)budgetError.value=e?.message||translateText("预算计算未完成，请检查输入或稍后重试")}finally{if(request===budgetRequest)budgetLoading.value=false}},450)
 })
 onBeforeUnmount(()=>{clearTimeout(budgetTimer);budgetRequest++})
 const planSummary=computed(()=>{const b=budgetEstimate.value,revenue=b.revenueAmount==null?null:number(b.revenueAmount),external=b.plannedBusinessAmount==null?null:number(b.plannedBusinessAmount),personnel=b.personnelAmount==null?null:number(b.personnelAmount),total=personnel==null||external==null?null:external+personnel,profit=total==null||revenue==null?null:revenue-total;return{revenue,external,personnel,total,profit,margin:profit===null||!revenue?null:profit*100/revenue}})
-function changeProjectCurrency(currency){if(!['CNY','VND','USD'].includes(currency)||form.value.baseCurrency===currency)return;const hasAmounts=(form.value.revenueLines||[]).some(row=>Number(row.expectedAmount)>0)||(form.value.expenseLines||[]).some(row=>Number(row.amount)>0)||Number(form.value.budget?.businessAmount)>0;form.value.baseCurrency=currency;if(hasAmounts)ElMessage.warning('项目币种已切换，金额不会自动换算，请核对收入、支出和预算数值')}
+function changeProjectCurrency(currency){if(!['CNY','VND','USD'].includes(currency)||form.value.baseCurrency===currency)return;const hasAmounts=(form.value.revenueLines||[]).some(row=>Number(row.expectedAmount)>0)||(form.value.expenseLines||[]).some(row=>Number(row.amount)>0)||Number(form.value.budget?.businessAmount)>0;form.value.baseCurrency=currency;if(hasAmounts)ElMessage.warning(translateText("项目币种已切换，金额不会自动换算，请核对收入、支出和预算数值"))}
 function addRevenue(){form.value.revenueLines.push({scenario:'BASE',revenueType:'SALES',itemName:'',expectedAmount:0,occurrenceType:'ONE_TIME',expectedDate:null,assumptionText:''})}
 function addExpense(){form.value.expenseLines.push({expenseCategory:'OTHER',itemName:'',purpose:'',counterparty:'',amount:0,occurrenceType:'ONE_TIME',occurDate:null,expenseType:'ONE_TIME',hasQuotation:'0'})}
 function addStaffing(){form.value.staffingLines.push(emptyStaffing())}
-function changeTargetType(row){if(row.targetType==='DELIVERY'){row.targetValue=1;row.unit='项'}else if(row.targetType!=='FINANCIAL'&&['元','万元','CNY','USD','VND'].includes(row.unit)){row.targetValue=null;row.unit='';ElMessage.info('目标类型已变化，请重新选择单位并填写目标值')}}
+function changeTargetType(row){if(row.targetType==='DELIVERY'){row.targetValue=1;row.unit='项'}else if(row.targetType!=='FINANCIAL'&&['元','万元','CNY','USD','VND'].includes(row.unit)){row.targetValue=null;row.unit='';ElMessage.info(translateText("目标类型已变化，请重新选择单位并填写目标值"))}}
 function addTarget(){form.value.targetLines.push({targetType:['VALUE','HYBRID'].includes(form.value.accountingMode)?'DELIVERY':'QUANTITY',targetName:'',targetValue:['VALUE','HYBRID'].includes(form.value.accountingMode)?1:0,unit:['VALUE','HYBRID'].includes(form.value.accountingMode)?'项':'',dueDate:null,acceptanceEvidence:''})}
 async function ensureOptions(force=false){if(!force&&options.bosses.length&&options.companies.length)return;const res=await getProjectProposalOptions();Object.assign(options,res.data||{})}
 function plannedDays(){if(!form.value.planStartDate||openEnded.value||!form.value.planEndDate)return null;const start=new Date(`${form.value.planStartDate}T00:00:00`),end=new Date(`${form.value.planEndDate}T00:00:00`);return Math.max(1,Math.floor((end-start)/86400000)+1)}
-function syncStaffRow(row,item){if(!item)return;Object.assign(row,{userId:item.userId,userName:item.nickName||item.accountName,roleName:item.positionName||'项目成员'});if(isNewTemplate.value)Object.assign(row,{costPolicyId:null,costPolicyVersion:null,monthlyCostSnapshot:null,standardWorkDaysSnapshot:null,dailyCostSnapshot:null,costCurrency:null,estimatedCost:null})}
+function syncStaffRow(row,item){if(!item)return;Object.assign(row,{userId:item.userId,userName:item.nickName||item.accountName,roleName:item.positionName||translateText("项目成员")});if(isNewTemplate.value)Object.assign(row,{costPolicyId:null,costPolicyVersion:null,monthlyCostSnapshot:null,standardWorkDaysSnapshot:null,dailyCostSnapshot:null,costCurrency:null,estimatedCost:null})}
 async function staffChanged(row){Object.assign(row,{costPolicyId:null,costPolicyVersion:null,monthlyCostSnapshot:null,standardWorkDaysSnapshot:null,dailyCostSnapshot:null,costCurrency:null,estimatedCost:null,allocationPlan:null});syncStaffRow(row,options.staff.find(item=>Number(item.userId)===Number(row.userId)));await loadStaffAllocationPlan(row,true)}
-const estimateMoney=value=>isChildCreatorPhase.value?'待子负责人设置':budgetError.value?'测算未更新':budgetLoading.value?'计算中…':value==null?'待完善计划':money(value,form.value.baseCurrency)
+const estimateMoney=value=>isChildCreatorPhase.value?translateText("待子负责人设置"):budgetError.value?translateText("测算未更新"):budgetLoading.value?translateText("计算中…"):value==null?translateText("待完善计划"):money(value,form.value.baseCurrency)
 const staffBudgetStatus=row=>budgetEstimate.value.staffingStatus?.find(item=>String(item.userId)===String(row.userId))
 const allocationLoadingKeys=ref(new Set()),allocationLoadedKeys=ref(new Set()),allocationPopoverVisible=reactive({})
 const staffAllocationKey=row=>`${row?.userId||''}:${shortDate(row?.planStartDate)}:${shortDate(row?.planEndDate)}`
 const staffAllocationLoading=row=>allocationLoadingKeys.value.has(staffAllocationKey(row))
 const staffAllocationTotal=row=>Number((number(row?.inputQuantity)+(row?.allocationPlan?.allocations||[]).reduce((sum,item)=>sum+number(item.allocationValue),0)).toFixed(2))
 function confirmStaffAllocation(row){
-  if(staffAllocationTotal(row)!==100)return ElMessage.warning(`${row.userName||'人员'}的全部项目投入比例合计必须等于100%`)
-  if(!row.allocationPlan?.reason?.trim())return ElMessage.warning(`请填写${row.userName||'人员'}的跨项目投入调整原因`)
+  if(staffAllocationTotal(row)!==100)return ElMessage.warning(translateText("{0}的全部项目投入比例合计必须等于100%", [row.userName||translateText("人员")]))
+  if(!row.allocationPlan?.reason?.trim())return ElMessage.warning(translateText("请填写{0}的跨项目投入调整原因", [row.userName||translateText("人员")]))
   row.allocationPlan.reason=row.allocationPlan.reason.trim()
   allocationPopoverVisible[staffAllocationKey(row)]=false
-  ElMessage.success('投入比例修改已确认，将在启动项目时一并保存')
+  ElMessage.success(translateText("投入比例修改已确认，将在启动项目时一并保存"))
 }
 const staffPeriodProjects=row=>row?.allocationPlan?.periodProjects||row?.allocationPlan?.allocations||[]
 const staffPeriodOnlyProjects=row=>staffPeriodProjects(row).filter(item=>!item.editable)
-const projectPeriod=item=>`${shortDate(item.projectStartDate)||shortDate(item.joinedDate)||'未记录'} 至 ${shortDate(item.projectEndDate)||shortDate(item.leftDate)||'不限期'}`
-const periodProjectLabel=item=>({ENDED:'已结束项目',UPCOMING:'后续项目',PERIOD:'周期内项目'})[item.periodState]||'周期内项目'
+const projectPeriod=item=>translateText("{0} 至 {1}", [shortDate(item.projectStartDate)||shortDate(item.joinedDate)||translateText("未记录"), shortDate(item.projectEndDate)||shortDate(item.leftDate)||translateText("不限期")])
+const periodProjectLabel=item=>({ENDED:translateText("已结束项目"),UPCOMING:translateText("后续项目"),PERIOD:translateText("周期内项目")})[item.periodState]||translateText("周期内项目")
 function staffAllocationSummary(row){
   const key=staffAllocationKey(row)
-  if(allocationLoadingKeys.value.has(key))return '正在加载其他项目投入…'
+  if(allocationLoadingKeys.value.has(key))return translateText("正在加载其他项目投入…")
   const periodProjects=staffPeriodProjects(row)
-  if(periodProjects.length){const current=row.allocationPlan.allocations||[],other=current.reduce((sum,item)=>sum+number(item.allocationValue),0);return `周期内 ${periodProjects.length} 个项目 · 当前 ${other.toFixed(2)}%`}
-  return allocationLoadedKeys.value.has(key)?'未参与其他项目':'查看其他项目投入'
+  if(periodProjects.length){const current=row.allocationPlan.allocations||[],other=current.reduce((sum,item)=>sum+number(item.allocationValue),0);return translateText("周期内 {0} 个项目 · 当前 {1}%", [periodProjects.length, other.toFixed(2)])}
+  return allocationLoadedKeys.value.has(key)?translateText("未参与其他项目"):translateText("查看其他项目投入")
 }
 async function loadStaffAllocationPlan(row,force=false){
   const effectiveDate=shortDate(row?.planStartDate),periodEndDate=shortDate(row?.planEndDate)||undefined,userId=row?.userId,companyDeptId=form.value.companyDeptId
@@ -462,7 +465,7 @@ async function loadStaffAllocationPlan(row,force=false){
       row.allocationPlan={effectiveDate:data.effectiveDate,periodStartDate:data.periodStartDate||effectiveDate,periodEndDate:data.periodEndDate||null,versionToken:data.versionToken,reason:previous?.reason||'',periodProjects,allocations:projects.map(item=>({...item,editable:true,originalValue:item.allocationValue,allocationValue:previousValues.has(String(item.projectId))?previousValues.get(String(item.projectId)):item.allocationValue}))}
     }
     allocationLoadedKeys.value.add(key)
-  }catch(error){ElMessage.warning(error?.message||'其他项目投入加载失败，请稍后重试')}
+  }catch(error){ElMessage.warning(error?.message||translateText("其他项目投入加载失败，请稍后重试"))}
   finally{allocationLoadingKeys.value.delete(key)}
 }
 async function refreshStaffAllocationPlans(force=false){await Promise.all((form.value.staffingLines||[]).map(row=>loadStaffAllocationPlan(row,force)))}
@@ -472,31 +475,31 @@ function lineDateIssue(value,rule='project'){
   const date=shortDate(value)
   if(rule==='revenue'||rule==='expense'){
     const month=date.slice(0,7),minimum=form.value.planStartDate?shiftedMonth(form.value.planStartDate,-6):'',maximum=!openEnded.value&&form.value.planEndDate?shiftedMonth(form.value.planEndDate,6):''
-    const name=rule==='revenue'?'收入':'支出'
-    if(minimum&&month<minimum||maximum&&month>maximum)return openEnded.value?`${name}月份不得早于项目开始月前 6 个月`:`${name}月份须在项目开始月前 6 个月至结束月后 6 个月内`
+    const name=rule==='revenue'?translateText("收入"):translateText("支出")
+    if(minimum&&month<minimum||maximum&&month>maximum)return openEnded.value?translateText("{0}月份不得早于项目开始月前 6 个月", [name]):translateText("{0}月份须在项目开始月前 6 个月至结束月后 6 个月内", [name])
     return ''
   }
-  if(date<form.value.planStartDate||!openEnded.value&&form.value.planEndDate&&date>form.value.planEndDate)return '日期须在项目起止范围内'
-  if(rule==='after-start'&&form.value.planStartDate&&date.slice(0,7)<=form.value.planStartDate.slice(0,7))return '完成月份须晚于项目开始月份'
+  if(date<form.value.planStartDate||!openEnded.value&&form.value.planEndDate&&date>form.value.planEndDate)return translateText("日期须在项目起止范围内")
+  if(rule==='after-start'&&form.value.planStartDate&&date.slice(0,7)<=form.value.planStartDate.slice(0,7))return translateText("完成月份须晚于项目开始月份")
   return ''
 }
 function staffRateDisplay(row,field){
   if(!row.userId)return '—'
   const staff=options.staff.find(item=>Number(item.userId)===Number(row.userId))
   if(!staff)return '—'
-  if(!staff.rawCostVisible)return '无成本查看权限'
-  if(staff.costMode!=='MONTHLY'||staff[field]==null)return '未配置'
+  if(!staff.rawCostVisible)return translateText("无成本查看权限")
+  if(staff.costMode!=='MONTHLY'||staff[field]==null)return translateText("未配置")
   return money(staff[field],staff.costCurrency||'CNY')
 }
 function estimatedDailyCostDisplay(row){
   if(!row.userId)return '—'
   const staff=options.staff.find(item=>Number(item.userId)===Number(row.userId))
   if(!staff)return '—'
-  if(!staff.rawCostVisible)return '无成本查看权限'
-  if(staff.dailyCost==null)return '待完善'
+  if(!staff.rawCostVisible)return translateText("无成本查看权限")
+  if(staff.dailyCost==null)return translateText("待完善")
   const allocation=row.inputQuantity==null?100:Number(row.inputQuantity)
-  if(!Number.isFinite(allocation)||allocation<=0)return '待填写投入比例'
-  return `${money(Number(staff.dailyCost)*allocation/100,staff.costCurrency||form.value.baseCurrency)} / 工作日`
+  if(!Number.isFinite(allocation)||allocation<=0)return translateText("待填写投入比例")
+  return translateText("{0} / 工作日", [money(Number(staff.dailyCost)*allocation/100,staff.costCurrency||form.value.baseCurrency)])
 }
 function syncParticipation(row){
   if(row.participationMode==='FOLLOW_PROJECT')Object.assign(row,{planStartDate:form.value.planStartDate||null,planEndDate:openEnded.value?null:form.value.planEndDate||null})
@@ -521,11 +524,11 @@ async function refreshStaffOptions(){
     if(!row.userId)continue
     const item=options.staff.find(option=>Number(option.userId)===Number(row.userId))
     if(item)syncStaffRow(row,item)
-    else if(isOwnerStaff(row)){ElMessage.warning('负责人不在有效人员范围，请核对人员资料')}
-    else {row.userId=null;row.userName='';row.roleName='';row.estimatedCost=null;row.allocationPlan=null;ElMessage.warning('部分人员不在所选日期的有效任职范围，请重新选择；参与方式和日期已保留')}
+    else if(isOwnerStaff(row)){ElMessage.warning(translateText("负责人不在有效人员范围，请核对人员资料"))}
+    else {row.userId=null;row.userName='';row.roleName='';row.estimatedCost=null;row.allocationPlan=null;ElMessage.warning(translateText("部分人员不在所选日期的有效任职范围，请重新选择；参与方式和日期已保留"))}
   }
 }
-const staffOptionLabel=item=>{const name=item.nickName&&item.nickName!==item.accountName?`${item.nickName}（${item.accountName}）`:item.nickName||item.accountName;return `${name} · ${item.companyName||'未归属公司'} · ${item.positionName||'项目成员'}`}
+const staffOptionLabel=item=>{const name=item.nickName&&item.nickName!==item.accountName?`${item.nickName}（${item.accountName}）`:item.nickName||item.accountName;return `${name} · ${item.companyName||translateText("未归属公司")} · ${item.positionName||translateText("项目成员")}`}
 const staffAlreadySelected=(userId,current)=>form.value.staffingLines?.some(row=>row!==current&&Number(row.userId)===Number(userId))
 let mineRequest=0,directoryRequest=0
 async function loadMine(){const request=++mineRequest;const res=await listProjectProposals({pageNum:minePage.pageNum,pageSize:minePage.pageSize});if(request!==mineRequest)return;minePage.total=Number(res.total)||0;const last=Math.max(1,Math.ceil(minePage.total/minePage.pageSize));if(minePage.pageNum>last){minePage.pageNum=last;return loadMine()}mineRows.value=res.rows||[]}
@@ -541,24 +544,24 @@ async function loadParentFunding(){
 }
 async function openForm(row,parent){if(!await confirmFormLeave())return;forecastPanels.value=[];allocationLoadingKeys.value.clear();allocationLoadedKeys.value.clear();await ensureOptions(true);const source=row?.proposalId?(await getProjectProposal(row.proposalId)).data:{...freshForm(),...(parent?{parentProjectId:parent.projectId,parentProjectName:parent.projectName,companyDeptId:parent.companyDeptId,sponsorOwnerUserId:parent.sponsorOwnerUserId||parent.initiatorUserId,baseCurrency:parent.baseCurrency||'CNY'}:{})};const legacyMode=source.managementMode==='SIMPLE'?'LIGHT':source.managementMode==='DELIVERY'?'STANDARD':source.managementMode;const legacyClose=source.closeMethod||(source.managementMode==='DELIVERY'?'RESULT_ACCEPTANCE':'DIRECT');openEnded.value=source.budget?.projectOpenEnded ?? (!!row?.proposalId&&!!source.planStartDate&&!source.planEndDate);form.value={...freshForm(),...source,templateVersion:source.templateVersion||(row?.proposalId?'LEGACY_V1':'LIGHT_V1'),managementMode:legacyMode,closeMethod:legacyClose,revenueLines:(source.revenueLines||[]).filter(item=>item.revenueType!=='PARENT_FUNDING').map(item=>({...item,scenario:item.scenario||'BASE'})),expenseLines:source.expenseLines||[],staffingLines:(source.staffingLines||[]).map(item=>{const from=shortDate(item.planStartDate)||null,to=shortDate(item.planEndDate)||null;const mode=item.participationMode||(from===shortDate(source.planStartDate)&&(to||null)===(shortDate(source.planEndDate)||null)?'FOLLOW_PROJECT':!to?'UNLIMITED':'CUSTOM');return{...item,participationMode:mode,planStartDate:from,planEndDate:to,inputUnit:'PERCENTAGE',inputQuantity:item.inputQuantity??100,unitPolicyId:item.unitPolicyId||options.unitPolicies[0]?.unitPolicyId||null}}),targetLines:(source.targetLines||[]).map(item=>({...item,targetType:({RESULT:'QUANTITY',VALUE:'OTHER'})[item.targetType]||item.targetType}))};form.value.budget={mode:source.budgetMode||'TOTAL',scope:source.budgetScope||'FULL_COST',dailyLimit:source.dailyBudgetLimit,startupLimit:source.startupBudgetLimit,reason:source.budgetReason||'',cycle:openEnded.value?'MONTH':'PROJECT',anchorDate:source.planStartDate?shortDate(source.planStartDate).slice(0,7)+'-01':null,businessAmount:Number(source.estimatedExternalCost)||0,...source.budget};form.value.budget.businessAmount=businessBudgetAmount.value;if(openEnded.value&&!['WEEK','MONTH','QUARTER','YEAR'].includes(form.value.budget.cycle))form.value.budget.cycle='MONTH';await loadParentFunding();budgetEstimate.value={};budgetError.value='';previousAssignedOwnerId=form.value.assignedOwnerUserId;syncOwnerCompany();if(isChildCreatorPhase.value)form.value.staffingLines=[];ensureOwnerStaff();await refreshStaffOptions();await refreshStaffAllocationPlans();pendingCreate=null;if(!form.value.proposalId)form.value.createRequestKey=newSubmissionId();detailVisible.value=false;formVisible.value=true;await nextTick();formBaseline=formSnapshot();formRef.value?.clearValidate()}
 function validateDetailLines(){
-  const groups=[['收入测算',form.value.revenueLines,[['revenueType','收入方式'],['itemName','收入项目'],['expectedAmount','预计金额'],['occurrenceType','发生方式']]],
-    ['支出计划',form.value.expenseLines,[['expenseCategory','类别'],['itemName','支出项目'],['purpose','具体用途'],['amount','金额'],['occurrenceType','发生方式']]],
-    ['量化目标',showTargetLines.value?form.value.targetLines:[],[['targetType','类型'],['targetName','目标名称'],['targetValue','目标值'],['unit','单位'],['acceptanceEvidence','验收依据']]]]
-  for(const [name,rows,fields] of groups)for(const [index,row] of (rows||[]).entries())for(const [field,label] of fields){const value=row[field];if(value==null||String(value).trim()==='')return name+'第 '+(index+1)+' 行：请填写'+label}
-  for(const [name,rows,field,rule] of [['收入测算',form.value.revenueLines,'expectedDate','revenue'],['支出计划',form.value.expenseLines,'occurDate','expense'],['量化目标',showTargetLines.value?form.value.targetLines:[],'dueDate','project']])for(const [index,row] of (rows||[]).entries())if(lineDateIssue(row[field],rule))return name+'第 '+(index+1)+' 行：'+lineDateIssue(row[field],rule)
-  for(const [name,rows,field,precision,max] of [['收入测算',form.value.revenueLines,'expectedAmount',2,99999999999.99],['支出计划',form.value.expenseLines,'amount',2,99999999999.99],['量化目标',showTargetLines.value?form.value.targetLines:[],'targetValue',4,99999999999999.99]]){
-    if(rows?.length>100)return name+'一次最多100行'
+  const groups=[[translateText("收入测算"),form.value.revenueLines,[['revenueType',translateText("收入方式")],['itemName',translateText("收入项目")],['expectedAmount',translateText("预计金额")],['occurrenceType',translateText("发生方式")]]],
+    [translateText("支出计划"),form.value.expenseLines,[['expenseCategory',translateText("类别")],['itemName',translateText("支出项目")],['purpose',translateText("具体用途")],['amount',translateText("金额")],['occurrenceType',translateText("发生方式")]]],
+    [translateText("量化目标"),showTargetLines.value?form.value.targetLines:[],[['targetType',translateText("类型")],['targetName',translateText("目标名称")],['targetValue',translateText("目标值")],['unit',translateText("单位")],['acceptanceEvidence',translateText("验收依据")]]]]
+  for(const [name,rows,fields] of groups)for(const [index,row] of (rows||[]).entries())for(const [field,label] of fields){const value=row[field];if(value==null||String(value).trim()==='')return translateText("{0}第 {1} 行：请填写{2}", [name,index+1,label])}
+  for(const [name,rows,field,rule] of [[translateText("收入测算"),form.value.revenueLines,'expectedDate','revenue'],[translateText("支出计划"),form.value.expenseLines,'occurDate','expense'],[translateText("量化目标"),showTargetLines.value?form.value.targetLines:[],'dueDate','project']])for(const [index,row] of (rows||[]).entries())if(lineDateIssue(row[field],rule))return translateText("{0}第 {1} 行：{2}", [name,index+1,lineDateIssue(row[field],rule)])
+  for(const [name,rows,field,precision,max] of [[translateText("收入测算"),form.value.revenueLines,'expectedAmount',2,99999999999.99],[translateText("支出计划"),form.value.expenseLines,'amount',2,99999999999.99],[translateText("量化目标"),showTargetLines.value?form.value.targetLines:[],'targetValue',4,99999999999999.99]]){
+    if(rows?.length>100)return translateText("{0}一次最多100行", [name])
     for(const [index,row] of (rows||[]).entries()){
       const value=Number(row[field])
-      if(!Number.isFinite(value)||value<0||value>max||Math.abs(value-Number(value.toFixed(precision)))>1e-8)return name+'第 '+(index+1)+' 行：请填写有效非负数值，'+(field==='targetValue'?'最多 4 位小数':'最多 11 位整数和 2 位小数')
+      if(!Number.isFinite(value)||value<0||value>max||Math.abs(value-Number(value.toFixed(precision)))>1e-8)return translateText("{0}第 {1} 行：请填写有效非负数值，{2}", [name,index+1,field==='targetValue'?translateText("最多 4 位小数"):translateText("最多 11 位整数和 2 位小数")])
     }
   }
-  if(!isNewTemplate.value&&form.value.goalMode!=='NO_TOTAL'&&!form.value.targetLines?.length)return '请至少填写一项量化目标'
+  if(!isNewTemplate.value&&form.value.goalMode!=='NO_TOTAL'&&!form.value.targetLines?.length)return translateText("请至少填写一项量化目标")
   return ''
 }
-async function saveForm(launch=false,keepFormOpen=false){if(saving.value)return;if(launch&&!canLaunchForm.value)return ElMessage.warning('保存后请由子项目负责人补充成员和投入比例并启动项目');saving.value=true;try{if(launch)await refreshStaffAllocationPlans();if(launch||!isNewTemplate.value||isChildCreatorPhase.value){try{await formRef.value.validate()}catch{return;}const detailError=validateDetailLines();if(detailError)return showPlanError(detailError);if(!form.value.planStartDate)return ElMessage.warning('请选择计划开始日期');if(!openEnded.value&&!form.value.planEndDate)return ElMessage.warning('请选择计划结束日期或勾选不限期');if(form.value.planEndDate&&form.value.planStartDate>form.value.planEndDate)return ElMessage.warning('计划结束日期不能早于开始日期');if(form.value.managementMode==='KEY_CONTROL'&&!form.value.managementReason?.trim())return ElMessage.warning('重点监管项目请填写监管原因');const staffing=isChildCreatorPhase.value?[]:(form.value.staffingLines||[]);if(!isNewTemplate.value&&!staffing.length||staffing.some(row=>!row.userId))return ElMessage.warning('请在人员计划中选择具体人员');if(new Set(staffing.map(row=>String(row.userId))).size!==staffing.length)return ElMessage.warning('同一人员不能重复选择');if(isNewTemplate.value)for(const row of staffing){syncParticipation(row);if(!Number.isFinite(Number(row.inputQuantity))||Number(row.inputQuantity)<=0||Number(row.inputQuantity)>100)return ElMessage.warning('每个人的投入比例必须大于0且不超过100%');if(!['FOLLOW_PROJECT','CUSTOM','UNLIMITED'].includes(row.participationMode)||!row.planStartDate||row.participationMode==='CUSTOM'&&!row.planEndDate||row.planEndDate&&row.planStartDate>row.planEndDate||row.planStartDate<form.value.planStartDate||!openEnded.value&&form.value.planEndDate&&row.planEndDate>form.value.planEndDate||row.participationMode==='UNLIMITED'&&!openEnded.value)return ElMessage.warning('请填写有效的人员参与方式和项目范围内的日期');if(!row.calendarId)return ElMessage.warning('当前没有覆盖人员参与期间的有效工作日历，请联系管理员配置');if(row.allocationPlan?.allocations?.length&&staffAllocationTotal(row)!==100)return ElMessage.warning(`${row.userName||'人员'}的全部项目投入比例合计必须等于100%`);if(row.allocationPlan?.allocations?.length&&!row.allocationPlan.reason?.trim())return ElMessage.warning(`请填写${row.userName||'人员'}的跨项目投入调整原因`)}if(launch){
-  if(requiredPlanSections.value.targets&&!form.value.targetLines?.length)return showPlanError('请填写至少一项可验收目标')
-  if(budgetLoading.value||budgetError.value||budgetIssues.value.length)return showPlanError(budgetLoading.value?'预算正在计算，请稍后启动':budgetIssues.value.join('；')||'请先完成预算测算')
+async function saveForm(launch=false,keepFormOpen=false){if(saving.value)return;if(launch&&!canLaunchForm.value)return ElMessage.warning(translateText("保存后请由子项目负责人补充成员和投入比例并启动项目"));saving.value=true;try{if(launch)await refreshStaffAllocationPlans();if(launch||!isNewTemplate.value||isChildCreatorPhase.value){try{await formRef.value.validate()}catch{return;}const detailError=validateDetailLines();if(detailError)return showPlanError(detailError);if(!form.value.planStartDate)return ElMessage.warning(translateText("请选择计划开始日期"));if(!openEnded.value&&!form.value.planEndDate)return ElMessage.warning(translateText("请选择计划结束日期或勾选不限期"));if(form.value.planEndDate&&form.value.planStartDate>form.value.planEndDate)return ElMessage.warning(translateText("计划结束日期不能早于开始日期"));if(form.value.managementMode==='KEY_CONTROL'&&!form.value.managementReason?.trim())return ElMessage.warning(translateText("重点监管项目请填写监管原因"));const staffing=isChildCreatorPhase.value?[]:(form.value.staffingLines||[]);if(!isNewTemplate.value&&!staffing.length||staffing.some(row=>!row.userId))return ElMessage.warning(translateText("请在人员计划中选择具体人员"));if(new Set(staffing.map(row=>String(row.userId))).size!==staffing.length)return ElMessage.warning(translateText("同一人员不能重复选择"));if(isNewTemplate.value)for(const row of staffing){syncParticipation(row);if(!Number.isFinite(Number(row.inputQuantity))||Number(row.inputQuantity)<=0||Number(row.inputQuantity)>100)return ElMessage.warning(translateText("每个人的投入比例必须大于0且不超过100%"));if(!['FOLLOW_PROJECT','CUSTOM','UNLIMITED'].includes(row.participationMode)||!row.planStartDate||row.participationMode==='CUSTOM'&&!row.planEndDate||row.planEndDate&&row.planStartDate>row.planEndDate||row.planStartDate<form.value.planStartDate||!openEnded.value&&form.value.planEndDate&&row.planEndDate>form.value.planEndDate||row.participationMode==='UNLIMITED'&&!openEnded.value)return ElMessage.warning(translateText("请填写有效的人员参与方式和项目范围内的日期"));if(!row.calendarId)return ElMessage.warning(translateText("当前没有覆盖人员参与期间的有效工作日历，请联系管理员配置"));if(row.allocationPlan?.allocations?.length&&staffAllocationTotal(row)!==100)return ElMessage.warning(translateText("{0}的全部项目投入比例合计必须等于100%", [row.userName||translateText("人员")]));if(row.allocationPlan?.allocations?.length&&!row.allocationPlan.reason?.trim())return ElMessage.warning(translateText("请填写{0}的跨项目投入调整原因", [row.userName||translateText("人员")]))}if(launch){
+  if(requiredPlanSections.value.targets&&!form.value.targetLines?.length)return showPlanError(translateText("请填写至少一项可验收目标"))
+  if(budgetLoading.value||budgetError.value||budgetIssues.value.length)return showPlanError(budgetLoading.value?translateText("预算正在计算，请稍后启动"):budgetIssues.value.join('；')||translateText("请先完成预算测算"))
 }}
 const staffing=isChildCreatorPhase.value?[]:(form.value.staffingLines||[]);const payload={...form.value,...budgetPolicyPayload(),saveAsDraft:!launch&&isNewTemplate.value,revenueLines:isChildCreatorPhase.value?[]:[...(form.value.revenueLines||[])],expenseLines:isChildCreatorPhase.value?[]:[...(form.value.expenseLines||[])],targetLines:showTargetLines.value?form.value.targetLines:[],staffingLines:staffing.map(item=>({...item,inputUnit:'PERCENTAGE',inputQuantity:item.inputQuantity??100,unitPolicyId:item.unitPolicyId||defaultUnitPolicy()})),estimatedBonusCost:0,planEndDate:openEnded.value?null:form.value.planEndDate,budget:{...form.value.budget,businessAmount:isChildCreatorPhase.value?0:businessBudgetAmount.value,cycle:openEnded.value?form.value.budget.cycle:'PROJECT',projectOpenEnded:openEnded.value}};let res;
 if(payload.proposalId)res=await updateProjectProposal(payload);
@@ -570,20 +573,20 @@ else{
   pendingCreate=null;
   if(retry)res=await updateProjectProposal({...payload,proposalId:res.data.proposalId,version:res.data.version});
 }
-form.value.proposalId=res.data.proposalId;form.value.version=res.data.version;formBaseline=formSnapshot();if(launch){try{const started=await submitProjectProposal(res.data.proposalId);ElMessage.success('项目已启动');formVisible.value=false;detailVisible.value=false;await refreshAll();if(started.data?.createdProjectId)openProject(started.data)}catch(error){await showPlanError(error?.message||'启动未完成，草稿已保存');await refreshAll()}}else if(keepFormOpen){ElMessage.success('投入比例及当前表单已保存到立项草稿');await refreshAll()}else{formVisible.value=false;ElMessage.success('草稿已保存');await refreshAll();await openDetail(res.data)}return true}catch(error){return false}finally{saving.value=false}}
+form.value.proposalId=res.data.proposalId;form.value.version=res.data.version;formBaseline=formSnapshot();if(launch){try{const started=await submitProjectProposal(res.data.proposalId);ElMessage.success(translateText("项目已启动"));formVisible.value=false;detailVisible.value=false;await refreshAll();if(started.data?.createdProjectId)openProject(started.data)}catch(error){await showPlanError(error?.message||translateText("启动未完成，草稿已保存"));await refreshAll()}}else if(keepFormOpen){ElMessage.success(translateText("投入比例及当前表单已保存到立项草稿"));await refreshAll()}else{formVisible.value=false;ElMessage.success(translateText("草稿已保存"));await refreshAll();await openDetail(res.data)}return true}catch(error){return false}finally{saving.value=false}}
 
 async function openDetail(row){const res=await getProjectProposal(row.proposalId);detail.value=res.data||{};detailVisible.value=true}
 const submitting=ref(false)
 async function submitRow(row){await openForm(row)}
-async function withdrawRow(row){const result=await ElMessageBox.prompt('可以填写撤回说明','撤回立项申请',{inputPlaceholder:'可选'});await withdrawProjectProposal(row.proposalId,{comment:result.value});ElMessage.success('申请已撤回');detailVisible.value=false;await refreshAll()}
+async function withdrawRow(row){const result=await ElMessageBox.prompt(translateText("可以填写撤回说明"),translateText("撤回立项申请"),{inputPlaceholder:translateText("可选")});await withdrawProjectProposal(row.proposalId,{comment:result.value});ElMessage.success(translateText("申请已撤回"));detailVisible.value=false;await refreshAll()}
 function openProject(row){router.push({path:'/business/projects',query:{id:row.createdProjectId}})}
 const bossOptionLabel=item=>item.nickName&&item.nickName!==item.userName?`${item.nickName}（${item.userName}）`:item.nickName||item.userName
 const money=(value,currency='CNY')=>value===null||value===undefined?'—':`${Number(value).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})} ${currency}`
 const planPeriod=item=>{
-  if(!item?.planStartDate)return '待填写开始日期'
+  if(!item?.planStartDate)return translateText("待填写开始日期")
   let budget=item.budget
   if(!budget){try{budget=JSON.parse(item.templateSnapshotJson||'{}').budget}catch{}}
-  return `${item.planStartDate} 至 ${item.planEndDate||(budget?.projectOpenEnded===false?'待填写结束日期':'不限期')}`
+  return translateText("{0} 至 {1}", [item.planStartDate, item.planEndDate||(budget?.projectOpenEnded===false?translateText("待填写结束日期"):translateText("不限期"))])
 }
 async function handleProjectPeriodChange(){if(!form.value.budget.anchorDate&&form.value.planStartDate)form.value.budget.anchorDate=shortDate(form.value.planStartDate);syncFollowingStaff();recomputeAllStaffCosts();await refreshStaffOptions();await refreshStaffAllocationPlans(true)}
 async function handleOpenEndedChange(value){if(value){form.value.planEndDate=null;form.value.budget.cycle='MONTH';if(!form.value.budget.anchorDate)form.value.budget.anchorDate=shortDate(form.value.planStartDate)||null}else{form.value.budget.cycle='PROJECT';for(const row of form.value.staffingLines||[])if(row.participationMode==='UNLIMITED')row.participationMode='FOLLOW_PROJECT'}syncFollowingStaff();recomputeAllStaffCosts();await refreshStaffAllocationPlans(true);nextTick(()=>formRef.value?.clearValidate('planEndDate'))}
@@ -608,10 +611,10 @@ async function openRequestedForm(){
     let parent=null
     if(route.query.parentProjectId){
       const id=Number(route.query.parentProjectId)
-      if(!Number.isSafeInteger(id)||id<=0)return ElMessage.warning('主项目参数无效')
+      if(!Number.isSafeInteger(id)||id<=0)return ElMessage.warning(translateText("主项目参数无效"))
       parent=(await getBusinessProject(id)).data
-      if(!parent||parent.parentId)return ElMessage.warning('仅支持在主项目下新增子项目')
-      if(['CLOSED','CANCELED'].includes(parent.status))return ElMessage.warning('已结束的主项目不能新增子项目')
+      if(!parent||parent.parentId)return ElMessage.warning(translateText("仅支持在主项目下新增子项目"))
+      if(['CLOSED','CANCELED'].includes(parent.status))return ElMessage.warning(translateText("已结束的主项目不能新增子项目"))
     }
     await openForm(undefined,parent)
   }finally{
@@ -625,7 +628,7 @@ let openingProposalFromRoute=false
 async function openRequestedProposal(){
   if(route.path!=='/business/project-proposals'||!route.query.id||openingProposalFromRoute)return
   const proposalId=Number(route.query.id)
-  if(!Number.isSafeInteger(proposalId)||proposalId<=0)return ElMessage.warning('立项申请参数无效')
+  if(!Number.isSafeInteger(proposalId)||proposalId<=0)return ElMessage.warning(translateText("立项申请参数无效"))
   openingProposalFromRoute=true
   try{
     const target={proposalId}

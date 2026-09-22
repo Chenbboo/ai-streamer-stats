@@ -2,275 +2,275 @@
   <div class="app-container owner-page" v-loading="loading">
     <header class="owner-hero">
       <div class="owner-heading">
-        <h1>负责人工作台</h1>
+        <h1>{{ $tr("负责人工作台") }}</h1>
         <div class="owner-project-line">
-          <el-select v-model="selectedProjectId" filterable placeholder="选择负责项目" aria-label="选择负责项目" @change="switchProject">
-            <el-option v-if="projects.length" label="全部项目" :value="ALL_PROJECTS"><span>全部项目</span><small class="project-option-meta">同步查看 {{ projects.length }} 个负责项目</small></el-option>
-            <el-option v-for="item in projects" :key="item.projectId" :label="item.projectName" :value="item.projectId"><span>{{ item.projectName }}</span><small class="project-option-meta">{{ item.sponsorOwnerName || item.initiatorName || '未标注老板' }} · {{ projectStatusLabel(item) }}</small></el-option>
+          <el-select v-model="selectedProjectId" filterable :placeholder="$tr(&quot;选择负责项目&quot;)" :aria-label="$tr(&quot;选择负责项目&quot;)" @change="switchProject">
+            <el-option v-if="projects.length" :label="$tr(&quot;全部项目&quot;)" :value="ALL_PROJECTS"><span>{{ $tr("全部项目") }}</span><small class="project-option-meta">{{ $tr("同步查看 {0} 个负责项目", [projects.length]) }}</small></el-option>
+            <el-option v-for="item in projects" :key="item.projectId" :label="item.projectName" :value="item.projectId"><span>{{ item.projectName }}</span><small class="project-option-meta">{{ item.sponsorOwnerName || item.initiatorName || $tr("未标注老板") }} · {{ projectStatusLabel(item) }}</small></el-option>
           </el-select>
-          <el-tag v-if="allProjectsMode" type="primary" effect="plain">共 {{ projects.length }} 个项目</el-tag>
+          <el-tag v-if="allProjectsMode" type="primary" effect="plain">{{ $tr("共 {0} 个项目", [projects.length]) }}</el-tag>
           <el-tag v-if="project" :type="statusTone[project.status] || 'info'" effect="plain">{{ projectStatusLabel(project) }}</el-tag>
-          <span v-if="project" class="owner-name">{{ project.mainOwnerName || userStore.name }}负责</span>
+          <span v-if="project" class="owner-name">{{ $tr("{0}负责", [project.mainOwnerName || userStore.name]) }}</span>
         </div>
       </div>
       <div class="hero-actions">
-        <el-button v-hasPermi="['business:project:report']" type="primary" :disabled="allProjectsMode || !canReportFinance" @click="openRevenue">{{ isLateSettlement ? '补录收入' : '录入收入' }}</el-button>
-        <el-button v-hasPermi="['business:project:report']" :disabled="allProjectsMode || !canReportFinance" @click="openDailySpend">{{ isLateSettlement ? '补录花费' : '填写花费' }}</el-button>
-        <el-button v-hasPermi="['business:project:proposal:add']" @click="openProposals">发起立项</el-button>
-        <el-button icon="Refresh" :loading="loading" @click="refreshWorkbench">刷新</el-button>
+        <el-button v-hasPermi="['business:project:report']" type="primary" :disabled="allProjectsMode || !canReportFinance" @click="openRevenue">{{ isLateSettlement ? $tr("补录收入") : $tr("录入收入") }}</el-button>
+        <el-button v-hasPermi="['business:project:report']" :disabled="allProjectsMode || !canReportFinance" @click="openDailySpend">{{ isLateSettlement ? $tr("补录花费") : $tr("填写花费") }}</el-button>
+        <el-button v-hasPermi="['business:project:proposal:add']" @click="openProposals">{{ $tr("发起立项") }}</el-button>
+        <el-button icon="Refresh" :loading="loading" @click="refreshWorkbench">{{ $tr("刷新") }}</el-button>
       </div>
     </header>
 
-    <el-alert v-if="proposalTodoFailed" class="owner-status-alert" title="子项目交接待办暂未加载，请刷新重试" type="warning" :closable="false" show-icon />
+    <el-alert v-if="proposalTodoFailed" class="owner-status-alert" :title="$tr(&quot;子项目交接待办暂未加载，请刷新重试&quot;)" type="warning" :closable="false" show-icon />
 
     <section v-if="!loading && !project && !(allProjectsMode && projects.length) && crossProjectTodos.length" class="panel owner-todos">
-      <div class="panel-head"><div><h2>我的待办 <el-tag size="small" type="warning">{{ crossProjectTodos.length }} 项</el-tag></h2><p>子项目交接与验收事项</p></div></div>
+      <div class="panel-head"><div><h2>{{ $tr("我的待办 ") }}<el-tag size="small" type="warning">{{ $tr("{0} 项", [crossProjectTodos.length]) }}</el-tag></h2><p>{{ $tr("子项目交接与验收事项") }}</p></div></div>
       <article v-for="item in crossProjectTodos" :key="item.key" class="owner-todo-row">
         <span class="todo-dot urgent"></span>
         <div class="todo-copy"><b>{{ item.title }}</b><small>{{ item.projectName }} · {{ item.detail }}</small></div>
-        <el-tag type="danger" size="small" effect="plain">优先处理</el-tag>
-        <el-button size="small" type="primary" plain @click="item.action==='proposal-handoff'?openProposalHandoff(item):openChildAcceptance(item)">{{ item.action==='proposal-handoff'?'去完善':'去验收' }}</el-button>
+        <el-tag type="danger" size="small" effect="plain">{{ $tr("优先处理") }}</el-tag>
+        <el-button size="small" type="primary" plain @click="item.action==='proposal-handoff'?openProposalHandoff(item):openChildAcceptance(item)">{{ item.action==='proposal-handoff'?$tr("去完善"):$tr("去验收") }}</el-button>
       </article>
     </section>
 
     <div v-if="!loading && !project && !(allProjectsMode && projects.length) && !crossProjectTodos.length" class="no-project">
-      <el-empty description="你目前还不是任何项目的主负责人">
-        <p>你可以先发起立项申请；确认测算并自主启动后，你负责的正式项目会自动出现在这里。</p>
-        <el-button v-hasPermi="['business:project:proposal:add']" type="primary" @click="openProposals">发起立项申请</el-button>
+      <el-empty :description="$tr(&quot;你目前还不是任何项目的主负责人&quot;)">
+        <p>{{ $tr("你可以先发起立项申请；确认测算并自主启动后，你负责的正式项目会自动出现在这里。") }}</p>
+        <el-button v-hasPermi="['business:project:proposal:add']" type="primary" @click="openProposals">{{ $tr("发起立项申请") }}</el-button>
       </el-empty>
     </div>
 
     <template v-if="allProjectsMode && allProjectWorkspaces.length">
-      <section class="owner-quick-stats all-project-stats" aria-label="全部项目简要数据">
-        <article><span>负责项目</span><b>{{ allProjectWorkspaces.length }}<small>个</small></b><p>{{ allActiveProjectCount }} 个执行中</p></article>
-        <article><span>全部待办</span><b :class="{'stat-attention':allOwnerTodos.length}">{{ allOwnerTodos.length }}<small>项</small></b><p>{{ allUrgentTodoCount ? allUrgentTodoCount + ' 项优先处理' : '暂无紧急事项' }}</p></article>
-        <article><span>未完成任务</span><b>{{ allOpenTaskCount }}<small>项</small></b><p :class="{'stat-attention':allOverdueTaskCount}">{{ allOverdueTaskCount ? allOverdueTaskCount + ' 项已逾期' : '全部按计划推进' }}</p></article>
-        <article><span>今日确认收入</span><b class="all-currency-total">{{ allRevenueTotal }}</b><p>汇总全部负责项目</p></article>
-        <article><span>昨日花费</span><el-tooltip placement="top" effect="light"><template #content><div v-for="item in allSpendBreakdown" :key="item.currency" class="spend-tooltip-group"><strong>{{ item.currency }}</strong><div>人员成本：{{ money(item.personnel) }} {{ item.currency }}</div><div>项目成本：{{ money(item.project) }} {{ item.currency }}</div></div></template><b class="all-currency-total spend-hover">{{ allSpendTotal }}</b></el-tooltip><p>人员 {{ allPersonnelCostTotal }} · 项目 {{ allProjectCostTotal }}</p></article>
+      <section class="owner-quick-stats all-project-stats" :aria-label="$tr(&quot;全部项目简要数据&quot;)">
+        <article><span>{{ $tr("负责项目") }}</span><b>{{ allProjectWorkspaces.length }}<small>{{ $tr("个") }}</small></b><p>{{ $tr("{0} 个执行中", [allActiveProjectCount]) }}</p></article>
+        <article><span>{{ $tr("全部待办") }}</span><b :class="{'stat-attention':allOwnerTodos.length}">{{ allOwnerTodos.length }}<small>{{ $tr("项") }}</small></b><p>{{ allUrgentTodoCount ? allUrgentTodoCount + $tr(" 项优先处理") : $tr("暂无紧急事项") }}</p></article>
+        <article><span>{{ $tr("未完成任务") }}</span><b>{{ allOpenTaskCount }}<small>{{ $tr("项") }}</small></b><p :class="{'stat-attention':allOverdueTaskCount}">{{ allOverdueTaskCount ? allOverdueTaskCount + $tr(" 项已逾期") : $tr("全部按计划推进") }}</p></article>
+        <article><span>{{ $tr("今日确认收入") }}</span><b class="all-currency-total">{{ allRevenueTotal }}</b><p>{{ $tr("汇总全部负责项目") }}</p></article>
+        <article><span>{{ $tr("昨日花费") }}</span><el-tooltip placement="top" effect="light"><template #content><div v-for="item in allSpendBreakdown" :key="item.currency" class="spend-tooltip-group"><strong>{{ item.currency }}</strong><div>{{ $tr("人员成本：{0} {1}", [money(item.personnel), item.currency]) }}</div><div>{{ $tr("项目成本：{0} {1}", [money(item.project), item.currency]) }}</div></div></template><b class="all-currency-total spend-hover">{{ allSpendTotal }}</b></el-tooltip><p>{{ $tr("人员 {0} · 项目 {1}", [allPersonnelCostTotal, allProjectCostTotal]) }}</p></article>
       </section>
 
       <section class="panel owner-todos">
-        <div class="panel-head"><div><h2>全部项目待办 <el-tag size="small" :type="allOwnerTodos.length ? 'warning' : 'success'">{{ allOwnerTodos.length }} 项</el-tag></h2><p>汇总项目待办和本月公共费用，点击处理进入对应事项</p></div></div>
-        <el-alert v-if="allProjectsLoadWarning" title="部分项目的 KPI 或结算状态暂未加载，其他数据已正常显示，可刷新重试。" type="warning" :closable="false" />
-        <el-alert v-if="publicExpenseTodoFailed" title="公共费用待办暂未加载，请刷新重试" type="warning" :closable="false" /><div v-if="!allOwnerTodos.length && !loading && !publicExpenseTodoLoading && !publicExpenseTodoFailed" class="todo-empty">✓ 所有项目当前暂无需要处理的事项</div>
+        <div class="panel-head"><div><h2>{{ $tr("全部项目待办 ") }}<el-tag size="small" :type="allOwnerTodos.length ? 'warning' : 'success'">{{ $tr("{0} 项", [allOwnerTodos.length]) }}</el-tag></h2><p>{{ $tr("汇总项目待办和本月公共费用，点击处理进入对应事项") }}</p></div></div>
+        <el-alert v-if="allProjectsLoadWarning" :title="$tr(&quot;部分项目的 KPI 或结算状态暂未加载，其他数据已正常显示，可刷新重试。&quot;)" type="warning" :closable="false" />
+        <el-alert v-if="publicExpenseTodoFailed" :title="$tr(&quot;公共费用待办暂未加载，请刷新重试&quot;)" type="warning" :closable="false" /><div v-if="!allOwnerTodos.length && !loading && !publicExpenseTodoLoading && !publicExpenseTodoFailed" class="todo-empty">{{ $tr("✓ 所有项目当前暂无需要处理的事项") }}</div>
         <article v-for="item in visibleAllOwnerTodos" :key="item.key" class="owner-todo-row">
           <span :class="['todo-dot', { urgent: item.urgent }]"></span>
           <div class="todo-copy"><b>{{ item.title }}</b><small>{{ item.projectName }} · {{ item.detail }}</small></div>
-          <el-tag v-if="item.urgent" type="danger" size="small" effect="plain">优先处理</el-tag>
-          <el-button size="small" type="primary" plain :disabled="loading || saving" @click="handleAllOwnerTodo(item)">{{ item.action==='proposal-handoff' ? '去完善' : item.action==='allocation-review' ? '去确认' : item.action==='public-expense' ? '去分摊' : '去处理' }}</el-button>
+          <el-tag v-if="item.urgent" type="danger" size="small" effect="plain">{{ $tr("优先处理") }}</el-tag>
+          <el-button size="small" type="primary" plain :disabled="loading || saving" @click="handleAllOwnerTodo(item)">{{ item.action==='proposal-handoff' ? $tr("去完善") : item.action==='allocation-review' ? $tr("去确认") : item.action==='public-expense' ? $tr("去分摊") : $tr("去处理") }}</el-button>
         </article>
-        <el-button v-if="allOwnerTodos.length > 5" class="todo-expand" link type="primary" @click="allTodosExpanded = !allTodosExpanded">{{ allTodosExpanded ? '收起' : `查看全部 ${allOwnerTodos.length} 项` }}</el-button>
+        <el-button v-if="allOwnerTodos.length > 5" class="todo-expand" link type="primary" @click="allTodosExpanded = !allTodosExpanded">{{ allTodosExpanded ? $tr("收起") : $tr("查看全部 {0} 项", [allOwnerTodos.length]) }}</el-button>
       </section>
 
       <el-tabs v-model="workspaceTab" class="owner-workspace-tabs all-project-tabs">
-        <el-tab-pane label="工作执行" name="execution">
-          <div class="owner-section-intro"><span>同步查看所有项目的进度、持续工作、任务和风险</span></div>
+        <el-tab-pane :label="$tr(&quot;工作执行&quot;)" name="execution">
+          <div class="owner-section-intro"><span>{{ $tr("同步查看所有项目的进度、持续工作、任务和风险") }}</span></div>
           <section class="panel all-project-table-panel">
             <el-table :data="allProjectWorkspaces" row-key="project.projectId">
-              <el-table-column label="项目" min-width="210" fixed="left"><template #default="{row}"><div class="all-project-name"><b>{{ row.project.projectName }}</b><small>{{ projectStatusLabel(row.project) }} · {{ row.project.mainOwnerName || userStore.name }}负责</small></div></template></el-table-column>
-              <el-table-column label="项目进度" min-width="150"><template #default="{row}"><span v-if="row.project.goalMode==='NO_TOTAL'">持续经营</span><el-progress v-else :percentage="projectEntryProgress(row)" :stroke-width="7" /></template></el-table-column>
-              <el-table-column label="持续工作" min-width="155"><template #default="{row}"><b>{{ entryTodayRoutines(row).length }} 项</b><small class="table-subtext">{{ entryUnreportedRoutines(row) }} 项今日未报</small></template></el-table-column>
-              <el-table-column label="一次性任务" min-width="165"><template #default="{row}"><b>{{ entryOpenTasks(row).length }} 项未完成</b><small class="table-subtext">{{ entryOverdueTasks(row) }} 项已逾期</small></template></el-table-column>
-              <el-table-column label="风险" min-width="115"><template #default="{row}">{{ entryOpenRisks(row) }} 项待处理</template></el-table-column>
-              <el-table-column label="操作" width="105" fixed="right"><template #default="{row}"><el-button link type="primary" @click="selectProject(row.project.projectId)">查看项目</el-button></template></el-table-column>
+              <el-table-column :label="$tr(&quot;项目&quot;)" min-width="210" fixed="left"><template #default="{row}"><div class="all-project-name"><b>{{ row.project.projectName }}</b><small>{{ $tr("{0} · {1}负责", [projectStatusLabel(row.project), row.project.mainOwnerName || userStore.name]) }}</small></div></template></el-table-column>
+              <el-table-column :label="$tr(&quot;项目进度&quot;)" min-width="150"><template #default="{row}"><span v-if="row.project.goalMode==='NO_TOTAL'">{{ $tr("持续经营") }}</span><el-progress v-else :percentage="projectEntryProgress(row)" :stroke-width="7" /></template></el-table-column>
+              <el-table-column :label="$tr(&quot;持续工作&quot;)" min-width="155"><template #default="{row}"><b>{{ $tr("{0} 项", [entryTodayRoutines(row).length]) }}</b><small class="table-subtext">{{ $tr("{0} 项今日未报", [entryUnreportedRoutines(row)]) }}</small></template></el-table-column>
+              <el-table-column :label="$tr(&quot;一次性任务&quot;)" min-width="165"><template #default="{row}"><b>{{ $tr("{0} 项未完成", [entryOpenTasks(row).length]) }}</b><small class="table-subtext">{{ $tr("{0} 项已逾期", [entryOverdueTasks(row)]) }}</small></template></el-table-column>
+              <el-table-column :label="$tr(&quot;风险&quot;)" min-width="115"><template #default="{row}">{{ $tr("{0} 项待处理", [entryOpenRisks(row)]) }}</template></el-table-column>
+              <el-table-column :label="$tr(&quot;操作&quot;)" width="105" fixed="right"><template #default="{row}"><el-button link type="primary" @click="selectProject(row.project.projectId)">{{ $tr("查看项目") }}</el-button></template></el-table-column>
             </el-table>
           </section>
         </el-tab-pane>
-        <el-tab-pane label="人员与收支" name="people">
-          <div class="owner-section-intro"><span>同步查看所有项目的成员、今日收入和昨日花费</span></div>
+        <el-tab-pane :label="$tr(&quot;人员与收支&quot;)" name="people">
+          <div class="owner-section-intro"><span>{{ $tr("同步查看所有项目的成员、今日收入和昨日花费") }}</span></div>
           <section class="panel all-project-table-panel">
             <el-table :data="allProjectWorkspaces" row-key="project.projectId">
-              <el-table-column label="项目" min-width="210" fixed="left"><template #default="{row}"><div class="all-project-name"><b>{{ row.project.projectName }}</b><small>{{ row.project.companyName || '归属公司待设置' }}</small></div></template></el-table-column>
-              <el-table-column label="参项人员" min-width="115"><template #default="{row}">{{ row.project.members?.length || 0 }} 人</template></el-table-column>
-              <el-table-column label="今日确认收入" min-width="170"><template #default="{row}"><b class="amount-profit">{{ money(row.accounting?.dailyRevenue?.confirmedAmount) }} {{ row.project.baseCurrency || 'CNY' }}</b><small class="table-subtext">{{ row.accounting?.dailyRevenue?.draftCount || 0 }} 笔待确认</small></template></el-table-column>
-              <el-table-column label="昨日花费" min-width="205"><template #default="{row}"><el-tooltip placement="top" effect="light"><template #content><div>人员成本：{{ money(row.accounting?.yesterdaySpend?.personnelCost) }} {{ row.project.baseCurrency || 'CNY' }}</div><div>项目成本：{{ money(row.accounting?.yesterdaySpend?.projectCost) }} {{ row.project.baseCurrency || 'CNY' }}</div><div v-if="row.accounting?.yesterdaySpend?.pendingPersonnelCount">{{ row.accounting.yesterdaySpend.pendingPersonnelCount }} 项人员成本待计价</div></template><b class="spend-hover">{{ money(row.accounting?.yesterdaySpend?.amount) }} {{ row.project.baseCurrency || 'CNY' }}</b></el-tooltip><small class="table-subtext">人员 {{ money(row.accounting?.yesterdaySpend?.personnelCost) }} · 项目 {{ money(row.accounting?.yesterdaySpend?.projectCost) }}</small></template></el-table-column>
-              <el-table-column label="人员成本配置" min-width="155"><template #default="{row}"><el-tag :type="entryPersonnelIssueCount(row)?'warning':'success'" effect="plain">{{ entryPersonnelIssueCount(row) ? entryPersonnelIssueCount(row)+' 项待完善' : '正常' }}</el-tag></template></el-table-column>
-              <el-table-column label="操作" width="105" fixed="right"><template #default="{row}"><el-button link type="primary" @click="selectProject(row.project.projectId,'people')">查看明细</el-button></template></el-table-column>
+              <el-table-column :label="$tr(&quot;项目&quot;)" min-width="210" fixed="left"><template #default="{row}"><div class="all-project-name"><b>{{ row.project.projectName }}</b><small>{{ row.project.companyName || $tr("归属公司待设置") }}</small></div></template></el-table-column>
+              <el-table-column :label="$tr(&quot;参项人员&quot;)" min-width="115"><template #default="{row}">{{ $tr("{0} 人", [row.project.members?.length || 0]) }}</template></el-table-column>
+              <el-table-column :label="$tr(&quot;今日确认收入&quot;)" min-width="170"><template #default="{row}"><b class="amount-profit">{{ money(row.accounting?.dailyRevenue?.confirmedAmount) }} {{ row.project.baseCurrency || 'CNY' }}</b><small class="table-subtext">{{ $tr("{0} 笔待确认", [row.accounting?.dailyRevenue?.draftCount || 0]) }}</small></template></el-table-column>
+              <el-table-column :label="$tr(&quot;昨日花费&quot;)" min-width="205"><template #default="{row}"><el-tooltip placement="top" effect="light"><template #content><div>{{ $tr("人员成本：{0} {1}", [money(row.accounting?.yesterdaySpend?.personnelCost), row.project.baseCurrency || 'CNY']) }}</div><div>{{ $tr("项目成本：{0} {1}", [money(row.accounting?.yesterdaySpend?.projectCost), row.project.baseCurrency || 'CNY']) }}</div><div v-if="row.accounting?.yesterdaySpend?.pendingPersonnelCount">{{ $tr("{0} 项人员成本待计价", [row.accounting.yesterdaySpend.pendingPersonnelCount]) }}</div></template><b class="spend-hover">{{ money(row.accounting?.yesterdaySpend?.amount) }} {{ row.project.baseCurrency || 'CNY' }}</b></el-tooltip><small class="table-subtext">{{ $tr("人员 {0} · 项目 {1}", [money(row.accounting?.yesterdaySpend?.personnelCost), money(row.accounting?.yesterdaySpend?.projectCost)]) }}</small></template></el-table-column>
+              <el-table-column :label="$tr(&quot;人员成本配置&quot;)" min-width="155"><template #default="{row}"><el-tag :type="entryPersonnelIssueCount(row)?'warning':'success'" effect="plain">{{ entryPersonnelIssueCount(row) ? entryPersonnelIssueCount(row)+$tr(" 项待完善") : $tr("正常") }}</el-tag></template></el-table-column>
+              <el-table-column :label="$tr(&quot;操作&quot;)" width="105" fixed="right"><template #default="{row}"><el-button link type="primary" @click="selectProject(row.project.projectId,'people')">{{ $tr("查看明细") }}</el-button></template></el-table-column>
             </el-table>
           </section>
         </el-tab-pane>
-        <el-tab-pane label="项目与结算" name="project">
-          <div class="owner-section-intro"><span>同步查看所有项目的周期、KPI 和结算状态</span></div>
+        <el-tab-pane :label="$tr(&quot;项目与结算&quot;)" name="project">
+          <div class="owner-section-intro"><span>{{ $tr("同步查看所有项目的周期、KPI 和结算状态") }}</span></div>
           <section class="panel all-project-table-panel">
             <el-table :data="allProjectWorkspaces" row-key="project.projectId">
-              <el-table-column label="项目" min-width="210" fixed="left"><template #default="{row}"><div class="all-project-name"><b>{{ row.project.projectName }}</b><small>{{ row.project.projectNo }}</small></div></template></el-table-column>
-              <el-table-column label="治理方式" min-width="165"><template #default="{row}"><b>{{ managementLabel[row.project.managementMode] || row.project.managementMode }}</b><small class="table-subtext">{{ closeMethodLabel[row.project.closeMethod] || row.project.closeMethod }}</small></template></el-table-column>
-              <el-table-column label="计划周期" min-width="210"><template #default="{row}">{{ row.project.planStartDate || '—' }} 至 {{ row.project.planEndDate || '不限期' }}</template></el-table-column>
-              <el-table-column label="项目KPI" min-width="145"><template #default="{row}"><b>{{ entryCurrentKpis(row).length }} 项</b><small class="table-subtext">{{ entryPublishedPlans(row) }} 个已发布方案</small></template></el-table-column>
-              <el-table-column label="结算待处理" min-width="140"><template #default="{row}"><el-tag :type="entrySettlementPending(row)?'warning':'success'" effect="plain">{{ entrySettlementPending(row) ? entrySettlementPending(row)+' 项' : '无' }}</el-tag></template></el-table-column>
-              <el-table-column label="操作" width="105" fixed="right"><template #default="{row}"><el-button link type="primary" @click="selectProject(row.project.projectId,'project')">查看结算</el-button></template></el-table-column>
+              <el-table-column :label="$tr(&quot;项目&quot;)" min-width="210" fixed="left"><template #default="{row}"><div class="all-project-name"><b>{{ row.project.projectName }}</b><small>{{ row.project.projectNo }}</small></div></template></el-table-column>
+              <el-table-column :label="$tr(&quot;治理方式&quot;)" min-width="165"><template #default="{row}"><b>{{ managementLabel[row.project.managementMode] || row.project.managementMode }}</b><small class="table-subtext">{{ closeMethodLabel[row.project.closeMethod] || row.project.closeMethod }}</small></template></el-table-column>
+              <el-table-column :label="$tr(&quot;计划周期&quot;)" min-width="210"><template #default="{row}">{{ $tr("{0} 至 {1}", [row.project.planStartDate || '—', row.project.planEndDate || $tr("不限期")]) }}</template></el-table-column>
+              <el-table-column :label="$tr(&quot;项目KPI&quot;)" min-width="145"><template #default="{row}"><b>{{ $tr("{0} 项", [entryCurrentKpis(row).length]) }}</b><small class="table-subtext">{{ $tr("{0} 个已发布方案", [entryPublishedPlans(row)]) }}</small></template></el-table-column>
+              <el-table-column :label="$tr(&quot;结算待处理&quot;)" min-width="140"><template #default="{row}"><el-tag :type="entrySettlementPending(row)?'warning':'success'" effect="plain">{{ entrySettlementPending(row) ? entrySettlementPending(row)+$tr(" 项") : $tr("无") }}</el-tag></template></el-table-column>
+              <el-table-column :label="$tr(&quot;操作&quot;)" width="105" fixed="right"><template #default="{row}"><el-button link type="primary" @click="selectProject(row.project.projectId,'project')">{{ $tr("查看结算") }}</el-button></template></el-table-column>
             </el-table>
           </section>
         </el-tab-pane>
-        <el-tab-pane label="公共费用" name="public-expense" lazy>
-          <div class="owner-section-intro"><span>查看本人承担的公司公共费用，并统一分配到负责项目</span></div>
+        <el-tab-pane :label="$tr(&quot;公共费用&quot;)" name="public-expense" lazy>
+          <div class="owner-section-intro"><span>{{ $tr("查看本人承担的公司公共费用，并统一分配到负责项目") }}</span></div>
           <PublicExpenseOwnerPanel ref="publicExpensePanel" @changed="loadPublicExpenseTodos" />
         </el-tab-pane>
       </el-tabs>
     </template>
 
     <template v-if="project && !allProjectsMode">
-      <section class="owner-quick-stats" aria-label="项目简要数据">
-        <article><span>待办事项</span><b :class="{'stat-attention':ownerTodos.length}">{{ ownerTodos.length }}<small>项</small></b><p>{{ urgentTodoCount ? urgentTodoCount + ' 项优先处理' : '当前项目' }}</p></article>
-        <article><span>未完成任务</span><b>{{ openTasks.length }}<small>项</small></b><p :class="{'stat-attention':overdueTaskCount}">{{ overdueTaskCount ? overdueTaskCount + ' 项已逾期' : '按计划推进' }}</p></article>
-        <article><span>今日确认收入</span><b>{{ money(dailyRevenue.confirmedAmount || 0) }}<small>{{ project.baseCurrency || 'CNY' }}</small></b><p>{{ Number(dailyRevenue.draftCount || 0) ? dailyRevenue.draftCount + ' 笔待确认' : Number(dailyRevenue.confirmedCount || 0) ? '已计入项目核算' : '今日尚未填报' }}</p></article>
-        <article><span>昨日花费</span><el-tooltip placement="top" effect="light"><template #content><div>人员成本：{{ money(accounting.yesterdaySpend?.personnelCost) }} {{ project.baseCurrency || 'CNY' }}</div><div>项目成本：{{ money(accounting.yesterdaySpend?.projectCost) }} {{ project.baseCurrency || 'CNY' }}</div><div v-if="accounting.yesterdaySpend?.pendingPersonnelCount">{{ accounting.yesterdaySpend.pendingPersonnelCount }} 项人员成本待计价</div></template><b class="spend-hover">{{ money(accounting.yesterdaySpend?.amount) }}<small>{{ project.baseCurrency || 'CNY' }}</small></b></el-tooltip><p>人员 {{ money(accounting.yesterdaySpend?.personnelCost) }} · 项目 {{ money(accounting.yesterdaySpend?.projectCost) }}</p></article>
+      <section class="owner-quick-stats" :aria-label="$tr(&quot;项目简要数据&quot;)">
+        <article><span>{{ $tr("待办事项") }}</span><b :class="{'stat-attention':ownerTodos.length}">{{ ownerTodos.length }}<small>{{ $tr("项") }}</small></b><p>{{ urgentTodoCount ? urgentTodoCount + $tr(" 项优先处理") : $tr("当前项目") }}</p></article>
+        <article><span>{{ $tr("未完成任务") }}</span><b>{{ openTasks.length }}<small>{{ $tr("项") }}</small></b><p :class="{'stat-attention':overdueTaskCount}">{{ overdueTaskCount ? overdueTaskCount + $tr(" 项已逾期") : $tr("按计划推进") }}</p></article>
+        <article><span>{{ $tr("今日确认收入") }}</span><b>{{ money(dailyRevenue.confirmedAmount || 0) }}<small>{{ project.baseCurrency || 'CNY' }}</small></b><p>{{ Number(dailyRevenue.draftCount || 0) ? dailyRevenue.draftCount + $tr(" 笔待确认") : Number(dailyRevenue.confirmedCount || 0) ? $tr("已计入项目核算") : $tr("今日尚未填报") }}</p></article>
+        <article><span>{{ $tr("昨日花费") }}</span><el-tooltip placement="top" effect="light"><template #content><div>{{ $tr("人员成本：{0} {1}", [money(accounting.yesterdaySpend?.personnelCost), project.baseCurrency || 'CNY']) }}</div><div>{{ $tr("项目成本：{0} {1}", [money(accounting.yesterdaySpend?.projectCost), project.baseCurrency || 'CNY']) }}</div><div v-if="accounting.yesterdaySpend?.pendingPersonnelCount">{{ $tr("{0} 项人员成本待计价", [accounting.yesterdaySpend.pendingPersonnelCount]) }}</div></template><b class="spend-hover">{{ money(accounting.yesterdaySpend?.amount) }}<small>{{ project.baseCurrency || 'CNY' }}</small></b></el-tooltip><p>{{ $tr("人员 {0} · 项目 {1}", [money(accounting.yesterdaySpend?.personnelCost), money(accounting.yesterdaySpend?.projectCost)]) }}</p></article>
       </section>
       <section class="panel owner-todos">
-        <div class="panel-head"><div><h2>我的待办 <el-tag size="small" :type="ownerTodos.length ? 'warning' : 'success'">{{ ownerTodos.length }} 项</el-tag></h2><p>{{ project.projectName }} · 同时显示跨项目投入调整待确认事项</p></div></div>
-        <el-alert v-if="todoLoadFailed" title="KPI 待办暂未加载，请刷新重试" type="warning" :closable="false" />
-        <el-alert v-if="publicExpenseTodoFailed" title="公共费用待办暂未加载，请刷新重试" type="warning" :closable="false" /><div v-if="!ownerTodos.length && !loading && !publicExpenseTodoLoading && !publicExpenseTodoFailed" class="todo-empty">✓ 当前项目暂无需要你处理的事项</div>
+        <div class="panel-head"><div><h2>{{ $tr("我的待办 ") }}<el-tag size="small" :type="ownerTodos.length ? 'warning' : 'success'">{{ $tr("{0} 项", [ownerTodos.length]) }}</el-tag></h2><p>{{ $tr("{0} · 同时显示跨项目投入调整待确认事项", [project.projectName]) }}</p></div></div>
+        <el-alert v-if="todoLoadFailed" :title="$tr(&quot;KPI 待办暂未加载，请刷新重试&quot;)" type="warning" :closable="false" />
+        <el-alert v-if="publicExpenseTodoFailed" :title="$tr(&quot;公共费用待办暂未加载，请刷新重试&quot;)" type="warning" :closable="false" /><div v-if="!ownerTodos.length && !loading && !publicExpenseTodoLoading && !publicExpenseTodoFailed" class="todo-empty">{{ $tr("✓ 当前项目暂无需要你处理的事项") }}</div>
         <article v-for="item in visibleOwnerTodos" :key="item.key" class="owner-todo-row">
           <span :class="['todo-dot', { urgent: item.urgent }]"></span>
           <div class="todo-copy"><b>{{ item.title }}</b><small>{{ item.detail }}</small></div>
-          <el-tag v-if="item.urgent" type="danger" size="small" effect="plain">优先处理</el-tag>
-          <el-button size="small" type="primary" plain :disabled="loading || saving" @click="handleOwnerTodo(item)">{{ item.action==='proposal-handoff' ? '去完善' : item.action==='allocation-review' ? '去确认' : item.action==='public-expense' ? '去分摊' : item.action==='effort' ? '确认' : item.action==='revenue' ? '去填写' : item.action==='kpi-settings' ? '去设置' : '去处理' }}</el-button>
-          <el-button v-if="item.action==='spend' && item.allowZero" size="small" :disabled="loading || saving" @click="confirmNoSpend">今日无支出</el-button>
-          <el-button v-if="item.action==='revenue' && item.allowZero" size="small" :disabled="loading || saving" @click="confirmNoRevenue">今日无收入</el-button>
-          <el-button v-if="item.action==='effort'" size="small" :disabled="loading || saving" @click="returnPendingEffort(item.item)">退回</el-button>
+          <el-tag v-if="item.urgent" type="danger" size="small" effect="plain">{{ $tr("优先处理") }}</el-tag>
+          <el-button size="small" type="primary" plain :disabled="loading || saving" @click="handleOwnerTodo(item)">{{ item.action==='proposal-handoff' ? $tr("去完善") : item.action==='allocation-review' ? $tr("去确认") : item.action==='public-expense' ? $tr("去分摊") : item.action==='effort' ? $tr("确认") : item.action==='revenue' ? $tr("去填写") : item.action==='kpi-settings' ? $tr("去设置") : $tr("去处理") }}</el-button>
+          <el-button v-if="item.action==='spend' && item.allowZero" size="small" :disabled="loading || saving" @click="confirmNoSpend">{{ $tr("今日无支出") }}</el-button>
+          <el-button v-if="item.action==='revenue' && item.allowZero" size="small" :disabled="loading || saving" @click="confirmNoRevenue">{{ $tr("今日无收入") }}</el-button>
+          <el-button v-if="item.action==='effort'" size="small" :disabled="loading || saving" @click="returnPendingEffort(item.item)">{{ $tr("退回") }}</el-button>
         </article>
-        <el-button v-if="ownerTodos.length > 5" class="todo-expand" link type="primary" @click="todosExpanded = !todosExpanded">{{ todosExpanded ? '收起' : `查看全部 ${ownerTodos.length} 项` }}</el-button>
+        <el-button v-if="ownerTodos.length > 5" class="todo-expand" link type="primary" @click="todosExpanded = !todosExpanded">{{ todosExpanded ? $tr("收起") : $tr("查看全部 {0} 项", [ownerTodos.length]) }}</el-button>
       </section>
-      <el-alert v-if="settlementLoadFailed" class="owner-status-alert" title="结算待办暂未加载，请刷新重试；仍可在项目与结算中查看。" type="warning" :closable="false" show-icon />
+      <el-alert v-if="settlementLoadFailed" class="owner-status-alert" :title="$tr(&quot;结算待办暂未加载，请刷新重试；仍可在项目与结算中查看。&quot;)" type="warning" :closable="false" show-icon />
       <el-tabs ref="workspaceTabs" v-model="workspaceTab" class="owner-workspace-tabs">
-        <el-tab-pane label="工作执行" name="execution">
-          <div class="owner-section-intro"><span>处理日常工作，跟踪任务与项目进度</span><el-button link type="primary" @click="openProject">进入项目详情</el-button></div>
+        <el-tab-pane :label="$tr(&quot;工作执行&quot;)" name="execution">
+          <div class="owner-section-intro"><span>{{ $tr("处理日常工作，跟踪任务与项目进度") }}</span><el-button link type="primary" @click="openProject">{{ $tr("进入项目详情") }}</el-button></div>
           <div class="owner-execution-grid"><div class="owner-card-stack"><article class="panel">
             <div class="panel-head">
-              <div><h2>持续工作状态</h2><p>填写今日完成量，直播数据自动同步。</p></div>
-              <el-button link type="primary" @click="openProject">进入项目详情</el-button>
+              <div><h2>{{ $tr("持续工作状态") }}</h2><p>{{ $tr("填写今日完成量，直播数据自动同步。") }}</p></div>
+              <el-button link type="primary" @click="openProject">{{ $tr("进入项目详情") }}</el-button>
             </div>
-            <div v-if="!todayRoutines.length" class="empty-block">当前没有持续工作计划，可在项目详情中新增</div>
+            <div v-if="!todayRoutines.length" class="empty-block">{{ $tr("当前没有持续工作计划，可在项目详情中新增") }}</div>
             <div v-for="routine in pagedTodayRoutines" :key="routine.routineId" class="routine-card">
               <div class="routine-main">
-                <div class="routine-title"><b>{{ routine.routineName }}</b><el-tag size="small" effect="plain">{{ routineTargetModeLabel[routine.targetMode || 'FIXED'] }}</el-tag><el-tag v-if="routine.sourceManaged" size="small" type="info" effect="plain">直播同步</el-tag></div>
-                <small v-if="routine.sourceManaged">{{ routine.assigneeName }} · 数据日期 {{ routine.sourceBizDate }} · {{ routine.supervisorName }}监督</small>
-                <small v-else>{{ routine.assigneeName || '未分配' }} · {{ routineTargetDescription(routine) }} · 累计 {{ routine.cumulativeActual || 0 }} {{ routine.unit }}</small>
-                <small v-if="routine.todayRequirement">客户要求：{{ routine.todayRequirement }}</small>
+                <div class="routine-title"><b>{{ routine.routineName }}</b><el-tag size="small" effect="plain">{{ routineTargetModeLabel[routine.targetMode || 'FIXED'] }}</el-tag><el-tag v-if="routine.sourceManaged" size="small" type="info" effect="plain">{{ $tr("直播同步") }}</el-tag></div>
+                <small v-if="routine.sourceManaged">{{ $tr("{0} · 数据日期 {1} · {2}监督", [routine.assigneeName, routine.sourceBizDate, routine.supervisorName]) }}</small>
+                <small v-else>{{ $tr("{0} · {1} · 累计 {2} {3}", [routine.assigneeName || $tr("未分配"), routineTargetDescription(routine), routine.cumulativeActual || 0, $tr(routine.unit)]) }}</small>
+                <small v-if="routine.todayRequirement">{{ $tr("客户要求：{0}", [routine.todayRequirement]) }}</small>
                 <el-progress v-if="routine.targetMode!=='NONE'" :percentage="routineRate(routine)" :status="routine.todayReportId && Number(routine.todayActual) >= Number(routine.todayTarget) ? 'success' : undefined" :stroke-width="7" />
-                <p v-if="routine.todaySummary">今日说明：{{ routine.todaySummary }}</p>
-                <p v-if="routineBelowTarget(routine) && routine.todayIssueReason" class="danger">未达原因：{{ routine.todayIssueReason }}</p>
+                <p v-if="routine.todaySummary">{{ $tr("今日说明：{0}", [routine.todaySummary]) }}</p>
+                <p v-if="routineBelowTarget(routine) && routine.todayIssueReason" class="danger">{{ $tr("未达原因：{0}", [routine.todayIssueReason]) }}</p>
               </div>
               <div class="routine-result">
-                <span>{{ routine.sourceManaged ? '昨日直播日报' : (routineLeave(routine) ? '今日状态' : '今日完成') }}</span>
-                <el-tag v-if="routine.sourceManaged" :type="routine.todayReportId?'success':'warning'">{{ routine.todayReportId ? '已提交' : '未提交' }}</el-tag>
+                <span>{{ routine.sourceManaged ? $tr("昨日直播日报") : (routineLeave(routine) ? $tr("今日状态") : $tr("今日完成")) }}</span>
+                <el-tag v-if="routine.sourceManaged" :type="routine.todayReportId?'success':'warning'">{{ routine.todayReportId ? $tr("已提交") : $tr("未提交") }}</el-tag>
                 <b v-if="routine.sourceManaged && routine.todayReportId" class="routine-xu">{{ xu(routine.sourceReportedAmount) }} Xu</b>
-                <b v-else-if="!routine.sourceManaged && !routineLeave(routine)">{{ routine.todayReportId ? (routine.targetMode==='NONE'?'已说明':`${routine.todayActual} ${routine.unit}`) : '—' }}</b><el-tag v-else-if="!routine.sourceManaged" type="info">今日请假</el-tag>
-                <el-button v-if="routine.todayEvidenceUrls" size="small" type="primary" plain @click="openEvidence(routine)">查看成果凭证（{{ evidenceCount(routine.todayEvidenceUrls) }}）</el-button>
-                <el-button v-if="canSubmitRoutine(routine)" v-hasPermi="['business:project:report']" size="small" :type="routine.todayReportId?'default':'primary'" :disabled="!canReport" @click="openRoutineReport(routine)">{{ routine.todayReportId ? '修改填报' : '填报完成量' }}</el-button>
-                <el-button v-if="routine.targetMode==='DAILY_DYNAMIC'&&canSetDailyTarget&&!routine.todayReportId" v-hasPermi="['business:project:task']" size="small" type="success" plain @click="openDailyTarget(routine)">{{ routine.todayTargetId ? '修改今日目标' : '下达今日目标' }}</el-button>
-                <small v-else class="assignee-report-hint">{{ routine.sourceManaged ? '完成状态由直播数据管理自动回传' : (!routine.assigneeUserId ? '等待重新分配负责人' : (routineLeave(routine) ? '今日请假，无需填报' : `由 ${routine.assigneeName} 本人填报`)) }}</small>
+                <b v-else-if="!routine.sourceManaged && !routineLeave(routine)">{{ routine.todayReportId ? (routine.targetMode==='NONE'?$tr("已说明"):`${routine.todayActual} ${$tr(routine.unit)}`) : '—' }}</b><el-tag v-else-if="!routine.sourceManaged" type="info">{{ $tr("今日请假") }}</el-tag>
+                <el-button v-if="routine.todayEvidenceUrls" size="small" type="primary" plain @click="openEvidence(routine)">{{ $tr("查看成果凭证（{0}）", [evidenceCount(routine.todayEvidenceUrls)]) }}</el-button>
+                <el-button v-if="canSubmitRoutine(routine)" v-hasPermi="['business:project:report']" size="small" :type="routine.todayReportId?'default':'primary'" :disabled="!canReport" @click="openRoutineReport(routine)">{{ routine.todayReportId ? $tr("修改填报") : $tr("填报完成量") }}</el-button>
+                <el-button v-if="routine.targetMode==='DAILY_DYNAMIC'&&canSetDailyTarget&&!routine.todayReportId" v-hasPermi="['business:project:task']" size="small" type="success" plain @click="openDailyTarget(routine)">{{ routine.todayTargetId ? $tr("修改今日目标") : $tr("下达今日目标") }}</el-button>
+                <small v-else class="assignee-report-hint">{{ routine.sourceManaged ? $tr("完成状态由直播数据管理自动回传") : (!routine.assigneeUserId ? $tr("等待重新分配负责人") : (routineLeave(routine) ? $tr("今日请假，无需填报") : $tr("由 {0} 本人填报", [routine.assigneeName]))) }}</small>
               </div>
             </div>
             <div v-if="todayRoutines.length" class="routine-pagination">
-              <el-select v-model="routinePageSize" aria-label="持续工作每页条数" @change="routinePage = 1">
-                <el-option label="5 条/页" :value="5" />
-                <el-option label="10 条/页" :value="10" />
-                <el-option label="全部" value="ALL" />
+              <el-select v-model="routinePageSize" :aria-label="$tr(&quot;持续工作每页条数&quot;)" @change="routinePage = 1">
+                <el-option :label="$tr(&quot;5 条/页&quot;)" :value="5" />
+                <el-option :label="$tr(&quot;10 条/页&quot;)" :value="10" />
+                <el-option :label="$tr(&quot;全部&quot;)" value="ALL" />
               </el-select>
               <el-pagination v-if="routinePageSize !== 'ALL'" v-model:current-page="routinePage" :page-size="effectiveRoutinePageSize" :total="todayRoutines.length" layout="total, prev, pager, next" small background />
-              <span v-else>共 {{ todayRoutines.length }} 条</span>
+              <span v-else>{{ $tr("共 {0} 条", [todayRoutines.length]) }}</span>
             </div>
           </article><article class="panel">
             <div class="panel-head">
-              <div><h2>一次性任务</h2><p>跟踪有明确截止日期的任务。</p></div>
-              <el-button v-if="taskReports.length" link type="primary" @click="openTaskReports()">查看全部填报（{{ taskReports.length }}）</el-button>
+              <div><h2>{{ $tr("一次性任务") }}</h2><p>{{ $tr("跟踪有明确截止日期的任务。") }}</p></div>
+              <el-button v-if="taskReports.length" link type="primary" @click="openTaskReports()">{{ $tr("查看全部填报（{0}）", [taskReports.length]) }}</el-button>
             </div>
             <section class="task-group">
-              <div class="task-group-head"><h3>未完成</h3><el-tag size="small" type="warning" effect="plain">{{ openTasksWithReports.length }}</el-tag></div>
-              <div v-if="!openTasksWithReports.length" class="empty-block compact">当前没有未完成任务</div>
+              <div class="task-group-head"><h3>{{ $tr("未完成") }}</h3><el-tag size="small" type="warning" effect="plain">{{ openTasksWithReports.length }}</el-tag></div>
+              <div v-if="!openTasksWithReports.length" class="empty-block compact">{{ $tr("当前没有未完成任务") }}</div>
               <div v-for="task in openTasksWithReports" :key="task.taskId" class="task-card">
                 <i :class="`priority-${(task.priority || 'MEDIUM').toLowerCase()}`"></i>
                 <div class="task-content">
                   <b>{{ task.taskName }}</b>
-                  <small>{{ task.assigneeName || '未分配' }} · 截止日期：{{ task.dueDate || '未设置' }}</small>
+                  <small>{{ $tr("{0} · 截止日期：{1}", [task.assigneeName || $tr("未分配"), task.dueDate || $tr("未设置")]) }}</small>
                   <el-progress :percentage="task.progress || 0" :stroke-width="6" />
                   <p v-if="task.latestReport" class="task-latest-report">
-                    <span>{{ task.latestReport.bizDate }}填报：</span>{{ task.latestReport.completionSummary || '未填写完成内容' }}
+                    <span>{{ $tr("{0}填报：", [task.latestReport.bizDate]) }}</span>{{ task.latestReport.completionSummary || $tr("未填写完成内容") }}
                   </p>
-                  <small v-else>任务负责人尚未提交每日填报</small>
+                  <small v-else>{{ $tr("任务负责人尚未提交每日填报") }}</small>
                 </div>
                 <div class="task-actions">
-                  <el-button v-if="task.reportCount" size="small" plain type="primary" @click="openTaskReports(task)">查看填报（{{ task.reportCount }}）</el-button>
-                  <el-tag v-else size="small" type="info" effect="plain">进度由任务负责人填报</el-tag>
+                  <el-button v-if="task.reportCount" size="small" plain type="primary" @click="openTaskReports(task)">{{ $tr("查看填报（{0}）", [task.reportCount]) }}</el-button>
+                  <el-tag v-else size="small" type="info" effect="plain">{{ $tr("进度由任务负责人填报") }}</el-tag>
                 </div>
               </div>
             </section>
-            <details class="task-group completed-task-group"><summary class="completed-task-toggle">已完成任务 <span>{{ completedTasksWithReports.length }} 项</span><span class="completed-task-hint">查看记录</span></summary>
+            <details class="task-group completed-task-group"><summary class="completed-task-toggle">{{ $tr("已完成任务 ") }}<span>{{ $tr("{0} 项", [completedTasksWithReports.length]) }}</span><span class="completed-task-hint">{{ $tr("查看记录") }}</span></summary>
 
-              <div v-if="!completedTasksWithReports.length" class="empty-block compact">当前没有已完成任务</div>
+              <div v-if="!completedTasksWithReports.length" class="empty-block compact">{{ $tr("当前没有已完成任务") }}</div>
               <div v-for="task in completedTasksWithReports" :key="task.taskId" class="task-card completed-task-card">
                 <i :class="`priority-${(task.priority || 'MEDIUM').toLowerCase()}`"></i>
                 <div class="task-content">
                   <b>{{ task.taskName }}</b>
-                  <small>{{ task.assigneeName || '未分配' }} · 截止日期：{{ task.dueDate || '未设置' }} · 完成时间：{{ taskFinishTime(task) }}</small>
+                  <small>{{ $tr("{0} · 截止日期：{1} · 完成时间：{2}", [task.assigneeName || $tr("未分配"), task.dueDate || $tr("未设置"), taskFinishTime(task)]) }}</small>
                   <el-progress :percentage="100" status="success" :stroke-width="6" />
                   <p v-if="task.latestReport" class="task-latest-report">
-                    <span>{{ task.latestReport.bizDate }}填报：</span>{{ task.latestReport.completionSummary || '未填写完成内容' }}
+                    <span>{{ $tr("{0}填报：", [task.latestReport.bizDate]) }}</span>{{ task.latestReport.completionSummary || $tr("未填写完成内容") }}
                   </p>
-                  <small v-else>暂无完成填报记录</small>
+                  <small v-else>{{ $tr("暂无完成填报记录") }}</small>
                 </div>
                 <div class="task-actions completed-task-actions">
-                  <el-tag :type="isTaskCompletedLate(task)?'danger':'success'" effect="light">{{ isTaskCompletedLate(task) ? '逾期完成' : '已完成' }}</el-tag>
-                  <el-button v-if="task.reportCount" size="small" plain type="primary" @click="openTaskReports(task)">查看填报（{{ task.reportCount }}）</el-button>
+                  <el-tag :type="isTaskCompletedLate(task)?'danger':'success'" effect="light">{{ isTaskCompletedLate(task) ? $tr("逾期完成") : $tr("已完成") }}</el-tag>
+                  <el-button v-if="task.reportCount" size="small" plain type="primary" @click="openTaskReports(task)">{{ $tr("查看填报（{0}）", [task.reportCount]) }}</el-button>
                 </div>
               </div>
             </details>
           </article></div><div class="owner-card-stack"><article class="panel project-progress-panel">
             <div v-if="project.goalMode!=='NO_TOTAL'" class="panel-head">
-              <div><h2>项目完成量</h2><p>填写今日项目进度，保存后同步。</p></div>
-              <el-button v-hasPermi="['business:project:report']" type="primary" :plain="!!todayProjectProgress" :disabled="!canReportProgress" @click="openProjectProgressReport">{{ todayProjectProgress ? '修改今日填报' : '填报今日完成量' }}</el-button>
+              <div><h2>{{ $tr("项目完成量") }}</h2><p>{{ $tr("填写今日项目进度，保存后同步。") }}</p></div>
+              <el-button v-hasPermi="['business:project:report']" type="primary" :plain="!!todayProjectProgress" :disabled="!canReportProgress" @click="openProjectProgressReport">{{ todayProjectProgress ? $tr("修改今日填报") : $tr("填报今日完成量") }}</el-button>
             </div>
-            <el-alert v-if="project.goalMode==='NO_TOTAL'" title="该项目为持续经营模式，不需要填写项目总完成百分比；请通过下方每日目标、持续工作和一次性任务跟踪产出。" type="info" :closable="false" show-icon />
+            <el-alert v-if="project.goalMode==='NO_TOTAL'" :title="$tr(&quot;该项目为持续经营模式，不需要填写项目总完成百分比；请通过下方每日目标、持续工作和一次性任务跟踪产出。&quot;)" type="info" :closable="false" show-icon />
             <el-alert v-else-if="!canReportProgress" :title="progressReportBlockReason" type="info" :closable="false" show-icon />
             <div v-if="project.goalMode!=='NO_TOTAL'" class="project-progress-card">
-              <div class="project-progress-title"><span><b>{{ project.projectName }}</b><small>{{ project.mainOwnerName || '未指定负责人' }}负责</small></span><strong>{{ projectProgress }}%</strong></div>
+              <div class="project-progress-title"><span><b>{{ project.projectName }}</b><small>{{ $tr("{0}负责", [project.mainOwnerName || $tr("未指定负责人")]) }}</small></span><strong>{{ projectProgress }}%</strong></div>
               <el-progress :percentage="projectProgress" :status="project.status==='CLOSED'?'success':undefined" :stroke-width="9" />
               <template v-if="project.progressReportId">
-                <div class="project-progress-meta"><span>{{ project.progressBizDate }} · {{ project.progressReporterName || project.mainOwnerName }}填报</span><el-tag v-if="todayProjectProgress" size="small" type="success">今日已填报</el-tag></div>
-                <p class="project-progress-summary">实际完成情况：{{ project.progressSummary }}</p>
-                <el-button v-if="project.progressEvidenceUrls || project.progressEvidenceText" size="small" type="primary" plain @click="openProjectProgressEvidence">查看成果凭证</el-button>
+                <div class="project-progress-meta"><span>{{ $tr("{0} · {1}填报", [project.progressBizDate, project.progressReporterName || project.mainOwnerName]) }}</span><el-tag v-if="todayProjectProgress" size="small" type="success">{{ $tr("今日已填报") }}</el-tag></div>
+                <p class="project-progress-summary">{{ $tr("实际完成情况：{0}", [project.progressSummary]) }}</p>
+                <el-button v-if="project.progressEvidenceUrls || project.progressEvidenceText" size="small" type="primary" plain @click="openProjectProgressEvidence">{{ $tr("查看成果凭证") }}</el-button>
               </template>
-              <div v-else class="empty-block compact">负责人尚未填报项目整体进度</div>
+              <div v-else class="empty-block compact">{{ $tr("负责人尚未填报项目整体进度") }}</div>
             </div>
           </article>
           </div></div>
         </el-tab-pane>
-        <el-tab-pane label="人员与收支" name="people">
-          <div class="owner-section-intro"><span>查看成员、人员成本和项目收支</span><el-button v-hasPermi="['business:staff:list']" link type="primary" @click="router.push('/hcm/staff')">人员管理与成本设置</el-button></div>
+        <el-tab-pane :label="$tr(&quot;人员与收支&quot;)" name="people">
+          <div class="owner-section-intro"><span>{{ $tr("查看成员、人员成本和项目收支") }}</span><el-button v-hasPermi="['business:staff:list']" link type="primary" @click="router.push('/hcm/staff')">{{ $tr("人员管理与成本设置") }}</el-button></div>
           <div class="owner-finance-grid"><article class="panel revenue-summary-panel">
             <div class="panel-head">
-              <div><h2>今日项目总收入</h2><p>{{ accounting.bizDate }} · 收入由负责人确认后直接计入经营结果</p></div>
-              <el-button v-hasPermi="['business:project:report']" type="primary" plain :disabled="!canReportFinance" @click="openRevenue">{{ isLateSettlement ? '补录历史收入' : '录入收入' }}</el-button>
+              <div><h2>{{ $tr("今日项目总收入") }}</h2><p>{{ $tr("{0} · 收入由负责人确认后直接计入经营结果", [accounting.bizDate]) }}</p></div>
+              <el-button v-hasPermi="['business:project:report']" type="primary" plain :disabled="!canReportFinance" @click="openRevenue">{{ isLateSettlement ? $tr("补录历史收入") : $tr("录入收入") }}</el-button>
             </div>
             <div class="daily-revenue-row">
-              <span><small>今日填报总额</small><b>{{ money(revenueSubmittedAmount) }} {{ project.baseCurrency || 'CNY' }}</b></span>
-              <span><small>已确认入账</small><b class="green">{{ money(dailyRevenue.confirmedAmount) }} {{ project.baseCurrency || 'CNY' }}</b></span>
-              <span><small>历史待确认</small><b class="pending-revenue">{{ money(dailyRevenue.draftAmount) }} {{ project.baseCurrency || 'CNY' }} · {{ Number(dailyRevenue.draftCount || 0) }} 笔</b></span>
+              <span><small>{{ $tr("今日填报总额") }}</small><b>{{ money(revenueSubmittedAmount) }} {{ project.baseCurrency || 'CNY' }}</b></span>
+              <span><small>{{ $tr("已确认入账") }}</small><b class="green">{{ money(dailyRevenue.confirmedAmount) }} {{ project.baseCurrency || 'CNY' }}</b></span>
+              <span><small>{{ $tr("历史待确认") }}</small><b class="pending-revenue">{{ $tr("{0} {1} · {2} 笔", [money(dailyRevenue.draftAmount), project.baseCurrency || 'CNY', Number(dailyRevenue.draftCount || 0)]) }}</b></span>
               <el-tag :type="revenueStatusTone">{{ revenueStatusLabel }}</el-tag>
             </div>
           </article><article class="panel">
             <div class="panel-head">
-              <div><h2>今日项目总花费</h2><p>{{ accounting.bizDate }} · 每次记录本次发生的花费，系统自动累加；不包含人员成本</p></div>
-              <el-button v-hasPermi="['business:project:report']" type="primary" icon="Plus" :disabled="!canReportFinance" @click="openDailySpend">{{ isLateSettlement ? '补录花费' : '新增花费' }}</el-button>
+              <div><h2>{{ $tr("今日项目总花费") }}</h2><p>{{ $tr("{0} · 每次记录本次发生的花费，系统自动累加；不包含人员成本", [accounting.bizDate]) }}</p></div>
+              <el-button v-hasPermi="['business:project:report']" type="primary" icon="Plus" :disabled="!canReportFinance" @click="openDailySpend">{{ isLateSettlement ? $tr("补录花费") : $tr("新增花费") }}</el-button>
             </div>
             <el-alert v-if="!canReportFinance" :title="reportBlockReason" type="info" :closable="false" show-icon />
-            <div class="daily-spend-total"><span>今日累计</span><b>{{ money(accounting.dailySpend?.amount) }} {{ accounting.dailySpend?.currency || project.baseCurrency }}</b><small>{{ accounting.dailySpendItems?.length || 0 }} 笔</small></div>
-            <div v-if="!accounting.dailySpendItems?.length" class="empty-block compact">今日尚未记录项目花费</div>
+            <div class="daily-spend-total"><span>{{ $tr("今日累计") }}</span><b>{{ money(accounting.dailySpend?.amount) }} {{ accounting.dailySpend?.currency || project.baseCurrency }}</b><small>{{ $tr("{0} 笔", [accounting.dailySpendItems?.length || 0]) }}</small></div>
+            <div v-if="!accounting.dailySpendItems?.length" class="empty-block compact">{{ $tr("今日尚未记录项目花费") }}</div>
             <div v-for="item in accounting.dailySpendItems || []" :key="item.factId" class="daily-spend-item">
               <span><b>{{ item.description }}</b><small>{{ item.createBy || item.confirmedUserName }} · {{ item.confirmedTime || item.createTime }}</small></span>
               <strong>{{ money(item.amount) }} {{ item.currency || project.baseCurrency }}</strong>
-              <div class="daily-spend-actions"><el-button link type="primary" @click="editDailySpend(item)">修改</el-button><el-button link type="danger" @click="reverseDailySpend(item)">冲销</el-button></div>
+              <div class="daily-spend-actions"><el-button link type="primary" @click="editDailySpend(item)">{{ $tr("修改") }}</el-button><el-button link type="danger" @click="reverseDailySpend(item)">{{ $tr("冲销") }}</el-button></div>
             </div>
           </article></div>
           <section v-if="usesActualWork" class="panel owner-cost-panel"><BusinessProjectWorkPanel ref="ownerWorkPanel" :project-id="project.projectId" :members="project.members || []" :can-manage="canManageAllocation" @changed="load(project.projectId)"/></section>
           <article class="panel">
-            <div class="panel-head"><div><h2>参项人员</h2><p>本项目共 {{ project.members?.length || 0 }} 人，考勤由飞书自动同步。</p></div></div>
-            <div v-if="!project.members?.length" class="empty-block compact">尚未添加参项人员</div>
+            <div class="panel-head"><div><h2>{{ $tr("参项人员") }}</h2><p>{{ $tr("本项目共 {0} 人，考勤由飞书自动同步。", [project.members?.length || 0]) }}</p></div></div>
+            <div v-if="!project.members?.length" class="empty-block compact">{{ $tr("尚未添加参项人员") }}</div>
             <div v-else class="participant-list">
               <div v-for="member in pagedParticipants" :key="member.memberId || member.userId" class="participant-row">
-                <el-avatar :size="34">{{ (member.userNameSnapshot || '员').slice(0, 1) }}</el-avatar>
-                <span><b>{{ member.userNameSnapshot }}</b><small v-if="participantLeave(member)" class="leave-note">今日请假：{{ participantLeave(member).reason || '已登记' }}</small><small v-else>{{ member.joinedDate ? `${member.joinedDate} 加入` : '项目成员' }}</small></span>
+                <el-avatar :size="34">{{ (member.userNameSnapshot || $tr("员")).slice(0, 1) }}</el-avatar>
+                <span><b>{{ member.userNameSnapshot }}</b><small v-if="participantLeave(member)" class="leave-note">{{ $tr("今日请假：{0}", [participantLeave(member).reason || $tr("已登记")]) }}</small><small v-else>{{ member.joinedDate ? $tr("{0} 加入", [member.joinedDate]) : $tr("项目成员") }}</small></span>
                 <el-tag size="small" :type="memberRoleTone[member.memberRole] || 'info'">{{ memberRoleLabel[member.memberRole] || member.memberRole }}</el-tag>
               </div>
               <div v-if="participantRows.length > participantPageSize" class="participant-pagination">
@@ -279,118 +279,118 @@
             </div>
           </article>
         </el-tab-pane>
-        <el-tab-pane label="项目与结算" name="project" lazy>
-          <div class="owner-section-intro"><span>查看项目资料，办理 KPI、交付与后续结算</span><el-button link type="primary" @click="openProject">查看验收与里程碑</el-button></div>
+        <el-tab-pane :label="$tr(&quot;项目与结算&quot;)" name="project" lazy>
+          <div class="owner-section-intro"><span>{{ $tr("查看项目资料，办理 KPI、交付与后续结算") }}</span><el-button link type="primary" @click="openProject">{{ $tr("查看验收与里程碑") }}</el-button></div>
           <div class="owner-finance-grid"><article class="panel project-summary">
             <div class="project-title"><div><small>{{ project.projectNo }}</small><h2>{{ project.projectName }}</h2></div><el-tag :type="statusTone[project.status] || 'info'">{{ projectStatusLabel(project) }}</el-tag></div>
-            <p>{{ project.objective || '尚未填写项目目标' }}</p>
-      <dl><div><dt>归属老板</dt><dd>{{ project.sponsorOwnerName || project.initiatorName }}</dd></div><div><dt>归属公司</dt><dd>{{ project.companyName || '待设置' }}</dd></div><div><dt>计划周期</dt><dd>{{ project.planStartDate ? `${project.planStartDate} 至 ${project.planEndDate || '不限期'}` : '—' }}</dd></div><div><dt>目标模式</dt><dd>{{ project.goalMode==='NO_TOTAL'?'持续经营':`${projectProgress}%` }}</dd></div></dl>
+            <p>{{ project.objective || $tr("尚未填写项目目标") }}</p>
+      <dl><div><dt>{{ $tr("归属老板") }}</dt><dd>{{ project.sponsorOwnerName || project.initiatorName }}</dd></div><div><dt>{{ $tr("归属公司") }}</dt><dd>{{ project.companyName || $tr("待设置") }}</dd></div><div><dt>{{ $tr("计划周期") }}</dt><dd>{{ project.planStartDate ? $tr("{0} 至 {1}", [project.planStartDate, project.planEndDate || $tr("不限期")]) : '—' }}</dd></div><div><dt>{{ $tr("目标模式") }}</dt><dd>{{ project.goalMode==='NO_TOTAL'?$tr("持续经营"):`${projectProgress}%` }}</dd></div></dl>
           </article><article class="panel">
-            <div class="panel-head"><div><h2>项目 KPI</h2><p>项目指标独立确认；奖金申请在人员系统的奖金激励办理。</p></div><el-button size="small" @click="openKpiBonus">管理项目指标</el-button></div>
-            <div v-if="!currentKpis.length" class="empty-block compact">尚未设置 KPI</div>
-            <div v-for="kpi in currentKpis" :key="kpi.kpiId" class="kpi-row"><span><b>{{ kpi.kpiName }}</b><small>项目目标 {{ kpi.targetValue }} {{ kpi.unit || '' }}</small></span><strong>{{ kpi.weight }}%</strong></div>
+            <div class="panel-head"><div><h2>{{ $tr("项目 KPI") }}</h2><p>{{ $tr("项目指标独立确认；奖金申请在人员系统的奖金激励办理。") }}</p></div><el-button size="small" @click="openKpiBonus">{{ $tr("管理项目指标") }}</el-button></div>
+            <div v-if="!currentKpis.length" class="empty-block compact">{{ $tr("尚未设置 KPI") }}</div>
+            <div v-for="kpi in currentKpis" :key="kpi.kpiId" class="kpi-row"><span><b>{{ kpi.kpiName }}</b><small>{{ $tr("项目目标 {0} {1}", [kpi.targetValue, $tr(kpi.unit) || '']) }}</small></span><strong>{{ kpi.weight }}%</strong></div>
           </article></div>
           <BusinessSettlementPanel :project="project" @closed="load(selectedProjectId)" />
           <section v-if="usesActualWork" class="panel owner-plan-panel"><BusinessProjectPlanPanel :project="project" @changed="load(project.projectId)"/></section>
-          <details class="panel owner-governance"><summary>项目治理要求<span>查看说明</span></summary><el-alert class="governance-alert" :title="`${managementLabel[project.managementMode] || project.managementMode} · ${closeMethodLabel[project.closeMethod] || project.closeMethod}`" :description="governanceDescription" type="info" :closable="false" show-icon>
-        <template #default><el-button link type="primary" @click="openProject">查看治理要求与验收进度</el-button></template>
+          <details class="panel owner-governance"><summary>{{ $tr("项目治理要求") }}<span>{{ $tr("查看说明") }}</span></summary><el-alert class="governance-alert" :title="`${managementLabel[project.managementMode] || project.managementMode} · ${closeMethodLabel[project.closeMethod] || project.closeMethod}`" :description="governanceDescription" type="info" :closable="false" show-icon>
+        <template #default><el-button link type="primary" @click="openProject">{{ $tr("查看治理要求与验收进度") }}</el-button></template>
       </el-alert></details>
         </el-tab-pane>
-        <el-tab-pane label="公共费用" name="public-expense" lazy>
-          <div class="owner-section-intro"><span>查看本人承担的公司公共费用，并统一分配到负责项目</span></div>
+        <el-tab-pane :label="$tr(&quot;公共费用&quot;)" name="public-expense" lazy>
+          <div class="owner-section-intro"><span>{{ $tr("查看本人承担的公司公共费用，并统一分配到负责项目") }}</span></div>
           <PublicExpenseOwnerPanel ref="publicExpensePanel" @changed="loadPublicExpenseTodos" />
         </el-tab-pane>
       </el-tabs>
     </template>
 
-    <el-dialog v-model="revenueDialog" :title="isLateSettlement ? '补录执行期间收入' : '录入今日收入'" width="min(680px, 94vw)" append-to-body>
-      <el-alert title="负责人确认后收入将直接计入项目经营结果；如需更正，请通过新增记录或财务冲正保留审计轨迹。" type="success" :closable="false" show-icon />
+    <el-dialog v-model="revenueDialog" :title="isLateSettlement ? $tr(&quot;补录执行期间收入&quot;) : $tr(&quot;录入今日收入&quot;)" width="min(680px, 94vw)" append-to-body>
+      <el-alert :title="$tr(&quot;负责人确认后收入将直接计入项目经营结果；如需更正，请通过新增记录或财务冲正保留审计轨迹。&quot;)" type="success" :closable="false" show-icon />
       <el-form :model="revenueForm" label-width="92px" class="report-form">
-        <el-form-item label="归属项目"><el-input :model-value="project?.projectName" disabled /></el-form-item>
-        <el-form-item label="业务日期" required><el-date-picker v-if="isLateSettlement" v-model="revenueForm.bizDate" type="date" value-format="YYYY-MM-DD" :disabled-date="disabledFinancialDate" style="width:100%" /><el-input v-else :model-value="revenueForm.bizDate" disabled /></el-form-item>
-        <el-form-item label="收入类别" required>
-          <el-select v-model="revenueForm.categoryId" placeholder="请选择收入类别" style="width:100%">
-            <el-option v-for="item in revenueCategories" :key="item.categoryId" :label="item.categoryName" :value="item.categoryId" />
+        <el-form-item :label="$tr(&quot;归属项目&quot;)"><el-input :model-value="project?.projectName" disabled /></el-form-item>
+        <el-form-item :label="$tr(&quot;业务日期&quot;)" required><el-date-picker v-if="isLateSettlement" v-model="revenueForm.bizDate" type="date" value-format="YYYY-MM-DD" :disabled-date="disabledFinancialDate" style="width:100%" /><el-input v-else :model-value="revenueForm.bizDate" disabled /></el-form-item>
+        <el-form-item :label="$tr(&quot;收入类别&quot;)" required>
+          <el-select v-model="revenueForm.categoryId" :placeholder="$tr(&quot;请选择收入类别&quot;)" style="width:100%">
+            <el-option v-for="item in revenueCategories" :key="item.categoryId" :label="$tr(item.categoryName)" :value="item.categoryId" />
           </el-select>
         </el-form-item>
-        <el-form-item label="收入金额" required><el-input-number v-model="revenueForm.amount" :min="0" :precision="2" style="width:100%" /></el-form-item>
-        <el-form-item label="币种" required>
-          <el-select v-model="revenueForm.currency" placeholder="请选择币种" style="width:100%">
+        <el-form-item :label="$tr(&quot;收入金额&quot;)" required><el-input-number v-model="revenueForm.amount" :min="0" :precision="2" style="width:100%" /></el-form-item>
+        <el-form-item :label="$tr(&quot;币种&quot;)" required>
+          <el-select v-model="revenueForm.currency" :placeholder="$tr(&quot;请选择币种&quot;)" style="width:100%">
             <el-option v-for="currency in revenueCurrencies" :key="currency" :label="currency" :value="currency" />
           </el-select>
         </el-form-item>
-        <el-form-item label="收入说明" required><el-input v-model="revenueForm.description" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="请说明收入来源或对应业务" /></el-form-item>
-        <el-form-item label="付款单位"><el-input v-model="revenueForm.counterparty" maxlength="200" /></el-form-item>
-        <el-form-item label="凭证附件"><business-file-upload v-model="revenueForm.attachmentUrls" :project-id="revenueForm.projectId" /></el-form-item>
-        <el-form-item label="备注"><el-input v-model="revenueForm.remark" type="textarea" :rows="2" maxlength="500" show-word-limit /></el-form-item>
+        <el-form-item :label="$tr(&quot;收入说明&quot;)" required><el-input v-model="revenueForm.description" type="textarea" :rows="3" maxlength="500" show-word-limit :placeholder="$tr(&quot;请说明收入来源或对应业务&quot;)" /></el-form-item>
+        <el-form-item :label="$tr(&quot;付款单位&quot;)"><el-input v-model="revenueForm.counterparty" maxlength="200" /></el-form-item>
+        <el-form-item :label="$tr(&quot;凭证附件&quot;)"><business-file-upload v-model="revenueForm.attachmentUrls" :project-id="revenueForm.projectId" /></el-form-item>
+        <el-form-item :label="$tr(&quot;备注&quot;)"><el-input v-model="revenueForm.remark" type="textarea" :rows="2" maxlength="500" show-word-limit /></el-form-item>
       </el-form>
-      <template #footer><el-button @click="revenueDialog=false">取消</el-button><el-button type="primary" :loading="saving" :disabled="!canReportFinance" @click="submitRevenue">确认收入并入账</el-button></template>
+      <template #footer><el-button @click="revenueDialog=false">{{ $tr("取消") }}</el-button><el-button type="primary" :loading="saving" :disabled="!canReportFinance" @click="submitRevenue">{{ $tr("确认收入并入账") }}</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="projectProgressDialog" :title="projectProgressForm.reportId?'修改今日项目完成量':'填报今日项目完成量'" width="min(660px, 94vw)" append-to-body>
+    <el-dialog v-model="projectProgressDialog" :title="projectProgressForm.reportId?$tr(&quot;修改今日项目完成量&quot;):$tr(&quot;填报今日项目完成量&quot;)" width="min(660px, 94vw)" append-to-body>
       <el-alert :title="`${projectProgressForm.projectName || ''} · ${accounting.bizDate || today()}`" type="info" :closable="false" show-icon />
       <el-form :model="projectProgressForm" label-width="108px" class="report-form project-progress-form">
-        <el-form-item label="项目名称"><el-input :model-value="projectProgressForm.projectName" disabled /></el-form-item>
-        <el-form-item label="实际完成情况" required><el-input v-model="projectProgressForm.completionSummary" type="textarea" :rows="4" maxlength="2000" show-word-limit placeholder="请说明今天推动项目完成的内容和结果" /></el-form-item>
-        <el-form-item label="项目进度" required><el-slider v-model="projectProgressForm.progress" show-input :min="0" :max="100" :disabled="Number(projectProgressForm.minimumProgress || 0) >= 100" @input="keepProjectProgress" /><small class="progress-tip">当前项目进度 {{ projectProgressForm.minimumProgress || 0 }}%，只能向上调整，与一次性任务进度无关。</small></el-form-item>
-        <el-form-item label="成果凭证（选填）">
+        <el-form-item :label="$tr(&quot;项目名称&quot;)"><el-input :model-value="projectProgressForm.projectName" disabled /></el-form-item>
+        <el-form-item :label="$tr(&quot;实际完成情况&quot;)" required><el-input v-model="projectProgressForm.completionSummary" type="textarea" :rows="4" maxlength="2000" show-word-limit :placeholder="$tr(&quot;请说明今天推动项目完成的内容和结果&quot;)" /></el-form-item>
+        <el-form-item :label="$tr(&quot;项目进度&quot;)" required><el-slider v-model="projectProgressForm.progress" show-input :min="0" :max="100" :disabled="Number(projectProgressForm.minimumProgress || 0) >= 100" @input="keepProjectProgress" /><small class="progress-tip">{{ $tr("当前项目进度 {0}%，只能向上调整，与一次性任务进度无关。", [projectProgressForm.minimumProgress || 0]) }}</small></el-form-item>
+        <el-form-item :label="$tr(&quot;成果凭证（选填）&quot;)">
           <div class="progress-evidence-inputs">
-            <el-input v-model="projectProgressForm.evidenceText" type="textarea" :rows="3" maxlength="2000" show-word-limit placeholder="可填写文字成果凭证，或在下方上传文件" />
+            <el-input v-model="projectProgressForm.evidenceText" type="textarea" :rows="3" maxlength="2000" show-word-limit :placeholder="$tr(&quot;可填写文字成果凭证，或在下方上传文件&quot;)" />
             <business-file-upload v-model="projectProgressForm.evidenceUrls" :project-id="projectProgressForm.projectId" />
           </div>
         </el-form-item>
       </el-form>
-      <template #footer><el-button @click="projectProgressDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="submitProjectProgress">保存今日项目完成量</el-button></template>
+      <template #footer><el-button @click="projectProgressDialog=false">{{ $tr("取消") }}</el-button><el-button type="primary" :loading="saving" @click="submitProjectProgress">{{ $tr("保存今日项目完成量") }}</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="routineReportDialog" :title="routineReportForm.reportId?'修改今日完成量':'填报今日完成量'" width="min(620px, 94vw)" append-to-body>
+    <el-dialog v-model="routineReportDialog" :title="routineReportForm.reportId?$tr(&quot;修改今日完成量&quot;):$tr(&quot;填报今日完成量&quot;)" width="min(620px, 94vw)" append-to-body>
       <el-alert :title="`${routineReportForm.routineName || ''} · ${accounting.bizDate || today()}`" type="info" :closable="false" show-icon />
       <el-form :model="routineReportForm" label-width="92px" class="report-form">
-        <el-form-item v-if="routineReportForm.targetMode!=='NONE'" label="今日目标"><el-input :model-value="`${routineReportForm.todayTarget || 0} ${routineReportForm.unit || ''}`" disabled /></el-form-item>
-        <el-form-item v-if="routineReportForm.targetMode!=='NONE'" label="实际完成" required><el-input-number v-model="routineReportForm.actualValue" :min="0" :precision="4" style="width:100%" /></el-form-item>
-        <el-form-item label="今日说明" required><el-input v-model="routineReportForm.summary" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="填写成果位置、质量情况或下一步安排" /></el-form-item>
-        <el-form-item v-if="routineReportNeedsReason" label="未达原因" required><el-input v-model="routineReportForm.issueReason" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="说明未达到今日目标的原因和改进安排" /></el-form-item>
-        <el-form-item label="成果凭证（选填）"><business-file-upload v-model="routineReportForm.evidenceUrls" :project-id="routineReportForm.projectId" /></el-form-item>
+        <el-form-item v-if="routineReportForm.targetMode!=='NONE'" :label="$tr(&quot;今日目标&quot;)"><el-input :model-value="`${routineReportForm.todayTarget || 0} ${routineReportForm.unit || ''}`" disabled /></el-form-item>
+        <el-form-item v-if="routineReportForm.targetMode!=='NONE'" :label="$tr(&quot;实际完成&quot;)" required><el-input-number v-model="routineReportForm.actualValue" :min="0" :precision="4" style="width:100%" /></el-form-item>
+        <el-form-item :label="$tr(&quot;今日说明&quot;)" required><el-input v-model="routineReportForm.summary" type="textarea" :rows="3" maxlength="500" show-word-limit :placeholder="$tr(&quot;填写成果位置、质量情况或下一步安排&quot;)" /></el-form-item>
+        <el-form-item v-if="routineReportNeedsReason" :label="$tr(&quot;未达原因&quot;)" required><el-input v-model="routineReportForm.issueReason" type="textarea" :rows="3" maxlength="500" show-word-limit :placeholder="$tr(&quot;说明未达到今日目标的原因和改进安排&quot;)" /></el-form-item>
+        <el-form-item :label="$tr(&quot;成果凭证（选填）&quot;)"><business-file-upload v-model="routineReportForm.evidenceUrls" :project-id="routineReportForm.projectId" /></el-form-item>
       </el-form>
-      <template #footer><el-button @click="routineReportDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="submitRoutineReport">保存今日完成量</el-button></template>
+      <template #footer><el-button @click="routineReportDialog=false">{{ $tr("取消") }}</el-button><el-button type="primary" :loading="saving" @click="submitRoutineReport">{{ $tr("保存今日完成量") }}</el-button></template>
     </el-dialog>
 
     <el-dialog v-model="taskReportDialog" :title="taskReportDialogTitle" width="min(860px, 96vw)" append-to-body destroy-on-close>
-      <div v-if="!visibleTaskReports.length" class="empty-block">暂无每日填报记录</div>
+      <div v-if="!visibleTaskReports.length" class="empty-block">{{ $tr("暂无每日填报记录") }}</div>
       <div v-else class="task-report-list">
         <article v-for="report in visibleTaskReports" :key="report.reportId" class="task-report-row">
           <div class="task-report-head">
-            <span><b>{{ taskName(report.taskId) }}</b><small>{{ report.bizDate }} · {{ report.submittedUserName || '任务负责人' }}提交</small></span>
-            <el-tag type="success" effect="plain">任务进度 {{ Number(report.progress || 0) }}%</el-tag>
+            <span><b>{{ taskName(report.taskId) }}</b><small>{{ $tr("{0} · {1}提交", [report.bizDate, report.submittedUserName || $tr("任务负责人")]) }}</small></span>
+            <el-tag type="success" effect="plain">{{ $tr("任务进度 {0}%", [Number(report.progress || 0)]) }}</el-tag>
           </div>
-          <p>{{ report.completionSummary || '未填写完成内容' }}</p>
+          <p>{{ report.completionSummary || $tr("未填写完成内容") }}</p>
           <div class="task-report-footer">
-            <small>填报内容按日期倒序保留，可用于追溯任务执行过程。</small>
-            <el-button v-if="evidenceCount(report.evidenceUrls)" link type="primary" @click="openTaskReportEvidence(report)">查看成果凭证（{{ evidenceCount(report.evidenceUrls) }}）</el-button>
-            <span v-else class="no-evidence">未上传成果凭证</span>
+            <small>{{ $tr("填报内容按日期倒序保留，可用于追溯任务执行过程。") }}</small>
+            <el-button v-if="evidenceCount(report.evidenceUrls)" link type="primary" @click="openTaskReportEvidence(report)">{{ $tr("查看成果凭证（{0}）", [evidenceCount(report.evidenceUrls)]) }}</el-button>
+            <span v-else class="no-evidence">{{ $tr("未上传成果凭证") }}</span>
           </div>
         </article>
       </div>
-      <template #footer><el-button type="primary" @click="taskReportDialog=false">关闭</el-button></template>
+      <template #footer><el-button type="primary" @click="taskReportDialog=false">{{ $tr("关闭") }}</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="dailyTargetDialog" :title="dailyTargetForm.todayTargetId?'修改今日目标':'下达今日目标'" width="min(560px, 94vw)" append-to-body>
-      <el-alert title="目标只对今天生效；修改会保留旧版本和原因。执行人提交完成情况后不可再改。" type="info" :closable="false" show-icon />
+    <el-dialog v-model="dailyTargetDialog" :title="dailyTargetForm.todayTargetId?$tr(&quot;修改今日目标&quot;):$tr(&quot;下达今日目标&quot;)" width="min(560px, 94vw)" append-to-body>
+      <el-alert :title="$tr(&quot;目标只对今天生效；修改会保留旧版本和原因。执行人提交完成情况后不可再改。&quot;)" type="info" :closable="false" show-icon />
       <el-form :model="dailyTargetForm" label-width="100px" class="report-form">
-        <el-form-item label="持续工作"><el-input :model-value="dailyTargetForm.routineName" disabled /></el-form-item>
-        <el-form-item label="执行人"><el-input :model-value="dailyTargetForm.assigneeName || '未分配'" disabled /></el-form-item>
-        <el-form-item label="今日目标" required><el-input-number v-model="dailyTargetForm.targetValue" :min="0.0001" :precision="4" style="width:100%" /><small>{{ dailyTargetForm.unit }}</small></el-form-item>
-        <el-form-item label="客户要求"><el-input v-model="dailyTargetForm.customerRequirement" type="textarea" :rows="3" maxlength="1000" show-word-limit placeholder="填写客户当天要求、口径或交付标准" /></el-form-item>
-        <el-form-item v-if="dailyTargetForm.todayTargetId" label="修改原因" required><el-input v-model="dailyTargetForm.changeReason" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
+        <el-form-item :label="$tr(&quot;持续工作&quot;)"><el-input :model-value="dailyTargetForm.routineName" disabled /></el-form-item>
+        <el-form-item :label="$tr(&quot;执行人&quot;)"><el-input :model-value="dailyTargetForm.assigneeName || $tr(&quot;未分配&quot;)" disabled /></el-form-item>
+        <el-form-item :label="$tr(&quot;今日目标&quot;)" required><el-input-number v-model="dailyTargetForm.targetValue" :min="0.0001" :precision="4" style="width:100%" /><small>{{ $tr(dailyTargetForm.unit) }}</small></el-form-item>
+        <el-form-item :label="$tr(&quot;客户要求&quot;)"><el-input v-model="dailyTargetForm.customerRequirement" type="textarea" :rows="3" maxlength="1000" show-word-limit :placeholder="$tr(&quot;填写客户当天要求、口径或交付标准&quot;)" /></el-form-item>
+        <el-form-item v-if="dailyTargetForm.todayTargetId" :label="$tr(&quot;修改原因&quot;)" required><el-input v-model="dailyTargetForm.changeReason" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
       </el-form>
-      <template #footer><el-button @click="dailyTargetDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveDailyTarget">确认下达</el-button></template>
+      <template #footer><el-button @click="dailyTargetDialog=false">{{ $tr("取消") }}</el-button><el-button type="primary" :loading="saving" @click="saveDailyTarget">{{ $tr("确认下达") }}</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="evidenceDialog" :title="`${evidencePreview.title || ''} · 成果凭证`" width="min(840px, 96vw)" append-to-body destroy-on-close>
+    <el-dialog v-model="evidenceDialog" :title="$tr(&quot;{0} · 成果凭证&quot;, [evidencePreview.title || ''])" width="min(840px, 96vw)" append-to-body destroy-on-close>
       <div class="evidence-dialog-summary">
-        <span>{{ evidencePreview.assigneeName || '执行人' }}提交</span>
+        <span>{{ $tr("{0}提交", [evidencePreview.assigneeName || $tr("执行人")]) }}</span>
         <span>{{ evidencePreview.bizDate || accounting.bizDate || today() }}</span>
-        <span>{{ evidencePreview.files.length }} 个文件</span>
+        <span>{{ $tr("{0} 个文件", [evidencePreview.files.length]) }}</span>
       </div>
       <p v-if="evidencePreview.evidenceText" class="evidence-text">{{ evidencePreview.evidenceText }}</p>
       <business-file-upload v-if="evidencePreview.rawUrls"
@@ -400,32 +400,34 @@
         :drag="false"
         :is-show-tip="false"
       />
-      <template #footer><el-button type="primary" @click="evidenceDialog=false">关闭</el-button></template>
+      <template #footer><el-button type="primary" @click="evidenceDialog=false">{{ $tr("关闭") }}</el-button></template>
     </el-dialog>
 
 
 
 
-    <el-dialog v-model="reportDialog" :title="reportForm.factId ? '修改支出明细' : isLateSettlement ? '补录支出' : '录入支出'" width="min(680px, 94vw)" append-to-body>
-      <el-alert title="填写本次发生的金额，系统会自动累加到当日总花费。修改或冲销均保留审计记录。" type="info" :closable="false" show-icon />
+    <el-dialog v-model="reportDialog" :title="reportForm.factId ? $tr(&quot;修改支出明细&quot;) : isLateSettlement ? $tr(&quot;补录支出&quot;) : $tr(&quot;录入支出&quot;)" width="min(680px, 94vw)" append-to-body>
+      <el-alert :title="$tr(&quot;填写本次发生的金额，系统会自动累加到当日总花费。修改或冲销均保留审计记录。&quot;)" type="info" :closable="false" show-icon />
       <el-form v-loading="spendDateLoading" :model="reportForm" label-width="92px" class="report-form">
-        <el-form-item label="归属项目"><el-input :model-value="project?.projectName" disabled /></el-form-item>
-        <el-form-item label="业务日期" required><el-date-picker v-if="isLateSettlement" v-model="reportForm.bizDate" type="date" value-format="YYYY-MM-DD" :disabled-date="disabledFinancialDate" style="width:100%" @change="loadSpendDate" /><el-input v-else :model-value="reportForm.bizDate" disabled /></el-form-item>
-        <el-alert v-if="isLateSettlement" :title="spendDateLoaded ? `已读取所选日期，当前共 ${spendHistoryItems.length} 笔花费。` : '请先选择业务日期并成功读取当日记录。'" type="info" :closable="false" />
-        <el-form-item label="支出类别" required><el-select v-model="reportForm.categoryId" placeholder="请选择支出类别" style="width:100%"><el-option v-for="item in expenseCategories" :key="item.categoryId" :label="item.categoryName" :value="item.categoryId" /></el-select></el-form-item>
-        <el-form-item label="支出金额" required><el-input-number v-model="reportForm.amount" :min="0.01" :precision="2" style="width:100%" /></el-form-item>
-        <el-form-item label="币种" required><el-select v-model="reportForm.currency" placeholder="请选择币种" style="width:100%"><el-option v-for="currency in revenueCurrencies" :key="currency" :label="currency" :value="currency" /></el-select></el-form-item>
-        <el-form-item label="支出说明" required><el-input v-model="reportForm.description" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="请说明支出用途或对应业务" /></el-form-item>
-        <el-form-item label="收款单位"><el-input v-model="reportForm.counterparty" maxlength="200" /></el-form-item>
-        <el-form-item label="凭证附件"><business-file-upload v-model="reportForm.attachmentUrls" :project-id="reportForm.projectId" /></el-form-item>
-        <el-form-item label="备注"><el-input v-model="reportForm.remark" type="textarea" :rows="2" maxlength="500" show-word-limit /></el-form-item>
+        <el-form-item :label="$tr(&quot;归属项目&quot;)"><el-input :model-value="project?.projectName" disabled /></el-form-item>
+        <el-form-item :label="$tr(&quot;业务日期&quot;)" required><el-date-picker v-if="isLateSettlement" v-model="reportForm.bizDate" type="date" value-format="YYYY-MM-DD" :disabled-date="disabledFinancialDate" style="width:100%" @change="loadSpendDate" /><el-input v-else :model-value="reportForm.bizDate" disabled /></el-form-item>
+        <el-alert v-if="isLateSettlement" :title="spendDateLoaded ? $tr(&quot;已读取所选日期，当前共 {0} 笔花费。&quot;, [spendHistoryItems.length]) : $tr(&quot;请先选择业务日期并成功读取当日记录。&quot;)" type="info" :closable="false" />
+        <el-form-item :label="$tr(&quot;支出类别&quot;)" required><el-select v-model="reportForm.categoryId" :placeholder="$tr(&quot;请选择支出类别&quot;)" style="width:100%"><el-option v-for="item in expenseCategories" :key="item.categoryId" :label="$tr(item.categoryName)" :value="item.categoryId" /></el-select></el-form-item>
+        <el-form-item :label="$tr(&quot;支出金额&quot;)" required><el-input-number v-model="reportForm.amount" :min="0.01" :precision="2" style="width:100%" /></el-form-item>
+        <el-form-item :label="$tr(&quot;币种&quot;)" required><el-select v-model="reportForm.currency" :placeholder="$tr(&quot;请选择币种&quot;)" style="width:100%"><el-option v-for="currency in revenueCurrencies" :key="currency" :label="currency" :value="currency" /></el-select></el-form-item>
+        <el-form-item :label="$tr(&quot;支出说明&quot;)" required><el-input v-model="reportForm.description" type="textarea" :rows="3" maxlength="500" show-word-limit :placeholder="$tr(&quot;请说明支出用途或对应业务&quot;)" /></el-form-item>
+        <el-form-item :label="$tr(&quot;收款单位&quot;)"><el-input v-model="reportForm.counterparty" maxlength="200" /></el-form-item>
+        <el-form-item :label="$tr(&quot;凭证附件&quot;)"><business-file-upload v-model="reportForm.attachmentUrls" :project-id="reportForm.projectId" /></el-form-item>
+        <el-form-item :label="$tr(&quot;备注&quot;)"><el-input v-model="reportForm.remark" type="textarea" :rows="2" maxlength="500" show-word-limit /></el-form-item>
       </el-form>
-      <template #footer><el-button @click="reportDialog=false">取消</el-button><el-button type="primary" :loading="saving" :disabled="!canReportFinance || spendDateLoading || (isLateSettlement && !spendDateLoaded)" @click="submitDailySpend">确认并计入项目成本</el-button></template>
+      <template #footer><el-button @click="reportDialog=false">{{ $tr("取消") }}</el-button><el-button type="primary" :loading="saving" :disabled="!canReportFinance || spendDateLoading || (isLateSettlement && !spendDateLoaded)" @click="submitDailySpend">{{ $tr("确认并计入项目成本") }}</el-button></template>
     </el-dialog>
   </div>
 </template>
 
 <script setup name="BusinessOwnerWorkbench">
+import { translateText } from '@/locales/translate'
+
 import { nextTick } from 'vue'
 import { getBusinessProjectSettlementStatus, getBusinessOwnerWorkbench, saveBusinessRoutineDailyTarget, submitBusinessProjectProgressReport, submitBusinessRoutineReport, confirmBusinessMemberEffort, returnBusinessMemberEffort } from '@/api/business/project'
 import { confirmProjectNoSpend } from '@/api/business/flow'
@@ -485,9 +487,9 @@ const crossProjectTodos=computed(()=>[...proposalHandoffTodos.value,...childAcce
 const ownerWorkPanel=ref(null)
 const ownerTodos=computed(()=>{
   const rows=[...crossProjectTodos.value,...allocationReviewTodos.value,...publicExpenseTodos.value,...buildOwnerTodos({data:{...data.value,pendingAllocationRequests:[]},userId:userStore.id,today:today(),permissions:userStore.permissions,kpi:todoKpi.value})]
-  if(Number(settlementSummary.value.pendingCostCount)>0)rows.push({key:'cost-setup',title:'完善人员成本',detail:'部分工作日缺少有效成本，请核对后补充',action:'people',urgent:true})
-  if(Number(settlementSummary.value.pendingFactCount)>0)rows.push({key:'settlement-facts',title:'处理待结算收支',detail:settlementSummary.value.pendingFactCount+' 笔收支需要处理',action:'settlement',urgent:true})
-  if(Number(settlementSummary.value.pendingAwardCount)>0)rows.push({key:'settlement-awards',title:'查看待处理奖金',detail:'奖金事项将在项目结算中列出',action:'settlement'})
+  if(Number(settlementSummary.value.pendingCostCount)>0)rows.push({key:'cost-setup',title:translateText("完善人员成本"),detail:translateText("部分工作日缺少有效成本，请核对后补充"),action:'people',urgent:true})
+  if(Number(settlementSummary.value.pendingFactCount)>0)rows.push({key:'settlement-facts',title:translateText("处理待结算收支"),detail:settlementSummary.value.pendingFactCount+translateText(" 笔收支需要处理"),action:'settlement',urgent:true})
+  if(Number(settlementSummary.value.pendingAwardCount)>0)rows.push({key:'settlement-awards',title:translateText("查看待处理奖金"),detail:translateText("奖金事项将在项目结算中列出"),action:'settlement'})
   return rows.sort((a,b)=>Number(!!b.urgent)-Number(!!a.urgent))
 })
 const urgentTodoCount=computed(()=>ownerTodos.value.filter(item=>item.urgent).length)
@@ -503,9 +505,9 @@ const allProjectsMode=computed(()=>selectedProjectId.value===ALL_PROJECTS)
 const allOwnerTodos=computed(()=>[...crossProjectTodos.value,...allocationReviewTodos.value,...publicExpenseTodos.value,...allProjectWorkspaces.value.flatMap(entry=>{
   const rows=buildOwnerTodos({data:{...entry,pendingAllocationRequests:[]},userId:userStore.id,today:today(),permissions:userStore.permissions,kpi:entry.kpi})
   const settlement=entry.settlement||{}
-  if(Number(settlement.pendingCostCount)>0)rows.push({key:'cost-setup',title:'完善人员成本',detail:'部分工作日缺少有效成本，请核对后补充',action:'people',urgent:true})
-  if(Number(settlement.pendingFactCount)>0)rows.push({key:'settlement-facts',title:'处理待结算收支',detail:settlement.pendingFactCount+' 笔收支需要处理',action:'settlement',urgent:true})
-  if(Number(settlement.pendingAwardCount)>0)rows.push({key:'settlement-awards',title:'查看待处理奖金',detail:'奖金事项将在项目结算中列出',action:'settlement'})
+  if(Number(settlement.pendingCostCount)>0)rows.push({key:'cost-setup',title:translateText("完善人员成本"),detail:translateText("部分工作日缺少有效成本，请核对后补充"),action:'people',urgent:true})
+  if(Number(settlement.pendingFactCount)>0)rows.push({key:'settlement-facts',title:translateText("处理待结算收支"),detail:settlement.pendingFactCount+translateText(" 笔收支需要处理"),action:'settlement',urgent:true})
+  if(Number(settlement.pendingAwardCount)>0)rows.push({key:'settlement-awards',title:translateText("查看待处理奖金"),detail:translateText("奖金事项将在项目结算中列出"),action:'settlement'})
   return rows.map(item=>({...item,key:`${entry.project.projectId}-${item.key}`,projectId:entry.project.projectId,projectName:entry.project.projectName}))
 })].sort((a,b)=>Number(!!b.urgent)-Number(!!a.urgent)))
 const visibleAllOwnerTodos=computed(()=>allTodosExpanded.value?allOwnerTodos.value:allOwnerTodos.value.slice(0,5))
@@ -534,7 +536,7 @@ const expenseCategories=computed(()=>accounting.value.expenseCategories||[])
 const dailyRevenue=computed(()=>accounting.value.dailyRevenue||{})
 const revenueSubmittedAmount=computed(()=>Number(dailyRevenue.value.confirmedAmount||0)+Number(dailyRevenue.value.draftAmount||0))
 const revenueStatusTone=computed(()=>Number(dailyRevenue.value.draftCount||0)>0?'warning':Number(dailyRevenue.value.confirmedCount||0)>0?'success':'info')
-const revenueStatusLabel=computed(()=>Number(dailyRevenue.value.draftCount||0)>0?'存在历史待确认':Number(dailyRevenue.value.confirmedCount||0)>0?'已计入经营结果':'今日暂无收入')
+const revenueStatusLabel=computed(()=>Number(dailyRevenue.value.draftCount||0)>0?translateText("存在历史待确认"):Number(dailyRevenue.value.confirmedCount||0)>0?translateText("已计入经营结果"):translateText("今日暂无收入"))
 const allocationAlerts=computed(()=>data.value.allocationAlerts||[])
 const pendingEffortRequests=computed(()=>data.value.pendingEffortRequests||[])
 const missingAllocationMemberCount=computed(()=>allocationAlerts.value.reduce((sum,item)=>sum+Number(item.missingAllocationCount||0),0))
@@ -547,7 +549,7 @@ const taskWithReports=task=>{const reports=taskReports.value.filter(report=>Numb
 const openTasksWithReports=computed(()=>openTasks.value.map(taskWithReports))
 const completedTasksWithReports=computed(()=>(project.value?.tasks||[]).filter(task=>task.status==='DONE').map(taskWithReports))
 const visibleTaskReports=computed(()=>taskReportTaskId.value===null?taskReports.value:taskReports.value.filter(report=>Number(report.taskId)===Number(taskReportTaskId.value)))
-const taskReportDialogTitle=computed(()=>taskReportTaskId.value===null?`一次性任务填报记录 · 共 ${visibleTaskReports.value.length} 条`:`${taskName(taskReportTaskId.value)} · 填报记录`)
+const taskReportDialogTitle=computed(()=>taskReportTaskId.value===null?translateText("一次性任务填报记录 · 共 {0} 条", [visibleTaskReports.value.length]):translateText("{0} · 填报记录", [taskName(taskReportTaskId.value)]))
 const todayProjectProgress=computed(()=>data.value.todayProjectProgress||null)
 const todayRoutines=computed(()=>(data.value.todayRoutines||[]).filter(item=>(!item.startDate||item.startDate<=today())&&(!item.endDate||item.endDate>=today())))
 const routinePage=ref(1),routinePageSize=ref(5)
@@ -565,8 +567,8 @@ const canSetDailyTarget=computed(()=>project.value?.status==='ACTIVE'&&(Number(p
 const canManageAllocation=computed(()=>!isDeliveryEnded(project.value)&&(Number(project.value?.mainOwnerUserId)===Number(userStore.id)||userStore.roles.includes('admin')||userStore.permissions.includes('*:*:*')||(userStore.permissions.includes('business:boss:view') && project.value?.governanceProfile?.companyManager === true)))
 const unreportedRoutineCount=computed(()=>todayRoutines.value.filter(item=>!item.todayReportId&&!routineLeave(item)).length)
 const routineReportNeedsReason=computed(()=>routineReportForm.value.targetMode!=='NONE'&&routineReportForm.value.actualValue!==null&&routineReportForm.value.actualValue!==undefined&&Number(routineReportForm.value.actualValue)<Number(routineReportForm.value.todayTarget||0))
-const reportBlockReason=computed(()=>projectAccountingState(project.value)==='CLOSED'?'项目核算已关闭，不能继续录入或更正收支':!project.value?.companyDeptId?'项目尚未设置归属公司，请联系归属老板完善后再填报':isLateSettlement.value?'实际结束日期缺失，请联系项目归属责任人核对':'项目进入执行中后才能提交经营数据')
-const progressReportBlockReason=computed(()=>project.value?.status==='CLOSED'?'项目已结项，进度固定为 100%':'项目进入执行中后才能填报项目完成量')
+const reportBlockReason=computed(()=>projectAccountingState(project.value)==='CLOSED'?translateText("项目核算已关闭，不能继续录入或更正收支"):!project.value?.companyDeptId?translateText("项目尚未设置归属公司，请联系归属老板完善后再填报"):isLateSettlement.value?translateText("实际结束日期缺失，请联系项目归属责任人核对"):translateText("项目进入执行中后才能提交经营数据"))
+const progressReportBlockReason=computed(()=>project.value?.status==='CLOSED'?translateText("项目已结项，进度固定为 100%"):translateText("项目进入执行中后才能填报项目完成量"))
 const overdueTaskCount=computed(()=>openTasks.value.filter(task=>task.dueDate&&task.dueDate<today()).length)
 const todayEfforts=computed(()=>(data.value.effortWeek||[]).filter(item=>item.bizDate===today()))
 const pendingTodayEfforts=computed(()=>todayEfforts.value.filter(item=>item.reportStatus==='SUBMITTED'))
@@ -584,22 +586,22 @@ const effortMembers=computed(()=>{
       item.deviationCount++
       item.deviations.push({bizDate:row.bizDate,plannedPercent:Number(row.plannedPercent||0),actualPercent:Number(row.actualPercent||0),deviationReason:row.deviationReason||'',reportStatus:row.reportStatus})
     }
-    if(row.bizDate===today()&&row.reportStatus==='LEAVE'){item.todayOnLeave=true;item.leaveReason=row.leaveReason||'已登记请假'}
+    if(row.bizDate===today()&&row.reportStatus==='LEAVE'){item.todayOnLeave=true;item.leaveReason=row.leaveReason||translateText("已登记请假")}
   }
   return [...grouped.values()].map(item=>({...item,plannedAverage:item.days?Math.round(item.plannedTotal*10/item.days)/10:0,actualAverage:item.days?Math.round(item.actualTotal*10/item.days)/10:0}))
 })
 const confirmedEffortDays=computed(()=>effortMembers.value.reduce((sum,item)=>sum+item.confirmedDays,0))
 const totalEffortDays=computed(()=>effortMembers.value.reduce((sum,item)=>sum+item.days,0))
 const projectProgress=computed(()=>Math.min(100,Math.max(0,Math.round(Number(project.value?.progressPercent||0)))))
-const statusLabel={DRAFT:'草稿',PLANNING:'规划中',ACTIVE:'执行中',PAUSED:'已暂停',ACCEPTANCE:'待验收',CLOSED:'已结项',CANCELED:'已取消'}
+const statusLabel={DRAFT:translateText("草稿"),PLANNING:translateText("规划中"),ACTIVE:translateText("执行中"),PAUSED:translateText("已暂停"),ACCEPTANCE:translateText("待验收"),CLOSED:translateText("已结项"),CANCELED:translateText("已取消")}
 const statusTone={DRAFT:'info',PLANNING:'warning',ACTIVE:'primary',PAUSED:'info',ACCEPTANCE:'success',CLOSED:'success',CANCELED:'danger'}
-const projectStatusLabel=item=>item?.status==='ACCEPTANCE'&&item?.closeMethod==='STAGED_ACCEPTANCE'?'待结项':statusLabel[item?.status]||item?.status
-const managementLabel={LIGHT:'轻量管理',STANDARD:'标准管理',KEY_CONTROL:'重点监管',SIMPLE:'轻量管理',DELIVERY:'标准管理'}
-const closeMethodLabel={DIRECT:'直接结项',RESULT_ACCEPTANCE:'成果验收',STAGED_ACCEPTANCE:'阶段验收'}
-const governanceDescription=computed(()=>{const p=project.value;if(!p)return '';const cycle=p.governanceProfile?.reportCycle==='EXCEPTION'?'异常时更新':p.governanceProfile?.reportCycle==='WEEKLY_AND_EVENT'?'每周更新并在重大事件时专项汇报':'每周更新';const reviewer=p.parentId?'主项目主负责人':'归属老板';const close={DIRECT:`负责人提交结项申请，由${reviewer}检验通过后结项。`,RESULT_ACCEPTANCE:`负责人提交整体验收资料，由${reviewer}验收通过后结项。`,STAGED_ACCEPTANCE:`负责人按里程碑提交成果，由${reviewer}逐项验收并最终确认结项。`}[p.closeMethod]||'';return `过程要求：${cycle}；${close}`})
-const memberRoleLabel={OWNER:'主负责人',DEPUTY:'副负责人',MEMBER:'成员',OBSERVER:'观察者'}
+const projectStatusLabel=item=>item?.status==='ACCEPTANCE'&&item?.closeMethod==='STAGED_ACCEPTANCE'?translateText("待结项"):statusLabel[item?.status]||item?.status
+const managementLabel={LIGHT:translateText("轻量管理"),STANDARD:translateText("标准管理"),KEY_CONTROL:translateText("重点监管"),SIMPLE:translateText("轻量管理"),DELIVERY:translateText("标准管理")}
+const closeMethodLabel={DIRECT:translateText("直接结项"),RESULT_ACCEPTANCE:translateText("成果验收"),STAGED_ACCEPTANCE:translateText("阶段验收")}
+const governanceDescription=computed(()=>{const p=project.value;if(!p)return '';const cycle=p.governanceProfile?.reportCycle==='EXCEPTION'?translateText("异常时更新"):p.governanceProfile?.reportCycle==='WEEKLY_AND_EVENT'?translateText("每周更新并在重大事件时专项汇报"):translateText("每周更新");const reviewer=p.parentId?translateText("主项目主负责人"):translateText("归属老板");const close={DIRECT:translateText("负责人提交结项申请，由{0}检验通过后结项。", [reviewer]),RESULT_ACCEPTANCE:translateText("负责人提交整体验收资料，由{0}验收通过后结项。", [reviewer]),STAGED_ACCEPTANCE:translateText("负责人按里程碑提交成果，由{0}逐项验收并最终确认结项。", [reviewer])}[p.closeMethod]||'';return translateText("过程要求：{0}；{1}", [cycle, close])})
+const memberRoleLabel={OWNER:translateText("主负责人"),DEPUTY:translateText("副负责人"),MEMBER:translateText("成员"),OBSERVER:translateText("观察者")}
 const memberRoleTone={OWNER:'primary',DEPUTY:'success',MEMBER:'info',OBSERVER:'warning'}
-const effortStatusLabel={UNSUBMITTED:'按计划执行',SUBMITTED:'待确认',CONFIRMED:'已确认',RETURNED:'已退回',LEAVE:'今日请假'}
+const effortStatusLabel={UNSUBMITTED:translateText("按计划执行"),SUBMITTED:translateText("待确认"),CONFIRMED:translateText("已确认"),RETURNED:translateText("已退回"),LEAVE:translateText("今日请假")}
 const effortStatusTone={UNSUBMITTED:'info',SUBMITTED:'warning',CONFIRMED:'success',RETURNED:'danger',LEAVE:'info'}
 const revenueCurrencies=['CNY','VND','USD']
 const blankReport=()=>({requestId:newSubmissionId(),factId:null,projectId:null,bizDate:today(),categoryId:null,amount:null,currency:'CNY',description:'',counterparty:'',attachmentUrls:'',remark:''})
@@ -620,14 +622,14 @@ function disabledFinancialDate(date){const value=new Date(date.getTime()-date.ge
 function validFinancialDate(value){if(!value)return false;return !disabledFinancialDate(new Date(`${value}T12:00:00`))}
 function evidencePaths(value){return String(value||'').split(',').map(item=>item.trim()).filter(Boolean)}
 function evidenceCount(value){return evidencePaths(value).length}
-function evidenceName(path){const clean=path.split('?')[0];try{return decodeURIComponent(clean.slice(clean.lastIndexOf('/')+1))||'成果凭证'}catch{return clean.slice(clean.lastIndexOf('/')+1)||'成果凭证'}}
+function evidenceName(path){const clean=path.split('?')[0];try{return decodeURIComponent(clean.slice(clean.lastIndexOf('/')+1))||translateText("成果凭证")}catch{return clean.slice(clean.lastIndexOf('/')+1)||translateText("成果凭证")}}
 function evidenceKind(path){const ext=path.split('?')[0].split('.').pop()?.toLowerCase();if(['jpg','jpeg','png','gif','webp','bmp'].includes(ext))return 'image';if(['mp4','mov','webm','ogg'].includes(ext))return 'video';return 'file'}
 function openEvidenceFiles(title,assigneeName,bizDate,urls,evidenceText=''){const files=evidencePaths(urls).map(path=>({path,name:evidenceName(path),kind:evidenceKind(path)}));evidencePreview.value={title,assigneeName,bizDate,rawUrls:urls,evidenceText,projectId:project.value?.projectId,files};evidenceDialog.value=true}
 function openEvidence(routine){openEvidenceFiles(routine.routineName,routine.assigneeName,accounting.value.bizDate||today(),routine.todayEvidenceUrls)}
 function openProjectProgressEvidence(){openEvidenceFiles(project.value.projectName,project.value.progressReporterName||project.value.mainOwnerName,project.value.progressBizDate,project.value.progressEvidenceUrls,project.value.progressEvidenceText)}
-function taskName(taskId){return [...(project.value?.tasks||[]),...(project.value?.inactiveTasks||[])].find(task=>Number(task.taskId)===Number(taskId))?.taskName||'一次性任务'}
+function taskName(taskId){return [...(project.value?.tasks||[]),...(project.value?.inactiveTasks||[])].find(task=>Number(task.taskId)===Number(taskId))?.taskName||translateText("一次性任务")}
 function taskFinishDate(task){return String(task.actualFinishTime||task.latestReport?.bizDate||'').slice(0,10)}
-function taskFinishTime(task){return task.actualFinishTime||task.latestReport?.bizDate||'未记录'}
+function taskFinishTime(task){return task.actualFinishTime||task.latestReport?.bizDate||translateText("未记录")}
 function isTaskCompletedLate(task){const finishDate=taskFinishDate(task);return !!task.dueDate&&!!finishDate&&finishDate>task.dueDate}
 function openTaskReports(task){taskReportTaskId.value=task?.taskId??null;taskReportDialog.value=true}
 function openTaskReportEvidence(report){openEvidenceFiles(taskName(report.taskId),report.submittedUserName,report.bizDate,report.evidenceUrls)}
@@ -652,16 +654,16 @@ function xu(value){return Number(value||0).toLocaleString('zh-CN',{maximumFracti
 function signed(value){const n=Number(value||0);return `${n>0?'+':''}${money(n)}`}
 function amountTone(value){return Number(value||0)<0?'amount-loss':'amount-profit'}
 function kpiRate(kpi){const target=Number(kpi.targetValue||0);return target?Math.round(Number(kpi.actualValue||0)*100/target):0}
-const routineTargetModeLabel={FIXED:'固定每日目标',AUTO_TOTAL:'自动分配',DAILY_DYNAMIC:'动态日目标',NONE:'无量化'}
-function routineTargetDescription(routine){if(routine.targetMode==='NONE')return '无量化目标，只填完成说明';if(routine.targetMode==='DAILY_DYNAMIC'&&!routine.todayTargetId)return '今日目标待负责人下达';return `今日目标 ${routine.todayTarget ?? 0} ${routine.unit}`}
+const routineTargetModeLabel={FIXED:translateText("固定每日目标"),AUTO_TOTAL:translateText("自动分配"),DAILY_DYNAMIC:translateText("动态日目标"),NONE:translateText("无量化")}
+function routineTargetDescription(routine){if(routine.targetMode==='NONE')return translateText("无量化目标，只填完成说明");if(routine.targetMode==='DAILY_DYNAMIC'&&!routine.todayTargetId)return translateText("今日目标待负责人下达");return translateText("今日目标 {0} {1}", [routine.todayTarget ?? 0, translateText(routine.unit)])}
 function routineRate(routine){const target=Number(routine.todayTarget||0);return target?Math.min(100,Math.round(Number(routine.todayActual||0)*100/target)):0}
 function routineBelowTarget(routine){return routine.targetMode!=='NONE'&&!!routine.todayReportId&&Number(routine.todayActual)<Number(routine.todayTarget||0)}
 function canSubmitRoutine(routine){return !routine.sourceManaged&&!routineLeave(routine)&&!(routine.targetMode==='DAILY_DYNAMIC'&&!routine.todayTargetId)&&Number(routine.assigneeUserId)===Number(userStore.id)}
-function effortDayHint(item){if(item.reportStatus==='SUBMITTED')return '员工已申报偏差，请逐条审核';if(item.reportStatus==='CONFIRMED')return '当天实际投入已确认并锁定';if(item.reportStatus==='RETURNED')return '已退回员工修改';if(item.reportStatus==='LEAVE')return `今日请假${item.leaveReason?`：${item.leaveReason}`:''}`;return '未申报偏差，按计划投入自动核算'}
+function effortDayHint(item){if(item.reportStatus==='SUBMITTED')return translateText("员工已申报偏差，请逐条审核");if(item.reportStatus==='CONFIRMED')return translateText("当天实际投入已确认并锁定");if(item.reportStatus==='RETURNED')return translateText("已退回员工修改");if(item.reportStatus==='LEAVE')return translateText("今日请假{0}", [item.leaveReason?`：${item.leaveReason}`:'']);return translateText("未申报偏差，按计划投入自动核算")}
 function participantEffort(member){return todayEfforts.value.find(item=>Number(item.userId)===Number(member.userId))}
 function participantLeave(member){const stored=(data.value.todayLeaves||[]).find(item=>Number(item.userId)===Number(member.userId));if(stored)return stored;const effort=participantEffort(member);return effort?.reportStatus==='LEAVE'?{userId:member.userId,reason:effort.leaveReason||''}:null}
 function routineLeave(routine){return routine.sourceManaged?null:(data.value.todayLeaves||[]).find(item=>Number(item.userId)===Number(routine.assigneeUserId))}
-function participantName(member){return member.userNameSnapshot||member.userName||'项目成员'}
+function participantName(member){return member.userNameSnapshot||member.userName||translateText("项目成员")}
 async function load(projectId){
   const request=++ownerRequest
   const expensesRequest=loadPublicExpenseTodos()
@@ -735,7 +737,7 @@ async function openAllocationReview(item){
   if(Number(project.value?.projectId)!==Number(item.projectId))return
   await goToWorkspace('people')
   await nextTick()
-  if(!ownerWorkPanel.value)return ElMessage.warning('人员投入申请暂时无法打开，请刷新后重试')
+  if(!ownerWorkPanel.value)return ElMessage.warning(translateText("人员投入申请暂时无法打开，请刷新后重试"))
   await ownerWorkPanel.value.openAllocation(Number(item.item.userId),item.item.effectiveDate)
 }
 async function openPublicExpenseTodo(item){
@@ -760,7 +762,7 @@ function openKpiBonus(){router.push({path:'/business/kpi-bonus',query:{projectId
 function openProposals(){router.push('/business/project-proposals')}
 function openRevenue(){
   if(!canReportFinance.value)return ElMessage.warning(reportBlockReason.value)
-  if(!revenueCategories.value.length)return ElMessage.warning('收入类别尚未初始化，请联系管理员')
+  if(!revenueCategories.value.length)return ElMessage.warning(translateText("收入类别尚未初始化，请联系管理员"))
   const projectCurrency=String(project.value.baseCurrency||'CNY').toUpperCase()
   revenueForm.value={...blankRevenue(),projectId:project.value.projectId,bizDate:defaultFinancialDate(),categoryId:revenueCategories.value[0].categoryId,currency:revenueCurrencies.includes(projectCurrency)?projectCurrency:'CNY'}
   revenueDialog.value=true
@@ -768,11 +770,11 @@ function openRevenue(){
 const noRevenueSubmissionIds=new Map()
 async function confirmNoRevenue(){
   if(!canReportFinance.value)return ElMessage.warning(reportBlockReason.value)
-  if(!revenueCategories.value.length)return ElMessage.warning('收入类别尚未初始化，请联系管理员')
+  if(!revenueCategories.value.length)return ElMessage.warning(translateText("收入类别尚未初始化，请联系管理员"))
   const bizDate=defaultFinancialDate()
   const submissionScope=`${project.value.projectId}:${bizDate}`
   if(!noRevenueSubmissionIds.has(submissionScope))noRevenueSubmissionIds.set(submissionScope,newSubmissionId())
-  await ElMessageBox.confirm(`确认“${project.value.projectName}”在 ${bizDate} 没有收入吗？系统将保存一笔 0 元收入记录，作为今日已确认依据。`,'确认今日无收入',{type:'info',confirmButtonText:'确认无收入',cancelButtonText:'取消'})
+  await ElMessageBox.confirm(translateText("确认“{0}”在 {1} 没有收入吗？系统将保存一笔 0 元收入记录，作为今日已确认依据。", [project.value.projectName, bizDate]),translateText("确认今日无收入"),{type:'info',confirmButtonText:translateText("确认无收入"),cancelButtonText:translateText("取消")})
   const projectCurrency=String(project.value.baseCurrency||'CNY').toUpperCase()
   saving.value=true
   try{
@@ -783,35 +785,35 @@ async function confirmNoRevenue(){
       categoryId:revenueCategories.value[0].categoryId,
       amount:0,
       currency:revenueCurrencies.includes(projectCurrency)?projectCurrency:'CNY',
-      description:'今日无收入',
+      description:translateText("今日无收入"),
       counterparty:'',
       attachmentUrls:'',
-      remark:'负责人确认当日无收入'
+      remark:translateText("负责人确认当日无收入")
     })
     noRevenueSubmissionIds.delete(submissionScope)
-    ElMessage({type:'success',message:'今日无收入已确认，待办已完成',duration:3000,showClose:true})
+    ElMessage({type:'success',message:translateText("今日无收入已确认，待办已完成"),duration:3000,showClose:true})
     await load(selectedProjectId.value)
   }finally{saving.value=false}
 }
 async function submitRevenue(){
   const form=revenueForm.value
   if(!canReportFinance.value)return ElMessage.warning(reportBlockReason.value)
-  if(!validFinancialDate(form.bizDate))return ElMessage.warning('请选择执行期间已发生业务的日期')
-  if(!form.categoryId)return ElMessage.warning('请选择收入类别')
-  if(form.amount===null||form.amount===undefined||Number(form.amount)<0)return ElMessage.warning('请填写收入金额')
-  if(!revenueCurrencies.includes(form.currency))return ElMessage.warning('请选择 CNY、VND 或 USD')
-  if(!form.description?.trim())return ElMessage.warning('请填写收入说明')
+  if(!validFinancialDate(form.bizDate))return ElMessage.warning(translateText("请选择执行期间已发生业务的日期"))
+  if(!form.categoryId)return ElMessage.warning(translateText("请选择收入类别"))
+  if(form.amount===null||form.amount===undefined||Number(form.amount)<0)return ElMessage.warning(translateText("请填写收入金额"))
+  if(!revenueCurrencies.includes(form.currency))return ElMessage.warning(translateText("请选择 CNY、VND 或 USD"))
+  if(!form.description?.trim())return ElMessage.warning(translateText("请填写收入说明"))
   saving.value=true
   try{
     await saveBusinessProjectFact({...form,description:form.description.trim(),counterparty:form.counterparty?.trim(),currency:(form.currency||project.value.baseCurrency||'CNY').trim().toUpperCase()})
     revenueDialog.value=false
-    ElMessage({type:'success',message:'收入已由负责人确认并计入经营结果',duration:3500,showClose:true})
+    ElMessage({type:'success',message:translateText("收入已由负责人确认并计入经营结果"),duration:3500,showClose:true})
     await load(selectedProjectId.value)
   }finally{saving.value=false}
 }
 function openProjectProgressReport(){const current=Number(projectProgress.value||0),todayReport=todayProjectProgress.value||{};projectProgressForm.value={reportId:todayReport.reportId||null,projectId:project.value.projectId,bizDate:accounting.value.bizDate||today(),projectName:project.value.projectName,minimumProgress:current,progress:Number(todayReport.progress??current),completionSummary:todayReport.completionSummary||'',evidenceUrls:todayReport.evidenceUrls||'',evidenceText:todayReport.evidenceText||''};projectProgressDialog.value=true}
 function keepProjectProgress(value){const minimum=Number(projectProgressForm.value.minimumProgress||0);if(Number(value)<minimum)projectProgressForm.value.progress=minimum}
-async function submitProjectProgress(){const form=projectProgressForm.value;if(!form.completionSummary?.trim())return ElMessage.warning('请填写实际完成情况');if(form.progress===null||form.progress===undefined||Number(form.progress)<Number(form.minimumProgress||0)||Number(form.progress)>100)return ElMessage.warning(`项目进度只能增加，不能低于 ${form.minimumProgress||0}%`);saving.value=true;try{await submitBusinessProjectProgressReport({...form,evidenceText:form.evidenceText?.trim()||''});projectProgressDialog.value=false;ElMessage.success('今日项目完成量已保存并同步到老板工作台');await load(selectedProjectId.value)}finally{saving.value=false}}
+async function submitProjectProgress(){const form=projectProgressForm.value;if(!form.completionSummary?.trim())return ElMessage.warning(translateText("请填写实际完成情况"));if(form.progress===null||form.progress===undefined||Number(form.progress)<Number(form.minimumProgress||0)||Number(form.progress)>100)return ElMessage.warning(translateText("项目进度只能增加，不能低于 {0}%", [form.minimumProgress||0]));saving.value=true;try{await submitBusinessProjectProgressReport({...form,evidenceText:form.evidenceText?.trim()||''});projectProgressDialog.value=false;ElMessage.success(translateText("今日项目完成量已保存并同步到老板工作台"));await load(selectedProjectId.value)}finally{saving.value=false}}
 async function confirmEffort(item){
   saving.value=true
   try{
@@ -822,52 +824,52 @@ async function confirmEffort(item){
     item.confirmedTime=saved.confirmedTime||new Date().toISOString()
     item.reviewComment=''
     await load(selectedProjectId.value)
-    ElMessage({type:'success',message:`${item.userName} 的今日投入已确认，人员成本已重新计算`,duration:3000,showClose:true})
+    ElMessage({type:'success',message:translateText("{0} 的今日投入已确认，人员成本已重新计算", [item.userName]),duration:3000,showClose:true})
   }finally{saving.value=false}
 }
 async function confirmPendingEffort(item){
-  await ElMessageBox.confirm(`确认 ${item.userName} 在 ${item.projectName} 的实际投入为 ${item.actualPercent}% 吗？`,'确认投入偏差',{type:'warning'})
+  await ElMessageBox.confirm(translateText("确认 {0} 在 {1} 的实际投入为 {2}% 吗？", [item.userName, item.projectName, item.actualPercent]),translateText("确认投入偏差"),{type:'warning'})
   saving.value=true
   try{
     await confirmBusinessMemberEffort(item.projectId,item.userId,{bizDate:item.bizDate})
-    ElMessage.success(`${item.userName} 的投入已确认`)
+    ElMessage.success(translateText("{0} 的投入已确认", [item.userName]))
     await load(selectedProjectId.value)
   }finally{saving.value=false}
 }
 async function returnPendingEffort(item){
-  const{value}=await ElMessageBox.prompt(`退回 ${item.userName} 在 ${item.projectName} 的投入申报`, '退回投入偏差', {inputPlaceholder:'请填写退回原因',inputValidator:value=>!!value?.trim()||'必须填写退回原因',type:'warning'})
+  const{value}=await ElMessageBox.prompt(translateText("退回 {0} 在 {1} 的投入申报", [item.userName, item.projectName]), translateText("退回投入偏差"), {inputPlaceholder:translateText("请填写退回原因"),inputValidator:value=>!!value?.trim()||translateText("必须填写退回原因"),type:'warning'})
   saving.value=true
   try{
     await returnBusinessMemberEffort(item.projectId,item.userId,{bizDate:item.bizDate,reviewComment:value.trim()})
-    ElMessage.success('已退回员工修改')
+    ElMessage.success(translateText("已退回员工修改"))
     await load(selectedProjectId.value)
   }finally{saving.value=false}
 }
 function openEffortReturn(item){effortReturnForm.value={userId:item.userId,userName:item.userName,bizDate:item.bizDate,reviewComment:''};effortReturnDialog.value=true}
 async function submitEffortReturn(){
   const form=effortReturnForm.value
-  if(!form.reviewComment?.trim())return ElMessage.warning('请填写退回原因')
+  if(!form.reviewComment?.trim())return ElMessage.warning(translateText("请填写退回原因"))
   saving.value=true
   try{
     await returnBusinessMemberEffort(project.value.projectId,form.userId,{bizDate:form.bizDate,reviewComment:form.reviewComment.trim()})
     effortReturnDialog.value=false
     await load(selectedProjectId.value)
-    ElMessage({type:'success',message:'已退回员工修改',duration:3000,showClose:true})
+    ElMessage({type:'success',message:translateText("已退回员工修改"),duration:3000,showClose:true})
   }finally{saving.value=false}
 }
 function openRoutineReport(routine){routineReportForm.value={reportId:routine.todayReportId||null,routineId:routine.routineId,projectId:project.value.projectId,bizDate:accounting.value.bizDate||today(),routineName:routine.routineName,frequency:routine.frequency,targetMode:routine.targetMode||'FIXED',todayTarget:routine.todayTarget,actualValue:routine.todayReportId?Number(routine.todayActual):null,unit:routine.unit,summary:routine.todaySummary||'',issueReason:routine.todayIssueReason||'',evidenceUrls:routine.todayEvidenceUrls||'',version:null};routineReportDialog.value=true}
-async function submitRoutineReport(){const form=routineReportForm.value;if(form.targetMode!=='NONE'&&(form.actualValue===null||form.actualValue===undefined||Number(form.actualValue)<0))return ElMessage.warning('请填写实际完成量');if(!form.summary?.trim())return ElMessage.warning('请填写今日完成说明');if(routineReportNeedsReason.value&&!form.issueReason?.trim())return ElMessage.warning('未达到每日目标时请填写原因');form.actualValue=form.targetMode==='NONE'?0:form.actualValue;form.issueReason=routineReportNeedsReason.value?form.issueReason.trim():null;saving.value=true;try{await submitBusinessRoutineReport(form);routineReportDialog.value=false;ElMessage.success('今日完成情况已保存');await load(selectedProjectId.value)}finally{saving.value=false}}
+async function submitRoutineReport(){const form=routineReportForm.value;if(form.targetMode!=='NONE'&&(form.actualValue===null||form.actualValue===undefined||Number(form.actualValue)<0))return ElMessage.warning(translateText("请填写实际完成量"));if(!form.summary?.trim())return ElMessage.warning(translateText("请填写今日完成说明"));if(routineReportNeedsReason.value&&!form.issueReason?.trim())return ElMessage.warning(translateText("未达到每日目标时请填写原因"));form.actualValue=form.targetMode==='NONE'?0:form.actualValue;form.issueReason=routineReportNeedsReason.value?form.issueReason.trim():null;saving.value=true;try{await submitBusinessRoutineReport(form);routineReportDialog.value=false;ElMessage.success(translateText("今日完成情况已保存"));await load(selectedProjectId.value)}finally{saving.value=false}}
 function openDailyTarget(routine){Object.assign(dailyTargetForm,{routineId:routine.routineId,routineName:routine.routineName,assigneeName:routine.assigneeName,bizDate:accounting.value.bizDate||today(),todayTargetId:routine.todayTargetId||null,targetValue:routine.todayTargetId?Number(routine.todayTarget):null,unit:routine.unit,customerRequirement:routine.todayRequirement||'',changeReason:''});dailyTargetDialog.value=true}
-async function saveDailyTarget(){if(!(Number(dailyTargetForm.targetValue)>0))return ElMessage.warning('今日目标必须大于0');if(dailyTargetForm.todayTargetId&&!dailyTargetForm.changeReason?.trim())return ElMessage.warning('请填写修改原因');saving.value=true;try{await saveBusinessRoutineDailyTarget({...dailyTargetForm});dailyTargetDialog.value=false;ElMessage.success(dailyTargetForm.todayTargetId?'今日目标已修改并保留旧版本':'今日目标已下达');await load(selectedProjectId.value)}finally{saving.value=false}}
+async function saveDailyTarget(){if(!(Number(dailyTargetForm.targetValue)>0))return ElMessage.warning(translateText("今日目标必须大于0"));if(dailyTargetForm.todayTargetId&&!dailyTargetForm.changeReason?.trim())return ElMessage.warning(translateText("请填写修改原因"));saving.value=true;try{await saveBusinessRoutineDailyTarget({...dailyTargetForm});dailyTargetDialog.value=false;ElMessage.success(dailyTargetForm.todayTargetId?translateText("今日目标已修改并保留旧版本"):translateText("今日目标已下达"));await load(selectedProjectId.value)}finally{saving.value=false}}
 async function confirmNoSpend(){
   if(saving.value||!canReportFinance.value)return
-  await ElMessageBox.confirm('确认今日无支出？后续仍可新增实际发生的花费。','今日无支出')
+  await ElMessageBox.confirm(translateText("确认今日无支出？后续仍可新增实际发生的花费。"),translateText("今日无支出"))
   saving.value=true
-  try{await confirmProjectNoSpend(project.value.projectId);await load(selectedProjectId.value);ElMessage.success('今日无支出已确认')}finally{saving.value=false}
+  try{await confirmProjectNoSpend(project.value.projectId);await load(selectedProjectId.value);ElMessage.success(translateText("今日无支出已确认"))}finally{saving.value=false}
 }
 async function openDailySpend(){
   if(!canReportFinance.value)return ElMessage.warning(reportBlockReason.value)
-  if(!expenseCategories.value.length)return ElMessage.warning('支出类别尚未初始化，请联系管理员')
+  if(!expenseCategories.value.length)return ElMessage.warning(translateText("支出类别尚未初始化，请联系管理员"))
   const projectCurrency=String(project.value.baseCurrency||'CNY').toUpperCase()
   reportForm.value={...blankReport(),projectId:project.value.projectId,bizDate:defaultFinancialDate(),categoryId:expenseCategories.value[0].categoryId,currency:revenueCurrencies.includes(projectCurrency)?projectCurrency:'CNY'}
   spendDateLoaded.value=!isLateSettlement.value
@@ -892,23 +894,23 @@ async function loadSpendDate(bizDate){
 }
 async function submitDailySpend(){
   if(!canReportFinance.value)return ElMessage.warning(reportBlockReason.value)
-  if(!validFinancialDate(reportForm.value.bizDate))return ElMessage.warning('请选择执行期间已发生业务的日期')
-  if(isLateSettlement.value&&!spendDateLoaded.value)return ElMessage.warning('请先读取并核对所选日期的花费记录')
-  if(!reportForm.value.categoryId)return ElMessage.warning('请选择支出类别')
-  if(!(Number(reportForm.value.amount)>0))return ElMessage.warning('本次花费必须大于 0')
-  if(!revenueCurrencies.includes(reportForm.value.currency))return ElMessage.warning('请选择 CNY、VND 或 USD')
-  if(!reportForm.value.description?.trim())return ElMessage.warning('请填写支出说明')
+  if(!validFinancialDate(reportForm.value.bizDate))return ElMessage.warning(translateText("请选择执行期间已发生业务的日期"))
+  if(isLateSettlement.value&&!spendDateLoaded.value)return ElMessage.warning(translateText("请先读取并核对所选日期的花费记录"))
+  if(!reportForm.value.categoryId)return ElMessage.warning(translateText("请选择支出类别"))
+  if(!(Number(reportForm.value.amount)>0))return ElMessage.warning(translateText("本次花费必须大于 0"))
+  if(!revenueCurrencies.includes(reportForm.value.currency))return ElMessage.warning(translateText("请选择 CNY、VND 或 USD"))
+  if(!reportForm.value.description?.trim())return ElMessage.warning(translateText("请填写支出说明"))
   saving.value=true
-  try{await saveBusinessProjectDailySpend({...reportForm.value,description:reportForm.value.description.trim(),counterparty:reportForm.value.counterparty?.trim(),currency:reportForm.value.currency.trim().toUpperCase()});reportDialog.value=false;ElMessage({type:'success',message:reportForm.value.factId?'支出已修改并重新计入':'本次支出已计入，今日总额已自动更新',duration:3500,showClose:true});await load(selectedProjectId.value)}finally{saving.value=false}
+  try{await saveBusinessProjectDailySpend({...reportForm.value,description:reportForm.value.description.trim(),counterparty:reportForm.value.counterparty?.trim(),currency:reportForm.value.currency.trim().toUpperCase()});reportDialog.value=false;ElMessage({type:'success',message:reportForm.value.factId?translateText("支出已修改并重新计入"):translateText("本次支出已计入，今日总额已自动更新"),duration:3500,showClose:true});await load(selectedProjectId.value)}finally{saving.value=false}
 }
 function editDailySpend(item){
   reportForm.value={...blankReport(),...item,requestId:newSubmissionId(),projectId:project.value.projectId,bizDate:item.bizDate||accounting.value.bizDate}
   spendDateLoaded.value=true;reportDialog.value=true
 }
 async function reverseDailySpend(item){
-  const {value}=await ElMessageBox.prompt(`冲销“${item.description}” ${money(item.amount)} ${item.currency||project.value.baseCurrency}，该笔金额将从当日总花费中扣除。`,'冲销花费',{confirmButtonText:'确认冲销',cancelButtonText:'取消',inputPlaceholder:'请填写冲销原因',inputValidator:value=>!!value?.trim()||'请填写冲销原因'})
+  const {value}=await ElMessageBox.prompt(translateText("冲销“{0}” {1} {2}，该笔金额将从当日总花费中扣除。", [item.description, money(item.amount), item.currency||project.value.baseCurrency]),translateText("冲销花费"),{confirmButtonText:translateText("确认冲销"),cancelButtonText:translateText("取消"),inputPlaceholder:translateText("请填写冲销原因"),inputValidator:value=>!!value?.trim()||translateText("请填写冲销原因")})
   saving.value=true
-  try{await reverseBusinessProjectDailySpend(item.factId,{reason:value.trim()});ElMessage.success('该笔花费已冲销，今日总额已更新');await load(selectedProjectId.value)}finally{saving.value=false}
+  try{await reverseBusinessProjectDailySpend(item.factId,{reason:value.trim()});ElMessage.success(translateText("该笔花费已冲销，今日总额已更新"));await load(selectedProjectId.value)}finally{saving.value=false}
 }
 const initialProject=String(route.query.projectId||'').toLowerCase()==='all'?ALL_PROJECTS:(route.query.projectId?Number(route.query.projectId):undefined)
 load(initialProject)

@@ -1,3 +1,4 @@
+import { translateText } from '../locales/translate.js'
 import JSZip from 'jszip'
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -31,7 +32,7 @@ const relationshipFiles = zip => Object.keys(zip.files).filter(path =>
 
 const parseXml = text => {
   const xmlDocument = new DOMParser().parseFromString(text, 'application/xml')
-  if (xmlDocument.querySelector('parsererror')) throw new Error('Excel 图片关系文件格式不正确')
+  if (xmlDocument.querySelector('parsererror')) throw new Error(translateText("Excel 图片关系文件格式不正确"))
   return xmlDocument
 }
 
@@ -57,7 +58,7 @@ const imageRelations = async zip => {
 }
 
 const canvasBlob = (canvas, type, quality) => new Promise((resolve, reject) => {
-  canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('浏览器图片编码失败')), type, quality)
+  canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error(translateText("浏览器图片编码失败"))), type, quality)
 })
 
 const compressImage = async blob => {
@@ -73,12 +74,12 @@ const compressImage = async blob => {
     canvas.width = width
     canvas.height = height
     const context = canvas.getContext('2d', { alpha: true })
-    if (!context) throw new Error('浏览器无法创建图片画布')
+    if (!context) throw new Error(translateText("浏览器无法创建图片画布"))
     context.imageSmoothingEnabled = true
     context.imageSmoothingQuality = 'high'
     context.drawImage(bitmap, 0, 0, width, height)
     const webp = await canvasBlob(canvas, 'image/webp', WEBP_QUALITY)
-    if (webp.type !== 'image/webp' || webp.size === 0) throw new Error('浏览器不支持 WebP 编码')
+    if (webp.type !== 'image/webp' || webp.size === 0) throw new Error(translateText("浏览器不支持 WebP 编码"))
     return webp
   } finally {
     bitmap.close()
@@ -87,7 +88,7 @@ const compressImage = async blob => {
 
 const ensureWebpContentType = async zip => {
   const entry = zip.file('[Content_Types].xml')
-  if (!entry) throw new Error('Excel 缺少内容类型配置')
+  if (!entry) throw new Error(translateText("Excel 缺少内容类型配置"))
   const xmlDocument = parseXml(await entry.async('string'))
   const defaults = [...xmlDocument.getElementsByTagNameNS('*', 'Default')]
   if (defaults.some(node => String(node.getAttribute('Extension')).toLowerCase() === 'webp')) return
@@ -120,9 +121,9 @@ export async function compressXlsxImages(file, onProgress = () => {}) {
   if (!file || !String(file.name || '').toLowerCase().endsWith('.xlsx')) {
     return { file, compressed: 0 }
   }
-  if (file.size > LOCAL_FILE_LIMIT) throw new Error('Excel 文件超过500MB，请拆分后导入')
+  if (file.size > LOCAL_FILE_LIMIT) throw new Error(translateText("Excel 文件超过500MB，请拆分后导入"))
 
-  onProgress({ percentage: 2, text: '读取 Excel' })
+  onProgress({ percentage: 2, text: translateText("读取 Excel") })
   const zip = await JSZip.loadAsync(file)
   const relations = await imageRelations(zip)
   const mediaPaths = [...new Set(relations.map(item => item.mediaPath))]
@@ -137,7 +138,7 @@ export async function compressXlsxImages(file, onProgress = () => {}) {
     const bytes = await zip.file(path).async('uint8array')
     onProgress({
       percentage: Math.round(5 + (index / Math.max(1, mediaPaths.length)) * 70),
-      text: `压缩图片 ${index + 1}/${mediaPaths.length}`
+      text: translateText("压缩图片 {0}/{1}", [index + 1, mediaPaths.length])
     })
     try {
       const result = await compressImage(new Blob([bytes]))
@@ -151,7 +152,7 @@ export async function compressXlsxImages(file, onProgress = () => {}) {
       compressedImageBytes += webpBytes.byteLength
     } catch (error) {
       skipped++
-      console.warn(`Excel 图片压缩失败，保留原图：${path}`, error)
+      console.warn(translateText("Excel 图片压缩失败，保留原图：{0}", [path]), error)
     }
   }
 
@@ -160,8 +161,8 @@ export async function compressXlsxImages(file, onProgress = () => {}) {
     await ensureWebpContentType(zip)
   }
   if (!replacements.size) {
-    if (file.size > UPLOAD_FILE_LIMIT) throw new Error('Excel 压缩后仍超过200MB，请拆分后导入')
-    onProgress({ percentage: 100, text: '无需压缩' })
+    if (file.size > UPLOAD_FILE_LIMIT) throw new Error(translateText("Excel 压缩后仍超过200MB，请拆分后导入"))
+    onProgress({ percentage: 100, text: translateText("无需压缩") })
     return {
       file,
       compressed: 0,
@@ -174,7 +175,7 @@ export async function compressXlsxImages(file, onProgress = () => {}) {
     }
   }
 
-  onProgress({ percentage: 82, text: '重新生成 Excel' })
+  onProgress({ percentage: 82, text: translateText("重新生成 Excel") })
   const output = await zip.generateAsync({
     type: 'blob',
     mimeType: XLSX_MIME,
@@ -182,11 +183,11 @@ export async function compressXlsxImages(file, onProgress = () => {}) {
     compressionOptions: { level: 6 }
   }, metadata => onProgress({
     percentage: Math.min(99, 82 + Math.round(metadata.percent * 0.17)),
-    text: '重新生成 Excel'
+    text: translateText("重新生成 Excel")
   }))
-  if (output.size > UPLOAD_FILE_LIMIT) throw new Error('Excel 压缩后仍超过200MB，请拆分后导入')
+  if (output.size > UPLOAD_FILE_LIMIT) throw new Error(translateText("Excel 压缩后仍超过200MB，请拆分后导入"))
 
-  onProgress({ percentage: 100, text: '压缩完成' })
+  onProgress({ percentage: 100, text: translateText("压缩完成") })
   return {
     file: new File([output], file.name, { type: XLSX_MIME, lastModified: Date.now() }),
     compressed: replacements.size,

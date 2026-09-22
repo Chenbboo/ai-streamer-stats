@@ -1,6 +1,6 @@
 <template>
-  <el-date-picker :model-value="modelValue" :type="dateType" :format="dateType==='date' ? 'YYYY年MM月DD日' : 'YYYY年MM月'" value-format="YYYY-MM-DD"
-    :placeholder="dateType==='date' ? '选择日期' : '选择月份'" :disabled-date="disabledMonth" style="width:100%" @update:model-value="selectMonth" />
+  <el-date-picker :model-value="modelValue" :type="dateType" :format="dateType==='date' ? $tr(&quot;YYYY年MM月DD日&quot;) : $tr(&quot;YYYY年MM月&quot;)" value-format="YYYY-MM-DD"
+    :placeholder="dateType==='date' ? $tr(&quot;选择日期&quot;) : $tr(&quot;选择月份&quot;)" :disabled-date="disabledMonth" style="width:100%" @update:model-value="selectMonth" />
 </template>
 
 <script setup>

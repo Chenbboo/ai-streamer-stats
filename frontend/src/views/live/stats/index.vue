@@ -314,7 +314,7 @@
         <div class="modal-header">
           <div>
             <div class="modal-title">{{ $t('stats.customerMaintenanceMatrix') }}</div>
-            <div class="modal-sub">{{ query.beginDate }} 至 {{ query.endDate }} · {{ matrixRows.length }} {{ $t('stats.customers') }}</div>
+            <div class="modal-sub">{{ $tr("{0} 至 {1} · {2} {3}", [query.beginDate, query.endDate, matrixRows.length, $t('stats.customers')]) }}</div>
           </div>
           <button class="modal-close" @click="matrixDialog.open = false">&times;</button>
         </div>
@@ -353,6 +353,8 @@
 </template>
 
 <script setup name="LiveStats">
+import { translateText, getDisplayLocale } from '@/locales/translate'
+
 import * as echarts from 'echarts'
 import { useI18n } from 'vue-i18n'
 import { weeklyStats, streamerCardDetail, highValueUsers, newTippers, weijiStats, weijiMonthStats, weijiDetail, adviceData, customerMaintenanceMatrix } from '@/api/live/stats'
@@ -393,7 +395,7 @@ const maxCutoffDate = formatDate(yesterday)
 const cutoffDate = ref(maxCutoffDate)
 const cutoffDay = computed(() => new Date(`${cutoffDate.value}T00:00:00`))
 const currentWeek = computed(() => Math.ceil(cutoffDay.value.getDate() / 7) || 1)
-const todayStr = computed(() => (cutoffDay.value.getMonth() + 1) + '月' + cutoffDay.value.getDate() + '日')
+const todayStr = computed(() => cutoffDay.value.toLocaleDateString(getDisplayLocale(), { month: 'long', day: 'numeric' }))
 
 const defaultEnd = cutoffDate.value
 const defaultBegin = formatDate(new Date(cutoffDay.value.getFullYear(), cutoffDay.value.getMonth(), 1))
@@ -889,15 +891,15 @@ async function sendChat(streamerId) {
     }
 
     if (!aiMessage) {
-      chatMessages[streamerId][chatMessages[streamerId].length - 1].content = '（无回复）'
+      chatMessages[streamerId][chatMessages[streamerId].length - 1].content = translateText("（无回复）")
     }
   } catch (e) {
     console.error('Chat error:', e)
     const msgs = chatMessages[streamerId]
     if (msgs.length > 0 && msgs[msgs.length - 1].content === '') {
-      msgs[msgs.length - 1].content = '请求失败: ' + e.message
+      msgs[msgs.length - 1].content = translateText("请求失败: ") + e.message
     } else {
-      msgs.push({ role: 'assistant', content: '请求失败: ' + e.message })
+      msgs.push({ role: 'assistant', content: translateText("请求失败: ") + e.message })
     }
   } finally {
     chatLoading[streamerId] = false
@@ -906,8 +908,8 @@ async function sendChat(streamerId) {
 
 async function openWeijiDetail(streamerId, mode) {
   const streamer = streamers.value.find(s => s.streamerId === streamerId)
-  const stageName = streamer ? streamer.stageName : '未知'
-  weijiDetailDialog.title = stageName + ' · 有打赏+无互动'
+  const stageName = streamer ? streamer.stageName : translateText("未知")
+  weijiDetailDialog.title = stageName + translateText(" · 有打赏+无互动")
 
   let beginDate, endDate
   if (mode === 'day') {

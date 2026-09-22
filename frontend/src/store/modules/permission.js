@@ -5,6 +5,7 @@ import Layout from '@/layout/index'
 import ParentView from '@/components/ParentView'
 import InnerLink from '@/layout/components/InnerLink'
 import Cookies from 'js-cookie'
+import { translateText } from '@/locales/translate'
 
 // 匹配views里面所有的.vue文件
 const modules = import.meta.glob('./../../views/**/*.vue')
@@ -61,8 +62,9 @@ function filterAsyncRouter(asyncRouterMap, lastRouter = false, type = false) {
   const language = Cookies.get('language') || 'zh-CN'
   return asyncRouterMap.filter(route => {
     // 根据语言设置菜单名称
-    if (route.meta && language === 'vi-VN' && route.meta.titleVi) {
-      route.meta.title = route.meta.titleVi
+    if (route.meta) route.meta.titleZh = route.meta.title
+    if (route.meta && language === 'vi-VN') {
+      route.meta.title = route.meta.titleVi?.trim() || translateText(route.meta.title)
     }
     if (type && route.children) {
       route.children = filterChildren(route.children)

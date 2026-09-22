@@ -2,7 +2,7 @@
   <div class="app-container rates-page">
     <header v-if="!embedded"><div><span class="eyebrow">FINANCE · INTERNAL COST</span><h1>{{ t('title') }}</h1><p>{{ t('intro') }}</p></div><el-button icon="Refresh" :loading="loading" @click="loadPeople">{{ t('refresh') }}</el-button></header>
     <el-alert v-if="!embedded" :title="t('boundary')" type="info" :closable="false" show-icon />
-    <el-alert v-else title="在这里设置成员的用人成本，用于人员预算和工作成本核算。按生效日期保存新版本，已确认的历史成本保留原计算依据。" type="info" :closable="false" show-icon />
+    <el-alert v-else :title="$tr(&quot;在这里设置成员的用人成本，用于人员预算和工作成本核算。按生效日期保存新版本，已确认的历史成本保留原计算依据。&quot;)" type="info" :closable="false" show-icon />
     <section class="rates-panel">
       <el-form class="cost-filters" label-position="top" @submit.prevent>
         <el-form-item v-if="!embedded" :label="t('company')"><el-select v-model="filters.company" clearable filterable :placeholder="t('allCompanies')" @change="companyChanged"><el-option v-for="company in companies" :key="company.key" :value="company.key" :label="company.name" /></el-select></el-form-item>
@@ -11,7 +11,7 @@
         <el-form-item :label="t('filterDate')"><el-date-picker v-model="filters.date" type="date" value-format="YYYY-MM-DD" :placeholder="t('anyDate')" clearable /></el-form-item>
         <el-form-item class="filter-reset"><el-button icon="Refresh" @click="resetFilters">{{ t('resetFilters') }}</el-button></el-form-item>
       </el-form>
-      <div class="toolbar"><p v-if="selectedPerson" class="person-line"><b>{{ selectedPerson.nickName || selectedPerson.userName }}</b> · {{ selectedPerson.companyName }}<small v-if="rawCostVisible">{{ t('matchingVersions', { count: filteredPolicies.length, total: policies.length }) }}</small></p><el-button v-if="canManage" type="primary" icon="Plus" @click="openCreate">{{ embedded ? '设置用人成本' : t('add') }}</el-button></div>
+      <div class="toolbar"><p v-if="selectedPerson" class="person-line"><b>{{ selectedPerson.nickName || selectedPerson.userName }}</b> · {{ selectedPerson.companyName }}<small v-if="rawCostVisible">{{ t('matchingVersions', { count: filteredPolicies.length, total: policies.length }) }}</small></p><el-button v-if="canManage" type="primary" icon="Plus" @click="openCreate">{{ embedded ? $tr("设置用人成本") : t('add') }}</el-button></div>
       <el-empty v-if="!selectedUserId" :description="t('selectPerson')" />
       <el-alert v-else-if="!rawCostVisible" :title="t('forbidden')" type="warning" :closable="false" />
       <el-table v-else :data="filteredPolicies" v-loading="loading" :empty-text="t(policies.length ? 'noMatchingPolicies' : 'empty')">
@@ -32,8 +32,8 @@
         <div class="cost-preview" aria-live="polite"><span>{{ t('preview') }}</span><b>{{ costPreview }}</b><small>{{ hourlyPreview }}</small><small v-if="form.costMode==='MONTHLY'">{{ t('standardDays') }}：{{ defaultStandardDays ?? '—' }}</small></div>
         <el-alert v-if="form.costMode==='MONTHLY' && !defaultStandardDays" :title="t('missingRegion')" type="warning" :closable="false" show-icon />
         <div class="form-grid"><el-form-item :label="t('from')" required><el-date-picker v-model="form.effectiveFrom" type="date" value-format="YYYY-MM-DD" popper-class="staff-cost-date-popper"><template #default="cell"><div class="el-date-table-cell"><span class="el-date-table-cell__text cost-date-cell" :class="costDateClass(costCellDate(cell))" :style="costDateStyle(costCellDate(cell))" :title="costDateTitle(costCellDate(cell))">{{ cell.text }}</span></div></template></el-date-picker></el-form-item><el-form-item :label="t('to')"><el-date-picker v-model="form.effectiveTo" type="date" value-format="YYYY-MM-DD" :disabled-date="disableEndDate" clearable popper-class="staff-cost-date-popper"><template #default="cell"><div class="el-date-table-cell"><span class="el-date-table-cell__text cost-date-cell" :class="costDateClass(costCellDate(cell))" :style="costDateStyle(costCellDate(cell))" :title="costDateTitle(costCellDate(cell))">{{ cell.text }}</span></div></template></el-date-picker></el-form-item></div>
-        <div v-if="activeCostPolicies.length" class="cost-calendar-legend"><span class="legend-title">日历颜色说明（仅标记有效版本）</span><div class="legend-items"><span v-for="(policy,index) in activeCostPolicies" :key="policy.policyId" class="legend-item"><i :style="costPolicySwatchStyle(index)" /><b>v{{ policy.policyVersion }}</b><span>{{ money(policy.unitCost) }} {{ policy.currency }} · {{ modeLabel(policy.costMode) }}</span><small>{{ policy.effectiveFrom }} → {{ policy.effectiveTo || t('ongoing') }}</small></span></div><small v-if="hasCostOverlap" class="overlap-help">同一天出现多种颜色，表示成本版本的生效区间存在重叠。</small></div>
-        <p v-else class="cost-calendar-empty">当前没有有效成本版本，日历暂不标色。</p>
+        <div v-if="activeCostPolicies.length" class="cost-calendar-legend"><span class="legend-title">{{ $tr("日历颜色说明（仅标记有效版本）") }}</span><div class="legend-items"><span v-for="(policy,index) in activeCostPolicies" :key="policy.policyId" class="legend-item"><i :style="costPolicySwatchStyle(index)" /><b>v{{ policy.policyVersion }}</b><span>{{ money(policy.unitCost) }} {{ policy.currency }} · {{ modeLabel(policy.costMode) }}</span><small>{{ policy.effectiveFrom }} → {{ policy.effectiveTo || t('ongoing') }}</small></span></div><small v-if="hasCostOverlap" class="overlap-help">{{ $tr("同一天出现多种颜色，表示成本版本的生效区间存在重叠。") }}</small></div>
+        <p v-else class="cost-calendar-empty">{{ $tr("当前没有有效成本版本，日历暂不标色。") }}</p>
         <el-form-item :label="t('remark')" required><el-input v-model="form.remark" type="textarea" :rows="2" maxlength="500" show-word-limit :placeholder="t('remarkHint')" /></el-form-item>
         <el-collapse v-model="advanced" class="cost-advanced"><el-collapse-item name="settings" :title="t('advanced')">
           <el-form-item :label="t('mode')" required><el-select v-model="form.costMode"><el-option v-for="mode in ['MONTHLY','DAILY','HOURLY']" :key="mode" :value="mode" :label="modeLabel(mode)" /></el-select></el-form-item>
@@ -46,6 +46,8 @@
 </template>
 
 <script setup name="BusinessCostPolicies">
+import { translateText } from '@/locales/translate'
+
 const props=defineProps({staffUserId:{type:Number,default:null},embedded:{type:Boolean,default:false}})
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
@@ -89,7 +91,7 @@ function costPoliciesForDate(day){const date=normalizedCostDate(day);if(!date)re
 function costDateClass(day){const matches=costPoliciesForDate(day);return {'has-cost':matches.length>0,'has-overlap':matches.length>1}}
 function costPolicyColor(policy){const index=activeCostPolicies.value.indexOf(policy);return costDateColors[(index<0?0:index)%costDateColors.length]}
 function costDateStyle(day){const matches=costPoliciesForDate(day);if(!matches.length)return {};const colors=matches.map(costPolicyColor);const background=colors.length===1?colors[0].background:`linear-gradient(135deg, ${colors.map((color,index)=>`${color.background} ${index*100/colors.length}% ${(index+1)*100/colors.length}%`).join(', ')})`;return {'--cost-date-background':background,'--cost-date-border':colors[0].border,'--cost-date-text':colors[0].text}}
-function costDateTitle(day){const matches=costPoliciesForDate(day);return matches.map(policy=>`v${policy.policyVersion}：${money(policy.unitCost)} ${policy.currency} · ${modeLabel(policy.costMode)}（${policy.effectiveFrom} 至 ${policy.effectiveTo||t('ongoing')}）`).join('\n')}
+function costDateTitle(day){const matches=costPoliciesForDate(day);return matches.map(policy=>translateText("v{0}：{1} {2} · {3}（{4} 至 {5}）", [policy.policyVersion, money(policy.unitCost), policy.currency, modeLabel(policy.costMode), policy.effectiveFrom, policy.effectiveTo||t('ongoing')])).join('\n')}
 function costPolicySwatchStyle(index){const color=costDateColors[index%costDateColors.length];return {background:color.background,borderColor:color.border}}
 function policyDailyCostText(policy){
   if(policy.unitCost==null||policy.unitCost==='')return '—'

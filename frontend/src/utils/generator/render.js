@@ -1,3 +1,4 @@
+import { translateText } from '../../locales/translate.js'
 import { defineComponent, h } from 'vue'
 import { makeMap } from '@/utils/index'
 
@@ -86,7 +87,7 @@ const componentSlot = {
       if (conf.showTip) {
         return () => h('div', {
           class: "el-upload__tip"
-        }, '只能上传不超过' + conf.fileSize + conf.sizeUnit + '的' + conf.accept + '文件')
+        }, translateText("只能上传不超过") + conf.fileSize + conf.sizeUnit + translateText("的") + conf.accept + translateText("文件"))
       }
     },
   }

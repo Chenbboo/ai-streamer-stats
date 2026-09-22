@@ -1,28 +1,28 @@
 <template>
   <details class="decision-panel">
     <summary>
-      <span>查看 AI 决策</span>
+      <span>{{ $tr("查看 AI 决策") }}</span>
       <el-tag size="small" :type="corrected ? 'warning' : 'success'" effect="plain">
-        {{ corrected ? '系统已纠正' : '校验通过' }}
+        {{ corrected ? $tr("系统已纠正") : $tr("校验通过") }}
       </el-tag>
     </summary>
     <div class="decision-body">
       <div class="decision-grid">
-        <div><small>识别意图</small><b>{{ label(trace.detectedIntent) }}</b></div>
-        <div><small>模型选择</small><b>{{ selectionText }}</b></div>
-        <div><small>系统校验</small><b>{{ trace.validationMessage || '已通过安全校验' }}</b></div>
-        <div><small>最终处理</small><b>{{ label(trace.finalRoute) }}</b></div>
+        <div><small>{{ $tr("识别意图") }}</small><b>{{ label(trace.detectedIntent) }}</b></div>
+        <div><small>{{ $tr("模型选择") }}</small><b>{{ selectionText }}</b></div>
+        <div><small>{{ $tr("系统校验") }}</small><b>{{ trace.validationMessage || $tr("已通过安全校验") }}</b></div>
+        <div><small>{{ $tr("最终处理") }}</small><b>{{ label(trace.finalRoute) }}</b></div>
       </div>
       <div v-if="candidates.length" class="decision-row">
-        <small>候选能力</small>
+        <small>{{ $tr("候选能力") }}</small>
         <span><el-tag v-for="item in candidates" :key="item" size="small" effect="plain">{{ label(item) }}</el-tag></span>
       </div>
       <div v-if="missingFields.length" class="decision-row">
-        <small>仍需补充</small>
+        <small>{{ $tr("仍需补充") }}</small>
         <span><el-tag v-for="item in missingFields" :key="item" size="small" type="info" effect="plain">{{ item }}</el-tag></span>
       </div>
       <footer>
-        <span>{{ trace.provider || 'LOCAL' }} / {{ trace.model || '安全路由' }} · {{ trace.executionMode || '-' }}</span>
+        <span>{{ trace.provider || 'LOCAL' }} / {{ trace.model || $tr("安全路由") }} · {{ trace.executionMode || '-' }}</span>
         <span>Run #{{ trace.runId || '-' }} · Trace {{ shortTrace }}</span>
       </footer>
     </div>
@@ -30,21 +30,23 @@
 </template>
 
 <script setup>
+import { translateText } from '@/locales/translate'
+
 const props=defineProps({trace:{type:Object,required:true}})
 const labels={
-  CREATE_PROJECT:'创建新项目',
-  CREATE_PROJECT_WORKFLOW:'历史创建项目资料收集',
-  NO_MODEL_ROUTE:'模型未给出路由',
-  'project.create':'历史正式创建项目',
-  'project.draft.update':'更新立项草稿',
-  'conversation.safe.respond':'安全对话回复'
+  CREATE_PROJECT:translateText("创建新项目"),
+  CREATE_PROJECT_WORKFLOW:translateText("历史创建项目资料收集"),
+  NO_MODEL_ROUTE:translateText("模型未给出路由"),
+  'project.create':translateText("历史正式创建项目"),
+  'project.draft.update':translateText("更新立项草稿"),
+  'conversation.safe.respond':translateText("安全对话回复")
 }
 const label=value=>labels[value]||value||'-'
 const corrected=computed(()=>props.trace.validationStatus==='CORRECTED')
 const selections=computed(()=>Array.isArray(props.trace.modelSelection)?props.trace.modelSelection:[])
 const candidates=computed(()=>Array.isArray(props.trace.candidateCapabilities)?props.trace.candidateCapabilities:[])
 const missingFields=computed(()=>Array.isArray(props.trace.missingFields)?props.trace.missingFields:[])
-const selectionText=computed(()=>selections.value.length?selections.value.map(label).join('、'):'未返回')
+const selectionText=computed(()=>selections.value.length?selections.value.map(label).join('、'):translateText("未返回"))
 const shortTrace=computed(()=>{
   const value=String(props.trace.traceId||'')
   return value.length>12?`${value.slice(0,12)}…`:(value||'-')

@@ -1,111 +1,111 @@
 <template>
   <div class="app-container department-page">
     <header class="hero">
-      <div><span class="eyebrow">ORGANIZATION</span><h1>集团与部门管理</h1><p>两位老板共享维护上海、越南两家公司及其部门，人员可在人员管理中调整归属。</p></div>
-      <el-button type="primary" icon="Plus" @click="openCreate(rootRow())">新增公司</el-button>
+      <div><span class="eyebrow">ORGANIZATION</span><h1>{{ $tr("集团与部门管理") }}</h1><p>{{ $tr("两位老板共享维护上海、越南两家公司及其部门，人员可在人员管理中调整归属。") }}</p></div>
+      <el-button type="primary" icon="Plus" @click="openCreate(rootRow())">{{ $tr("新增公司") }}</el-button>
     </header>
 
     <section class="panel search-panel">
       <el-form :model="query" inline>
-        <el-form-item label="部门名称"><el-input v-model="query.deptName" clearable placeholder="输入部门名称" @keyup.enter="load" /></el-form-item>
-        <el-form-item label="状态"><el-select v-model="query.status" clearable placeholder="全部状态" style="width:130px"><el-option label="正常" value="0"/><el-option label="停用" value="1"/></el-select></el-form-item>
-        <el-form-item><el-button type="primary" @click="load">查询</el-button><el-button @click="resetSearch">重置</el-button></el-form-item>
+        <el-form-item :label="$tr(&quot;部门名称&quot;)"><el-input v-model="query.deptName" clearable :placeholder="$tr(&quot;输入部门名称&quot;)" @keyup.enter="load" /></el-form-item>
+        <el-form-item :label="$tr(&quot;状态&quot;)"><el-select v-model="query.status" clearable :placeholder="$tr(&quot;全部状态&quot;)" style="width:130px"><el-option :label="$tr(&quot;正常&quot;)" value="0"/><el-option :label="$tr(&quot;停用&quot;)" value="1"/></el-select></el-form-item>
+        <el-form-item><el-button type="primary" @click="load">{{ $tr("查询") }}</el-button><el-button @click="resetSearch">{{ $tr("重置") }}</el-button></el-form-item>
       </el-form>
     </section>
 
     <section class="panel">
-      <div class="panel-head"><div><h2>组织架构</h2><p>点击公司查看部门，点击部门展开员工；调整顺序后点击保存排序</p></div><div><el-button icon="Sort" @click="toggleExpandAll">{{ expanded ? '全部折叠' : '全部展开' }}</el-button><el-button type="primary" plain :loading="savingSort" @click="saveSort">保存排序</el-button></div></div>
+      <div class="panel-head"><div><h2>{{ $tr("组织架构") }}</h2><p>{{ $tr("点击公司查看部门，点击部门展开员工；调整顺序后点击保存排序") }}</p></div><div><el-button icon="Sort" @click="toggleExpandAll">{{ expanded ? $tr("全部折叠") : $tr("全部展开") }}</el-button><el-button type="primary" plain :loading="savingSort" @click="saveSort">{{ $tr("保存排序") }}</el-button></div></div>
       <el-table :data="tableRows" v-loading="loading" :row-key="organizationKey" :row-class-name="({row})=>row.isDepartmentHeader ? 'department-header-row' : (row.isEmployeeRow || row.isEmptyStaffRow ? 'employee-row' : '')" :expand-row-keys="expandedIds" :tree-props="{children:'children'}" @expand-change="onExpandChange">
-        <el-table-column prop="deptName" label="组织名称" min-width="280">
+        <el-table-column prop="deptName" :label="$tr(&quot;组织名称&quot;)" min-width="280">
           <template #default="{row}">
-            <span v-if="row.isDepartmentHeader" class="department-column-heading">部门名称</span>
-            <button v-else-if="row.isEmployeeRow" type="button" class="employee-label employee-link" :aria-label="`查看${displayName(row.person)}的员工详情`" @click.stop="openEmployeeDetail(row.person)"><b>{{ displayName(row.person) }}</b><small>{{ row.person.userName }}</small></button>
-            <span v-else-if="row.isEmptyStaffRow" class="empty-staff">暂无员工</span>
+            <span v-if="row.isDepartmentHeader" class="department-column-heading">{{ $tr("部门名称") }}</span>
+            <button v-else-if="row.isEmployeeRow" type="button" class="employee-label employee-link" :aria-label="$tr(&quot;查看{0}的员工详情&quot;, [displayName(row.person)])" @click.stop="openEmployeeDetail(row.person)"><b>{{ displayName(row.person) }}</b><small>{{ row.person.userName }}</small></button>
+            <span v-else-if="row.isEmptyStaffRow" class="empty-staff">{{ $tr("暂无员工") }}</span>
             <span v-else class="organization-label">
               <button v-if="row.children?.length" type="button" class="organization-toggle" :aria-expanded="expandedIds.includes(organizationKey(row))" @click.stop="onExpandChange(row,!expandedIds.includes(organizationKey(row)))">
                 {{ row.deptName }}
-                <small>{{ isRoot(row) ? '集团根节点' : (isCompany(row) ? `公司 · ${row.source.children?.length || 0} 个部门` : `${directStaffFor(row).length} 位直属员工`) }}</small>
+                <small>{{ isRoot(row) ? $tr("集团根节点") : (isCompany(row) ? $tr("公司 · {0} 个部门", [row.source.children?.length || 0]) : $tr("{0} 位直属员工", [directStaffFor(row).length])) }}</small>
               </button>
-              <span v-else><b>{{ row.deptName }}</b><small v-if="isRoot(row)">集团根节点</small><small v-else-if="isCompany(row)">公司</small></span>
+              <span v-else><b>{{ row.deptName }}</b><small v-if="isRoot(row)">{{ $tr("集团根节点") }}</small><small v-else-if="isCompany(row)">{{ $tr("公司") }}</small></span>
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="人员" width="100" align="center"><template #default="{row}"><span v-if="row.isDepartmentHeader" class="department-column-heading">人员</span><el-button v-else-if="row.source" link type="primary" @click="openPeople(row)">{{ peopleFor(row).length }} 人</el-button></template></el-table-column>
-        <el-table-column label="排序" width="110"><template #default="{row}"><span v-if="row.isDepartmentHeader" class="department-column-heading">排序</span><el-input-number v-else-if="row.source" v-model="row.source.orderNum" :min="0" controls-position="right" size="small" /></template></el-table-column>
-        <el-table-column prop="leader" label="负责人" width="130"><template #default="{row}"><span v-if="row.isDepartmentHeader" class="department-column-heading">负责人</span><template v-else-if="row.source">{{ row.leader || '—' }}</template></template></el-table-column>
-        <el-table-column label="状态" width="90"><template #default="{row}"><span v-if="row.isDepartmentHeader" class="department-column-heading">状态</span><el-tag v-else-if="!row.isEmptyStaffRow" :type="row.status === '0' ? 'success' : 'info'">{{ row.status === '0' ? '正常' : '停用' }}</el-tag></template></el-table-column>
-        <el-table-column label="操作" width="190" fixed="right"><template #default="{row}">
-          <span v-if="row.isDepartmentHeader" class="department-column-heading">操作</span>
+        <el-table-column :label="$tr(&quot;人员&quot;)" width="100" align="center"><template #default="{row}"><span v-if="row.isDepartmentHeader" class="department-column-heading">{{ $tr("人员") }}</span><el-button v-else-if="row.source" link type="primary" @click="openPeople(row)">{{ $tr("{0} 人", [peopleFor(row).length]) }}</el-button></template></el-table-column>
+        <el-table-column :label="$tr(&quot;排序&quot;)" width="110"><template #default="{row}"><span v-if="row.isDepartmentHeader" class="department-column-heading">{{ $tr("排序") }}</span><el-input-number v-else-if="row.source" v-model="row.source.orderNum" :min="0" controls-position="right" size="small" /></template></el-table-column>
+        <el-table-column prop="leader" :label="$tr(&quot;负责人&quot;)" width="130"><template #default="{row}"><span v-if="row.isDepartmentHeader" class="department-column-heading">{{ $tr("负责人") }}</span><template v-else-if="row.source">{{ row.leader || '—' }}</template></template></el-table-column>
+        <el-table-column :label="$tr(&quot;状态&quot;)" width="90"><template #default="{row}"><span v-if="row.isDepartmentHeader" class="department-column-heading">{{ $tr("状态") }}</span><el-tag v-else-if="!row.isEmptyStaffRow" :type="row.status === '0' ? 'success' : 'info'">{{ row.status === '0' ? $tr("正常") : $tr("停用") }}</el-tag></template></el-table-column>
+        <el-table-column :label="$tr(&quot;操作&quot;)" width="190" fixed="right"><template #default="{row}">
+          <span v-if="row.isDepartmentHeader" class="department-column-heading">{{ $tr("操作") }}</span>
           <template v-else-if="row.isEmployeeRow">
-            <el-button link type="primary" @click="openEmployeeDetail(row.person)">查看详情</el-button>
-            <el-button v-if="canAssignStaff && !row.person.protectedAccount" link type="danger" :loading="removingStaffId===row.person.userId" :disabled="removingStaffId!==null" @click="removeEmployee(row.person)">移出部门</el-button>
+            <el-button link type="primary" @click="openEmployeeDetail(row.person)">{{ $tr("查看详情") }}</el-button>
+            <el-button v-if="canAssignStaff && !row.person.protectedAccount" link type="danger" :loading="removingStaffId===row.person.userId" :disabled="removingStaffId!==null" @click="removeEmployee(row.person)">{{ $tr("移出部门") }}</el-button>
           </template>
           <template v-else-if="row.source">
-          <el-button v-if="isRoot(row) || isCompany(row)" link type="primary" @click="openCreate(row)">{{ isRoot(row) ? '新增公司' : '新增部门' }}</el-button>
-          <el-button v-else-if="canAssignStaff" link type="primary" :disabled="row.status!=='0'" @click="openAssignStaff(row)">加入员工</el-button>
-          <el-button v-if="!isRoot(row)" link type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-button v-if="!isProtected(row)" link type="danger" @click="remove(row)">删除</el-button>
-          <span v-if="isProtected(row)" class="protected-copy">受保护</span>
+          <el-button v-if="isRoot(row) || isCompany(row)" link type="primary" @click="openCreate(row)">{{ isRoot(row) ? $tr("新增公司") : $tr("新增部门") }}</el-button>
+          <el-button v-else-if="canAssignStaff" link type="primary" :disabled="row.status!=='0'" @click="openAssignStaff(row)">{{ $tr("加入员工") }}</el-button>
+          <el-button v-if="!isRoot(row)" link type="primary" @click="openEdit(row)">{{ $tr("编辑") }}</el-button>
+          <el-button v-if="!isProtected(row)" link type="danger" @click="remove(row)">{{ $tr("删除") }}</el-button>
+          <span v-if="isProtected(row)" class="protected-copy">{{ $tr("受保护") }}</span>
           </template>
         </template></el-table-column>
       </el-table>
     </section>
 
-    <el-dialog v-model="assignStaffOpen" :title="`${assignDepartment?.deptName || ''} · 加入员工`" width="min(680px, 96vw)" append-to-body :close-on-click-modal="!assigningStaff" :close-on-press-escape="!assigningStaff" :show-close="!assigningStaff">
+    <el-dialog v-model="assignStaffOpen" :title="$tr(&quot;{0} · 加入员工&quot;, [assignDepartment?.deptName || ''])" width="min(680px, 96vw)" append-to-body :close-on-click-modal="!assigningStaff" :close-on-press-escape="!assigningStaff" :show-close="!assigningStaff">
       <div v-loading="loadingStaffOptions">
-        <p class="assign-staff-copy">选择已有员工账号加入本部门。已在其他部门的员工，保存后将转入本部门。</p>
-        <el-select v-model="assignUserIds" multiple filterable clearable :multiple-limit="200" :disabled="assigningStaff || loadingStaffOptions" placeholder="搜索员工姓名、登录账号或原部门" style="width:100%" no-data-text="暂无可加入的员工账号" aria-label="选择员工账号">
-          <el-option v-for="person in assignableStaff" :key="person.userId" :value="person.userId" :label="`${displayName(person)} · ${person.userName} · ${person.deptName || '未设置部门'}`" />
+        <p class="assign-staff-copy">{{ $tr("选择已有员工账号加入本部门。已在其他部门的员工，保存后将转入本部门。") }}</p>
+        <el-select v-model="assignUserIds" multiple filterable clearable :multiple-limit="200" :disabled="assigningStaff || loadingStaffOptions" :placeholder="$tr(&quot;搜索员工姓名、登录账号或原部门&quot;)" style="width:100%" :no-data-text="$tr(&quot;暂无可加入的员工账号&quot;)" :aria-label="$tr(&quot;选择员工账号&quot;)">
+          <el-option v-for="person in assignableStaff" :key="person.userId" :value="person.userId" :label="`${displayName(person)} · ${person.userName} · ${person.deptName || $tr(&quot;未设置部门&quot;)}`" />
         </el-select>
         <el-table v-if="assignUserIds.length" :data="selectedAssignStaff" max-height="320" style="margin-top:16px">
-          <el-table-column label="员工"><template #default="{row}">{{ displayName(row) }}<small>{{ row.userName }}</small></template></el-table-column>
-          <el-table-column prop="deptName" label="原部门" />
-          <el-table-column label="加入部门"><template #default>{{ assignDepartment?.deptName }}</template></el-table-column>
+          <el-table-column :label="$tr(&quot;员工&quot;)"><template #default="{row}">{{ displayName(row) }}<small>{{ row.userName }}</small></template></el-table-column>
+          <el-table-column prop="deptName" :label="$tr(&quot;原部门&quot;)" />
+          <el-table-column :label="$tr(&quot;加入部门&quot;)"><template #default>{{ assignDepartment?.deptName }}</template></el-table-column>
         </el-table>
       </div>
-      <template #footer><el-button :disabled="assigningStaff" @click="assignStaffOpen=false">取消</el-button><el-button type="primary" :loading="assigningStaff" :disabled="!assignUserIds.length || loadingStaffOptions" @click="saveAssignedStaff">确认加入{{ assignUserIds.length ? `（${assignUserIds.length}人）` : '' }}</el-button></template>
+      <template #footer><el-button :disabled="assigningStaff" @click="assignStaffOpen=false">{{ $tr("取消") }}</el-button><el-button type="primary" :loading="assigningStaff" :disabled="!assignUserIds.length || loadingStaffOptions" @click="saveAssignedStaff">{{ $tr("确认加入{0}", [assignUserIds.length ? $tr("（{0}人）", [assignUserIds.length]) : '']) }}</el-button></template>
     </el-dialog>
 
     <el-dialog v-model="dialogOpen" :title="dialogTitle" width="620px" append-to-body>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="88px">
         <el-row :gutter="16">
-          <el-col :span="24"><el-form-item label="上级组织" prop="parentId"><el-tree-select v-model="form.parentId" :data="parentOptions" :props="{value:'deptId',label:'deptName',children:'children'}" value-key="deptId" check-strictly :disabled="lockedOrganization" style="width:100%" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="组织名称" prop="deptName"><el-input v-model="form.deptName" maxlength="30" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="显示顺序" prop="orderNum"><el-input-number v-model="form.orderNum" :min="0" controls-position="right" style="width:100%" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="负责人" prop="leaderUserId">
-            <el-select v-model="form.leaderUserId" filterable clearable placeholder="请选择现有人员" style="width:100%" @change="bindLeader">
+          <el-col :span="24"><el-form-item :label="$tr(&quot;上级组织&quot;)" prop="parentId"><el-tree-select v-model="form.parentId" :data="parentOptions" :props="{value:'deptId',label:'deptName',children:'children'}" value-key="deptId" check-strictly :disabled="lockedOrganization" style="width:100%" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;组织名称&quot;)" prop="deptName"><el-input v-model="form.deptName" maxlength="30" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;显示顺序&quot;)" prop="orderNum"><el-input-number v-model="form.orderNum" :min="0" controls-position="right" style="width:100%" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;负责人&quot;)" prop="leaderUserId">
+            <el-select v-model="form.leaderUserId" filterable clearable :placeholder="$tr(&quot;请选择现有人员&quot;)" style="width:100%" @change="bindLeader">
               <el-option v-for="person in leaderOptions" :key="person.userId" :value="person.userId" :label="leaderLabel(person)" :disabled="person.status!=='0'">
-                <div class="leader-option"><span><b>{{ displayName(person) }}</b><small>{{ person.userName }}</small></span><em>{{ person.deptName || '未设置组织' }}<template v-if="person.status!=='0'"> · 已停用</template></em></div>
+                <div class="leader-option"><span><b>{{ displayName(person) }}</b><small>{{ person.userName }}</small></span><em>{{ person.deptName || $tr("未设置组织") }}<template v-if="person.status!=='0'">{{ $tr(" · 已停用") }}</template></em></div>
               </el-option>
             </el-select>
           </el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="联系电话"><el-input :model-value="form.phone || ''" readonly placeholder="随负责人自动带出" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="邮箱"><el-input :model-value="form.email || ''" readonly placeholder="随负责人自动带出" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="组织状态"><el-radio-group v-model="form.status" :disabled="lockedOrganization"><el-radio value="0">正常</el-radio><el-radio value="1">停用</el-radio></el-radio-group></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;联系电话&quot;)"><el-input :model-value="form.phone || ''" readonly :placeholder="$tr(&quot;随负责人自动带出&quot;)" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;邮箱&quot;)"><el-input :model-value="form.email || ''" readonly :placeholder="$tr(&quot;随负责人自动带出&quot;)" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;组织状态&quot;)"><el-radio-group v-model="form.status" :disabled="lockedOrganization"><el-radio value="0">{{ $tr("正常") }}</el-radio><el-radio value="1">{{ $tr("停用") }}</el-radio></el-radio-group></el-form-item></el-col>
         </el-row>
       </el-form>
-      <template #footer><el-button @click="dialogOpen=false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存</el-button></template>
+      <template #footer><el-button @click="dialogOpen=false">{{ $tr("取消") }}</el-button><el-button type="primary" :loading="saving" @click="save">{{ $tr("保存") }}</el-button></template>
     </el-dialog>
 
-    <el-drawer v-model="peopleOpen" :title="`${selectedOrganization?.deptName || ''} · 人员明细`" size="min(680px, 94vw)" append-to-body>
+    <el-drawer v-model="peopleOpen" :title="$tr(&quot;{0} · 人员明细&quot;, [selectedOrganization?.deptName || ''])" size="min(680px, 94vw)" append-to-body>
       <div class="people-summary">
-        <div><b>{{ selectedPeople.length }}</b><span>全部人员</span></div>
-        <div><b>{{ directPeopleCount }}</b><span>直属人员</span></div>
-        <div><b>{{ selectedPeople.length-directPeopleCount }}</b><span>下级部门</span></div>
+        <div><b>{{ selectedPeople.length }}</b><span>{{ $tr("全部人员") }}</span></div>
+        <div><b>{{ directPeopleCount }}</b><span>{{ $tr("直属人员") }}</span></div>
+        <div><b>{{ selectedPeople.length-directPeopleCount }}</b><span>{{ $tr("下级部门") }}</span></div>
       </div>
-      <el-table :data="selectedPeople" empty-text="该组织暂无人员" max-height="calc(100vh - 230px)">
-        <el-table-column label="人员" min-width="150"><template #default="{row}"><button type="button" class="employee-label employee-link" :aria-label="`查看${displayName(row)}的员工详情`" @click="openEmployeeDetail(row)"><b>{{ displayName(row) }}</b><small v-if="displayName(row)!==row.userName">{{ row.userName }}</small></button></template></el-table-column>
-        <el-table-column prop="deptName" label="所属组织" min-width="145"><template #default="{row}">{{ row.deptName || '未设置' }}<small>{{ row.deptId===selectedOrganization?.deptId ? '直属' : '下级组织' }}</small></template></el-table-column>
-        <el-table-column prop="roleNames" label="角色" min-width="150"><template #default="{row}">{{ row.roleNames || row.accountType || '员工' }}</template></el-table-column>
-        <el-table-column label="状态" width="80"><template #default="{row}"><el-tag :type="row.status==='0' ? 'success' : 'info'">{{ row.status==='0' ? '正常' : '停用' }}</el-tag></template></el-table-column>
+      <el-table :data="selectedPeople" :empty-text="$tr(&quot;该组织暂无人员&quot;)" max-height="calc(100vh - 230px)">
+        <el-table-column :label="$tr(&quot;人员&quot;)" min-width="150"><template #default="{row}"><button type="button" class="employee-label employee-link" :aria-label="$tr(&quot;查看{0}的员工详情&quot;, [displayName(row)])" @click="openEmployeeDetail(row)"><b>{{ displayName(row) }}</b><small v-if="displayName(row)!==row.userName">{{ row.userName }}</small></button></template></el-table-column>
+        <el-table-column prop="deptName" :label="$tr(&quot;所属组织&quot;)" min-width="145"><template #default="{row}">{{ row.deptName || $tr("未设置") }}<small>{{ row.deptId===selectedOrganization?.deptId ? $tr("直属") : $tr("下级组织") }}</small></template></el-table-column>
+        <el-table-column prop="roleNames" :label="$tr(&quot;角色&quot;)" min-width="150"><template #default="{row}">{{ row.roleNames || row.accountType || $tr("员工") }}</template></el-table-column>
+        <el-table-column :label="$tr(&quot;状态&quot;)" width="80"><template #default="{row}"><el-tag :type="row.status==='0' ? 'success' : 'info'">{{ row.status==='0' ? $tr("正常") : $tr("停用") }}</el-tag></template></el-table-column>
       </el-table>
     </el-drawer>
-    <el-drawer v-model="employeeDetailOpen" :title="`${displayName(selectedEmployee)} · 员工详情`" size="min(680px, 96vw)" append-to-body class="employee-detail-drawer">
+    <el-drawer v-model="employeeDetailOpen" :title="$tr(&quot;{0} · 员工详情&quot;, [displayName(selectedEmployee)])" size="min(680px, 96vw)" append-to-body class="employee-detail-drawer">
       <template v-if="selectedEmployee">
-        <div class="employee-identity"><div><h2>{{ displayName(selectedEmployee) }}</h2><span>{{ selectedEmployee.userName }}</span></div><el-tag :type="selectedEmployee.status==='0' ? 'success' : 'info'">{{ selectedEmployee.status==='0' ? '正常' : '停用' }}</el-tag></div>
+        <div class="employee-identity"><div><h2>{{ displayName(selectedEmployee) }}</h2><span>{{ selectedEmployee.userName }}</span></div><el-tag :type="selectedEmployee.status==='0' ? 'success' : 'info'">{{ selectedEmployee.status==='0' ? $tr("正常") : $tr("停用") }}</el-tag></div>
         <section v-for="section in employeeDetailSections" :key="section.title" class="employee-detail-section">
           <h3>{{ section.title }}</h3>
-          <dl class="employee-detail-grid"><div v-for="[label,value] in section.fields" :key="label"><dt>{{ label }}</dt><dd>{{ value || '未设置' }}</dd></div></dl>
+          <dl class="employee-detail-grid"><div v-for="[label,value] in section.fields" :key="label"><dt>{{ label }}</dt><dd>{{ value || $tr("未设置") }}</dd></div></dl>
         </section>
       </template>
     </el-drawer>
@@ -113,6 +113,8 @@
 </template>
 
 <script setup name="BusinessDepartment">
+import { translateText } from '@/locales/translate'
+
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { addBusinessDepartment, assignBusinessDepartmentStaff, listBusinessDepartments, listBusinessDepartmentStaff, removeBusinessDepartment, removeBusinessDepartmentStaff, saveBusinessDepartmentSort, updateBusinessDepartment } from '@/api/business/department'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
@@ -150,9 +152,9 @@ const employeeDetailSections = computed(() => {
   const person=selectedEmployee.value
   if (!person) return []
   return [
-    {title:'基本资料',fields:[['员工编号',person.employeeNo],['性别',({0:'男',1:'女',2:'未知'})[person.sex]],['国家/地区',({CN:'中国',VN:'越南'})[person.countryRegion] || person.countryRegion],['手机号',person.phonenumber ? `${person.phoneCountryCode || ''} ${person.phonenumber}`.trim() : ''],['邮箱',person.email]]},
-    {title:'组织与任职',fields:[['所属公司',person.companyName || (person.deptId===firstRootId() ? '集团层级' : '')],['所属部门',person.deptName],['岗位名称',person.positionName],['直属负责人',person.managerName],['用工类型',({FULL_TIME:'全职',PART_TIME:'兼职',CONTRACTOR:'外包',INTERN:'实习'})[person.employmentType] || person.employmentType],['任职状态',({PROBATION:'试用期',ACTIVE:'在职',ON_LEAVE:'休假',LEFT:'离职'})[person.employmentStatus] || person.employmentStatus],['入职日期',person.hireDate],['工作地点',person.workLocation]]},
-    {title:'系统账号',fields:[['登录账号',person.userName],['账号类型',person.accountType],['系统角色',person.roleNames],['最后登录',person.loginDate || '暂无登录记录'],['备注',person.remark]]}
+    {title:translateText("基本资料"),fields:[[translateText("员工编号"),person.employeeNo],[translateText("性别"),({0:translateText("男"),1:translateText("女"),2:translateText("未知")})[person.sex]],[translateText("国家/地区"),({CN:translateText("中国"),VN:translateText("越南")})[person.countryRegion] || person.countryRegion],[translateText("手机号"),person.phonenumber ? `${person.phoneCountryCode || ''} ${person.phonenumber}`.trim() : ''],[translateText("邮箱"),person.email]]},
+    {title:translateText("组织与任职"),fields:[[translateText("所属公司"),person.companyName || (person.deptId===firstRootId() ? translateText("集团层级") : '')],[translateText("所属部门"),person.deptName],[translateText("岗位名称"),person.positionName],[translateText("直属负责人"),person.managerName],[translateText("用工类型"),({FULL_TIME:translateText("全职"),PART_TIME:translateText("兼职"),CONTRACTOR:translateText("外包"),INTERN:translateText("实习")})[person.employmentType] || person.employmentType],[translateText("任职状态"),({PROBATION:translateText("试用期"),ACTIVE:translateText("在职"),ON_LEAVE:translateText("休假"),LEFT:translateText("离职")})[person.employmentStatus] || person.employmentStatus],[translateText("入职日期"),person.hireDate],[translateText("工作地点"),person.workLocation]]},
+    {title:translateText("系统账号"),fields:[[translateText("登录账号"),person.userName],[translateText("账号类型"),person.accountType],[translateText("系统角色"),person.roleNames],[translateText("最后登录"),person.loginDate || translateText("暂无登录记录")],[translateText("备注"),person.remark]]}
   ]
 })
 const selectedOrganization = ref()
@@ -162,11 +164,11 @@ const form = reactive({})
 const leaderOptions = computed(() => [...staffRows.value].sort((a,b)=>Number(a.status!=='0')-Number(b.status!=='0') || String(a.deptName||'').localeCompare(String(b.deptName||'')) || displayName(a).localeCompare(displayName(b))))
 const selectedPeople = computed(() => selectedOrganization.value ? peopleFor(selectedOrganization.value) : [])
 const directPeopleCount = computed(() => selectedPeople.value.filter(person=>person.deptId===selectedOrganization.value?.deptId).length)
-const dialogTitle = computed(() => `${form.deptId ? '编辑' : '新增'}${lockedOrganization.value ? '公司' : '部门'}`)
+const dialogTitle = computed(() => `${form.deptId ? translateText("编辑") : translateText("新增")}${lockedOrganization.value ? translateText("公司") : translateText("部门")}`)
 const rules = {
-  parentId:[{required:true,message:'请选择上级部门',trigger:'change'}],
-  deptName:[{required:true,message:'请输入部门名称',trigger:'blur'}],
-  orderNum:[{required:true,message:'请输入显示顺序',trigger:'blur'}],
+  parentId:[{required:true,message:translateText("请选择上级部门"),trigger:'change'}],
+  deptName:[{required:true,message:translateText("请输入部门名称"),trigger:'blur'}],
+  orderNum:[{required:true,message:translateText("请输入显示顺序"),trigger:'blur'}],
 }
 
 async function load() {
@@ -200,9 +202,9 @@ async function removeEmployee(person) {
   if (removingStaffId.value!==null) return
   removingStaffId.value=person.userId
   try {
-    await ElMessageBox.confirm(`确定将“${displayName(person)}”（${person.userName}）移出“${person.deptName}”吗？移出后归属“${person.companyName || '所属公司'}”，账号和资料保留，可重新加入其他部门。`,'移出部门',{type:'warning',confirmButtonText:'确认移出',cancelButtonText:'取消'})
+    await ElMessageBox.confirm(translateText("确定将“{0}”（{1}）移出“{2}”吗？移出后归属“{3}”，账号和资料保留，可重新加入其他部门。", [displayName(person), person.userName, person.deptName, person.companyName || translateText("所属公司")]),translateText("移出部门"),{type:'warning',confirmButtonText:translateText("确认移出"),cancelButtonText:translateText("取消")})
     await removeBusinessDepartmentStaff(person.deptId,person.userId)
-    ElMessage.success('员工已移出部门')
+    ElMessage.success(translateText("员工已移出部门"))
     await load()
   } catch {
     // Cancel leaves membership intact; request errors are displayed by the interceptor.
@@ -222,7 +224,7 @@ async function saveAssignedStaff() {
   assigningStaff.value=true
   try {
     await assignBusinessDepartmentStaff(assignDepartment.value.deptId,assignUserIds.value)
-    ElMessage.success('员工已加入部门')
+    ElMessage.success(translateText("员工已加入部门"))
     assignStaffOpen.value=false
     onExpandChange(assignDepartment.value,true)
     await load()
@@ -231,7 +233,7 @@ async function saveAssignedStaff() {
   } finally { assigningStaff.value=false }
 }
 function directStaffFor(row) { return staffRows.value.filter(person=>String(person.deptId)===String(row.deptId)).sort((a,b)=>a.userId-b.userId) }
-function displayName(person) { return person?.nickName && !/^\?+$/.test(person.nickName) ? person.nickName : person?.userName || '未命名人员' }
+function displayName(person) { return person?.nickName && !/^\?+$/.test(person.nickName) ? person.nickName : person?.userName || translateText("未命名人员") }
 function leaderLabel(person) { return `${displayName(person)} · ${person.userName}` }
 function bindLeader(userId) {
   const person=staffRows.value.find(item=>item.userId===userId)
@@ -252,11 +254,11 @@ function openEdit(row) {
 }
 async function save() {
   await formRef.value.validate(); saving.value=true
-  try { form.deptId ? await updateBusinessDepartment(form) : await addBusinessDepartment(form); ElMessage.success('保存成功'); dialogOpen.value=false; load() } finally { saving.value=false }
+  try { form.deptId ? await updateBusinessDepartment(form) : await addBusinessDepartment(form); ElMessage.success(translateText("保存成功")); dialogOpen.value=false; load() } finally { saving.value=false }
 }
 async function remove(row) {
-  await ElMessageBox.confirm(`确定删除部门“${row.deptName}”吗？有人员或下级部门时系统会拒绝删除。`,'删除部门',{type:'warning'})
-  await removeBusinessDepartment(row.deptId); ElMessage.success('删除成功'); load()
+  await ElMessageBox.confirm(translateText("确定删除部门“{0}”吗？有人员或下级部门时系统会拒绝删除。", [row.deptName]),translateText("删除部门"),{type:'warning'})
+  await removeBusinessDepartment(row.deptId); ElMessage.success(translateText("删除成功")); load()
 }
 function flatten(nodes, result=[]) { for (const node of nodes||[]) { result.push(node); flatten(node.children,result) } return result }
 function withDepartmentHeaders(nodes) {
@@ -277,7 +279,7 @@ function withDepartmentHeaders(nodes) {
 }
 async function saveSort() {
   const list=flatten(rows.value,[]); savingSort.value=true
-  try { await saveBusinessDepartmentSort({deptIds:list.map(x=>x.deptId).join(','),orderNums:list.map(x=>x.orderNum||0).join(',')}); ElMessage.success('排序已保存'); load() } finally { savingSort.value=false }
+  try { await saveBusinessDepartmentSort({deptIds:list.map(x=>x.deptId).join(','),orderNums:list.map(x=>x.orderNum||0).join(',')}); ElMessage.success(translateText("排序已保存")); load() } finally { savingSort.value=false }
 }
 function onExpandChange(row, isExpanded) {
   const ids=new Set(expandedIds.value)

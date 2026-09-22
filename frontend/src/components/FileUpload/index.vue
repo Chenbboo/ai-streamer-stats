@@ -19,17 +19,17 @@
       v-if="!disabled"
     >
       <!-- 上传按钮 -->
-      <el-button type="primary">选取文件</el-button>
+      <el-button type="primary">{{ $tr("选取文件") }}</el-button>
     </el-upload>
     <!-- 上传提示 -->
     <div class="upload-file-tip" v-if="showTip && !disabled">
       <div class="upload-file-tip__summary">
-        <span v-if="fileSize">单个文件 <b>≤ {{ fileSize }}MB</b></span>
-        <span>最多 <b>{{ limit }} 个</b></span>
-        <span v-if="totalSize">总大小 <b>≤ {{ totalSize }}MB</b></span>
+        <span v-if="fileSize">{{ $tr("单个文件 ") }}<b>≤ {{ fileSize }}MB</b></span>
+        <span>{{ $tr("最多 ") }}<b>{{ $tr("{0} 个", [limit]) }}</b></span>
+        <span v-if="totalSize">{{ $tr("总大小 ") }}<b>≤ {{ totalSize }}MB</b></span>
       </div>
       <div v-if="fileType?.length" class="upload-file-tip__types">
-        <span class="upload-file-tip__label">支持格式</span>
+        <span class="upload-file-tip__label">{{ $tr("支持格式") }}</span>
         <span class="upload-file-tip__extensions">{{ formattedFileTypes }}</span>
       </div>
     </div>
@@ -59,15 +59,15 @@
           </div>
 
           <div v-if="!isImage(file)" class="upload-file-card__cover">
-            <button v-if="isVideo(file)" type="button" aria-label="预览视频" @click="previewVideo(file)">
-              <el-icon><VideoPlay /></el-icon><span>预览</span>
+            <button v-if="isVideo(file)" type="button" :aria-label="$tr(&quot;预览视频&quot;)" @click="previewVideo(file)">
+              <el-icon><VideoPlay /></el-icon><span>{{ $tr("预览") }}</span>
             </button>
-            <button v-else type="button" aria-label="打开附件" @click="openFile(file)">
-              <el-icon><View /></el-icon><span>打开</span>
+            <button v-else type="button" :aria-label="$tr(&quot;打开附件&quot;)" @click="openFile(file)">
+              <el-icon><View /></el-icon><span>{{ $tr("打开") }}</span>
             </button>
           </div>
 
-          <button v-if="!disabled" class="upload-file-card__delete" type="button" aria-label="删除文件" @click="handleDelete(index)">
+          <button v-if="!disabled" class="upload-file-card__delete" type="button" :aria-label="$tr(&quot;删除文件&quot;)" @click="handleDelete(index)">
             <el-icon><Close /></el-icon>
           </button>
         </div>
@@ -83,12 +83,12 @@
       </li>
     </transition-group>
 
-    <el-dialog v-model="videoPreviewVisible" title="视频预览" width="min(840px, 94vw)" append-to-body destroy-on-close @closed="videoPreviewUrl = ''">
+    <el-dialog v-model="videoPreviewVisible" :title="$tr(&quot;视频预览&quot;)" width="min(840px, 94vw)" append-to-body destroy-on-close @closed="videoPreviewUrl = ''">
       <video v-if="videoPreviewUrl" class="video-preview" :src="videoPreviewUrl" controls autoplay />
     </el-dialog>
     <el-dialog v-model="documentPreviewVisible" :title="documentPreviewName" width="min(960px, 96vw)" append-to-body destroy-on-close @closed="clearDocumentPreview">
       <div v-loading="documentPreviewLoading" class="document-preview">
-        <el-alert v-if="documentPreviewError" title="文件内容加载失败或无权查看，请关闭后重试" type="error" :closable="false" />
+        <el-alert v-if="documentPreviewError" :title="$tr(&quot;文件内容加载失败或无权查看，请关闭后重试&quot;)" type="error" :closable="false" />
         <iframe v-else-if="documentPreviewUrl" :src="documentPreviewUrl" :title="documentPreviewName" class="document-preview__pdf" />
         <pre v-else-if="!documentPreviewLoading" class="document-preview__text">{{ documentPreviewText }}</pre>
       </div>
@@ -97,6 +97,8 @@
 </template>
 
 <script setup>
+import { translateText } from '@/locales/translate'
+
 import axios from 'axios'
 import { saveAs } from 'file-saver'
 import { getToken } from "@/utils/auth"
@@ -185,7 +187,7 @@ const videoPreviewUrl = ref("")
 const documentPreviewVisible = ref(false)
 const documentPreviewLoading = ref(false)
 const documentPreviewError = ref(false)
-const documentPreviewName = ref('文件内容')
+const documentPreviewName = ref(translateText("文件内容"))
 const documentPreviewUrl = ref('')
 const documentPreviewText = ref('')
 let documentPreviewSequence = 0
@@ -237,7 +239,7 @@ watch(() => props.modelValue, val => {
 // 上传前校检格式和大小
 function handleBeforeUpload(file) {
   if (props.businessPreview && !props.data?.projectId) {
-    proxy.$modal.msgError('请先选择项目再上传附件')
+    proxy.$modal.msgError(translateText("请先选择项目再上传附件"))
     return false
   }
   // 校检文件类型
@@ -246,20 +248,20 @@ function handleBeforeUpload(file) {
     const fileExt = fileName[fileName.length - 1].toLowerCase()
     const isTypeOk = props.fileType.map(type => String(type).toLowerCase()).includes(fileExt)
     if (!isTypeOk) {
-      proxy.$modal.msgError(`文件格式不正确，请上传${props.fileType.join("/")}格式文件!`)
+      proxy.$modal.msgError(translateText("文件格式不正确，请上传{0}格式文件!", [props.fileType.join("/")]))
       return false
     }
   }
   // 校检文件名是否包含特殊字符
   if (file.name.includes(',')) {
-    proxy.$modal.msgError('文件名不正确，不能包含英文逗号!')
+    proxy.$modal.msgError(translateText("文件名不正确，不能包含英文逗号!"))
     return false
   }
   // 校检文件大小
   if (props.fileSize) {
     const isLt = file.size / 1024 / 1024 <= props.fileSize
     if (!isLt) {
-      proxy.$modal.msgError(`上传文件大小不能超过 ${props.fileSize} MB!`)
+      proxy.$modal.msgError(translateText("上传文件大小不能超过 {0} MB!", [props.fileSize]))
       return false
     }
   }
@@ -267,13 +269,13 @@ function handleBeforeUpload(file) {
     const storedBytes = fileList.value.reduce((sum, item) => sum + (Number(item.size) || 0), 0)
     const totalBytes = storedBytes + pendingBytes.value + file.size
     if (totalBytes > props.totalSize * 1024 * 1024) {
-      proxy.$modal.msgError(`全部附件总大小不能超过 ${props.totalSize} MB!`)
+      proxy.$modal.msgError(translateText("全部附件总大小不能超过 {0} MB!", [props.totalSize]))
       return false
     }
   }
   if (!pendingFileSizes.has(file.uid)) {
     if (pendingFileSizes.size === 0) {
-      proxy.$modal.loading("正在上传文件，请稍候...")
+      proxy.$modal.loading(translateText("正在上传文件，请稍候..."))
       uploadLoadingOpen = true
     }
     pendingFileSizes.set(file.uid, file.size)
@@ -284,14 +286,14 @@ function handleBeforeUpload(file) {
 
 // 文件个数超出
 function handleExceed() {
-  proxy.$modal.msgError(`上传文件数量不能超过 ${props.limit} 个!`)
+  proxy.$modal.msgError(translateText("上传文件数量不能超过 {0} 个!", [props.limit]))
 }
 
 // 上传失败
 function handleUploadError(err, file) {
   try {
     const timedOut = err?.code === 'ECONNABORTED' || String(err?.message || '').toLowerCase().includes('timeout')
-    proxy.$modal.msgError(timedOut ? "上传超时，请检查后端服务后重试" : "上传文件失败")
+    proxy.$modal.msgError(timedOut ? translateText("上传超时，请检查后端服务后重试") : translateText("上传文件失败"))
   } finally {
     finishUpload(file)
   }
@@ -311,7 +313,7 @@ function handleUploadSuccess(res, file) {
       }
       completedUploads.push(uploaded)
     } else {
-      proxy.$modal.msgError(res?.msg || '上传文件失败')
+      proxy.$modal.msgError(res?.msg || translateText("上传文件失败"))
       try {
         Promise.resolve(proxy.$refs.fileUpload?.handleRemove(file)).catch(() => {})
       } catch {}
@@ -418,7 +420,7 @@ function getFileName(name) {
 
 function preferredFileName(file) {
   const name = getFileName(file?.originalFilename || file?.name || file?.url)
-  if (!name) return '附件'
+  if (!name) return translateText("附件")
   // 业务附件落盘时会在扩展名前追加上传序号；历史记录只保存 URL，
   // 因此重新打开页面时需要从存储名还原用户上传时的文件名。
   return props.businessPreview
@@ -503,11 +505,11 @@ function fileCategory(file) {
 }
 
 function fileTypeLabel(file) {
-  if (isImage(file)) return '图片'
-  if (isVideo(file)) return '视频'
-  if (isPdf(file)) return 'PDF 文档'
+  if (isImage(file)) return translateText("图片")
+  if (isVideo(file)) return translateText("视频")
+  if (isPdf(file)) return translateText("PDF 文档")
   const extension = fileExtension(file)
-  return extension ? `${extension} 文件` : '附件'
+  return extension ? translateText("{0} 文件", [extension]) : translateText("附件")
 }
 
 function formatFileSize(size) {
@@ -524,7 +526,7 @@ function imagePreviewIndex(file) {
 
 async function previewVideo(file) {
   const url = await ensureOriginalObjectUrl(file)
-  if (!url) return proxy.$modal.msgError('附件加载失败')
+  if (!url) return proxy.$modal.msgError(translateText("附件加载失败"))
   videoPreviewUrl.value = url
   videoPreviewVisible.value = true
 }
@@ -537,10 +539,10 @@ async function openFile(file) {
   if (props.businessPreview && shouldDownload(file)) {
     try {
       const blob = await fetchAuthorizedFile(rawFileUrl(file))
-      if (!blob) throw new Error('附件加载失败')
+      if (!blob) throw new Error(translateText("附件加载失败"))
       saveAs(blob, preferredFileName(file))
     } catch {
-      proxy.$modal.msgError('附件下载失败或无权查看')
+      proxy.$modal.msgError(translateText("附件下载失败或无权查看"))
     }
     return
   }
@@ -548,12 +550,12 @@ async function openFile(file) {
   const tab = window.open('', '_blank')
   try {
     const url = await ensureOriginalObjectUrl(file)
-    if (!url) throw new Error('附件加载失败')
+    if (!url) throw new Error(translateText("附件加载失败"))
     if (tab) tab.location.href = url
     else window.open(url, '_blank', 'noopener')
   } catch {
     if (tab) tab.close()
-    proxy.$modal.msgError('附件加载失败或无权查看')
+    proxy.$modal.msgError(translateText("附件加载失败或无权查看"))
   }
 }
 

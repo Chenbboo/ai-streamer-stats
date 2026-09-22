@@ -8,6 +8,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <link rel="icon" href="/favicon.ico">
   <title>%VITE_APP_TITLE%</title>
+  <script>
+    document.documentElement.lang = /(?:^|;\s*)language=vi-VN(?:;|$)/.test(document.cookie) ? 'vi-VN' : 'zh-CN'
+    if (document.documentElement.lang === 'vi-VN') document.title = 'Hệ thống quản lý meimaru'
+  </script>
   <!--[if lt IE 11]><script>window.location.href='/html/ie.html';</script><![endif]-->
   <style>
     html,
@@ -209,6 +213,11 @@
       <div class="load_title">正在加载系统资源，请耐心等待</div>
     </div>
   </div>
+  <script>
+    if (document.documentElement.lang === 'vi-VN') {
+      document.querySelector('.load_title').textContent = 'Đang tải tài nguyên hệ thống, vui lòng chờ'
+    }
+  </script>
   <script type="module" src="/src/main.js"></script>
 </body>
 

@@ -1,13 +1,13 @@
 <template>
   <div class="app-container">
     <el-form inline>
-      <el-form-item><el-input v-model="query.docNo" placeholder="记录单号" clearable /></el-form-item>
+      <el-form-item><el-input v-model="query.docNo" :placeholder="$tr(&quot;记录单号&quot;)" clearable /></el-form-item>
       <el-form-item>
-        <el-select v-model="query.status" placeholder="全部状态" clearable style="width: 140px">
+        <el-select v-model="query.status" :placeholder="$tr(&quot;全部状态&quot;)" clearable style="width: 140px">
           <el-option v-for="item in statuses" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
       </el-form-item>
-      <el-form-item><el-button type="primary" icon="Search" @click="load">查询</el-button></el-form-item>
+      <el-form-item><el-button type="primary" icon="Search" @click="load">{{ $tr("查询") }}</el-button></el-form-item>
     </el-form>
 
     <el-button
@@ -17,67 +17,58 @@
       icon="Plus"
       class="mb8"
       @click="open"
-    >
-      新建盘点单
-    </el-button>
+    >{{ $tr(" 新建盘点单 ") }}</el-button>
 
     <el-table :data="rows" v-loading="loading" border>
-      <el-table-column prop="docNo" label="记录单号" width="190" />
-      <el-table-column prop="bizDate" label="业务日期" width="110" />
-      <el-table-column label="记录类型" width="110">
+      <el-table-column prop="docNo" :label="$tr(&quot;记录单号&quot;)" width="190" />
+      <el-table-column prop="bizDate" :label="$tr(&quot;业务日期&quot;)" width="110" />
+      <el-table-column :label="$tr(&quot;记录类型&quot;)" width="110">
         <template #default="{ row }">
           <el-tag :type="row.docType === 'COST_ADJUST' ? 'warning' : 'primary'">
-            {{ row.docType === 'COST_ADJUST' ? '仅调成本' : '库存盘点' }}
+            {{ row.docType === 'COST_ADJUST' ? $tr("仅调成本") : $tr("库存盘点") }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="库存变化" width="160" align="right">
+      <el-table-column :label="$tr(&quot;库存变化&quot;)" width="160" align="right">
         <template #default="{ row }">
-          <span v-if="row.docType === 'COST_ADJUST'" :class="amountClass(row.totalAmount)">
-            金额 {{ signedMoney(row.totalAmount) }}
+          <span v-if="row.docType === 'COST_ADJUST'" :class="amountClass(row.totalAmount)">{{ $tr(" 金额 {0}", [signedMoney(row.totalAmount)]) }}
           </span>
-          <span v-else>{{ Number(row.totalQty || 0) }} 件</span>
+          <span v-else>{{ $tr("{0} 件", [Number(row.totalQty || 0)]) }}</span>
         </template>
       </el-table-column>
-      <el-table-column prop="creatorName" label="制单人" width="110" />
-      <el-table-column label="审核员" width="110"><template #default="{ row }">{{ reviewerName(row) }}</template></el-table-column>
-      <el-table-column label="管理员" width="110"><template #default="{ row }">{{ administratorName(row) }}</template></el-table-column>
-      <el-table-column label="状态" width="110">
+      <el-table-column prop="creatorName" :label="$tr(&quot;制单人&quot;)" width="110" />
+      <el-table-column :label="$tr(&quot;审核员&quot;)" width="110"><template #default="{ row }">{{ reviewerName(row) }}</template></el-table-column>
+      <el-table-column :label="$tr(&quot;管理员&quot;)" width="110"><template #default="{ row }">{{ administratorName(row) }}</template></el-table-column>
+      <el-table-column :label="$tr(&quot;状态&quot;)" width="110">
         <template #default="{ row }">
           <el-tag :type="statusType(row.status)">{{ documentStatusLabel(row) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="remark" label="说明" min-width="180" show-overflow-tooltip />
-      <el-table-column label="操作" width="220" fixed="right">
+      <el-table-column prop="remark" :label="$tr(&quot;说明&quot;)" min-width="180" show-overflow-tooltip />
+      <el-table-column :label="$tr(&quot;操作&quot;)" width="220" fixed="right">
         <template #default="{ row }">
-          <el-button link type="primary" @click="view(row)">查看</el-button>
+          <el-button link type="primary" @click="view(row)">{{ $tr("查看") }}</el-button>
           <el-button
             v-if="row.docType === 'STOCK_ADJUST' && ['DRAFT', 'REJECTED'].includes(row.status)"
             v-hasPermi="['jewelry:document:edit']"
             link
             type="primary"
             @click="edit(row)"
-          >
-            编辑
-          </el-button>
+          >{{ $tr(" 编辑 ") }}</el-button>
           <el-button
             v-if="row.docType === 'STOCK_ADJUST' && row.status === 'DRAFT'"
             v-hasPermi="['jewelry:document:submit']"
             link
             type="success"
             @click="submit(row)"
-          >
-            提交
-          </el-button>
+          >{{ $tr(" 提交 ") }}</el-button>
           <el-button
             v-if="row.docType === 'STOCK_ADJUST' && row.status === 'PENDING_FIRST'"
             v-hasPermi="['jewelry:document:withdraw']"
             link
             type="warning"
             @click="withdraw(row)"
-          >
-            撤回
-          </el-button>
+          >{{ $tr(" 撤回 ") }}</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -101,21 +92,21 @@
           v-model="form.bizDate"
           value-format="YYYY-MM-DD"
           :disabled="readonly"
-          placeholder="盘点日期"
+          :placeholder="$tr(&quot;盘点日期&quot;)"
         />
         <el-input
           v-model="form.remark"
           :disabled="readonly"
-          placeholder="盘点说明"
+          :placeholder="$tr(&quot;盘点说明&quot;)"
           maxlength="200"
           show-word-limit
         />
-        <el-input v-model="itemKeyword" clearable placeholder="筛选 SKU 或商品名称" />
+        <el-input v-model="itemKeyword" clearable :placeholder="$tr(&quot;筛选 SKU 或商品名称&quot;)" />
       </div>
 
       <el-alert
         v-if="!readonly"
-        :title="isAdministrator ? '管理员可在数量不变时只修改成本，保存后立即入账、无需审批；数量有盘盈盘亏时仍保存为盘点草稿并走两级审批。' : '系统只保存存在数量差异的商品；盘盈成本由制单时填写，管理员终审时仍可调整。提交后先由审核员初审，再由管理员复核。'"
+        :title="isAdministrator ? $tr(&quot;管理员可在数量不变时只修改成本，保存后立即入账、无需审批；数量有盘盈盘亏时仍保存为盘点草稿并走两级审批。&quot;) : $tr(&quot;系统只保存存在数量差异的商品；盘盈成本由制单时填写，管理员终审时仍可调整。提交后先由审核员初审，再由管理员复核。&quot;)"
         type="info"
         :closable="false"
         show-icon
@@ -124,22 +115,22 @@
 
       <el-table :data="visibleItems" border height="52vh" row-key="productId">
         <el-table-column prop="skuSnapshot" label="SKU" width="150" fixed />
-        <el-table-column prop="productNameSnapshot" label="商品名称" min-width="180" fixed />
-        <el-table-column prop="systemQty" :label="form.docType === 'COST_ADJUST' ? '调整时库存' : '系统可售库存'" width="125" align="right" />
-        <el-table-column :label="form.docType === 'COST_ADJUST' ? '库存数量' : '实盘可售库存'" width="150" align="center">
+        <el-table-column prop="productNameSnapshot" :label="$tr(&quot;商品名称&quot;)" min-width="180" fixed />
+        <el-table-column prop="systemQty" :label="form.docType === 'COST_ADJUST' ? $tr(&quot;调整时库存&quot;) : $tr(&quot;系统可售库存&quot;)" width="125" align="right" />
+        <el-table-column :label="form.docType === 'COST_ADJUST' ? $tr(&quot;库存数量&quot;) : $tr(&quot;实盘可售库存&quot;)" width="150" align="center">
           <template #default="{ row }">
             <el-input-number v-model="row.countedQty" :min="0" :disabled="readonly" controls-position="right" />
           </template>
         </el-table-column>
-        <el-table-column v-if="form.docType !== 'COST_ADJUST'" label="差异数量" width="105" align="right">
+        <el-table-column v-if="form.docType !== 'COST_ADJUST'" :label="$tr(&quot;差异数量&quot;)" width="105" align="right">
           <template #default="{ row }">
             <span :class="differenceClass(row)">{{ difference(row) > 0 ? '+' : '' }}{{ difference(row) }}</span>
           </template>
         </el-table-column>
-        <el-table-column v-if="form.docType === 'COST_ADJUST'" label="调整前成本" width="125" align="right">
+        <el-table-column v-if="form.docType === 'COST_ADJUST'" :label="$tr(&quot;调整前成本&quot;)" width="125" align="right">
           <template #default="{ row }">{{ money(row.originalUnitCost) }}</template>
         </el-table-column>
-        <el-table-column :label="form.docType === 'COST_ADJUST' ? '调整后成本' : '盘盈核定成本'" width="160">
+        <el-table-column :label="form.docType === 'COST_ADJUST' ? $tr(&quot;调整后成本&quot;) : $tr(&quot;盘盈核定成本&quot;)" width="160">
           <template #default="{ row }">
             <el-input-number
               v-model="row.unitCost"
@@ -150,12 +141,12 @@
             />
           </template>
         </el-table-column>
-        <el-table-column label="调整原因" min-width="210">
+        <el-table-column :label="$tr(&quot;调整原因&quot;)" min-width="210">
           <template #default="{ row }">
             <el-input
               v-model="row.lineReason"
               :disabled="readonly || (difference(row) === 0 && !isStandaloneCostChange(row))"
-              placeholder="数量或成本变化时必填"
+              :placeholder="$tr(&quot;数量或成本变化时必填&quot;)"
               maxlength="100"
             />
           </template>
@@ -163,20 +154,20 @@
       </el-table>
 
       <div v-if="form.docType === 'COST_ADJUST'" class="count-summary">
-        <span>成本调整 SKU <b>{{ form.items.length }}</b> 个</span>
-        <span>库存金额变化 <b :class="amountClass(form.totalAmount)">{{ signedMoney(form.totalAmount) }}</b></span>
-        <span>审批方式 <b>{{ isDirectCostDocument(form) ? '管理员直接入账' : '审核员 + 管理员' }}</b></span>
+        <span>{{ $tr("成本调整 SKU ") }}<b>{{ form.items.length }}</b>{{ $tr(" 个") }}</span>
+        <span>{{ $tr("库存金额变化 ") }}<b :class="amountClass(form.totalAmount)">{{ signedMoney(form.totalAmount) }}</b></span>
+        <span>{{ $tr("审批方式 ") }}<b>{{ isDirectCostDocument(form) ? $tr("管理员直接入账") : $tr("审核员 + 管理员") }}</b></span>
       </div>
       <div v-else class="count-summary">
-        <span>盘盈 <b class="positive">+{{ summary.gain }}</b> 件</span>
-        <span>盘亏 <b class="negative">-{{ summary.loss }}</b> 件</span>
-        <span>净差异 <b>{{ summary.net > 0 ? '+' : '' }}{{ summary.net }}</b> 件</span>
-        <span>差异 SKU <b>{{ summary.lines }}</b> 个</span>
-        <span v-if="isAdministrator">仅调成本 SKU <b>{{ summary.costLines }}</b> 个</span>
+        <span>{{ $tr("盘盈 ") }}<b class="positive">+{{ summary.gain }}</b>{{ $tr(" 件") }}</span>
+        <span>{{ $tr("盘亏 ") }}<b class="negative">-{{ summary.loss }}</b>{{ $tr(" 件") }}</span>
+        <span>{{ $tr("净差异 ") }}<b>{{ summary.net > 0 ? '+' : '' }}{{ summary.net }}</b>{{ $tr(" 件") }}</span>
+        <span>{{ $tr("差异 SKU ") }}<b>{{ summary.lines }}</b>{{ $tr(" 个") }}</span>
+        <span v-if="isAdministrator">{{ $tr("仅调成本 SKU ") }}<b>{{ summary.costLines }}</b>{{ $tr(" 个") }}</span>
       </div>
 
       <template #footer>
-        <el-button @click="dialog = false">关闭</el-button>
+        <el-button @click="dialog = false">{{ $tr("关闭") }}</el-button>
         <el-button v-if="!readonly" type="primary" @click="save">{{saveButtonLabel}}</el-button>
       </template>
     </el-dialog>
@@ -184,6 +175,8 @@
 </template>
 
 <script setup name="JewelryInventory">
+import { translateText } from '@/locales/translate'
+
 import {
   directAdjustJewelryCosts,
   getJewelryDocument,
@@ -204,12 +197,12 @@ const dialog = ref(false)
 const readonly = ref(false)
 const itemKeyword = ref('')
 const statuses = [
-  { value: 'DRAFT', label: '草稿' },
-  { value: 'PENDING_FIRST', label: '待审核' },
-  { value: 'PENDING_SECOND', label: '待审核' },
-  { value: 'POSTED', label: '已入账' },
-  { value: 'REJECTED', label: '已驳回' },
-  { value: 'REVERSED', label: '已红冲' }
+  { value: 'DRAFT', label: translateText("草稿") },
+  { value: 'PENDING_FIRST', label: translateText("待审核") },
+  { value: 'PENDING_SECOND', label: translateText("待审核") },
+  { value: 'POSTED', label: translateText("已入账") },
+  { value: 'REJECTED', label: translateText("已驳回") },
+  { value: 'REVERSED', label: translateText("已红冲") }
 ]
 const query = reactive({ pageNum: 1, pageSize: 10, docNo: '', status: '', docType: 'INVENTORY_CHANGE' })
 const blankForm = () => ({
@@ -217,7 +210,7 @@ const blankForm = () => ({
   docType: 'STOCK_ADJUST',
   bizDate: new Date().toISOString().slice(0, 10),
   remark: '',
-  returnReason: '库存盘点差异调整',
+  returnReason: translateText("库存盘点差异调整"),
   platformRate: 0,
   commissionRate: 0,
   taxRate: 0,
@@ -248,10 +241,10 @@ const summary = computed(() => form.items.reduce((result, item) => {
   return result
 }, { gain: 0, loss: 0, net: 0, lines: 0, costLines: 0 }))
 const saveButtonLabel = computed(() => summary.value.costLines > 0 && summary.value.lines === 0
-  ? '保存并调整成本' : '保存草稿')
+  ? translateText("保存并调整成本") : translateText("保存草稿"))
 const dialogTitle = computed(() => {
-  if (readonly.value && form.docType === 'COST_ADJUST') return '查看成本调整记录'
-  return readonly.value ? '查看盘点单' : (form.documentId ? '编辑盘点单' : '新建盘点单')
+  if (readonly.value && form.docType === 'COST_ADJUST') return translateText("查看成本调整记录")
+  return readonly.value ? translateText("查看盘点单") : (form.documentId ? translateText("编辑盘点单") : translateText("新建盘点单"))
 })
 
 const labelOfStatus = value => statuses.find(item => item.value === value)?.label || value
@@ -260,10 +253,10 @@ const signedMoney = value => `${Number(value || 0) > 0 ? '+' : ''}¥${money(valu
 const amountClass = value => Number(value || 0) > 0 ? 'positive' : Number(value || 0) < 0 ? 'negative' : ''
 const isDirectCostDocument = row => row.docType === 'COST_ADJUST' && row.status === 'POSTED'
   && !row.firstReviewerUserId && !row.secondReviewerUserId
-const reviewerName = row => row.firstReviewerName || (isDirectCostDocument(row) ? '无需审批' : '—')
+const reviewerName = row => row.firstReviewerName || (isDirectCostDocument(row) ? translateText("无需审批") : '—')
 const administratorName = row => row.secondReviewerName || (isDirectCostDocument(row) ? row.creatorName : '—')
-const documentStatusLabel = row => row.status === 'PENDING_SECOND' ? '待管理员复核'
-  : row.status === 'PENDING_FIRST' ? '待审核员审核' : labelOfStatus(row.status)
+const documentStatusLabel = row => row.status === 'PENDING_SECOND' ? translateText("待管理员复核")
+  : row.status === 'PENDING_FIRST' ? translateText("待审核员审核") : labelOfStatus(row.status)
 const statusType = value => value === 'POSTED' ? 'success'
   : ['REJECTED', 'REVERSED'].includes(value) ? 'danger'
     : value === 'DRAFT' ? 'info' : 'warning'
@@ -330,28 +323,28 @@ async function save() {
   const changedItems = form.items.filter(item => difference(item) !== 0)
   const costOnlyItems = form.items.filter(isStandaloneCostChange)
   if (!changedItems.length && !costOnlyItems.length) {
-    proxy.$modal.msgError('当前没有数量或成本变化，无需保存')
+    proxy.$modal.msgError(translateText("当前没有数量或成本变化，无需保存"))
     return
   }
   if (changedItems.length && costOnlyItems.length) {
-    proxy.$modal.msgError('数量盘点和仅调成本请分开保存')
+    proxy.$modal.msgError(translateText("数量盘点和仅调成本请分开保存"))
     return
   }
   const activeItems = changedItems.length ? changedItems : costOnlyItems
   const invalidReason = activeItems.find(item => !String(item.lineReason || '').trim())
   if (invalidReason) {
-    proxy.$modal.msgError(`${invalidReason.productNameSnapshot} 需要填写调整原因`)
+    proxy.$modal.msgError(translateText("{0} 需要填写调整原因", [invalidReason.productNameSnapshot]))
     return
   }
   const invalidCost = changedItems.find(item => difference(item) > 0 && Number(item.unitCost || 0) <= 0)
   if (invalidCost) {
-    proxy.$modal.msgError(`${invalidCost.productNameSnapshot} 盘盈时需要填写核定单位成本`)
+    proxy.$modal.msgError(translateText("{0} 盘盈时需要填写核定单位成本", [invalidCost.productNameSnapshot]))
     return
   }
   if (costOnlyItems.length) {
     const zeroStock = costOnlyItems.find(item => Number(item.systemQty || 0) <= 0)
     if (zeroStock) {
-      proxy.$modal.msgError(`${zeroStock.productNameSnapshot} 当前库存为0，不能单独调整成本`)
+      proxy.$modal.msgError(translateText("{0} 当前库存为0，不能单独调整成本", [zeroStock.productNameSnapshot]))
       return
     }
     const returnReason = costOnlyItems.map(item =>
@@ -377,7 +370,7 @@ async function save() {
       otherFee3: 0,
       lineReason: String(item.lineReason || '').trim()
     }))
-    await proxy.$modal.confirm(`确认直接调整 ${costOnlyItems.length} 个 SKU 的库存成本？保存后立即入账且无需审批。`)
+    await proxy.$modal.confirm(translateText("确认直接调整 {0} 个 SKU 的库存成本？保存后立即入账且无需审批。", [costOnlyItems.length]))
     await directAdjustJewelryCosts({
       docType: 'COST_ADJUST',
       bizDate: form.bizDate,
@@ -388,26 +381,26 @@ async function save() {
       taxRate: 0,
       items
     })
-    proxy.$modal.msgSuccess('库存成本已由管理员直接调整并入账')
+    proxy.$modal.msgSuccess(translateText("库存成本已由管理员直接调整并入账"))
   } else {
     await saveJewelryDocument({ ...form, items: changedItems })
-    proxy.$modal.msgSuccess('盘点草稿已保存')
+    proxy.$modal.msgSuccess(translateText("盘点草稿已保存"))
   }
   dialog.value = false
   load()
 }
 
 async function submit(row) {
-  await proxy.$modal.confirm(`确认提交盘点单 ${row.docNo}？`)
+  await proxy.$modal.confirm(translateText("确认提交盘点单 {0}？", [row.docNo]))
   await submitJewelryDocument(row.documentId)
-  proxy.$modal.msgSuccess('已提交审批')
+  proxy.$modal.msgSuccess(translateText("已提交审批"))
   load()
 }
 
 async function withdraw(row) {
-  await proxy.$modal.confirm(`确认撤回盘点单 ${row.docNo}？`)
+  await proxy.$modal.confirm(translateText("确认撤回盘点单 {0}？", [row.docNo]))
   await withdrawJewelryDocument(row.documentId)
-  proxy.$modal.msgSuccess('已撤回')
+  proxy.$modal.msgSuccess(translateText("已撤回"))
   load()
 }
 

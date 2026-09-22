@@ -2,14 +2,14 @@
   <el-dialog :title="title" v-model="visible" :width="width" append-to-body @close="handleClose">
     <el-upload ref="uploadRef" :limit="1" accept=".xlsx, .xls" :headers="headers" :action="uploadUrl" :disabled="isUploading" :on-progress="handleProgress" :on-change="handleFileChange" :on-remove="handleFileRemove" :on-success="handleSuccess" :auto-upload="false" :show-file-list="false" drag>
       <el-icon class="el-icon--upload"><upload-filled /></el-icon>
-      <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
+      <div class="el-upload__text">{{ $tr("将文件拖到此处，或") }}<em>{{ $tr("点击上传") }}</em></div>
       <template #tip>
         <div class="el-upload__tip text-center">
           <div class="el-upload__tip">
             <el-checkbox v-model="updateSupport"> {{ updateSupportLabel }} </el-checkbox>
           </div>
-          <span>仅允许导入xls、xlsx格式文件。</span>
-          <el-link v-if="templateUrl" type="primary" underline="never" style="font-size: 12px; vertical-align: baseline" @click="handleDownloadTemplate">下载模板</el-link>
+          <span>{{ $tr("仅允许导入xls、xlsx格式文件。") }}</span>
+          <el-link v-if="templateUrl" type="primary" underline="never" style="font-size: 12px; vertical-align: baseline" @click="handleDownloadTemplate">{{ $tr("下载模板") }}</el-link>
         </div>
       </template>
     </el-upload>
@@ -20,20 +20,22 @@
       </div>
       <div class="selected-file-card__info">
         <b :title="selectedFile.name">{{ selectedFile.name }}</b>
-        <span>{{ formatFileSize(selectedFile.size || selectedFile.raw?.size) }} · 已选择，等待导入</span>
+        <span>{{ $tr("{0} · 已选择，等待导入", [formatFileSize(selectedFile.size || selectedFile.raw?.size)]) }}</span>
       </div>
-      <el-button v-if="!isUploading" type="danger" link icon="Delete" @click.stop="clearSelectedFile">移除</el-button>
+      <el-button v-if="!isUploading" type="danger" link icon="Delete" @click.stop="clearSelectedFile">{{ $tr("移除") }}</el-button>
     </div>
     <template #footer>
       <div class="dialog-footer">
-        <el-button type="primary" @click="handleSubmit">确 定</el-button>
-        <el-button @click="visible = false">取 消</el-button>
+        <el-button type="primary" @click="handleSubmit">{{ $tr("确 定") }}</el-button>
+        <el-button @click="visible = false">{{ $tr("取 消") }}</el-button>
       </div>
     </template>
   </el-dialog>
 </template>
 
 <script setup>
+import { translateText } from '@/locales/translate'
+
 import { getToken } from '@/utils/auth'
 
 const { proxy } = getCurrentInstance()
@@ -42,7 +44,7 @@ const props = defineProps({
   // 对话框标题
   title: {
     type: String,
-    default: '数据导入'
+    default: translateText("数据导入")
   },
   // 对话框宽度
   width: {
@@ -67,7 +69,7 @@ const props = defineProps({
   // 覆盖更新勾选框的说明文字
   updateSupportLabel: {
     type: String,
-    default: '是否更新已经存在的数据'
+    default: translateText("是否更新已经存在的数据")
   }
 })
 
@@ -135,7 +137,7 @@ function clearSelectedFile() {
 
 function formatFileSize(size) {
   const bytes = Number(size)
-  if (!Number.isFinite(bytes) || bytes <= 0) return '未知大小'
+  if (!Number.isFinite(bytes) || bytes <= 0) return translateText("未知大小")
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
@@ -147,7 +149,7 @@ function handleSuccess(response) {
   isUploading.value = false
   selectedFile.value = null
   uploadRef.value?.clearFiles()
-  proxy.$alert("<div style='overflow:auto;overflow-x:hidden;max-height:70vh;padding:10px 20px 0;'>" + response.msg + '</div>', '导入结果', { dangerouslyUseHTMLString: true })
+  proxy.$alert("<div style='overflow:auto;overflow-x:hidden;max-height:70vh;padding:10px 20px 0;'>" + response.msg + '</div>', translateText("导入结果"), { dangerouslyUseHTMLString: true })
   emit('success')
 }
 
@@ -155,7 +157,7 @@ function handleSuccess(response) {
 function handleSubmit() {
   const file = selectedFile.value
   if (!file || file.length === 0 || !file.name.toLowerCase().endsWith('.xls') && !file.name.toLowerCase().endsWith('.xlsx')) {
-    proxy.$modal.msgError("请选择后缀为 “xls”或“xlsx”的文件。")
+    proxy.$modal.msgError(translateText("请选择后缀为 “xls”或“xlsx”的文件。"))
     return
   }
   uploadRef.value.submit()

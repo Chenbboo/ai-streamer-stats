@@ -28,6 +28,8 @@ target/
 !gradle/wrapper/gradle-wrapper.jar
 .gradle/
 build/
+# Source files for the RuoYi form builder are not generated build output.
+!frontend/src/views/tool/build/
 nbbuild/
 dist/
 nbdist/
@@ -35,6 +37,7 @@ nbdist/
 
 # ==================== Node / Frontend ====================
 node_modules/
+/frontend/.localization/
 dist/
 *.log
 npm-debug.log*
@@ -55,6 +58,7 @@ backend/config/application.properties
 logs/
 outputs/
 work/db-backups/
+/work/
 *.xml.versionsBackup
 *.bak
 *.tmp

@@ -27,6 +27,8 @@
 </template>
 
 <script setup>
+import { translateText } from '@/locales/translate'
+
 import axios from 'axios'
 import { QuillEditor } from "@vueup/vue-quill"
 import "@vueup/vue-quill/dist/vue-quill.snow.css"
@@ -91,7 +93,7 @@ const options = ref({
       ["link", "image", "video"]                      // 链接、图片、视频
     ],
   },
-  placeholder: "请输入内容",
+  placeholder: translateText("请输入内容"),
   readOnly: props.readOnly
 })
 
@@ -135,14 +137,14 @@ function handleBeforeUpload(file) {
   const isJPG = type.includes(file.type)
   //检验文件格式
   if (!isJPG) {
-    proxy.$modal.msgError(`图片格式错误!`)
+    proxy.$modal.msgError(translateText("图片格式错误!"))
     return false
   }
   // 校检文件大小
   if (props.fileSize) {
     const isLt = file.size / 1024 / 1024 < props.fileSize
     if (!isLt) {
-      proxy.$modal.msgError(`上传文件大小不能超过 ${props.fileSize} MB!`)
+      proxy.$modal.msgError(translateText("上传文件大小不能超过 {0} MB!", [props.fileSize]))
       return false
     }
   }
@@ -162,13 +164,13 @@ function handleUploadSuccess(res, file) {
     // 调整光标到最后
     quill.setSelection(length + 1)
   } else {
-    proxy.$modal.msgError("图片插入失败")
+    proxy.$modal.msgError(translateText("图片插入失败"))
   }
 }
 
 // 上传失败处理
 function handleUploadError() {
-  proxy.$modal.msgError("图片插入失败")
+  proxy.$modal.msgError(translateText("图片插入失败"))
 }
 
 // 复制粘贴图片处理
@@ -272,5 +274,22 @@ function insertImage(file) {
 .ql-snow .ql-picker.ql-font .ql-picker-label[data-value="monospace"]::before,
 .ql-snow .ql-picker.ql-font .ql-picker-item[data-value="monospace"]::before {
   content: "等宽字体";
+}
+html[lang="vi-VN"] {
+  .ql-snow .ql-tooltip[data-mode="link"]::before { content: "Nhập địa chỉ liên kết:"; }
+  .ql-snow .ql-tooltip[data-mode="video"]::before { content: "Nhập địa chỉ video:"; }
+  .ql-snow .ql-tooltip.ql-editing a.ql-action::after { content: "Lưu"; }
+  .ql-snow .ql-picker.ql-header .ql-picker-label::before,
+  .ql-snow .ql-picker.ql-header .ql-picker-item::before { content: "Văn bản"; }
+  .ql-snow .ql-picker.ql-header [data-value="1"]::before { content: "Tiêu đề 1"; }
+  .ql-snow .ql-picker.ql-header [data-value="2"]::before { content: "Tiêu đề 2"; }
+  .ql-snow .ql-picker.ql-header [data-value="3"]::before { content: "Tiêu đề 3"; }
+  .ql-snow .ql-picker.ql-header [data-value="4"]::before { content: "Tiêu đề 4"; }
+  .ql-snow .ql-picker.ql-header [data-value="5"]::before { content: "Tiêu đề 5"; }
+  .ql-snow .ql-picker.ql-header [data-value="6"]::before { content: "Tiêu đề 6"; }
+  .ql-snow .ql-picker.ql-font .ql-picker-label::before,
+  .ql-snow .ql-picker.ql-font .ql-picker-item::before { content: "Mặc định"; }
+  .ql-snow .ql-picker.ql-font [data-value="serif"]::before { content: "Có chân"; }
+  .ql-snow .ql-picker.ql-font [data-value="monospace"]::before { content: "Đơn cách"; }
 }
 </style>

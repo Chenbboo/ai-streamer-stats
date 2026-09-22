@@ -65,13 +65,14 @@
 </template>
 
 <script setup>
+import { translateText } from '@/locales/translate'
 import { getCodeImg } from "@/api/login"
 import Cookies from "js-cookie"
 import { encrypt, decrypt } from "@/utils/jsencrypt"
 import useUserStore from '@/store/modules/user'
 import defaultSettings from '@/settings'
 
-const title = import.meta.env.VITE_APP_TITLE
+const title = computed(() => translateText(import.meta.env.VITE_APP_TITLE))
 const footerContent = defaultSettings.footerContent
 const userStore = useUserStore()
 const route = useRoute()

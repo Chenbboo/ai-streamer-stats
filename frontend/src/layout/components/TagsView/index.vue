@@ -19,7 +19,7 @@
         @contextmenu.prevent="openMenu(tag, $event)"
       >
         <svg-icon v-if="tagsIcon && tag.meta && tag.meta.icon && tag.meta.icon !== '#'" :icon-class="tag.meta.icon" style="margin-right: 3px;" />
-        {{ tag.title }}
+        {{ tagTitle(tag) }}
         <span v-if="!isAffix(tag)" @click.prevent.stop="closeSelectedTag(tag)" class="tags-close-btn">
           <close class="el-icon-close" />
         </span>
@@ -38,32 +38,31 @@
       </span>
       <template #dropdown>
         <el-dropdown-menu class="tags-dropdown-menu">
-          <el-dropdown-item v-if="!isAffix(selectedDropdownTag)" command="close"><close style="width: 1em; height: 1em;" />关闭当前</el-dropdown-item>
-          <el-dropdown-item command="closeOthers"><circle-close style="width: 1em; height: 1em;" />关闭其他</el-dropdown-item>
-          <el-dropdown-item command="closeLeft" :disabled="isFirstView()"><back style="width: 1em; height: 1em;" />关闭左侧</el-dropdown-item>
-          <el-dropdown-item command="closeRight" :disabled="isLastView()"><right style="width: 1em; height: 1em;" />关闭右侧</el-dropdown-item>
-          <el-dropdown-item command="closeAll"><circle-close style="width: 1em; height: 1em;" />全部关闭</el-dropdown-item>
+          <el-dropdown-item v-if="!isAffix(selectedDropdownTag)" command="close"><close style="width: 1em; height: 1em;" />{{ $tr("关闭当前") }}</el-dropdown-item>
+          <el-dropdown-item command="closeOthers"><circle-close style="width: 1em; height: 1em;" />{{ $tr("关闭其他") }}</el-dropdown-item>
+          <el-dropdown-item command="closeLeft" :disabled="isFirstView()"><back style="width: 1em; height: 1em;" />{{ $tr("关闭左侧") }}</el-dropdown-item>
+          <el-dropdown-item command="closeRight" :disabled="isLastView()"><right style="width: 1em; height: 1em;" />{{ $tr("关闭右侧") }}</el-dropdown-item>
+          <el-dropdown-item command="closeAll"><circle-close style="width: 1em; height: 1em;" />{{ $tr("全部关闭") }}</el-dropdown-item>
           <el-dropdown-item command="fullscreen" divided>
-            <template v-if="!isFullscreen"><full-screen style="width: 1em; height: 1em;" />全屏显示</template>
-            <template v-else><close style="width: 1em; height: 1em;" />退出全屏</template>
+            <template v-if="!isFullscreen"><full-screen style="width: 1em; height: 1em;" />{{ $tr("全屏显示") }}</template>
+            <template v-else><close style="width: 1em; height: 1em;" />{{ $tr("退出全屏") }}</template>
           </el-dropdown-item>
         </el-dropdown-menu>
       </template>
     </el-dropdown>
 
     <!-- 刷新按钮 -->
-    <span class="tags-action-btn tags-refresh-btn" title="刷新页面" @click="refreshSelectedTag(selectedDropdownTag)">
-      <el-icon><refresh-right/></el-icon> 刷新
-    </span>
+    <span class="tags-action-btn tags-refresh-btn" :title="$tr(&quot;刷新页面&quot;)" @click="refreshSelectedTag(selectedDropdownTag)">
+      <el-icon><refresh-right/></el-icon>{{ $tr(" 刷新 ") }}</span>
 
     <!-- 右键上下文菜单 -->
     <ul v-show="visible" :style="{ left: left + 'px', top: top + 'px' }" class="contextmenu">
-      <li @click="refreshSelectedTag(selectedTag)"><refresh-right style="width: 1em; height: 1em;" />刷新页面</li>
-      <li v-if="!isAffix(selectedTag)" @click="closeSelectedTag(selectedTag)"><close style="width: 1em; height: 1em;" />关闭当前</li>
-      <li @click="closeOthersTags"><circle-close style="width: 1em; height: 1em;" />关闭其他</li>
-      <li v-if="!isFirstView()" @click="closeLeftTags"><back style="width: 1em; height: 1em;" />关闭左侧</li>
-      <li v-if="!isLastView()" @click="closeRightTags"><right style="width: 1em; height: 1em;" />关闭右侧</li>
-      <li @click="closeAllTags(selectedTag)"><circle-close style="width: 1em; height: 1em;" />全部关闭</li>
+      <li @click="refreshSelectedTag(selectedTag)"><refresh-right style="width: 1em; height: 1em;" />{{ $tr("刷新页面") }}</li>
+      <li v-if="!isAffix(selectedTag)" @click="closeSelectedTag(selectedTag)"><close style="width: 1em; height: 1em;" />{{ $tr("关闭当前") }}</li>
+      <li @click="closeOthersTags"><circle-close style="width: 1em; height: 1em;" />{{ $tr("关闭其他") }}</li>
+      <li v-if="!isFirstView()" @click="closeLeftTags"><back style="width: 1em; height: 1em;" />{{ $tr("关闭左侧") }}</li>
+      <li v-if="!isLastView()" @click="closeRightTags"><right style="width: 1em; height: 1em;" />{{ $tr("关闭右侧") }}</li>
+      <li @click="closeAllTags(selectedTag)"><circle-close style="width: 1em; height: 1em;" />{{ $tr("全部关闭") }}</li>
     </ul>
   </div>
 </template>
@@ -74,6 +73,12 @@ import { getNormalPath } from '@/utils/ruoyi'
 import useTagsViewStore from '@/store/modules/tagsView'
 import useSettingsStore from '@/store/modules/settings'
 import usePermissionStore from '@/store/modules/permission'
+import { translateText, sourceText } from '@/locales/translate'
+import { useI18n } from 'vue-i18n'
+
+const { locale } = useI18n()
+const tagTitle = tag => locale.value === 'vi-VN' && tag.meta?.titleVi?.trim()
+  ? tag.meta.titleVi : translateText(tag.meta?.titleZh || sourceText(tag.title))
 
 const visible = ref(false)
 const top = ref(0)
@@ -490,7 +495,11 @@ $tags-bar-height: 34px;
   }
 
   .tags-refresh-btn {
-    width: 60px;
+    width: auto;
+    min-width: 60px;
+    padding: 0 10px;
+    gap: 4px;
+    white-space: nowrap;
   }
 
   .contextmenu {

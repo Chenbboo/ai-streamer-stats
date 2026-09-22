@@ -2,58 +2,58 @@
   <el-result
     v-if="!canViewFinance"
     icon="warning"
-    title="无权查看"
-    sub-title="毛利试算仅对审核员和管理员开放"
+    :title="$tr(&quot;无权查看&quot;)"
+    :sub-title="$tr(&quot;毛利试算仅对审核员和管理员开放&quot;)"
   />
   <div v-else class="app-container calculator">
     <header class="page-title">
-      <h2>前端定价与达人谈判试算台</h2>
-      <p>独立测算工具，不生成出库单。自动读取 SKU 平均采购成本与默认履约费用，反推保本底线与佣金上限。</p>
+      <h2>{{ $tr("前端定价与达人谈判试算台") }}</h2>
+      <p>{{ $tr("独立测算工具，不生成出库单。自动读取 SKU 平均采购成本与默认履约费用，反推保本底线与佣金上限。") }}</p>
     </header>
 
     <div class="calculator-layout">
       <section class="input-panel">
         <el-form :model="form" label-position="top">
-          <el-form-item label="达人/主播（可选）">
-            <el-select v-model="form.influencerId" filterable clearable placeholder="选择达人后自动带入已绑定商品价格与费率"
+          <el-form-item :label="$tr(&quot;达人/主播（可选）&quot;)">
+            <el-select v-model="form.influencerId" filterable clearable :placeholder="$tr(&quot;选择达人后自动带入已绑定商品价格与费率&quot;)"
               class="full-width" @change="influencerChanged">
               <el-option v-for="item in influencers" :key="item.influencerId"
-                :label="`${item.influencerCode} · ${item.influencerName} · ${item.platform||'未填平台'}`" :value="item.influencerId" />
+                :label="`${item.influencerCode} · ${item.influencerName} · ${item.platform||$tr('未填平台')}`" :value="item.influencerId" />
             </el-select>
           </el-form-item>
-          <el-form-item label="选择 SKU">
-            <el-select v-model="form.productId" filterable placeholder="请选择需要试算的商品"
+          <el-form-item :label="$tr(&quot;选择 SKU&quot;)">
+            <el-select v-model="form.productId" filterable :placeholder="$tr(&quot;请选择需要试算的商品&quot;)"
               class="full-width" @change="productChanged">
               <el-option v-for="item in products" :key="item.productId"
                 :label="productLabel(item)" :value="item.productId" />
             </el-select>
           </el-form-item>
-          <el-alert v-if="selectedBinding" title="已带入达人商品档案中的直播价、费率和履约费用；可在此调整数值进行谈判试算，试算不会改动档案。" type="success" :closable="false" class="binding-hint" />
+          <el-alert v-if="selectedBinding" :title="$tr(&quot;已带入达人商品档案中的直播价、费率和履约费用；可在此调整数值进行谈判试算，试算不会改动档案。&quot;)" type="success" :closable="false" class="binding-hint" />
 
           <el-row :gutter="20">
             <el-col :xs="24" :sm="12" :md="8">
-              <el-form-item label="拟定成交价（¥）">
+              <el-form-item :label="$tr(&quot;拟定成交价（¥）&quot;)">
                 <el-input-number v-model="form.price" :min="0" :precision="2" :controls="false" />
               </el-form-item>
             </el-col>
             <el-col :xs="24" :sm="12" :md="8">
-              <el-form-item :label="`试算数量（可用库存 ${availableQty}）`">
+              <el-form-item :label="$tr(&quot;试算数量（可用库存 {0}）&quot;, [availableQty])">
                 <el-input-number v-model="form.quantity" :min="1" :max="Math.max(1, availableQty)"
                   :precision="0" :disabled="!form.productId || availableQty <= 0" />
               </el-form-item>
             </el-col>
             <el-col :xs="24" :sm="12" :md="8">
-              <el-form-item label="达人佣金率（%）">
+              <el-form-item :label="$tr(&quot;达人佣金率（%）&quot;)">
                 <el-input-number v-model="form.commissionRate" :min="0" :max="100" :precision="2" :controls="false" />
               </el-form-item>
             </el-col>
             <el-col :xs="24" :sm="12" :md="8">
-              <el-form-item label="平台扣点率（%）">
+              <el-form-item :label="$tr(&quot;平台扣点率（%）&quot;)">
                 <el-input-number v-model="form.platformRate" :min="0" :max="100" :precision="2" :controls="false" />
               </el-form-item>
             </el-col>
             <el-col :xs="24" :sm="12" :md="8">
-              <el-form-item label="税率（%）">
+              <el-form-item :label="$tr(&quot;税率（%）&quot;)">
                 <el-input-number v-model="form.taxRate" :min="0" :max="100" :precision="2" :controls="false" />
               </el-form-item>
             </el-col>
@@ -61,60 +61,60 @@
 
           <el-row :gutter="20">
             <el-col :xs="24" :sm="8">
-              <el-form-item label="包装费（¥）">
+              <el-form-item :label="$tr(&quot;包装费（¥）&quot;)">
                 <el-input-number v-model="form.packFee" :min="0" :precision="2" :controls="false" />
               </el-form-item>
             </el-col>
             <el-col :xs="24" :sm="8">
-              <el-form-item label="物流履约费（¥）">
+              <el-form-item :label="$tr(&quot;物流履约费（¥）&quot;)">
                 <el-input-number v-model="form.shipFee" :min="0" :precision="2" :controls="false" />
               </el-form-item>
             </el-col>
             <el-col :xs="24" :sm="8">
-              <el-form-item label="鉴定检测费（¥）">
+              <el-form-item :label="$tr(&quot;鉴定检测费（¥）&quot;)">
                 <el-input-number v-model="form.certFee" :min="0" :precision="2" :controls="false" />
               </el-form-item>
             </el-col>
           </el-row>
         </el-form>
 
-        <div class="formula">
-          毛利 = 成交价 ×（1 - 平台扣点 - 达人佣金 - 税率）- 履约固定支出 - SKU 采购成本
-        </div>
+        <div class="formula">{{ $tr(" 毛利 = 成交价 ×（1 - 平台扣点 - 达人佣金 - 税率）- 履约固定支出 - SKU 采购成本 ") }}</div>
       </section>
 
       <aside class="result-panel" v-loading="calculating">
-        <div class="result-title">本单试算结果</div>
+        <div class="result-title">{{ $tr("本单试算结果") }}</div>
         <template v-if="result">
-          <div class="profit-caption">预计总毛利</div>
+          <div class="profit-caption">{{ $tr("预计总毛利") }}</div>
           <div class="profit" :class="{ loss: Number(result.totalProfit) < 0 }">¥ {{ money(result.totalProfit) }}</div>
           <div class="result-row strong">
-            <span>终端毛利率</span>
+            <span>{{ $tr("终端毛利率") }}</span>
             <b :class="{ loss: Number(result.profitRate) < 0 }">{{ percent(result.profitRate) }}</b>
           </div>
-          <div class="result-row"><span>试算数量</span><b>{{ result.quantity }} 件</b></div>
-          <div class="result-row"><span>单件毛利</span><b>¥ {{ money(result.profit) }}</b></div>
-          <div class="result-row"><span>预计成交总额</span><b>¥ {{ money(result.totalRevenue) }}</b></div>
-          <div class="result-row"><span>SKU 单件采购价</span><b>¥ {{ money(result.cost) }}</b></div>
-          <div class="result-row"><span>平台 + 佣金 + 税 总扣减</span><b>¥ {{ money(result.totalDeductions) }}</b></div>
-          <div class="result-row"><span>履约固定总支出</span><b>¥ {{ money(result.totalFixedFees) }}</b></div>
+          <div class="result-row"><span>{{ $tr("试算数量") }}</span><b>{{ $tr("{0} 件", [result.quantity]) }}</b></div>
+          <div class="result-row"><span>{{ $tr("单件毛利") }}</span><b>¥ {{ money(result.profit) }}</b></div>
+          <div class="result-row"><span>{{ $tr("预计成交总额") }}</span><b>¥ {{ money(result.totalRevenue) }}</b></div>
+          <div class="result-row"><span>{{ $tr("SKU 单件采购价") }}</span><b>¥ {{ money(result.cost) }}</b></div>
+          <div class="result-row"><span>{{ $tr("平台 + 佣金 + 税 总扣减") }}</span><b>¥ {{ money(result.totalDeductions) }}</b></div>
+          <div class="result-row"><span>{{ $tr("履约固定总支出") }}</span><b>¥ {{ money(result.totalFixedFees) }}</b></div>
           <div class="result-row stock-row">
-            <span>模拟库存</span>
-            <b>{{ result.availableQty }} → {{ result.remainingQty }} 件</b>
+            <span>{{ $tr("模拟库存") }}</span>
+            <b>{{ $tr("{0} → {1} 件", [result.availableQty, result.remainingQty]) }}</b>
           </div>
-          <div class="result-row emphasis"><span>保本底线售价</span><b>¥ {{ money(result.breakEvenPrice) }}</b></div>
-          <div class="result-row emphasis"><span>当前价下佣金上限</span><b>{{ percent(result.maxCommissionRate) }}</b></div>
+          <div class="result-row emphasis"><span>{{ $tr("保本底线售价") }}</span><b>¥ {{ money(result.breakEvenPrice) }}</b></div>
+          <div class="result-row emphasis"><span>{{ $tr("当前价下佣金上限") }}</span><b>{{ percent(result.maxCommissionRate) }}</b></div>
           <el-alert v-if="Number(result.totalProfit) < 0" class="risk-alert"
-            title="当前方案预计亏损，请调整价格、佣金或费用"
+            :title="$tr(&quot;当前方案预计亏损，请调整价格、佣金或费用&quot;)"
             type="error" :closable="false" show-icon />
         </template>
-        <el-empty v-else description="请选择 SKU 并填写成交价" :image-size="56" />
+        <el-empty v-else :description="$tr(&quot;请选择 SKU 并填写成交价&quot;)" :image-size="56" />
       </aside>
     </div>
   </div>
 </template>
 
 <script setup name="JewelryCalculator">
+import { translateText } from '@/locales/translate'
+
 import { calculateJewelryProfit, listJewelryProducts, listJewelryInfluencerOptions, getJewelryInfluencerProductPrices } from '@/api/jewelry/erp'
 import { jewelryProductType } from '@/utils/jewelryProduct'
 import useUserStore from '@/store/modules/user'
@@ -146,7 +146,7 @@ const money = value =>
   Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const percent = value => `${(Number(value || 0) * 100).toFixed(2)}%`
 const productLabel = item =>
-  `${item.sku} · ${item.productName} · ${jewelryProductType(item.productType)?.label||item.productType}${item.specification ? ` · ${item.specification}` : ''}（可用 ${productAvailable(item)}，成本 ¥ ${money(item.avgCost)}）`
+  translateText("{0} · {1}{2}（可用 {3}，成本 ¥ {4}）", [item.sku, `${item.productName} · ${translateText(jewelryProductType(item.productType)?.label||item.productType)}`, translateText(item.specification) ? ` · ${translateText(item.specification)}` : '', productAvailable(item), money(item.avgCost)])
 const productAvailable = item =>
   Math.max(0, Number(item?.onHandQty || 0) - Number(item?.reservedOutQty || 0))
 const selectedProduct = computed(() => products.value.find(item => item.productId === form.productId))

@@ -1,40 +1,40 @@
 <template>
   <div class="app-container">
-    <el-tabs v-model="query.status" @tab-change="load"><el-tab-pane label="待审核" name="PENDING"/></el-tabs>
+    <el-tabs v-model="query.status" @tab-change="load"><el-tab-pane :label="$tr(&quot;待审核&quot;)" name="PENDING"/></el-tabs>
     <el-table :data="rows" v-loading="loading" border>
-      <el-table-column prop="docNo" label="单号" width="190"/>
-      <el-table-column label="类型" width="150"><template #default="{row}">{{typeLabel(row.docType)}}</template></el-table-column>
-      <el-table-column prop="bizDate" label="业务日期" width="110"/>
-      <el-table-column label="业务对象" min-width="150"><template #default="{row}">{{isTransfer(row)?`${row.sourceWarehouse || '—'} → ${row.targetWarehouse || '—'}`:row.supplierNameSnapshot || row.itemSupplierNames || row.salesChannel || (row.docType==='ASSEMBLY'?'手工组装成品':row.docType==='COST_ADJUST'?'库存成本调整':'—')}}</template></el-table-column>
-      <el-table-column prop="totalQty" label="数量" width="90"/>
-      <el-table-column label="金额/成本" width="120" align="right"><template #default="{row}">{{documentMoney(row.docType==='ASSEMBLY'?row.totalCost:row.totalAmount,row)}}</template></el-table-column>
-      <el-table-column label="毛利" width="120" align="right"><template #default="{row}"><span v-if="isTransfer(row)||['ASSEMBLY','COST_ADJUST'].includes(row.docType)">—</span><el-button v-else link class="profit-link" :class="{loss:Number(row.totalProfit)<0}" title="查看毛利计算明细" @click="showProfit(row)">{{money(row.totalProfit)}}</el-button></template></el-table-column>
-      <el-table-column label="风险" width="100"><template #default="{row}"><el-tag v-if="row.riskStatus==='LOSS'" type="danger">亏损</el-tag><el-tag v-else-if="row.riskStatus==='REVIEW'" type="warning">需复核</el-tag><span v-else>—</span></template></el-table-column>
-      <el-table-column prop="creatorName" label="制单人" width="100"/>
-      <el-table-column label="阶段" width="130"><template #default="{row}"><el-tag v-if="isDualApproval(row)" type="warning">{{row.status==='PENDING_SECOND'?'管理员复核':'审核员审核'}}</el-tag><span v-else>审核员审核</span></template></el-table-column>
-      <el-table-column label="操作" width="190"><template #default="{row}"><el-button link type="primary" @click="show(row)">查看</el-button><template v-if="canAct(row)"><el-button link type="success" v-hasPermi="['jewelry:approval:approve']" @click="act(row,true)">通过</el-button><el-button link type="danger" v-hasPermi="['jewelry:approval:reject']" @click="act(row,false)">驳回</el-button></template></template></el-table-column>
+      <el-table-column prop="docNo" :label="$tr(&quot;单号&quot;)" width="190"/>
+      <el-table-column :label="$tr(&quot;类型&quot;)" width="150"><template #default="{row}">{{typeLabel(row.docType)}}</template></el-table-column>
+      <el-table-column prop="bizDate" :label="$tr(&quot;业务日期&quot;)" width="110"/>
+      <el-table-column :label="$tr(&quot;业务对象&quot;)" min-width="150"><template #default="{row}">{{isTransfer(row)?`${row.sourceWarehouse || '—'} → ${row.targetWarehouse || '—'}`:row.supplierNameSnapshot || row.itemSupplierNames || row.salesChannel || (row.docType==='ASSEMBLY'?$tr("手工组装成品"):row.docType==='COST_ADJUST'?$tr("库存成本调整"):'—')}}</template></el-table-column>
+      <el-table-column prop="totalQty" :label="$tr(&quot;数量&quot;)" width="90"/>
+      <el-table-column :label="$tr(&quot;金额/成本&quot;)" width="120" align="right"><template #default="{row}">{{documentMoney(row.docType==='ASSEMBLY'?row.totalCost:row.totalAmount,row)}}</template></el-table-column>
+      <el-table-column :label="$tr(&quot;毛利&quot;)" width="120" align="right"><template #default="{row}"><span v-if="isTransfer(row)||['ASSEMBLY','COST_ADJUST'].includes(row.docType)">—</span><el-button v-else link class="profit-link" :class="{loss:Number(row.totalProfit)<0}" :title="$tr(&quot;查看毛利计算明细&quot;)" @click="showProfit(row)">{{money(row.totalProfit)}}</el-button></template></el-table-column>
+      <el-table-column :label="$tr(&quot;风险&quot;)" width="100"><template #default="{row}"><el-tag v-if="row.riskStatus==='LOSS'" type="danger">{{ $tr("亏损") }}</el-tag><el-tag v-else-if="row.riskStatus==='REVIEW'" type="warning">{{ $tr("需复核") }}</el-tag><span v-else>—</span></template></el-table-column>
+      <el-table-column prop="creatorName" :label="$tr(&quot;制单人&quot;)" width="100"/>
+      <el-table-column :label="$tr(&quot;阶段&quot;)" width="130"><template #default="{row}"><el-tag v-if="isDualApproval(row)" type="warning">{{row.status==='PENDING_SECOND'?$tr("管理员复核"):$tr("审核员审核")}}</el-tag><span v-else>{{ $tr("审核员审核") }}</span></template></el-table-column>
+      <el-table-column :label="$tr(&quot;操作&quot;)" width="190"><template #default="{row}"><el-button link type="primary" @click="show(row)">{{ $tr("查看") }}</el-button><template v-if="canAct(row)"><el-button link type="success" v-hasPermi="['jewelry:approval:approve']" @click="act(row,true)">{{ $tr("通过") }}</el-button><el-button link type="danger" v-hasPermi="['jewelry:approval:reject']" @click="act(row,false)">{{ $tr("驳回") }}</el-button></template></template></el-table-column>
     </el-table>
     <pagination v-show="total>0" v-model:page="query.pageNum" v-model:limit="query.pageSize" :total="total" @pagination="load"/>
-    <el-drawer v-model="drawer" title="单据明细" size="75%">
+    <el-drawer v-model="drawer" :title="$tr(&quot;单据明细&quot;)" size="75%">
       <el-descriptions v-if="detail" :column="4" border>
-        <el-descriptions-item label="单号">{{detail.docNo}}</el-descriptions-item>
-        <el-descriptions-item label="类型">{{typeLabel(detail.docType)}}</el-descriptions-item>
-        <el-descriptions-item :label="detail.docType==='SALES_OUT'?'达人':'供应商'">{{detail.docType==='SALES_OUT'?(detail.influencerName || '未记录'):supplierNames(detail)}}</el-descriptions-item>
-        <el-descriptions-item v-if="detail.docType==='PURCHASE_IN'" label="约定退货日期">{{detail.supplierReturnDate || '按统一退货期限'}}</el-descriptions-item>
-        <el-descriptions-item v-if="isTransfer(detail)" label="出库仓库">{{detail.sourceWarehouse}}</el-descriptions-item>
-        <el-descriptions-item v-if="isTransfer(detail)" label="入库仓库">{{detail.targetWarehouse}}</el-descriptions-item>
-        <el-descriptions-item v-if="isTransfer(detail)" label="调货时间">{{detail.bizDate}}</el-descriptions-item>
-        <el-descriptions-item label="制单人">{{detail.creatorName}}</el-descriptions-item>
-        <el-descriptions-item label="数量">{{detail.totalQty}}</el-descriptions-item>
-        <el-descriptions-item v-if="!isTransfer(detail)" :label="detail.docType==='ASSEMBLY'?'组装总成本':detail.docType==='COST_ADJUST'?'库存金额变化':'总金额'">¥ {{documentMoney(detail.docType==='ASSEMBLY'?detail.totalCost:detail.totalAmount,detail)}}</el-descriptions-item>
-        <el-descriptions-item v-if="detail.docType==='COST_ADJUST'" label="调整后库存金额">¥ {{money(detail.totalCost)}}</el-descriptions-item>
-        <el-descriptions-item v-else-if="detail.docType!=='ASSEMBLY' && !isTransfer(detail)" label="总成本">¥ {{costMoney(detail.totalCost,detail)}}</el-descriptions-item>
-        <el-descriptions-item v-if="!isTransfer(detail)" label="总毛利"><span v-if="['ASSEMBLY','COST_ADJUST'].includes(detail.docType)">—</span><span v-else :class="{loss:Number(detail.totalProfit)<0}">¥ {{money(detail.totalProfit)}}</span></el-descriptions-item>
-        <el-descriptions-item label="审批人"><span v-if="isDualApproval(detail)">审核员：{{detail.firstReviewerName||'待审核'}}；管理员：{{detail.secondReviewerName||'待复核'}}</span><span v-else>{{detail.secondReviewerName || detail.firstReviewerName || '—'}}</span></el-descriptions-item>
-        <el-descriptions-item label="备注" :span="4"><el-input :model-value="detail.remark || ''" type="textarea" :autosize="{minRows:2,maxRows:6}" readonly placeholder="暂无备注" /></el-descriptions-item>
+        <el-descriptions-item :label="$tr(&quot;单号&quot;)">{{detail.docNo}}</el-descriptions-item>
+        <el-descriptions-item :label="$tr(&quot;类型&quot;)">{{typeLabel(detail.docType)}}</el-descriptions-item>
+        <el-descriptions-item :label="detail.docType==='SALES_OUT'?$tr(&quot;达人&quot;):$tr(&quot;供应商&quot;)">{{detail.docType==='SALES_OUT'?(detail.influencerName || $tr("未记录")):supplierNames(detail)}}</el-descriptions-item>
+        <el-descriptions-item v-if="detail.docType==='PURCHASE_IN'" :label="$tr(&quot;约定退货日期&quot;)">{{detail.supplierReturnDate || $tr("按统一退货期限")}}</el-descriptions-item>
+        <el-descriptions-item v-if="isTransfer(detail)" :label="$tr(&quot;出库仓库&quot;)">{{detail.sourceWarehouse}}</el-descriptions-item>
+        <el-descriptions-item v-if="isTransfer(detail)" :label="$tr(&quot;入库仓库&quot;)">{{detail.targetWarehouse}}</el-descriptions-item>
+        <el-descriptions-item v-if="isTransfer(detail)" :label="$tr(&quot;调货时间&quot;)">{{detail.bizDate}}</el-descriptions-item>
+        <el-descriptions-item :label="$tr(&quot;制单人&quot;)">{{detail.creatorName}}</el-descriptions-item>
+        <el-descriptions-item :label="$tr(&quot;数量&quot;)">{{detail.totalQty}}</el-descriptions-item>
+        <el-descriptions-item v-if="!isTransfer(detail)" :label="detail.docType==='ASSEMBLY'?$tr(&quot;组装总成本&quot;):detail.docType==='COST_ADJUST'?$tr(&quot;库存金额变化&quot;):$tr(&quot;总金额&quot;)">¥ {{documentMoney(detail.docType==='ASSEMBLY'?detail.totalCost:detail.totalAmount,detail)}}</el-descriptions-item>
+        <el-descriptions-item v-if="detail.docType==='COST_ADJUST'" :label="$tr(&quot;调整后库存金额&quot;)">¥ {{money(detail.totalCost)}}</el-descriptions-item>
+        <el-descriptions-item v-else-if="detail.docType!=='ASSEMBLY' && !isTransfer(detail)" :label="$tr(&quot;总成本&quot;)">¥ {{costMoney(detail.totalCost,detail)}}</el-descriptions-item>
+        <el-descriptions-item v-if="!isTransfer(detail)" :label="$tr(&quot;总毛利&quot;)"><span v-if="['ASSEMBLY','COST_ADJUST'].includes(detail.docType)">—</span><span v-else :class="{loss:Number(detail.totalProfit)<0}">¥ {{money(detail.totalProfit)}}</span></el-descriptions-item>
+        <el-descriptions-item :label="$tr(&quot;审批人&quot;)"><span v-if="isDualApproval(detail)">{{ $tr("审核员：{0}；管理员：{1}", [detail.firstReviewerName||$tr("待审核"), detail.secondReviewerName||$tr("待复核")]) }}</span><span v-else>{{detail.secondReviewerName || detail.firstReviewerName || '—'}}</span></el-descriptions-item>
+        <el-descriptions-item :label="$tr(&quot;备注&quot;)" :span="4"><el-input :model-value="detail.remark || ''" type="textarea" :autosize="{minRows:2,maxRows:6}" readonly :placeholder="$tr(&quot;暂无备注&quot;)" /></el-descriptions-item>
       </el-descriptions>
-      <el-alert v-if="detail?.riskStatus==='LOSS'" title="该销售单预计亏损，请核对成交价、商品成本及各项费率后再审批。" type="error" :closable="false" show-icon class="mt20"/>
-      <el-alert v-if="isAdminStockReview(detail)" title="管理员可调整盘盈明细的核定成本；点击“通过并入账”时，修改后的成本会与库存调整一并保存。" type="warning" :closable="false" show-icon class="mt20"/>
+      <el-alert v-if="detail?.riskStatus==='LOSS'" :title="$tr(&quot;该销售单预计亏损，请核对成交价、商品成本及各项费率后再审批。&quot;)" type="error" :closable="false" show-icon class="mt20"/>
+      <el-alert v-if="isAdminStockReview(detail)" :title="$tr(&quot;管理员可调整盘盈明细的核定成本；点击“通过并入账”时，修改后的成本会与库存调整一并保存。&quot;)" type="warning" :closable="false" show-icon class="mt20"/>
       <div v-if="detail?.docType==='ASSEMBLY'" class="assembly-review mt20">
         <el-image
           v-if="firstImage(assemblyOutput(detail)?.imageUrls)"
@@ -43,75 +43,75 @@
           fit="cover"
           preview-teleported
         />
-        <div v-else class="assembly-no-image">暂无成品参考图</div>
+        <div v-else class="assembly-no-image">{{ $tr("暂无成品参考图") }}</div>
         <div class="assembly-summary">
           <div class="assembly-title">
             <div>
-              <b>{{assemblyOutput(detail)?.productNameSnapshot || '成品组装'}}</b>
+              <b>{{assemblyOutput(detail)?.productNameSnapshot || $tr("成品组装")}}</b>
               <span>{{assemblyOutput(detail)?.skuSnapshot || '—'}}</span>
             </div>
-            <el-tag type="success">手工组装</el-tag>
+            <el-tag type="success">{{ $tr("手工组装") }}</el-tag>
           </div>
           <el-descriptions :column="2" border>
-            <el-descriptions-item label="成品数量">{{assemblyOutput(detail)?.qty || 0}}</el-descriptions-item>
-            <el-descriptions-item label="散件种类">{{detail.items?.filter(item=>item.itemRole==='COMPONENT').length || 0}}</el-descriptions-item>
-            <el-descriptions-item label="人工费">¥ {{money(detail.laborFee)}}</el-descriptions-item>
-            <el-descriptions-item label="加工费">¥ {{money(detail.processingFee)}}</el-descriptions-item>
-            <el-descriptions-item label="其他费用">¥ {{money(detail.otherFee)}}</el-descriptions-item>
-            <el-descriptions-item label="组装总成本">¥ {{money(detail.totalCost)}}</el-descriptions-item>
+            <el-descriptions-item :label="$tr(&quot;成品数量&quot;)">{{assemblyOutput(detail)?.qty || 0}}</el-descriptions-item>
+            <el-descriptions-item :label="$tr(&quot;散件种类&quot;)">{{detail.items?.filter(item=>item.itemRole==='COMPONENT').length || 0}}</el-descriptions-item>
+            <el-descriptions-item :label="$tr(&quot;人工费&quot;)">¥ {{money(detail.laborFee)}}</el-descriptions-item>
+            <el-descriptions-item :label="$tr(&quot;加工费&quot;)">¥ {{money(detail.processingFee)}}</el-descriptions-item>
+            <el-descriptions-item :label="$tr(&quot;其他费用&quot;)">¥ {{money(detail.otherFee)}}</el-descriptions-item>
+            <el-descriptions-item :label="$tr(&quot;组装总成本&quot;)">¥ {{money(detail.totalCost)}}</el-descriptions-item>
           </el-descriptions>
         </div>
       </div>
       <el-table v-if="detail" :data="approvalItems" :row-class-name="approvalItemRowClass" border class="mt20 approval-item-table">
-        <el-table-column v-if="showBundleRoles" label="销售角色" width="190">
+        <el-table-column v-if="showBundleRoles" :label="$tr(&quot;销售角色&quot;)" width="190">
           <template #default="{row}">
-            <el-tag v-if="row.saleRole==='MAIN'" type="success" effect="plain">组合{{row.bundleGroupNo}}·主商品</el-tag>
-            <el-tag v-else-if="row.saleRole==='ADDON'" type="warning" effect="plain">组合{{row.bundleGroupNo}}·搭售</el-tag>
-            <el-tag v-else type="info" effect="plain">独立销售</el-tag>
+            <el-tag v-if="row.saleRole==='MAIN'" type="success" effect="plain">{{ $tr("组合{0}·主商品", [row.bundleGroupNo]) }}</el-tag>
+            <el-tag v-else-if="row.saleRole==='ADDON'" type="warning" effect="plain">{{ $tr("组合{0}·搭售", [row.bundleGroupNo]) }}</el-tag>
+            <el-tag v-else type="info" effect="plain">{{ $tr("独立销售") }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column v-if="detail.docType==='ASSEMBLY'" label="用途" width="90">
-          <template #default="{row}"><el-tag :type="row.itemRole==='OUTPUT'?'success':'info'">{{row.itemRole==='OUTPUT'?'成品产出':'散件投入'}}</el-tag></template>
+        <el-table-column v-if="detail.docType==='ASSEMBLY'" :label="$tr(&quot;用途&quot;)" width="90">
+          <template #default="{row}"><el-tag :type="row.itemRole==='OUTPUT'?'success':'info'">{{row.itemRole==='OUTPUT'?$tr("成品产出"):$tr("散件投入")}}</el-tag></template>
         </el-table-column>
         <el-table-column prop="skuSnapshot" label="SKU"/>
-        <el-table-column label="商品" min-width="230">
+        <el-table-column :label="$tr(&quot;商品&quot;)" min-width="230">
           <template #default="{row}">
             <div class="approval-product-cell" :class="{'approval-addon-product':row.saleRole==='ADDON'}">
               <span>{{row.productNameSnapshot}}</span>
               <el-button v-if="row.saleRole==='MAIN' && addonCount(row)" link type="primary" class="approval-addon-toggle" @click="toggleAddons(row)">
-                {{isAddonExpanded(row)?'收起搭售':`展开搭售（${addonCount(row)} 件）`}}
+                {{isAddonExpanded(row)?$tr("收起搭售"):$tr("展开搭售（{0} 件）", [addonCount(row)])}}
                 <el-icon><ArrowUp v-if="isAddonExpanded(row)"/><ArrowDown v-else/></el-icon>
               </el-button>
             </div>
           </template>
         </el-table-column>
-        <el-table-column v-if="detail.docType!=='SALES_OUT'" label="供应商" min-width="140" show-overflow-tooltip><template #default="{row}">{{itemSupplierNames(row,detail)}}</template></el-table-column>
-        <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="systemQty" label="系统库存"/>
-        <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="countedQty" label="实盘库存"/>
-        <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="adjustmentQty" label="差异"/>
-        <el-table-column v-if="detail.docType!=='STOCK_ADJUST'" prop="qty" :label="detail.docType==='COST_ADJUST'?'当前库存':'数量'"/>
-        <el-table-column v-if="detail.docType==='RETURN_INSPECT'" prop="goodQty" label="良品"/>
-        <el-table-column v-if="detail.docType==='RETURN_INSPECT'" prop="defectQty" label="次品"/>
-        <el-table-column v-if="detail.docType==='STOCK_ADJUST'" label="盘盈核定成本" width="170">
+        <el-table-column v-if="detail.docType!=='SALES_OUT'" :label="$tr(&quot;供应商&quot;)" min-width="140" show-overflow-tooltip><template #default="{row}">{{itemSupplierNames(row,detail)}}</template></el-table-column>
+        <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="systemQty" :label="$tr(&quot;系统库存&quot;)"/>
+        <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="countedQty" :label="$tr(&quot;实盘库存&quot;)"/>
+        <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="adjustmentQty" :label="$tr(&quot;差异&quot;)"/>
+        <el-table-column v-if="detail.docType!=='STOCK_ADJUST'" prop="qty" :label="detail.docType==='COST_ADJUST'?$tr(&quot;当前库存&quot;):$tr(&quot;数量&quot;)"/>
+        <el-table-column v-if="detail.docType==='RETURN_INSPECT'" prop="goodQty" :label="$tr(&quot;良品&quot;)"/>
+        <el-table-column v-if="detail.docType==='RETURN_INSPECT'" prop="defectQty" :label="$tr(&quot;次品&quot;)"/>
+        <el-table-column v-if="detail.docType==='STOCK_ADJUST'" :label="$tr(&quot;盘盈核定成本&quot;)" width="170">
           <template #default="{row}">
             <el-input-number v-if="canEditGainCost(row)" v-model="row.unitCost" :min="0.01" :precision="2" :step="1" controls-position="right" style="width:145px"/>
             <span v-else>{{money(row.unitCost)}}</span>
           </template>
         </el-table-column>
-        <el-table-column v-else-if="!isTransfer(detail)" prop="unitCost" :label="detail.docType==='COST_ADJUST'?'当前平均成本':'成本'"/>
-        <el-table-column v-if="!isTransfer(detail)" :label="detail.docType==='COST_ADJUST'?'调整后平均成本':'单价'"><template #default="{row}">{{unitPriceMoney(row.unitPrice,detail)}}</template></el-table-column>
-        <el-table-column v-if="!isTransfer(detail)" :label="detail.docType==='ASSEMBLY'?'成本金额':detail.docType==='COST_ADJUST'?'库存金额变化':'金额'"><template #default="{row}">{{documentMoney(detail.docType==='ASSEMBLY'?row.costAmount:row.amount,detail)}}</template></el-table-column>
-        <el-table-column v-if="!isTransfer(detail)" label="毛利"><template #default="{row}"><span v-if="['ASSEMBLY','COST_ADJUST'].includes(detail.docType)">—</span><span v-else :class="{loss:Number(row.profitAmount)<0}">{{money(row.profitAmount)}}</span></template></el-table-column>
-        <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="lineReason" label="调整原因" min-width="160"/>
+        <el-table-column v-else-if="!isTransfer(detail)" prop="unitCost" :label="detail.docType==='COST_ADJUST'?$tr(&quot;当前平均成本&quot;):$tr(&quot;成本&quot;)"/>
+        <el-table-column v-if="!isTransfer(detail)" :label="detail.docType==='COST_ADJUST'?$tr(&quot;调整后平均成本&quot;):$tr(&quot;单价&quot;)"><template #default="{row}">{{unitPriceMoney(row.unitPrice,detail)}}</template></el-table-column>
+        <el-table-column v-if="!isTransfer(detail)" :label="detail.docType==='ASSEMBLY'?$tr(&quot;成本金额&quot;):detail.docType==='COST_ADJUST'?$tr(&quot;库存金额变化&quot;):$tr(&quot;金额&quot;)"><template #default="{row}">{{documentMoney(detail.docType==='ASSEMBLY'?row.costAmount:row.amount,detail)}}</template></el-table-column>
+        <el-table-column v-if="!isTransfer(detail)" :label="$tr(&quot;毛利&quot;)"><template #default="{row}"><span v-if="['ASSEMBLY','COST_ADJUST'].includes(detail.docType)">—</span><span v-else :class="{loss:Number(row.profitAmount)<0}">{{money(row.profitAmount)}}</span></template></el-table-column>
+        <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="lineReason" :label="$tr(&quot;调整原因&quot;)" min-width="160"/>
       </el-table>
       <template #footer v-if="detail&&canAct(detail)">
-        <el-button @click="drawer=false">关闭</el-button>
-        <el-button type="danger" v-hasPermi="['jewelry:approval:reject']" @click="act(detail,false,true)">驳回</el-button>
-        <el-button type="success" v-hasPermi="['jewelry:approval:approve']" @click="act(detail,true,true)">{{isAdminStockReview(detail)?'通过并入账':'通过'}}</el-button>
+        <el-button @click="drawer=false">{{ $tr("关闭") }}</el-button>
+        <el-button type="danger" v-hasPermi="['jewelry:approval:reject']" @click="act(detail,false,true)">{{ $tr("驳回") }}</el-button>
+        <el-button type="success" v-hasPermi="['jewelry:approval:approve']" @click="act(detail,true,true)">{{isAdminStockReview(detail)?$tr("通过并入账"):$tr("通过")}}</el-button>
       </template>
     </el-drawer>
 
-    <el-dialog v-model="profitDialog" title="毛利计算明细" width="680px" append-to-body>
+    <el-dialog v-model="profitDialog" :title="$tr(&quot;毛利计算明细&quot;)" width="680px" append-to-body>
       <div v-loading="profitLoading" class="profit-detail">
         <template v-if="profitDetail">
           <div class="profit-heading">
@@ -132,44 +132,44 @@
           />
 
           <div v-if="profitBreakdown.supported" class="formula-substitution">
-            <div class="formula-label">代入本单数据</div>
+            <div class="formula-label">{{ $tr("代入本单数据") }}</div>
             <div class="formula-line">{{ profitBreakdown.substitution }}</div>
           </div>
 
           <el-descriptions v-if="profitBreakdown.supported" :column="2" border class="breakdown-list">
-            <el-descriptions-item label="成交/退款金额">
+            <el-descriptions-item :label="$tr(&quot;成交/退款金额&quot;)">
               ¥ {{ money(profitBreakdown.revenue) }}
             </el-descriptions-item>
-            <el-descriptions-item label="商品采购成本">
+            <el-descriptions-item :label="$tr(&quot;商品采购成本&quot;)">
               ¥ {{ money(profitBreakdown.productCost) }}
             </el-descriptions-item>
-            <el-descriptions-item label="平台扣点">
+            <el-descriptions-item :label="$tr(&quot;平台扣点&quot;)">
               ¥ {{ money(profitBreakdown.platformFee) }}
-              <small>（{{ hasItemRates?'按商品费率':rateText(profitDetail.platformRate) }}）</small>
+              <small>（{{ hasItemRates?$tr('按商品费率'):rateText(profitDetail.platformRate) }}）</small>
             </el-descriptions-item>
-            <el-descriptions-item label="达人佣金">
+            <el-descriptions-item :label="$tr(&quot;达人佣金&quot;)">
               ¥ {{ money(profitBreakdown.commissionFee) }}
-              <small>（{{ hasItemRates?'按商品费率':rateText(profitDetail.commissionRate) }}）</small>
+              <small>（{{ hasItemRates?$tr('按商品费率'):rateText(profitDetail.commissionRate) }}）</small>
             </el-descriptions-item>
-            <el-descriptions-item label="税费">
+            <el-descriptions-item :label="$tr(&quot;税费&quot;)">
               ¥ {{ money(profitBreakdown.taxFee) }}
-              <small>（{{ hasItemRates?'按商品费率':rateText(profitDetail.taxRate) }}）</small>
+              <small>（{{ hasItemRates?$tr('按商品费率'):rateText(profitDetail.taxRate) }}）</small>
             </el-descriptions-item>
-            <el-descriptions-item label="履约费用">
+            <el-descriptions-item :label="$tr(&quot;履约费用&quot;)">
               ¥ {{ money(profitBreakdown.fulfillmentFee) }}
-              <small>（{{ profitDetail.docType==='CUSTOMER_RETURN' ? '物流×2、鉴定' : '包装、物流、鉴定、其他1～3' }}）</small>
+              <small>（{{ profitDetail.docType==='CUSTOMER_RETURN' ? $tr("物流×2、鉴定") : $tr("包装、物流、鉴定、其他1～3") }}）</small>
             </el-descriptions-item>
           </el-descriptions>
 
           <div v-if="profitBreakdown.supported" class="formula-result">
-            <span>系统计算结果</span>
+            <span>{{ $tr("系统计算结果") }}</span>
             <b :class="{loss:Number(profitDetail.totalProfit)<0}">
               ¥ {{ money(profitDetail.totalProfit) }}
             </b>
           </div>
           <el-alert
             v-else
-            title="该单据类型不参与销售毛利计算，当前毛利为系统记账结果。"
+            :title="$tr(&quot;该单据类型不参与销售毛利计算，当前毛利为系统记账结果。&quot;)"
             type="warning"
             :closable="false"
             show-icon
@@ -177,13 +177,14 @@
         </template>
       </div>
       <template #footer>
-        <el-button @click="profitDialog=false">关闭</el-button>
+        <el-button @click="profitDialog=false">{{ $tr("关闭") }}</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 <script setup name="JewelryApproval">
 import { ArrowDown, ArrowUp } from '@element-plus/icons-vue'
+import { translateText } from '@/locales/translate'
 import {listJewelryDocuments,getJewelryDocument,approveJewelryDocument,rejectJewelryDocument} from '@/api/jewelry/erp'
 import useUserStore from '@/store/modules/user'
 const route=useRoute()
@@ -194,7 +195,7 @@ const profitDialog=ref(false),profitLoading=ref(false),profitDetail=ref(null)
 const approvalStatuses=['PENDING','PENDING_FIRST','PENDING_SECOND']
 const query=reactive({pageNum:1,pageSize:10,status:'PENDING'})
 const isTransfer=row=>row?.docType==='TRANSFER_OUT'||(row?.docType==='REVERSAL'&&row?.sourceDocType==='TRANSFER_OUT')
-const typeLabels={TRANSFER_OUT:'仓库调货',PURCHASE_IN:'采购入库',SAMPLE_IN:'样品入库',SALES_OUT:'销售出库',SUPPLIER_RETURN:'供应商退货',CUSTOMER_RETURN:'客户退货',RETURN_INSPECT:'退货质检',STOCK_ADJUST:'库存调整',COST_ADJUST:'库存成本调价',ASSEMBLY:'手工组装',REVERSAL:'红冲单'}
+const typeLabels={TRANSFER_OUT:translateText("仓库调货"),PURCHASE_IN:translateText("采购入库"),SAMPLE_IN:translateText("样品入库"),SALES_OUT:translateText("销售出库"),SUPPLIER_RETURN:translateText("供应商退货"),CUSTOMER_RETURN:translateText("客户退货"),RETURN_INSPECT:translateText("退货质检"),STOCK_ADJUST:translateText("库存调整"),COST_ADJUST:translateText("库存成本调价"),ASSEMBLY:translateText("手工组装"),REVERSAL:translateText("红冲单")}
 const typeLabel=value=>typeLabels[value]||value
 const supplierNames=document=>{
   const recorded=[document?.supplierNameSnapshot,...String(document?.itemSupplierNames||'').split('、'),
@@ -202,9 +203,9 @@ const supplierNames=document=>{
     .map(value=>String(value||'').trim()).filter(Boolean)
   const names=recorded.length?recorded:(document?.items||[]).flatMap(item=>String(item.productSupplierNames||'').split('、'))
     .map(value=>String(value||'').trim()).filter(Boolean)
-  return [...new Set(names)].join('、')||'未记录'
+  return [...new Set(names)].join('、')||translateText("未记录")
 }
-const itemSupplierNames=(item,document)=>item?.supplierNameSnapshot||document?.supplierNameSnapshot||item?.productSupplierNames||'未记录'
+const itemSupplierNames=(item,document)=>item?.supplierNameSnapshot||document?.supplierNameSnapshot||item?.productSupplierNames||translateText('未记录')
 const isDualApproval=row=>['STOCK_ADJUST','COST_ADJUST'].includes(row?.docType)||(row?.docType==='REVERSAL'&&['STOCK_ADJUST','COST_ADJUST'].includes(row?.sourceDocType))
 const isCostAdjustment=row=>row?.docType==='COST_ADJUST'||(row?.docType==='REVERSAL'&&row?.sourceDocType==='COST_ADJUST')
 const isAdministrator=()=>((userStore.roles||[]).some(role=>['admin','jewelry_admin'].includes(role)))
@@ -290,10 +291,10 @@ const profitBreakdown=computed(()=>{
   }
 })
 const profitFormulaTitle=computed(()=>profitDetail.value?.docType==='CUSTOMER_RETURN'
-  ? '客户退货毛利影响 = -退款金额 + 退回商品成本 - 双倍物流费 - 鉴定费'
+  ? translateText("客户退货毛利影响 = -退款金额 + 退回商品成本 - 双倍物流费 - 鉴定费")
   : profitDetail.value?.docType==='SALES_OUT'
-    ? '销售毛利 = 成交金额 - 商品成本 - 履约费用 - 平台扣点 - 达人佣金 - 税费'
-    : '当前单据毛利计算说明')
+    ? translateText("销售毛利 = 成交金额 - 商品成本 - 履约费用 - 平台扣点 - 达人佣金 - 税费")
+    : translateText("当前单据毛利计算说明"))
 async function load(){loading.value=true;try{const r=await listJewelryDocuments(query);rows.value=r.rows||[];total.value=r.total||0}finally{loading.value=false}}
 async function show(row){
   expandedGroups.value=[]
@@ -308,36 +309,36 @@ async function act(row,pass,fromDetail=false){
   if(pass&&isAdminStockReview(row)&&!fromDetail){await show(row);return}
   let comment='',expectedTotalCost,stockAdjustmentCosts
   if(!pass){
-    const result=await proxy.$prompt('请输入驳回原因','驳回单据',{inputValidator:value=>!!value||'原因不能为空'})
+    const result=await proxy.$prompt(translateText("请输入驳回原因"),translateText("驳回单据"),{inputValidator:value=>!!value||translateText("原因不能为空")})
     comment=result.value
   }else{
-    let warning=`确认通过 ${row.docNo}？`
+    let warning=translateText("确认通过 {0}？", [row.docNo])
     if(row.docType==='ASSEMBLY'){
       const current=(await getJewelryDocument(row.documentId)).data
       expectedTotalCost=current.totalCost
-      warning=`当前组装总成本为 ¥${money(expectedTotalCost)}，确认审核通过并入账？`
+      warning=translateText("当前组装总成本为 ¥{0}，确认审核通过并入账？", [money(expectedTotalCost)])
     }else if(isDualApproval(row)){
       warning=row.status==='PENDING_SECOND'
-        ? `确认管理员复核通过 ${row.docNo} 并${isCostAdjustment(row)?'正式修改库存平均成本':'正式调整库存'}？`
-        : `确认审核通过 ${row.docNo} 并转交管理员复核？`
+        ? translateText("确认管理员复核通过 {0} 并{1}？", [row.docNo, isCostAdjustment(row)?translateText("正式修改库存平均成本"):translateText("正式调整库存")])
+        : translateText("确认审核通过 {0} 并转交管理员复核？", [row.docNo])
     }else if(row.riskStatus==='LOSS'){
-      warning=`该单据预计亏损 ¥${money(Math.abs(Number(row.totalProfit||0)))}，确认仍要通过 ${row.docNo}？`
+      warning=translateText("该单据预计亏损 ¥{0}，确认仍要通过 {1}？", [money(Math.abs(Number(row.totalProfit||0))), row.docNo])
     }
     if(isAdminStockReview(row)){
       const current=detail.value?.documentId===row.documentId?detail.value:(await getJewelryDocument(row.documentId)).data
       const gains=(current.items||[]).filter(item=>Number(item.adjustmentQty||0)>0)
       if(gains.some(item=>!Number.isFinite(Number(item.unitCost))||Number(item.unitCost)<=0)){
-        proxy.$modal.msgError('盘盈核定成本必须大于0')
+        proxy.$modal.msgError(translateText("盘盈核定成本必须大于0"))
         return
       }
       stockAdjustmentCosts=gains.map(item=>({itemId:item.itemId,unitCost:item.unitCost}))
-      warning=`确认按当前盘盈核定成本通过 ${row.docNo} 并正式调整库存？`
+      warning=translateText("确认按当前盘盈核定成本通过 {0} 并正式调整库存？", [row.docNo])
     }
-    await proxy.$modal.confirm(warning,row.riskStatus==='LOSS'?'亏损风险确认':'审批确认',{type:row.riskStatus==='LOSS'?'error':'warning'})
+    await proxy.$modal.confirm(warning,row.riskStatus==='LOSS'?translateText("亏损风险确认"):translateText("审批确认"),{type:row.riskStatus==='LOSS'?'error':'warning'})
   }
   if(pass)await approveJewelryDocument(row.documentId,comment,expectedTotalCost,stockAdjustmentCosts)
   else await rejectJewelryDocument(row.documentId,comment)
-  proxy.$modal.msgSuccess(pass&&isDualApproval(row)&&row.status==='PENDING_FIRST'?'已转交管理员复核':'操作成功')
+  proxy.$modal.msgSuccess(pass&&isDualApproval(row)&&row.status==='PENDING_FIRST'?translateText("已转交管理员复核"):translateText("操作成功"))
   if(fromDetail)drawer.value=false
   load()
 }

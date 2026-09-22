@@ -138,7 +138,7 @@
             <el-table-column :label="$t('upload.uploadTime')" prop="createTime" width="170" />
             <el-table-column :label="$t('common.action')" width="150" align="center">
               <template #default="{ row }">
-                <el-button v-if="row.uploadType === '3'" v-hasPermi="['live:upload:add']" link type="primary" icon="Edit" @click="handleCorrectDate(row)">修正日期</el-button>
+                <el-button v-if="row.uploadType === '3'" v-hasPermi="['live:upload:add']" link type="primary" icon="Edit" @click="handleCorrectDate(row)">{{ $tr("修正日期") }}</el-button>
                 <el-button v-hasPermi="['live:upload:remove']" link type="danger" icon="Delete" @click="handleDelete(row)">{{ $t('common.delete') }}</el-button>
               </template>
             </el-table-column>
@@ -156,7 +156,7 @@
               </div>
               <div class="record-footer">
                 <el-tag :type="statusTag(row.aiStatus)">{{ statusLabel(row.aiStatus) }}</el-tag>
-                <el-button v-if="row.uploadType === '3'" v-hasPermi="['live:upload:add']" link type="primary" icon="Edit" @click="handleCorrectDate(row)">修正日期</el-button>
+                <el-button v-if="row.uploadType === '3'" v-hasPermi="['live:upload:add']" link type="primary" icon="Edit" @click="handleCorrectDate(row)">{{ $tr("修正日期") }}</el-button>
                 <el-button v-hasPermi="['live:upload:remove']" link type="danger" icon="Delete" @click="handleDelete(row)">{{ $t('common.delete') }}</el-button>
               </div>
             </div>
@@ -170,6 +170,8 @@
 </template>
 
 <script setup name="LiveUpload">
+import { translateText } from '@/locales/translate'
+
 import { listUpload, dailySummary, uploadImages, submitReport, correctReportDate, delUpload, listStreamers } from '@/api/live/upload'
 import { useI18n } from 'vue-i18n'
 
@@ -204,9 +206,9 @@ const query = reactive({
 })
 
 const typeOptions = [
-  { value: '1', label: '打赏榜截图' },
-  { value: '2', label: '聊天截图' },
-  { value: '3', label: '汇报文本' },
+  { value: '1', label: translateText("打赏榜截图") },
+  { value: '2', label: translateText("聊天截图") },
+  { value: '3', label: translateText("汇报文本") },
   { value: '4', label: t('upload.followScreenshot') }
 ]
 
@@ -214,20 +216,20 @@ function typeLabel(v) {
   return (typeOptions.find(t => t.value === v) || {}).label || v
 }
 function statusLabel(v) {
-  return { '0': '待识别', '1': '已识别', '2': '已校正', '3': '识别失败' }[v] || v
+  return { '0': translateText("待识别"), '1': translateText("已识别"), '2': translateText("已校正"), '3': translateText("识别失败") }[v] || v
 }
 function statusTag(v) {
   return { '0': 'info', '1': 'warning', '2': 'success', '3': 'danger' }[v] || 'info'
 }
 
 async function handleSubmit() {
-  if (!form.bizDate) return proxy.$modal.msgError('请选择业务日期')
-  if (!form.streamerId) return proxy.$modal.msgError('请选择主播')
+  if (!form.bizDate) return proxy.$modal.msgError(translateText("请选择业务日期"))
+  if (!form.streamerId) return proxy.$modal.msgError(translateText("请选择主播"))
   const hasGift = giftFiles.value.length > 0
   const hasChat = chatFiles.value.length > 0
   const hasFollow = followFiles.value.length > 0
   const hasReport = form.rawText && form.rawText.trim() !== ''
-  if (!hasGift && !hasChat && !hasFollow && !hasReport) return proxy.$modal.msgError('请至少填写一项内容')
+  if (!hasGift && !hasChat && !hasFollow && !hasReport) return proxy.$modal.msgError(translateText("请至少填写一项内容"))
 
   submitting.value = true
   try {
@@ -247,7 +249,7 @@ async function handleSubmit() {
       await submitReport({ bizDate: form.bizDate, streamerId: form.streamerId, rawText: form.rawText.trim() })
       form.rawText = ''
     }
-    proxy.$modal.msgSuccess('提交成功')
+    proxy.$modal.msgSuccess(translateText("提交成功"))
     handleQuery()
   } finally {
     submitting.value = false
@@ -307,22 +309,22 @@ function resetQuery() {
 }
 
 function handleDelete(row) {
-  proxy.$modal.confirm('确认删除这条上传记录吗?文件将一并删除').then(() => delUpload(row.uploadId)).then(() => {
-    proxy.$modal.msgSuccess('删除成功')
+  proxy.$modal.confirm(translateText("确认删除这条上传记录吗?文件将一并删除")).then(() => delUpload(row.uploadId)).then(() => {
+    proxy.$modal.msgSuccess(translateText("删除成功"))
     handleQuery()
   }).catch(() => {})
 }
 
 function handleCorrectDate(row) {
-  proxy.$prompt('请输入正确的业务日期', '修正汇报日期', {
+  proxy.$prompt(translateText("请输入正确的业务日期"), translateText("修正汇报日期"), {
     inputValue: row.bizDate,
     inputPlaceholder: 'YYYY-MM-DD',
     inputPattern: /^\d{4}-\d{2}-\d{2}$/,
-    inputErrorMessage: '请输入 YYYY-MM-DD 格式的日期',
-    confirmButtonText: '确认修正',
-    cancelButtonText: '取消'
+    inputErrorMessage: translateText("请输入 YYYY-MM-DD 格式的日期"),
+    confirmButtonText: translateText("确认修正"),
+    cancelButtonText: translateText("取消")
   }).then(({ value }) => correctReportDate(row.uploadId, value)).then(() => {
-    proxy.$modal.msgSuccess('汇报日期已修正')
+    proxy.$modal.msgSuccess(translateText("汇报日期已修正"))
     handleQuery()
   }).catch(() => {})
 }

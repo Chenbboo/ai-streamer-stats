@@ -14,6 +14,7 @@
 </template>
 
 <script setup>
+import { translateText } from '@/locales/translate'
 import logo from '@/assets/logo/logo.png'
 import useSettingsStore from '@/store/modules/settings'
 import variables from '@/assets/styles/variables.module.scss'
@@ -25,7 +26,7 @@ defineProps({
   }
 })
 
-const title = import.meta.env.VITE_APP_TITLE
+const title = computed(() => translateText(import.meta.env.VITE_APP_TITLE))
 const settingsStore = useSettingsStore()
 const sideTheme = computed(() => settingsStore.sideTheme)
 

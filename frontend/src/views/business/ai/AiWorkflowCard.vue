@@ -2,7 +2,7 @@
   <article v-if="visible" class="workflow-card">
     <header>
       <div>
-        <el-tag size="small" type="success" effect="plain">AI 已记住</el-tag>
+        <el-tag size="small" type="success" effect="plain">{{ $tr("AI 已记住") }}</el-tag>
         <h3>{{ title }}</h3>
       </div>
       <span>{{ stepLabel }}</span>
@@ -13,20 +13,22 @@
       </div>
     </div>
     <div v-if="workflow.missingFields?.length" class="missing-fields">
-      <small>接下来还需要</small>
+      <small>{{ $tr("接下来还需要") }}</small>
       <div><el-tag v-for="field in workflow.missingFields" :key="field" size="small" type="warning" effect="plain">{{ field }}</el-tag></div>
     </div>
-    <p>你可以像平时说话一样继续补充，不用重复前面已经说过的内容。</p>
+    <p>{{ $tr("你可以像平时说话一样继续补充，不用重复前面已经说过的内容。") }}</p>
   </article>
 </template>
 
 <script setup>
+import { translateText } from '@/locales/translate'
+
 const props=defineProps({workflow:{type:Object,default:()=>({})}})
 const visible=computed(()=>props.workflow?.workflowCode==='CREATE_PROJECT'&&['COLLECTING','READY','WAITING_CONFIRMATION'].includes(props.workflow?.status))
-const title=computed(()=>props.workflow?.status==='WAITING_CONFIRMATION'?'立项资料已经收齐':'正在创建项目')
-const stepLabel=computed(()=>({BASIC_INFO:'第 1 步：基本信息',GOAL_AND_PERIOD:'第 2 步：目标与周期',ACCOUNTING_AND_BUDGET:'第 3 步：核算与预算',WAITING_CONFIRMATION:'等待老板确认'})[props.workflow?.currentStep]||'继续补充资料')
-const fieldLabels={projectName:'项目名称',ownerName:'负责人',companyName:'归属公司',objective:'项目目标',planStartDate:'开始日期',planEndDate:'结束日期',accountingMode:'核算方式',budgetLimit:'预算上限',baseCurrency:'币种'}
-const modeLabels={PROFIT:'利润项目',COST:'成本项目',VALUE:'价值项目',HYBRID:'混合核算'}
+const title=computed(()=>props.workflow?.status==='WAITING_CONFIRMATION'?translateText("立项资料已经收齐"):translateText("正在创建项目"))
+const stepLabel=computed(()=>({BASIC_INFO:translateText("第 1 步：基本信息"),GOAL_AND_PERIOD:translateText("第 2 步：目标与周期"),ACCOUNTING_AND_BUDGET:translateText("第 3 步：核算与预算"),WAITING_CONFIRMATION:translateText("等待老板确认")})[props.workflow?.currentStep]||translateText("继续补充资料"))
+const fieldLabels={projectName:translateText("项目名称"),ownerName:translateText("负责人"),companyName:translateText("归属公司"),objective:translateText("项目目标"),planStartDate:translateText("开始日期"),planEndDate:translateText("结束日期"),accountingMode:translateText("核算方式"),budgetLimit:translateText("预算上限"),baseCurrency:translateText("币种")}
+const modeLabels={PROFIT:translateText("利润项目"),COST:translateText("成本项目"),VALUE:translateText("价值项目"),HYBRID:translateText("混合核算")}
 const collected=computed(()=>Object.entries(props.workflow?.draft||{}).filter(([key,value])=>fieldLabels[key]&&value!==null&&value!==undefined&&String(value).trim()!=='').map(([key,value])=>({label:fieldLabels[key],value:key==='accountingMode'?(modeLabels[value]||value):value})))
 </script>
 

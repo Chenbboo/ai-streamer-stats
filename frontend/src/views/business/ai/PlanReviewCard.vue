@@ -1,96 +1,98 @@
 <template>
   <section class="plan-card" :class="{compact}">
     <header class="plan-head">
-      <div><el-tag size="small" type="success" effect="plain">计划已提交</el-tag><h3>{{ project.projectName }}</h3><p>{{ project.companyName || '未设置归属公司' }} · 负责人 {{ project.mainOwnerName || '待设置' }}</p></div>
-      <div class="plan-status"><b>计划审核卡</b><span>{{ project.planStartDate || '—' }} 至 {{ project.planEndDate || '—' }}</span></div>
+      <div><el-tag size="small" type="success" effect="plain">{{ $tr("计划已提交") }}</el-tag><h3>{{ project.projectName }}</h3><p>{{ $tr("{0} · 负责人 {1}", [project.companyName || $tr("未设置归属公司"), project.mainOwnerName || $tr("待设置")]) }}</p></div>
+      <div class="plan-status"><b>{{ $tr("计划审核卡") }}</b><span>{{ $tr("{0} 至 {1}", [project.planStartDate || '—', project.planEndDate || '—']) }}</span></div>
     </header>
 
     <div class="plan-overview">
-      <div><small>持续工作</small><b>{{ review.routineCount || 0 }} 项</b></div>
-      <div><small>一次性任务</small><b>{{ review.taskCount || 0 }} 项</b></div>
-      <div><small>参项人员</small><b>{{ review.memberCount || 0 }} 人</b></div>
-      <div><small>项目 KPI</small><b>{{ review.kpiCount || 0 }} 项</b></div>
-      <div><small>投入计划</small><b>{{ review.allocationCount || 0 }} 人</b></div>
+      <div><small>{{ $tr("持续工作") }}</small><b>{{ $tr("{0} 项", [review.routineCount || 0]) }}</b></div>
+      <div><small>{{ $tr("一次性任务") }}</small><b>{{ $tr("{0} 项", [review.taskCount || 0]) }}</b></div>
+      <div><small>{{ $tr("参项人员") }}</small><b>{{ $tr("{0} 人", [review.memberCount || 0]) }}</b></div>
+      <div><small>{{ $tr("项目 KPI") }}</small><b>{{ $tr("{0} 项", [review.kpiCount || 0]) }}</b></div>
+      <div><small>{{ $tr("投入计划") }}</small><b>{{ $tr("{0} 人", [review.allocationCount || 0]) }}</b></div>
     </div>
 
-    <div class="plan-objective"><small>项目目标</small><p>{{ project.objective || '负责人尚未填写项目目标' }}</p></div>
+    <div class="plan-objective"><small>{{ $tr("项目目标") }}</small><p>{{ project.objective || $tr("负责人尚未填写项目目标") }}</p></div>
 
     <div class="plan-sections">
       <section>
-        <div class="section-title"><h4>持续工作</h4><span>每天/每周持续执行</span></div>
+        <div class="section-title"><h4>{{ $tr("持续工作") }}</h4><span>{{ $tr("每天/每周持续执行") }}</span></div>
         <div v-if="review.routines?.length" class="detail-list">
           <div v-for="item in review.routines" :key="item.routineId" class="detail-row">
-            <div><b>{{ item.routineName }}</b><small>{{ item.assigneeName || '未指定执行人' }} · {{ frequencyLabel[item.frequency] || item.frequency || '未设频率' }}</small></div>
+            <div><b>{{ item.routineName }}</b><small>{{ item.assigneeName || $tr("未指定执行人") }} · {{ frequencyLabel[item.frequency] || item.frequency || $tr("未设频率") }}</small></div>
             <strong>{{ targetText(item) }}</strong>
           </div>
         </div>
-        <p v-else class="empty">未安排持续工作</p>
+        <p v-else class="empty">{{ $tr("未安排持续工作") }}</p>
       </section>
 
       <section>
-        <div class="section-title"><h4>一次性任务</h4><span>有明确完成节点</span></div>
+        <div class="section-title"><h4>{{ $tr("一次性任务") }}</h4><span>{{ $tr("有明确完成节点") }}</span></div>
         <div v-if="review.tasks?.length" class="detail-list">
           <div v-for="item in review.tasks" :key="item.taskId" class="detail-row">
-            <div><b>{{ item.taskName }}</b><small>{{ item.assigneeName || '未指定执行人' }} · 截止 {{ item.dueDate || '未设置' }}</small></div>
-            <el-tag size="small" effect="plain">{{ priorityLabel[item.priority] || item.priority || '普通' }}</el-tag>
+            <div><b>{{ item.taskName }}</b><small>{{ $tr("{0} · 截止 {1}", [item.assigneeName || $tr("未指定执行人"), item.dueDate || $tr("未设置")]) }}</small></div>
+            <el-tag size="small" effect="plain">{{ priorityLabel[item.priority] || item.priority || $tr("普通") }}</el-tag>
           </div>
         </div>
-        <p v-else class="empty">没有一次性任务</p>
+        <p v-else class="empty">{{ $tr("没有一次性任务") }}</p>
       </section>
 
       <section>
-        <div class="section-title"><h4>参项人员</h4><span>按参与期间的工作日自动计算人员成本</span></div>
+        <div class="section-title"><h4>{{ $tr("参项人员") }}</h4><span>{{ $tr("按参与期间的工作日自动计算人员成本") }}</span></div>
         <div v-if="review.members?.length" class="detail-list">
           <div v-for="item in review.members" :key="item.userId" class="detail-row">
-            <div><b>{{ item.userName || item.userNameSnapshot }}</b><small>{{ roleLabel[item.memberRole] || item.memberRole || '成员' }}</small></div>
-            <span>{{ item.joinedDate || '跟随项目日期' }}</span>
+            <div><b>{{ item.userName || item.userNameSnapshot }}</b><small>{{ roleLabel[item.memberRole] || item.memberRole || $tr("成员") }}</small></div>
+            <span>{{ item.joinedDate || $tr("跟随项目日期") }}</span>
           </div>
         </div>
-        <p v-else class="empty">尚未添加参项人员</p>
+        <p v-else class="empty">{{ $tr("尚未添加参项人员") }}</p>
       </section>
 
       <section>
-        <div class="section-title"><h4>项目 KPI</h4><span>负责人自主启动后用来判断结果</span></div>
+        <div class="section-title"><h4>{{ $tr("项目 KPI") }}</h4><span>{{ $tr("负责人自主启动后用来判断结果") }}</span></div>
         <div v-if="review.kpis?.length" class="detail-list">
           <div v-for="item in review.kpis" :key="item.kpiId" class="detail-row">
-            <div><b>{{ item.kpiName }}</b><small>{{ item.ownerName || '未指定负责人' }} · {{ periodLabel[item.periodType] || item.periodType || '项目周期' }}</small></div>
-            <strong>{{ valueUnit(item.targetValue,item.unit) }}</strong>
+            <div><b>{{ item.kpiName }}</b><small>{{ item.ownerName || $tr("未指定负责人") }} · {{ periodLabel[item.periodType] || item.periodType || $tr("项目周期") }}</small></div>
+            <strong>{{ valueUnit(item.targetValue,$tr(item.unit)) }}</strong>
           </div>
         </div>
-        <p v-else class="empty">尚未设置项目 KPI</p>
+        <p v-else class="empty">{{ $tr("尚未设置项目 KPI") }}</p>
       </section>
     </div>
 
     <details v-if="review.milestones?.length || review.risks?.length" class="extra-plan">
-      <summary>查看项目节点与风险（{{ (review.milestones?.length || 0) + (review.risks?.length || 0) }} 项）</summary>
-      <div v-for="item in review.milestones" :key="`m-${item.milestoneId}`" class="extra-row"><b>{{ item.milestoneName }}</b><span>计划 {{ item.planDate || '未设置日期' }}</span></div>
-      <div v-for="item in review.risks" :key="`r-${item.riskId}`" class="extra-row"><b>{{ item.riskTitle }}</b><span>{{ severityLabel[item.severity] || item.severity }} · {{ item.status==='OPEN'?'未关闭':'已处理' }}</span></div>
+      <summary>{{ $tr("查看项目节点与风险（{0} 项）", [(review.milestones?.length || 0) + (review.risks?.length || 0)]) }}</summary>
+      <div v-for="item in review.milestones" :key="`m-${item.milestoneId}`" class="extra-row"><b>{{ item.milestoneName }}</b><span>{{ $tr("计划 {0}", [item.planDate || $tr("未设置日期")]) }}</span></div>
+      <div v-for="item in review.risks" :key="`r-${item.riskId}`" class="extra-row"><b>{{ item.riskTitle }}</b><span>{{ severityLabel[item.severity] || item.severity }} · {{ item.status==='OPEN'?$tr("未关闭"):$tr("已处理") }}</span></div>
     </details>
 
     <div class="review-result" :class="review.warnings?.length?'has-warning':'is-ready'">
-      <div><b>{{ review.warnings?.length ? `批准前有 ${review.warnings.length} 项需要关注` : '计划要素检查通过' }}</b><span>{{ review.recommendation }}</span></div>
+      <div><b>{{ review.warnings?.length ? $tr("批准前有 {0} 项需要关注", [review.warnings.length]) : $tr("计划要素检查通过") }}</b><span>{{ review.recommendation }}</span></div>
       <ul v-if="review.warnings?.length"><li v-for="warning in review.warnings" :key="warning">{{ warning }}</li></ul>
     </div>
     <div v-if="!compact&&showActions" class="review-actions">
-      <el-button :disabled="busy" @click="emit('decision',{decision:'RETURN',project})">退回调整</el-button>
-      <el-button type="primary" :loading="busy" @click="emit('decision',{decision:'APPROVE',project})">批准并启动</el-button>
+      <el-button :disabled="busy" @click="emit('decision',{decision:'RETURN',project})">{{ $tr("退回调整") }}</el-button>
+      <el-button type="primary" :loading="busy" @click="emit('decision',{decision:'APPROVE',project})">{{ $tr("批准并启动") }}</el-button>
     </div>
   </section>
 </template>
 
 <script setup>
+import { translateText } from '@/locales/translate'
+
 const props=defineProps({review:{type:Object,required:true},compact:{type:Boolean,default:false},busy:{type:Boolean,default:false},showActions:{type:Boolean,default:false}})
 const emit=defineEmits(['decision'])
 const project=computed(()=>props.review.project||{})
-const frequencyLabel={DAILY:'每日',WEEKLY:'每周',MONTHLY:'每月'}
-const priorityLabel={HIGH:'高优先级',MEDIUM:'中优先级',LOW:'低优先级'}
-const roleLabel={OWNER:'主负责人',DEPUTY:'副负责人',MEMBER:'成员',OBSERVER:'观察者'}
-const periodLabel={DAILY:'每日',WEEKLY:'每周',MONTHLY:'每月',QUARTERLY:'每季度',PROJECT:'项目周期'}
-const severityLabel={CRITICAL:'严重风险',HIGH:'高风险',MEDIUM:'中风险',LOW:'低风险'}
-const allocationModeLabel={PERCENTAGE:'计划投入',HOURS:'计划工时',ATTENDANCE:'出勤天数',FIXED_DAILY:'固定日金额',PER_TASK:'任务投入'}
-const valueUnit=(value,unit)=>value===null||value===undefined?'未设目标':`${Number(value).toLocaleString('zh-CN')} ${unit||''}`.trim()
-const targetText=item=>item.targetValue===null||item.targetValue===undefined?'未设目标':`${valueUnit(item.targetValue,item.unit)} / ${frequencyLabel[item.frequency]||'周期'}`
-function allocationText(userId){const item=(props.review.staffAllocations||[]).find(row=>String(row.userId)===String(userId));if(!item)return '尚未设置投入计划';const suffix=item.allocationMode==='PERCENTAGE'?'%':'';return `${allocationModeLabel[item.allocationMode]||item.allocationMode} ${Number(item.allocationValue||0).toLocaleString('zh-CN')}${suffix}`}
+const frequencyLabel={DAILY:translateText("每日"),WEEKLY:translateText("每周"),MONTHLY:translateText("每月")}
+const priorityLabel={HIGH:translateText("高优先级"),MEDIUM:translateText("中优先级"),LOW:translateText("低优先级")}
+const roleLabel={OWNER:translateText("主负责人"),DEPUTY:translateText("副负责人"),MEMBER:translateText("成员"),OBSERVER:translateText("观察者")}
+const periodLabel={DAILY:translateText("每日"),WEEKLY:translateText("每周"),MONTHLY:translateText("每月"),QUARTERLY:translateText("每季度"),PROJECT:translateText("项目周期")}
+const severityLabel={CRITICAL:translateText("严重风险"),HIGH:translateText("高风险"),MEDIUM:translateText("中风险"),LOW:translateText("低风险")}
+const allocationModeLabel={PERCENTAGE:translateText("计划投入"),HOURS:translateText("计划工时"),ATTENDANCE:translateText("出勤天数"),FIXED_DAILY:translateText("固定日金额"),PER_TASK:translateText("任务投入")}
+const valueUnit=(value,unit)=>value===null||value===undefined?translateText("未设目标"):`${Number(value).toLocaleString('zh-CN')} ${translateText(unit||'')}`.trim()
+const targetText=item=>item.targetValue===null||item.targetValue===undefined?translateText("未设目标"):`${valueUnit(item.targetValue,translateText(item.unit))} / ${frequencyLabel[item.frequency]||translateText("周期")}`
+function allocationText(userId){const item=(props.review.staffAllocations||[]).find(row=>String(row.userId)===String(userId));if(!item)return translateText("尚未设置投入计划");const suffix=item.allocationMode==='PERCENTAGE'?'%':'';return `${allocationModeLabel[item.allocationMode]||item.allocationMode} ${Number(item.allocationValue||0).toLocaleString('zh-CN')}${suffix}`}
 </script>
 
 <style scoped>

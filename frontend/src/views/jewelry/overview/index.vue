@@ -1,8 +1,8 @@
 <template>
   <div class="app-container jewelry-page">
     <div class="page-title">
-      <div><h2>珠宝ERP概览</h2><p>库存、审批与本月经营数据</p></div>
-      <el-button icon="Refresh" :loading="loading" @click="load">刷新</el-button>
+      <div><h2>{{ $tr("珠宝ERP概览") }}</h2><p>{{ $tr("库存、审批与本月经营数据") }}</p></div>
+      <el-button icon="Refresh" :loading="loading" @click="load">{{ $tr("刷新") }}</el-button>
     </div>
     <div class="metrics">
       <div v-for="item in metrics" :key="item.key" class="metric" :class="`metric--${item.tone}`">
@@ -10,11 +10,11 @@
       </div>
     </div>
     <section class="todo-section">
-      <h3>待处理事项</h3>
+      <h3>{{ $tr("待处理事项") }}</h3>
       <div class="notice-list">
         <button v-for="item in notices" :key="item.key" type="button" class="notice-item"
           :class="{ 'notice-item--active': Number(data[item.key] || 0) > 0 }"
-          :title="item.description || `查看${item.name}`" @click="goNotice(item)">
+          :title="item.description || $tr(&quot;查看{0}&quot;, [item.name])" @click="goNotice(item)">
           <span class="notice-icon"><el-icon><component :is="item.icon" /></el-icon></span>
           <span class="notice-copy"><b>{{ data[item.key] || 0 }}</b><small>{{ item.label }}</small></span>
           <el-icon class="notice-arrow"><ArrowRight /></el-icon>
@@ -24,6 +24,8 @@
   </div>
 </template>
 <script setup name="JewelryOverview">
+import { translateText } from '@/locales/translate'
+
 import { getJewelryDashboard } from '@/api/jewelry/erp'
 import useUserStore from '@/store/modules/user'
 import { ArrowRight, Clock, DocumentChecked, Warning } from '@element-plus/icons-vue'
@@ -33,18 +35,18 @@ const router = useRouter()
 const userStore = useUserStore()
 const canViewFinance = computed(() => userStore.roles.some(role => ['admin', 'jewelry_admin', 'jewelry_reviewer'].includes(role)))
 const allMetrics = [
-  { key: 'stockAmount', label: '库存总资产', money: true, tone: 'teal' },
-  { key: 'availableQty', label: '可用库存', tone: 'blue' },
-  { key: 'inspectionQty', label: '售后待检', tone: 'amber' },
-  { key: 'monthPurchase', label: '本月采购额', money: true, tone: 'violet' },
-  { key: 'monthSales', label: '本月销售额', money: true, tone: 'cyan' },
-  { key: 'monthProfit', label: '本月销售毛利', money: true, tone: 'rose' }
+  { key: 'stockAmount', label: translateText("库存总资产"), money: true, tone: 'teal' },
+  { key: 'availableQty', label: translateText("可用库存"), tone: 'blue' },
+  { key: 'inspectionQty', label: translateText("售后待检"), tone: 'amber' },
+  { key: 'monthPurchase', label: translateText("本月采购额"), money: true, tone: 'violet' },
+  { key: 'monthSales', label: translateText("本月销售额"), money: true, tone: 'cyan' },
+  { key: 'monthProfit', label: translateText("本月销售毛利"), money: true, tone: 'rose' }
 ]
 const notices = [
-  { key: 'pendingFirstCount', label: '张单据待审核', name: '待审核单据', icon: DocumentChecked, path: '/jewelry/approval', query: { status: 'PENDING' } },
-  { key: 'quantityWarningCount', label: '个商品库存不足', name: '库存不足商品', icon: Warning, path: '/jewelry/stock', query: { warningOnly: 'true', warningType: 'quantity' } },
-  { key: 'ageWarningCount', label: '个商品库龄超期', name: '库龄超期商品', icon: Clock, path: '/jewelry/stock', query: { warningOnly: 'true', warningType: 'age' } },
-  { key: 'supplierReturnWarningCount', label: '个成品退供不足7天', name: '退供不足7天的成品', description: '仅统计有可售库存的成品，距供应商退货期限不足7天（含今天到期和已超期，不含剩余7天）', icon: Clock, path: '/jewelry/stock', query: { warningOnly: 'true', warningType: 'supplierReturn' } }
+  { key: 'pendingFirstCount', label: translateText("张单据待审核"), name: translateText("待审核单据"), icon: DocumentChecked, path: '/jewelry/approval', query: { status: 'PENDING' } },
+  { key: 'quantityWarningCount', label: translateText("个商品库存不足"), name: translateText("库存不足商品"), icon: Warning, path: '/jewelry/stock', query: { warningOnly: 'true', warningType: 'quantity' } },
+  { key: 'ageWarningCount', label: translateText("个商品库龄超期"), name: translateText("库龄超期商品"), icon: Clock, path: '/jewelry/stock', query: { warningOnly: 'true', warningType: 'age' } },
+  { key: 'supplierReturnWarningCount', label: translateText("个成品退供不足7天"), name: translateText("退供不足7天的成品"), description: translateText("仅统计有可售库存的成品，距供应商退货期限不足7天（含今天到期和已超期，不含剩余7天）"), icon: Clock, path: '/jewelry/stock', query: { warningOnly: 'true', warningType: 'supplierReturn' } }
 ]
 const metrics = computed(() => canViewFinance.value ? allMetrics : allMetrics.filter(item => !item.money))
 const format = (v, money) => money ? `¥ ${Number(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : Number(v || 0).toLocaleString()

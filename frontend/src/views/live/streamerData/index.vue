@@ -3,13 +3,13 @@
     <header class="page-head">
       <div>
         <div class="eyebrow">STREAMER DAILY REPORT</div>
-        <h1>主播数据列表</h1>
-        <p>按日期查看主播每日完成情况与月度累计数据</p>
+        <h1>{{ $tr("主播数据列表") }}</h1>
+        <p>{{ $tr("按日期查看主播每日完成情况与月度累计数据") }}</p>
       </div>
       <div class="head-actions">
         <el-radio-group v-model="viewMode" @change="loadData">
-          <el-radio-button value="daily">每日明细</el-radio-button>
-          <el-radio-button value="range">区间汇总</el-radio-button>
+          <el-radio-button value="daily">{{ $tr("每日明细") }}</el-radio-button>
+          <el-radio-button value="range">{{ $tr("区间汇总") }}</el-radio-button>
         </el-radio-group>
         <el-date-picker
           v-if="viewMode === 'daily'"
@@ -18,7 +18,7 @@
           value-format="YYYY-MM"
           :clearable="false"
           :disabled-date="disableFutureMonth"
-          aria-label="选择月份"
+          :aria-label="$tr(&quot;选择月份&quot;)"
           @change="loadData"
         />
         <el-date-picker
@@ -27,62 +27,62 @@
           class="range-picker"
           type="daterange"
           value-format="YYYY-MM-DD"
-          range-separator="至"
-          start-placeholder="开始日期"
-          end-placeholder="结束日期"
+          :range-separator="$tr(&quot;至&quot;)"
+          :start-placeholder="$tr(&quot;开始日期&quot;)"
+          :end-placeholder="$tr(&quot;结束日期&quot;)"
           :clearable="false"
           :disabled-date="disableFutureMonth"
           @change="loadData"
         />
-        <el-select v-model="selectedStreamer" clearable filterable placeholder="全部主播" @change="loadData">
+        <el-select v-model="selectedStreamer" clearable filterable :placeholder="$tr(&quot;全部主播&quot;)" @change="loadData">
           <el-option v-for="item in streamers" :key="item.streamerId" :label="item.stageName" :value="item.streamerId" />
         </el-select>
-        <el-button icon="Refresh" :loading="loading" @click="loadData">刷新</el-button>
+        <el-button icon="Refresh" :loading="loading" @click="loadData">{{ $tr("刷新") }}</el-button>
         <el-button :icon="compact ? 'Expand' : 'Fold'" @click="compact = !compact">
-          {{ compact ? '舒适显示' : '紧凑显示' }}
+          {{ compact ? $tr("舒适显示") : $tr("紧凑显示") }}
         </el-button>
       </div>
     </header>
 
     <div class="summary-band">
-      <span v-if="viewMode === 'daily'"><b>{{ dayGroups.length }}</b> 个日期</span>
-      <span v-else><b>{{ rangeDays }}</b> 天区间</span>
-      <span><b>{{ streamerCount }}</b> 位主播</span>
-      <span><b>5</b> 类指标</span>
+      <span v-if="viewMode === 'daily'"><b>{{ dayGroups.length }}</b>{{ $tr(" 个日期") }}</span>
+      <span v-else><b>{{ rangeDays }}</b>{{ $tr(" 天区间") }}</span>
+      <span><b>{{ streamerCount }}</b>{{ $tr(" 位主播") }}</span>
+      <span><b>5</b>{{ $tr(" 类指标") }}</span>
       <div class="legend">
-        <span><i class="legend-dot good" />已完成</span>
-        <span><i class="legend-dot warn" />接近目标</span>
-        <span><i class="legend-dot bad" />未完成</span>
-        <span><i class="legend-dot care" />需维护</span>
+        <span><i class="legend-dot good" />{{ $tr("已完成") }}</span>
+        <span><i class="legend-dot warn" />{{ $tr("接近目标") }}</span>
+        <span><i class="legend-dot bad" />{{ $tr("未完成") }}</span>
+        <span><i class="legend-dot care" />{{ $tr("需维护") }}</span>
       </div>
     </div>
 
-    <el-empty v-if="!loading && !displayRows.length" description="当前范围暂无数据" />
+    <el-empty v-if="!loading && !displayRows.length" :description="$tr(&quot;当前范围暂无数据&quot;)" />
 
     <main v-loading="loading" :class="['daily-sections', { compact }]">
       <section v-if="viewMode === 'range' && rangeRows.length" class="day-section range-section">
         <div class="date-title">
           <strong>{{ rangeLabel }}</strong>
-          <span>区间汇总</span>
+          <span>{{ $tr("区间汇总") }}</span>
         </div>
         <div class="table-scroll">
           <table class="range-table">
             <thead>
               <tr>
                 <th class="range-label">{{ rangeLabel }}</th>
-                <th colspan="5" class="group gift">钻石</th>
-                <th colspan="4" class="group fans">新增粉丝</th>
-                <th colspan="4" class="group chat">新增粉丝互动</th>
-                <th colspan="3" class="group maintain">粉丝维护（送礼 ≥ 1000钻）</th>
-                <th colspan="2" class="group tip">新增粉丝送礼</th>
+                <th colspan="5" class="group gift">{{ $tr("钻石") }}</th>
+                <th colspan="4" class="group fans">{{ $tr("新增粉丝") }}</th>
+                <th colspan="4" class="group chat">{{ $tr("新增粉丝互动") }}</th>
+                <th colspan="3" class="group maintain">{{ $tr("粉丝维护（送礼 ≥ 1000钻）") }}</th>
+                <th colspan="2" class="group tip">{{ $tr("新增粉丝送礼") }}</th>
               </tr>
               <tr>
-                <th class="sticky-col streamer-head">主播</th>
-                <th>区间收礼</th><th>月度累计钻石</th><th>区间指标完成</th><th>月度KPI完成率</th><th>预计月底完成</th>
-                <th>区间新增粉丝</th><th>月累计新增粉丝</th><th>区间指标完成</th><th>月度KPI完成率</th>
-                <th>区间新增互动人数</th><th>月累计新增粉丝互动</th><th>区间指标完成</th><th>月度KPI完成率</th>
-                <th>送钻≥1000</th><th>有打赏无互动</th><th>有打赏有互动</th>
-                <th>区间新增粉丝送礼</th><th>新增粉丝月度打赏</th>
+                <th class="sticky-col streamer-head">{{ $tr("主播") }}</th>
+                <th>{{ $tr("区间收礼") }}</th><th>{{ $tr("月度累计钻石") }}</th><th>{{ $tr("区间指标完成") }}</th><th>{{ $tr("月度KPI完成率") }}</th><th>{{ $tr("预计月底完成") }}</th>
+                <th>{{ $tr("区间新增粉丝") }}</th><th>{{ $tr("月累计新增粉丝") }}</th><th>{{ $tr("区间指标完成") }}</th><th>{{ $tr("月度KPI完成率") }}</th>
+                <th>{{ $tr("区间新增互动人数") }}</th><th>{{ $tr("月累计新增粉丝互动") }}</th><th>{{ $tr("区间指标完成") }}</th><th>{{ $tr("月度KPI完成率") }}</th>
+                <th>{{ $tr("送钻≥1000") }}</th><th>{{ $tr("有打赏无互动") }}</th><th>{{ $tr("有打赏有互动") }}</th>
+                <th>{{ $tr("区间新增粉丝送礼") }}</th><th>{{ $tr("新增粉丝月度打赏") }}</th>
               </tr>
             </thead>
             <tbody>
@@ -111,7 +111,7 @@
                 <td>{{ number(row.newTipMonthlyAmount) }}</td>
               </tr>
               <tr class="total-row">
-                <th class="sticky-col streamer-name">合计</th>
+                <th class="sticky-col streamer-name">{{ $tr("合计") }}</th>
                 <td>{{ total(rangeRows, 'weeklyXu') }}</td>
                 <td>{{ total(rangeRows, 'monthlyXu') }}</td>
                 <td></td><td></td><td></td>
@@ -142,19 +142,19 @@
           <table>
             <thead>
               <tr>
-                <th rowspan="2" class="sticky-col streamer-head">主播</th>
-                <th colspan="6" class="group gift">钻石</th>
-                <th colspan="5" class="group fans">新增粉丝</th>
-                <th colspan="5" class="group chat">新增粉丝互动</th>
-                <th colspan="5" class="group maintain">粉丝维护（送礼 ≥ 1000钻）</th>
-                <th colspan="2" class="group tip">新增粉丝送礼</th>
+                <th rowspan="2" class="sticky-col streamer-head">{{ $tr("主播") }}</th>
+                <th colspan="6" class="group gift">{{ $tr("钻石") }}</th>
+                <th colspan="5" class="group fans">{{ $tr("新增粉丝") }}</th>
+                <th colspan="5" class="group chat">{{ $tr("新增粉丝互动") }}</th>
+                <th colspan="5" class="group maintain">{{ $tr("粉丝维护（送礼 ≥ 1000钻）") }}</th>
+                <th colspan="2" class="group tip">{{ $tr("新增粉丝送礼") }}</th>
               </tr>
               <tr>
-                <th>当日收礼</th><th>当日完成率</th><th>当日指标完成</th><th>月度累计钻石</th><th>月度KPI完成</th><th>预计月底完成</th>
-                <th>当日新增粉丝</th><th>当日完成率</th><th>当日指标完成</th><th>月度累计新增粉丝</th><th>月度KPI完成</th>
-                <th>当日新增互动人数</th><th>当日完成率</th><th>当日指标完成</th><th>月度累计新增互动</th><th>月度KPI完成</th>
-                <th>月送钻≥1000</th><th>当月有打赏无互动</th><th>当月有打赏有互动</th><th>当日有打赏无互动</th><th>当日有打赏有互动</th>
-                <th>当日新增粉丝送礼</th><th>新增粉丝月度打赏</th>
+                <th>{{ $tr("当日收礼") }}</th><th>{{ $tr("当日完成率") }}</th><th>{{ $tr("当日指标完成") }}</th><th>{{ $tr("月度累计钻石") }}</th><th>{{ $tr("月度KPI完成") }}</th><th>{{ $tr("预计月底完成") }}</th>
+                <th>{{ $tr("当日新增粉丝") }}</th><th>{{ $tr("当日完成率") }}</th><th>{{ $tr("当日指标完成") }}</th><th>{{ $tr("月度累计新增粉丝") }}</th><th>{{ $tr("月度KPI完成") }}</th>
+                <th>{{ $tr("当日新增互动人数") }}</th><th>{{ $tr("当日完成率") }}</th><th>{{ $tr("当日指标完成") }}</th><th>{{ $tr("月度累计新增互动") }}</th><th>{{ $tr("月度KPI完成") }}</th>
+                <th>{{ $tr("月送钻≥1000") }}</th><th>{{ $tr("当月有打赏无互动") }}</th><th>{{ $tr("当月有打赏有互动") }}</th><th>{{ $tr("当日有打赏无互动") }}</th><th>{{ $tr("当日有打赏有互动") }}</th>
+                <th>{{ $tr("当日新增粉丝送礼") }}</th><th>{{ $tr("新增粉丝月度打赏") }}</th>
               </tr>
             </thead>
             <tbody>
@@ -189,7 +189,7 @@
                 <td>{{ number(row.newTipMonthlyAmount) }}</td>
               </tr>
               <tr class="total-row">
-                <th class="sticky-col streamer-name">合计</th>
+                <th class="sticky-col streamer-name">{{ $tr("合计") }}</th>
                 <td>{{ total(group.rows, 'dailyXu') }}</td>
                 <td></td><td></td>
                 <td>{{ total(group.rows, 'monthlyXu') }}</td>
@@ -220,6 +220,8 @@
 </template>
 
 <script setup name="StreamerData">
+import { translateText } from '@/locales/translate'
+
 import { computed, onMounted, ref } from 'vue'
 import { streamerCardDetail, streamerDailyList, weijiMonthStats } from '@/api/live/stats'
 import { listKpiConfig } from '@/api/live/kpi'
@@ -410,7 +412,7 @@ function total(rows, key) {
 
 function formatDate(value) {
   const [, month, day] = value.split('-')
-  return `${Number(month)}月${Number(day)}日`
+  return translateText("{0}月{1}日", [Number(month), Number(day)])
 }
 
 function shortDate(value) {
@@ -419,7 +421,7 @@ function shortDate(value) {
 }
 
 function weekday(value) {
-  return ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'][new Date(`${value}T00:00:00`).getDay()]
+  return [translateText("星期日"), translateText("星期一"), translateText("星期二"), translateText("星期三"), translateText("星期四"), translateText("星期五"), translateText("星期六")][new Date(`${value}T00:00:00`).getDay()]
 }
 
 function disableFutureMonth(date) {

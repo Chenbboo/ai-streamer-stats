@@ -1,18 +1,18 @@
 <template>
   <section v-if="reference?.byCurrency?.length" class="public-daily-reference">
-    <div class="reference-heading"><div><h3>每日公共费用</h3><p>公共费用已包含在当天成本和经营结果中；月结前为暂估。</p></div><el-button link type="primary" @click="expanded = !expanded">{{ expanded ? '收起项目明细' : '查看项目明细' }}</el-button></div>
-    <el-alert v-if="reference.pendingCount" title="部分公共费用尚未下发或提交分摊，成本数据待完善。" type="warning" :closable="false" show-icon />
+    <div class="reference-heading"><div><h3>{{ $tr("每日公共费用") }}</h3><p>{{ $tr("公共费用已包含在当天成本和经营结果中；月结前为暂估。") }}</p></div><el-button link type="primary" @click="expanded = !expanded">{{ expanded ? $tr("收起项目明细") : $tr("查看项目明细") }}</el-button></div>
+    <el-alert v-if="reference.pendingCount" :title="$tr(&quot;部分公共费用尚未下发或提交分摊，成本数据待完善。&quot;)" type="warning" :closable="false" show-icon />
     <div v-for="total in reference.byCurrency" :key="total.currency" class="reference-totals">
-      <article><span>{{ total.pendingCount ? '已计入公共费用' : '当日公共费用' }}</span><b>{{ money(total.dailyReference) }} <small>{{ total.currency }}</small></b></article>
-      <article><span>当日税前结果（已含公共费用）</span><b :class="Number(pretax(total)) < 0 ? 'negative' : ''">{{ pretax(total) == null ? '待完善' : money(pretax(total)) }} <small v-if="pretax(total) != null">{{ total.currency }}</small></b></article>
+      <article><span>{{ total.pendingCount ? $tr("已计入公共费用") : $tr("当日公共费用") }}</span><b>{{ money(total.dailyReference) }} <small>{{ total.currency }}</small></b></article>
+      <article><span>{{ $tr("当日税前结果（已含公共费用）") }}</span><b :class="Number(pretax(total)) < 0 ? 'negative' : ''">{{ pretax(total) == null ? $tr("待完善") : money(pretax(total)) }} <small v-if="pretax(total) != null">{{ total.currency }}</small></b></article>
     </div>
-    <p class="reference-note">按项目当月承担费用期间的自然日分摊，最后一天补齐尾差；月结核实实际金额，不再额外扣除整月费用。历史已月结账单保留原记录。</p>
+    <p class="reference-note">{{ $tr("按项目当月承担费用期间的自然日分摊，最后一天补齐尾差；月结核实实际金额，不再额外扣除整月费用。历史已月结账单保留原记录。") }}</p>
     <el-table v-if="expanded" :data="reference.rows" size="small">
-      <el-table-column prop="projectName" label="项目" min-width="140" />
-      <el-table-column label="月度分摊" min-width="135"><template #default="{ row }">{{ money(row.monthAmount) }} {{ row.currency }}</template></el-table-column>
-      <el-table-column label="当日已计入成本" min-width="135"><template #default="{ row }">{{ money(row.dailyReference) }} {{ row.currency }}</template></el-table-column>
-      <el-table-column label="其中暂估"><template #default="{ row }">{{ money(row.estimatedAmount) }} {{ row.currency }}</template></el-table-column>
-      <el-table-column label="当日税前结果" min-width="155"><template #default="{ row }">{{ pretax(row) == null ? '待完善' : `${money(pretax(row))} ${row.currency}` }}</template></el-table-column>
+      <el-table-column prop="projectName" :label="$tr(&quot;项目&quot;)" min-width="140" />
+      <el-table-column :label="$tr(&quot;月度分摊&quot;)" min-width="135"><template #default="{ row }">{{ money(row.monthAmount) }} {{ row.currency }}</template></el-table-column>
+      <el-table-column :label="$tr(&quot;当日已计入成本&quot;)" min-width="135"><template #default="{ row }">{{ money(row.dailyReference) }} {{ row.currency }}</template></el-table-column>
+      <el-table-column :label="$tr(&quot;其中暂估&quot;)"><template #default="{ row }">{{ money(row.estimatedAmount) }} {{ row.currency }}</template></el-table-column>
+      <el-table-column :label="$tr(&quot;当日税前结果&quot;)" min-width="155"><template #default="{ row }">{{ pretax(row) == null ? $tr("待完善") : `${money(pretax(row))} ${row.currency}` }}</template></el-table-column>
     </el-table>
   </section>
 </template>

@@ -161,6 +161,8 @@
 </template>
 
 <script setup name="Notice">
+import { translateText } from '@/locales/translate'
+
 import NoticeDetailView from "@/layout/components/HeaderNotice/DetailView"
 import ReadUsersDialog from "./ReadUsers"
 import { listNotice, getNotice, delNotice, addNotice, updateNotice } from "@/api/system/notice"
@@ -188,8 +190,8 @@ const data = reactive({
     status: undefined
   },
   rules: {
-    noticeTitle: [{ required: true, message: "公告标题不能为空", trigger: "blur" }],
-    noticeType: [{ required: true, message: "公告类型不能为空", trigger: "change" }]
+    noticeTitle: [{ required: true, message: translateText("公告标题不能为空"), trigger: "blur" }],
+    noticeType: [{ required: true, message: translateText("公告类型不能为空"), trigger: "change" }]
   },
 })
 
@@ -246,7 +248,7 @@ function handleSelectionChange(selection) {
 function handleAdd() {
   reset()
   open.value = true
-  title.value = "添加公告"
+  title.value = translateText("添加公告")
 }
 
 /**修改按钮操作 */
@@ -256,7 +258,7 @@ function handleUpdate(row) {
   getNotice(noticeId).then(response => {
     form.value = response.data
     open.value = true
-    title.value = "修改公告"
+    title.value = translateText("修改公告")
   })
 }
 
@@ -266,13 +268,13 @@ function submitForm() {
     if (valid) {
       if (form.value.noticeId != undefined) {
         updateNotice(form.value).then(response => {
-          proxy.$modal.msgSuccess("修改成功")
+          proxy.$modal.msgSuccess(translateText("修改成功"))
           open.value = false
           getList()
         })
       } else {
         addNotice(form.value).then(response => {
-          proxy.$modal.msgSuccess("新增成功")
+          proxy.$modal.msgSuccess(translateText("新增成功"))
           open.value = false
           getList()
         })
@@ -294,11 +296,11 @@ function handleReadUsers(row) {
 /** 删除按钮操作 */
 function handleDelete(row) {
   const noticeIds = row.noticeId || ids.value
-  proxy.$modal.confirm('是否确认删除公告编号为"' + noticeIds + '"的数据项？').then(function() {
+  proxy.$modal.confirm(translateText("是否确认删除公告编号为\"") + noticeIds + translateText("\"的数据项？")).then(function() {
     return delNotice(noticeIds)
   }).then(() => {
     getList()
-    proxy.$modal.msgSuccess("删除成功")
+    proxy.$modal.msgSuccess(translateText("删除成功"))
   }).catch(() => {})
 }
 

@@ -1,46 +1,48 @@
 <template>
   <section v-if="hasContent" class="evidence-panel">
     <div v-if="understandingText" class="understanding-row">
-      <span>本次理解</span>
+      <span>{{ $tr("本次理解") }}</span>
       <strong>{{ understandingText }}</strong>
-      <el-tag v-if="needsClarification" size="small" type="warning" effect="plain">需要补充信息</el-tag>
+      <el-tag v-if="needsClarification" size="small" type="warning" effect="plain">{{ $tr("需要补充信息") }}</el-tag>
     </div>
 
     <details v-if="evidenceGroups.length" class="evidence-details">
       <summary>
-        <span>查看依据（{{ evidenceGroups.length }}）</span>
-        <small>展开查看数据来源</small>
+        <span>{{ $tr("查看依据（{0}）", [evidenceGroups.length]) }}</span>
+        <small>{{ $tr("展开查看数据来源") }}</small>
       </summary>
       <div class="evidence-list">
         <article v-for="(group,groupIndex) in evidenceGroups" :key="evidenceKey(group,groupIndex)">
           <header>
-            <b>{{ group.label || group.sourceLabel || '系统业务记录' }}</b>
-            <span v-if="group.cutoffTime">截至 {{ group.cutoffTime }}</span>
+            <b>{{ group.label || $tr(group.sourceLabel) || $tr("系统业务记录") }}</b>
+            <span v-if="group.cutoffTime">{{ $tr("截至 {0}", [group.cutoffTime]) }}</span>
           </header>
           <div v-if="group.facts?.length" class="fact-list">
             <div v-for="(fact,factIndex) in group.facts" :key="factKey(fact,groupIndex,factIndex)" class="fact-row">
-              <span>{{ fact.label || fact.name || fact.field || '数据项' }}</span>
+              <span>{{ fact.label || fact.name || fact.field || $tr("数据项") }}</span>
               <strong>{{ factValue(fact) }}</strong>
               <small v-if="fact.bizDate || fact.dataDate">{{ fact.bizDate || fact.dataDate }}</small>
             </div>
           </div>
-          <p v-else>{{ group.description || '已从系统读取并核对该项数据。' }}</p>
+          <p v-else>{{ group.description || $tr("已从系统读取并核对该项数据。") }}</p>
         </article>
       </div>
       <div v-if="scope" class="scope-row">
-        <span>数据范围：{{ scope.label || '当前账号可见范围' }}</span>
+        <span>{{ $tr("数据范围：{0}", [scope.label || $tr("当前账号可见范围")]) }}</span>
         <span>{{ scope.dataDate || scope.cutoffTime || '' }}</span>
       </div>
     </details>
 
     <div v-else-if="scope" class="scope-row is-standalone">
-      <span>数据范围：{{ scope.label || '当前账号可见范围' }}</span>
+      <span>{{ $tr("数据范围：{0}", [scope.label || $tr("当前账号可见范围")]) }}</span>
       <span>{{ scope.dataDate || scope.cutoffTime || '' }}</span>
     </div>
   </section>
 </template>
 
 <script setup>
+import { translateText } from '@/locales/translate'
+
 const props=defineProps({
   understanding:{type:Object,default:null},
   evidence:{type:Array,default:()=>[]},
@@ -49,20 +51,20 @@ const props=defineProps({
 })
 
 const queryLabels={
-  ACCOUNTING:'经营情况',
-  DETAIL:'项目详情',
-  MEMBER_PROGRESS:'成员完成进度',
-  PENDING_DECISIONS:'待老板处理事项',
-  PROJECT_ACCOUNTING:'项目经营情况',
-  PROJECT_BUDGET:'项目预算情况',
-  PROJECT_DETAIL:'项目详情',
-  PROJECT_PORTFOLIO:'全部项目概况',
-  PROJECT_PROGRESS:'项目完成进度',
-  PROJECT_STATUS:'项目状态',
-  STAFF:'人员情况',
-  STAFF_OVERVIEW:'公司人员概况',
-  TODAY_ACCOUNTING:'今日经营情况',
-  PENDING_DECISION:'待处理事项'
+  ACCOUNTING:translateText("经营情况"),
+  DETAIL:translateText("项目详情"),
+  MEMBER_PROGRESS:translateText("成员完成进度"),
+  PENDING_DECISIONS:translateText("待老板处理事项"),
+  PROJECT_ACCOUNTING:translateText("项目经营情况"),
+  PROJECT_BUDGET:translateText("项目预算情况"),
+  PROJECT_DETAIL:translateText("项目详情"),
+  PROJECT_PORTFOLIO:translateText("全部项目概况"),
+  PROJECT_PROGRESS:translateText("项目完成进度"),
+  PROJECT_STATUS:translateText("项目状态"),
+  STAFF:translateText("人员情况"),
+  STAFF_OVERVIEW:translateText("公司人员概况"),
+  TODAY_ACCOUNTING:translateText("今日经营情况"),
+  PENDING_DECISION:translateText("待处理事项")
 }
 
 const needsClarification=computed(()=>['AMBIGUOUS','NEEDS_CLARIFICATION','UNRESOLVED'].includes(String(props.understanding?.status||'').toUpperCase()))
@@ -75,7 +77,7 @@ const understandingText=computed(()=>{
   const people=(Array.isArray(data.people)?data.people:[]).map(item=>typeof item==='string'?item:item?.userName||item?.name||item?.personName).filter(Boolean).join('、')
   const dateRange=data.dateRange||{}
   const date=dateRange.label||data.dateLabel||(dateRange.start&&dateRange.end
-    ? (dateRange.start===dateRange.end?dateRange.start:`${dateRange.start} 至 ${dateRange.end}`)
+    ? (dateRange.start===dateRange.end?dateRange.start:translateText("{0} 至 {1}", [dateRange.start, dateRange.end]))
     : dateRange.start||dateRange.end)
   return [query,project,people,date].filter(Boolean).join(' · ')
 })
@@ -89,12 +91,12 @@ const evidenceKey=(group,index)=>group?.evidenceId||group?.sourceId||`${group?.t
 const factKey=(fact,groupIndex,factIndex)=>fact?.factId||`${fact?.recordType||'fact'}-${fact?.recordId||groupIndex}-${fact?.field||factIndex}-${factIndex}`
 function factValue(fact){
   if(fact?.displayValue!==undefined&&fact.displayValue!==null)return String(fact.displayValue)
-  if(fact?.actual!==undefined&&fact?.target!==undefined)return `${fact.actual}/${fact.target}${fact.unit?` ${fact.unit}`:''}`
+  if(fact?.actual!==undefined&&fact?.target!==undefined)return `${fact.actual}/${fact.target}${translateText(fact.unit)?` ${translateText(fact.unit)}`:''}`
   if(fact?.value===undefined||fact?.value===null)return '—'
   if(Array.isArray(fact.value))return fact.value.join('、')
-  if(typeof fact.value==='object')return fact.value?.summary||fact.summary||'已核对'
+  if(typeof fact.value==='object')return fact.value?.summary||fact.summary||translateText("已核对")
   if(String(fact?.status||'').toUpperCase()==='MISSING')return String(fact.value)
-  return `${fact.value}${fact.unit?` ${fact.unit}`:''}`
+  return `${fact.value}${translateText(fact.unit)?` ${translateText(fact.unit)}`:''}`
 }
 </script>
 

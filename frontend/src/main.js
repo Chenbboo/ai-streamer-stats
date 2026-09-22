@@ -5,15 +5,18 @@ import Cookies from 'js-cookie'
 import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
-import locale from 'element-plus/es/locale/lang/zh-cn'
+import zhLocale from 'element-plus/es/locale/lang/zh-cn'
+import viLocale from 'element-plus/es/locale/lang/vi'
 
 import '@/assets/styles/index.scss' // global css
+import '@/assets/styles/locale.scss'
 
 import App from './App'
 import store from './store'
 import router from './router'
 import directive from './directive' // directive
 import i18n from './locales'
+import { translateText } from './locales/translate'
 
 // 注册指令
 import plugins from './plugins' // plugins
@@ -47,6 +50,7 @@ import ImagePreview from "@/components/ImagePreview"
 import DictTag from '@/components/DictTag'
 
 const app = createApp(App)
+app.config.globalProperties.$tr = translateText
 
 // 全局方法挂载
 app.config.globalProperties.useDict = useDict
@@ -80,7 +84,7 @@ directive(app)
 
 // 使用element-plus 并且设置全局的大小
 app.use(ElementPlus, {
-  locale: locale,
+  locale: i18n.global.locale.value === 'vi-VN' ? viLocale : zhLocale,
   // 支持 large、default、small
   size: Cookies.get('size') || 'default'
 })

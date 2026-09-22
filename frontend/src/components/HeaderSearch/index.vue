@@ -15,7 +15,7 @@
         size="large"
         @input="querySearch"
         prefix-icon="Search"
-        placeholder="菜单搜索，支持标题、URL模糊查询"
+        :placeholder="$tr(&quot;菜单搜索，支持标题、URL模糊查询&quot;)"
         clearable
         @keyup.enter="selectActiveResult"
         @keydown.up.prevent="navigateResult('up')"
@@ -23,9 +23,7 @@
       >
       </el-input>
 
-      <div class="result-count" v-if="search && options.length > 0">
-        找到 <strong>{{ options.length }}</strong> 个结果
-      </div>
+      <div class="result-count" v-if="search && options.length > 0">{{ $tr(" 找到 ") }}<strong>{{ options.length }}</strong>{{ $tr(" 个结果 ") }}</div>
 
       <div class="result-wrap">
         <el-scrollbar>
@@ -54,8 +52,8 @@
 
           <div class="empty-state" v-else-if="search && options.length === 0">
             <el-icon class="empty-icon"><Search /></el-icon>
-            <p class="empty-text">未找到 "<strong>{{ search }}</strong>" 相关菜单</p>
-            <p class="empty-tip">试试其他关键词或路径</p>
+            <p class="empty-text">{{ $tr("未找到 \"") }}<strong>{{ search }}</strong>{{ $tr("\" 相关菜单") }}</p>
+            <p class="empty-tip">{{ $tr("试试其他关键词或路径") }}</p>
           </div>
 
         </el-scrollbar>
@@ -63,14 +61,11 @@
 
       <div class="search-footer">
         <span class="shortcut-item">
-          <kbd>↑</kbd><kbd>↓</kbd> 切换
-        </span>
+          <kbd>↑</kbd><kbd>↓</kbd>{{ $tr(" 切换 ") }}</span>
         <span class="shortcut-item">
-          <kbd>↵</kbd> 选择
-        </span>
+          <kbd>↵</kbd>{{ $tr(" 选择 ") }}</span>
         <span class="shortcut-item">
-          <kbd>Esc</kbd> 关闭
-        </span>
+          <kbd>Esc</kbd>{{ $tr(" 关闭 ") }}</span>
       </div>
     </el-dialog>
   </div>

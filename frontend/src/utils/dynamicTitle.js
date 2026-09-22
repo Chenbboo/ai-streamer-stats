@@ -1,5 +1,6 @@
 import defaultSettings from '@/settings'
 import useSettingsStore from '@/store/modules/settings'
+import { translateText } from '../locales/translate.js'
 
 /**
  * 动态修改标题
@@ -7,8 +8,8 @@ import useSettingsStore from '@/store/modules/settings'
 export function useDynamicTitle() {
   const settingsStore = useSettingsStore()
   if (settingsStore.dynamicTitle) {
-    document.title = settingsStore.title + ' - ' + defaultSettings.title
+    document.title = translateText(settingsStore.title) + ' - ' + translateText(defaultSettings.title)
   } else {
-    document.title = defaultSettings.title
+    document.title = translateText(defaultSettings.title)
   }
 }
