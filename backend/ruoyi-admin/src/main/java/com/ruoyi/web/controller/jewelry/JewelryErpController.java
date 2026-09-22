@@ -34,6 +34,7 @@ import com.ruoyi.jewelry.domain.JewelryProductExportRow;
 import com.ruoyi.jewelry.domain.JewelryProductBatchUpdate;
 import com.ruoyi.jewelry.mapper.JewelryErpMapper;
 import com.ruoyi.jewelry.service.JewelryDocumentExcelService;
+import com.ruoyi.jewelry.service.JewelryInfluencerBindingExcelService;
 import com.ruoyi.jewelry.service.IJewelryErpService;
 import com.ruoyi.system.service.ISysUserService;
 
@@ -45,6 +46,7 @@ public class JewelryErpController extends BaseController
     @Autowired private JewelryErpMapper mapper;
     @Autowired private ISysUserService userService;
     @Autowired private JewelryDocumentExcelService documentExcelService;
+    @Autowired private JewelryInfluencerBindingExcelService influencerExcelService;
 
     @PreAuthorize("@ss.hasPermi('jewelry:overview:list')")
     @GetMapping("/dashboard")
@@ -255,6 +257,13 @@ public class JewelryErpController extends BaseController
         return success(service.listInfluencers(query));
     }
 
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:list')")
+    @GetMapping("/influencer/platforms")
+    public AjaxResult influencerPlatforms()
+    {
+        return success(service.listInfluencerPlatforms());
+    }
+
     @PreAuthorize("@ss.hasAnyPermi('jewelry:influencer:add,jewelry:influencer:edit')")
     @PostMapping("/influencer")
     public AjaxResult saveInfluencer(@RequestBody Map<String, Object> body)
@@ -283,6 +292,81 @@ public class JewelryErpController extends BaseController
     public AjaxResult influencerProductPrices(@PathVariable Long id)
     {
         return success(service.listInfluencerProductPrices(id));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:price')")
+    @PostMapping("/influencer/{id}/bindings")
+    public AjaxResult saveInfluencerBindings(@PathVariable Long id, @RequestBody List<Map<String, Object>> bindings)
+    {
+        if (!isErpAdministrator()) return error("只有管理员可以维护达人商品价格");
+        service.saveInfluencerBindings(id, bindings, SecurityUtils.getUserId(), SecurityUtils.getUsername());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:price')")
+    @GetMapping("/influencer/bindings/template")
+    public void influencerBindingTemplate(HttpServletResponse response) throws java.io.IOException
+    {
+        if (!isErpAdministrator()) throw new ServiceException("只有管理员可以导出达人商品绑定模板");
+        influencerExcelService.writeTemplate(response);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:price')")
+    @PostMapping("/influencer/{id}/bindings/preview")
+    public AjaxResult previewInfluencerBindings(@PathVariable Long id, @RequestParam("file") MultipartFile file)
+        throws java.io.IOException
+    {
+        if (!isErpAdministrator()) return error("只有管理员可以导入达人商品绑定");
+        return success(influencerExcelService.preview(file, id));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:price')")
+    @PostMapping("/influencer/{id}/bindings/confirm")
+    public AjaxResult confirmInfluencerBindings(@PathVariable Long id, @RequestBody List<Map<String, Object>> bindings)
+    {
+        if (!isErpAdministrator()) return error("只有管理员可以导入达人商品绑定");
+        List<Map<String, Object>> checked = influencerExcelService.validateRows(id, bindings);
+        boolean invalid = checked.stream().anyMatch(row -> !((List<?>) row.get("errors")).isEmpty());
+        if (invalid)
+            return success(java.util.Map.of("saved", false, "rows", checked));
+        service.saveInfluencerBindings(id, checked, SecurityUtils.getUserId(), SecurityUtils.getUsername());
+        return success(java.util.Map.of("saved", true, "count", checked.size()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:price')")
+    @PostMapping("/influencer/{id}/bindings/import")
+    public AjaxResult importInfluencerBindings(@PathVariable Long id, @RequestParam("file") MultipartFile file)
+        throws java.io.IOException
+    {
+        if (!isErpAdministrator()) return error("只有管理员可以导入达人商品绑定");
+        List<Map<String, Object>> bindings = influencerExcelService.parse(file);
+        service.saveInfluencerBindings(id, bindings, SecurityUtils.getUserId(), SecurityUtils.getUsername());
+        return success(bindings.size());
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:list')")
+    @GetMapping("/influencer/{id}/bundle-configs")
+    public AjaxResult influencerBundleConfigs(@PathVariable Long id)
+    {
+        return success(service.listInfluencerBundleConfigs(id));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:price')")
+    @PostMapping("/influencer/{id}/bundle-configs")
+    public AjaxResult saveInfluencerBundleConfig(@PathVariable Long id, @RequestBody Map<String, Object> body)
+    {
+        if (!isErpAdministrator()) return error("只有管理员可以维护达人搭售配置");
+        service.saveInfluencerBundleConfig(id, body, SecurityUtils.getUsername());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:price')")
+    @DeleteMapping("/influencer/{id}/bundle-configs/{configId}")
+    public AjaxResult deleteInfluencerBundleConfig(@PathVariable Long id, @PathVariable Long configId)
+    {
+        if (!isErpAdministrator()) return error("只有管理员可以维护达人搭售配置");
+        service.deleteInfluencerBundleConfig(id, configId);
+        return success();
     }
 
     @PreAuthorize("@ss.hasPermi('jewelry:influencer:list')")
@@ -407,6 +491,7 @@ public class JewelryErpController extends BaseController
     @GetMapping("/document/list")
     public TableDataInfo documentList(JewelryDocument query)
     {
+        query.setHideDrafts(hasErpRole("jewelry_reviewer") && !isErpAdministrator());
         if (isMakerOnly())
         {
             query.setCreatorUserId(SecurityUtils.getUserId());

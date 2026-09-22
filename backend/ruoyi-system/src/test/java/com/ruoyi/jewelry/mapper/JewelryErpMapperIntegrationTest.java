@@ -66,6 +66,25 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void singleInfluencerProductPriceIncludesConfiguredRates()
+    {
+        execute("insert into jewelry_influencer_product_price (influencer_id,product_id,fixed_unit_price,"
+            + "price_status,binding_status,commission_rate,platform_rate,tax_rate) "
+            + "values (8,19,300,'PRICED','0',0.1,0.2,0.3)");
+
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            Map<String, Object> price = session.getMapper(JewelryErpMapper.class)
+                .selectInfluencerProductPrice(8L, 19L);
+            assertEquals("PRICED", mapValue(price, "priceStatus"));
+            assertEquals("0", mapValue(price, "bindingStatus"));
+            assertEquals(0, new BigDecimal("0.1").compareTo((BigDecimal) mapValue(price, "commissionRate")));
+            assertEquals(0, new BigDecimal("0.2").compareTo((BigDecimal) mapValue(price, "platformRate")));
+            assertEquals(0, new BigDecimal("0.3").compareTo((BigDecimal) mapValue(price, "taxRate")));
+        }
+    }
+
+    @Test
     void outboundReservationCannotExceedAvailableStock()
     {
         insertStock(1L, 5, 0, 0, 0, 0, 0, "100.00");
@@ -679,6 +698,41 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void productOptionsShowDistinctSuppliersFromPostedInboundDocuments()
+    {
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification)"
+            + " values(10,'PRODUCT-10','商品','FINISHED','普通')");
+        execute("insert into jewelry_supplier(supplier_id,supplier_name)"
+            + " values(1,'供应商甲'),(2,'供应商乙'),(3,'草稿供应商')");
+        insertDocument(1L, "PURCHASE-1", "PURCHASE_IN", "POSTED", null);
+        insertDocument(2L, "SAMPLE-2", "SAMPLE_IN", "POSTED", null);
+        insertDocument(3L, "PURCHASE-3", "PURCHASE_IN", "DRAFT", null);
+        insertDocument(4L, "SALE-4", "SALES_OUT", "PENDING_FIRST", null);
+        insertItem(11L, 1L, null, 10L, 1);
+        insertItem(12L, 2L, null, 10L, 1);
+        insertItem(13L, 3L, null, 10L, 1);
+        insertItem(14L, 4L, null, 10L, 1);
+        execute("update jewelry_document set supplier_id=1 where document_id=1");
+        execute("update jewelry_document_item set supplier_id=2 where item_id=12");
+        execute("update jewelry_document_item set supplier_id=3 where item_id=13");
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            List<Map<String, Object>> products = mapper.selectProductList(Collections.emptyMap());
+            assertEquals(1, products.size());
+            String supplierNames = String.valueOf(products.get(0).get("suppliernames"));
+            assertTrue(supplierNames.contains("供应商甲"));
+            assertTrue(supplierNames.contains("供应商乙"));
+            assertFalse(supplierNames.contains("草稿供应商"));
+            List<JewelryDocumentItem> saleItems = mapper.selectDocumentItems(4L);
+            assertEquals(1, saleItems.size());
+            assertTrue(saleItems.get(0).getProductSupplierNames().contains("供应商甲"));
+            assertTrue(saleItems.get(0).getProductSupplierNames().contains("供应商乙"));
+            assertFalse(saleItems.get(0).getProductSupplierNames().contains("草稿供应商"));
+        }
+    }
+
+    @Test
     void sampleProductsCanBeFilteredAndAreNotSupplierReturnWarningCandidates()
     {
         execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification)"
@@ -846,6 +900,30 @@ class JewelryErpMapperIntegrationTest
                 .compareTo(new BigDecimal("88.1234")));
             assertEquals(1, mapper.selectInfluencerPriceHistory(influencerId[0]).size());
         }
+        try (SqlSession session = sqlSessionFactory.openSession(false))
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            Map<String, Object> binding = new HashMap<String, Object>();
+            binding.put("influencerId", influencerId[0]);
+            binding.put("productId", 100L);
+            binding.put("priceVersion", 1);
+            binding.put("fixedUnitPrice", new BigDecimal("99.0000"));
+            binding.put("platformRate", new BigDecimal("0.050000"));
+            binding.put("commissionRate", new BigDecimal("0.200000"));
+            binding.put("taxRate", new BigDecimal("0.010000"));
+            binding.put("packFee", new BigDecimal("2.0000"));
+            binding.put("shipFee", new BigDecimal("3.0000"));
+            binding.put("certFee", new BigDecimal("4.0000"));
+            binding.put("bindingStatus", "0");
+            binding.put("bindingRemark", "本次直播约定");
+            binding.put("userName", "admin");
+            assertEquals(1, mapper.updateInfluencerBinding(binding));
+            session.commit();
+            Map<String, Object> saved = mapper.selectInfluencerProductPrices(influencerId[0]).get(0);
+            assertEquals(0, new BigDecimal("99.0000").compareTo((BigDecimal) mapValue(saved, "fixedUnitPrice")));
+            assertEquals(0, new BigDecimal("0.200000").compareTo((BigDecimal) mapValue(saved, "commissionRate")));
+            assertEquals("本次直播约定", mapValue(saved, "bindingRemark"));
+        }
     }
 
     @Test
@@ -1001,6 +1079,28 @@ class JewelryErpMapperIntegrationTest
             query.setStatus("PENDING");
 
             assertEquals(2, mapper.selectDocumentList(query).size());
+        }
+    }
+
+    @Test
+    void documentListCanHideUnsubmittedDraftsForReviewer()
+    {
+        insertDocument(1L, "MAKER-DRAFT", "PURCHASE_IN", "DRAFT", null);
+        insertDocument(2L, "MAKER-PENDING", "PURCHASE_IN", "PENDING_FIRST", null);
+        insertDocument(3L, "MAKER-POSTED", "PURCHASE_IN", "POSTED", null);
+
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            JewelryDocument query = new JewelryDocument();
+            assertEquals(3, mapper.selectDocumentList(query).size());
+
+            query.setHideDrafts(true);
+            assertEquals(2, mapper.selectDocumentList(query).size());
+            query.setStatus("DRAFT");
+            assertEquals(0, mapper.selectDocumentList(query).size());
+            query.setStatus("PENDING");
+            assertEquals(1, mapper.selectDocumentList(query).size());
         }
     }
 
@@ -1250,6 +1350,9 @@ class JewelryErpMapperIntegrationTest
         item.setOtherFee1(new BigDecimal("1.00"));
         item.setOtherFee2(new BigDecimal("2.00"));
         item.setOtherFee3(new BigDecimal("3.00"));
+        item.setPlatformRateSnapshot(new BigDecimal("0.050000"));
+        item.setCommissionRateSnapshot(new BigDecimal("0.200000"));
+        item.setTaxRateSnapshot(new BigDecimal("0.010000"));
         item.setAmount(BigDecimal.ZERO);
         item.setCostAmount(new BigDecimal("80.00"));
         item.setProfitAmount(new BigDecimal("-80.00"));
@@ -1283,6 +1386,9 @@ class JewelryErpMapperIntegrationTest
             assertEquals(0, storedItem.getOtherFee1().compareTo(new BigDecimal("1.00")));
             assertEquals(0, storedItem.getOtherFee2().compareTo(new BigDecimal("2.00")));
             assertEquals(0, storedItem.getOtherFee3().compareTo(new BigDecimal("3.00")));
+            assertEquals(0, storedItem.getPlatformRateSnapshot().compareTo(new BigDecimal("0.050000")));
+            assertEquals(0, storedItem.getCommissionRateSnapshot().compareTo(new BigDecimal("0.200000")));
+            assertEquals(0, storedItem.getTaxRateSnapshot().compareTo(new BigDecimal("0.010000")));
             assertEquals("普通", storedItem.getSpecificationSnapshot());
         }
     }
@@ -1391,6 +1497,7 @@ class JewelryErpMapperIntegrationTest
             + "system_qty int,counted_qty int,adjustment_qty int not null default 0,"
             + "unit_price decimal(18,6) not null default 0,influencer_price_snapshot decimal(18,4),"
             + "influencer_price_version int,unit_cost decimal(18,6) not null default 0,"
+            + "platform_rate_snapshot decimal(9,6),commission_rate_snapshot decimal(9,6),tax_rate_snapshot decimal(9,6),"
             + "pack_fee decimal(18,6) not null default 0,ship_fee decimal(18,6) not null default 0,"
             + "cert_fee decimal(18,6) not null default 0,other_fee1 decimal(18,6) not null default 0,"
             + "other_fee2 decimal(18,6) not null default 0,other_fee3 decimal(18,6) not null default 0,"
@@ -1402,7 +1509,7 @@ class JewelryErpMapperIntegrationTest
         execute("create table jewelry_influencer (influencer_id bigint auto_increment primary key,"
             + "influencer_code varchar(32) not null unique,influencer_name varchar(128) not null,"
             + "external_influencer_id varchar(64) default '',"
-            + "platform varchar(64) default '',platform_account varchar(128) default '',sales_channel varchar(64) default '',"
+            + "platform varchar(64) default '',platform_code varchar(8),platform_account varchar(128) default '',sales_channel varchar(64) default '',"
             + "fixed_unit_price decimal(18,4),price_status varchar(16) default 'UNPRICED',price_version int default 0,"
             + "price_source_document_id bigint,price_effective_time timestamp,last_sale_time timestamp,"
             + "contact_phone varchar(32) default '',status char(1) default '0',create_by varchar(64),create_time timestamp,"
@@ -1411,6 +1518,9 @@ class JewelryErpMapperIntegrationTest
             + "influencer_id bigint not null,product_id bigint not null,fixed_unit_price decimal(18,4) not null,"
             + "price_status varchar(16) not null default 'PENDING',price_version int not null default 0,"
             + "pending_source_document_id bigint,price_source_document_id bigint,price_effective_time timestamp,"
+            + "commission_rate decimal(9,6),platform_rate decimal(9,6),tax_rate decimal(9,6),"
+            + "pack_fee decimal(18,4),ship_fee decimal(18,4),cert_fee decimal(18,4),"
+            + "binding_status char(1) default '0',binding_remark varchar(500),"
             + "create_by varchar(64),create_time timestamp,update_by varchar(64),update_time timestamp,"
             + "unique(influencer_id,product_id))");
         execute("create table jewelry_influencer_price_history (history_id bigint auto_increment primary key,"
@@ -1422,6 +1532,13 @@ class JewelryErpMapperIntegrationTest
             + "influencer_id bigint not null,main_product_id bigint not null,addon_product_id bigint not null,"
             + "main_qty int not null,addon_qty int not null,pricing_mode varchar(16) not null default 'INCLUDED',"
             + "source_document_id bigint not null,last_sale_time timestamp not null,create_by varchar(64),"
+            + "create_time timestamp,update_by varchar(64),update_time timestamp,"
+            + "unique(influencer_id,main_product_id,addon_product_id))");
+        execute("create table jewelry_influencer_platform (platform_code varchar(8) primary key,"
+            + "platform_name varchar(64),next_no bigint,status char(1))");
+        execute("create table jewelry_influencer_bundle_config (config_id bigint auto_increment primary key,"
+            + "influencer_id bigint,main_product_id bigint,addon_product_id bigint,"
+            + "main_qty int,addon_qty int,pricing_mode varchar(16),create_by varchar(64),"
             + "create_time timestamp,update_by varchar(64),update_time timestamp,"
             + "unique(influencer_id,main_product_id,addon_product_id))");
     }

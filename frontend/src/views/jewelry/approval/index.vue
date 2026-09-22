@@ -19,7 +19,7 @@
       <el-descriptions v-if="detail" :column="4" border>
         <el-descriptions-item label="单号">{{detail.docNo}}</el-descriptions-item>
         <el-descriptions-item label="类型">{{typeLabel(detail.docType)}}</el-descriptions-item>
-        <el-descriptions-item label="供应商">{{supplierNames(detail)}}</el-descriptions-item>
+        <el-descriptions-item :label="detail.docType==='SALES_OUT'?'达人':'供应商'">{{detail.docType==='SALES_OUT'?(detail.influencerName || '未记录'):supplierNames(detail)}}</el-descriptions-item>
         <el-descriptions-item v-if="detail.docType==='PURCHASE_IN'" label="约定退货日期">{{detail.supplierReturnDate || '按统一退货期限'}}</el-descriptions-item>
         <el-descriptions-item v-if="isTransfer(detail)" label="出库仓库">{{detail.sourceWarehouse}}</el-descriptions-item>
         <el-descriptions-item v-if="isTransfer(detail)" label="入库仓库">{{detail.targetWarehouse}}</el-descriptions-item>
@@ -85,7 +85,7 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="供应商" min-width="140"><template #default="{row}">{{row.supplierNameSnapshot || detail.supplierNameSnapshot || '未记录'}}</template></el-table-column>
+        <el-table-column v-if="detail.docType!=='SALES_OUT'" label="供应商" min-width="140" show-overflow-tooltip><template #default="{row}">{{itemSupplierNames(row,detail)}}</template></el-table-column>
         <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="systemQty" label="系统库存"/>
         <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="countedQty" label="实盘库存"/>
         <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="adjustmentQty" label="差异"/>
@@ -145,15 +145,15 @@
             </el-descriptions-item>
             <el-descriptions-item label="平台扣点">
               ¥ {{ money(profitBreakdown.platformFee) }}
-              <small>（{{ rateText(profitDetail.platformRate) }}）</small>
+              <small>（{{ hasItemRates?'按商品费率':rateText(profitDetail.platformRate) }}）</small>
             </el-descriptions-item>
             <el-descriptions-item label="达人佣金">
               ¥ {{ money(profitBreakdown.commissionFee) }}
-              <small>（{{ rateText(profitDetail.commissionRate) }}）</small>
+              <small>（{{ hasItemRates?'按商品费率':rateText(profitDetail.commissionRate) }}）</small>
             </el-descriptions-item>
             <el-descriptions-item label="税费">
               ¥ {{ money(profitBreakdown.taxFee) }}
-              <small>（{{ rateText(profitDetail.taxRate) }}）</small>
+              <small>（{{ hasItemRates?'按商品费率':rateText(profitDetail.taxRate) }}）</small>
             </el-descriptions-item>
             <el-descriptions-item label="履约费用">
               ¥ {{ money(profitBreakdown.fulfillmentFee) }}
@@ -197,10 +197,14 @@ const isTransfer=row=>row?.docType==='TRANSFER_OUT'||(row?.docType==='REVERSAL'&
 const typeLabels={TRANSFER_OUT:'仓库调货',PURCHASE_IN:'采购入库',SAMPLE_IN:'样品入库',SALES_OUT:'销售出库',SUPPLIER_RETURN:'供应商退货',CUSTOMER_RETURN:'客户退货',RETURN_INSPECT:'退货质检',STOCK_ADJUST:'库存调整',COST_ADJUST:'库存成本调价',ASSEMBLY:'手工组装',REVERSAL:'红冲单'}
 const typeLabel=value=>typeLabels[value]||value
 const supplierNames=document=>{
-  const names=[document?.supplierNameSnapshot,...String(document?.itemSupplierNames||'').split('、'),...(document?.items||[]).map(item=>item.supplierNameSnapshot)]
+  const recorded=[document?.supplierNameSnapshot,...String(document?.itemSupplierNames||'').split('、'),
+    ...(document?.items||[]).map(item=>item.supplierNameSnapshot)]
+    .map(value=>String(value||'').trim()).filter(Boolean)
+  const names=recorded.length?recorded:(document?.items||[]).flatMap(item=>String(item.productSupplierNames||'').split('、'))
     .map(value=>String(value||'').trim()).filter(Boolean)
   return [...new Set(names)].join('、')||'未记录'
 }
+const itemSupplierNames=(item,document)=>item?.supplierNameSnapshot||document?.supplierNameSnapshot||item?.productSupplierNames||'未记录'
 const isDualApproval=row=>['STOCK_ADJUST','COST_ADJUST'].includes(row?.docType)||(row?.docType==='REVERSAL'&&['STOCK_ADJUST','COST_ADJUST'].includes(row?.sourceDocType))
 const isCostAdjustment=row=>row?.docType==='COST_ADJUST'||(row?.docType==='REVERSAL'&&row?.sourceDocType==='COST_ADJUST')
 const isAdministrator=()=>((userStore.roles||[]).some(role=>['admin','jewelry_admin'].includes(role)))
@@ -257,6 +261,7 @@ const documentMoney=(value,document)=>isFourDecimalAmount(document)?fourDecimalM
 const costMoney=(value,document)=>isPurchaseAmount(document)?fourDecimalMoney(value):money(value)
 const unitPriceMoney=(value,document)=>isFourDecimalUnitPrice(document)?fourDecimalMoney(value):money(value)
 const rateText=value=>`${(Number(value||0)*100).toFixed(2)}%`
+const hasItemRates=computed(()=>profitDetail.value?.docType==='SALES_OUT'&&profitDetail.value.items?.some(item=>item.platformRateSnapshot!=null||item.commissionRateSnapshot!=null||item.taxRateSnapshot!=null))
 const effectiveQty=(type,item)=>type==='RETURN_INSPECT'
   ? Number(item.goodQty||0)+Number(item.defectQty||0)
   : type==='STOCK_ADJUST'
@@ -271,9 +276,10 @@ const profitBreakdown=computed(()=>{
   const fulfillmentFee=document.docType==='CUSTOMER_RETURN'
     ? items.reduce((sum,item)=>sum+(Number(item.shipFee||0)*2+Number(item.certFee||0))*effectiveQty(document.docType,item),0)
     : items.reduce((sum,item)=>sum+Number(item.costAmount||0),0)-productCost
-  const platformFee=document.docType==='CUSTOMER_RETURN'?0:revenue*Number(document.platformRate||0)
-  const commissionFee=document.docType==='CUSTOMER_RETURN'?0:revenue*Number(document.commissionRate||0)
-  const taxFee=document.docType==='CUSTOMER_RETURN'?0:revenue*Number(document.taxRate||0)
+  const salesFee=(snapshot,header)=>items.reduce((sum,item)=>sum+Number(item.unitPrice||0)*effectiveQty(document.docType,item)*Number(item[snapshot]??document[header]??0),0)
+  const platformFee=document.docType==='CUSTOMER_RETURN'?0:salesFee('platformRateSnapshot','platformRate')
+  const commissionFee=document.docType==='CUSTOMER_RETURN'?0:salesFee('commissionRateSnapshot','commissionRate')
+  const taxFee=document.docType==='CUSTOMER_RETURN'?0:salesFee('taxRateSnapshot','taxRate')
   const values=[revenue,productCost,fulfillmentFee,platformFee,commissionFee,taxFee].map(money)
   const base=`${values[0]} - ${values[1]} - ${values[2]} - ${values[3]} - ${values[4]} - ${values[5]}`
   return{

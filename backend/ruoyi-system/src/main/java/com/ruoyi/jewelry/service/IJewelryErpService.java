@@ -16,12 +16,18 @@ public interface IJewelryErpService
     List<Map<String, Object>> listSuppliers(Map<String, Object> query);
     int saveSupplier(Map<String, Object> supplier);
     List<Map<String, Object>> listInfluencers(Map<String, Object> query);
+    List<Map<String, Object>> listInfluencerPlatforms();
     int saveInfluencer(Map<String, Object> influencer);
     List<Map<String, Object>> listInfluencerProductPrices(Long influencerId);
+    void saveInfluencerBindings(Long influencerId, List<Map<String, Object>> bindings,
+        Long userId, String userName);
     void changeInfluencerProductPrice(Long influencerId, Long productId, BigDecimal newPrice, String reason,
         Long userId, String userName);
     List<Map<String, Object>> listInfluencerPriceHistory(Long influencerId);
     List<Map<String, Object>> listInfluencerBundleItems(Long influencerId);
+    List<Map<String, Object>> listInfluencerBundleConfigs(Long influencerId);
+    void saveInfluencerBundleConfig(Long influencerId, Map<String, Object> config, String userName);
+    void deleteInfluencerBundleConfig(Long influencerId, Long configId);
     List<Map<String, Object>> listStock(Map<String, Object> query);
     List<Map<String, Object>> listSampleInboundDetails(Long productId);
     List<Map<String, Object>> listTransactions(Map<String, Object> query);

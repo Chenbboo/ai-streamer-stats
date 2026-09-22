@@ -17,6 +17,7 @@ import java.math.BigDecimal;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -258,7 +259,9 @@ class JewelryErpServiceImplTest
     {
         JewelryDocument document = document(6L, "SALES_OUT", "DRAFT");
         document.setSalesChannel("douyin");
-        stubDocument(document, item(16L, 4, "500.00"));
+        JewelryDocumentItem saleItem = item(16L, 4, "500.00");
+        stubDocument(document, saleItem);
+        stubSalesBindings(saleItem);
         when(mapper.reserveOutbound(PRODUCT_ID, 4)).thenReturn(1);
 
         service.submit(6L, MAKER_ID, "maker");
@@ -424,7 +427,9 @@ class JewelryErpServiceImplTest
     {
         JewelryDocument document = document(62L, "SALES_OUT", "DRAFT");
         document.setSalesChannel("douyin");
-        stubDocument(document, item(162L, 5, "500.00"));
+        JewelryDocumentItem saleItem = item(162L, 5, "500.00");
+        stubDocument(document, saleItem);
+        stubSalesBindings(saleItem);
         when(mapper.reserveOutbound(PRODUCT_ID, 5)).thenReturn(0);
 
         ServiceException error = assertThrows(ServiceException.class,
@@ -1928,6 +1933,7 @@ class JewelryErpServiceImplTest
 
         when(mapper.selectDocumentById(251L)).thenReturn(document);
         when(mapper.selectDocumentItems(251L)).thenReturn(Arrays.asList(main, accessory));
+        stubSalesBindings(main);
         when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
         when(mapper.selectProductById(200L)).thenReturn(product("ACCESSORY"));
         when(mapper.selectStockForUpdate(PRODUCT_ID))
@@ -1945,7 +1951,7 @@ class JewelryErpServiceImplTest
     }
 
     @Test
-    void salesDraftCanBeSavedWhenAccessoryPackagingFeeIsInsufficient()
+    void manualAccessoryBundleCanBeSavedAsDraftWithoutPreset()
     {
         JewelryDocument document = document(null, "SALES_OUT", "DRAFT");
         document.setBizDate(new java.util.Date());
@@ -1960,6 +1966,7 @@ class JewelryErpServiceImplTest
         accessory.setSaleRole("ADDON");
         accessory.setPricingMode("INCLUDED");
         document.setItems(Arrays.asList(main, accessory));
+        stubSalesBindings(main);
 
         when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
         when(mapper.selectProductById(200L)).thenReturn(product("ACCESSORY"));
@@ -1979,6 +1986,7 @@ class JewelryErpServiceImplTest
         assertEquals(253L, saved.getDocumentId());
         assertEquals("DRAFT", saved.getStatus());
         assertMoney("1212.00", saved.getTotalCost());
+        verify(mapper, never()).selectInfluencerBundleConfigs(SALES_INFLUENCER_ID);
         verify(mapper).insertDocumentItem(main);
         verify(mapper).insertDocumentItem(accessory);
     }
@@ -1994,13 +2002,14 @@ class JewelryErpServiceImplTest
         main.setBundleGroupNo(1);
         main.setSaleRole("MAIN");
         JewelryDocumentItem accessory = itemForProduct(606L, 200L, 3);
-        accessory.setUnitPrice(decimal("20.00"));
+        accessory.setUnitPrice(BigDecimal.ZERO);
         accessory.setBundleGroupNo(1);
         accessory.setSaleRole("ADDON");
-        accessory.setPricingMode("SEPARATE");
+        accessory.setPricingMode("INCLUDED");
 
         when(mapper.selectDocumentById(252L)).thenReturn(document);
         when(mapper.selectDocumentItems(252L)).thenReturn(Arrays.asList(main, accessory));
+        stubSalesBindings(main);
         when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
         when(mapper.selectProductById(200L)).thenReturn(product("ACCESSORY"));
         when(mapper.selectStockForUpdate(PRODUCT_ID))
@@ -2015,6 +2024,7 @@ class JewelryErpServiceImplTest
         assertEquals("INCLUDED", accessory.getPricingMode());
         assertMoney("0", accessory.getUnitPrice());
         assertMoney("1212.00", document.getTotalCost());
+        verify(mapper, never()).selectInfluencerBundleConfigs(SALES_INFLUENCER_ID);
         verify(mapper).reserveOutbound(PRODUCT_ID, 2);
         verify(mapper).reserveOutbound(200L, 3);
         verify(mapper).updateDocumentStatus(252L, "DRAFT", "PENDING_FIRST",
@@ -2106,6 +2116,7 @@ class JewelryErpServiceImplTest
 
         when(mapper.selectDocumentById(250L)).thenReturn(document);
         when(mapper.selectDocumentItems(250L)).thenReturn(Arrays.asList(main, addon));
+        stubSalesBindings(main, addon);
         when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
         when(mapper.selectProductById(200L)).thenReturn(product("PART"));
         when(mapper.reserveOutbound(PRODUCT_ID, 1)).thenReturn(1);
@@ -2414,51 +2425,261 @@ class JewelryErpServiceImplTest
     }
 
     @Test
+    void salesUsesEachBoundProductsOwnRatesAndFees()
+    {
+        Map<String, Object> first = pricedProductPrice(PRODUCT_ID, "100.0000", 1);
+        first.put("platformRate", decimal("0.05"));
+        first.put("commissionRate", decimal("0.20"));
+        first.put("taxRate", decimal("0.01"));
+        first.put("packFee", decimal("2"));
+        first.put("shipFee", decimal("3"));
+        first.put("certFee", decimal("4"));
+        Map<String, Object> second = pricedProductPrice(101L, "200.0000", 1);
+        second.put("platformRate", decimal("0"));
+        second.put("commissionRate", decimal("0.10"));
+        second.put("taxRate", decimal("0"));
+        second.put("packFee", decimal("1"));
+        second.put("shipFee", decimal("0"));
+        second.put("certFee", decimal("0"));
+        when(mapper.selectInfluencerProductPrices(SALES_INFLUENCER_ID))
+            .thenReturn(Arrays.asList(first, second));
+        JewelryDocument document = document(null, "SALES_OUT", null);
+        document.setSalesChannel("douyin");
+        JewelryDocumentItem item1 = item(null, 1, "1");
+        JewelryDocumentItem item2 = item(null, 1, "1");
+        item2.setProductId(101L);
+        document.setItems(Arrays.asList(item1, item2));
+
+        service.assessDocumentRisk(document);
+
+        assertEquals(0, decimal("0.20").compareTo(item1.getCommissionRateSnapshot()));
+        assertEquals(0, decimal("0.10").compareTo(item2.getCommissionRateSnapshot()));
+        assertMoney("2", item1.getPackFee());
+        assertMoney("1", item2.getPackFee());
+        assertMoney("-35", item1.getProfitAmount());
+        assertMoney("79", item2.getProfitAmount());
+        assertMoney("44", document.getTotalProfit());
+    }
+
+    @Test
+    void postingSalesKeepsItemRateSnapshotInProfit()
+    {
+        JewelryDocument document = document(9201L, "SALES_OUT", "PENDING_FIRST");
+        JewelryDocumentItem item = item(9202L, 1, "200.00");
+        item.setInfluencerPriceSnapshot(decimal("200.0000"));
+        item.setInfluencerPriceVersion(1);
+        item.setPlatformRateSnapshot(decimal("0.05"));
+        item.setCommissionRateSnapshot(decimal("0.20"));
+        item.setTaxRateSnapshot(decimal("0.01"));
+        item.setPackFee(decimal("2"));
+        item.setShipFee(decimal("3"));
+        item.setCertFee(decimal("4"));
+        stubDocument(document, item);
+        when(mapper.selectInfluencerByIdForUpdate(SALES_INFLUENCER_ID)).thenReturn(activeInfluencer(false));
+        when(mapper.selectInfluencerProductPriceForUpdate(SALES_INFLUENCER_ID, PRODUCT_ID))
+            .thenReturn(pricedProductPrice(PRODUCT_ID, "200.0000", 1));
+        when(mapper.selectStockForUpdate(PRODUCT_ID))
+            .thenReturn(stock(10, 1, 0, 0, 0, 0, "100.00", "0", "0"));
+
+        service.approve(9201L, "", null, REVIEWER_ONE_ID, "reviewer1");
+
+        assertMoney("39", item.getProfitAmount());
+        assertMoney("39", document.getTotalProfit());
+    }
+
+    @Test
     void newInfluencerGetsSystemGeneratedCode()
     {
         Map<String, Object> influencer = new HashMap<String, Object>();
         influencer.put("influencerName", "自动编码达人");
         influencer.put("status", "0");
         influencer.put("createBy", "maker");
+        influencer.put("platformCode", "DY");
+        Map<String, Object> platform = new HashMap<String, Object>();
+        platform.put("platformName", "抖音");
+        platform.put("nextNo", 1L);
+        platform.put("status", "0");
+        when(mapper.selectInfluencerPlatformForUpdate("DY")).thenReturn(platform);
         when(mapper.insertInfluencer(any())).thenAnswer(invocation ->
         {
             Map<String, Object> inserted = invocation.getArgument(0);
             inserted.put("influencerId", 42L);
             return 1;
         });
-        when(mapper.updateInfluencerCode(42L, "DR000042", "maker")).thenReturn(1);
+        when(mapper.updateInfluencerCode(42L, "DY0001", "maker")).thenReturn(1);
+        when(mapper.advanceInfluencerPlatformSequence("DY")).thenReturn(1);
 
         assertEquals(1, service.saveInfluencer(influencer));
 
-        assertEquals("DR000042", influencer.get("influencerCode"));
-        verify(mapper).updateInfluencerCode(42L, "DR000042", "maker");
+        assertEquals("DY0001", influencer.get("influencerCode"));
+        verify(mapper).updateInfluencerCode(42L, "DY0001", "maker");
     }
 
     @Test
-    void savingSalesDraftCreatesPendingPriceForEachUnpricedProduct()
+    void bindingProductSavesPriceAndPercentageRatesWithHistory()
+    {
+        when(mapper.selectInfluencerByIdForUpdate(SALES_INFLUENCER_ID)).thenReturn(activeInfluencer(false));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
+        when(mapper.selectInfluencerProductPriceForUpdate(SALES_INFLUENCER_ID, PRODUCT_ID)).thenReturn(null);
+        when(mapper.insertInfluencerBinding(any())).thenReturn(1);
+        Map<String, Object> row = new HashMap<String, Object>();
+        row.put("productId", PRODUCT_ID);
+        row.put("fixedUnitPrice", "129.5000");
+        row.put("commissionPercent", "20");
+        row.put("platformPercent", "5");
+        row.put("taxPercent", "1");
+        row.put("packFee", "2.5");
+        row.put("bindingStatus", "0");
+        service.saveInfluencerBindings(SALES_INFLUENCER_ID, Arrays.asList(row), MAKER_ID, "admin");
+        ArgumentCaptor<Map<String, Object>> saved = ArgumentCaptor.forClass(Map.class);
+        verify(mapper).insertInfluencerBinding(saved.capture());
+        assertEquals(0, new BigDecimal("129.5000").compareTo((BigDecimal) saved.getValue().get("fixedUnitPrice")));
+        assertEquals(0, new BigDecimal("0.20000000").compareTo((BigDecimal) saved.getValue().get("commissionRate")));
+        verify(mapper).insertInfluencerPriceHistory(any());
+    }
+
+    @Test
+    void bindingProductRejectsCombinedRateOfOneHundredPercent()
+    {
+        when(mapper.selectInfluencerByIdForUpdate(SALES_INFLUENCER_ID)).thenReturn(activeInfluencer(false));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
+        Map<String, Object> row = new HashMap<String, Object>();
+        row.put("productId", PRODUCT_ID);
+        row.put("fixedUnitPrice", "129.5000");
+        row.put("commissionPercent", "60");
+        row.put("platformPercent", "40");
+        row.put("bindingStatus", "0");
+        assertThrows(ServiceException.class, () -> service.saveInfluencerBindings(
+            SALES_INFLUENCER_ID, Arrays.asList(row), MAKER_ID, "admin"));
+        verify(mapper, never()).insertInfluencerBinding(any());
+    }
+
+    @Test
+    void bindingProductRejectsAccessory()
+    {
+        when(mapper.selectInfluencerByIdForUpdate(SALES_INFLUENCER_ID)).thenReturn(activeInfluencer(false));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("ACCESSORY"));
+        Map<String, Object> row = new HashMap<String, Object>();
+        row.put("productId", PRODUCT_ID);
+        row.put("fixedUnitPrice", "129.5000");
+
+        assertTrue(assertThrows(ServiceException.class, () -> service.saveInfluencerBindings(
+            SALES_INFLUENCER_ID, Arrays.asList(row), MAKER_ID, "admin")).getMessage().contains("成品商品"));
+        verify(mapper, never()).insertInfluencerBinding(any());
+    }
+
+    @Test
+    void savingUnboundSalesDraftIsRejected()
     {
         JewelryDocument document = document(null, "SALES_OUT", null);
         document.setSalesChannel("douyin");
         JewelryDocumentItem item = item(null, 1, "128.5678");
         document.setItems(Arrays.asList(item));
-        when(mapper.insertDocument(document)).thenAnswer(invocation ->
-        {
-            document.setDocumentId(9201L);
-            return 1;
-        });
-        when(mapper.selectDocumentById(9201L)).thenReturn(document);
-        when(mapper.selectDocumentItems(9201L)).thenReturn(document.getItems());
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveDocument(document, MAKER_ID, "maker"));
+        assertTrue(error.getMessage().contains("有效绑定"));
+        verify(mapper, never()).insertDocument(any());
+    }
 
-        service.saveDocument(document, MAKER_ID, "maker");
+    @Test
+    void includedPresetCanBeSavedWithoutStandaloneAddonPrice()
+    {
+        when(mapper.selectInfluencerByIdForUpdate(SALES_INFLUENCER_ID)).thenReturn(activeInfluencer(false));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
+        Map<String, Object> addonProduct = product("ACCESSORY");
+        addonProduct.put("totalStockQty", 2);
+        when(mapper.selectProductById(200L)).thenReturn(addonProduct);
+        Map<String, Object> mainBinding = pricedProductPrice(PRODUCT_ID, "100.0000", 1);
+        mainBinding.put("bindingStatus", "0");
+        mainBinding.put("commissionRate", BigDecimal.ZERO);
+        mainBinding.put("platformRate", BigDecimal.ZERO);
+        mainBinding.put("taxRate", BigDecimal.ZERO);
+        when(mapper.selectInfluencerProductPrice(SALES_INFLUENCER_ID, PRODUCT_ID)).thenReturn(mainBinding);
+        Map<String, Object> config = includedPreset(PRODUCT_ID, 200L, 1, 2);
 
-        ArgumentCaptor<Map<String, Object>> pending = ArgumentCaptor.forClass(Map.class);
-        verify(mapper).insertPendingInfluencerProductPrice(pending.capture());
-        assertEquals(SALES_INFLUENCER_ID, pending.getValue().get("influencerId"));
-        assertEquals(PRODUCT_ID, pending.getValue().get("productId"));
-        assertEquals(9201L, pending.getValue().get("sourceDocumentId"));
-        assertEquals(0, decimal("128.5678").compareTo((BigDecimal) pending.getValue().get("fixedUnitPrice")));
-        assertEquals(0, decimal("128.5678").compareTo(item.getInfluencerPriceSnapshot()));
-        assertEquals(0, item.getInfluencerPriceVersion());
+        service.saveInfluencerBundleConfig(SALES_INFLUENCER_ID, config, "admin");
+
+        verify(mapper).upsertInfluencerBundleConfig(config);
+        verify(mapper, never()).selectInfluencerProductPrice(SALES_INFLUENCER_ID, 200L);
+    }
+
+    @Test
+    void presetRejectsNonAccessoryOrOutOfStockAddon()
+    {
+        when(mapper.selectInfluencerByIdForUpdate(SALES_INFLUENCER_ID)).thenReturn(activeInfluencer(false));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
+        Map<String, Object> addonProduct = product("SAMPLE");
+        addonProduct.put("totalStockQty", 1);
+        when(mapper.selectProductById(200L)).thenReturn(addonProduct);
+        Map<String, Object> config = includedPreset(PRODUCT_ID, 200L, 1, 2);
+
+        assertTrue(assertThrows(ServiceException.class,
+            () -> service.saveInfluencerBundleConfig(SALES_INFLUENCER_ID, config, "admin"))
+            .getMessage().contains("配件商品"));
+
+        addonProduct.put("productType", "ACCESSORY");
+        addonProduct.put("totalStockQty", 0);
+        assertTrue(assertThrows(ServiceException.class,
+            () -> service.saveInfluencerBundleConfig(SALES_INFLUENCER_ID, config, "admin"))
+            .getMessage().contains("已在库"));
+        verify(mapper, never()).upsertInfluencerBundleConfig(any());
+    }
+
+    @Test
+    void legacyNonAccessoryIncludedAddonRequiresMatchingPresetAndQuantityRatio()
+    {
+        JewelryDocument document = document(null, "SALES_OUT", null);
+        document.setSalesChannel("douyin");
+        JewelryDocumentItem main = itemForProduct(null, PRODUCT_ID, 1);
+        main.setSaleRole("MAIN");
+        main.setBundleGroupNo(1);
+        JewelryDocumentItem addon = itemForProduct(null, 200L, 1);
+        addon.setSaleRole("ADDON");
+        addon.setBundleGroupNo(1);
+        addon.setPricingMode("INCLUDED");
+        document.setItems(Arrays.asList(main, addon));
+        stubSalesBindings(main);
+        when(mapper.selectProductById(200L)).thenReturn(product("PART"));
+        when(mapper.selectInfluencerBundleConfigs(SALES_INFLUENCER_ID))
+            .thenReturn(Arrays.asList(includedPreset(PRODUCT_ID, 200L, 1, 2)));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveDocument(document, MAKER_ID, "maker"));
+        assertTrue(error.getMessage().contains("预设关系或数量比"));
+        verify(mapper, never()).insertDocument(any());
+    }
+
+    @Test
+    void savingSalesDraftRejectsDisabledBinding()
+    {
+        JewelryDocument document = document(null, "SALES_OUT", null);
+        document.setSalesChannel("douyin");
+        JewelryDocumentItem item = item(null, 1, "128.5678");
+        document.setItems(Arrays.asList(item));
+        stubSalesBindings(item);
+        Map<String, Object> disabled = mapper.selectInfluencerProductPrices(SALES_INFLUENCER_ID).get(0);
+        disabled.put("bindingStatus", "1");
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveDocument(document, MAKER_ID, "maker"));
+        assertTrue(error.getMessage().contains("有效绑定"));
+        verify(mapper, never()).insertDocument(any());
+    }
+
+    @Test
+    void savingSalesDraftRejectsOutdatedBindingVersion()
+    {
+        JewelryDocument document = document(null, "SALES_OUT", null);
+        document.setSalesChannel("douyin");
+        JewelryDocumentItem item = item(null, 1, "128.5678");
+        item.setInfluencerPriceVersion(2);
+        document.setItems(Arrays.asList(item));
+        stubSalesBindings(item);
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveDocument(document, MAKER_ID, "maker"));
+        assertTrue(error.getMessage().contains("已更新"));
+        verify(mapper, never()).insertDocument(any());
     }
 
     @Test
@@ -2831,6 +3052,37 @@ class JewelryErpServiceImplTest
         record.put("priceStatus", "PRICED");
         record.put("priceVersion", version);
         return record;
+    }
+
+    private void stubSalesBindings(JewelryDocumentItem... items)
+    {
+        List<Map<String, Object>> bindings = new java.util.ArrayList<Map<String, Object>>();
+        for (JewelryDocumentItem item : items)
+        {
+            String price = item.getUnitPrice() == null || item.getUnitPrice().signum() <= 0
+                ? "1" : item.getUnitPrice().toPlainString();
+            Map<String, Object> binding = pricedProductPrice(item.getProductId(), price, 1);
+            binding.put("bindingStatus", "0");
+            binding.put("commissionRate", BigDecimal.ZERO);
+            binding.put("platformRate", BigDecimal.ZERO);
+            binding.put("taxRate", BigDecimal.ZERO);
+            binding.put("packFee", item.getPackFee() == null ? BigDecimal.ZERO : item.getPackFee());
+            binding.put("shipFee", item.getShipFee() == null ? BigDecimal.ZERO : item.getShipFee());
+            binding.put("certFee", item.getCertFee() == null ? BigDecimal.ZERO : item.getCertFee());
+            bindings.add(binding);
+        }
+        when(mapper.selectInfluencerProductPrices(SALES_INFLUENCER_ID)).thenReturn(bindings);
+    }
+
+    private Map<String, Object> includedPreset(Long mainProductId, Long addonProductId, int mainQty, int addonQty)
+    {
+        Map<String, Object> config = new HashMap<String, Object>();
+        config.put("mainProductId", mainProductId);
+        config.put("addonProductId", addonProductId);
+        config.put("mainQty", mainQty);
+        config.put("addonQty", addonQty);
+        config.put("pricingMode", "INCLUDED");
+        return config;
     }
 
     private Map<String, Object> pendingProductPrice(Long productId, String price, Long sourceDocumentId)

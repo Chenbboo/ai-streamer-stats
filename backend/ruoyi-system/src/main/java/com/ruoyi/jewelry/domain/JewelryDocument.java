@@ -19,6 +19,7 @@ public class JewelryDocument extends BaseEntity
     @JsonFormat(pattern = "yyyy-MM-dd")
     private Date supplierReturnDate;
     private String status;
+    private boolean hideDrafts;
     private Long supplierId;
     private String supplierNameSnapshot;
     private String itemSupplierNames;
@@ -75,6 +76,8 @@ public class JewelryDocument extends BaseEntity
     public void setSupplierReturnDate(Date supplierReturnDate) { this.supplierReturnDate = supplierReturnDate; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public boolean isHideDrafts() { return hideDrafts; }
+    public void setHideDrafts(boolean hideDrafts) { this.hideDrafts = hideDrafts; }
     public Long getSupplierId() { return supplierId; }
     public void setSupplierId(Long supplierId) { this.supplierId = supplierId; }
     public String getSupplierNameSnapshot() { return supplierNameSnapshot; }

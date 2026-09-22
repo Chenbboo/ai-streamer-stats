@@ -28,6 +28,9 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -39,7 +42,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.core.domain.model.LoginUser;
+import com.ruoyi.common.utils.PageUtils;
 import com.ruoyi.jewelry.service.JewelryDocumentExcelService;
+import com.ruoyi.jewelry.service.JewelryInfluencerBindingExcelService;
 import com.ruoyi.jewelry.service.IJewelryErpService;
 import com.ruoyi.jewelry.domain.JewelryDocument;
 import com.ruoyi.jewelry.domain.JewelryProductBatchUpdate;
@@ -86,6 +91,7 @@ class JewelryErpControllerPermissionTest
         expected.put("influencerPriceHistory", "@ss.hasPermi('jewelry:influencer:list')");
         expected.put("influencerBundleItems", "@ss.hasPermi('jewelry:influencer:list')");
         expected.put("changeInfluencerPrice", "@ss.hasPermi('jewelry:influencer:price')");
+        expected.put("confirmInfluencerBindings", "@ss.hasPermi('jewelry:influencer:price')");
         expected.put("stockList", "@ss.hasPermi('jewelry:stock:list')");
         expected.put("stockSupplierOptions", "@ss.hasPermi('jewelry:stock:list')");
         expected.put("supplierReturnDays", "@ss.hasPermi('jewelry:stock:list')");
@@ -112,6 +118,60 @@ class JewelryErpControllerPermissionTest
             assertNotNull(authorization, entry.getKey() + " 缺少权限保护");
             assertEquals(entry.getValue(), authorization.value(),
                 entry.getKey() + " 的权限标识发生了非预期变化");
+        }
+    }
+
+    @Test
+    void invalidInfluencerImportNeverWritesAnyBinding()
+    {
+        IJewelryErpService service = mock(IJewelryErpService.class);
+        JewelryInfluencerBindingExcelService excel = mock(JewelryInfluencerBindingExcelService.class);
+        JewelryErpController controller = new JewelryErpController();
+        ReflectionTestUtils.setField(controller, "service", service);
+        ReflectionTestUtils.setField(controller, "influencerExcelService", excel);
+        loginAs("jewelry_admin", Collections.singleton("jewelry:influencer:price"));
+        Map<String, Object> row = new HashMap<String, Object>();
+        row.put("excelRow", 2);
+        row.put("errors", Collections.singletonList("商品类型不正确"));
+        java.util.List<Map<String, Object>> rows = Collections.singletonList(row);
+        when(excel.validateRows(9L, rows)).thenReturn(rows);
+
+        assertTrue(controller.confirmInfluencerBindings(9L, rows).isSuccess());
+        verify(service, never()).saveInfluencerBindings(any(), any(), any(), any());
+    }
+
+    @Test
+    void reviewerDocumentListHidesDraftsButMakerAndAdministratorKeepTheirViews()
+    {
+        IJewelryErpService service = mock(IJewelryErpService.class);
+        when(service.listDocuments(any())).thenReturn(Collections.emptyList());
+        JewelryErpController controller = new JewelryErpController();
+        ReflectionTestUtils.setField(controller, "service", service);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        try
+        {
+            loginAs("jewelry_reviewer", Collections.singleton("jewelry:document:list"));
+            JewelryDocument reviewerQuery = new JewelryDocument();
+            controller.documentList(reviewerQuery);
+            assertTrue(reviewerQuery.isHideDrafts());
+            assertTrue(reviewerQuery.getCreatorUserId() == null);
+
+            loginAs("jewelry_maker", Collections.singleton("jewelry:document:list"));
+            JewelryDocument makerQuery = new JewelryDocument();
+            controller.documentList(makerQuery);
+            assertFalse(makerQuery.isHideDrafts());
+            assertEquals(20L, makerQuery.getCreatorUserId());
+
+            loginAs("jewelry_admin", Collections.singleton("jewelry:document:list"));
+            JewelryDocument administratorQuery = new JewelryDocument();
+            controller.documentList(administratorQuery);
+            assertFalse(administratorQuery.isHideDrafts());
+            assertTrue(administratorQuery.getCreatorUserId() == null);
+        }
+        finally
+        {
+            PageUtils.clearPage();
+            RequestContextHolder.resetRequestAttributes();
         }
     }
 

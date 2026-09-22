@@ -1,119 +1,68 @@
 <template>
   <div class="app-container">
-    <el-form inline>
-      <el-form-item><el-input v-model="query.keyword" placeholder="编码、达人ID、名称或平台账号" clearable @keyup.enter="load"/></el-form-item>
-      <el-form-item><el-select v-model="query.priceStatus" placeholder="全部定价状态" clearable style="width:170px"><el-option label="已有商品定价" value="PRICED"/><el-option label="有待生效价格" value="PENDING"/><el-option label="尚无商品价格" value="UNPRICED"/></el-select></el-form-item>
-      <el-form-item><el-button type="primary" icon="Search" @click="load">查询</el-button></el-form-item>
-    </el-form>
+    <el-form inline><el-form-item><el-input v-model="query.keyword" placeholder="编码、达人ID、名称或平台账号" clearable @keyup.enter="load"/></el-form-item><el-form-item><el-select v-model="query.priceStatus" placeholder="全部定价状态" clearable style="width:170px"><el-option label="已有商品定价" value="PRICED"/><el-option label="有待生效价格" value="PENDING"/><el-option label="尚无商品价格" value="UNPRICED"/></el-select></el-form-item><el-form-item><el-button type="primary" icon="Search" @click="load">查询</el-button></el-form-item></el-form>
     <el-button type="primary" plain icon="Plus" class="mb8" v-hasPermi="['jewelry:influencer:add']" @click="openProfile()">新增达人/主播</el-button>
-    <el-table :data="rows" v-loading="loading" border>
-      <el-table-column prop="influencerCode" label="达人编码" width="130"/>
-      <el-table-column prop="externalInfluencerId" label="达人ID" min-width="140" show-overflow-tooltip/>
-      <el-table-column prop="influencerName" label="达人/主播" min-width="160"/>
-      <el-table-column prop="platform" label="平台" width="100"/>
-      <el-table-column prop="platformAccount" label="平台账号" min-width="150"/>
-      <el-table-column prop="salesChannel" label="默认销售渠道" width="140"/>
-      <el-table-column label="商品关联" width="255"><template #default="{row}"><el-tag type="success">已定价 {{row.pricedProductCount||0}} 种</el-tag><el-tag v-if="Number(row.pendingProductCount||0)>0" type="warning" class="ml5">待生效 {{row.pendingProductCount}} 种</el-tag><el-tag v-if="Number(row.bundleItemCount||0)>0" type="info" class="ml5">搭售散件 {{row.bundleItemCount}} 种</el-tag></template></el-table-column>
-      <el-table-column label="状态" width="80"><template #default="{row}"><el-tag :type="row.status==='0'?'success':'info'">{{row.status==='0'?'启用':'停用'}}</el-tag></template></el-table-column>
-      <el-table-column label="操作" width="300" fixed="right"><template #default="{row}">
-        <el-button link type="primary" v-hasPermi="['jewelry:influencer:edit']" @click="openProfile(row)">编辑</el-button>
-        <el-button link type="primary" @click="openProductPrices(row)">商品价格</el-button>
-        <el-button link type="primary" @click="openBundleItems(row)">搭售散件</el-button>
-        <el-button link type="primary" @click="openHistory(row)">价格历史</el-button>
-      </template></el-table-column>
-    </el-table>
+    <el-table :data="rows" v-loading="loading" border><el-table-column prop="influencerCode" label="达人编码" width="125"/><el-table-column prop="externalInfluencerId" label="达人ID" min-width="130" show-overflow-tooltip/><el-table-column prop="influencerName" label="达人/主播" min-width="150"/><el-table-column prop="platform" label="平台" width="100"/><el-table-column prop="platformAccount" label="平台账号" min-width="140"/><el-table-column prop="salesChannel" label="默认销售渠道" width="140"/><el-table-column label="商品关联" width="225"><template #default="{row}"><el-tag type="success">已定价 {{row.pricedProductCount||0}} 种</el-tag><el-tag v-if="Number(row.pendingProductCount||0)>0" type="warning" class="ml5">待生效 {{row.pendingProductCount}} 种</el-tag></template></el-table-column><el-table-column label="状态" width="80"><template #default="{row}"><el-tag :type="row.status==='0'?'success':'info'">{{row.status==='0'?'启用':'停用'}}</el-tag></template></el-table-column><el-table-column label="操作" width="90" fixed="right"><template #default="{row}"><el-button link type="primary" v-hasPermi="['jewelry:influencer:edit']" @click="openProfile(row)">编辑</el-button></template></el-table-column></el-table>
     <pagination v-show="total>0" v-model:page="query.pageNum" v-model:limit="query.pageSize" :total="total" @pagination="load"/>
-
-    <el-dialog v-model="profileDialog" :title="profile.influencerId?'编辑达人/主播':'新增达人/主播'" width="620px">
-      <el-form ref="profileRef" :model="profile" :rules="profileRules" label-width="110px">
-        <el-form-item label="达人编码"><el-input :model-value="profile.influencerId ? profile.influencerCode : '保存后由系统自动生成'" disabled/></el-form-item>
-        <el-form-item label="达人ID"><el-input v-model="profile.externalInfluencerId" placeholder="填写平台侧达人ID"/></el-form-item>
-        <el-form-item label="达人/主播名称" prop="influencerName"><el-input v-model="profile.influencerName"/></el-form-item>
-        <el-form-item label="平台"><el-input v-model="profile.platform" placeholder="例如：抖音"/></el-form-item>
-        <el-form-item label="平台账号"><el-input v-model="profile.platformAccount"/></el-form-item>
-        <el-form-item label="默认销售渠道"><el-input v-model="profile.salesChannel" placeholder="例如：抖音"/></el-form-item>
-        <el-form-item label="联系电话"><el-input v-model="profile.contactPhone"/></el-form-item>
-        <el-form-item label="状态"><el-radio-group v-model="profile.status"><el-radio value="0">启用</el-radio><el-radio value="1">停用</el-radio></el-radio-group></el-form-item>
-        <el-form-item label="备注"><el-input v-model="profile.remark" type="textarea"/></el-form-item>
-      </el-form>
-      <template #footer><el-button @click="profileDialog=false">取消</el-button><el-button type="primary" @click="saveProfile">确定</el-button></template>
-    </el-dialog>
-
-    <el-dialog v-model="bundleItemDialog" :title="`${bundleItemName}－已绑定搭售散件`" width="1060px">
-      <el-alert type="info" :closable="false" title="销售出库审核入账后，组合内的散件会自动绑定到该达人和主商品；这里记录搭售关系，不会把包含组合价的散件误记为有固定售价。" class="mb12"/>
-      <el-table :data="bundleItemRows" border max-height="520">
-        <el-table-column prop="mainSku" label="主商品SKU" width="150"/>
-        <el-table-column prop="mainProductName" label="主商品" min-width="190" show-overflow-tooltip/>
-        <el-table-column prop="addonSku" label="散件SKU" width="150"/>
-        <el-table-column prop="addonProductName" label="搭售散件" min-width="190" show-overflow-tooltip/>
-        <el-table-column label="搭售比例" width="110" align="center"><template #default="{row}">{{row.mainQty}} : {{row.addonQty}}</template></el-table-column>
-        <el-table-column label="计价方式" width="125"><template #default="{row}">{{row.pricingMode==='INCLUDED'?'包含组合价':'单独计价'}}</template></el-table-column>
-        <el-table-column prop="sourceDocNo" label="最近来源单据" width="180"/>
-      </el-table>
-      <el-empty v-if="!bundleItemRows.length" description="尚未绑定搭售散件" :image-size="70"/>
-    </el-dialog>
-
-    <el-dialog v-model="productPriceDialog" :title="`${productPriceName}－商品固定价`" width="920px">
-      <el-alert type="info" :closable="false" title="每个达人按商品分别定价；待生效价格来自制单员保存的销售草稿，审核入账后转为正式固定价。" class="mb12"/>
-      <el-table :data="productPriceRows" border max-height="520">
-        <el-table-column prop="sku" label="SKU" width="150"/>
-        <el-table-column prop="productName" label="商品名称" min-width="220" show-overflow-tooltip/>
-        <el-table-column label="固定成交单价" width="145" align="right"><template #default="{row}">¥ {{priceText(row.fixedUnitPrice)}}</template></el-table-column>
-        <el-table-column label="状态" width="105"><template #default="{row}"><el-tag :type="row.priceStatus==='PRICED'?'success':'warning'">{{row.priceStatus==='PRICED'?'已生效':'待生效'}}</el-tag></template></el-table-column>
-        <el-table-column prop="priceVersion" label="版本" width="70" align="center"/>
-        <el-table-column label="来源单据" min-width="165"><template #default="{row}">{{row.priceStatus==='PENDING'?row.pendingSourceDocNo:row.priceSourceDocNo || '—'}}</template></el-table-column>
-        <el-table-column label="操作" width="90"><template #default="{row}"><el-button v-if="row.priceStatus==='PRICED'" link type="warning" v-hasPermi="['jewelry:influencer:price']" @click="openPrice(row)">改价</el-button></template></el-table-column>
-      </el-table>
-      <el-empty v-if="!productPriceRows.length" description="尚未关联任何商品价格" :image-size="70"/>
-    </el-dialog>
-
-    <el-dialog v-model="priceDialog" title="修改达人商品固定成交价" width="520px">
-      <el-alert type="warning" :closable="false" title="改价只影响之后新建的销售和无原单退货，历史单据仍使用原价格快照。" class="mb12"/>
-      <el-form ref="priceRef" :model="priceForm" :rules="priceRules" label-width="120px">
-        <el-form-item label="达人/主播"><el-input :model-value="priceForm.influencerName" disabled/></el-form-item>
-        <el-form-item label="商品"><el-input :model-value="`${priceForm.sku} · ${priceForm.productName}`" disabled/></el-form-item>
-        <el-form-item label="当前固定价"><el-input :model-value="`¥ ${priceText(priceForm.oldPrice)}`" disabled/></el-form-item>
-        <el-form-item label="新固定价" prop="fixedUnitPrice"><el-input-number v-model="priceForm.fixedUnitPrice" :min="0.0001" :precision="4" :step="0.0001" style="width:100%"/></el-form-item>
-        <el-form-item label="改价原因" prop="reason"><el-input v-model="priceForm.reason" type="textarea" :rows="3"/></el-form-item>
-      </el-form>
-      <template #footer><el-button @click="priceDialog=false">取消</el-button><el-button type="primary" @click="savePrice">确认改价</el-button></template>
-    </el-dialog>
-
-    <el-dialog v-model="historyDialog" :title="`${historyName}－商品价格历史`" width="980px">
-      <el-table :data="historyRows" border>
-        <el-table-column prop="sku" label="SKU" width="140"/>
-        <el-table-column prop="productName" label="商品名称" min-width="180" show-overflow-tooltip/>
-        <el-table-column prop="priceVersion" label="版本" width="70"/>
-        <el-table-column label="原价" width="110" align="right"><template #default="{row}">{{row.oldPrice==null?'—':`¥ ${priceText(row.oldPrice)}`}}</template></el-table-column>
-        <el-table-column label="新价" width="110" align="right"><template #default="{row}">¥ {{priceText(row.newPrice)}}</template></el-table-column>
-        <el-table-column label="来源" width="110"><template #default="{row}">{{row.sourceType==='FIRST_SALE'?'首笔销售入账':'管理员改价'}}</template></el-table-column>
-        <el-table-column prop="changeReason" label="原因" min-width="180"/>
-        <el-table-column prop="operatorName" label="操作人" width="100"/>
-        <el-table-column prop="createTime" label="时间" width="165"/>
-      </el-table>
-    </el-dialog>
+    <el-dialog v-model="profileDialog" :title="profile.influencerId?'编辑达人/主播':'新增达人/主播'" :width="profile.influencerId?'1180px':'650px'" destroy-on-close>
+      <el-tabs v-model="activeTab"><el-tab-pane label="基本信息" name="basic"><el-form ref="profileRef" :model="profile" :rules="profileRules" label-width="125px" class="profile-form"><el-form-item label="达人编码"><el-input :model-value="profile.influencerId ? profile.influencerCode : `${profile.platformCode||'平台简写'}+流水号，保存后生成`" disabled/></el-form-item><el-form-item label="平台" prop="platformCode"><el-select v-model="profile.platformCode" :disabled="!!profile.influencerId" placeholder="请选择平台" style="width:100%" @change="onPlatformChange"><el-option v-for="p in platforms" :key="p.platformCode" :label="`${p.platformName}（${p.platformCode}）`" :value="p.platformCode"/></el-select></el-form-item><el-form-item label="达人ID"><el-input v-model="profile.externalInfluencerId" placeholder="平台侧达人ID"/></el-form-item><el-form-item label="达人/主播名称" prop="influencerName"><el-input v-model="profile.influencerName"/></el-form-item><el-form-item label="平台账号"><el-input v-model="profile.platformAccount"/></el-form-item><el-form-item label="默认销售渠道"><el-input v-model="profile.salesChannel"/></el-form-item><el-form-item label="联系电话"><el-input v-model="profile.contactPhone"/></el-form-item><el-form-item label="状态"><el-radio-group v-model="profile.status"><el-radio value="0">启用</el-radio><el-radio value="1">停用</el-radio></el-radio-group></el-form-item><el-form-item label="备注"><el-input v-model="profile.remark" type="textarea"/></el-form-item></el-form><div class="tab-actions"><el-button type="primary" @click="saveProfile">保存基本信息</el-button></div></el-tab-pane>
+      <template v-if="profile.influencerId"><el-tab-pane label="商品绑定" name="bindings"><el-alert title="按成品商品维护直播成交价、佣金及费用。保存后成为正式价格；历史销售单仍使用原价格快照。配件商品请在搭售配置中选择。" type="info" :closable="false" class="mb12"/><div class="toolbar" v-if="canPrice"><el-button type="primary" plain @click="openBinding()">新增商品绑定</el-button><el-button @click="downloadTemplate">下载Excel模板</el-button><el-upload :show-file-list="false" :auto-upload="false" accept=".xlsx,.xls" :on-change="previewExcel"><el-button>批量Excel导入</el-button></el-upload></div><el-table :data="bindings" border max-height="440"><el-table-column prop="sku" label="SKU" width="130"/><el-table-column prop="productName" label="商品" min-width="155" show-overflow-tooltip/><el-table-column label="类型" width="100"><template #default="{row}">{{typeName(row.productType)}}</template></el-table-column><el-table-column label="直播价" width="100" align="right"><template #default="{row}">{{money(row.fixedUnitPrice)}}</template></el-table-column><el-table-column label="佣金/平台/税率 %" width="195"><template #default="{row}">{{percent(row.commissionRate)}} / {{percent(row.platformRate)}} / {{percent(row.taxRate)}}</template></el-table-column><el-table-column label="包装/物流/鉴定" width="180"><template #default="{row}">{{money(row.packFee)}} / {{money(row.shipFee)}} / {{money(row.certFee)}}</template></el-table-column><el-table-column label="状态" width="90"><template #default="{row}"><el-tag :type="row.priceStatus==='PENDING'?'warning':row.bindingStatus==='1'?'info':'success'">{{row.priceStatus==='PENDING'?'待生效':row.bindingStatus==='1'?'停用':'启用'}}</el-tag></template></el-table-column><el-table-column label="操作" width="75" v-if="canPrice"><template #default="{row}"><el-button v-if="row.productType==='FINISHED'" link type="primary" :disabled="row.priceStatus==='PENDING'" @click="openBinding(row)">编辑</el-button></template></el-table-column></el-table></el-tab-pane>
+      <el-tab-pane label="搭售配置" name="bundles"><el-alert title="预设搭售关系供后续制单选择；配置本身不会变动库存。" type="info" :closable="false" class="mb12"/><div class="toolbar" v-if="canPrice"><el-button type="primary" plain @click="openBundle">新增搭售配置</el-button></div><el-table :data="bundles" border max-height="400"><el-table-column prop="mainSku" label="主商品SKU" width="150"/><el-table-column prop="mainProductName" label="主商品" min-width="160"/><el-table-column prop="addonSku" label="搭售SKU" width="150"/><el-table-column prop="addonProductName" label="搭售商品" min-width="160"/><el-table-column label="数量比" width="100"><template #default="{row}">{{row.mainQty}} : {{row.addonQty}}</template></el-table-column><el-table-column label="计价" width="120"><template #default="{row}">{{row.pricingMode==='INCLUDED'?'包含组合价':'单独计价'}}</template></el-table-column><el-table-column label="操作" width="80" v-if="canPrice"><template #default="{row}"><el-button link type="danger" @click="removeBundle(row)">删除</el-button></template></el-table-column></el-table></el-tab-pane>
+      <el-tab-pane label="价格历史" name="history"><el-table :data="history" border max-height="430"><el-table-column prop="sku" label="SKU" width="125"/><el-table-column prop="productName" label="商品" min-width="150"/><el-table-column prop="priceVersion" label="版本" width="70"/><el-table-column label="原价" width="110"><template #default="{row}">{{row.oldPrice==null?'—':money(row.oldPrice)}}</template></el-table-column><el-table-column label="新价" width="110"><template #default="{row}">{{money(row.newPrice)}}</template></el-table-column><el-table-column label="来源" width="110"><template #default="{row}">{{sourceName(row.sourceType)}}</template></el-table-column><el-table-column prop="changeReason" label="原因" min-width="160"/><el-table-column prop="operatorName" label="操作人" width="100"/><el-table-column prop="createTime" label="时间" width="165"/></el-table></el-tab-pane>
+      <el-tab-pane label="历史搭售" name="soldBundles"><el-table :data="soldBundles" border max-height="430"><el-table-column prop="mainSku" label="主商品SKU" width="140"/><el-table-column prop="mainProductName" label="主商品" min-width="150"/><el-table-column prop="addonSku" label="搭售SKU" width="140"/><el-table-column prop="addonProductName" label="搭售商品" min-width="150"/><el-table-column label="数量比" width="100"><template #default="{row}">{{row.mainQty}} : {{row.addonQty}}</template></el-table-column><el-table-column prop="sourceDocNo" label="最近销售单" width="180"/></el-table></el-tab-pane></template></el-tabs><template #footer><el-button @click="profileDialog=false">关闭</el-button></template></el-dialog>
+    <el-dialog v-model="bindingDialog" :title="binding.editing?'编辑商品绑定':'新增商品绑定'" width="680px" append-to-body><el-form label-width="125px" class="binding-form"><el-form-item label="商品" required><el-select v-model="binding.productId" filterable :disabled="!!binding.editing" placeholder="选择成品商品" style="width:100%"><el-option v-for="p in bindingProducts" :key="p.productId" :label="`${p.sku} · ${p.productName}（${typeName(p.productType)}）`" :value="p.productId"/></el-select></el-form-item><el-form-item label="直播成交价" required><el-input-number v-model="binding.fixedUnitPrice" :min="0.0001" :precision="4" style="width:100%"/></el-form-item><el-form-item label="达人佣金率 %"><el-input-number v-model="binding.commissionPercent" :min="0" :max="100" :precision="4" style="width:100%"/></el-form-item><el-form-item label="平台扣点率 %"><el-input-number v-model="binding.platformPercent" :min="0" :max="100" :precision="4" style="width:100%"/></el-form-item><el-form-item label="税率 %"><el-input-number v-model="binding.taxPercent" :min="0" :max="100" :precision="4" style="width:100%"/></el-form-item><el-form-item label="包装费"><el-input-number v-model="binding.packFee" :min="0" :precision="4" style="width:100%"/></el-form-item><el-form-item label="物流费"><el-input-number v-model="binding.shipFee" :min="0" :precision="4" style="width:100%"/></el-form-item><el-form-item label="鉴定费"><el-input-number v-model="binding.certFee" :min="0" :precision="4" style="width:100%"/></el-form-item><el-form-item label="绑定状态"><el-radio-group v-model="binding.bindingStatus"><el-radio value="0">启用</el-radio><el-radio value="1">停用</el-radio></el-radio-group></el-form-item><el-form-item label="备注/改价原因"><el-input v-model="binding.bindingRemark" type="textarea" :rows="2"/></el-form-item></el-form><template #footer><el-button @click="bindingDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveBinding">保存绑定</el-button></template></el-dialog>
+    <el-dialog v-model="bundleDialog" title="新增搭售配置" width="620px" append-to-body><el-form label-width="115px"><el-form-item label="主商品"><el-select v-model="bundle.mainProductId" filterable style="width:100%"><el-option v-for="p in mainProducts" :key="p.productId" :value="p.productId" :label="`${p.sku} · ${p.productName}`"/></el-select></el-form-item><el-form-item label="搭售商品"><el-select v-model="bundle.addonProductId" filterable style="width:100%" placeholder="选择已在库的配件商品"><el-option v-for="p in addonProducts" :key="p.productId" :value="p.productId" :label="`${p.sku} · ${p.productName}（账面库存 ${p.totalStockQty}）`"/></el-select></el-form-item><el-form-item label="主商品数量"><el-input-number v-model="bundle.mainQty" :min="1" :precision="0"/></el-form-item><el-form-item label="搭售数量"><el-input-number v-model="bundle.addonQty" :min="1" :precision="0"/></el-form-item><el-form-item label="计价方式">包含组合价</el-form-item></el-form><template #footer><el-button @click="bundleDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveBundle">保存</el-button></template></el-dialog>
+    <BindingImportDialog v-model="excelDialog" :rows="excelRows" :products="bindingProducts" :saving="saving" @submit="confirmExcel" />
   </div>
 </template>
-
 <script setup name="JewelryInfluencer">
-import {listJewelryInfluencers,saveJewelryInfluencer,getJewelryInfluencerProductPrices,changeJewelryInfluencerPrice,getJewelryInfluencerPriceHistory,getJewelryInfluencerBundleItems} from '@/api/jewelry/erp'
-const {proxy}=getCurrentInstance()
-const rows=ref([]),total=ref(0),loading=ref(false),profileDialog=ref(false),productPriceDialog=ref(false),priceDialog=ref(false),historyDialog=ref(false),bundleItemDialog=ref(false)
-const profileRef=ref(),priceRef=ref(),productPriceRows=ref([]),productPriceName=ref(''),activeInfluencerId=ref(null),historyRows=ref([]),historyName=ref(''),bundleItemRows=ref([]),bundleItemName=ref('')
+import { saveAs } from 'file-saver'
+import { jewelryProductType } from '@/utils/jewelryProduct'
+import { listJewelryProductOptions, listJewelryInfluencers, listJewelryInfluencerPlatforms, saveJewelryInfluencer, getJewelryInfluencerProductPrices, saveJewelryInfluencerBindings, previewJewelryInfluencerBindings, confirmJewelryInfluencerBindings, getJewelryInfluencerBundleConfigs, saveJewelryInfluencerBundleConfig, deleteJewelryInfluencerBundleConfig, getJewelryInfluencerPriceHistory, getJewelryInfluencerBundleItems } from '@/api/jewelry/erp'
+import BindingImportDialog from './BindingImportDialog.vue'
+import request from '@/utils/request'
+import useUserStore from '@/store/modules/user'
+const { proxy } = getCurrentInstance()
+const userStore = useUserStore()
+const canPrice = computed(() => userStore.permissions?.includes('*:*:*') || userStore.permissions?.includes('jewelry:influencer:price'))
+const rows=ref([]),total=ref(0),loading=ref(false),profileDialog=ref(false),bindingDialog=ref(false),bundleDialog=ref(false),excelDialog=ref(false),saving=ref(false)
+const profileRef=ref(),activeTab=ref('basic'),platforms=ref([]),products=ref([]),bindings=ref([]),bundles=ref([]),history=ref([]),soldBundles=ref([]),excelRows=ref([])
 const query=reactive({pageNum:1,pageSize:10,keyword:'',priceStatus:''})
-const blankProfile=()=>({influencerId:null,influencerCode:'',externalInfluencerId:'',influencerName:'',platform:'',platformAccount:'',salesChannel:'',contactPhone:'',status:'0',remark:''})
+const blankProfile=()=>({influencerId:null,influencerCode:'',platformCode:'',externalInfluencerId:'',influencerName:'',platform:'',platformAccount:'',salesChannel:'',contactPhone:'',status:'0',remark:''})
 const profile=reactive(blankProfile())
-const priceForm=reactive({influencerId:null,productId:null,influencerName:'',sku:'',productName:'',oldPrice:0,fixedUnitPrice:0,reason:''})
-const profileRules={influencerName:[{required:true,message:'请输入达人/主播名称'}]}
-const priceRules={fixedUnitPrice:[{required:true,message:'请输入新固定价'}],reason:[{required:true,message:'请填写改价原因'}]}
-const priceText=value=>Number(value||0).toFixed(4)
+const blankBinding=()=>({productId:null,editing:false,fixedUnitPrice:null,commissionPercent:0,platformPercent:0,taxPercent:0,packFee:0,shipFee:0,certFee:0,bindingStatus:'0',bindingRemark:''})
+const binding=reactive(blankBinding())
+const blankBundle=()=>({mainProductId:null,addonProductId:null,mainQty:1,addonQty:1,pricingMode:'INCLUDED'})
+const bundle=reactive(blankBundle())
+const profileRules={influencerName:[{required:true,message:'请输入达人/主播名称'}],platformCode:[{required:true,message:'请选择平台'}]}
+const usableBinding=productId=>bindings.value.some(b=>Number(b.productId)===Number(productId) && b.priceStatus==='PRICED' && b.bindingStatus==='0' && b.fixedUnitPrice!=null && b.commissionRate!=null && b.platformRate!=null && b.taxRate!=null)
+const bindingProducts=computed(()=>products.value.filter(p=>p.productType==='FINISHED'))
+const mainProducts=computed(()=>products.value.filter(p=>p.productType==='FINISHED' && usableBinding(p.productId)))
+const addonProducts=computed(()=>products.value.filter(p=>p.productType==='ACCESSORY' && Number(p.totalStockQty||0)>0))
+const typeName=t=>jewelryProductType(t)?.label||t||'—'
+const money=n=>Number(n||0).toFixed(4)
+const percent=n=>Number((Number(n||0)*100).toFixed(4))
+const sourceName=t=>({FIRST_SALE:'首笔销售',ADMIN_CHANGE:'管理员改价',PROFILE_BINDING:'档案绑定',PROFILE_UPDATE:'档案更新'}[t]||t||'—')
 async function load(){loading.value=true;try{const r=await listJewelryInfluencers(query);rows.value=r.rows||[];total.value=r.total||0}finally{loading.value=false}}
-function openProfile(row){Object.assign(profile,blankProfile(),row||{});profileDialog.value=true}
-async function saveProfile(){await profileRef.value.validate();await saveJewelryInfluencer(profile);proxy.$modal.msgSuccess('保存成功');profileDialog.value=false;load()}
-async function openProductPrices(row){activeInfluencerId.value=row.influencerId;productPriceName.value=row.influencerName;productPriceRows.value=(await getJewelryInfluencerProductPrices(row.influencerId)).data||[];productPriceDialog.value=true}
-async function openBundleItems(row){bundleItemName.value=row.influencerName;bundleItemRows.value=(await getJewelryInfluencerBundleItems(row.influencerId)).data||[];bundleItemDialog.value=true}
-function openPrice(row){Object.assign(priceForm,{influencerId:activeInfluencerId.value,productId:row.productId,influencerName:productPriceName.value,sku:row.sku,productName:row.productName,oldPrice:Number(row.fixedUnitPrice),fixedUnitPrice:Number(row.fixedUnitPrice),reason:''});priceDialog.value=true}
-async function savePrice(){await priceRef.value.validate();await changeJewelryInfluencerPrice(priceForm.influencerId,priceForm.productId,{fixedUnitPrice:priceForm.fixedUnitPrice,reason:priceForm.reason});proxy.$modal.msgSuccess('商品固定价已更新');priceDialog.value=false;productPriceRows.value=(await getJewelryInfluencerProductPrices(activeInfluencerId.value)).data||[];load()}
-async function openHistory(row){historyName.value=row.influencerName;historyRows.value=(await getJewelryInfluencerPriceHistory(row.influencerId)).data||[];historyDialog.value=true}
+function onPlatformChange(code){const p=platforms.value.find(x=>x.platformCode===code);profile.platform=p?.platformName||'';if(!profile.salesChannel)profile.salesChannel=profile.platform}
+async function refreshDetails(){if(!profile.influencerId)return;const id=profile.influencerId;const [b,c,h,s]=await Promise.all([getJewelryInfluencerProductPrices(id),getJewelryInfluencerBundleConfigs(id),getJewelryInfluencerPriceHistory(id),getJewelryInfluencerBundleItems(id)]);bindings.value=b.data||[];bundles.value=c.data||[];history.value=h.data||[];soldBundles.value=s.data||[]}
+async function openProfile(row){Object.assign(profile,blankProfile(),row||{});activeTab.value='basic';profileDialog.value=true;const [p,g]=await Promise.all([listJewelryInfluencerPlatforms(),listJewelryProductOptions({status:'0'})]);platforms.value=p.data||[];products.value=g.data||[];bindings.value=[];bundles.value=[];history.value=[];soldBundles.value=[];if(row)await refreshDetails()}
+async function saveProfile(){await profileRef.value.validate();await saveJewelryInfluencer({...profile});proxy.$modal.msgSuccess('保存成功');profileDialog.value=false;load()}
+function openBinding(row){Object.assign(binding,blankBinding());if(row)Object.assign(binding,{...row,editing:true,commissionPercent:percent(row.commissionRate),platformPercent:percent(row.platformRate),taxPercent:percent(row.taxRate),fixedUnitPrice:Number(row.fixedUnitPrice),packFee:Number(row.packFee||0),shipFee:Number(row.shipFee||0),certFee:Number(row.certFee||0)});bindingDialog.value=true}
+async function saveBinding(){if(!binding.productId||Number(binding.fixedUnitPrice)<=0)return proxy.$modal.msgError('请选择成品商品并填写大于0的直播价');if(!bindingProducts.value.some(p=>Number(p.productId)===Number(binding.productId)))return proxy.$modal.msgError('达人只能绑定成品商品');if(Number(binding.commissionPercent)+Number(binding.platformPercent)+Number(binding.taxPercent)>=100)return proxy.$modal.msgError('佣金、平台扣点和税率之和必须小于100%');saving.value=true;try{await saveJewelryInfluencerBindings(profile.influencerId,[{...binding}]);proxy.$modal.msgSuccess('商品绑定已保存');bindingDialog.value=false;await refreshDetails();load()}finally{saving.value=false}}
+async function openBundle(){const r=await listJewelryProductOptions({status:'0'});products.value=r.data||[];Object.assign(bundle,blankBundle());bundleDialog.value=true}
+async function saveBundle(){if(!bundle.mainProductId||!bundle.addonProductId)return proxy.$modal.msgError('请选择主商品和搭售商品');if(!addonProducts.value.some(p=>Number(p.productId)===Number(bundle.addonProductId)))return proxy.$modal.msgError('搭售商品必须是当前已在库的配件商品');saving.value=true;try{await saveJewelryInfluencerBundleConfig(profile.influencerId,{...bundle});proxy.$modal.msgSuccess('搭售配置已保存');bundleDialog.value=false;await refreshDetails()}finally{saving.value=false}}
+async function removeBundle(row){await proxy.$modal.confirm('确定删除这条搭售配置吗？');await deleteJewelryInfluencerBundleConfig(profile.influencerId,row.configId);await refreshDetails()}
+async function downloadTemplate(){const blob=await request({url:'/jewelry/influencer/bindings/template',method:'get',responseType:'blob'});saveAs(blob,'达人商品绑定模板.xlsx')}
+async function previewExcel(upload){const r=await previewJewelryInfluencerBindings(profile.influencerId,upload.raw);excelRows.value=r.data||[];excelDialog.value=true}
+async function confirmExcel(draftRows){saving.value=true;try{const r=await confirmJewelryInfluencerBindings(profile.influencerId,draftRows);if(!r.data?.saved){excelRows.value=r.data?.rows||[];proxy.$modal.msgWarning('仍有错误，请根据行内提示修改后再次提交');return}proxy.$modal.msgSuccess(`成功导入 ${r.data.count} 行`);excelDialog.value=false;await refreshDetails();load()}finally{saving.value=false}}
 load()
 </script>
+<style scoped>
+.profile-form { max-width: 640px; }
+.tab-actions { margin: 12px 0; padding-left: 125px; }
+.toolbar { display:flex; align-items:center; gap:10px; margin: 12px 0; }
+.binding-form { display:grid; grid-template-columns: 1fr 1fr; column-gap:16px; }
+.binding-form .el-form-item:first-child, .binding-form .el-form-item:last-child { grid-column: 1 / -1; }
+.mb12 { margin-bottom:12px; }
+</style>

@@ -216,6 +216,12 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     }
 
     @Override
+    public List<Map<String, Object>> listInfluencerPlatforms()
+    {
+        return mapper.selectInfluencerPlatforms();
+    }
+
+    @Override
     @Transactional
     public int saveInfluencer(Map<String, Object> influencer)
     {
@@ -225,7 +231,22 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         if (!"0".equals(status) && !"1".equals(status)) throw new ServiceException("达人状态不正确");
         influencer.put("externalInfluencerId", textValue(influencer.get("externalInfluencerId")).trim());
         influencer.put("influencerName", name);
-        if (influencer.get("influencerId") != null) return mapper.updateInfluencer(influencer);
+        if (influencer.get("influencerId") != null)
+        {
+            Map<String, Object> existing = mapper.selectInfluencerById(longValue(influencer.get("influencerId")));
+            if (existing == null) throw new ServiceException("达人/主播不存在");
+            influencer.put("platform", existing.get("platform"));
+            influencer.put("platformCode", existing.get("platformCode"));
+            return mapper.updateInfluencer(influencer);
+        }
+
+        String platformCode = textValue(influencer.get("platformCode")).trim().toUpperCase(Locale.ROOT);
+        Map<String, Object> platform = mapper.selectInfluencerPlatformForUpdate(platformCode);
+        if (platform == null || !"0".equals(textValue(platform.get("status"))))
+            throw new ServiceException("请选择有效的平台");
+        long nextNo = longValue(platform.get("nextNo"));
+        influencer.put("platformCode", platformCode);
+        influencer.put("platform", platform.get("platformName"));
 
         // The unique temporary value only bridges the generated-key insert. It is never exposed to users.
         influencer.put("influencerCode", "TMP-" + UUID.randomUUID().toString().replace("-", "").substring(0, 28));
@@ -235,9 +256,11 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             long influencerId = longValue(influencer.get("influencerId"));
             if (rows != 1 || influencerId <= 0L)
                 throw new ServiceException("达人编码生成失败，请重试");
-            String code = String.format(Locale.ROOT, "DR%06d", influencerId);
+            String code = String.format(Locale.ROOT, "%s%04d", platformCode, nextNo);
             if (mapper.updateInfluencerCode(influencerId, code, textValue(influencer.get("createBy"))) != 1)
                 throw new ServiceException("达人编码生成失败，请重试");
+            if (mapper.advanceInfluencerPlatformSequence(platformCode) != 1)
+                throw new ServiceException("平台序号更新失败，请重试");
             influencer.put("influencerCode", code);
             return rows;
         }
@@ -253,6 +276,76 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     {
         if (influencerId == null) throw new ServiceException("达人ID不能为空");
         return mapper.selectInfluencerProductPrices(influencerId);
+    }
+
+    @Override
+    @Transactional
+    public void saveInfluencerBindings(Long influencerId, List<Map<String, Object>> bindings,
+        Long userId, String userName)
+    {
+        if (influencerId == null || mapper.selectInfluencerByIdForUpdate(influencerId) == null)
+            throw new ServiceException("达人/主播不存在");
+        if (bindings == null || bindings.isEmpty()) throw new ServiceException("请选择要绑定的商品");
+        Set<Long> seen = new HashSet<Long>();
+        for (Map<String, Object> row : bindings)
+        {
+            Long productId = nullableLong(row.get("productId"));
+            if (productId == null || !seen.add(productId)) throw new ServiceException("商品未选择或重复");
+            Map<String, Object> product = mapper.selectProductById(productId);
+            if (product == null || !"0".equals(textValue(product.get("status"))))
+                throw new ServiceException("商品不存在或已停用");
+            if (!"FINISHED".equals(textValue(product.get("productType"))))
+                throw new ServiceException("达人只能绑定成品商品；配件商品请在搭售配置中选择");
+            BigDecimal price = fourDecimal(decimalValue(row.get("fixedUnitPrice"), "直播成交价"));
+            if (price.signum() <= 0) throw new ServiceException("直播成交价必须大于0");
+            BigDecimal commission = percentageValue(row.get("commissionPercent"), "达人佣金率");
+            BigDecimal platform = percentageValue(row.get("platformPercent"), "平台扣点率");
+            BigDecimal tax = percentageValue(row.get("taxPercent"), "税率");
+            validateCombinedRate(commission.add(platform).add(tax));
+            String status = textValue(row.get("bindingStatus"));
+            if (!"0".equals(status) && !"1".equals(status)) throw new ServiceException("商品绑定状态不正确");
+            String remark = textValue(row.get("bindingRemark")).trim();
+            if (remark.length() > 500) throw new ServiceException("备注不能超过500字");
+            Map<String, Object> existing = mapper.selectInfluencerProductPriceForUpdate(influencerId, productId);
+            if (existing != null && "PENDING".equals(textValue(existing.get("priceStatus"))))
+                throw new ServiceException("商品价格正在销售草稿中待生效，请先处理该草稿");
+            Map<String, Object> binding = new HashMap<String, Object>();
+            binding.put("influencerId", influencerId);
+            binding.put("productId", productId);
+            binding.put("fixedUnitPrice", price);
+            binding.put("commissionRate", commission);
+            binding.put("platformRate", platform);
+            binding.put("taxRate", tax);
+            binding.put("packFee", nonNegativeDecimalValue(row.get("packFee"), "包装费"));
+            binding.put("shipFee", nonNegativeDecimalValue(row.get("shipFee"), "物流费"));
+            binding.put("certFee", nonNegativeDecimalValue(row.get("certFee"), "鉴定费"));
+            binding.put("bindingStatus", status);
+            binding.put("bindingRemark", remark);
+            binding.put("userName", userName);
+            int version = existing == null ? 1 : intValue(existing.get("priceVersion")) + 1;
+            if (existing == null)
+            {
+                if (mapper.insertInfluencerBinding(binding) != 1) throw new ServiceException("商品绑定保存失败");
+            }
+            else
+            {
+                binding.put("priceVersion", version - 1);
+                if (mapper.updateInfluencerBinding(binding) != 1)
+                    throw new ServiceException("商品绑定已被修改，请刷新后重试");
+            }
+            Map<String, Object> history = new HashMap<String, Object>();
+            history.put("influencerId", influencerId);
+            history.put("productId", productId);
+            history.put("oldPrice", existing == null ? null : existing.get("fixedUnitPrice"));
+            history.put("newPrice", price);
+            history.put("sourceType", existing == null ? "PROFILE_BINDING" : "PROFILE_UPDATE");
+            history.put("sourceDocumentId", null);
+            history.put("priceVersion", version);
+            history.put("changeReason", remark.isEmpty() ? (existing == null ? "达人档案绑定商品" : "达人档案更新商品配置") : remark);
+            history.put("operatorUserId", userId);
+            history.put("operatorName", userName);
+            mapper.insertInfluencerPriceHistory(history);
+        }
     }
 
     @Override
@@ -302,6 +395,66 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     public List<Map<String, Object>> listInfluencerBundleItems(Long influencerId)
     {
         return mapper.selectInfluencerBundleItems(influencerId);
+    }
+
+    @Override
+    public List<Map<String, Object>> listInfluencerBundleConfigs(Long influencerId)
+    {
+        if (influencerId == null) throw new ServiceException("达人ID不能为空");
+        return mapper.selectInfluencerBundleConfigs(influencerId);
+    }
+
+    @Override
+    @Transactional
+    public void saveInfluencerBundleConfig(Long influencerId, Map<String, Object> config, String userName)
+    {
+        if (influencerId == null || mapper.selectInfluencerByIdForUpdate(influencerId) == null)
+            throw new ServiceException("达人/主播不存在");
+        Long mainId = nullableLong(config.get("mainProductId"));
+        Long addonId = nullableLong(config.get("addonProductId"));
+        if (mainId == null || addonId == null || mainId.equals(addonId))
+            throw new ServiceException("请选择不同的主商品和搭售商品");
+        Map<String, Object> main = mapper.selectProductById(mainId);
+        Map<String, Object> addon = mapper.selectProductById(addonId);
+        if (main == null || addon == null || !"0".equals(textValue(main.get("status")))
+            || !"0".equals(textValue(addon.get("status"))))
+            throw new ServiceException("主商品或搭售商品不存在或已停用");
+        if (!"FINISHED".equals(textValue(main.get("productType")))
+            || !"ACCESSORY".equals(textValue(addon.get("productType"))))
+            throw new ServiceException("主商品必须是成品，搭售商品必须是配件商品");
+        if (decimal(addon.get("totalStockQty")).signum() <= 0)
+            throw new ServiceException("搭售商品必须是当前已在库的配件商品");
+        int mainQty = integerValue(config.get("mainQty"), "主商品数量");
+        int addonQty = integerValue(config.get("addonQty"), "搭售数量");
+        if (mainQty <= 0 || addonQty <= 0) throw new ServiceException("搭售比例必须大于0");
+        String mode = textValue(config.get("pricingMode"));
+        if (!"INCLUDED".equals(mode) && !"SEPARATE".equals(mode))
+            throw new ServiceException("搭售计价方式不正确");
+        if ("ACCESSORY".equals(textValue(addon.get("productType"))) && !"INCLUDED".equals(mode))
+            throw new ServiceException("配件商品必须包含在组合价中");
+        Map<String, Object> mainBinding = mapper.selectInfluencerProductPrice(influencerId, mainId);
+        if (!isConfiguredSalesBinding(mainBinding))
+            throw new ServiceException("请先为主商品配置并启用直播价和各项费率");
+        if ("SEPARATE".equals(mode))
+        {
+            Map<String, Object> addonBinding = mapper.selectInfluencerProductPrice(influencerId, addonId);
+            if (!isConfiguredSalesBinding(addonBinding))
+                throw new ServiceException("单独计价的搭售商品需先配置并启用直播价和各项费率");
+        }
+        config.put("influencerId", influencerId);
+        config.put("mainQty", mainQty);
+        config.put("addonQty", addonQty);
+        config.put("userName", userName);
+        mapper.upsertInfluencerBundleConfig(config);
+    }
+
+    @Override
+    @Transactional
+    public void deleteInfluencerBundleConfig(Long influencerId, Long configId)
+    {
+        if (influencerId == null || configId == null
+            || mapper.deleteInfluencerBundleConfig(influencerId, configId) != 1)
+            throw new ServiceException("搭售配置不存在或已删除");
     }
 
     @Override
@@ -508,6 +661,13 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             prepareCostAdjustment(document);
         }
         prepareInlineAssemblyOutput(document, userName);
+        validateSalesBindingsForWrite(document);
+        if ("SALES_OUT".equals(document.getDocType()) && document.getDocumentId() == null)
+        {
+            document.setPlatformRate(ZERO);
+            document.setCommissionRate(ZERO);
+            document.setTaxRate(ZERO);
+        }
         validateDocument(document);
         calculateDocument(document);
         document.setUpdateBy(userName);
@@ -811,6 +971,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     || !"POSTED".equals(source.getStatus()))
                     throw new ServiceException("关联的客户退货单已失效，请重新选择");
             }
+            validateSalesBindingsForWrite(document);
             validateDocument(document);
             calculateDocument(document);
             if ("SALES_OUT".equals(document.getDocType()))
@@ -988,6 +1149,82 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         changeStatus(document, document.getStatus(), "REJECTED", userId, userName, comment, null);
         mapper.insertApproval(documentId, stage, "REJECT", userId, userName, comment);
         mapper.insertEvent(documentId, "REJECT", document.getStatus(), "REJECTED", userId, userName, comment);
+    }
+
+    private boolean isConfiguredSalesBinding(Map<String, Object> price)
+    {
+        return price != null && "PRICED".equals(textValue(price.get("priceStatus")))
+            && "0".equals(textValue(price.get("bindingStatus")))
+            && price.get("fixedUnitPrice") != null && price.get("commissionRate") != null
+            && price.get("platformRate") != null && price.get("taxRate") != null;
+    }
+
+    private void validateSalesBindingsForWrite(JewelryDocument document)
+    {
+        if (!"SALES_OUT".equals(document.getDocType()) || document.getInfluencerId() == null
+            || document.getItems() == null) return;
+        Map<Long, Map<String, Object>> prices = new HashMap<Long, Map<String, Object>>();
+        List<Map<String, Object>> rows = mapper.selectInfluencerProductPrices(document.getInfluencerId());
+        if (rows != null)
+            for (Map<String, Object> row : rows) prices.put(longValue(row.get("productId")), row);
+        List<Map<String, Object>> presetBundles = null;
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            if (item.getProductId() == null) continue;
+            Map<String, Object> price = prices.get(item.getProductId());
+            boolean ownLegacyPending = document.getDocumentId() != null && price != null
+                && "PENDING".equals(textValue(price.get("priceStatus")))
+                && document.getDocumentId().equals(nullableLong(price.get("pendingSourceDocumentId")));
+            if (ownLegacyPending) continue;
+            if ("ADDON".equals(normalizedSaleRole(item.getSaleRole()))
+                && "INCLUDED".equals(normalizedPricingMode(item.getPricingMode()))
+                && !isConfiguredSalesBinding(price))
+            {
+                // Accessories included in the main price may be chosen while drafting,
+                // even if this influencer has not saved the pairing as a preset.
+                Map<String, Object> addonProduct = mapper.selectProductById(item.getProductId());
+                if (addonProduct != null && "ACCESSORY".equals(textValue(addonProduct.get("productType"))))
+                    continue;
+                if (presetBundles == null) presetBundles = mapper.selectInfluencerBundleConfigs(document.getInfluencerId());
+                if (matchesIncludedPresetBundle(document, item, presetBundles)) continue;
+                throw new ServiceException("商品" + item.getProductId() + "的包含价搭售未匹配达人预设关系或数量比");
+            }
+            if (!isConfiguredSalesBinding(price))
+                throw new ServiceException("商品" + item.getProductId() + "未在当前达人档案中完成有效绑定，请先配置直播价和各项费率");
+            if (item.getInfluencerPriceVersion() != null && item.getInfluencerPriceVersion() > 0
+                && item.getInfluencerPriceVersion() != intValue(price.get("priceVersion")))
+                throw new ServiceException("商品" + item.getProductId() + "的达人配置已更新，请重新打开单据确认价格和费率");
+        }
+    }
+
+    private boolean matchesIncludedPresetBundle(JewelryDocument document, JewelryDocumentItem addon,
+        List<Map<String, Object>> configs)
+    {
+        if (configs == null || addon.getBundleGroupNo() == null || addon.getQty() == null) return false;
+        JewelryDocumentItem main = null;
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            if ("MAIN".equals(normalizedSaleRole(item.getSaleRole()))
+                && addon.getBundleGroupNo().equals(item.getBundleGroupNo()))
+            {
+                if (main != null) return false;
+                main = item;
+            }
+        }
+        if (main == null || main.getQty() == null || main.getProductId() == null) return false;
+        for (Map<String, Object> config : configs)
+        {
+            if ("INCLUDED".equals(textValue(config.get("pricingMode")))
+                && main.getProductId().equals(nullableLong(config.get("mainProductId")))
+                && addon.getProductId().equals(nullableLong(config.get("addonProductId"))))
+            {
+                long mainQty = longValue(config.get("mainQty"));
+                long addonQty = longValue(config.get("addonQty"));
+                return mainQty > 0 && addonQty > 0 && main.getQty() > 0 && addon.getQty() > 0
+                    && (long) addon.getQty() * mainQty == (long) main.getQty() * addonQty;
+            }
+        }
+        return false;
     }
 
     private void validateDocument(JewelryDocument document)
@@ -1402,6 +1639,15 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         {
             validateSalesBundleGroups(salesMainCounts, salesAddonCounts);
             applyInfluencerProductPrices(document, true, false);
+            for (JewelryDocumentItem item : document.getItems())
+            {
+                validateRate(item.getPlatformRateSnapshot(), "商品平台扣点率");
+                validateRate(item.getCommissionRateSnapshot(), "商品达人佣金率");
+                validateRate(item.getTaxRateSnapshot(), "商品税率");
+                validateCombinedRate(itemRate(item.getPlatformRateSnapshot(), document.getPlatformRate())
+                    .add(itemRate(item.getCommissionRateSnapshot(), document.getCommissionRate()))
+                    .add(itemRate(item.getTaxRateSnapshot(), document.getTaxRate())));
+            }
         }
         else if ("CUSTOMER_RETURN".equals(document.getDocType()) && document.getSourceDocumentId() == null)
             applyInfluencerProductPrices(document, false, true);
@@ -1564,6 +1810,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         }
         for (JewelryDocumentItem item : document.getItems())
         {
+            BigDecimal lineRate = customerReturn ? ZERO
+                : itemRate(item.getPlatformRateSnapshot(), platformRate)
+                    .add(itemRate(item.getCommissionRateSnapshot(), commissionRate))
+                    .add(itemRate(item.getTaxRateSnapshot(), taxRate));
             int qty = effectiveQty(document.getDocType(), item);
             boolean purchase = isInboundReceipt(document.getDocType());
             boolean fourDecimalUnitPrice = isFourDecimalTransactionAmount(document.getDocType());
@@ -1612,15 +1862,13 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             BigDecimal productCostAmount = cost.multiply(BigDecimal.valueOf(qty));
             BigDecimal feeAmount = fees.multiply(BigDecimal.valueOf(qty));
             BigDecimal grossCost = productCostAmount.add(feeAmount);
-            BigDecimal deductions = customerReturn ? ZERO
-                : grossAmount.multiply(platformRate.add(commissionRate).add(taxRate));
+            BigDecimal deductions = grossAmount.multiply(lineRate);
             BigDecimal amount = grossAmount;
             BigDecimal costAmount = grossCost;
             BigDecimal profit = grossAmount.subtract(grossCost).subtract(deductions);
             if ("SALES_OUT".equals(document.getDocType()))
             {
-                Map<String, BigDecimal> line = calculateSalesLine(price, cost, fees,
-                    platformRate.add(commissionRate).add(taxRate));
+                Map<String, BigDecimal> line = calculateSalesLine(price, cost, fees, lineRate);
                 deductions = line.get("deductions").multiply(BigDecimal.valueOf(qty));
                 profit = line.get("profit").multiply(BigDecimal.valueOf(qty));
             }
@@ -1762,14 +2010,25 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         Map<Long, BigDecimal> enteredPrices = new HashMap<Long, BigDecimal>();
         for (JewelryDocumentItem item : document.getItems())
         {
+            Map<String, Object> current = prices.get(item.getProductId());
             if (sales && "INCLUDED".equals(normalizedPricingMode(item.getPricingMode())))
             {
                 item.setUnitPrice(ZERO);
                 item.setInfluencerPriceSnapshot(null);
                 item.setInfluencerPriceVersion(null);
+                item.setPlatformRateSnapshot(ZERO);
+                item.setCommissionRateSnapshot(ZERO);
+                item.setTaxRateSnapshot(ZERO);
                 continue;
             }
-            Map<String, Object> current = prices.get(item.getProductId());
+            if (sales && current != null && "1".equals(textValue(current.get("bindingStatus"))))
+                throw new ServiceException(text(item.getProductNameSnapshot()) + " 的达人商品绑定已停用");
+            if (sales)
+            {
+                item.setPlatformRateSnapshot(null);
+                item.setCommissionRateSnapshot(null);
+                item.setTaxRateSnapshot(null);
+            }
             if (unlinkedReturn)
             {
                 if ((current == null || !"PRICED".equals(textValue(current.get("priceStatus"))))
@@ -1807,6 +2066,15 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 item.setUnitPrice(fixed);
                 item.setInfluencerPriceSnapshot(fixed);
                 item.setInfluencerPriceVersion(intValue(current.get("priceVersion")));
+                if (current.get("commissionRate") != null)
+                {
+                    item.setCommissionRateSnapshot(decimal(current.get("commissionRate")));
+                    item.setPlatformRateSnapshot(decimal(current.get("platformRate")));
+                    item.setTaxRateSnapshot(decimal(current.get("taxRate")));
+                    item.setPackFee(decimal(current.get("packFee")));
+                    item.setShipFee(decimal(current.get("shipFee")));
+                    item.setCertFee(decimal(current.get("certFee")));
+                }
                 continue;
             }
             if (current != null && "PENDING".equals(textValue(current.get("priceStatus"))))
@@ -2080,7 +2348,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     .add(money(item.getOtherFee2())).add(money(item.getOtherFee3()))
                     .multiply(BigDecimal.valueOf(qty));
                 BigDecimal deductions = item.getAmount().multiply(
-                    money(document.getPlatformRate()).add(money(document.getCommissionRate())).add(money(document.getTaxRate())));
+                    itemRate(item.getPlatformRateSnapshot(), document.getPlatformRate())
+                        .add(itemRate(item.getCommissionRateSnapshot(), document.getCommissionRate()))
+                        .add(itemRate(item.getTaxRateSnapshot(), document.getTaxRate())));
                 item.setCostAmount(item.getCostAmount().add(fees).setScale(2, RoundingMode.HALF_UP));
                 item.setProfitAmount(item.getAmount().subtract(item.getCostAmount()).subtract(deductions)
                     .setScale(2, RoundingMode.HALF_UP));
@@ -2769,6 +3039,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         item.setUnitPrice(source.getUnitPrice());
         item.setInfluencerPriceSnapshot(source.getInfluencerPriceSnapshot());
         item.setInfluencerPriceVersion(source.getInfluencerPriceVersion());
+        item.setPlatformRateSnapshot(source.getPlatformRateSnapshot());
+        item.setCommissionRateSnapshot(source.getCommissionRateSnapshot());
+        item.setTaxRateSnapshot(source.getTaxRateSnapshot());
         item.setUnitCost(source.getUnitCost());
         item.setPackFee(source.getPackFee());
         item.setShipFee(source.getShipFee());
@@ -2863,6 +3136,11 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     {
         if (rate.compareTo(BigDecimal.ONE) >= 0)
             throw new ServiceException("平台、佣金和税率合计必须小于100%");
+    }
+
+    private BigDecimal itemRate(BigDecimal snapshot, BigDecimal fallback)
+    {
+        return money(snapshot == null ? fallback : snapshot);
     }
 
     private void validateNonNegative(BigDecimal value, String label)

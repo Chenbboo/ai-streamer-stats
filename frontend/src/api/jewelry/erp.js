@@ -13,8 +13,16 @@ export const listJewelrySuppliers = (params) => request({ url: '/jewelry/supplie
 export const saveJewelrySupplier = (data) => request({ url: '/jewelry/supplier', method: 'post', data })
 export const listJewelryInfluencers = (params) => request({ url: '/jewelry/influencer/list', method: 'get', params })
 export const listJewelryInfluencerOptions = (params) => request({ url: '/jewelry/influencer/options', method: 'get', params })
+export const listJewelryInfluencerPlatforms = () => request({ url: '/jewelry/influencer/platforms', method: 'get' })
 export const saveJewelryInfluencer = (data) => request({ url: '/jewelry/influencer', method: 'post', data })
 export const getJewelryInfluencerProductPrices = (id) => request({ url: `/jewelry/influencer/${id}/product-prices`, method: 'get' })
+export const saveJewelryInfluencerBindings = (id, data) => request({ url: `/jewelry/influencer/${id}/bindings`, method: 'post', data })
+export const previewJewelryInfluencerBindings = (id, file) => { const data = new FormData(); data.append('file', file); return request({ url: `/jewelry/influencer/${id}/bindings/preview`, method: 'post', data, headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false }, timeout: 60000 }) }
+export const confirmJewelryInfluencerBindings = (id, data) => request({ url: `/jewelry/influencer/${id}/bindings/confirm`, method: 'post', data, timeout: 60000 })
+export const importJewelryInfluencerBindings = (id, file) => { const data = new FormData(); data.append('file', file); return request({ url: `/jewelry/influencer/${id}/bindings/import`, method: 'post', data, headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false }, timeout: 60000 }) }
+export const getJewelryInfluencerBundleConfigs = (id) => request({ url: `/jewelry/influencer/${id}/bundle-configs`, method: 'get' })
+export const saveJewelryInfluencerBundleConfig = (id, data) => request({ url: `/jewelry/influencer/${id}/bundle-configs`, method: 'post', data })
+export const deleteJewelryInfluencerBundleConfig = (id, configId) => request({ url: `/jewelry/influencer/${id}/bundle-configs/${configId}`, method: 'delete' })
 export const changeJewelryInfluencerPrice = (id, productId, data) => request({ url: `/jewelry/influencer/${id}/product/${productId}/fixed-price`, method: 'put', data })
 export const getJewelryInfluencerPriceHistory = (id) => request({ url: `/jewelry/influencer/${id}/price-history`, method: 'get' })
 export const getJewelryInfluencerBundleItems = (id) => request({ url: `/jewelry/influencer/${id}/bundle-items`, method: 'get' })

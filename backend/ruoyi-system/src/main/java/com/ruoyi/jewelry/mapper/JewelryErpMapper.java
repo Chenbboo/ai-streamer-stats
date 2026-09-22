@@ -39,6 +39,9 @@ public interface JewelryErpMapper
     int updateSupplier(Map<String, Object> supplier);
 
     List<Map<String, Object>> selectInfluencerList(Map<String, Object> query);
+    List<Map<String, Object>> selectInfluencerPlatforms();
+    Map<String, Object> selectInfluencerPlatformForUpdate(String platformCode);
+    int advanceInfluencerPlatformSequence(String platformCode);
     Map<String, Object> selectInfluencerById(Long influencerId);
     Map<String, Object> selectInfluencerByIdForUpdate(Long influencerId);
     int insertInfluencer(Map<String, Object> influencer);
@@ -46,6 +49,10 @@ public interface JewelryErpMapper
         @Param("influencerCode") String influencerCode, @Param("updateBy") String updateBy);
     int updateInfluencer(Map<String, Object> influencer);
     List<Map<String, Object>> selectInfluencerProductPrices(Long influencerId);
+    int insertInfluencerBinding(Map<String, Object> binding);
+    int updateInfluencerBinding(Map<String, Object> binding);
+    Map<String, Object> selectProductBySkuAndType(@Param("sku") String sku,
+        @Param("productType") String productType);
     Map<String, Object> selectInfluencerProductPrice(@Param("influencerId") Long influencerId,
         @Param("productId") Long productId);
     Map<String, Object> selectInfluencerProductPriceForUpdate(@Param("influencerId") Long influencerId,
@@ -64,6 +71,10 @@ public interface JewelryErpMapper
     List<Map<String, Object>> selectInfluencerPriceHistory(Long influencerId);
     int upsertInfluencerBundleItem(Map<String, Object> binding);
     List<Map<String, Object>> selectInfluencerBundleItems(Long influencerId);
+    List<Map<String, Object>> selectInfluencerBundleConfigs(Long influencerId);
+    int upsertInfluencerBundleConfig(Map<String, Object> config);
+    int deleteInfluencerBundleConfig(@Param("influencerId") Long influencerId,
+        @Param("configId") Long configId);
 
     List<Map<String, Object>> selectStockList(Map<String, Object> query);
     List<Map<String, Object>> selectStockSupplierOptions();

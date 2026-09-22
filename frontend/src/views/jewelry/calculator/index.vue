@@ -14,6 +14,13 @@
     <div class="calculator-layout">
       <section class="input-panel">
         <el-form :model="form" label-position="top">
+          <el-form-item label="达人/主播（可选）">
+            <el-select v-model="form.influencerId" filterable clearable placeholder="选择达人后自动带入已绑定商品价格与费率"
+              class="full-width" @change="influencerChanged">
+              <el-option v-for="item in influencers" :key="item.influencerId"
+                :label="`${item.influencerCode} · ${item.influencerName} · ${item.platform||'未填平台'}`" :value="item.influencerId" />
+            </el-select>
+          </el-form-item>
           <el-form-item label="选择 SKU">
             <el-select v-model="form.productId" filterable placeholder="请选择需要试算的商品"
               class="full-width" @change="productChanged">
@@ -21,6 +28,7 @@
                 :label="productLabel(item)" :value="item.productId" />
             </el-select>
           </el-form-item>
+          <el-alert v-if="selectedBinding" title="已带入达人商品档案中的直播价、费率和履约费用；可在此调整数值进行谈判试算，试算不会改动档案。" type="success" :closable="false" class="binding-hint" />
 
           <el-row :gutter="20">
             <el-col :xs="24" :sm="12" :md="8">
@@ -107,7 +115,8 @@
 </template>
 
 <script setup name="JewelryCalculator">
-import { calculateJewelryProfit, listJewelryProducts } from '@/api/jewelry/erp'
+import { calculateJewelryProfit, listJewelryProducts, listJewelryInfluencerOptions, getJewelryInfluencerProductPrices } from '@/api/jewelry/erp'
+import { jewelryProductType } from '@/utils/jewelryProduct'
 import useUserStore from '@/store/modules/user'
 
 const userStore = useUserStore()
@@ -115,9 +124,12 @@ const canViewFinance = computed(() =>
   userStore.roles.some(role => ['admin', 'jewelry_admin', 'jewelry_reviewer'].includes(role))
 )
 const products = ref([])
+const influencers = ref([])
+const influencerBindings = ref([])
 const result = ref(null)
 const calculating = ref(false)
 const form = reactive({
+  influencerId: null,
   productId: null,
   price: 0,
   quantity: 1,
@@ -134,15 +146,27 @@ const money = value =>
   Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const percent = value => `${(Number(value || 0) * 100).toFixed(2)}%`
 const productLabel = item =>
-  `${item.sku} · ${item.productName}${item.specification ? ` · ${item.specification}` : ''}（可用 ${productAvailable(item)}，成本 ¥ ${money(item.avgCost)}）`
+  `${item.sku} · ${item.productName} · ${jewelryProductType(item.productType)?.label||item.productType}${item.specification ? ` · ${item.specification}` : ''}（可用 ${productAvailable(item)}，成本 ¥ ${money(item.avgCost)}）`
 const productAvailable = item =>
   Math.max(0, Number(item?.onHandQty || 0) - Number(item?.reservedOutQty || 0))
 const selectedProduct = computed(() => products.value.find(item => item.productId === form.productId))
+const selectedBinding = computed(() => influencerBindings.value.find(item => Number(item.productId)===Number(form.productId) && item.priceStatus==='PRICED' && item.bindingStatus!=='1'))
 const availableQty = computed(() => productAvailable(selectedProduct.value))
 
 async function loadProducts() {
-  const response = await listJewelryProducts({ pageNum: 1, pageSize: 500, status: '0' })
-  products.value = response.rows || []
+  const [productResponse,influencerResponse] = await Promise.all([
+    listJewelryProducts({ pageNum: 1, pageSize: 500, status: '0' }),listJewelryInfluencerOptions({})])
+  products.value = productResponse.rows || []
+  influencers.value = influencerResponse.data || []
+}
+
+let influencerLoadSeq=0
+async function influencerChanged(id) {
+  const sequence=++influencerLoadSeq
+  const bindings=id ? (await getJewelryInfluencerProductPrices(id)).data || [] : []
+  if(sequence!==influencerLoadSeq)return
+  influencerBindings.value=bindings
+  if(form.productId)productChanged(form.productId)
 }
 
 function productChanged(productId) {
@@ -152,6 +176,19 @@ function productChanged(productId) {
   form.shipFee = Number(product.defaultShipFee || 0)
   form.certFee = Number(product.defaultCertFee || 0)
   form.quantity = productAvailable(product) > 0 ? 1 : 0
+  const binding = selectedBinding.value
+  form.price = binding ? Number(binding.fixedUnitPrice||0) : 0
+  form.commissionRate = 20
+  form.platformRate = 5
+  form.taxRate = 1
+  if(binding?.commissionRate!=null){
+    form.commissionRate = Number(binding.commissionRate)*100
+    form.platformRate = Number(binding.platformRate||0)*100
+    form.taxRate = Number(binding.taxRate||0)*100
+    form.packFee = Number(binding.packFee||0)
+    form.shipFee = Number(binding.shipFee||0)
+    form.certFee = Number(binding.certFee||0)
+  }
 }
 
 function scheduleCalculate() {
@@ -185,6 +222,7 @@ if (canViewFinance.value) loadProducts()
   margin: 0 auto;
   padding-top: 14px;
 }
+.binding-hint { margin-bottom: 16px; }
 
 .page-title {
   margin-bottom: 16px;

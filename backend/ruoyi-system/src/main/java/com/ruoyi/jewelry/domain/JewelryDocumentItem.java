@@ -23,6 +23,7 @@ public class JewelryDocumentItem
     private Date bizDate;
     private Long supplierId;
     private String supplierNameSnapshot;
+    private String productSupplierNames;
     private String sampleGoodsNo;
     private Integer qty;
     private Integer goodQty;
@@ -35,6 +36,9 @@ public class JewelryDocumentItem
     private BigDecimal unitPrice;
     private BigDecimal influencerPriceSnapshot;
     private Integer influencerPriceVersion;
+    private BigDecimal platformRateSnapshot;
+    private BigDecimal commissionRateSnapshot;
+    private BigDecimal taxRateSnapshot;
     private BigDecimal sourceUnitPrice;
     private BigDecimal unitCost;
     private BigDecimal packFee;
@@ -81,6 +85,8 @@ public class JewelryDocumentItem
     public void setSupplierId(Long supplierId) { this.supplierId = supplierId; }
     public String getSupplierNameSnapshot() { return supplierNameSnapshot; }
     public void setSupplierNameSnapshot(String supplierNameSnapshot) { this.supplierNameSnapshot = supplierNameSnapshot; }
+    public String getProductSupplierNames() { return productSupplierNames; }
+    public void setProductSupplierNames(String productSupplierNames) { this.productSupplierNames = productSupplierNames; }
     public String getSampleGoodsNo() { return sampleGoodsNo; }
     public void setSampleGoodsNo(String sampleGoodsNo) { this.sampleGoodsNo = sampleGoodsNo; }
     public Integer getQty() { return qty; }
@@ -105,6 +111,12 @@ public class JewelryDocumentItem
     public void setInfluencerPriceSnapshot(BigDecimal influencerPriceSnapshot) { this.influencerPriceSnapshot = influencerPriceSnapshot; }
     public Integer getInfluencerPriceVersion() { return influencerPriceVersion; }
     public void setInfluencerPriceVersion(Integer influencerPriceVersion) { this.influencerPriceVersion = influencerPriceVersion; }
+    public BigDecimal getPlatformRateSnapshot() { return platformRateSnapshot; }
+    public void setPlatformRateSnapshot(BigDecimal platformRateSnapshot) { this.platformRateSnapshot = platformRateSnapshot; }
+    public BigDecimal getCommissionRateSnapshot() { return commissionRateSnapshot; }
+    public void setCommissionRateSnapshot(BigDecimal commissionRateSnapshot) { this.commissionRateSnapshot = commissionRateSnapshot; }
+    public BigDecimal getTaxRateSnapshot() { return taxRateSnapshot; }
+    public void setTaxRateSnapshot(BigDecimal taxRateSnapshot) { this.taxRateSnapshot = taxRateSnapshot; }
     public BigDecimal getSourceUnitPrice() { return sourceUnitPrice; }
     public void setSourceUnitPrice(BigDecimal sourceUnitPrice) { this.sourceUnitPrice = sourceUnitPrice; }
     public BigDecimal getUnitCost() { return unitCost; }
