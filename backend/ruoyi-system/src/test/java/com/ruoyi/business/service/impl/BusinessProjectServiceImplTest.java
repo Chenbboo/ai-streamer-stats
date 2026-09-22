@@ -3462,7 +3462,7 @@ class BusinessProjectServiceImplTest
         when(mapper.selectProjectById(15L)).thenReturn(parent);
         when(mapper.countSubprojects(15L)).thenReturn(2);
         assertEquals("该项目包含子项目，请先删除所有子项目，再删除主项目",
-            assertThrows(ServiceException.class, () -> service.deleteProject(15L, 8L, "boss8", true)).getMessage());
+            assertThrows(ServiceException.class, () -> service.deleteProject(15L, 1L, "admin", true)).getMessage());
         verify(mapper, never()).softDeleteProject(anyLong(), any(), any());
     }
 
@@ -3472,9 +3472,9 @@ class BusinessProjectServiceImplTest
         BusinessProject child = project(16L, 9L, "DRAFT", "DRAFT");
         child.setParentId(15L); child.setSponsorOwnerUserId(8L);
         when(mapper.selectProjectById(16L)).thenReturn(child);
-        when(mapper.softDeleteProject(16L, 0, "boss8")).thenReturn(1);
-        service.deleteProject(16L, 8L, "boss8", true);
-        verify(mapper).softDeleteProject(16L, 0, "boss8");
+        when(mapper.softDeleteProject(16L, 0, "admin")).thenReturn(1);
+        service.deleteProject(16L, 1L, "admin", true);
+        verify(mapper).softDeleteProject(16L, 0, "admin");
         verify(mapper, never()).softDeleteProject(eq(15L), any(), any());
     }
 
@@ -3487,6 +3487,56 @@ class BusinessProjectServiceImplTest
         assertThrows(ServiceException.class, () -> service.validateSubprojectParent(15L, 8L, 7L));
         assertThrows(ServiceException.class, () -> service.deleteProject(15L, 7L, "other", true));
         verify(mapper, never()).insertProject(any());
+        verify(mapper, never()).softDeleteProject(anyLong(), any(), any());
+    }
+
+    @Test
+    void ownerDeletionRequiresAdministratorReviewAndKeepsProjectUntilApproval()
+    {
+        BusinessProject project = project(15L, 9L, "ACTIVE", "APPROVED");
+        when(mapper.selectProjectById(15L)).thenReturn(project);
+        assertThrows(ServiceException.class, () -> service.deleteProject(15L, 9L, "owner", false));
+        service.requestProjectDeletion(15L, "项目不再需要", 9L, "owner");
+        verify(mapper).insertProjectDeletionRequest(any());
+        verify(mapper, never()).softDeleteProject(anyLong(), any(), any());
+        assertThrows(ServiceException.class, () -> service.requestProjectDeletion(15L, "原因", 7L, "other"));
+
+        Map<String, Object> pending = new HashMap<>();
+        pending.put("requestId", 21L); pending.put("projectId", 15L); pending.put("requestUserId", 9L); pending.put("status", "PENDING");
+        when(mapper.selectPendingProjectDeletion(15L)).thenReturn(pending);
+        assertThrows(ServiceException.class, () -> service.requestProjectDeletion(15L, "再次申请", 9L, "owner"));
+        when(mapper.selectProjectDeletionById(21L)).thenReturn(pending);
+        assertThrows(ServiceException.class, () -> service.reviewProjectDeletion(21L, "APPROVED", "", 9L, "owner"));
+        when(mapper.softDeleteProject(15L, 0, "admin")).thenReturn(1);
+        when(mapper.reviewProjectDeletionRequest(21L, "APPROVED", "", 1L, "admin")).thenReturn(1);
+        service.reviewProjectDeletion(21L, "APPROVED", "", 1L, "admin");
+        verify(mapper).softDeleteProject(15L, 0, "admin");
+        verify(mapper).reviewProjectDeletionRequest(21L, "APPROVED", "", 1L, "admin");
+    }
+
+    @Test
+    void rejectingDeletionKeepsProjectAndRequiresReason()
+    {
+        Map<String, Object> pending = new HashMap<>();
+        pending.put("requestId", 22L); pending.put("projectId", 15L); pending.put("status", "PENDING");
+        when(mapper.selectProjectDeletionById(22L)).thenReturn(pending);
+        when(mapper.selectProjectById(15L)).thenReturn(project(15L, 9L, "ACTIVE", "APPROVED"));
+        when(mapper.selectPendingProjectDeletion(15L)).thenReturn(pending);
+        assertThrows(ServiceException.class, () -> service.reviewProjectDeletion(22L, "REJECTED", "", 1L, "admin"));
+        when(mapper.reviewProjectDeletionRequest(22L, "REJECTED", "保留项目", 1L, "admin")).thenReturn(1);
+        service.reviewProjectDeletion(22L, "REJECTED", "保留项目", 1L, "admin");
+        verify(mapper, never()).softDeleteProject(anyLong(), any(), any());
+    }
+
+    @Test
+    void oldOwnerRequestCannotDeleteProjectAfterOwnerChanges()
+    {
+        Map<String, Object> pending = new HashMap<>();
+        pending.put("requestId", 23L); pending.put("projectId", 15L);
+        pending.put("requestUserId", 8L); pending.put("status", "PENDING");
+        when(mapper.selectProjectDeletionById(23L)).thenReturn(pending);
+        when(mapper.selectProjectById(15L)).thenReturn(project(15L, 9L, "ACTIVE", "APPROVED"));
+        assertThrows(ServiceException.class, () -> service.reviewProjectDeletion(23L, "APPROVED", "", 1L, "admin"));
         verify(mapper, never()).softDeleteProject(anyLong(), any(), any());
     }
 

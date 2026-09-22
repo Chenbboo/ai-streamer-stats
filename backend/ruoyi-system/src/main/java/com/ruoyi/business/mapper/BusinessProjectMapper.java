@@ -42,6 +42,13 @@ public interface BusinessProjectMapper
     List<Map<String, Object>> selectProjectDepartmentOptions();
     int softDeleteProject(@Param("projectId") Long projectId, @Param("version") Integer version,
         @Param("userName") String userName);
+    Map<String, Object> selectPendingProjectDeletion(Long projectId);
+    Map<String, Object> selectProjectDeletionById(Long requestId);
+    List<Map<String, Object>> selectProjectDeletionRequests(@Param("userId") Long userId,
+        @Param("administrator") boolean administrator);
+    int insertProjectDeletionRequest(Map<String, Object> request);
+    int reviewProjectDeletionRequest(@Param("requestId") Long requestId, @Param("status") String status,
+        @Param("comment") String comment, @Param("userId") Long userId, @Param("userName") String userName);
     int updateProjectBudget(@Param("projectId") Long projectId, @Param("budgetLimit") java.math.BigDecimal budgetLimit,
         @Param("baseCurrency") String baseCurrency, @Param("userName") String userName,
         @Param("version") Integer version);

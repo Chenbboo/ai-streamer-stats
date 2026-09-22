@@ -17,6 +17,7 @@
       </el-form>
     </el-card>
 
+    <ProjectDeletionReviews v-if="isAdmin" ref="deletionReviews" @reviewed="handleDeletionReviewed" />
     <el-card shadow="never" class="table-card">
       <ProjectHierarchyTable ref="hierarchyTable" :query="appliedQuery" @create="openSubprojectForm" @detail="openDetail" @deleted="handleProjectDeleted" @progress="row => progressPanel.open(row)" />
     </el-card>
@@ -301,6 +302,7 @@
 import ProjectPublicExpensePanel from '@/views/business/components/ProjectPublicExpensePanel.vue'
 import { h, nextTick } from 'vue'
 import ProjectHierarchyTable from './ProjectHierarchyTable.vue'
+import ProjectDeletionReviews from './ProjectDeletionReviews.vue'
 import { getBusinessProjectCompanies, getBusinessProjectDepartments } from '@/api/business/project'
 import { useResizeObserver } from '@vueuse/core'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -327,6 +329,11 @@ function clearProgressQuery(){const query={...route.query};delete query.progress
 watch(() => [route.query.progressProjectId, route.query.reportId], async ([id, reportId]) => { if(id){ await nextTick();progressPanel.value?.open({projectId:Number(id),reportId}) } }, {immediate:true})
 const saving = ref(false), users = ref([]), companies=ref([]), departments=ref([])
 const hierarchyTable = ref(null), appliedQuery = ref({}), projectBaseline = ref(null)
+const deletionReviews = ref(null)
+async function handleDeletionReviewed(row, decision) {
+  if (decision === 'APPROVED') handleProjectDeleted(row)
+  await hierarchyTable.value?.refresh()
+}
 const projectFormFrozen = computed(() => ['MEMBER_DAYS_V1','ACTUAL_WORK_V1'].includes(projectBaseline.value?.costPolicyVersion))
 const detailVisible = ref(false), detail = ref(null), activeTab = ref('overview')
 const detailTabs = ref(null)

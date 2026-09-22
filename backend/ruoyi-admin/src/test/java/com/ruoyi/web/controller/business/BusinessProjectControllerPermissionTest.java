@@ -39,6 +39,9 @@ class BusinessProjectControllerPermissionTest
         expected.put("hierarchy", "@ss.hasPermi('business:project:list')");
         expected.put("children", "@ss.hasPermi('business:project:list')");
         expected.put("removeProject", "@ss.hasPermi('business:project:edit')");
+        expected.put("requestProjectDeletion", "@ss.hasPermi('business:project:edit')");
+        expected.put("projectDeletionRequests", "@ss.hasPermi('business:project:list')");
+        expected.put("reviewProjectDeletion", "@ss.hasPermi('business:project:edit')");
         expected.put("projectCompanyOptions", "@ss.hasAnyPermi('business:project:list,business:project:edit')");
         expected.put("projectDepartmentOptions", "@ss.hasPermi('business:project:list')");
         expected.put("settlementStatus", "@ss.hasAnyPermi('business:project:list,business:accounting:list,business:kpi:list')");

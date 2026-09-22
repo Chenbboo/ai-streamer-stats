@@ -336,6 +336,33 @@
         where project_id=#{projectId} and del_flag='0' and version=#{version}
     </update>
 
+    <select id="selectPendingProjectDeletion" resultType="map" flushCache="true" useCache="false">
+        select request_id requestId,project_id projectId,status from biz_project_delete_request
+        where project_id=#{projectId} and status='PENDING' order by request_id desc limit 1
+    </select>
+    <select id="selectProjectDeletionById" resultType="map" flushCache="true" useCache="false">
+        select request_id requestId,project_id projectId,request_user_id requestUserId,status from biz_project_delete_request
+        where request_id=#{requestId}
+    </select>
+    <select id="selectProjectDeletionRequests" resultType="map">
+        select r.request_id requestId,r.project_id projectId,r.project_name projectName,
+            r.reason,r.status,r.request_user_id requestUserId,r.request_user_name requestUserName,
+            r.request_time requestTime,r.review_user_name reviewUserName,r.review_comment reviewComment,r.review_time reviewTime
+        from biz_project_delete_request r
+        where <choose><when test="administrator">1=1</when><otherwise>r.request_user_id=#{userId}</otherwise></choose>
+        order by case when r.status='PENDING' then 0 else 1 end,r.request_id desc
+        limit 200
+    </select>
+    <insert id="insertProjectDeletionRequest" parameterType="map" useGeneratedKeys="true" keyProperty="requestId">
+        insert into biz_project_delete_request(project_id,project_name,reason,status,request_user_id,request_user_name,request_time)
+        values(#{projectId},#{projectName},#{reason},'PENDING',#{requestUserId},#{requestUserName},sysdate())
+    </insert>
+    <update id="reviewProjectDeletionRequest">
+        update biz_project_delete_request set status=#{status},review_comment=#{comment},
+            review_user_id=#{userId},review_user_name=#{userName},review_time=sysdate()
+        where request_id=#{requestId} and status='PENDING'
+    </update>
+
     <update id="updateProjectBudget">
         update biz_project set
           budget_limit=case when budget_mode='DAILY' then budget_limit else #{budgetLimit} end,

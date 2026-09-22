@@ -18,7 +18,8 @@
     <el-table-column label="操作" width="280" fixed="right"><template #default="{ row }"><div v-if="!row.contextOnly" class="row-actions">
       <el-button v-if="row.manageable && !row.parentId && !ended(row)" v-hasPermi="['business:project:proposal:add']" link type="primary" @click.stop="$emit('create', row)">新增子项目</el-button>
       <el-button link type="primary" @click.stop="$emit('detail', row)">查看详情</el-button>
-      <el-button v-if="row.manageable" v-hasPermi="['business:project:edit']" link type="danger" :loading="deleting===row.projectId" @click.stop="remove(row)">删除</el-button>
+      <el-tag v-if="pendingProjects.has(row.projectId)" type="warning" size="small">待管理员审核删除</el-tag>
+      <el-button v-else-if="row.manageable && (isAdmin || Number(row.mainOwnerUserId)===Number(userStore.id))" v-hasPermi="['business:project:edit']" link type="danger" :loading="deleting===row.projectId" @click.stop="remove(row)">{{ isAdmin ? '删除' : '申请删除' }}</el-button>
     </div></template></el-table-column>
   </el-table>
   <pagination v-show="total" :total="total" v-model:page="page" v-model:limit="pageSize" @pagination="refresh"/>
@@ -39,10 +40,14 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import BusinessProjectState from '@/components/BusinessProjectState/index.vue'
 import { isDeliveryEnded as ended } from '@/utils/businessProjectState'
-import { getBusinessProjectHierarchy, getBusinessProjectChildren, getBusinessProject, deleteBusinessProject } from '@/api/business/project'
+import { getBusinessProjectHierarchy, getBusinessProjectChildren, getBusinessProject, deleteBusinessProject, requestBusinessProjectDeletion, listBusinessProjectDeletionRequests } from '@/api/business/project'
+import useUserStore from '@/store/modules/user'
 
 const props = defineProps({ query: { type: Object, required: true } })
 const emit = defineEmits(['create', 'detail', 'deleted', 'progress'])
+const userStore = useUserStore()
+const isAdmin = computed(() => userStore.roles.includes('admin') || userStore.permissions.includes('*:*:*'))
+const pendingProjects = ref(new Set())
 const records = ref([]), loading = ref(false), deleting = ref(null), loadError = ref(false)
 const page = ref(1), pageSize = ref(10), total = ref(0), tableRef = ref(null)
 const children = ref({}), childLoading = ref({}), childErrors = ref({})
@@ -89,9 +94,13 @@ async function refresh() {
   loading.value = true; loadError.value = false
   children.value = {}; childLoading.value = {}; childErrors.value = {}; childRequests.clear()
   try {
-    const result = await getBusinessProjectHierarchy({ ...props.query, pageNum: page.value, pageSize: pageSize.value })
+    const [result, requests] = await Promise.all([
+      getBusinessProjectHierarchy({ ...props.query, pageNum: page.value, pageSize: pageSize.value }),
+      listBusinessProjectDeletionRequests()
+    ])
     if (sequence !== loadSequence) return
     records.value = result.rows || []; total.value = result.total || 0
+    pendingProjects.value = new Set((requests.data || []).filter(item => item.status === 'PENDING').map(item => item.projectId))
     if (!records.value.length && page.value > 1) { page.value--; return refresh() }
     const matching = records.value.filter(row => row.matchedChildId != null)
     await Promise.all(records.value.map(row => loadChildren(row.projectId)))
@@ -111,15 +120,30 @@ async function refreshChildren(parentId) {
   await loadChildren(parentId, true)
 }
 async function remove(row) {
-  try { await ElMessageBox.confirm(`确定删除${row.parentId ? '子项目' : '主项目'}“${row.projectName}”吗？`, '删除确认', { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }) }
-  catch { return }
+  let reason
+  try {
+    if (isAdmin.value) await ElMessageBox.confirm(`确定删除${row.parentId ? '子项目' : '主项目'}“${row.projectName}”吗？历史记录会保留。`, '删除确认', { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' })
+    else {
+      const answer = await ElMessageBox.prompt(`请填写删除“${row.projectName}”的原因。提交后项目仍保留，等待管理员审核。`, '申请删除项目', {
+        confirmButtonText: '提交申请', cancelButtonText: '取消', inputType: 'textarea',
+        inputValidator: value => value?.trim() && value.trim().length <= 500 ? true : '请填写删除原因，且不超过500字'
+      })
+      reason = answer.value.trim()
+    }
+  } catch { return }
   deleting.value = row.projectId
   try {
-    await deleteBusinessProject(row.projectId)
-    if (row.parentId) children.value[row.parentId] = (children.value[row.parentId] || []).filter(item => item.projectId !== row.projectId)
-    else { records.value = records.value.filter(item => item.projectId !== row.projectId); total.value--; await refresh() }
-    emit('deleted', row)
-    ElMessage.success('项目已删除')
+    if (isAdmin.value) {
+      await deleteBusinessProject(row.projectId)
+      if (row.parentId) children.value[row.parentId] = (children.value[row.parentId] || []).filter(item => item.projectId !== row.projectId)
+      else { records.value = records.value.filter(item => item.projectId !== row.projectId); total.value--; await refresh() }
+      emit('deleted', row)
+      ElMessage.success('项目已删除')
+    } else {
+      await requestBusinessProjectDeletion(row.projectId, { reason })
+      pendingProjects.value = new Set([...pendingProjects.value, row.projectId])
+      ElMessage.success('删除申请已提交，等待管理员审核')
+    }
   } catch { /* The shared request handler displays the server's rejection reason. */ }
   finally { deleting.value = null }
 }

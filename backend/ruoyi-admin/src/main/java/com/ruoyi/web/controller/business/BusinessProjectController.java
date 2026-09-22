@@ -101,6 +101,31 @@ public class BusinessProjectController extends BaseController
         return success();
     }
 
+    @PreAuthorize("@ss.hasPermi('business:project:edit')")
+    @Log(title = "申请删除项目", businessType = BusinessType.INSERT)
+    @PostMapping("/project/{projectId}/deletion-requests")
+    public AjaxResult requestProjectDeletion(@PathVariable Long projectId, @RequestBody Map<String, Object> body)
+    {
+        return success(projectService.requestProjectDeletion(projectId, text(body, "reason"), currentUserId(), currentUserName()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:list')")
+    @GetMapping("/project/deletion-requests")
+    public AjaxResult projectDeletionRequests()
+    {
+        return success(projectService.projectDeletionRequests(currentUserId(), isAdministrator()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:edit')")
+    @Log(title = "审核删除项目", businessType = BusinessType.UPDATE)
+    @PostMapping("/project/deletion-requests/{requestId}/review")
+    public AjaxResult reviewProjectDeletion(@PathVariable Long requestId, @RequestBody Map<String, Object> body)
+    {
+        projectService.reviewProjectDeletion(requestId, text(body, "decision"), text(body, "comment"),
+            currentUserId(), currentUserName());
+        return success();
+    }
+
     @PreAuthorize("@ss.hasPermi('business:project:list')")
     @GetMapping("/project/{projectId}")
     public AjaxResult detail(@PathVariable Long projectId)

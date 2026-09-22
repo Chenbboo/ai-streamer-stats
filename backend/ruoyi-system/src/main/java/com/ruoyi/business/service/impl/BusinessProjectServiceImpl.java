@@ -259,12 +259,84 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     @Transactional
     public void deleteProject(Long projectId, Long userId, String userName, boolean boss)
     {
+        if (!SecurityUtils.isAdmin(userId)) throw new ServiceException("项目删除需由管理员审核，负责人请提交删除申请");
         BusinessProject project = requireProjectForUpdate(projectId);
-        requireManage(project, userId, boss);
         if (mapper.countSubprojects(projectId) > 0)
             throw new ServiceException("该项目包含子项目，请先删除所有子项目，再删除主项目");
+        if (hasPendingProjectDeletion(projectId))
+            throw new ServiceException("该项目有待审核的删除申请，请先完成审核");
         if (mapper.softDeleteProject(projectId, project.getVersion(), userName) != 1) throw changed();
         addEvent(projectId, "DELETE", project.getStatus(), project.getStatus(), userId, userName, "删除项目，保留历史记录");
+    }
+
+    @Override
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+    public Map<String, Object> requestProjectDeletion(Long projectId, String reason, Long userId, String userName)
+    {
+        BusinessProject project = requireProjectForUpdate(projectId);
+        if (!Objects.equals(project.getMainOwnerUserId(), userId))
+            throw new ServiceException("只有项目主负责人可以申请删除项目");
+        if (StringUtils.isBlank(reason) || reason.trim().length() > 500)
+            throw new ServiceException("请填写删除原因，且不超过500字");
+        if (mapper.countSubprojects(projectId) > 0)
+            throw new ServiceException("该项目包含子项目，请先删除所有子项目，再申请删除主项目");
+        if (hasPendingProjectDeletion(projectId))
+            throw new ServiceException("该项目已有待管理员审核的删除申请");
+        Map<String, Object> request = new HashMap<>();
+        request.put("projectId", projectId);
+        request.put("projectName", project.getProjectName());
+        request.put("reason", reason.trim());
+        request.put("requestUserId", userId);
+        request.put("requestUserName", userName);
+        mapper.insertProjectDeletionRequest(request);
+        addEvent(projectId, "DELETE_REQUEST", project.getStatus(), project.getStatus(), userId, userName,
+            "申请删除项目：" + reason.trim());
+        return request;
+    }
+
+    @Override
+    public List<Map<String, Object>> projectDeletionRequests(Long userId, boolean administrator)
+    {
+        return mapper.selectProjectDeletionRequests(userId, administrator && SecurityUtils.isAdmin(userId));
+    }
+
+    @Override
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+    public void reviewProjectDeletion(Long requestId, String decision, String comment, Long userId, String userName)
+    {
+        if (!SecurityUtils.isAdmin(userId)) throw new ServiceException("只有管理员账号可以审核项目删除申请");
+        if (!Arrays.asList("APPROVED", "REJECTED").contains(decision)) throw new ServiceException("审核决定不正确");
+        if (comment != null && comment.trim().length() > 500) throw new ServiceException("审核说明不能超过500字");
+        if ("REJECTED".equals(decision) && StringUtils.isBlank(comment)) throw new ServiceException("请填写驳回原因");
+        Map<String, Object> request = mapper.selectProjectDeletionById(requestId);
+        if (request == null || !"PENDING".equals(request.get("status"))) throw new ServiceException("删除申请不存在或已审核");
+        Long projectId = ((Number) request.get("projectId")).longValue();
+        BusinessProject project = requireProjectForUpdate(projectId);
+        if ("APPROVED".equals(decision)
+            && !Objects.equals(project.getMainOwnerUserId(), ((Number) request.get("requestUserId")).longValue()))
+            throw new ServiceException("项目主负责人已变更，请驳回旧申请并由现负责人重新申请");
+        // Lock the project before changing the request; submissions and reviews use the same lock order.
+        Map<String, Object> pending = mapper.selectPendingProjectDeletion(projectId);
+        if (pending == null || !(pending.get("requestId") instanceof Number)
+            || !Objects.equals(((Number) pending.get("requestId")).longValue(), requestId))
+            throw new ServiceException("删除申请已变化，请刷新后重试");
+        if ("APPROVED".equals(decision))
+        {
+            if (mapper.countSubprojects(projectId) > 0)
+                throw new ServiceException("该项目包含子项目，请先删除所有子项目，再审核删除主项目");
+            if (mapper.softDeleteProject(projectId, project.getVersion(), userName) != 1) throw changed();
+        }
+        if (mapper.reviewProjectDeletionRequest(requestId, decision, comment == null ? null : comment.trim(), userId, userName) != 1)
+            throw new ServiceException("删除申请已变化，请刷新后重试");
+        addEvent(projectId, "APPROVED".equals(decision) ? "DELETE" : "DELETE_REJECTED",
+            project.getStatus(), project.getStatus(), userId, userName,
+            "APPROVED".equals(decision) ? "管理员审核通过删除申请，保留历史记录" : "管理员驳回删除申请：" + comment.trim());
+    }
+
+    private boolean hasPendingProjectDeletion(Long projectId)
+    {
+        Map<String, Object> pending = mapper.selectPendingProjectDeletion(projectId);
+        return pending != null && pending.get("requestId") != null;
     }
 
     @Override
