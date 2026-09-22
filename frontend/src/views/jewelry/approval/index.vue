@@ -31,6 +31,7 @@
         <el-descriptions-item v-else-if="detail.docType!=='ASSEMBLY' && !isTransfer(detail)" label="总成本">¥ {{costMoney(detail.totalCost,detail)}}</el-descriptions-item>
         <el-descriptions-item v-if="!isTransfer(detail)" label="总毛利"><span v-if="['ASSEMBLY','COST_ADJUST'].includes(detail.docType)">—</span><span v-else :class="{loss:Number(detail.totalProfit)<0}">¥ {{money(detail.totalProfit)}}</span></el-descriptions-item>
         <el-descriptions-item label="审批人"><span v-if="isDualApproval(detail)">审核员：{{detail.firstReviewerName||'待审核'}}；管理员：{{detail.secondReviewerName||'待复核'}}</span><span v-else>{{detail.secondReviewerName || detail.firstReviewerName || '—'}}</span></el-descriptions-item>
+        <el-descriptions-item label="备注" :span="4"><el-input :model-value="detail.remark || ''" type="textarea" :autosize="{minRows:2,maxRows:6}" readonly placeholder="暂无备注" /></el-descriptions-item>
       </el-descriptions>
       <el-alert v-if="detail?.riskStatus==='LOSS'" title="该销售单预计亏损，请核对成交价、商品成本及各项费率后再审批。" type="error" :closable="false" show-icon class="mt20"/>
       <el-alert v-if="isAdminStockReview(detail)" title="管理员可调整盘盈明细的核定成本；点击“通过并入账”时，修改后的成本会与库存调整一并保存。" type="warning" :closable="false" show-icon class="mt20"/>
@@ -61,12 +62,29 @@
           </el-descriptions>
         </div>
       </div>
-      <el-table v-if="detail" :data="detail.items" border class="mt20">
+      <el-table v-if="detail" :data="approvalItems" :row-class-name="approvalItemRowClass" border class="mt20 approval-item-table">
+        <el-table-column v-if="showBundleRoles" label="销售角色" width="190">
+          <template #default="{row}">
+            <el-tag v-if="row.saleRole==='MAIN'" type="success" effect="plain">组合{{row.bundleGroupNo}}·主商品</el-tag>
+            <el-tag v-else-if="row.saleRole==='ADDON'" type="warning" effect="plain">组合{{row.bundleGroupNo}}·搭售</el-tag>
+            <el-tag v-else type="info" effect="plain">独立销售</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column v-if="detail.docType==='ASSEMBLY'" label="用途" width="90">
           <template #default="{row}"><el-tag :type="row.itemRole==='OUTPUT'?'success':'info'">{{row.itemRole==='OUTPUT'?'成品产出':'散件投入'}}</el-tag></template>
         </el-table-column>
         <el-table-column prop="skuSnapshot" label="SKU"/>
-        <el-table-column prop="productNameSnapshot" label="商品"/>
+        <el-table-column label="商品" min-width="230">
+          <template #default="{row}">
+            <div class="approval-product-cell" :class="{'approval-addon-product':row.saleRole==='ADDON'}">
+              <span>{{row.productNameSnapshot}}</span>
+              <el-button v-if="row.saleRole==='MAIN' && addonCount(row)" link type="primary" class="approval-addon-toggle" @click="toggleAddons(row)">
+                {{isAddonExpanded(row)?'收起搭售':`展开搭售（${addonCount(row)} 件）`}}
+                <el-icon><ArrowUp v-if="isAddonExpanded(row)"/><ArrowDown v-else/></el-icon>
+              </el-button>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column label="供应商" min-width="140"><template #default="{row}">{{row.supplierNameSnapshot || detail.supplierNameSnapshot || '未记录'}}</template></el-table-column>
         <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="systemQty" label="系统库存"/>
         <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="countedQty" label="实盘库存"/>
@@ -165,11 +183,13 @@
   </div>
 </template>
 <script setup name="JewelryApproval">
+import { ArrowDown, ArrowUp } from '@element-plus/icons-vue'
 import {listJewelryDocuments,getJewelryDocument,approveJewelryDocument,rejectJewelryDocument} from '@/api/jewelry/erp'
 import useUserStore from '@/store/modules/user'
 const route=useRoute()
 const userStore=useUserStore()
 const {proxy}=getCurrentInstance(),rows=ref([]),total=ref(0),loading=ref(false),drawer=ref(false),detail=ref(null)
+const expandedGroups=ref([])
 const profitDialog=ref(false),profitLoading=ref(false),profitDetail=ref(null)
 const approvalStatuses=['PENDING','PENDING_FIRST','PENDING_SECOND']
 const query=reactive({pageNum:1,pageSize:10,status:'PENDING'})
@@ -196,6 +216,36 @@ const imageSrc=value=>value?.startsWith('http')?value:import.meta.env.VITE_APP_B
 const allImages=value=>String(value||'').split(',').map(item=>item.trim()).filter(Boolean)
 const firstImage=value=>allImages(value)[0]||''
 const assemblyOutput=document=>document?.items?.find(item=>item.itemRole==='OUTPUT')
+const showBundleRoles=computed(()=>['SALES_OUT','CUSTOMER_RETURN'].includes(detail.value?.docType)
+  ||(detail.value?.items||[]).some(item=>['MAIN','ADDON'].includes(item.saleRole)))
+const bundleAddons=computed(()=>{
+  const groups=new Map()
+  for(const item of detail.value?.items||[]){
+    if(item.saleRole!=='ADDON'||item.bundleGroupNo==null)continue
+    const key=String(item.bundleGroupNo)
+    if(!groups.has(key))groups.set(key,[])
+    groups.get(key).push(item)
+  }
+  return groups
+})
+const addonCount=row=>bundleAddons.value.get(String(row.bundleGroupNo))?.length||0
+const isAddonExpanded=row=>expandedGroups.value.includes(String(row.bundleGroupNo))
+const toggleAddons=row=>{
+  const key=String(row.bundleGroupNo)
+  expandedGroups.value=isAddonExpanded(row)?expandedGroups.value.filter(group=>group!==key):[...expandedGroups.value,key]
+}
+const approvalItems=computed(()=>{
+  const items=detail.value?.items||[]
+  const mainGroups=new Set(items.filter(item=>item.saleRole==='MAIN'&&item.bundleGroupNo!=null).map(item=>String(item.bundleGroupNo)))
+  const roots=[]
+  for(const item of items){
+    if(item.saleRole==='ADDON'&&item.bundleGroupNo!=null&&mainGroups.has(String(item.bundleGroupNo)))continue
+    roots.push(item)
+    if(item.saleRole==='MAIN'&&isAddonExpanded(item))roots.push(...(bundleAddons.value.get(String(item.bundleGroupNo))||[]))
+  }
+  return roots
+})
+const approvalItemRowClass=({row})=>row.saleRole==='ADDON'?'bundle-addon-row':''
 const money=value=>Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})
 const fourDecimalMoney=value=>Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:4,maximumFractionDigits:4})
 const isFourDecimalAmount=document=>['PURCHASE_IN','SUPPLIER_RETURN'].includes(document?.docType)
@@ -240,6 +290,7 @@ const profitFormulaTitle=computed(()=>profitDetail.value?.docType==='CUSTOMER_RE
     : '当前单据毛利计算说明')
 async function load(){loading.value=true;try{const r=await listJewelryDocuments(query);rows.value=r.rows||[];total.value=r.total||0}finally{loading.value=false}}
 async function show(row){
+  expandedGroups.value=[]
   detail.value=(await getJewelryDocument(row.documentId)).data
   drawer.value=true
 }
@@ -287,5 +338,7 @@ async function act(row,pass,fromDetail=false){
 load()
 </script>
 <style scoped>
+.approval-item-table :deep(.bundle-addon-row){background:#fffaf0}
+.approval-product-cell{display:flex;align-items:center;justify-content:space-between;gap:8px}.approval-addon-product{padding-left:16px;border-left:3px solid #e6a23c}.approval-addon-toggle{flex:none}
 .loss{color:#dc2626!important;font-weight:700}.profit-link{color:#334155;font-weight:700}.profit-link:hover{text-decoration:underline}.assembly-review{display:grid;grid-template-columns:220px 1fr;gap:18px;padding:16px;border:1px solid #dfe5ec;background:#f8fafc}.assembly-review>.el-image,.assembly-no-image{width:220px;aspect-ratio:1/1;border:1px solid #d9e0e8;background:#fff}.assembly-no-image{display:grid;place-items:center;color:#9aa5b1}.assembly-summary{min-width:0}.assembly-title{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px}.assembly-title div{display:flex;flex-direction:column;gap:4px}.assembly-title b{font-size:18px}.assembly-title span{color:#7a8796}.profit-detail{min-height:120px}.profit-heading{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:16px}.profit-heading div{display:flex;flex-direction:column;gap:4px}.profit-heading span{color:#1f2937;font-size:16px;font-weight:700}.profit-heading small{color:#64748b}.profit-heading>b{color:#16825d;font-size:26px}.formula-substitution{margin:16px 0;padding:14px 16px;border-left:3px solid #409eff;background:#f6f9fc}.formula-label{margin-bottom:6px;color:#64748b;font-size:12px}.formula-line{color:#1f2937;font-family:Consolas,"Courier New",monospace;font-size:14px;line-height:1.6;overflow-wrap:anywhere}.breakdown-list{margin-top:16px}.breakdown-list small{color:#94a3b8}.formula-result{display:flex;align-items:center;justify-content:space-between;margin-top:16px;padding-top:14px;border-top:1px solid #e5e7eb;color:#64748b}.formula-result b{color:#16825d;font-size:22px}@media(max-width:760px){.assembly-review{grid-template-columns:1fr}.assembly-review>.el-image,.assembly-no-image{width:100%;max-width:300px}.profit-heading>b{font-size:22px}.breakdown-list :deep(.el-descriptions__body) .el-descriptions__table{display:block}.formula-line{font-size:12px}}
 </style>
