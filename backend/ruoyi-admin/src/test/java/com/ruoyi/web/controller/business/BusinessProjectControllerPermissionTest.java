@@ -42,6 +42,9 @@ class BusinessProjectControllerPermissionTest
         expected.put("requestProjectDeletion", "@ss.hasPermi('business:project:edit')");
         expected.put("projectDeletionRequests", "@ss.hasPermi('business:project:list')");
         expected.put("reviewProjectDeletion", "@ss.hasPermi('business:project:edit')");
+        expected.put("projectDeletionNotifications", "isAuthenticated()");
+        expected.put("readProjectDeletionNotification", "isAuthenticated()");
+        expected.put("readAllProjectDeletionNotifications", "isAuthenticated()");
         expected.put("projectCompanyOptions", "@ss.hasAnyPermi('business:project:list,business:project:edit')");
         expected.put("projectDepartmentOptions", "@ss.hasPermi('business:project:list')");
         expected.put("settlementStatus", "@ss.hasAnyPermi('business:project:list,business:accounting:list,business:kpi:list')");

@@ -38,8 +38,11 @@ public interface IBusinessProjectService
     void validateSubprojectParent(Long parentId, Long sponsorId, Long applicantId);
     void deleteProject(Long projectId, Long userId, String userName, boolean boss);
     Map<String, Object> requestProjectDeletion(Long projectId, String reason, Long userId, String userName);
-    List<Map<String, Object>> projectDeletionRequests(Long userId, boolean administrator);
-    void reviewProjectDeletion(Long requestId, String decision, String comment, Long userId, String userName);
+    List<Map<String, Object>> projectDeletionRequests(Long userId, boolean administrator, boolean boss);
+    void reviewProjectDeletion(Long requestId, String decision, String comment, Long userId, String userName, boolean boss);
+    List<Map<String, Object>> projectDeletionNotifications(Long userId);
+    int readProjectDeletionNotification(Long notificationId, Long userId);
+    int readAllProjectDeletionNotifications(Long userId);
     BusinessProject createApprovedProject(BusinessProjectProposal proposal, Long reviewerUserId, String reviewerUserName);
     BusinessProject updateProject(BusinessProject project, Long userId, String userName, boolean boss);
     Map<String, Object> operatingConfig(Long projectId, Long userId, boolean viewAll, boolean boss);

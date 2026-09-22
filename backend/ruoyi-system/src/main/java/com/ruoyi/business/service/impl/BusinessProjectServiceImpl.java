@@ -259,7 +259,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     @Transactional
     public void deleteProject(Long projectId, Long userId, String userName, boolean boss)
     {
-        if (!SecurityUtils.isAdmin(userId)) throw new ServiceException("项目删除需由管理员审核，负责人请提交删除申请");
+        if (!SecurityUtils.isAdmin(userId)) throw new ServiceException("项目删除需由管理员或老板审核，负责人请提交删除申请");
         BusinessProject project = requireProjectForUpdate(projectId);
         if (mapper.countSubprojects(projectId) > 0)
             throw new ServiceException("该项目包含子项目，请先删除所有子项目，再删除主项目");
@@ -281,7 +281,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (mapper.countSubprojects(projectId) > 0)
             throw new ServiceException("该项目包含子项目，请先删除所有子项目，再申请删除主项目");
         if (hasPendingProjectDeletion(projectId))
-            throw new ServiceException("该项目已有待管理员审核的删除申请");
+            throw new ServiceException("该项目已有待管理员或老板审核的删除申请");
         Map<String, Object> request = new HashMap<>();
         request.put("projectId", projectId);
         request.put("projectName", project.getProjectName());
@@ -295,16 +295,17 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     }
 
     @Override
-    public List<Map<String, Object>> projectDeletionRequests(Long userId, boolean administrator)
+    public List<Map<String, Object>> projectDeletionRequests(Long userId, boolean administrator, boolean boss)
     {
-        return mapper.selectProjectDeletionRequests(userId, administrator && SecurityUtils.isAdmin(userId));
+        return mapper.selectProjectDeletionRequests(userId, administrator && SecurityUtils.isAdmin(userId), boss);
     }
 
     @Override
     @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
-    public void reviewProjectDeletion(Long requestId, String decision, String comment, Long userId, String userName)
+    public void reviewProjectDeletion(Long requestId, String decision, String comment, Long userId, String userName, boolean boss)
     {
-        if (!SecurityUtils.isAdmin(userId)) throw new ServiceException("只有管理员账号可以审核项目删除申请");
+        if (!SecurityUtils.isAdmin(userId) && !boss)
+            throw new ServiceException("只有管理员或项目归属公司的老板可以审核项目删除申请");
         if (!Arrays.asList("APPROVED", "REJECTED").contains(decision)) throw new ServiceException("审核决定不正确");
         if (comment != null && comment.trim().length() > 500) throw new ServiceException("审核说明不能超过500字");
         if ("REJECTED".equals(decision) && StringUtils.isBlank(comment)) throw new ServiceException("请填写驳回原因");
@@ -312,6 +313,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (request == null || !"PENDING".equals(request.get("status"))) throw new ServiceException("删除申请不存在或已审核");
         Long projectId = ((Number) request.get("projectId")).longValue();
         BusinessProject project = requireProjectForUpdate(projectId);
+        if (!SecurityUtils.isAdmin(userId) && !companyAccess.project(project, userId))
+            throw new ServiceException("只有项目归属公司的老板可以审核该删除申请");
         if ("APPROVED".equals(decision)
             && !Objects.equals(project.getMainOwnerUserId(), ((Number) request.get("requestUserId")).longValue()))
             throw new ServiceException("项目主负责人已变更，请驳回旧申请并由现负责人重新申请");
@@ -328,9 +331,29 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         }
         if (mapper.reviewProjectDeletionRequest(requestId, decision, comment == null ? null : comment.trim(), userId, userName) != 1)
             throw new ServiceException("删除申请已变化，请刷新后重试");
+        if (mapper.insertProjectDeletionNotification(requestId, ((Number) request.get("requestUserId")).longValue()) != 1)
+            throw new ServiceException("审核结果通知写入失败，请重试");
         addEvent(projectId, "APPROVED".equals(decision) ? "DELETE" : "DELETE_REJECTED",
             project.getStatus(), project.getStatus(), userId, userName,
-            "APPROVED".equals(decision) ? "管理员审核通过删除申请，保留历史记录" : "管理员驳回删除申请：" + comment.trim());
+            "APPROVED".equals(decision) ? "删除申请审核通过，保留历史记录" : "删除申请被驳回：" + comment.trim());
+    }
+
+    @Override
+    public List<Map<String, Object>> projectDeletionNotifications(Long userId)
+    {
+        return mapper.selectProjectDeletionNotifications(userId);
+    }
+
+    @Override
+    public int readProjectDeletionNotification(Long notificationId, Long userId)
+    {
+        return mapper.readProjectDeletionNotification(notificationId, userId);
+    }
+
+    @Override
+    public int readAllProjectDeletionNotifications(Long userId)
+    {
+        return mapper.readAllProjectDeletionNotifications(userId);
     }
 
     private boolean hasPendingProjectDeletion(Long projectId)

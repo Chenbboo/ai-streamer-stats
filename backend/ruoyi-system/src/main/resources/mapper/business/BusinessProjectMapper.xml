@@ -349,9 +349,14 @@
             r.reason,r.status,r.request_user_id requestUserId,r.request_user_name requestUserName,
             r.request_time requestTime,r.review_user_name reviewUserName,r.review_comment reviewComment,r.review_time reviewTime
         from biz_project_delete_request r
-        where <choose><when test="administrator">1=1</when><otherwise>r.request_user_id=#{userId}</otherwise></choose>
-        order by case when r.status='PENDING' then 0 else 1 end,r.request_id desc
-        limit 200
+        join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+        where r.status='PENDING' and
+        <choose>
+            <when test="administrator">1=1</when>
+            <when test="boss">(r.request_user_id=#{userId} or <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include>)</when>
+            <otherwise>r.request_user_id=#{userId}</otherwise>
+        </choose>
+        order by r.request_id desc
     </select>
     <insert id="insertProjectDeletionRequest" parameterType="map" useGeneratedKeys="true" keyProperty="requestId">
         insert into biz_project_delete_request(project_id,project_name,reason,status,request_user_id,request_user_name,request_time)
@@ -361,6 +366,28 @@
         update biz_project_delete_request set status=#{status},review_comment=#{comment},
             review_user_id=#{userId},review_user_name=#{userName},review_time=sysdate()
         where request_id=#{requestId} and status='PENDING'
+    </update>
+    <insert id="insertProjectDeletionNotification">
+        insert into biz_project_delete_notification(request_id,recipient_user_id,create_time)
+        values(#{requestId},#{recipientUserId},sysdate())
+    </insert>
+    <select id="selectProjectDeletionNotifications" resultType="map">
+        select n.notification_id notificationId,n.read_time readTime,n.create_time createTime,
+            r.request_id requestId,r.project_id projectId,r.project_name projectName,
+            r.reason,r.status,r.review_user_name reviewerName,r.review_comment reviewComment,
+            r.review_time reviewTime
+        from biz_project_delete_notification n
+        join biz_project_delete_request r on r.request_id=n.request_id
+        where n.recipient_user_id=#{userId}
+        order by (n.read_time is null) desc,n.notification_id desc limit 100
+    </select>
+    <update id="readProjectDeletionNotification">
+        update biz_project_delete_notification set read_time=coalesce(read_time,sysdate())
+        where notification_id=#{notificationId} and recipient_user_id=#{userId}
+    </update>
+    <update id="readAllProjectDeletionNotifications">
+        update biz_project_delete_notification set read_time=sysdate()
+        where recipient_user_id=#{userId} and read_time is null
     </update>
 
     <update id="updateProjectBudget">

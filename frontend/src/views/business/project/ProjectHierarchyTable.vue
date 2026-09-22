@@ -18,7 +18,7 @@
     <el-table-column label="操作" width="280" fixed="right"><template #default="{ row }"><div v-if="!row.contextOnly" class="row-actions">
       <el-button v-if="row.manageable && !row.parentId && !ended(row)" v-hasPermi="['business:project:proposal:add']" link type="primary" @click.stop="$emit('create', row)">新增子项目</el-button>
       <el-button link type="primary" @click.stop="$emit('detail', row)">查看详情</el-button>
-      <el-tag v-if="pendingProjects.has(row.projectId)" type="warning" size="small">待管理员审核删除</el-tag>
+      <el-tag v-if="pendingProjects.has(row.projectId)" type="warning" size="small">待管理员或老板审核删除</el-tag>
       <el-button v-else-if="row.manageable && (isAdmin || Number(row.mainOwnerUserId)===Number(userStore.id))" v-hasPermi="['business:project:edit']" link type="danger" :loading="deleting===row.projectId" @click.stop="remove(row)">{{ isAdmin ? '删除' : '申请删除' }}</el-button>
     </div></template></el-table-column>
   </el-table>
@@ -124,7 +124,7 @@ async function remove(row) {
   try {
     if (isAdmin.value) await ElMessageBox.confirm(`确定删除${row.parentId ? '子项目' : '主项目'}“${row.projectName}”吗？历史记录会保留。`, '删除确认', { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' })
     else {
-      const answer = await ElMessageBox.prompt(`请填写删除“${row.projectName}”的原因。提交后项目仍保留，等待管理员审核。`, '申请删除项目', {
+      const answer = await ElMessageBox.prompt(`请填写删除“${row.projectName}”的原因。提交后项目仍保留，等待管理员或老板审核。`, '申请删除项目', {
         confirmButtonText: '提交申请', cancelButtonText: '取消', inputType: 'textarea',
         inputValidator: value => value?.trim() && value.trim().length <= 500 ? true : '请填写删除原因，且不超过500字'
       })
@@ -142,7 +142,7 @@ async function remove(row) {
     } else {
       await requestBusinessProjectDeletion(row.projectId, { reason })
       pendingProjects.value = new Set([...pendingProjects.value, row.projectId])
-      ElMessage.success('删除申请已提交，等待管理员审核')
+      ElMessage.success('删除申请已提交，等待管理员或老板审核')
     }
   } catch { /* The shared request handler displays the server's rejection reason. */ }
   finally { deleting.value = null }

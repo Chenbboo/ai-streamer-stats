@@ -113,7 +113,7 @@ public class BusinessProjectController extends BaseController
     @GetMapping("/project/deletion-requests")
     public AjaxResult projectDeletionRequests()
     {
-        return success(projectService.projectDeletionRequests(currentUserId(), isAdministrator()));
+        return success(projectService.projectDeletionRequests(currentUserId(), isAdministrator(), isBoss()));
     }
 
     @PreAuthorize("@ss.hasPermi('business:project:edit')")
@@ -122,7 +122,29 @@ public class BusinessProjectController extends BaseController
     public AjaxResult reviewProjectDeletion(@PathVariable Long requestId, @RequestBody Map<String, Object> body)
     {
         projectService.reviewProjectDeletion(requestId, text(body, "decision"), text(body, "comment"),
-            currentUserId(), currentUserName());
+            currentUserId(), currentUserName(), isBoss());
+        return success();
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @GetMapping("/project/deletion-notifications")
+    public AjaxResult projectDeletionNotifications()
+    {
+        return success(projectService.projectDeletionNotifications(currentUserId()));
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @PutMapping("/project/deletion-notifications/{notificationId}/read")
+    public AjaxResult readProjectDeletionNotification(@PathVariable Long notificationId)
+    {
+        return toAjax(projectService.readProjectDeletionNotification(notificationId, currentUserId()));
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @PutMapping("/project/deletion-notifications/read-all")
+    public AjaxResult readAllProjectDeletionNotifications()
+    {
+        projectService.readAllProjectDeletionNotifications(currentUserId());
         return success();
     }
 

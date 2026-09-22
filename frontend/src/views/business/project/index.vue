@@ -17,7 +17,7 @@
       </el-form>
     </el-card>
 
-    <ProjectDeletionReviews v-if="isAdmin" ref="deletionReviews" @reviewed="handleDeletionReviewed" />
+    <ProjectDeletionReviews v-if="canReviewProjectDeletion" ref="deletionReviews" @reviewed="handleDeletionReviewed" />
     <el-card shadow="never" class="table-card">
       <ProjectHierarchyTable ref="hierarchyTable" :query="appliedQuery" @create="openSubprojectForm" @detail="openDetail" @deleted="handleProjectDeleted" @progress="row => progressPanel.open(row)" />
     </el-card>
@@ -408,6 +408,7 @@ const costModeLabel={DAILY:'日成本',HOURLY:'时成本',MONTHLY:'月成本',FI
 const allocationModeLabel={PERCENTAGE:'比例分摊',HOURS:'确认工时',ATTENDANCE:'出勤天数',FIXED_DAILY:'固定日金额',PER_TASK:'按任务数'}
 const isBoss = computed(() => userStore.roles.includes('admin') || userStore.permissions.includes('*:*:*') || (userStore.permissions.includes('business:boss:view') && (!detail.value || detail.value.governanceProfile?.companyManager === true)))
 const isAdmin = computed(() => userStore.roles.includes('admin') || userStore.permissions.includes('*:*:*'))
+const canReviewProjectDeletion = computed(() => isAdmin.value || userStore.permissions.includes('business:boss:view'))
 const myRole = computed(() => detail.value?.members?.find(m => Number(m.userId) === Number(userStore.id))?.memberRole)
 const canReviewAcceptance = computed(() => detail.value?.governanceProfile?.acceptanceReviewer === true)
 const canManage = computed(() => !isDeliveryEnded(detail.value) && (isBoss.value || ['OWNER','DEPUTY'].includes(myRole.value)))

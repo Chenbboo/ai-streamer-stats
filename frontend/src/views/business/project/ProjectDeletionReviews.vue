@@ -1,7 +1,7 @@
 <template>
   <el-card v-if="requests.length" shadow="never" class="review-card">
     <template #header>
-      <div class="review-head"><strong>项目删除申请 · 管理员审核</strong><el-button link type="primary" :loading="loading" @click="refresh">刷新</el-button></div>
+      <div class="review-head"><strong>项目删除申请 · 管理员或老板审核</strong><el-button link type="primary" :loading="loading" @click="refresh">刷新</el-button></div>
     </template>
     <el-alert v-if="loadError" title="删除申请读取失败，请重试" type="error" :closable="false" show-icon />
     <el-table v-else :data="requests" v-loading="loading">

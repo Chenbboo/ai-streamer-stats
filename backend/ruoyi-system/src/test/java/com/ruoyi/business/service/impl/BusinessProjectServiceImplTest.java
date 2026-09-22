@@ -3506,26 +3506,30 @@ class BusinessProjectServiceImplTest
         when(mapper.selectPendingProjectDeletion(15L)).thenReturn(pending);
         assertThrows(ServiceException.class, () -> service.requestProjectDeletion(15L, "再次申请", 9L, "owner"));
         when(mapper.selectProjectDeletionById(21L)).thenReturn(pending);
-        assertThrows(ServiceException.class, () -> service.reviewProjectDeletion(21L, "APPROVED", "", 9L, "owner"));
+        assertThrows(ServiceException.class, () -> service.reviewProjectDeletion(21L, "APPROVED", "", 9L, "owner", false));
         when(mapper.softDeleteProject(15L, 0, "admin")).thenReturn(1);
         when(mapper.reviewProjectDeletionRequest(21L, "APPROVED", "", 1L, "admin")).thenReturn(1);
-        service.reviewProjectDeletion(21L, "APPROVED", "", 1L, "admin");
+        when(mapper.insertProjectDeletionNotification(21L, 9L)).thenReturn(1);
+        service.reviewProjectDeletion(21L, "APPROVED", "", 1L, "admin", true);
         verify(mapper).softDeleteProject(15L, 0, "admin");
         verify(mapper).reviewProjectDeletionRequest(21L, "APPROVED", "", 1L, "admin");
+        verify(mapper).insertProjectDeletionNotification(21L, 9L);
     }
 
     @Test
     void rejectingDeletionKeepsProjectAndRequiresReason()
     {
         Map<String, Object> pending = new HashMap<>();
-        pending.put("requestId", 22L); pending.put("projectId", 15L); pending.put("status", "PENDING");
+        pending.put("requestId", 22L); pending.put("projectId", 15L); pending.put("requestUserId", 9L); pending.put("status", "PENDING");
         when(mapper.selectProjectDeletionById(22L)).thenReturn(pending);
         when(mapper.selectProjectById(15L)).thenReturn(project(15L, 9L, "ACTIVE", "APPROVED"));
         when(mapper.selectPendingProjectDeletion(15L)).thenReturn(pending);
-        assertThrows(ServiceException.class, () -> service.reviewProjectDeletion(22L, "REJECTED", "", 1L, "admin"));
+        assertThrows(ServiceException.class, () -> service.reviewProjectDeletion(22L, "REJECTED", "", 1L, "admin", true));
         when(mapper.reviewProjectDeletionRequest(22L, "REJECTED", "保留项目", 1L, "admin")).thenReturn(1);
-        service.reviewProjectDeletion(22L, "REJECTED", "保留项目", 1L, "admin");
+        when(mapper.insertProjectDeletionNotification(22L, 9L)).thenReturn(1);
+        service.reviewProjectDeletion(22L, "REJECTED", "保留项目", 1L, "admin", true);
         verify(mapper, never()).softDeleteProject(anyLong(), any(), any());
+        verify(mapper).insertProjectDeletionNotification(22L, 9L);
     }
 
     @Test
@@ -3536,8 +3540,32 @@ class BusinessProjectServiceImplTest
         pending.put("requestUserId", 8L); pending.put("status", "PENDING");
         when(mapper.selectProjectDeletionById(23L)).thenReturn(pending);
         when(mapper.selectProjectById(15L)).thenReturn(project(15L, 9L, "ACTIVE", "APPROVED"));
-        assertThrows(ServiceException.class, () -> service.reviewProjectDeletion(23L, "APPROVED", "", 1L, "admin"));
+        assertThrows(ServiceException.class, () -> service.reviewProjectDeletion(23L, "APPROVED", "", 1L, "admin", true));
         verify(mapper, never()).softDeleteProject(anyLong(), any(), any());
+    }
+
+    @Test
+    void companyBossCanApproveButUnrelatedBossCannotAndSecondReviewIsRejected()
+    {
+        BusinessProject project = project(15L, 9L, "ACTIVE", "APPROVED");
+        project.setSponsorOwnerUserId(8L);
+        Map<String, Object> pending = new HashMap<>();
+        pending.put("requestId", 24L); pending.put("projectId", 15L);
+        pending.put("requestUserId", 9L); pending.put("status", "PENDING");
+        Map<String, Object> reviewed = new HashMap<>(pending);
+        reviewed.put("status", "APPROVED");
+        when(mapper.selectProjectDeletionById(24L)).thenReturn(pending, pending, reviewed);
+        when(mapper.selectProjectById(15L)).thenReturn(project);
+        when(mapper.selectPendingProjectDeletion(15L)).thenReturn(pending);
+        assertThrows(ServiceException.class, () -> service.reviewProjectDeletion(24L, "APPROVED", "", 7L, "otherBoss", true));
+        when(mapper.softDeleteProject(15L, 0, "boss8")).thenReturn(1);
+        when(mapper.reviewProjectDeletionRequest(24L, "APPROVED", "", 8L, "boss8")).thenReturn(1);
+        when(mapper.insertProjectDeletionNotification(24L, 9L)).thenReturn(1);
+        service.reviewProjectDeletion(24L, "APPROVED", "", 8L, "boss8", true);
+        assertThrows(ServiceException.class, () -> service.reviewProjectDeletion(24L, "APPROVED", "", 1L, "admin", true));
+        verify(mapper).softDeleteProject(15L, 0, "boss8");
+        verify(mapper, never()).softDeleteProject(15L, 0, "admin");
+        verify(mapper).insertProjectDeletionNotification(24L, 9L);
     }
 
     @Test

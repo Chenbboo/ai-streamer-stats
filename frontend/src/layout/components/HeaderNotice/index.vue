@@ -27,11 +27,14 @@
       <div v-if="progressError" class="notice-empty">汇报通知加载失败 <el-button link @click="loadProgress">重试</el-button></div>
       <div v-else-if="!progressNotices.length" class="notice-empty">暂无进度汇报通知</div>
       <div class="progress-notices"><button v-for="item in progressNotices" :key="item.notificationId" class="notice-item progress-notice" :class="{'is-read':item.readTime}" @click="openProgress(item)"><span class="notice-item-title">{{ item.projectName }} · {{ item.progress }}%<small>{{ item.reporterName }} · {{ parseTime(item.createTime) }}</small></span><el-tag v-if="!item.readTime" size="small">未读</el-tag></button></div>
+      <div v-if="deletionNotices.length || deletionError" class="notice-header"><span class="notice-title">项目删除审核结果</span><span>{{ deletionUnreadCount }} 条未读</span></div>
+      <div v-if="deletionError" class="notice-empty">审核通知加载失败 <el-button link @click="loadDeletion">重试</el-button></div>
+      <div class="progress-notices"><button v-for="item in deletionNotices" :key="item.notificationId" class="notice-item progress-notice" :class="{'is-read':item.readTime}" @click="openDeletion(item)"><span class="notice-item-title">{{ item.projectName }} · {{ item.status === 'APPROVED' ? '删除申请已通过' : '删除申请已驳回' }}<small>{{ item.reviewerName || '审核人' }} · {{ parseTime(item.reviewTime || item.createTime) }}</small></span><el-tag v-if="!item.readTime" size="small">未读</el-tag></button></div>
       <!-- 触发器 -->
       <template #reference>
         <div class="right-menu-item hover-effect notice-trigger">
           <svg-icon icon-class="bell" />
-          <span v-if="unreadCount + progressNotices.filter(n=>!n.readTime).length > 0" class="notice-badge">{{ unreadCount + progressNotices.filter(n=>!n.readTime).length }}</span>
+          <span v-if="unreadCount + progressNotices.filter(n=>!n.readTime).length + deletionUnreadCount > 0" class="notice-badge">{{ unreadCount + progressNotices.filter(n=>!n.readTime).length + deletionUnreadCount }}</span>
         </div>
       </template>
     </el-popover>
@@ -42,17 +45,36 @@
 </template>
 
 <script setup>
-import { getProgressNotifications, readProgressNotification } from '@/api/business/project'
+import { getProgressNotifications, readProgressNotification, getBusinessProjectDeletionNotifications, readBusinessProjectDeletionNotification, readAllBusinessProjectDeletionNotifications } from '@/api/business/project'
 import { parseTime } from '@/utils/ruoyi'
 import { useRouter } from 'vue-router'
+import { h } from 'vue'
+import { ElMessageBox } from 'element-plus'
 import NoticeDetailView from './DetailView'
 import { listNoticeTop, markNoticeRead, markNoticeReadAll } from '@/api/system/notice'
 
 const router = useRouter(), progressNotices = ref([]), progressError = ref(false)
+const deletionNotices = ref([]), deletionError = ref(false)
+const deletionUnreadCount = computed(() => deletionNotices.value.filter(item => !item.readTime).length)
 let progressTimer
 async function loadProgress(){try{const res=await getProgressNotifications();progressNotices.value=res.data||[];progressError.value=false}catch{progressError.value=true}}
+async function loadDeletion(){try{const res=await getBusinessProjectDeletionNotifications();deletionNotices.value=res.data||[];deletionError.value=false}catch{deletionError.value=true}}
 async function openProgress(item){noticeVisible.value=false;await router.push({path:'/business/projects',query:{progressProjectId:item.projectId,reportId:item.reportId}});if(!item.readTime){try{await readProgressNotification(item.notificationId);item.readTime=new Date().toISOString()}catch{/* Keep unread state when acknowledgement fails. */}}}
-onMounted(()=>{loadProgress();progressTimer=setInterval(loadProgress,60000)})
+async function openDeletion(item){
+  noticeVisible.value=false
+  const lines=[
+    `项目：${item.projectName}`,
+    `结果：${item.status==='APPROVED'?'审核通过，项目已删除':'审核驳回，项目保留'}`,
+    `审核人：${item.reviewerName || '—'}`,
+    `申请原因：${item.reason || '—'}`,
+    `审核说明：${item.reviewComment || '无'}`
+  ]
+  try {
+    await ElMessageBox.alert(h('div', lines.map(line => h('p', { style: { margin: '0 0 8px' } }, line))), '项目删除审核结果', { confirmButtonText:'知道了' })
+    if(!item.readTime){await readBusinessProjectDeletionNotification(item.notificationId);item.readTime=new Date().toISOString()}
+  } catch {/* Keep unread state if the dialog or acknowledgement is closed or fails. */}
+}
+onMounted(()=>{loadProgress();loadDeletion();progressTimer=setInterval(()=>{loadProgress();loadDeletion()},60000)})
 onBeforeUnmount(()=>clearInterval(progressTimer))
 const noticePopover = ref(null)
 const noticeList = ref([])
@@ -73,7 +95,7 @@ function loadNoticeTop() {
 }
 
 onMounted(() => loadNoticeTop())
-watch(noticeVisible, shown => { if(shown)loadProgress() })
+watch(noticeVisible, shown => { if(shown){loadProgress();loadDeletion()} })
 
 // 预览公告详情
 function previewNotice(item) {
@@ -89,10 +111,14 @@ function previewNotice(item) {
 // 全部已读
 function markAllRead() {
   const ids = noticeList.value.map(n => n.noticeId).join(',')
-  if (!ids) return
-  markNoticeReadAll(ids).catch(() => {})
-  noticeList.value = noticeList.value.map(n => ({ ...n, isRead: true }))
-  unreadCount.value = 0
+  if (ids) {
+    markNoticeReadAll(ids).catch(() => {})
+    noticeList.value = noticeList.value.map(n => ({ ...n, isRead: true }))
+    unreadCount.value = 0
+  }
+  if (deletionUnreadCount.value) readAllBusinessProjectDeletionNotifications().then(() => {
+    deletionNotices.value = deletionNotices.value.map(item => ({ ...item, readTime: item.readTime || new Date().toISOString() }))
+  }).catch(() => {})
 }
 </script>
 
