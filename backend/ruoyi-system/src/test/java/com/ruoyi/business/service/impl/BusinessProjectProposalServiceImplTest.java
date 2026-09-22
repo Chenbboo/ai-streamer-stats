@@ -1132,6 +1132,25 @@ class BusinessProjectProposalServiceImplTest
         assertEquals(30,saved.getTargetLines().get(0).get("weight"));
     }
 
+    @ParameterizedTest
+    @CsvSource({"收入测算,expectedDate,expectedAmount", "支出计划,occurDate,amount"})
+    void proposalMoneyLinesAllowElevenIntegerDigitsAndTwoDecimals(String label,String dateField,String amountField)
+    {
+        Map<String,Object> line=new HashMap<>();
+        line.put(amountField,"99999999999.99");
+        org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"validateLines",proposal,
+            Collections.singletonList(line),label,new String[0],new int[0],dateField);
+
+        for(String invalid:new String[]{"100000000000.00","1.001","-0.01"})
+        {
+            line.put(amountField,invalid);
+            ServiceException error=assertThrows(ServiceException.class,()->
+                org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"validateLines",proposal,
+                    Collections.singletonList(line),label,new String[0],new int[0],dateField));
+            org.junit.jupiter.api.Assertions.assertTrue(error.getMessage().contains("金额最多11位整数、两位小数"));
+        }
+    }
+
     @Test
     void unlimitedProjectCannotLaunchWithoutExplicitBudgetPeriod()
     {

@@ -975,8 +975,9 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             Object rawAmount=line.get(amountField);
             try{java.math.BigDecimal amount=new java.math.BigDecimal(String.valueOf(rawAmount));
                 int scale="targetValue".equals(amountField)?4:2;
-                if(amount.signum()<0||amount.scale()>scale||amount.compareTo(new java.math.BigDecimal("99999999999999.99"))>0)throw new NumberFormatException();}
-            catch(Exception ex){throw new ServiceException(label+"第"+(i+1)+"行请填写有效非负数值，金额最多两位小数、目标值最多四位小数");}
+                java.math.BigDecimal max="targetValue".equals(amountField)?new java.math.BigDecimal("99999999999999.99"):new java.math.BigDecimal("99999999999.99");
+                if(amount.signum()<0||amount.scale()>scale||amount.compareTo(max)>0)throw new NumberFormatException();}
+            catch(Exception ex){throw new ServiceException(label+"第"+(i+1)+"行请填写有效非负数值，"+("targetValue".equals(amountField)?"目标值最多四位小数":"金额最多11位整数、两位小数"));}
             for(int n=0;n<fields.length;n++)
             {
                 String value=text(line.get(fields[n]));
