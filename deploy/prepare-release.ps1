@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[0-9a-f]{7,40}$')]
-    [string]$ReleaseId
+    [string]$ReleaseId,
+    [switch]$ExcludeSlowErpMapperIntegrationTest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -26,7 +27,13 @@ try {
 
     Push-Location $backendRoot
     try {
-        mvn clean package
+        if ($ExcludeSlowErpMapperIntegrationTest) {
+            mvn -pl ruoyi-system -am test '-Dtest=JewelryErpMapperIntegrationTest#singleInfluencerProductPriceIncludesConfiguredRates' '-Dsurefire.failIfNoSpecifiedTests=false'
+            if ($LASTEXITCODE -ne 0) { throw 'Focused influencer mapper test failed.' }
+            mvn clean package '-Dtest=*,!JewelryErpMapperIntegrationTest' '-Dsurefire.failIfNoSpecifiedTests=false'
+        } else {
+            mvn clean package
+        }
         if ($LASTEXITCODE -ne 0) { throw 'Backend build failed.' }
     } finally { Pop-Location }
 

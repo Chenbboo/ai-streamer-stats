@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 import java.io.ByteArrayOutputStream;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -87,7 +88,7 @@ class JewelryInfluencerBindingExcelServiceTest
         row.put("fixedUnitPrice", "100");
         row.put("bindingStatus", "0");
 
-        service.validateRows(null, List.of(row));
+        service.validateRows(null, Collections.singletonList(row));
         assertTrue(errors(row).stream().anyMatch(error -> error.contains("不一致")));
     }
 

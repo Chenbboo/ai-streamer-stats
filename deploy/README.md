@@ -26,6 +26,8 @@ pwsh -File deploy/prepare-release.ps1 -ReleaseId <当前提交哈希>
 outputs/releases/release-<提交哈希>.tar.gz
 ```
 
+如本机 H2 在 `JewelryErpMapperIntegrationTest.onlyFinishedProductsExposeSupplierReturnCountdown` 的执行计划计算中持续无进展，可使用 `-ExcludeSlowErpMapperIntegrationTest`。此选项会先单独运行本次达人商品费率映射测试，再运行其余后端测试并打包；必须在发布记录中注明整个 Mapper 集成测试类未完整执行，不能视为全量测试通过。
+
 ## 上传但不部署
 
 ```powershell

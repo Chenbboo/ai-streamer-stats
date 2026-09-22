@@ -327,10 +327,16 @@ public class JewelryErpController extends BaseController
         if (!isErpAdministrator()) return error("只有管理员可以导入达人商品绑定");
         List<Map<String, Object>> checked = influencerExcelService.validateRows(id, bindings);
         boolean invalid = checked.stream().anyMatch(row -> !((List<?>) row.get("errors")).isEmpty());
+        Map<String, Object> result = new HashMap<>();
+        result.put("saved", !invalid);
         if (invalid)
-            return success(java.util.Map.of("saved", false, "rows", checked));
+        {
+            result.put("rows", checked);
+            return success(result);
+        }
         service.saveInfluencerBindings(id, checked, SecurityUtils.getUserId(), SecurityUtils.getUsername());
-        return success(java.util.Map.of("saved", true, "count", checked.size()));
+        result.put("count", checked.size());
+        return success(result);
     }
 
     @PreAuthorize("@ss.hasPermi('jewelry:influencer:price')")
