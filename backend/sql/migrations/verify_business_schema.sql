@@ -1034,3 +1034,9 @@ select 2-count(*) as missing_jewelry_transfer_warehouses from information_schema
 where table_schema=database() and table_name='jewelry_document'
   and column_name in ('source_warehouse','target_warehouse') and data_type='varchar'
   and character_maximum_length>=100;
+
+-- V119 KPI actual values preserve precision when monetary units are converted.
+select 1-count(*) as missing_kpi_actual_unit_precision from information_schema.columns
+where table_schema=database() and table_name='biz_project_kpi_result'
+  and column_name='actual_value' and data_type='decimal'
+  and numeric_precision>=24 and numeric_scale>=8;

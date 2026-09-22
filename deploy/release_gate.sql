@@ -396,4 +396,8 @@ from (
   union all
   select count(*) from information_schema.statistics where table_schema=database()
     and table_name='jewelry_product' and index_name='uk_jewelry_product_sku'
+  union all
+  select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
+    and table_name='biz_project_kpi_result' and column_name='actual_value'
+    and data_type='decimal' and numeric_precision>=24 and numeric_scale>=8
 ) release_gate;

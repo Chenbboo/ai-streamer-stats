@@ -366,3 +366,7 @@ V079 后执行 `V080__staff_cost_menu_title.sql`，统一菜单名称为“人�
 ## V118 样品与非样品共用 SKU
 
 执行 `V118__jewelry_product_sample_sku_scope.sql` 后，同一 SKU 最多可有一个样品商品和一个非样品商品；成品、散件、配件、福利商品之间仍不能共用 SKU。库存、成本、单据与流水继续按各自 `product_id` 独立记录。迁移增加按商品类型生成的 `sku_scope` 和联合唯一索引，删除旧的全局 SKU 唯一索引；可重复执行。发布前备份数据库，并先执行迁移再启动新版后端。
+
+## V119 KPI 实际值精度
+
+执行 `V119__kpi_actual_unit_precision.sql` 后，`biz_project_kpi_result.actual_value` 扩大为 `decimal(24,8)`，以“万元”等单位填报的 KPI 在折算为元时仍可保留分位精度。迁移可重复执行；发布前备份数据库，并先执行迁移再启动新版后端。

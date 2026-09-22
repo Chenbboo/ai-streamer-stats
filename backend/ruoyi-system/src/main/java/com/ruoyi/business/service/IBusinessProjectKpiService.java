@@ -15,6 +15,8 @@ public interface IBusinessProjectKpiService
     void voidPlan(Long planId, Long userId, String userName, boolean viewAll, boolean boss);
     BusinessProjectKpiSettlement saveResults(Long settlementId, BusinessProjectKpiSettlement input,
         Long userId, String userName, boolean viewAll);
+    BusinessProjectKpiSettlement correctConfirmedManualResult(Long settlementId, Long planItemId,
+        java.math.BigDecimal actualValue, String reason, Long userId, String userName);
     BusinessProjectKpiSettlement submit(Long settlementId, Long userId, String userName, boolean viewAll);
     BusinessProjectKpiSettlement review(Long settlementId, String decision, String comment,
         Long userId, String userName, boolean viewAll, boolean boss);

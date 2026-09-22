@@ -473,6 +473,8 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
     {
         if (result.getActualValue() == null || result.getActualValue().compareTo(BigDecimal.ZERO) < 0)
             throw new ServiceException("KPI实际值不能为空或为负数");
+        if (result.getActualValue().scale() > 8)
+            throw new ServiceException("KPI实际值最多保留8位小数");
         if (StringUtils.isBlank(result.getResultNote())) throw new ServiceException("手工填报KPI结果必须填写说明");
         result.setResultNote(result.getResultNote().trim());
         if (result.getResultNote().length() > 1000) throw new ServiceException("KPI结果说明不能超过1000字");
@@ -559,12 +561,11 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         BigDecimal actual = BigDecimal.ZERO;
         if (!end.before(settlement.getPeriodStart()))
         {
-            if ("REVENUE".equals(item.getSourceType())) actual = number(financialSummary.get("revenueAmount"));
-            else if ("BUSINESS_COST".equals(item.getSourceType())) actual = number(financialSummary.get("businessCost"));
-            else if ("PERSONNEL_COST".equals(item.getSourceType())) actual = number(financialSummary.get("personnelCost"));
-            else if ("PROFIT".equals(item.getSourceType())) actual = number(financialSummary.get("profitAmount"));
-            else if ("ROUTINE".equals(item.getSourceType())) actual = number(mapper.sumRoutineActual(
-                settlement.getProjectId(), item.getSourceRefId(), settlement.getPeriodStart(), end));
+            if ("REVENUE".equals(item.getSourceType())) actual = financialActual(item, settlement, financialSummary.get("revenueAmount"));
+            else if ("BUSINESS_COST".equals(item.getSourceType())) actual = financialActual(item, settlement, financialSummary.get("businessCost"));
+            else if ("PERSONNEL_COST".equals(item.getSourceType())) actual = financialActual(item, settlement, financialSummary.get("personnelCost"));
+            else if ("PROFIT".equals(item.getSourceType())) actual = financialActual(item, settlement, financialSummary.get("profitAmount"));
+            else if ("ROUTINE".equals(item.getSourceType())) actual = routineActual(item, settlement, end);
             else if ("TASK".equals(item.getSourceType())) actual = number(mapper.countCompletedTasks(
                 settlement.getProjectId(), item.getSourceRefId(), settlement.getPeriodStart(), end));
             else if ("MILESTONE".equals(item.getSourceType())) actual = number(mapper.countCompletedMilestones(
@@ -603,6 +604,88 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
 
     private BigDecimal number(Object value)
     { return value == null ? BigDecimal.ZERO : new BigDecimal(String.valueOf(value)); }
+
+    private BigDecimal financialActual(BusinessProjectKpiPlanItem item, BusinessProjectKpiSettlement settlement, Object raw)
+    {
+        BigDecimal amount = number(raw);
+        String currency = StringUtils.isBlank(settlement.getCurrency()) ? "CNY" : settlement.getCurrency().trim();
+        String unit = item.getUnit() == null ? "" : item.getUnit().trim();
+        if (unit.isEmpty() || currency.equalsIgnoreCase(unit) || ("CNY".equalsIgnoreCase(currency) && "元".equals(unit)))
+            return amount;
+        if ("CNY".equalsIgnoreCase(currency) && "万元".equals(unit))
+            return amount.divide(new BigDecimal("10000"));
+        throw new ServiceException("自动财务KPI“" + item.getKpiName() + "”的单位与项目币种不匹配，请调整指标单位");
+    }
+
+    private BigDecimal routineActual(BusinessProjectKpiPlanItem item, BusinessProjectKpiSettlement settlement, Date end)
+    {
+        BigDecimal total = BigDecimal.ZERO;
+        String targetUnit = StringUtils.trimToEmpty(item.getUnit());
+        String currency = StringUtils.defaultIfBlank(settlement.getCurrency(), "CNY");
+        for (Map<String, Object> row : safe(mapper.sumRoutineActualByUnit(settlement.getProjectId(),
+            item.getSourceRefId(), settlement.getPeriodStart(), end)))
+        {
+            String sourceUnit = row.get("unit") == null ? "" : String.valueOf(row.get("unit")).trim();
+            BigDecimal value = number(row.get("actualValue"));
+            if (sourceUnit.equalsIgnoreCase(targetUnit)) total = total.add(value);
+            else if ("CNY".equalsIgnoreCase(currency)
+                && Arrays.asList("元", "万元", "CNY").contains(sourceUnit)
+                && Arrays.asList("元", "万元", "CNY").contains(targetUnit))
+            {
+                BigDecimal yuan = "万元".equals(sourceUnit) ? value.multiply(new BigDecimal("10000")) : value;
+                total = total.add("万元".equals(targetUnit) ? yuan.divide(new BigDecimal("10000")) : yuan);
+            }
+            else throw new ServiceException("持续工作KPI“" + item.getKpiName()
+                + "”的上报单位“" + sourceUnit + "”与指标单位“" + targetUnit + "”不一致");
+        }
+        return total;
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public BusinessProjectKpiSettlement correctConfirmedManualResult(Long settlementId, Long planItemId,
+        BigDecimal actualValue, String reason, Long userId, String userName)
+    {
+        BusinessProjectKpiSettlement settlement = requireSettlement(settlementId);
+        BusinessProject project = requireProjectForUpdate(settlement.getProjectId());
+        settlement = requireSettlementForUpdate(settlementId);
+        requireOwner(project, userId, false);
+        BusinessProjectLifecycle.requireAccountingOpen(project);
+        if (!independent(settlement) || !"CONFIRMED".equals(settlement.getStatus())
+            || settlement.getAccountingFactId() != null || settlement.getBonusAmount() != null)
+            throw new ServiceException("只有未关联奖金成本的已确认独立KPI可更正");
+        if (actualValue == null || actualValue.signum() < 0 || actualValue.scale() > 8)
+            throw new ServiceException("请填写非负数且不超过8位小数的正确实际值");
+        if (StringUtils.isBlank(reason) || reason.trim().length() > 500)
+            throw new ServiceException("请填写不超过500字的更正原因");
+        List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
+        BusinessProjectKpiPlanItem item = itemMap(items).get(planItemId);
+        if (item == null || !"MANUAL".equals(item.getSourceType()))
+            throw new ServiceException("只能更正本期手工填报的KPI结果");
+        List<BusinessProjectKpiResult> results = mapper.selectSettlementResults(settlementId);
+        BusinessProjectKpiResult result = null;
+        for (BusinessProjectKpiResult value : results)
+            if (planItemId.equals(value.getPlanItemId())) { result = value; break; }
+        if (result == null) throw new ServiceException("待更正的KPI结果不存在");
+        BigDecimal oldActual = result.getActualValue();
+        BigDecimal oldTotal = settlement.getTotalScore();
+        if (oldActual.compareTo(actualValue) == 0) throw new ServiceException("更正值与当前结果相同");
+        result.setActualValue(actualValue);
+        result.setCompletionRate(completionRate(item, actualValue));
+        result.setWeightedScore(weightedScore(result.getCompletionRate(), item.getWeight()));
+        result.setInputUserId(userId);
+        result.setInputUserName(userName);
+        if (mapper.upsertSettlementResult(result) < 1) throw changed();
+        BigDecimal score = totalScore(items, results);
+        if (mapper.correctConfirmedSettlementScore(settlementId, score, userName, settlement.getVersion()) != 1)
+            throw changed();
+        addEvent(project, "KPI_RESULT_CORRECTED", userId, userName,
+            "更正KPI“" + item.getKpiName() + "”：" + oldActual.toPlainString() + " → "
+                + actualValue.toPlainString() + " " + item.getUnit() + "；综合得分 "
+                + (oldTotal == null ? "—" : oldTotal.toPlainString()) + " → " + score.toPlainString()
+                + "；原因：" + reason.trim());
+        return detail(settlementId);
+    }
 
     private BigDecimal completionRate(BusinessProjectKpiPlanItem item, BigDecimal actual)
     {

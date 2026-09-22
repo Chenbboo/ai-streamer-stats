@@ -886,6 +886,34 @@ class BusinessProjectProposalServiceImplTest
     }
 
     @Test
+    void tenThousandYuanAcceptanceTargetKeepsItsOwnUnitWithoutInflatingRevenue()
+    {
+        proposal.setGoalMode("TOTAL");proposal.setForecastDays(30);
+        proposal.setTargetLines(Collections.singletonList(BusinessProjectWorkServiceTest.row(
+            "targetType","QUANTITY","targetName","合同额","targetValue",new BigDecimal("10"),
+            "unit","万元","acceptanceEvidence","已签合同")));
+
+        org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeBusinessPlan",proposal);
+
+        assertEquals("FINANCIAL",proposal.getTargetLines().get(0).get("targetType"));
+        assertEquals(new BigDecimal("10"),proposal.getTargetLines().get(0).get("targetValue"));
+        assertEquals("万元",proposal.getTargetLines().get(0).get("unit"));
+        assertEquals(0,proposal.getEstimatedRevenue().compareTo(BigDecimal.ZERO));
+    }
+
+    @Test
+    void nonCnyProposalRejectsTenThousandYuanTarget()
+    {
+        proposal.setGoalMode("TOTAL");proposal.setForecastDays(30);proposal.setBaseCurrency("VND");
+        proposal.setTargetLines(Collections.singletonList(BusinessProjectWorkServiceTest.row(
+            "targetType","FINANCIAL","targetName","合同额","targetValue",new BigDecimal("10"),
+            "unit","万元","acceptanceEvidence","已签合同")));
+
+        assertThrows(ServiceException.class,()->org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+            service,"normalizeBusinessPlan",proposal));
+    }
+
+    @Test
     void noTotalModeRejectsIncompleteAcceptanceTargets()
     {
         proposal.setGoalMode("NO_TOTAL");proposal.setForecastDays(30);

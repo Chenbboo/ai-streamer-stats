@@ -1253,6 +1253,9 @@
         select coalesce(sum(actual_value),0) from biz_project_routine_report
         where routine_id=#{routineId} and status='SUBMITTED' and biz_date&lt;date(#{bizDate})
     </select>
+    <select id="countRoutineReports" resultType="int">
+        select count(*) from biz_project_routine_report where routine_id=#{routineId}
+    </select>
 
     <select id="selectRisks" resultType="com.ruoyi.business.domain.BusinessProjectRisk">
         select risk_id riskId,project_id projectId,risk_type riskType,risk_title riskTitle,severity,probability,

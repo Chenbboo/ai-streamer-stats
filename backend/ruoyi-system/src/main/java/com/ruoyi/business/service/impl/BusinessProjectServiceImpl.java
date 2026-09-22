@@ -925,8 +925,15 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (StringUtils.isBlank(kpi.getKpiName())) throw new ServiceException("请填写KPI名称");
         kpi.setKpiCode(kpi.getKpiCode().trim().toUpperCase());
         if (!kpi.getKpiCode().matches("[A-Z0-9_\\-]{2,64}")) throw new ServiceException("KPI编码只能使用字母、数字、下划线或短横线");
+        if (kpi.getUnit() != null) kpi.setUnit(kpi.getUnit().trim());
         if (StringUtils.isBlank(kpi.getMetricType())) kpi.setMetricType("COUNT");
         if (!KPI_METRIC_TYPES.contains(kpi.getMetricType())) throw new ServiceException("KPI指标类型不正确");
+        if ("元".equals(kpi.getUnit()) || "万元".equals(kpi.getUnit())
+            || StringUtils.isNotBlank(kpi.getUnit()) && kpi.getUnit().equalsIgnoreCase(project.getBaseCurrency()))
+            kpi.setMetricType("AMOUNT");
+        if (("元".equals(kpi.getUnit()) || "万元".equals(kpi.getUnit()))
+            && !"CNY".equalsIgnoreCase(project.getBaseCurrency()))
+            throw new ServiceException("元和万元只适用于人民币项目，请选择项目币种作为单位");
         if (StringUtils.isBlank(kpi.getPeriodType())) kpi.setPeriodType("PROJECT");
         if (!KPI_PERIOD_TYPES.contains(kpi.getPeriodType())) throw new ServiceException("KPI统计周期不正确");
         if (kpi.getTargetValue() == null || kpi.getTargetValue().compareTo(BigDecimal.ZERO) <= 0)
@@ -965,7 +972,15 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (StringUtils.isBlank(kpi.getSourceType())) kpi.setSourceType("MANUAL");
         kpi.setSourceType(kpi.getSourceType().trim().toUpperCase());
         if (!KPI_SOURCE_TYPES.contains(kpi.getSourceType())) throw new ServiceException("KPI数据来源不正确");
-        validateKpiSource(project.getProjectId(), kpi);
+        if (Arrays.asList("REVENUE", "BUSINESS_COST", "PERSONNEL_COST", "PROFIT").contains(kpi.getSourceType()))
+        {
+            String currency = project.getBaseCurrency();
+            String unit = kpi.getUnit();
+            if (StringUtils.isNotBlank(unit) && !unit.equalsIgnoreCase(currency)
+                && !("CNY".equalsIgnoreCase(currency) && ("元".equals(unit) || "万元".equals(unit))))
+                throw new ServiceException("自动财务KPI单位须与项目币种一致，人民币项目也可使用元或万元");
+        }
+        validateKpiSource(project, kpi);
         if (kpi.getPrecisionScale() == null) kpi.setPrecisionScale(2);
         if (previous != null && mapper.retireProjectKpi(previous.getKpiId(), userName) != 1) throw changed();
         kpi.setKpiId(null);
@@ -982,8 +997,9 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         return weight.stripTrailingZeros().toPlainString();
     }
 
-    private void validateKpiSource(Long projectId, BusinessProjectKpi kpi)
+    private void validateKpiSource(BusinessProject project, BusinessProjectKpi kpi)
     {
+        Long projectId = project.getProjectId();
         if ("MANUAL".equals(kpi.getSourceType()) || Arrays.asList("REVENUE", "BUSINESS_COST",
             "PERSONNEL_COST", "PROFIT").contains(kpi.getSourceType()))
         {
@@ -995,6 +1011,13 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             if (kpi.getSourceRefId() == null) throw new ServiceException("请选择要自动汇总的持续工作");
             BusinessProjectRoutine routine = mapper.selectRoutineById(kpi.getSourceRefId());
             if (routine == null || !projectId.equals(routine.getProjectId())) throw new ServiceException("持续工作不属于当前项目");
+            String sourceUnit = StringUtils.trimToEmpty(routine.getUnit());
+            String targetUnit = StringUtils.trimToEmpty(kpi.getUnit());
+            boolean cnyConvertible = "CNY".equalsIgnoreCase(project.getBaseCurrency())
+                && Arrays.asList("元", "万元", "CNY").contains(sourceUnit)
+                && Arrays.asList("元", "万元", "CNY").contains(targetUnit);
+            if (targetUnit.isEmpty() || !sourceUnit.equalsIgnoreCase(targetUnit) && !cnyConvertible)
+                throw new ServiceException("持续工作KPI单位须与上报单位一致；人民币金额可在元和万元之间换算");
             return;
         }
         if (kpi.getSourceRefId() == null) return;
@@ -2628,6 +2651,13 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             if ("NONE".equals(routine.getTargetMode())) routine.setUnit("项");
             else throw new ServiceException("请填写成果单位");
         }
+        routine.setUnit(routine.getUnit().trim());
+        if (("元".equals(routine.getUnit()) || "万元".equals(routine.getUnit()))
+            && !"CNY".equalsIgnoreCase(project.getBaseCurrency()))
+            throw new ServiceException("元和万元只适用于人民币项目，请选择项目币种作为单位");
+        if (currentRoutine != null && !routine.getUnit().equals(currentRoutine.getUnit())
+            && mapper.countRoutineReports(currentRoutine.getRoutineId()) > 0)
+            throw new ServiceException("持续工作已有上报，不能直接更换单位；请新建持续工作保留历史口径");
         String routineRole = routine.getAssigneeUserId() == null ? null
             : mapper.selectMemberRole(project.getProjectId(), routine.getAssigneeUserId());
         if (routineRole == null || "OBSERVER".equals(routineRole))

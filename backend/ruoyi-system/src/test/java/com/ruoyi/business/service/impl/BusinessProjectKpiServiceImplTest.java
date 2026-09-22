@@ -151,10 +151,10 @@ class BusinessProjectKpiServiceImplTest
         assertEquals(1,saved.getResults().size());
     }
 
-    @Test void workspaceCalculatesRoutineKpiFromSubmittedReports()
+    @Test void workspaceConvertsRoutineReportsFromYuanToTenThousandYuan()
     {
         BusinessProjectKpiPlan currentPlan=plan();currentPlan.setPlanId(10L);currentPlan.setPlanVersion(1);
-        BusinessProjectKpiPlanItem automatic=item();automatic.setSourceType("ROUTINE");automatic.setSourceRefId(301L);
+        BusinessProjectKpiPlanItem automatic=item();automatic.setSourceType("ROUTINE");automatic.setSourceRefId(301L);automatic.setUnit("万元");
         BusinessProjectKpiSettlement draft=settlement("DRAFT",0);
         draft.setPeriodStart(java.sql.Date.valueOf("2026-01-01"));draft.setPeriodEnd(java.sql.Date.valueOf("2026-12-31"));
         when(projectMapper.selectProjectById(1L)).thenReturn(project());
@@ -165,12 +165,14 @@ class BusinessProjectKpiServiceImplTest
         when(mapper.selectBonusTiers(10L)).thenReturn(tiers());
         when(mapper.selectSettlementByPlanId(10L)).thenReturn(draft);
         when(mapper.selectSettlementResults(20L)).thenReturn(Collections.emptyList());
-        when(mapper.sumRoutineActual(eq(1L),eq(301L),any(),any())).thenReturn(new BigDecimal("42"));
+        when(mapper.sumRoutineActualByUnit(eq(1L),eq(301L),any(),any())).thenReturn(Arrays.asList(
+            BusinessProjectWorkServiceTest.row("unit","元","actualValue",new BigDecimal("10000")),
+            BusinessProjectWorkServiceTest.row("unit","万元","actualValue",BigDecimal.ONE)));
 
         Map<String,Object> workspace=service.workspace(1L,null,9L,false,false);
 
         BusinessProjectKpiPlan selected=(BusinessProjectKpiPlan)workspace.get("selectedPlan");
-        assertEquals(new BigDecimal("42"),selected.getSettlement().getResults().get(0).getActualValue());
+        assertEquals(0,new BigDecimal("2").compareTo(selected.getSettlement().getResults().get(0).getActualValue()));
         assertEquals(Boolean.TRUE,selected.getSettlement().getResults().get(0).getAutomatic());
     }
 
@@ -184,13 +186,14 @@ class BusinessProjectKpiServiceImplTest
         for(int i=0;i<sources.length;i++)
         {
             BusinessProjectKpiPlanItem source=item();source.setItemId(101L+i);source.setSourceType(sources[i]);
-            if("ROUTINE".equals(sources[i]))source.setSourceRefId(301L);
+            if("REVENUE".equals(sources[i])){source.setUnit("万元");source.setTargetValue(new BigDecimal("10"));}
+            if("ROUTINE".equals(sources[i])){source.setSourceRefId(301L);source.setUnit("条");}
             if("TASK".equals(sources[i]))source.setSourceRefId(401L);
             if("MILESTONE".equals(sources[i]))source.setSourceRefId(501L);
             items.add(source);
         }
         Map<String,Object> summary=new java.util.LinkedHashMap<String,Object>();
-        summary.put("revenueAmount",new BigDecimal("500"));summary.put("businessCost",new BigDecimal("120"));
+        summary.put("revenueAmount",new BigDecimal("20000"));summary.put("businessCost",new BigDecimal("120"));
         summary.put("personnelCost",new BigDecimal("80"));summary.put("profitAmount",new BigDecimal("300"));
         Map<String,Object> dashboard=new java.util.LinkedHashMap<String,Object>();dashboard.put("summary",summary);
         dashboard.put("costPolicyVersion","MEMBER_DAYS_V1");dashboard.put("pendingCostCount",0);
@@ -200,13 +203,14 @@ class BusinessProjectKpiServiceImplTest
         when(mapper.selectPlanItems(10L)).thenReturn(items);when(mapper.selectSettlementByPlanId(10L)).thenReturn(draft);
         when(mapper.selectSettlementResults(20L)).thenReturn(Collections.emptyList());
         when(accountingService.projectDashboard(eq(1L),any(),eq(9L),eq(true))).thenReturn(dashboard);
-        when(mapper.sumRoutineActual(1L,301L,draft.getPeriodStart(),draft.getPeriodEnd())).thenReturn(new BigDecimal("42"));
+        when(mapper.sumRoutineActualByUnit(1L,301L,draft.getPeriodStart(),draft.getPeriodEnd())).thenReturn(Collections.singletonList(
+            BusinessProjectWorkServiceTest.row("unit","条","actualValue",new BigDecimal("42"))));
         when(mapper.countCompletedTasks(1L,401L,draft.getPeriodStart(),draft.getPeriodEnd())).thenReturn(new BigDecimal("3"));
         when(mapper.countCompletedMilestones(1L,501L,draft.getPeriodStart(),draft.getPeriodEnd())).thenReturn(new BigDecimal("2"));
 
         Map<String,Object> workspace=service.workspace(1L,null,9L,false,false);
         List<BusinessProjectKpiResult> results=((BusinessProjectKpiPlan)workspace.get("selectedPlan")).getSettlement().getResults();
-        BigDecimal[] expected={new BigDecimal("500"),new BigDecimal("120"),new BigDecimal("80"),
+        BigDecimal[] expected={new BigDecimal("2"),new BigDecimal("120"),new BigDecimal("80"),
             new BigDecimal("300"),new BigDecimal("42"),new BigDecimal("3"),new BigDecimal("2")};
         assertEquals(sources.length,results.size());
         for(int i=0;i<sources.length;i++)
@@ -214,6 +218,7 @@ class BusinessProjectKpiServiceImplTest
             assertEquals(sources[i],results.get(i).getSourceType());assertEquals(expected[i],results.get(i).getActualValue());
             assertEquals(Boolean.TRUE,results.get(i).getAutomatic());assertEquals("READY",results.get(i).getDataStatus());
         }
+        assertEquals(new BigDecimal("20.00"),results.get(0).getCompletionRate());
     }
 
     @Test void automaticResultCannotBeOverwrittenManually()
@@ -542,6 +547,49 @@ class BusinessProjectKpiServiceImplTest
         assertEquals("CONFIRMED",service.submit(20L,9L,"owner9",false).getStatus());
         verify(accountingService,never()).recordProjectBonus(any(),any(),any(),any(),any(),any());
         verify(mapper,never()).selectBonusTiers(any());
+    }
+
+    @Test void confirmedManualTenThousandYuanResultCanBeCorrectedWithAudit()
+    {
+        BusinessProjectKpiSettlement confirmed=settlement("CONFIRMED",2);
+        confirmed.setRewardPolicyVersion("INDEPENDENT_V1");
+        confirmed.setTotalScore(new BigDecimal("120"));
+        BusinessProjectKpiPlanItem metric=item();metric.setSourceType("MANUAL");
+        metric.setUnit("万元");metric.setTargetValue(new BigDecimal("10"));
+        BusinessProjectKpiResult result=new BusinessProjectKpiResult();
+        result.setSettlementId(20L);result.setPlanItemId(101L);
+        result.setActualValue(new BigDecimal("20000"));
+        when(projectMapper.selectProjectById(1L)).thenReturn(project());
+        when(mapper.selectSettlementById(20L)).thenReturn(confirmed);
+        when(mapper.selectPlanItems(10L)).thenReturn(Collections.singletonList(metric));
+        when(mapper.selectSettlementResults(20L)).thenReturn(Collections.singletonList(result));
+        when(mapper.upsertSettlementResult(result)).thenReturn(1);
+        when(mapper.correctConfirmedSettlementScore(eq(20L),eq(new BigDecimal("20.00")),eq("owner9"),eq(2))).thenReturn(1);
+
+        service.correctConfirmedManualResult(20L,101L,new BigDecimal("2"),"原值误按元填报",9L,"owner9");
+
+        assertEquals(new BigDecimal("2"),result.getActualValue());
+        assertEquals(new BigDecimal("20.00"),result.getCompletionRate());
+        assertEquals(new BigDecimal("20.00"),result.getWeightedScore());
+        ArgumentCaptor<Map> event=ArgumentCaptor.forClass(Map.class);
+        verify(projectMapper).insertEvent(event.capture());
+        assertEquals("KPI_RESULT_CORRECTED",event.getValue().get("eventType"));
+        assertTrue(String.valueOf(event.getValue().get("comment")).contains("原值误按元填报"));
+        verify(accountingService,never()).recordProjectBonus(any(),any(),any(),any(),any(),any());
+    }
+
+    @Test void confirmedAutomaticResultCannotBeManuallyCorrected()
+    {
+        BusinessProjectKpiSettlement confirmed=settlement("CONFIRMED",2);
+        confirmed.setRewardPolicyVersion("INDEPENDENT_V1");
+        BusinessProjectKpiPlanItem metric=item();metric.setSourceType("REVENUE");
+        when(projectMapper.selectProjectById(1L)).thenReturn(project());
+        when(mapper.selectSettlementById(20L)).thenReturn(confirmed);
+        when(mapper.selectPlanItems(10L)).thenReturn(Collections.singletonList(metric));
+
+        assertThrows(ServiceException.class,()->service.correctConfirmedManualResult(
+            20L,101L,new BigDecimal("2"),"更正",9L,"owner9"));
+        verify(mapper,never()).upsertSettlementResult(any());
     }
 
     @Test void newPlanInProjectCurrencyIgnoresClientAttemptToPublishLegacyBonus()

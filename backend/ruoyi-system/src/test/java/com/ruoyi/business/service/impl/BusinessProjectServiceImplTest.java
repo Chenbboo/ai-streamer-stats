@@ -144,6 +144,24 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
+    void tenThousandYuanKpiIsAnAmountMetric()
+    {
+        BusinessProject project = project(15L, 9L, "ACTIVE", "APPROVED");
+        project.setSponsorOwnerUserId(8L); project.setBaseCurrency("CNY");
+        when(mapper.selectProjectById(15L)).thenReturn(project);
+        when(mapper.selectNextKpiVersion(eq(15L), any(String.class))).thenReturn(1);
+        BusinessProjectKpi input = new BusinessProjectKpi();
+        input.setProjectId(15L); input.setKpiName("销售额"); input.setMetricType("COUNT");
+        input.setUnit("万元"); input.setTargetValue(new BigDecimal("10"));
+
+        BusinessProjectKpi saved = service.saveKpi(input, 8L, "boss8", true);
+
+        assertEquals("AMOUNT", saved.getMetricType());
+        assertEquals("万元", saved.getUnit());
+        verify(mapper).insertProjectKpi(input);
+    }
+
+    @Test
     void adjustedKpiVersionKeepsOriginalSystemCode()
     {
         BusinessProject project = project(15L, 9L, "ACTIVE", "APPROVED");
@@ -184,19 +202,21 @@ class BusinessProjectServiceImplTest
         BusinessProject project = project(15L, 9L, "ACTIVE", "APPROVED");
         project.setSponsorOwnerUserId(8L);
         BusinessProjectRoutine routine = new BusinessProjectRoutine();
-        routine.setRoutineId(301L);routine.setProjectId(15L);routine.setRoutineName("每日制作视频");
+        routine.setRoutineId(301L);routine.setProjectId(15L);routine.setRoutineName("每日制作视频");routine.setUnit("条");
         when(mapper.selectProjectById(15L)).thenReturn(project);
         when(mapper.selectRoutineById(301L)).thenReturn(routine);
         when(mapper.selectNextKpiVersion(eq(15L), any(String.class))).thenReturn(1);
         BusinessProjectKpi input = new BusinessProjectKpi();
         input.setProjectId(15L);input.setKpiName("制作视频数量");input.setTargetValue(new BigDecimal("100"));
-        input.setSourceType("ROUTINE");input.setSourceRefId(301L);
+        input.setSourceType("ROUTINE");input.setSourceRefId(301L);input.setUnit("条");
 
         BusinessProjectKpi saved = service.saveKpi(input, 8L, "boss8", true);
 
         assertEquals("ROUTINE", saved.getSourceType());
         assertEquals(301L, saved.getSourceRefId());
         verify(mapper).insertProjectKpi(input);
+        input.setUnit("万元");
+        assertThrows(ServiceException.class, () -> service.saveKpi(input, 8L, "boss8", true));
     }
 
     @Test

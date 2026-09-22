@@ -212,6 +212,7 @@ public interface BusinessProjectMapper
     int insertRoutineDailyTarget(BusinessProjectRoutineDailyTarget target);
     java.math.BigDecimal sumRoutineActualBefore(@Param("routineId") Long routineId,
         @Param("bizDate") java.util.Date bizDate);
+    int countRoutineReports(@Param("routineId") Long routineId);
 
     List<BusinessProjectRisk> selectRisks(Long projectId);
     int insertRisk(BusinessProjectRisk risk);

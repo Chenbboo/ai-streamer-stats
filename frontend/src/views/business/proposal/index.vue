@@ -269,7 +269,7 @@ const accountingLabel={PROFIT:'盈利型',VALUE:'价值型',COST:'成本型（�
 const revenueTypeLabel={SALES:'商品销售',SERVICE:'服务费',COMMISSION:'佣金',LIVE:'直播收入',OTHER:'其他'}
 const expenseCategoryLabel={PROCUREMENT:'采购',MARKETING:'推广',PLATFORM:'平台服务',TRAVEL:'差旅',OUTSOURCING:'外包',EQUIPMENT:'设备',LOGISTICS:'物流',OTHER:'其他'}
 const targetTypeLabel={FINANCIAL:'财务',QUANTITY:'数量',SCHEDULE:'进度',QUALITY:'质量',EFFICIENCY:'效率',GROWTH:'增长',CUSTOMER:'客户',COMPLIANCE:'合规',OTHER:'价值 / 其他',DELIVERY:'成果验收'}
-const targetUnitOptions=['个','件','条','次','人','单','份','套','台','场','天','小时','分钟','元','万元','%','分']
+const targetUnitOptions=computed(()=>['个','件','条','次','人','单','份','套','台','场','天','小时','分钟',...(form.value.baseCurrency==='CNY'?['元','万元']:[form.value.baseCurrency||'CNY']),'%','分'])
 const scenarioLabel={CONSERVATIVE:'保守',BASE:'正常',OPTIMISTIC:'乐观'}
 const managementOptions={LIGHT:{label:'轻量',hint:'短周期、低风险',description:'适合周期短、范围清晰、风险较低的项目；保留任务、成本和KPI，风险按异常登记。'},STANDARD:{label:'标准',hint:'周度跟踪、里程碑',description:'启用周度跟踪、里程碑、风险台账和预算预警，适合多数跨成员项目。'},KEY_CONTROL:{label:'重点监管',hint:'高风险、公司级项目',description:'强化里程碑、风险、预算分级预警和治理变更审批，立项时必须说明监管原因。'}}
 const managementLabel={LIGHT:'轻量',STANDARD:'标准',KEY_CONTROL:'重点监管',SIMPLE:'轻量',DELIVERY:'标准'}
@@ -414,7 +414,7 @@ const planSummary=computed(()=>{const b=budgetEstimate.value,revenue=b.revenueAm
 function addRevenue(){form.value.revenueLines.push({scenario:'BASE',revenueType:'SALES',itemName:'',expectedAmount:0,occurrenceType:'ONE_TIME',expectedDate:null,assumptionText:''})}
 function addExpense(){form.value.expenseLines.push({expenseCategory:'OTHER',itemName:'',purpose:'',counterparty:'',amount:0,occurrenceType:'ONE_TIME',occurDate:null,expenseType:'ONE_TIME',hasQuotation:'0'})}
 function addStaffing(){form.value.staffingLines.push(emptyStaffing())}
-function changeTargetType(row){if(row.targetType==='DELIVERY'){row.targetValue=1;row.unit='项'}}
+function changeTargetType(row){if(row.targetType==='DELIVERY'){row.targetValue=1;row.unit='项'}else if(row.targetType!=='FINANCIAL'&&['元','万元','CNY','USD','VND'].includes(row.unit)){row.targetValue=null;row.unit='';ElMessage.info('目标类型已变化，请重新选择单位并填写目标值')}}
 function addTarget(){form.value.targetLines.push({targetType:['VALUE','HYBRID'].includes(form.value.accountingMode)?'DELIVERY':'QUANTITY',targetName:'',targetValue:['VALUE','HYBRID'].includes(form.value.accountingMode)?1:0,unit:['VALUE','HYBRID'].includes(form.value.accountingMode)?'项':'',dueDate:null,acceptanceEvidence:''})}
 async function ensureOptions(force=false){if(!force&&options.bosses.length&&options.companies.length)return;const res=await getProjectProposalOptions();Object.assign(options,res.data||{})}
 function plannedDays(){if(!form.value.planStartDate||openEnded.value||!form.value.planEndDate)return null;const start=new Date(`${form.value.planStartDate}T00:00:00`),end=new Date(`${form.value.planEndDate}T00:00:00`);return Math.max(1,Math.floor((end-start)/86400000)+1)}

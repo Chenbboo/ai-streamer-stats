@@ -51,7 +51,7 @@ const data=ref({}),loading=ref(false),saving=ref(false),dialog=ref(false),foreca
 const revenueTypes={SALES:'商品销售',SERVICE:'服务费',COMMISSION:'佣金',LIVE:'直播收入',OTHER:'其他',ADVERTISING:'广告',SUBSCRIPTION:'订阅',SAVING:'成本节约'}
 const expenseTypes={PROCUREMENT:'采购',MARKETING:'推广',PLATFORM:'平台服务',TRAVEL:'差旅',OUTSOURCING:'外包',EQUIPMENT:'设备',LOGISTICS:'物流',OTHER:'其他'}
 const targetTypes={FINANCIAL:'财务',QUANTITY:'数量',SCHEDULE:'进度',QUALITY:'质量',EFFICIENCY:'效率',GROWTH:'增长',CUSTOMER:'客户',COMPLIANCE:'合规',OTHER:'价值 / 其他',DELIVERY:'成果验收'}
-const targetUnits=['个','件','条','次','人','单','份','套','台','场','天','小时','分钟','元','万元','%','分']
+const targetUnits=computed(()=>['个','件','条','次','人','单','份','套','台','场','天','小时','分钟',...(props.project.baseCurrency==='CNY'?['元','万元']:[props.project.baseCurrency||'CNY']),'%','分'])
 const optionalPlanSections={targets:false,revenue:false}
 const planDateType=computed(()=>openEnded.value&&form.budget?.cycle==='WEEK'?'date':'month')
 const budgetPeriodFieldLabel=computed(()=>({WEEK:'预算所属周',MONTH:'预算所属月份',QUARTER:'预算起始月份',YEAR:'预算所属年度'}[form.budget?.cycle]||'预算所属期间'))
@@ -64,7 +64,7 @@ function open(isForecast){forecast.value=isForecast;const current=data.value.cur
 function addRevenue(){form.revenueLines.push({scenario:'BASE',revenueType:'SALES',itemName:'',expectedAmount:0,occurrenceType:'ONE_TIME',expectedDate:null,assumptionText:''})}
 function addExpense(){form.expenseLines.push({expenseCategory:'OTHER',itemName:'',purpose:'',counterparty:'',amount:0,occurrenceType:'ONE_TIME',occurDate:null,expenseType:'ONE_TIME',hasQuotation:'0'})}
 function addTarget(){const delivery=['VALUE','HYBRID'].includes(props.project.accountingMode);form.targetLines.push({targetType:delivery?'DELIVERY':'QUANTITY',targetName:'',targetValue:delivery?1:0,unit:delivery?'项':'',dueDate:null,acceptanceEvidence:''})}
-function changeTargetType(row){if(row.targetType==='DELIVERY'){row.targetValue=1;row.unit='项'}}
+function changeTargetType(row){if(row.targetType==='DELIVERY'){row.targetValue=1;row.unit='项'}else if(row.targetType!=='FINANCIAL'&&['元','万元','CNY','USD','VND'].includes(row.unit)){row.targetValue=null;row.unit='';ElMessage.info('目标类型已变化，请重新选择单位并填写目标值')}}
 function lineDateIssue(value,rule='project'){
   if(!value)return ''
   const date=String(value).slice(0,10),month=date.slice(0,7),start=String(form.planStartDate||'').slice(0,10),end=openEnded.value?'':String(form.planEndDate||'').slice(0,10)

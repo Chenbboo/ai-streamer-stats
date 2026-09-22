@@ -122,5 +122,25 @@ class BusinessProjectPlanServiceTest
         Map<String,Object> snapshot=json.readValue((String)applied.getValue().get("templateSnapshotJson"),Map.class);
         assertEquals("新目标",((java.util.List<Map<String,Object>>)snapshot.get("targetLines")).get(0).get("targetName"));
     }
+    @Test void planChangeKeepsTenThousandYuanTargetAndRejectsItForOtherCurrencies()
+    {
+        project.setBaseCurrency("CNY");
+        Map<String,Object> input=change();
+        input.put("targetLines",java.util.Collections.singletonList(row("targetType","QUANTITY",
+            "targetName","合同额","targetValue",10,"unit","万元","acceptanceEvidence","已签合同")));
+        when(mapper.applyPlanChange(anyMap())).thenReturn(1);
+
+        service.request(1L,input,10L,"owner");
+
+        ArgumentCaptor<Map<String,Object>> applied=ArgumentCaptor.forClass(Map.class);
+        verify(mapper).applyPlanChange(applied.capture());
+        Map<String,Object> target=((java.util.List<Map<String,Object>>)applied.getValue().get("targetLines")).get(0);
+        assertEquals("FINANCIAL",target.get("targetType"));
+        assertEquals(0,((java.math.BigDecimal)target.get("targetValue")).compareTo(new java.math.BigDecimal("10")));
+        assertEquals("万元",target.get("unit"));
+
+        project.setBaseCurrency("VND");
+        assertThrows(ServiceException.class,()->service.request(1L,input,10L,"owner"));
+    }
     private Map<String,Object> change(){return row("version",3,"reason","增加交付验证","objective","完成成果交付","applicationReason","调整立项计划","planStartDate","2026-01-01","planEndDate","2026-06-01","acceptanceCriteria","检查成果清单");}
 }

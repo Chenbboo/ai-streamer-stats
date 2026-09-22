@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.business.domain.BusinessProjectKpiPlan;
+import com.ruoyi.business.domain.BusinessProjectKpiResult;
 import com.ruoyi.business.domain.BusinessProjectKpiSettlement;
 import com.ruoyi.business.service.IBusinessProjectKpiService;
 import com.ruoyi.common.annotation.Log;
@@ -71,6 +72,15 @@ public class BusinessProjectKpiController extends BaseController
     public AjaxResult saveResults(@PathVariable Long settlementId, @RequestBody BusinessProjectKpiSettlement input)
     {
         return success(service.saveResults(settlementId, input, userId(), userName(), isAdministrator()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:kpi:settle')")
+    @Log(title = "更正已确认项目KPI结果", businessType = BusinessType.UPDATE)
+    @PutMapping("/settlement/{settlementId}/result-correction")
+    public AjaxResult correctConfirmedResult(@PathVariable Long settlementId, @RequestBody BusinessProjectKpiResult correction)
+    {
+        return success(service.correctConfirmedManualResult(settlementId, correction.getPlanItemId(),
+            correction.getActualValue(), correction.getResultNote(), userId(), userName()));
     }
 
     @PreAuthorize("@ss.hasPermi('business:kpi:settle')")

@@ -813,6 +813,13 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             line.put("targetValue", nonNegative(line.get("targetValue"), "目标值"));
             String unit = text(line.get("unit"));
             if (unit.length() > 32) throw new ServiceException("量化目标单位不能超过32个字符");
+            if ("元".equals(unit) || "万元".equals(unit))
+            {
+                if (!"CNY".equalsIgnoreCase(proposal.getBaseCurrency()))
+                    throw new ServiceException("元和万元只适用于人民币项目，请选择项目币种作为目标单位");
+                line.put("targetType", "FINANCIAL");
+            }
+            else if (unit.equalsIgnoreCase(proposal.getBaseCurrency())) line.put("targetType", "FINANCIAL");
             line.put("unit", unit);
         }
         BigDecimal bonus = BigDecimal.ZERO;

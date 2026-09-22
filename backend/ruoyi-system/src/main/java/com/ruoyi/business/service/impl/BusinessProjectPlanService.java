@@ -114,7 +114,7 @@ public class BusinessProjectPlanService
         if(from==null||endText!=null&&!endText.isEmpty()&&to==null||to!=null&&to.before(from))throw new ServiceException("请填写有效的计划起止日期；不限期项目可以不设置结束日期");
         List<Map<String,Object>> revenueLines=planLines(input.containsKey("revenueLines")?input.get("revenueLines"):previous.get("revenueLines"),true,from,to);
         List<Map<String,Object>> expenseLines=planLines(input.containsKey("expenseLines")?input.get("expenseLines"):previous.get("expenseLines"),false,from,to);
-        List<Map<String,Object>> targetLines=targetLines(input.containsKey("targetLines")?input.get("targetLines"):previous.get("targetLines"),from,to);
+        List<Map<String,Object>> targetLines=targetLines(input.containsKey("targetLines")?input.get("targetLines"):previous.get("targetLines"),from,to,p.getBaseCurrency());
         row.put("projectName",projectName);row.put("objective",objective);row.put("applicationReason",applicationReason);row.put("priority",priority);
         row.put("acceptanceCriteria",criteria);row.put("revenueModel",revenueModel);row.put("revenueLines",revenueLines);row.put("expenseLines",expenseLines);row.put("targetLines",targetLines);
         row.put("planStartDate",DateUtils.parseDateToStr("yyyy-MM-dd",from));row.put("planEndDate",to==null?null:DateUtils.parseDateToStr("yyyy-MM-dd",to));row.put("budgetLimit",money(input.get("budgetLimit")));
@@ -190,7 +190,7 @@ public class BusinessProjectPlanService
         }
         return result;
     }
-    private List<Map<String,Object>> targetLines(Object value,Date from,Date to)
+    private List<Map<String,Object>> targetLines(Object value,Date from,Date to,String currency)
     {
         if(value==null)return Collections.emptyList();
         if(!(value instanceof List))throw new ServiceException("验收目标格式不正确");
@@ -205,7 +205,14 @@ public class BusinessProjectPlanService
             line.put("targetType",type);line.put("targetName",required(input.get("targetName"),160,"目标名称",rowNo));
             line.put("targetValue","DELIVERY".equals(type)?BigDecimal.ONE:targetValue(input.get("targetValue")));
             if(line.get("targetValue")==null)throw new ServiceException("第"+rowNo+"行目标值不能为空");
-            line.put("unit","DELIVERY".equals(type)?"项":required(input.get("unit"),32,"目标单位",rowNo));
+            String unit="DELIVERY".equals(type)?"项":required(input.get("unit"),32,"目标单位",rowNo);
+            if("元".equals(unit)||"万元".equals(unit))
+            {
+                if(!"CNY".equalsIgnoreCase(currency))throw new ServiceException("元和万元只适用于人民币项目，请选择项目币种作为目标单位");
+                line.put("targetType","FINANCIAL");
+            }
+            else if(unit.equalsIgnoreCase(currency))line.put("targetType","FINANCIAL");
+            line.put("unit",unit);
             Object rawDate=input.get("dueDate");String dateIssue=com.ruoyi.business.support.BusinessProposalPlanDates.issue(rawDate,from,to,"验收目标",rowNo);
             if(dateIssue!=null)throw new ServiceException(dateIssue);
             Date date=DateUtils.parseDate(rawDate);line.put("dueDate",date==null?null:DateUtils.parseDateToStr("yyyy-MM-dd",date));
