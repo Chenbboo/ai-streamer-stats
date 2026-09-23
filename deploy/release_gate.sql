@@ -442,4 +442,12 @@ from (
   select if(count(*)=1,0,1) from information_schema.statistics where table_schema=database()
     and table_name='biz_project_work_report_notification'
     and index_name='uk_work_report_notification_report' and column_name='report_id' and non_unique=0
+  union all
+  select if(count(*)=2,0,1) from information_schema.columns where table_schema=database()
+    and table_name in ('biz_project_proposal','biz_project') and column_name='department_id'
+    and data_type='bigint' and is_nullable='YES'
+  union all
+  select if(count(*)=3,0,1) from sys_dept
+    where parent_id=111 and dept_name in ('团播部','人事部','电商部')
+      and status='0' and del_flag='0'
 ) release_gate;

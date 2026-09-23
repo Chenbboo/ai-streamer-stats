@@ -1078,3 +1078,11 @@ where table_schema=database() and table_name='biz_project_work_report'
 select 1-count(*) as missing_project_work_report_notification_index from information_schema.statistics
 where table_schema=database() and table_name='biz_project_work_report_notification'
   and index_name='uk_work_report_notification_report' and column_name='report_id' and non_unique=0;
+
+-- V128-V129 explicit project department and Vietnam company departments.
+select 2-count(*) as missing_project_department_columns from information_schema.columns
+where table_schema=database() and table_name in ('biz_project_proposal','biz_project')
+  and column_name='department_id' and data_type='bigint' and is_nullable='YES';
+select 3-count(*) as missing_vietnam_company_departments from sys_dept
+where parent_id=111 and dept_name in ('团播部','人事部','电商部')
+  and status='0' and del_flag='0';
