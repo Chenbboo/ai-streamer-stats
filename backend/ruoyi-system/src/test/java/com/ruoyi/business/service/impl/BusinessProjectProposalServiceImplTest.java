@@ -61,6 +61,9 @@ class BusinessProjectProposalServiceImplTest
         proposal.setSponsorOwnerUserId(23L);
         proposal.setSponsorOwnerName("审批老板");
         proposal.setCompanyDeptId(111L);
+        proposal.setDepartmentId(112L);
+        org.mockito.Mockito.lenient().when(mapper.selectDepartment(111L,112L))
+            .thenReturn(BusinessProjectWorkServiceTest.row("deptId",112L));
         proposal.setObjective("提升有效流水并形成可验收结果");
         proposal.setApplicationReason("需要组织人员和预算共同执行");
         proposal.setPlanStartDate(new Date());

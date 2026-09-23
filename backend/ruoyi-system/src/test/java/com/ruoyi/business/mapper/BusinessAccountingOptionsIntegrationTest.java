@@ -40,6 +40,7 @@ class BusinessAccountingOptionsIntegrationTest
             "insert into sys_dept values(110,'target-company','0','0',100,1),(111,'other-company','0','0',100,2)",
             "insert into sys_user values(8,110,'0'),(9,111,'0'),(10,111,'0')",
             "insert into biz_project values(1,'P1','target-project',110,'PROFIT','CNY','creator8','ACTIVE','SEPARATED_V1','OPEN',null,null,'ACTUAL_WORK_V1',9,8,8,'0'),(2,'P2','legacy-sponsor-fallback',111,'PROFIT','CNY','creator9','ACTIVE','SEPARATED_V1','OPEN',null,null,'ACTUAL_WORK_V1',null,9,9,'0'),(3,'P3','foreign-project',112,'PROFIT','CNY','creator10','ACTIVE','SEPARATED_V1','OPEN',null,null,'ACTUAL_WORK_V1',10,10,10,'0')",
+            "alter table biz_project add department_id bigint",
             "insert into biz_project_work_entry(entry_id,project_id,status,is_current) values(11,1,'CONFIRMED','1'),(12,1,'CONFIRMED','1'),(13,1,'SUPERSEDED','0'),(21,2,'CONFIRMED','1'),(31,3,'CONFIRMED','1')",
             "insert into biz_project_work_cost(entry_id,pricing_status) values(12,'PRICED')",
             "insert into biz_project_work_event values(12,'PENDING')");
