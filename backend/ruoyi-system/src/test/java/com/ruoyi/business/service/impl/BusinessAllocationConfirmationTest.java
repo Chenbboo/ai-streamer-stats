@@ -75,6 +75,7 @@ class BusinessAllocationConfirmationTest {
     @Test void myScheduleUsesTheSameAutomaticWeightsAsCostAndWorkspace() {
         endedProjectScenario();
         ReflectionTestUtils.setField(service,"kpiMapper",mock(BusinessProjectKpiMapper.class));
+        ReflectionTestUtils.setField(service,"workReportService",mock(BusinessProjectWorkReportService.class));
         when(projects.selectMyEfforts(11L,"2026-09-17")).thenReturn(Arrays.asList(
             row("projectId",90L,"plannedPercent",10,"actualPercent",10,"costPolicyVersion","MEMBER_DAYS_V1"),
             row("projectId",91L,"plannedPercent",30,"actualPercent",30,"costPolicyVersion","MEMBER_DAYS_V1"),

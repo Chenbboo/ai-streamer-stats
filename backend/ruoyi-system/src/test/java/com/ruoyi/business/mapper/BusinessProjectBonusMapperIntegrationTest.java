@@ -21,12 +21,12 @@ class BusinessProjectBonusMapperIntegrationTest
         DataSource source=new UnpooledDataSource("org.h2.Driver","jdbc:h2:mem:bonus_"+UUID.randomUUID()+";MODE=MySQL;DB_CLOSE_DELAY=-1","sa","");
         try(Connection c=source.getConnection();Statement s=c.createStatement()){
             s.execute("create table biz_project(project_id bigint,project_no varchar(40),project_name varchar(100),base_currency varchar(3),status varchar(16),update_time timestamp,del_flag char(1),main_owner_user_id bigint)");
-            s.execute("create table biz_project_member(project_id bigint,user_id bigint,status char(1))");
+            s.execute("create table biz_project_member(project_id bigint,user_id bigint,status char(1),member_role varchar(16))");
             s.execute("create table biz_project_kpi_plan(plan_id bigint,reward_policy_version varchar(24))");
             s.execute("create table biz_project_kpi_settlement(project_id bigint,plan_id bigint,bonus_amount decimal(20,2),status varchar(16))");
             s.execute("create table biz_incentive_award(project_id bigint,currency varchar(3),amount decimal(20,2),status varchar(16))");
             s.execute("insert into biz_project values(1,'P1','人民币项目','CNY','ACTIVE',current_timestamp,'0',9),(2,'P2','美元项目','USD','ACTIVE',current_timestamp,'0',9),(3,'P3','无权项目','CNY','ACTIVE',current_timestamp,'0',10)");
-            s.execute("insert into biz_project_member values(1,7,'0'),(2,7,'0'),(3,7,'1')");
+            s.execute("insert into biz_project_member values(1,7,'0','MEMBER'),(2,7,'0','MEMBER'),(3,7,'1','MEMBER')");
             s.execute("insert into biz_project_kpi_plan values(1,'LEGACY_LINKED'),(2,'INDEPENDENT_V1')");
             s.execute("insert into biz_project_kpi_settlement values(1,1,100,'CONFIRMED'),(1,1,50,'CONFIRMED'),(1,2,900,'CONFIRMED'),(1,1,999,'SUBMITTED'),(2,1,100,'CONFIRMED'),(3,1,1000,'CONFIRMED')");
             s.execute("insert into biz_incentive_award values(1,'CNY',200,'APPROVED'),(1,'CNY',300,'APPROVED'),(1,'CNY',999,'SUBMITTED'),(2,'USD',25,'APPROVED'),(2,'USD',999,'CANCELED')");
