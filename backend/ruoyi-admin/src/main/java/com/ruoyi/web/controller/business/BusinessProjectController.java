@@ -24,6 +24,7 @@ import com.ruoyi.business.domain.BusinessProjectTaskReport;
 import com.ruoyi.business.domain.BusinessProjectProgressReport;
 import com.ruoyi.business.domain.BusinessProjectRoutine;
 import com.ruoyi.business.domain.BusinessProjectRoutineReport;
+import com.ruoyi.business.domain.BusinessProjectWorkReport;
 import com.ruoyi.business.domain.BusinessProjectRoutineDailyTarget;
 import com.ruoyi.business.domain.BusinessProjectEffort;
 import com.ruoyi.business.domain.BusinessProjectKpi;
@@ -53,6 +54,7 @@ public class BusinessProjectController extends BaseController
     private IBusinessProjectService projectService;
     @Autowired private com.ruoyi.business.service.impl.BusinessFlowService flowService;
     @Autowired private com.ruoyi.business.service.impl.BusinessProjectManagementFeeService managementFeeService;
+    @Autowired private com.ruoyi.business.service.impl.BusinessProjectWorkReportService workReportService;
 
     @PreAuthorize("@ss.hasPermi('business:project:list')")
     @GetMapping("/project/list")
@@ -535,6 +537,45 @@ public class BusinessProjectController extends BaseController
     public AjaxResult submitRoutineReport(@RequestBody BusinessProjectRoutineReport report)
     {
         return success(projectService.submitRoutineReport(report, currentUserId(), currentUserName(), isAdministrator()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:project:report,business:work:report,business:project:work:view')")
+    @Log(title = "持续工作工作汇报", businessType = BusinessType.INSERT)
+    @PostMapping("/project/work-report")
+    public AjaxResult submitWorkReport(@RequestBody BusinessProjectWorkReport report)
+    {
+        return success(workReportService.submit(report, currentUserId(), currentUserName()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:owner:view')")
+    @Log(title = "验收持续工作汇报", businessType = BusinessType.UPDATE)
+    @PostMapping("/project/work-report/{reportId}/review")
+    public AjaxResult reviewWorkReport(@PathVariable Long reportId, @RequestBody Map<String, String> body)
+    {
+        return success(workReportService.review(reportId, body.get("decision"), body.get("comment"),
+            currentUserId(), currentUserName()));
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @GetMapping("/project/work-report/return-notifications")
+    public AjaxResult workReportReturnNotifications()
+    {
+        return success(workReportService.returnNotifications(currentUserId()));
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @PutMapping("/project/work-report/return-notifications/{notificationId}/read")
+    public AjaxResult readWorkReportReturnNotification(@PathVariable Long notificationId)
+    {
+        return toAjax(workReportService.readReturnNotification(notificationId, currentUserId()));
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @PutMapping("/project/work-report/return-notifications/read-all")
+    public AjaxResult readAllWorkReportReturnNotifications()
+    {
+        workReportService.readAllReturnNotifications(currentUserId());
+        return success();
     }
 
     @PreAuthorize("@ss.hasPermi('business:project:task')")

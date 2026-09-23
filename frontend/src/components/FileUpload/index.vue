@@ -32,6 +32,10 @@
         <span class="upload-file-tip__label">{{ $tr("支持格式") }}</span>
         <span class="upload-file-tip__extensions">{{ formattedFileTypes }}</span>
       </div>
+      <div v-if="autoCompressImages" class="upload-file-tip__compression">
+        {{ $tr("图片上传前自动尝试压缩；其他格式保留原文件") }}
+        <span v-if="compressionResult"> · {{ compressionResult }}</span>
+      </div>
     </div>
     <!-- 文件缩略图列表 -->
     <transition-group ref="uploadFileList" class="upload-file-list" name="el-fade-in-linear" tag="ul">
@@ -104,6 +108,7 @@ import { saveAs } from 'file-saver'
 import { getToken } from "@/utils/auth"
 import { isExternal } from "@/utils/validate"
 import Sortable from 'sortablejs'
+import { compressReportImage, isCompressibleReportImage } from '@/utils/compressReportImage'
 
 const props = defineProps({
   modelValue: [String, Object, Array],
@@ -170,13 +175,18 @@ const props = defineProps({
   inlineDocumentPreview: {
     type: Boolean,
     default: false
+  },
+  autoCompressImages: {
+    type: Boolean,
+    default: false
   }
 })
 
 const { proxy } = getCurrentInstance()
-const emit = defineEmits()
+const emit = defineEmits(['update:modelValue', 'uploading-change'])
 const pendingBytes = ref(0)
 const pendingFileSizes = new Map()
+const compressionResult = ref('')
 const completedUploads = []
 const baseUrl = import.meta.env.VITE_APP_BASE_API
 const uploadFileUrl = ref(import.meta.env.VITE_APP_BASE_API + props.action) // 上传文件服务器地址
@@ -236,8 +246,8 @@ watch(() => props.modelValue, val => {
   }
 },{ deep: true, immediate: true })
 
-// 上传前校检格式和大小
-function handleBeforeUpload(file) {
+// Reserve every selected file before asynchronous compression so batch limits use final sizes.
+async function handleBeforeUpload(file) {
   if (props.businessPreview && !props.data?.projectId) {
     proxy.$modal.msgError(translateText("请先选择项目再上传附件"))
     return false
@@ -257,31 +267,54 @@ function handleBeforeUpload(file) {
     proxy.$modal.msgError(translateText("文件名不正确，不能包含英文逗号!"))
     return false
   }
-  // 校检文件大小
+  if (!pendingFileSizes.has(file.uid)) {
+    if (pendingFileSizes.size === 0) {
+      proxy.$modal.loading(translateText("正在处理附件，请稍候..."))
+      uploadLoadingOpen = true
+      emit('uploading-change', true)
+    }
+    pendingFileSizes.set(file.uid, 0)
+  }
+
+  let uploadFile = file
+  if (props.autoCompressImages && isCompressibleReportImage(file)) {
+    try {
+      const result = await compressReportImage(file)
+      uploadFile = result.file
+      if (result.compressed) {
+        compressionResult.value = translateText("最近压缩：{0} → {1}", [formatFileSize(result.originalSize), formatFileSize(result.outputSize)])
+      }
+    } catch (error) {
+      console.warn('Attachment image compression failed:', error)
+      if (file.size > props.fileSize * 1024 * 1024) {
+        proxy.$modal.msgError(translateText("图片压缩失败，请更换图片后重试"))
+        finishUpload(file)
+        return false
+      }
+    }
+  }
+
+  // 校检压缩后的文件大小
   if (props.fileSize) {
-    const isLt = file.size / 1024 / 1024 <= props.fileSize
+    const isLt = uploadFile.size / 1024 / 1024 <= props.fileSize
     if (!isLt) {
       proxy.$modal.msgError(translateText("上传文件大小不能超过 {0} MB!", [props.fileSize]))
+      finishUpload(file)
       return false
     }
   }
   if (props.totalSize) {
     const storedBytes = fileList.value.reduce((sum, item) => sum + (Number(item.size) || 0), 0)
-    const totalBytes = storedBytes + pendingBytes.value + file.size
+    const totalBytes = storedBytes + pendingBytes.value + uploadFile.size
     if (totalBytes > props.totalSize * 1024 * 1024) {
       proxy.$modal.msgError(translateText("全部附件总大小不能超过 {0} MB!", [props.totalSize]))
+      finishUpload(file)
       return false
     }
   }
-  if (!pendingFileSizes.has(file.uid)) {
-    if (pendingFileSizes.size === 0) {
-      proxy.$modal.loading(translateText("正在上传文件，请稍候..."))
-      uploadLoadingOpen = true
-    }
-    pendingFileSizes.set(file.uid, file.size)
-    pendingBytes.value += file.size
-  }
-  return true
+  pendingFileSizes.set(file.uid, uploadFile.size)
+  pendingBytes.value += uploadFile.size
+  return uploadFile
 }
 
 // 文件个数超出
@@ -365,6 +398,7 @@ function closeUploadLoading() {
   if (!uploadLoadingOpen) return
   uploadLoadingOpen = false
   proxy.$modal.closeLoading()
+  emit('uploading-change', false)
 }
 
 function uploadWithConcurrency(options) {

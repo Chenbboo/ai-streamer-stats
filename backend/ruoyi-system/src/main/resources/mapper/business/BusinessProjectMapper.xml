@@ -2152,6 +2152,7 @@
           union all select project_id from biz_project_task_report where find_in_set(#{attachmentUrl},replace(replace(coalesce(evidence_urls,''),' ',''),char(92),'/'))&gt;0
           union all select project_id from biz_project_progress_report where instr(coalesce(snapshot_json,''),#{attachmentUrl})&gt;0 or find_in_set(#{attachmentUrl},replace(replace(coalesce(evidence_urls,''),' ',''),char(92),'/'))&gt;0
           union all select project_id from biz_project_routine_report where find_in_set(#{attachmentUrl},replace(replace(coalesce(evidence_urls,''),' ',''),char(92),'/'))&gt;0
+          union all select project_id from biz_project_work_report where find_in_set(#{attachmentUrl},replace(replace(coalesce(attachment_urls,''),' ',''),char(92),'/'))&gt;0
           union all select settlement.project_id from biz_project_kpi_result result
             join biz_project_kpi_settlement settlement on settlement.settlement_id=result.settlement_id
             where find_in_set(#{attachmentUrl},replace(replace(coalesce(result.attachment_urls,''),' ',''),char(92),'/'))&gt;0

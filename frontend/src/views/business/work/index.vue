@@ -31,6 +31,7 @@
       <div><span>{{ $tr("持续工作") }}</span><b>{{ summary.routineCount || 0 }}</b></div>
       <div><span>{{ $tr("一次性任务") }}</span><b>{{ summary.taskCount || 0 }}</b></div>
       <div v-if="isToday"><span>{{ $tr("今日已处理") }}</span><b>{{ summary.reportedRoutineCount || 0 }} / {{ summary.routineCount || 0 }}</b></div>
+      <div v-if="isToday" class="work-report-summary-card"><span>{{ $tr("主动汇报工作") }}</span><el-button type="primary" :disabled="!reportableProjects.length" @click="openWorkReport">{{ $tr("提交工作汇报") }}</el-button><small v-if="!reportableProjects.length">{{ $tr("暂无可汇报的项目") }}</small><small v-for="report in latestProjectWorkReports" :key="report.reportId">{{ reportProjectName(report) }} · {{ workReportStatusLabel(report.status) }}<template v-if="report.status==='RETURNED'"> · {{ $tr("退回原因：{0}", [report.reviewComment]) }}</template></small></div>
     </section>
 
     <section v-if="period==='DAY'" class="panel effort-panel">
@@ -67,7 +68,7 @@
 
     <section class="work-grid">
       <article class="panel">
-        <div class="panel-head"><div><h2>{{ $tr("持续工作") }}</h2><p>{{ isToday ? $tr("完成后填写今天的实际数量。") : $tr("查看该周期内持续执行的工作和累计完成量。") }}</p></div></div>
+        <div class="panel-head"><div><h2>{{ $tr("持续工作") }}</h2><p>{{ $tr("每日完成量在这里填报；工作汇报请从上方“主动汇报工作”进入。") }}</p></div></div>
         <el-empty v-if="!routines.length" :description="$tr(&quot;这个周期没有分配给你的持续工作&quot;)" />
         <div v-for="routine in routines" :key="routine.routineId" class="work-card">
           <div class="card-top"><div><el-tag size="small" effect="plain">{{ routine.projectName }}</el-tag><span>{{ $tr("{0}立项", [routine.initiatorName]) }}</span></div><el-tag size="small">{{ routineTargetModeLabel[routine.targetMode || 'FIXED'] }}</el-tag></div>
@@ -78,6 +79,8 @@
           <p v-if="isToday && routine.todayLeaveId" class="note">{{ $tr("请假说明：{0}", [routine.todayLeaveReason || $tr("今日无需填报")]) }}</p>
           <p v-if="routine.todaySummary" class="note">{{ $tr("今日说明：{0}", [routine.todaySummary]) }}</p>
           <p v-if="routineBelowTarget(routine) && routine.todayIssueReason" class="issue">{{ $tr("未达原因：{0}", [routine.todayIssueReason]) }}</p>
+          <p v-if="latestWorkReport(routine)" class="note">{{ $tr("最近工作汇报：{0} · {1}", [workReportStatusLabel(latestWorkReport(routine).status), workReportFrequencyLabel(latestWorkReport(routine).frequency)]) }}</p>
+          <p v-if="latestWorkReport(routine)?.status==='RETURNED'" class="issue">{{ $tr("退回原因：{0}", [latestWorkReport(routine).reviewComment]) }}</p>
           <el-button v-if="isToday && !routine.todayLeaveId && !(routine.targetMode==='DAILY_DYNAMIC'&&!routine.todayTargetId)" type="primary" :plain="!!routine.todayReportId" @click="openRoutineReport(routine)">{{ routine.todayReportId ? $tr("修改今日填报") : (routine.targetMode==='NONE'?$tr("填写今日完成说明"):$tr("填报今日完成量")) }}</el-button>
           <el-alert v-else-if="isToday && routine.targetMode==='DAILY_DYNAMIC'&&!routine.todayTargetId" :title="$tr(&quot;负责人尚未下达今日目标，下达后才能填报。&quot;)" type="warning" :closable="false" show-icon />
         </div>
@@ -114,6 +117,27 @@
       <template #footer><el-button @click="reportDialog=false">{{ $tr("取消") }}</el-button><el-button type="primary" :loading="saving" @click="submitRoutine">{{ $tr("保存今日完成量") }}</el-button></template>
     </el-dialog>
 
+    <el-dialog v-model="workReportDialog" :title="$tr(&quot;主动汇报工作&quot;)" width="min(640px, 94vw)" append-to-body destroy-on-close :close-on-click-modal="!workReportUploading" :close-on-press-escape="!workReportUploading" :show-close="!workReportUploading">
+      <el-form :model="workReportForm" label-width="96px" class="report-form">
+        <el-form-item :label="$tr(&quot;汇报项目&quot;)" required>
+          <el-select v-model="workReportForm.projectId" :placeholder="$tr(&quot;请选择参与的项目&quot;)" filterable :disabled="workReportUploading" style="width:100%" @change="changeWorkReportProject">
+            <el-option v-for="project in reportableProjects" :key="project.projectId" :label="projectOptionLabel(project)" :value="project.projectId" />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="$tr(&quot;汇报周期&quot;)" required>
+          <el-select v-model="workReportForm.frequency" style="width:100%">
+            <el-option :label="$tr(&quot;每日汇报&quot;)" value="DAILY" />
+            <el-option :label="$tr(&quot;每周汇报&quot;)" value="WEEKLY" />
+            <el-option :label="$tr(&quot;每月汇报&quot;)" value="MONTHLY" />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="$tr(&quot;汇报内容&quot;)"><el-input v-model="workReportForm.content" type="textarea" :rows="5" maxlength="4000" show-word-limit :placeholder="$tr(&quot;填写本周期的工作进展、成果或问题&quot;)" /></el-form-item>
+        <el-form-item :label="$tr(&quot;汇报附件&quot;)"><business-file-upload v-if="workReportForm.projectId" v-model="workReportForm.attachmentUrls" :project-id="workReportForm.projectId" auto-compress-images @uploading-change="workReportUploading=$event" /><small v-else>{{ $tr("请先选择汇报项目") }}</small></el-form-item>
+        <p class="work-report-hint">{{ $tr("文字内容和附件至少填写一项，提交后由项目负责人验收。") }}</p>
+      </el-form>
+      <template #footer><el-button :disabled="workReportUploading" @click="workReportDialog=false">{{ $tr("取消") }}</el-button><el-button type="primary" :loading="saving || workReportUploading" @click="submitWorkReport">{{ $tr("提交工作汇报") }}</el-button></template>
+    </el-dialog>
+
     <el-dialog v-model="taskReportDialog" :title="taskReportForm.reportId?$tr(&quot;修改今日完成量&quot;):$tr(&quot;填报今日完成量&quot;)" width="min(620px, 94vw)" append-to-body>
       <el-alert :title="`${taskReportForm.taskName || ''} · ${data.today || today()}`" type="info" :closable="false" show-icon />
       <el-form :model="taskReportForm" label-width="108px" class="report-form task-report-form">
@@ -130,18 +154,20 @@
 <script setup name="BusinessWorkSchedule">
 import { translateText } from '@/locales/translate'
 
-import { getBusinessWorkDashboard, submitBusinessTaskReport, submitBusinessRoutineReport, saveBusinessWorkEffort } from '@/api/business/project'
+import { getBusinessWorkDashboard, submitBusinessTaskReport, submitBusinessRoutineReport, submitBusinessWorkReport as saveBusinessWorkReport, saveBusinessWorkEffort } from '@/api/business/project'
 import { ElMessage } from 'element-plus'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 
 const router=useRouter(),route=useRoute()
 const ALL_PROJECTS='ALL_PROJECTS'
-const loading=ref(false),saving=ref(false),savingEffortId=ref(null),data=ref({}),period=ref('DAY'),anchorDate=ref(today()),selectedProjectId=ref(route.query.projectId??ALL_PROJECTS),reportDialog=ref(false),reportForm=ref({}),taskReportDialog=ref(false),taskReportForm=ref({})
+const loading=ref(false),saving=ref(false),savingEffortId=ref(null),data=ref({}),period=ref('DAY'),anchorDate=ref(today()),selectedProjectId=ref(route.query.projectId??ALL_PROJECTS),reportDialog=ref(false),reportForm=ref({}),workReportDialog=ref(false),workReportForm=ref({}),workReportUploading=ref(false),taskReportDialog=ref(false),taskReportForm=ref({})
 const projectBonuses=computed(()=>data.value.projectBonuses||[])
 const projectOptions=computed(()=>projectBonuses.value)
 const projectMatches=item=>selectedProjectId.value===ALL_PROJECTS||String(item.projectId)===String(selectedProjectId.value)
 const tasks=computed(()=>(data.value.tasks||[]).filter(projectMatches))
 const routines=computed(()=>(data.value.routines||[]).filter(projectMatches))
+const reportableProjects=computed(()=>projectOptions.value.filter(project=>Number(project.canSubmitWorkReport)===1))
+const latestProjectWorkReports=computed(()=>(data.value.latestWorkReports||[]).filter(report=>report.routineId==null&&projectMatches(report)))
 const efforts=computed(()=>(data.value.efforts||[]).filter(projectMatches))
 const summary=computed(()=>({
   taskCount:tasks.value.length,
@@ -167,6 +193,8 @@ const isToday=computed(()=>period.value==='DAY'&&data.value.dateFrom===data.valu
 const periodTitle=computed(()=>({DAY:translateText("今日"),WEEK:translateText("本周"),MONTH:translateText("本月")}[period.value]))
 const needsReason=computed(()=>reportForm.value.targetMode!=='NONE'&&reportForm.value.actualValue!==null&&reportForm.value.actualValue!==undefined&&Number(reportForm.value.actualValue)<Number(reportForm.value.todayTarget||0))
 const routineTargetModeLabel={FIXED:translateText("固定每日目标"),AUTO_TOTAL:translateText("自动分配"),DAILY_DYNAMIC:translateText("动态日目标"),NONE:translateText("无量化")}
+const workReportStatusLabel=status=>translateText(({PENDING:'待负责人验收',APPROVED:'验收通过',RETURNED:'已退回'})[status]||status)
+const workReportFrequencyLabel=frequency=>translateText(({DAILY:'每日汇报',WEEKLY:'每周汇报',MONTHLY:'每月汇报'})[frequency]||frequency)
 const taskStatusLabel={TODO:translateText("待开始"),DOING:translateText("进行中"),BLOCKED:translateText("受阻"),DONE:translateText("已完成")}
 const taskTone={TODO:'info',DOING:'primary',BLOCKED:'danger',DONE:'success'}
 const effortStatusLabel={UNSUBMITTED:translateText("按计划执行"),SUBMITTED:translateText("待负责人确认"),CONFIRMED:translateText("已确认"),RETURNED:translateText("已退回"),LEAVE:translateText("考勤不计费")}
@@ -175,6 +203,11 @@ const money=value=>Number(value||0).toLocaleString('zh-CN',{minimumFractionDigit
 const projectOptionLabel=project=>project.projectNo?`${project.projectName} · ${project.projectNo}`:project.projectName
 function routineBelowTarget(routine){return routine.targetMode!=='NONE'&&!!routine.todayReportId&&Number(routine.todayActual)<Number(routine.todayTarget||0)}
 function routineTargetDescription(routine){if(routine.targetMode==='NONE')return translateText("无量化目标：只需填写今日完成说明");if(isToday.value&&routine.targetMode==='DAILY_DYNAMIC'&&!routine.todayTargetId)return translateText("今日目标：等待负责人下达");if(isToday.value)return translateText("今日目标：{0} {1}", [routine.todayTarget ?? 0, translateText(routine.unit)]);return translateText("周期累计：{0} {1}", [routine.periodActual || 0, translateText(routine.unit)])}
+function latestWorkReport(routine){return (data.value.latestWorkReports||[]).find(item=>Number(item.routineId)===Number(routine.routineId))}
+function reportProjectName(report){return projectOptions.value.find(project=>String(project.projectId)===String(report.projectId))?.projectName||translateText("项目工作汇报")}
+function openWorkReport(){const selected=reportableProjects.value.find(project=>String(project.projectId)===String(selectedProjectId.value));const projectId=selected?.projectId??(reportableProjects.value.length===1?reportableProjects.value[0].projectId:null);workReportUploading.value=false;workReportForm.value={projectId,frequency:'DAILY',content:'',attachmentUrls:''};workReportDialog.value=true}
+function changeWorkReportProject(){workReportForm.value.attachmentUrls=''}
+async function submitWorkReport(){const form=workReportForm.value;if(workReportUploading.value)return ElMessage.warning(translateText("请等待附件处理完成"));if(!reportableProjects.value.some(project=>String(project.projectId)===String(form.projectId)))return ElMessage.warning(translateText("请选择参与的项目"));if(!form.content?.trim()&&!form.attachmentUrls?.trim())return ElMessage.warning(translateText("请填写汇报内容或上传附件"));saving.value=true;try{await saveBusinessWorkReport({projectId:form.projectId,frequency:form.frequency,content:form.content?.trim()||'',attachmentUrls:form.attachmentUrls||''});workReportDialog.value=false;await load();ElMessage.success(translateText("工作汇报已提交，等待负责人验收"))}finally{saving.value=false}}
 function today(){return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Shanghai'})}
 async function load(){loading.value=true;try{const payload=(await getBusinessWorkDashboard({period:period.value,anchorDate:anchorDate.value})).data||{};payload.efforts=(payload.efforts||[]).map(item=>({...item,actualPercent:Number(item.actualPercent||0),editing:false,_savedActualPercent:Number(item.actualPercent||0),_savedDeviationReason:item.deviationReason||''}));data.value=payload;const projects=payload.projectBonuses||[];const selected=projects.find(project=>String(project.projectId)===String(selectedProjectId.value));selectedProjectId.value=selected?.projectId??ALL_PROJECTS}finally{loading.value=false}}
 watch(()=>route.query.projectId,value=>{const requested=projectOptions.value.find(project=>String(project.projectId)===String(value));selectedProjectId.value=requested?.projectId??ALL_PROJECTS})
@@ -226,6 +259,7 @@ useBusinessRefreshOnReactivated(load)
 .task-report-tip{color:#9aa4af;font-size:12px}
 .task-report-form :deep(.el-slider){padding:0 12px}
 .task-report-form :deep(.el-slider__runway.show-input){margin-right:88px}
+.work-report-summary-card .el-button{width:100%;margin-top:13px}.work-report-summary-card small{display:block;margin-top:6px;color:#98a2ad;font-size:11px}.work-report-hint{margin:0 0 0 96px;color:#8b97a4;font-size:12px}
 .progress-tip{display:block;width:100%;margin-top:6px;color:#909399;font-size:12px}
 .bonus-values{display:flex;flex-wrap:wrap;gap:0 12px}
 </style>

@@ -118,13 +118,16 @@
       <div class="section-title section-title--between">
         <div><h2>{{ t('bossReview.title') }}</h2><span v-if="accounting.bizDate">{{ accounting.bizDate }} · {{ t('bossReview.timezone') }}</span></div>
         <div class="panel-actions review-date-controls">
+          <el-select v-model="selectedReviewProjectId" class="review-project-select" :aria-label="$tr(&quot;经营回顾项目&quot;)" :placeholder="$tr(&quot;选择项目&quot;)" :disabled="accountingLoading || !reviewProjects.length">
+            <el-option v-for="item in reviewProjects" :key="item.projectId" :label="reviewProjectLabel(item)" :value="item.projectId" />
+          </el-select>
           <el-select v-model="reportPeriod" :aria-label="t('bossReview.period')" @change="changeReportPeriod">
             <el-option :label="t('bossReview.yesterday')" value="yesterday" />
             <el-option :label="t('bossReview.today')" value="today" />
             <el-option :label="t('bossReview.custom')" value="custom" />
           </el-select>
           <el-date-picker v-if="reportPeriod === 'custom'" v-model="customReportDate" type="date" value-format="YYYY-MM-DD" :clearable="false" :disabled-date="futureReportDate" :aria-label="t('bossReview.period')" @change="loadAccounting" />
-          <el-button link type="primary" :disabled="accountingLoading || accountingError || !accounting.bizDate" @click="openReviewAccounting()">{{ t('bossReview.details') }}</el-button>
+          <el-button link type="primary" :disabled="accountingLoading || accountingError || !accounting.bizDate || !selectedReviewProject" @click="openReviewAccounting()">{{ t('bossReview.details') }}</el-button>
         </div>
       </div>
       <div v-if="accountingLoading" class="empty-state" role="status">{{ t('bossReview.loading') }}</div>
@@ -141,6 +144,7 @@
           <el-tag v-if="accounting.readiness?.unfinishedWorkCount" type="warning">{{ t('bossReview.pendingWork', { count: accounting.readiness.unfinishedWorkCount }) }}</el-tag>
           <el-tag v-if="accounting.draftFactCount" type="warning">{{ t('bossReview.allDrafts', { count: accounting.draftFactCount }) }}</el-tag>
         </div>
+        <p v-if="selectedReviewProject" class="review-project-scope">{{ $tr("当前金额：{0} · {1}", [selectedReviewProject.projectName, selectedReviewProject.currency || '']) }}</p>
         <div class="finance-grid">
           <article><span>{{ t('bossReview.revenue') }}</span><strong>{{ accountingTotal('revenueAmount') }}</strong></article>
           <article><span>{{ t('bossReview.cost') }}</span><strong>{{ accountingTotal('costAmount') }}</strong></article>
@@ -344,8 +348,12 @@ const { t, locale } = useI18n()
 const loading = ref(false)
 const projectLoading = ref(false)
 const projectsExpanded = ref(true)
-const hasReviewResults = computed(() => Number(accounting.value.readiness?.resultCount || 0) > 0 || accounting.value.hasClosedAdjustments === true)
-const accountingTotal = key => !hasReviewResults.value ? '—' : (accounting.value.summaryByCurrency?.length ? accounting.value.summaryByCurrency : [accounting.value.summary || {}]).map(row => money(row[key]) + (row.currency ? ' ' + row.currency : '')).join(' / ')
+const reviewProjects = computed(() => accounting.value.ranking || [])
+const selectedReviewProjectId = ref(null)
+const selectedReviewProject = computed(() => reviewProjects.value.find(item => String(item.projectId) === String(selectedReviewProjectId.value)) || null)
+const hasReviewResults = computed(() => !!selectedReviewProject.value)
+const accountingTotal = key => selectedReviewProject.value?.[key] == null ? '—' : `${money(selectedReviewProject.value[key])} ${selectedReviewProject.value.currency || ''}`.trim()
+const reviewProjectLabel = item => [item.projectName, item.companyName, item.currency].filter(Boolean).join(' · ')
 const summary = ref({})
 const projects = ref([])
 const ownerLoads = ref([])
@@ -472,7 +480,8 @@ const taxRateLabel = value => value == null ? translateText("未设置（暂按 
 const openReviewAccounting = (row = {}) => {
   const date = row.bizDate || accounting.value.bizDate
   if (!date) return
-  openAccounting({ ...(row.projectId ? { projectId: row.projectId } : {}), dateFrom: date, dateTo: date })
+  const projectId = row.projectId || selectedReviewProjectId.value
+  openAccounting({ ...(projectId ? { projectId } : {}), dateFrom: date, dateTo: date })
 }
 const reviewAlertText = row => locale.value === 'zh-CN' ? row.alertMessage : t(`bossReview.alert${row.alertType}`, { amount: money(row.amount) })
 const futureReportDate = date => {
@@ -491,7 +500,11 @@ async function loadAccounting() {
   accountingError.value = false
   try {
     const result = await getBusinessBossAccountingOverview({ bizDate })
-    if (sequence === accountingRequestSequence) accounting.value = result.data || {}
+    if (sequence === accountingRequestSequence) {
+      accounting.value = result.data || {}
+      if (!reviewProjects.value.some(item => String(item.projectId) === String(selectedReviewProjectId.value)))
+        selectedReviewProjectId.value = reviewProjects.value[0]?.projectId ?? null
+    }
   } catch {
     if (sequence === accountingRequestSequence) accountingError.value = true
   } finally {
@@ -735,7 +748,7 @@ onBeforeUnmount(() => window.clearInterval(progressRefreshTimer))
 </script>
 
 <style scoped>
-.review-date-controls .el-select{width:150px}.review-readiness{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.review-note{color:#64748b;font-size:13px;line-height:1.6}.review-readiness{margin:12px 0}
+.review-date-controls{flex-wrap:wrap;justify-content:flex-end}.review-date-controls .el-select{width:150px}.review-date-controls .review-project-select{width:260px}.review-readiness{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.review-note{color:#64748b;font-size:13px;line-height:1.6}.review-readiness{margin:12px 0}.review-project-scope{margin:2px 0 12px;color:#52657a;font-size:13px;font-weight:600}
 .project-filters{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px}.project-filters>.el-input{width:235px}.project-filters>.el-select{width:130px}.project-filters>.el-button{margin:0}.project-pagination :deep(.el-pagination){flex-wrap:wrap;gap:8px}@media(max-width:1100px){.project-panel>.section-title{flex-wrap:wrap;gap:14px}.project-filters{justify-content:flex-start}}
 .project-status-toggle{display:flex;align-items:center;flex-wrap:wrap;gap:8px;border:0;padding:0;background:none;color:inherit;font:inherit;cursor:pointer;text-align:left}.project-status-toggle small{font-size:12px;font-weight:400;color:#8492a3}.project-status-toggle:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:4px;border-radius:4px}
 .business-page{min-height:calc(100vh - 84px);padding:24px;background:#eef1f5;color:#12213a}.hero{display:flex;align-items:center;justify-content:space-between;min-height:134px;padding:26px 40px;border-radius:18px;background:#1d344f;color:#fff;box-shadow:0 12px 30px rgba(27,48,74,.13)}.eyebrow{font-size:12px;letter-spacing:.28em;color:#78ecd1}.hero h1{margin:15px 0 8px;font-size:30px;line-height:1}.hero p{margin:0;color:#d2deea;font-size:15px}.hero-actions,.panel-actions{display:flex;align-items:center;gap:10px}.hero-actions{flex-wrap:wrap;justify-content:flex-end}.hero-actions :deep(.el-button){height:42px;margin:0;padding:0 20px;border-radius:11px;font-weight:700}.panel{margin-top:20px;padding:24px 26px;border:0;border-radius:17px;background:#fff;box-shadow:0 7px 20px rgba(29,50,75,.06)}.section-title{display:flex;align-items:baseline;gap:7px;margin-bottom:18px}.section-title h2{margin:0;font-size:19px}.section-title>span{color:#8493a7;font-size:13px}.section-title--between{align-items:center;justify-content:space-between}.empty-state{padding:30px;text-align:center;color:#93a0b1}.success-empty{border-radius:10px;background:#edf9f2;color:#18a856}.success-empty span{margin-right:8px;font-weight:800}.decision-row{display:flex;align-items:center;gap:16px;padding:19px 20px;border:1px solid #dfe6ef;border-radius:14px}.decision-row+.decision-row{margin-top:14px}.decision-dot{width:10px;height:10px;flex:none;border-radius:50%}.dot-danger{background:#ef323a}.dot-warning{background:#df7c00}.dot-info{background:#4a83d8}.decision-copy{min-width:0;flex:1}.decision-title{display:flex;align-items:center;gap:10px}.decision-title b{font-size:16px}.decision-count{color:#df7c00;font-weight:700}.badge-danger{color:#e04b00}.badge-warning{color:#df7c00}.badge-info{color:#3f75bd}.decision-copy>p{margin:7px 0 0;color:#8493a7;font-size:14px;line-height:1.55}.decision-actions{display:flex;flex:none;align-self:flex-start;flex-wrap:wrap;justify-content:flex-end;gap:8px}.decision-actions :deep(.el-button){margin:0;font-weight:650}.pending-toggle{display:flex;justify-content:center;padding-top:15px}.pending-toggle :deep(.el-button){font-weight:650}.pending-toggle-arrow{display:inline-block;margin-left:5px;font-size:16px;transition:transform .2s ease}.pending-toggle-arrow.is-expanded{transform:rotate(180deg)}.personnel-list{margin-top:14px;border-top:1px dashed #dce4ee}.personnel-item{display:grid;grid-template-columns:110px minmax(0,1fr) auto;align-items:center;gap:18px;padding:10px 2px;border-bottom:1px dashed #dce4ee}.personnel-item>b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.personnel-item>span{overflow:hidden;color:#8493a7;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.finance-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.finance-grid article{padding:20px;border:1px solid #dfe6ef;border-radius:13px;background:#fafbfd}.finance-grid span,.finance-grid strong{display:block}.finance-grid span{color:#8794a8;font-size:14px}.finance-grid strong{margin-top:12px;font-size:29px;line-height:1}.tax-rate-list{display:grid;gap:9px;margin-top:11px}.tax-rate-list>div{display:flex;align-items:center;justify-content:space-between;gap:12px}.tax-rate-list b{overflow:hidden;color:#435167;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.tax-rate-list strong{flex:none;margin:0;color:#12213a;font-size:17px;line-height:1.25}.tax-rate-list strong.is-unset{color:#c57b12;font-size:13px}.tax-rate-state{margin-top:12px;color:#7f8ca0;font-size:14px}.tax-rate-state.is-error{color:#d84e58}.amount-profit{color:#11a957}.amount-loss{color:#d84e58}.healthy-banner{margin-top:15px;padding:11px 16px;border-radius:10px;background:#e7f7ed;color:#11a957;font-size:14px}.alert-section{margin-top:16px;padding:16px;border:1px solid #e5eaf0;border-radius:12px;background:#f8fafc}.subsection-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.subsection-head>div{display:flex;align-items:baseline;gap:10px}.subsection-head span{color:#8a95a2;font-size:12px}.alert-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.alert-card{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:11px;padding:14px;border:1px solid #e0e6ec;border-radius:11px;background:#fff;color:inherit;text-align:left;cursor:pointer}.alert-card:hover{border-color:#b9c7d5;box-shadow:0 7px 18px rgba(31,53,74,.09)}.alert-icon{display:flex;width:30px;height:30px;align-items:center;justify-content:center;border-radius:9px;background:#fff0f1;color:#d94e58;font-weight:800}.alert-card--over-budget .alert-icon{background:#fff5e6;color:#c8841c}.alert-card--missing-company .alert-icon{background:#eef4fb;color:#4f78a8}.alert-content{display:flex;min-width:0;flex-direction:column}.alert-content>b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.alert-content>span{margin-top:4px;color:#788695;font-size:12px}.alert-arrow{color:#a3adb8;font-size:24px}.alert-footer{display:flex;justify-content:flex-end;padding-top:8px}.project-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;min-height:60px}.project-card{padding:19px 20px;border:1px solid #dfe6ef;border-radius:14px}.project-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.project-link{min-width:0;overflow:hidden;padding:0;border:0;background:none;color:#13213a;font:inherit;font-size:16px;font-weight:700;text-align:left;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.project-link:hover{color:#3478ef}.progress-row{display:grid;grid-template-columns:auto minmax(80px,1fr) auto;align-items:center;gap:14px;margin-top:18px;color:#8493a7;font-size:13px}.progress-row :deep(.el-progress__text){display:none}.progress-row :deep(.el-progress){width:100%}.project-card-foot{display:flex;align-items:center;gap:10px;margin-top:14px;color:#8493a7;font-size:13px}.project-actions{display:flex;margin-left:auto;gap:8px}.project-actions :deep(.el-button){margin:0}.project-pagination{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:18px}.project-pagination>span{color:#7e8a98;font-size:12px}.cost-form{margin-top:18px}.cost-form :deep(.el-form-item){margin-bottom:20px}.form-help{margin-top:6px;color:#8490a0;font-size:12px;line-height:1.5}.cost-preview{display:grid;gap:5px;margin:-4px 0 18px 126px;padding:13px 15px;border:1px solid #cfe3df;border-radius:9px;background:#f0f8f6}.cost-preview span,.cost-preview small{color:#71828c;font-size:12px}.cost-preview b{color:#174f4f;font-size:15px}.cost-preview b:not(:first-of-type){margin-top:7px}

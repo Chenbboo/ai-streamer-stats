@@ -38,7 +38,11 @@
     select p.project_id projectId,p.project_no projectNo,p.project_name projectName,
       coalesce(legacy.total_bonus,0) legacyBonus,coalesce(reward.total_bonus,0) incentiveBonus,
       coalesce(reward.total_bonus,0)+case when p.base_currency='CNY' then coalesce(legacy.total_bonus,0) else 0 end totalBonus,
-      p.base_currency currency
+      p.base_currency currency,p.status projectStatus,
+      case when p.status in ('ACTIVE','ACCEPTANCE') and (p.main_owner_user_id=#{userId} or exists(
+        select 1 from biz_project_member reporting_member where reporting_member.project_id=p.project_id
+        and reporting_member.user_id=#{userId} and reporting_member.status='0'
+        and reporting_member.member_role&lt;&gt;'OBSERVER')) then 1 else 0 end canSubmitWorkReport
     from biz_project p
     left join (select settlement.project_id,sum(settlement.bonus_amount) total_bonus
       from biz_project_kpi_settlement settlement join biz_project_kpi_plan plan on plan.plan_id=settlement.plan_id

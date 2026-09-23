@@ -234,6 +234,17 @@
               <div v-else class="empty-block compact">{{ $tr("负责人尚未填报项目整体进度") }}</div>
             </div>
           </article>
+          <article class="panel owner-work-reports-panel">
+            <div class="panel-head"><div><div class="owner-work-report-heading"><h2>{{ $tr("成员工作汇报") }}</h2><el-button type="primary" plain size="small" @click="openWorkReportStats">{{ $tr("统计汇报") }}</el-button></div><p>{{ $tr("成员主动提交，负责人验收；待验收 {0} 项。", [pendingWorkReportCount]) }}</p></div><el-button v-if="workReports.length>3" link type="primary" @click="workReportsDialog=true">{{ $tr("查看全部（{0}）", [workReports.length]) }}</el-button></div>
+            <div v-if="!workReports.length" class="empty-block compact">{{ $tr("暂无成员工作汇报") }}</div>
+            <article v-for="report in workReports.slice(0,3)" :key="report.reportId" class="owner-work-report-row">
+              <div class="owner-work-report-head"><b>{{ report.routineId ? report.routineName : $tr("项目工作汇报") }}</b><span><el-tag size="small" effect="plain">{{ workReportFrequencyLabel(report.frequency) }}</el-tag><el-tag size="small" :type="workReportStatusTone(report.status)">{{ workReportStatusLabel(report.status) }}</el-tag></span></div>
+              <small>{{ report.submittedUserName }} · {{ workReportPeriodLabel(report) }} · {{ report.createTime }}</small>
+              <p v-if="report.content">{{ report.content }}</p>
+              <p v-if="report.reviewComment" class="work-report-review-note">{{ $tr("验收意见：{0}", [report.reviewComment]) }}</p>
+              <div class="owner-work-report-actions"><el-button v-if="evidenceCount(report.attachmentUrls)" link type="primary" @click="openWorkReportEvidence(report)">{{ $tr("查看汇报附件（{0}）", [evidenceCount(report.attachmentUrls)]) }}</el-button><el-button v-if="canReviewWorkReport(report)" :loading="reviewingReportId===report.reportId" type="primary" size="small" @click="approveWorkReport(report)">{{ $tr("验收通过") }}</el-button><el-button v-if="canReviewWorkReport(report)" :disabled="reviewingReportId===report.reportId" size="small" @click="returnWorkReport(report)">{{ $tr("退回") }}</el-button></div>
+            </article>
+          </article>
           </div></div>
         </el-tab-pane>
         <el-tab-pane :label="$tr(&quot;人员与收支&quot;)" name="people">
@@ -374,6 +385,42 @@
       <template #footer><el-button type="primary" @click="taskReportDialog=false">{{ $tr("关闭") }}</el-button></template>
     </el-dialog>
 
+    <el-dialog v-model="workReportsDialog" :title="$tr(&quot;成员工作汇报记录 · 共 {0} 条&quot;, [workReports.length])" width="min(860px, 96vw)" append-to-body destroy-on-close>
+      <div class="task-report-list">
+        <article v-for="report in workReports" :key="report.reportId" class="task-report-row">
+          <div class="task-report-head"><span><b>{{ report.routineId ? report.routineName : $tr("项目工作汇报") }}</b><small>{{ report.submittedUserName }} · {{ workReportPeriodLabel(report) }} · {{ report.createTime }}</small></span><div><el-tag effect="plain">{{ workReportFrequencyLabel(report.frequency) }}</el-tag><el-tag :type="workReportStatusTone(report.status)">{{ workReportStatusLabel(report.status) }}</el-tag></div></div>
+          <p v-if="report.content">{{ report.content }}</p>
+          <p v-if="report.reviewComment" class="work-report-review-note">{{ $tr("验收意见：{0}", [report.reviewComment]) }}</p>
+          <div class="task-report-footer"><el-button v-if="evidenceCount(report.attachmentUrls)" link type="primary" @click="openWorkReportEvidence(report)">{{ $tr("查看汇报附件（{0}）", [evidenceCount(report.attachmentUrls)]) }}</el-button><div><el-button v-if="canReviewWorkReport(report)" :loading="reviewingReportId===report.reportId" type="primary" size="small" @click="approveWorkReport(report)">{{ $tr("验收通过") }}</el-button><el-button v-if="canReviewWorkReport(report)" :disabled="reviewingReportId===report.reportId" size="small" @click="returnWorkReport(report)">{{ $tr("退回") }}</el-button></div></div>
+        </article>
+      </div>
+      <template #footer><el-button type="primary" @click="workReportsDialog=false">{{ $tr("关闭") }}</el-button></template>
+    </el-dialog>
+
+    <el-dialog v-model="workReportStatsDialog" :title="$tr(&quot;成员工作汇报统计&quot;)" width="min(850px, 96vw)" append-to-body destroy-on-close>
+      <div class="work-report-stats-toolbar">
+        <el-radio-group v-model="statsFrequency">
+          <el-radio-button :label="$tr(&quot;每日汇报&quot;)" value="DAILY" />
+          <el-radio-button :label="$tr(&quot;每周汇报&quot;)" value="WEEKLY" />
+          <el-radio-button :label="$tr(&quot;每月汇报&quot;)" value="MONTHLY" />
+        </el-radio-group>
+        <el-date-picker v-model="statsAnchorDate" type="date" value-format="YYYY-MM-DD" :clearable="false" :placeholder="$tr(&quot;选择统计日期&quot;)" />
+      </div>
+      <p class="work-report-stats-period">{{ $tr("统计周期：{0}", [statsPeriodLabel]) }}</p>
+      <div class="work-report-stats-summary">
+        <span>{{ $tr("已汇报 {0}/{1} 人", [workReportStats.reportedCount, workReportStats.dueCount]) }}</span>
+        <span>{{ $tr("未汇报 {0} 人", [workReportStats.missingCount]) }}</span>
+        <span v-if="workReportStats.returnedCount">{{ $tr("已退回待重报 {0} 人", [workReportStats.returnedCount]) }}</span>
+      </div>
+      <el-table :data="workReportStats.rows" class="work-report-stats-table" max-height="460" :empty-text="$tr(&quot;暂无参项成员&quot;)">
+        <el-table-column :label="$tr(&quot;项目成员&quot;)" min-width="145"><template #default="{ row }"><b>{{ row.member.userNameSnapshot || row.member.accountName }}</b><small>{{ memberRoleLabel[row.member.memberRole] || row.member.memberRole }}</small></template></el-table-column>
+        <el-table-column :label="$tr(&quot;汇报状态&quot;)" min-width="125"><template #default="{ row }"><el-tag :type="workReportStatTone(row)">{{ workReportStatLabel(row) }}</el-tag></template></el-table-column>
+        <el-table-column :label="$tr(&quot;汇报周期&quot;)" min-width="210"><template #default="{ row }">{{ row.report ? workReportPeriodLabel(row.report) : statsPeriodLabel }}</template></el-table-column>
+        <el-table-column :label="$tr(&quot;提交时间&quot;)" min-width="165"><template #default="{ row }">{{ row.report?.createTime || '—' }}</template></el-table-column>
+      </el-table>
+      <template #footer><el-button type="primary" @click="workReportStatsDialog=false">{{ $tr("关闭") }}</el-button></template>
+    </el-dialog>
+
     <el-dialog v-model="dailyTargetDialog" :title="dailyTargetForm.todayTargetId?$tr(&quot;修改今日目标&quot;):$tr(&quot;下达今日目标&quot;)" width="min(560px, 94vw)" append-to-body>
       <el-alert :title="$tr(&quot;目标只对今天生效；修改会保留旧版本和原因。执行人提交完成情况后不可再改。&quot;)" type="info" :closable="false" show-icon />
       <el-form :model="dailyTargetForm" label-width="100px" class="report-form">
@@ -429,7 +476,7 @@
 import { translateText } from '@/locales/translate'
 
 import { nextTick } from 'vue'
-import { getBusinessProjectSettlementStatus, getBusinessOwnerWorkbench, saveBusinessRoutineDailyTarget, submitBusinessProjectProgressReport, submitBusinessRoutineReport, confirmBusinessMemberEffort, returnBusinessMemberEffort } from '@/api/business/project'
+import { getBusinessProjectSettlementStatus, getBusinessOwnerWorkbench, saveBusinessRoutineDailyTarget, submitBusinessProjectProgressReport, submitBusinessRoutineReport, reviewBusinessWorkReport, confirmBusinessMemberEffort, returnBusinessMemberEffort } from '@/api/business/project'
 import { confirmProjectNoSpend } from '@/api/business/flow'
 import { newSubmissionId } from '@/utils/submission'
 import { getBusinessProjectDashboard, reverseBusinessProjectDailySpend, saveBusinessProjectDailySpend, saveBusinessProjectFact } from '@/api/business/accounting'
@@ -445,6 +492,7 @@ import { listProjectProposals } from '@/api/business/proposal'
 import { buildOwnerTodos, buildPublicExpenseTodos, buildAllocationReviewTodos, buildProposalHandoffTodos, buildChildAcceptanceTodos } from '@/utils/ownerTodos'
 import { getOwnerPublicExpenseWorkspace } from '@/api/business/publicExpense'
 import { canContinueProjectSettlement, isSeparatedDelivery, isDeliveryEnded, projectAccountingState } from '@/utils/businessProjectState'
+import { buildWorkReportStats } from '@/utils/workReportStats'
 
 const route=useRoute(),router=useRouter()
 const userStore=useUserStore()
@@ -494,7 +542,7 @@ const ownerTodos=computed(()=>{
 })
 const urgentTodoCount=computed(()=>ownerTodos.value.filter(item=>item.urgent).length)
 const visibleOwnerTodos=computed(()=>todosExpanded.value?ownerTodos.value:ownerTodos.value.slice(0,5))
-const loading=ref(false),saving=ref(false),data=ref({}),selectedProjectId=ref(null),revenueDialog=ref(false),reportDialog=ref(false),projectProgressDialog=ref(false),routineReportDialog=ref(false),dailyTargetDialog=ref(false),effortReturnDialog=ref(false),taskReportDialog=ref(false),evidenceDialog=ref(false)
+const loading=ref(false),saving=ref(false),reviewingReportId=ref(null),data=ref({}),selectedProjectId=ref(null),revenueDialog=ref(false),reportDialog=ref(false),projectProgressDialog=ref(false),routineReportDialog=ref(false),dailyTargetDialog=ref(false),effortReturnDialog=ref(false),taskReportDialog=ref(false),workReportsDialog=ref(false),workReportStatsDialog=ref(false),statsFrequency=ref('DAILY'),statsAnchorDate=ref(today()),evidenceDialog=ref(false)
 const projects=computed(()=>data.value.projects||[]),project=computed(()=>data.value.project||null)
 const participantPage=ref(1),participantPageSize=5
 const participantRows=computed(()=>project.value?.members||[])
@@ -544,6 +592,10 @@ const bossBlockingMemberCount=computed(()=>allocationAlerts.value.reduce((sum,it
 const personnelSetupIssueCount=computed(()=>missingAllocationMemberCount.value+bossBlockingMemberCount.value)
 const openTasks=computed(()=>data.value.openTasks||[])
 const taskReports=computed(()=>data.value.taskReports||[])
+const workReports=computed(()=>data.value.workReports||[])
+const pendingWorkReportCount=computed(()=>workReports.value.filter(report=>report.status==='PENDING').length)
+const workReportStats=computed(()=>buildWorkReportStats(project.value?.members,workReports.value,statsAnchorDate.value,statsFrequency.value))
+const statsPeriodLabel=computed(()=>workReportStats.value.start===workReportStats.value.end?workReportStats.value.start:translateText('{0} 至 {1}',[workReportStats.value.start,workReportStats.value.end]))
 const taskReportTaskId=ref(null)
 const taskWithReports=task=>{const reports=taskReports.value.filter(report=>Number(report.taskId)===Number(task.taskId));return {...task,reportCount:reports.length,latestReport:reports[0]||null}}
 const openTasksWithReports=computed(()=>openTasks.value.map(taskWithReports))
@@ -633,6 +685,18 @@ function taskFinishTime(task){return task.actualFinishTime||task.latestReport?.b
 function isTaskCompletedLate(task){const finishDate=taskFinishDate(task);return !!task.dueDate&&!!finishDate&&finishDate>task.dueDate}
 function openTaskReports(task){taskReportTaskId.value=task?.taskId??null;taskReportDialog.value=true}
 function openTaskReportEvidence(report){openEvidenceFiles(taskName(report.taskId),report.submittedUserName,report.bizDate,report.evidenceUrls)}
+function workReportFrequencyLabel(frequency){return translateText(({DAILY:'每日汇报',WEEKLY:'每周汇报',MONTHLY:'每月汇报'})[frequency]||frequency)}
+function workReportStatusLabel(status){return translateText(({PENDING:'待验收',APPROVED:'验收通过',RETURNED:'已退回'})[status]||status)}
+function workReportStatusTone(status){return ({PENDING:'warning',APPROVED:'success',RETURNED:'danger'})[status]||'info'}
+function canReviewWorkReport(report){return report.status==='PENDING'&&(Number(project.value?.mainOwnerUserId)===Number(userStore.id)||userStore.roles.includes('admin')||userStore.permissions.includes('*:*:*'))}
+async function submitWorkReportReview(report,decision,comment=''){reviewingReportId.value=report.reportId;try{await reviewBusinessWorkReport(report.reportId,{decision,comment});await load(project.value.projectId);ElMessage.success(decision==='APPROVED'?translateText('工作汇报已验收通过'):translateText('工作汇报已退回成员'))}finally{reviewingReportId.value=null}}
+function approveWorkReport(report){return submitWorkReportReview(report,'APPROVED')}
+async function returnWorkReport(report){let result;try{result=await ElMessageBox.prompt(translateText('请填写退回原因，成员可重新提交汇报。'),translateText('退回工作汇报'),{inputPlaceholder:translateText('请填写退回原因'),inputValidator:value=>!!value?.trim()||translateText('必须填写退回原因'),type:'warning'})}catch{return}await submitWorkReportReview(report,'RETURNED',result.value.trim())}
+function workReportPeriodLabel(report){return report.periodStart===report.periodEnd?report.periodStart:translateText("{0} 至 {1}", [report.periodStart,report.periodEnd])}
+function openWorkReportStats(){statsAnchorDate.value=today();statsFrequency.value='DAILY';workReportStatsDialog.value=true}
+function workReportStatLabel(row){if(row.state==='NOT_JOINED')return translateText('本周期尚未加入');if(row.state==='MISSING')return translateText('未汇报');if(row.state==='RETURNED')return translateText('已退回，待重报');return workReportStatusLabel(row.report?.status)}
+function workReportStatTone(row){if(row.state==='REPORTED')return workReportStatusTone(row.report?.status);return ({NOT_JOINED:'info',MISSING:'danger',RETURNED:'warning'})[row.state]||'info'}
+function openWorkReportEvidence(report){openEvidenceFiles(report.routineName,report.submittedUserName,report.periodEnd,report.attachmentUrls)}
 function money(value){return Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})}
 function currencyTotal(entries,amount){
   const totals=new Map()
@@ -941,6 +1005,9 @@ useBusinessRefreshOnReactivated(() => load(selectedProjectId.value || initialPro
 .spend-hover{display:inline-block;margin-top:8px;cursor:help;text-decoration:underline dotted #9aa9b7;text-underline-offset:4px}
 .progress-evidence-inputs{display:flex;width:100%;min-width:0;flex-direction:column;gap:12px}
 .evidence-text{margin:0 0 16px;padding:12px 14px;border-radius:8px;background:#f5f8fa;color:#405166;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
+.owner-work-reports-panel{margin-top:14px}.owner-work-report-row{padding:14px 0;border-top:1px solid #e9edf0}.owner-work-report-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.owner-work-report-row small{display:block;margin-top:6px;color:#8996a1}.owner-work-report-row p{margin:10px 0 4px;color:#405166;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
+.owner-work-report-heading,.work-report-stats-toolbar,.work-report-stats-summary{display:flex;align-items:center;flex-wrap:wrap;gap:10px}.owner-work-report-heading{margin-bottom:4px}.work-report-stats-toolbar{justify-content:space-between}.work-report-stats-period{margin:15px 0 8px;color:#637583}.work-report-stats-summary{margin-bottom:12px}.work-report-stats-summary span{padding:7px 11px;border-radius:8px;background:#f2f7f6;color:#27675e;font-size:13px}.work-report-stats-table small{display:block;margin-top:3px;color:#8b97a4}@media(max-width:640px){.work-report-stats-toolbar{align-items:stretch;flex-direction:column}.work-report-stats-toolbar :deep(.el-date-editor){width:100%}}
+.owner-work-report-head>span,.task-report-head>div,.owner-work-report-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.owner-work-report-actions{margin-top:10px}.owner-work-report-actions .el-button,.task-report-footer .el-button{margin:0}.work-report-review-note{color:#8a6335!important}
 </style>
 <style>
 .spend-tooltip-group+.spend-tooltip-group{margin-top:8px;padding-top:8px;border-top:1px solid #e7edf2}

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.business.mapper.BusinessProjectWorkReportMapper">
+    <sql id="columns">
+        r.report_id reportId, r.routine_id routineId, r.project_id projectId,
+        case when r.routine_id is null then '项目工作汇报'
+             else coalesce(t.routine_name, '已停用持续工作') end routineName,
+        r.frequency, r.period_start periodStart, r.period_end periodEnd,
+        r.content, r.attachment_urls attachmentUrls,
+        r.submitted_user_id submittedUserId, r.submitted_user_name submittedUserName,
+        r.status, r.reviewed_user_id reviewedUserId, r.reviewed_user_name reviewedUserName,
+        r.review_comment reviewComment, r.reviewed_time reviewedTime,
+        r.create_time createTime
+    </sql>
+    <insert id="insert" parameterType="com.ruoyi.business.domain.BusinessProjectWorkReport"
+            useGeneratedKeys="true" keyProperty="reportId">
+        insert into biz_project_work_report
+        (routine_id, project_id, frequency, period_start, period_end, content,
+         attachment_urls, submitted_user_id, submitted_user_name, create_time)
+        values (#{routineId}, #{projectId}, #{frequency}, #{periodStart}, #{periodEnd},
+                #{content}, #{attachmentUrls}, #{submittedUserId}, #{submittedUserName}, sysdate())
+    </insert>
+    <select id="selectByProject" resultType="com.ruoyi.business.domain.BusinessProjectWorkReport">
+        select <include refid="columns"/>
+        from biz_project_work_report r
+        left join biz_project_routine t on t.routine_id = r.routine_id
+        where r.project_id = #{projectId}
+        order by case when r.status = 'PENDING' then 0 else 1 end, r.create_time desc, r.report_id desc
+    </select>
+    <select id="selectLatestBySubmitter" resultType="com.ruoyi.business.domain.BusinessProjectWorkReport">
+        select <include refid="columns"/>
+        from biz_project_work_report r
+        join (select project_id, routine_id, max(report_id) report_id from biz_project_work_report
+              where submitted_user_id = #{userId} group by project_id, routine_id) latest on latest.report_id = r.report_id
+        left join biz_project_routine t on t.routine_id = r.routine_id
+    </select>
+    <select id="selectById" resultType="com.ruoyi.business.domain.BusinessProjectWorkReport">
+        select <include refid="columns"/>
+        from biz_project_work_report r
+        left join biz_project_routine t on t.routine_id = r.routine_id
+        where r.report_id = #{reportId}
+    </select>
+    <update id="review">
+        update biz_project_work_report
+        set status = #{decision}, review_comment = #{comment}, reviewed_user_id = #{reviewedUserId},
+            reviewed_user_name = #{reviewedUserName}, reviewed_time = sysdate()
+        where report_id = #{reportId} and status = 'PENDING'
+    </update>
+    <insert id="insertReturnNotification">
+        insert into biz_project_work_report_notification (report_id, recipient_user_id, create_time)
+        values (#{reportId}, #{recipientUserId}, sysdate())
+    </insert>
+    <select id="selectReturnNotifications" resultType="map">
+        select n.notification_id notificationId, n.read_time readTime, n.create_time createTime,
+               r.report_id reportId, r.project_id projectId, r.routine_id routineId, p.project_name projectName,
+               case when r.routine_id is null then '项目工作汇报'
+                    else coalesce(t.routine_name, '已停用持续工作') end routineName,
+               r.reviewed_user_name reviewerName, r.review_comment reviewComment, r.reviewed_time reviewedTime
+        from biz_project_work_report_notification n
+        join biz_project_work_report r on r.report_id = n.report_id
+        left join biz_project p on p.project_id = r.project_id
+        left join biz_project_routine t on t.routine_id = r.routine_id
+        where n.recipient_user_id = #{userId} and r.submitted_user_id = #{userId}
+        order by (n.read_time is null) desc, n.notification_id desc limit 100
+    </select>
+    <update id="readReturnNotification">
+        update biz_project_work_report_notification
+        set read_time = coalesce(read_time, sysdate())
+        where notification_id = #{notificationId} and recipient_user_id = #{userId}
+    </update>
+    <update id="readAllReturnNotifications">
+        update biz_project_work_report_notification set read_time = sysdate()
+        where recipient_user_id = #{userId} and read_time is null
+    </update>
+</mapper>

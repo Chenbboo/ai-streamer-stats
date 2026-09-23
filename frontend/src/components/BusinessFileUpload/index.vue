@@ -10,10 +10,12 @@
     :max-concurrency="3"
     :file-type="BUSINESS_FILE_TYPES"
     business-preview
+    :auto-compress-images="autoCompressImages"
     :disabled="disabled"
     :drag="drag"
     :is-show-tip="isShowTip"
     @update:model-value="emit('update:modelValue', $event)"
+    @uploading-change="emit('uploading-change', $event)"
   />
 </template>
 
@@ -25,10 +27,11 @@ defineProps({
   projectId: [String, Number],
   disabled: { type: Boolean, default: false },
   drag: { type: Boolean, default: true },
-  isShowTip: { type: Boolean, default: true }
+  isShowTip: { type: Boolean, default: true },
+  autoCompressImages: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'uploading-change'])
 
 const BUSINESS_FILE_TYPES = Object.freeze([
   'jpg', 'jpeg', 'png', 'webp',

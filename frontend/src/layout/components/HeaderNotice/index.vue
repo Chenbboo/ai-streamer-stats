@@ -27,11 +27,14 @@
       <div v-if="deletionNotices.length || deletionError" class="notice-header"><span class="notice-title">{{ $tr("项目删除审核结果") }}</span><span>{{ $tr("{0} 条未读", [deletionUnreadCount]) }}</span></div>
       <div v-if="deletionError" class="notice-empty">{{ $tr("审核通知加载失败 ") }}<el-button link @click="loadDeletion">{{ $tr("重试") }}</el-button></div>
       <div class="progress-notices"><button v-for="item in deletionNotices" :key="item.notificationId" class="notice-item progress-notice" :class="{'is-read':item.readTime}" @click="openDeletion(item)"><span class="notice-item-title">{{ item.projectName }} · {{ item.status === 'APPROVED' ? $tr("删除申请已通过") : $tr("删除申请已驳回") }}<small>{{ item.reviewerName || $tr("审核人") }} · {{ parseTime(item.reviewTime || item.createTime) }}</small></span><el-tag v-if="!item.readTime" size="small">{{ $tr("未读") }}</el-tag></button></div>
+      <div v-if="workReportNotices.length || workReportError" class="notice-header"><span class="notice-title">{{ $tr("工作汇报退回") }}</span><span>{{ $tr("{0} 条未读", [workReportUnreadCount]) }}</span></div>
+      <div v-if="workReportError" class="notice-empty">{{ $tr("汇报通知加载失败 ") }}<el-button link @click="loadWorkReportNotices">{{ $tr("重试") }}</el-button></div>
+      <div class="progress-notices"><button v-for="item in workReportNotices" :key="item.notificationId" class="notice-item progress-notice" :class="{'is-read':item.readTime}" @click="openWorkReportNotice(item)"><span class="notice-item-title">{{ item.projectName }} · {{ item.routineId ? item.routineName : $tr("项目工作汇报") }}<small>{{ $tr("工作汇报已退回") }} · {{ parseTime(item.reviewedTime || item.createTime) }}</small></span><el-tag v-if="!item.readTime" size="small">{{ $tr("未读") }}</el-tag></button></div>
       <!-- 触发器 -->
       <template #reference>
         <div class="right-menu-item hover-effect notice-trigger">
           <svg-icon icon-class="bell" />
-          <span v-if="unreadCount + progressNotices.filter(n=>!n.readTime).length + deletionUnreadCount > 0" class="notice-badge">{{ unreadCount + progressNotices.filter(n=>!n.readTime).length + deletionUnreadCount }}</span>
+          <span v-if="unreadCount + progressNotices.filter(n=>!n.readTime).length + deletionUnreadCount + workReportUnreadCount > 0" class="notice-badge">{{ unreadCount + progressNotices.filter(n=>!n.readTime).length + deletionUnreadCount + workReportUnreadCount }}</span>
         </div>
       </template>
     </el-popover>
@@ -44,7 +47,7 @@
 <script setup>
 import { translateText } from '@/locales/translate'
 
-import { getProgressNotifications, readProgressNotification, getBusinessProjectDeletionNotifications, readBusinessProjectDeletionNotification, readAllBusinessProjectDeletionNotifications } from '@/api/business/project'
+import { getProgressNotifications, readProgressNotification, getBusinessProjectDeletionNotifications, readBusinessProjectDeletionNotification, readAllBusinessProjectDeletionNotifications, getBusinessWorkReportReturnNotifications, readBusinessWorkReportReturnNotification, readAllBusinessWorkReportReturnNotifications } from '@/api/business/project'
 import { parseTime } from '@/utils/ruoyi'
 import { useRouter } from 'vue-router'
 import { h } from 'vue'
@@ -55,9 +58,12 @@ import { listNoticeTop, markNoticeRead, markNoticeReadAll } from '@/api/system/n
 const router = useRouter(), progressNotices = ref([]), progressError = ref(false)
 const deletionNotices = ref([]), deletionError = ref(false)
 const deletionUnreadCount = computed(() => deletionNotices.value.filter(item => !item.readTime).length)
+const workReportNotices = ref([]), workReportError = ref(false)
+const workReportUnreadCount = computed(() => workReportNotices.value.filter(item => !item.readTime).length)
 let progressTimer
 async function loadProgress(){try{const res=await getProgressNotifications();progressNotices.value=res.data||[];progressError.value=false}catch{progressError.value=true}}
 async function loadDeletion(){try{const res=await getBusinessProjectDeletionNotifications();deletionNotices.value=res.data||[];deletionError.value=false}catch{deletionError.value=true}}
+async function loadWorkReportNotices(){try{const res=await getBusinessWorkReportReturnNotifications();workReportNotices.value=res.data||[];workReportError.value=false}catch{workReportError.value=true}}
 async function openProgress(item){noticeVisible.value=false;await router.push({path:'/business/projects',query:{progressProjectId:item.projectId,reportId:item.reportId}});if(!item.readTime){try{await readProgressNotification(item.notificationId);item.readTime=new Date().toISOString()}catch{/* Keep unread state when acknowledgement fails. */}}}
 async function openDeletion(item){
   noticeVisible.value=false
@@ -73,7 +79,21 @@ async function openDeletion(item){
     if(!item.readTime){await readBusinessProjectDeletionNotification(item.notificationId);item.readTime=new Date().toISOString()}
   } catch {/* Keep unread state if the dialog or acknowledgement is closed or fails. */}
 }
-onMounted(()=>{loadProgress();loadDeletion();progressTimer=setInterval(()=>{loadProgress();loadDeletion()},60000)})
+async function openWorkReportNotice(item){
+  noticeVisible.value=false
+  const lines=[
+    translateText("项目：{0}", [item.projectName || '—']),
+    translateText("汇报事项：{0}", [item.routineId ? item.routineName : translateText("项目工作汇报")]),
+    translateText("验收人：{0}", [item.reviewerName || '—']),
+    translateText("退回原因：{0}", [item.reviewComment || '—'])
+  ]
+  try{
+    await ElMessageBox.alert(h('div', lines.map(line=>h('p', {style:{margin:'0 0 8px',whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}, line))), translateText("工作汇报已退回"), {confirmButtonText:translateText("前往我的安排")})
+  }catch{return}
+  if(!item.readTime){try{await readBusinessWorkReportReturnNotification(item.notificationId);item.readTime=new Date().toISOString()}catch{/* Keep unread state when acknowledgement fails. */}}
+  await router.push({path:'/business/work-schedule',query:{projectId:item.projectId}})
+}
+onMounted(()=>{loadProgress();loadDeletion();loadWorkReportNotices();progressTimer=setInterval(()=>{loadProgress();loadDeletion();loadWorkReportNotices()},60000)})
 onBeforeUnmount(()=>clearInterval(progressTimer))
 const noticePopover = ref(null)
 const noticeList = ref([])
@@ -94,7 +114,7 @@ function loadNoticeTop() {
 }
 
 onMounted(() => loadNoticeTop())
-watch(noticeVisible, shown => { if(shown){loadProgress();loadDeletion()} })
+watch(noticeVisible, shown => { if(shown){loadProgress();loadDeletion();loadWorkReportNotices()} })
 
 // 预览公告详情
 function previewNotice(item) {
@@ -117,6 +137,9 @@ function markAllRead() {
   }
   if (deletionUnreadCount.value) readAllBusinessProjectDeletionNotifications().then(() => {
     deletionNotices.value = deletionNotices.value.map(item => ({ ...item, readTime: item.readTime || new Date().toISOString() }))
+  }).catch(() => {})
+  if (workReportUnreadCount.value) readAllBusinessWorkReportReturnNotifications().then(() => {
+    workReportNotices.value = workReportNotices.value.map(item => ({ ...item, readTime: item.readTime || new Date().toISOString() }))
   }).catch(() => {})
 }
 </script>

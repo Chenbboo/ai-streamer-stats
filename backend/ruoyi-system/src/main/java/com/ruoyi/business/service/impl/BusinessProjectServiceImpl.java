@@ -108,6 +108,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
 
     @Autowired
     private BusinessFileService businessFileService;
+    @Autowired private BusinessProjectWorkReportService workReportService;
 
     @Autowired
     private OnlineUserPermissionService onlineUserPermissionService;
@@ -3314,6 +3315,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         List<BusinessProjectTaskReport> taskReports = mapper.selectTaskReports(selectedId);
         result.put("taskReports", taskReports == null
             ? Collections.<BusinessProjectTaskReport>emptyList() : taskReports);
+        result.put("workReports", workReportService.listForProject(selectedId));
         result.put("todayRoutines", detail.getRoutines());
         result.put("accounting", accounting);
         result.put("todayProjectProgress", mapper.selectProjectProgressReport(selectedId,
@@ -3389,6 +3391,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         result.put("today", today); result.put("summary", summary);
         result.put("projectBonuses", projectBonuses);
         result.put("tasks", tasks); result.put("routines", routines); result.put("efforts", efforts);
+        result.put("latestWorkReports", workReportService.latestForSubmitter(userId));
         return result;
     }
 
