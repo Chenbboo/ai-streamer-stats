@@ -634,6 +634,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         project.setSourceProposalId(proposal.getProposalId());
         project.setParentId(proposal.getParentProjectId());
         project.setCompanyDeptId(proposal.getCompanyDeptId());
+        project.setDepartmentId(proposal.getDepartmentId());
         project.setProjectName(proposal.getProjectName());
         project.setProjectType(proposal.getProjectType());
         project.setAccountingMode(proposal.getAccountingMode());

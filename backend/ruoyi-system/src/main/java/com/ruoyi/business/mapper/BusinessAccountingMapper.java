@@ -68,7 +68,7 @@ public interface BusinessAccountingMapper
     List<Map<String,Object>> selectCompanyPersonnelCostReadiness(@Param("userId") Long userId,
         @Param("viewAll") boolean viewAll, @Param("bizDate") Date bizDate);
     int countProjectsMissingDailyResult(@Param("userId") Long userId,@Param("viewAll") boolean viewAll,
-        @Param("bizDate") Date bizDate);
+        @Param("bizDate") Date bizDate,@Param("companyDeptId") Long companyDeptId);
     int countProjectUnsettledFacts(@Param("projectId") Long projectId);
     int closeProjectDailyResults(@Param("projectId") Long projectId,@Param("userName") String userName);
 }

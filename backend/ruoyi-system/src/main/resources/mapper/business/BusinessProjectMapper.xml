@@ -11,6 +11,7 @@
         <result property="contextOnly" column="context_only"/>
         <result property="matchedChildId" column="matched_child_id"/>
         <result property="companyDeptId" column="company_dept_id"/>
+        <result property="departmentId" column="department_id"/>
         <result property="companyName" column="company_name"/>
         <result property="projectName" column="project_name"/>
         <result property="projectType" column="project_type"/>
@@ -122,7 +123,7 @@
     </resultMap>
 
     <sql id="projectColumns">
-        p.project_id,p.project_no,p.source_proposal_id,p.parent_id,parent.project_name parent_name,p.company_dept_id,company.dept_name company_name,p.project_name,p.project_type,
+        p.project_id,p.project_no,p.source_proposal_id,p.parent_id,parent.project_name parent_name,p.company_dept_id,p.department_id,company.dept_name company_name,p.project_name,p.project_type,
         p.accounting_mode,p.management_mode,p.close_method,p.management_reason,p.acceptance_criteria,p.goal_mode,
         p.objective,p.status,p.baseline_status,p.delivery_policy_version,p.accounting_state,p.settlement_policy_version,p.cost_policy_version,p.template_version,p.template_snapshot_json,
         p.applicant_user_id,p.applicant_name,p.sponsor_owner_user_id,p.sponsor_owner_name,p.initiator_user_id,p.initiator_name,
@@ -283,7 +284,7 @@
 
     <insert id="insertProject" parameterType="com.ruoyi.business.domain.BusinessProject"
             useGeneratedKeys="true" keyProperty="projectId">
-        insert into biz_project(project_no,parent_id,company_dept_id,project_name,project_type,accounting_mode,management_mode,
+        insert into biz_project(project_no,parent_id,company_dept_id,department_id,project_name,project_type,accounting_mode,management_mode,
           close_method,management_reason,acceptance_criteria,goal_mode,objective,status,
           delivery_policy_version,accounting_state,settlement_policy_version,cost_policy_version,template_version,template_snapshot_json,
           baseline_status,applicant_user_id,applicant_name,sponsor_owner_user_id,sponsor_owner_name,
@@ -291,7 +292,7 @@
           plan_start_date,plan_end_date,actual_start_date,priority,base_currency,
           budget_limit,budget_mode,daily_budget_limit,budget_scope,startup_budget_limit,budget_reason,
           baseline_version,version,del_flag,create_by,create_time,remark)
-        values(#{projectNo},#{parentId},#{companyDeptId},#{projectName},#{projectType},#{accountingMode},#{managementMode},
+        values(#{projectNo},#{parentId},#{companyDeptId},#{departmentId},#{projectName},#{projectType},#{accountingMode},#{managementMode},
           #{closeMethod},#{managementReason},#{acceptanceCriteria},#{goalMode},#{objective},#{status},
           coalesce(#{deliveryPolicyVersion},'LEGACY_V1'),coalesce(#{accountingState},'OPEN'),
           coalesce(#{settlementPolicyVersion},'LEGACY_COMPAT'),coalesce(#{costPolicyVersion},'PERCENTAGE_V1'),coalesce(#{templateVersion},'LEGACY_V1'),#{templateSnapshotJson},

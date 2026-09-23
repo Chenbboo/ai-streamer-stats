@@ -314,6 +314,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         Map<String, Object> result = new LinkedHashMap<String, Object>();
         result.put("bosses", mapper.selectBossOptions(null));
         result.put("companies", mapper.selectCompanyOptions());
+        result.put("departments", mapper.selectDepartmentOptions());
         result.put("applicantUserId", userId);
         result.put("owners", projectService.userOptions(null));
         List<Map<String,Object>> templates=new ArrayList<Map<String,Object>>();
@@ -404,6 +405,8 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         if (template == null) throw new ServiceException("项目模板版本不存在或未启用");
         if (proposal.getCompanyDeptId() != null && mapper.selectCompany(proposal.getCompanyDeptId()) == null)
             throw new ServiceException("请选择有效归属公司");
+        if (proposal.getDepartmentId() != null && mapper.selectDepartment(proposal.getCompanyDeptId(), proposal.getDepartmentId()) == null)
+            throw new ServiceException("请选择归属公司下的有效部门");
         // 子项目草稿的保存动作就是交接动作，必须先明确接收的子负责人。
         bindSubprojectOwner(proposal, proposal.getParentProjectId() != null);
         validateParentFunding(proposal, proposal.getProposalId(), false);
@@ -527,6 +530,10 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         requireActiveUser(proposal.getApplicantUserId());
         if (proposal.getCompanyDeptId() == null || mapper.selectCompany(proposal.getCompanyDeptId()) == null)
             throw new ServiceException("请选择有效归属公司");
+        if (proposal.getDepartmentId() == null && isNewTemplate(proposal))
+            throw new ServiceException("请选择所属部门");
+        if (proposal.getDepartmentId() != null && mapper.selectDepartment(proposal.getCompanyDeptId(), proposal.getDepartmentId()) == null)
+            throw new ServiceException("请选择归属公司下的有效部门");
         bindSubprojectOwner(proposal, true);
         if (proposal.getSponsorOwnerUserId() == null) throw new ServiceException("请选择项目观察老板");
         Map<String, Object> selectedBoss = requireActiveBoss(proposal.getSponsorOwnerUserId());

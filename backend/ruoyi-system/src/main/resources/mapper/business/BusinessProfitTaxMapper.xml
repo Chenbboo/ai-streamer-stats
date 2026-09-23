@@ -13,9 +13,10 @@
  <insert id="insertEvent">insert into biz_company_profit_tax_event(company_dept_id,old_rate,new_rate,reason,operator_id,operator_name) values(#{companyDeptId},#{oldRate},#{taxRate},#{reason},#{userId},#{userName})</insert>
  <select id="selectSeries" resultType="map">
   select r.project_id projectId,p.project_name projectName,p.project_no projectNo,p.company_dept_id companyDeptId,
-   company.dept_name companyName,owner_department.dept_id departmentId,
-   case when owner_department.dept_id is null then '未设置部门'
-    when owner_department.dept_id=p.company_dept_id then '公司直属' else owner_department.dept_name end departmentName,
+   company.dept_name companyName,coalesce(selected_department.dept_id,owner_department.dept_id) departmentId,
+   case when coalesce(selected_department.dept_id,owner_department.dept_id) is null then '未设置部门'
+    when coalesce(selected_department.dept_id,owner_department.dept_id)=p.company_dept_id then '公司直属'
+    else coalesce(selected_department.dept_name,owner_department.dept_name) end departmentName,
    p.base_currency currency,
    date_format(r.biz_date,'%Y-%m-%d') bizDate,r.result_id resultId,r.profit_amount profitAmount,r.is_adjustment isAdjustment,
    coalesce(s.tax_rate,t.tax_rate,0) taxRate,case when s.project_id is not null then '1' else '0' end taxFrozen,
@@ -28,6 +29,7 @@
   left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
   left join sys_user project_owner on project_owner.user_id=coalesce(p.main_owner_user_id,p.initiator_user_id) and project_owner.del_flag='0'
   left join sys_dept owner_department on owner_department.dept_id=project_owner.dept_id and owner_department.del_flag='0'
+  left join sys_dept selected_department on selected_department.dept_id=p.department_id and selected_department.del_flag='0'
   left join biz_company_profit_tax t on t.company_dept_id=p.company_dept_id
   left join biz_project_profit_tax_snapshot s on s.project_id=p.project_id
   where p.del_flag='0'

@@ -24,6 +24,7 @@ public class BusinessProject extends BaseEntity
     private Long parentId;
     private String parentName;
     private Long companyDeptId;
+    private Long departmentId;
     private String companyName;
     private String projectName;
     private String templateVersion;
@@ -119,6 +120,8 @@ public class BusinessProject extends BaseEntity
     public void setParentName(String parentName) { this.parentName = parentName; }
     public Long getCompanyDeptId() { return companyDeptId; }
     public void setCompanyDeptId(Long companyDeptId) { this.companyDeptId = companyDeptId; }
+    public Long getDepartmentId() { return departmentId; }
+    public void setDepartmentId(Long departmentId) { this.departmentId = departmentId; }
     public String getCompanyName() { return companyName; }
     public void setCompanyName(String companyName) { this.companyName = companyName; }
     public String getTemplateVersion() { return templateVersion; }

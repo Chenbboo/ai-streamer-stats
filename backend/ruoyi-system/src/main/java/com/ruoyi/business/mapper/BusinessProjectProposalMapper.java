@@ -49,6 +49,7 @@ public interface BusinessProjectProposalMapper
     Map<String, Object> selectActiveUser(Long userId);
     Map<String, Object> selectActiveBoss(Long userId);
     Map<String, Object> selectCompany(Long deptId);
+    Map<String, Object> selectDepartment(@Param("companyDeptId") Long companyDeptId, @Param("departmentId") Long departmentId);
     Map<String, Object> selectParentProject(Long projectId);
     Map<String, Object> selectParentFundingSummary(@Param("parentProjectId") Long parentProjectId,
         @Param("excludeProposalId") Long excludeProposalId);
@@ -62,4 +63,5 @@ public interface BusinessProjectProposalMapper
     List<Map<String, Object>> selectStaffAllocationTimeline(@Param("userId") Long userId);
     List<Map<String, Object>> selectBossOptions(Long excludeUserId);
     List<Map<String, Object>> selectCompanyOptions();
+    List<Map<String, Object>> selectDepartmentOptions();
 }

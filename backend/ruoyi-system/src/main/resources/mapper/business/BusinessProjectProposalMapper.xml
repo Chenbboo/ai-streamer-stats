@@ -14,6 +14,7 @@
         <result property="sponsorOwnerUserId" column="sponsor_owner_user_id"/>
         <result property="sponsorOwnerName" column="sponsor_owner_name"/>
         <result property="companyDeptId" column="company_dept_id"/>
+        <result property="departmentId" column="department_id"/>
         <result property="companyName" column="company_name"/>
         <result property="assignedOwnerUserId" column="assigned_owner_user_id"/>
         <result property="assignedOwnerName" column="assigned_owner_name"/>
@@ -84,7 +85,7 @@
     <sql id="proposalColumns">
         p.proposal_id,p.proposal_no,p.submission_version,p.project_name,p.template_version,p.template_snapshot_json,
         p.applicant_user_id,p.applicant_name,p.sponsor_owner_user_id,p.sponsor_owner_name,p.assigned_owner_user_id,p.assigned_owner_name,
-        p.company_dept_id,company.dept_name company_name,p.parent_project_id,parent.project_name parent_project_name,
+        p.company_dept_id,p.department_id,company.dept_name company_name,p.parent_project_id,parent.project_name parent_project_name,
         funding.amount parent_funding_amount,funding.reason parent_funding_reason,
         p.project_type,p.accounting_mode,p.management_mode,p.close_method,p.management_reason,p.acceptance_criteria,p.goal_mode,
         p.objective,p.application_reason,
@@ -170,7 +171,7 @@
     <insert id="insertProposal" parameterType="com.ruoyi.business.domain.BusinessProjectProposal"
             useGeneratedKeys="true" keyProperty="proposalId">
         insert into biz_project_proposal(create_request_key,proposal_no,submission_version,project_name,template_version,template_snapshot_json,applicant_user_id,applicant_name,
-          sponsor_owner_user_id,sponsor_owner_name,company_dept_id,parent_project_id,assigned_owner_user_id,assigned_owner_name,project_type,accounting_mode,
+          sponsor_owner_user_id,sponsor_owner_name,company_dept_id,department_id,parent_project_id,assigned_owner_user_id,assigned_owner_name,project_type,accounting_mode,
           management_mode,close_method,management_reason,acceptance_criteria,goal_mode,objective,application_reason,
           plan_start_date,plan_end_date,priority,base_currency,
           budget_limit,no_budget,budget_mode,daily_budget_limit,budget_scope,startup_budget_limit,budget_reason,
@@ -181,7 +182,7 @@
           peak_cash_need,planned_headcount,funding_plan,key_assumptions,
           risk_summary,stop_loss_rule,execution_source,status,version,del_flag,create_by,create_time,update_by,update_time,remark)
         values(#{createRequestKey},#{proposalNo},0,#{projectName},#{templateVersion},#{templateSnapshotJson},#{applicantUserId},#{applicantName},#{sponsorOwnerUserId},#{sponsorOwnerName},
-          #{companyDeptId},#{parentProjectId},#{assignedOwnerUserId},#{assignedOwnerName},#{projectType},#{accountingMode},#{managementMode},#{closeMethod},
+          #{companyDeptId},#{departmentId},#{parentProjectId},#{assignedOwnerUserId},#{assignedOwnerName},#{projectType},#{accountingMode},#{managementMode},#{closeMethod},
           #{managementReason},#{acceptanceCriteria},#{goalMode},#{objective},#{applicationReason},#{planStartDate},#{planEndDate},
           #{priority},#{baseCurrency},#{budgetLimit},#{noBudget},#{budgetMode},#{dailyBudgetLimit},#{budgetScope},
           #{startupBudgetLimit},#{budgetReason},#{forecastPeriod},#{forecastDays},#{revenueModel},#{estimatedRevenue},
@@ -202,7 +203,7 @@
 
     <update id="updateDraft" parameterType="com.ruoyi.business.domain.BusinessProjectProposal">
         update biz_project_proposal set template_version=#{templateVersion},template_snapshot_json=#{templateSnapshotJson},project_name=#{projectName},sponsor_owner_user_id=#{sponsorOwnerUserId},
-          sponsor_owner_name=#{sponsorOwnerName},company_dept_id=#{companyDeptId},parent_project_id=#{parentProjectId},assigned_owner_user_id=#{assignedOwnerUserId},assigned_owner_name=#{assignedOwnerName},
+          sponsor_owner_name=#{sponsorOwnerName},company_dept_id=#{companyDeptId},department_id=#{departmentId},parent_project_id=#{parentProjectId},assigned_owner_user_id=#{assignedOwnerUserId},assigned_owner_name=#{assignedOwnerName},
           project_type=#{projectType},accounting_mode=#{accountingMode},management_mode=#{managementMode},
           close_method=#{closeMethod},management_reason=#{managementReason},acceptance_criteria=#{acceptanceCriteria},goal_mode=#{goalMode},
           objective=#{objective},application_reason=#{applicationReason},plan_start_date=#{planStartDate},
@@ -369,6 +370,14 @@
         select dept_id deptId,dept_name deptName from sys_dept
         where dept_id=#{deptId} and parent_id=100 and del_flag='0' and status='0' limit 1
     </select>
+    <select id="selectDepartment" resultType="map">
+        select department.dept_id deptId from sys_dept department
+        join sys_dept company on company.dept_id=#{companyDeptId} and company.parent_id=100
+          and company.del_flag='0' and company.status='0'
+        where department.dept_id=#{departmentId} and department.del_flag='0' and department.status='0'
+          and find_in_set(company.dept_id,department.ancestors)>0
+        limit 1
+    </select>
 
     <select id="selectParentProject" resultType="map">
         select project_id projectId,project_name projectName,
@@ -525,5 +534,13 @@
         from sys_dept company
         where company.parent_id=100 and company.del_flag='0' and company.status='0'
         order by company.order_num,company.dept_id
+    </select>
+    <select id="selectDepartmentOptions" resultType="map">
+        select department.dept_id deptId,department.dept_name deptName,company.dept_id companyDeptId
+        from sys_dept department join sys_dept company
+          on find_in_set(company.dept_id,department.ancestors)>0
+        where company.parent_id=100 and company.del_flag='0' and company.status='0'
+          and department.del_flag='0' and department.status='0'
+        order by company.order_num,company.dept_id,department.order_num,department.dept_id
     </select>
 </mapper>

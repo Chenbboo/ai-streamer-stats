@@ -54,7 +54,7 @@
               <el-option v-for="company in options.companies" :key="company.deptId" :label="company.deptName" :value="company.deptId" />
             </el-select>
           </el-form-item></el-col>
-          <el-col :span="8"><el-form-item :label="$tr(&quot;所属部门&quot;)"><el-input :model-value="ownerDepartment" readonly :placeholder="form.parentProjectId && !form.assignedOwnerUserId ? $tr(&quot;选择负责人后自动带入&quot;) : $tr(&quot;负责人未设置所属部门&quot;)" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item :label="$tr(&quot;所属部门&quot;)" prop="departmentId"><el-select v-model="form.departmentId" filterable clearable :disabled="!form.companyDeptId" :placeholder="form.companyDeptId ? $tr(&quot;请选择所属部门&quot;) : $tr(&quot;请先选择归属公司&quot;)" style="width:100%"><el-option v-for="department in companyDepartments" :key="department.deptId" :label="department.deptName" :value="department.deptId" /></el-select></el-form-item></el-col>
           <el-col :span="8"><el-form-item :label="$tr(&quot;核算方式&quot;)" prop="accountingMode" required><el-select :model-value="accountingOptions[form.accountingMode] ? form.accountingMode : null" @update:model-value="form.accountingMode=$event" :placeholder="$tr(&quot;请选择盈利型或价值型&quot;)" style="width:100%"><el-option v-for="(item,value) in accountingOptions" :key="value" :label="$tr(&quot;{0}（如：{1}）&quot;, [item.label, item.example])" :value="value" class="accounting-mode-option"><span>{{ $tr("{0}（如：{1}）", [item.label, item.example]) }}</span><small>{{ item.description }}</small></el-option></el-select></el-form-item></el-col>
           <el-col :span="8"><el-form-item :label="$tr(&quot;管理模式&quot;)" prop="managementMode" required><template #label><el-tooltip :content="managementOptions[form.managementMode]?.description"><span class="help-label" tabindex="0">{{ $tr("管理模式 ⓘ") }}</span></el-tooltip></template><el-select v-model="form.managementMode" style="width:100%"><el-option v-for="(item,value) in managementOptions" :key="value" :label="item.label" :value="value"><span>{{ item.label }}</span><small class="mode-option-hint">{{ item.hint }}</small></el-option></el-select></el-form-item></el-col>
 
@@ -72,7 +72,7 @@
             <div class="plan-section-head"><div><h3><span class="section-index">01</span>{{ $tr("主负责人已确认的信息") }}</h3><p>{{ $tr("以下基础信息和拨款由主负责人交接，子负责人无需重复填写") }}</p></div><el-tag type="success">{{ $tr("已交接") }}</el-tag></div>
             <div class="handoff-summary-grid">
               <div><span>{{ $tr("主项目") }}</span><b>{{ form.parentProjectName || $tr("项目 #{0}", [form.parentProjectId]) }}</b></div><div><span>{{ $tr("主负责人") }}</span><b>{{ form.applicantName || '—' }}</b></div><div><span>{{ $tr("子项目负责人") }}</span><b>{{ form.assignedOwnerName || '—' }}</b></div><div><span>{{ $tr("子项目名称") }}</span><b>{{ form.projectName || '—' }}</b></div>
-              <div><span>{{ $tr("归属公司") }}</span><b>{{ ownerCompany || '—' }}</b></div><div><span>{{ $tr("所属部门") }}</span><b>{{ ownerDepartment || '—' }}</b></div><div><span>{{ $tr("核算方式") }}</span><b>{{ accountingLabel[form.accountingMode] || form.accountingMode }}</b></div><div><span>{{ $tr("管理 / 结项") }}</span><b>{{ managementLabel[form.managementMode] || form.managementMode }} · {{ closeMethodLabel[form.closeMethod] || form.closeMethod }}</b></div>
+              <div><span>{{ $tr("归属公司") }}</span><b>{{ ownerCompany || '—' }}</b></div><div><span>{{ $tr("所属部门") }}</span><b>{{ selectedDepartment || '—' }}</b></div><div><span>{{ $tr("核算方式") }}</span><b>{{ accountingLabel[form.accountingMode] || form.accountingMode }}</b></div><div><span>{{ $tr("管理 / 结项") }}</span><b>{{ managementLabel[form.managementMode] || form.managementMode }} · {{ closeMethodLabel[form.closeMethod] || form.closeMethod }}</b></div>
               <div><span>{{ $tr("计划周期") }}</span><b>{{ planPeriod(form) }}</b></div><div><span>{{ $tr("优先级") }}</span><b>{{ {LOW:$tr("低"),MEDIUM:$tr("中"),HIGH:$tr("高")}[form.priority] || '—' }}</b></div><div class="wide"><span>{{ $tr("项目目标") }}</span><b>{{ form.objective || '—' }}</b></div><div class="wide"><span>{{ $tr("立项理由") }}</span><b>{{ form.applicationReason || '—' }}</b></div>
             </div>
             <div class="handoff-funding-card"><div><span>{{ $tr("主项目拨款收入") }}</span><b>{{ money(form.parentFundingAmount,form.baseCurrency) }}</b><small>{{ $tr("启动项目时自动计入子项目收入，不限制执行预算") }}</small></div><div><span>{{ $tr("拨款说明") }}</span><b>{{ form.parentFundingReason || '—' }}</b></div></div>
@@ -220,7 +220,7 @@ import BudgetPeriodPicker from '@/components/BudgetPeriodPicker/index.vue'
 import BudgetControlFields from '@/components/BudgetControlFields/index.vue'
 
 const route=useRoute(),router=useRouter(), userStore=useUserStore(), loading=ref(false), saving=ref(false), activeTab=ref('mine')
-const mineRows=ref([]),directoryRows=ref([]),options=reactive({bosses:[],companies:[],staff:[],calendars:[],unitPolicies:[]})
+const mineRows=ref([]),directoryRows=ref([]),options=reactive({bosses:[],companies:[],departments:[],staff:[],calendars:[],unitPolicies:[]})
 const formVisible=ref(false),detailVisible=ref(false),formRef=ref(),detail=ref({}),openEnded=ref(false)
 const form=ref({})
 const parentFunding=ref({})
@@ -281,7 +281,7 @@ const eventLabel={SELF_AUTHORIZED:translateText("负责人自主启动"),CREATE:
 const requiredRule=(message,trigger='change')=>[{required:true,message,trigger,...(trigger==='blur'?{type:'string',whitespace:true}:{})}]
 const amountRule=(message,min=0)=>[{required:true,type:'number',min,max:99999999999999.99,message,trigger:'change'}]
 const rules=computed(()=>({
-  projectName:requiredRule(translateText("请输入项目名称"),'blur'),assignedOwnerUserId:form.value.parentProjectId?requiredRule(translateText("请选择子项目负责人")):[],sponsorOwnerUserId:form.value.parentProjectId?[]:requiredRule(translateText("请选择归属老板")),companyDeptId:requiredRule(translateText("请选择归属公司")),
+  projectName:requiredRule(translateText("请输入项目名称"),'blur'),assignedOwnerUserId:form.value.parentProjectId?requiredRule(translateText("请选择子项目负责人")):[],sponsorOwnerUserId:form.value.parentProjectId?[]:requiredRule(translateText("请选择归属老板")),companyDeptId:requiredRule(translateText("请选择归属公司")),departmentId:requiredRule(translateText("请选择所属部门")),
   goalMode:requiredRule(translateText("请选择目标模式")),
   accountingMode:[{validator:(_rule,value,callback)=>callback(accountingOptions[value]?undefined:new Error(translateText("请选择盈利型或价值型"))),trigger:'change'}],managementMode:requiredRule(translateText("请选择管理模式")),closeMethod:requiredRule(translateText("请选择结项方式")),
   objective:requiredRule(translateText("请填写项目目标"),'blur'),applicationReason:requiredRule(translateText("请填写立项理由"),'blur'),planStartDate:requiredRule(translateText("请选择计划开始日期")),
@@ -302,12 +302,14 @@ const proposalOwner=computed(()=>{
   const ownerId=form.value.parentProjectId?form.value.assignedOwnerUserId:(form.value.applicantUserId||userStore.id)
   return (options.owners||[]).find(owner=>String(owner.userId)===String(ownerId))
 })
-const ownerDepartment=computed(()=>proposalOwner.value?.deptName||'')
+const companyDepartments=computed(()=>(options.departments||[]).filter(department=>String(department.companyDeptId)===String(form.value.companyDeptId)))
+const selectedDepartment=computed(()=>companyDepartments.value.find(department=>String(department.deptId)===String(form.value.departmentId))?.deptName||'')
 function syncOwnerCompany(){
   if(form.value.companyDeptId)return
   form.value.companyDeptId=options.companies.find(company=>String(company.deptId)===String(proposalOwner.value?.companyDeptId))?.deptId||null
 }
 async function changeCompany(){
+  form.value.departmentId=null
   options.staff=[]
   allocationLoadedKeys.value.clear()
   await refreshStaffOptions()
@@ -325,7 +327,7 @@ async function changeAssignedOwner(){
 }
 function ensureOwnerStaff(){if(!isNewTemplate.value||isChildCreatorPhase.value)return;const id=Number(form.value.parentProjectId?form.value.assignedOwnerUserId:(form.value.applicantUserId||userStore.id));if(!id||form.value.staffingLines.some(row=>Number(row.userId)===id))return;form.value.staffingLines.unshift({...emptyStaffing(),userId:id,userName:form.value.parentProjectId?form.value.assignedOwnerName:(userStore.nickName||userStore.name),roleName:translateText("项目负责人")})}
 const emptyStaffing=()=>({participationMode:'FOLLOW_PROJECT',planStartDate:form.value.planStartDate||null,planEndDate:openEnded.value?null:form.value.planEndDate||null,inputUnit:'PERCENTAGE',inputQuantity:100,calendarId:defaultCalendar(),unitPolicyId:defaultUnitPolicy(),userId:null,userName:'',roleName:'',costPolicyId:null,costPolicyVersion:null,monthlyCostSnapshot:null,standardWorkDaysSnapshot:null,dailyCostSnapshot:null,costCurrency:null,estimatedCost:null,note:''})
-const freshForm=()=>({assignedOwnerUserId:null,assignedOwnerName:'',parentProjectId:null,parentProjectName:'',parentFundingAmount:null,parentFundingReason:'',projectName:'',templateVersion:'LIGHT_V1',sponsorOwnerUserId:null,companyDeptId:null,projectType:'GENERAL',accountingMode:'PROFIT',managementMode:'LIGHT',closeMethod:'DIRECT',managementReason:'',acceptanceCriteria:'',objective:'',applicationReason:'',planStartDate:null,planEndDate:null,priority:'MEDIUM',baseCurrency:'CNY',budgetLimit:null,noBudget:'0',goalMode:'TOTAL',budget:{mode:'TOTAL',scope:'FULL_COST',dailyLimit:null,startupLimit:null,reason:'',cycle:'MONTH',anchorDate:null,businessAmount:0},revenueModel:'',peakCashNeed:null,riskSummary:'',revenueLines:[],expenseLines:[],staffingLines:[],targetLines:[]})
+const freshForm=()=>({assignedOwnerUserId:null,assignedOwnerName:'',parentProjectId:null,parentProjectName:'',parentFundingAmount:null,parentFundingReason:'',projectName:'',templateVersion:'LIGHT_V1',sponsorOwnerUserId:null,companyDeptId:null,departmentId:null,projectType:'GENERAL',accountingMode:'PROFIT',managementMode:'LIGHT',closeMethod:'DIRECT',managementReason:'',acceptanceCriteria:'',objective:'',applicationReason:'',planStartDate:null,planEndDate:null,priority:'MEDIUM',baseCurrency:'CNY',budgetLimit:null,noBudget:'0',goalMode:'TOTAL',budget:{mode:'TOTAL',scope:'FULL_COST',dailyLimit:null,startupLimit:null,reason:'',cycle:'MONTH',anchorDate:null,businessAmount:0},revenueModel:'',peakCashNeed:null,riskSummary:'',revenueLines:[],expenseLines:[],staffingLines:[],targetLines:[]})
 const isNewTemplate=computed(()=>!!form.value.templateVersion&&form.value.templateVersion!=='LEGACY_V1')
 const newTemplate=item=>!!item?.templateVersion&&item.templateVersion!=='LEGACY_V1'
 // All accounting modes use the same plan form. Revenue and expense sections are optional.

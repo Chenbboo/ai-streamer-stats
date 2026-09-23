@@ -30,6 +30,7 @@ public class BusinessProjectProposal extends BaseEntity
     private Long sponsorOwnerUserId;
     private String sponsorOwnerName;
     private Long companyDeptId;
+    private Long departmentId;
     private String companyName;
     private Long assignedOwnerUserId;
     private String assignedOwnerName;
@@ -123,6 +124,8 @@ public class BusinessProjectProposal extends BaseEntity
     public void setSponsorOwnerName(String sponsorOwnerName) { this.sponsorOwnerName = sponsorOwnerName; }
     public Long getCompanyDeptId() { return companyDeptId; }
     public void setCompanyDeptId(Long companyDeptId) { this.companyDeptId = companyDeptId; }
+    public Long getDepartmentId() { return departmentId; }
+    public void setDepartmentId(Long departmentId) { this.departmentId = departmentId; }
     public String getCompanyName() { return companyName; }
     public void setCompanyName(String companyName) { this.companyName = companyName; }
     public Long getAssignedOwnerUserId() { return assignedOwnerUserId; }

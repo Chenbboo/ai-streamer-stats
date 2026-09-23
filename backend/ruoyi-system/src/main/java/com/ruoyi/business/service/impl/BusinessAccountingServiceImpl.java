@@ -94,37 +94,57 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     {
         // Existing AI tools explicitly ask for today; keep their contract.
         String currentDate=java.time.LocalDate.now(overviewClock).toString();
-        return bossOverviewInternal(currentDate,currentDate,userId,viewAll,false);
+        return bossOverviewInternal(currentDate,currentDate,null,userId,viewAll,false);
     }
 
     @Override
     @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
     public Map<String,Object> bossOverview(String requestedDate,Long userId,boolean viewAll)
+    { return bossOverview(requestedDate,null,userId,viewAll); }
+
+    @Override
+    @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
+    public Map<String,Object> bossOverview(String requestedDate,Long companyDeptId,Long userId,boolean viewAll)
     {
         java.time.LocalDate today=java.time.LocalDate.now(overviewClock), date;
         if("yesterday".equals(requestedDate)) date=today.minusDays(1);
-        else if("today".equals(requestedDate)) date=today;
+        else if(requestedDate==null||"today".equals(requestedDate)) date=today;
         else try {
             if(requestedDate==null||!requestedDate.matches("\\d{4}-\\d{2}-\\d{2}"))throw new IllegalArgumentException();
             date=java.time.LocalDate.parse(requestedDate);
         } catch(RuntimeException ex) { throw new ServiceException("经营日期须为有效的 yyyy-MM-dd 日期"); }
         if(date.isAfter(today))throw new ServiceException("经营日期不能晚于今天");
-        return bossOverviewInternal(date.toString(),today.toString(),userId,viewAll,true);
+        return bossOverviewInternal(date.toString(),today.toString(),companyDeptId,userId,viewAll,true);
     }
 
-    private Map<String,Object> bossOverviewInternal(String today,String currentDate,Long userId,boolean viewAll,boolean review)
+    private Map<String,Object> bossOverviewInternal(String today,String currentDate,Long companyDeptId,Long userId,boolean viewAll,boolean review)
     {
         Date bizDate=java.sql.Date.valueOf(today);
         Map<String,Object> todayQuery=new HashMap<String,Object>();todayQuery.put("userId",userId);
         todayQuery.put("viewAll",viewAll);todayQuery.put("dateFrom",today);todayQuery.put("dateTo",today);
+        todayQuery.put("companyDeptId",companyDeptId);
         Map<String,Object> alertQuery=new HashMap<String,Object>();alertQuery.put("userId",userId);
-        alertQuery.put("viewAll",viewAll);alertQuery.put("bizDate",today);
+        alertQuery.put("viewAll",viewAll);alertQuery.put("bizDate",today);alertQuery.put("companyDeptId",companyDeptId);
         // 人员成本是否完整是公司级责任：即使员工尚未加入任何项目，也必须提醒对应公司老板设置。
         List<Map<String,Object>> personnelRows=mapper.selectCompanyPersonnelCostReadiness(userId,viewAll,java.sql.Date.valueOf(currentDate));
+        if(companyDeptId!=null)personnelRows=personnelRows.stream()
+            .filter(row->companyDeptId.equals(longValue(row.get("companyDeptId")))).collect(java.util.stream.Collectors.toList());
         Map<String,Object> result=new LinkedHashMap<String,Object>();
         result.put("bizDate",today);
         result.put("currentBizDate",currentDate);
-        result.put("missingDailyResultCount",mapper.countProjectsMissingDailyResult(userId,viewAll,bizDate));
+        if(review)
+        {
+            Map<String,Map<String,Object>> companyOptions=new LinkedHashMap<>();
+            List<Map<String,Object>> accessibleCompanies=viewAll?mapper.selectCompanies():profitTax==null?Collections.emptyList():profitTax.settings(userId);
+            for(Map<String,Object> company:accessibleCompanies)
+                companyOptions.put(String.valueOf(company.get("companyDeptId")),company);
+            for(Map<String,Object> project:mapper.selectProjectOptions(userId,viewAll,true))
+                if(project.get("companyDeptId")!=null)
+                    companyOptions.putIfAbsent(String.valueOf(project.get("companyDeptId")),project);
+            result.put("companyOptions",new ArrayList<>(companyOptions.values()));
+        }
+        result.put("companyDeptId",companyDeptId);
+        result.put("missingDailyResultCount",mapper.countProjectsMissingDailyResult(userId,viewAll,bizDate,companyDeptId));
         result.put("today",mapper.selectDailySummary(todayQuery));
         result.put("todayByCurrency",mapper.selectDailySummaryByCurrency(todayQuery));
         result.put("draftFactCount",mapper.countDraftFacts(todayQuery));

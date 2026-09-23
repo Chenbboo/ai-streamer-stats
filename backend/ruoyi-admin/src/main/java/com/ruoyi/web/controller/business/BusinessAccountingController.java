@@ -41,9 +41,9 @@ public class BusinessAccountingController extends BaseController
 
     @PreAuthorize("@ss.hasPermi('business:boss:view')")
     @GetMapping("/boss-overview")
-    public AjaxResult bossOverview(@RequestParam(required=false) String bizDate)
-    {return success(bizDate == null ? service.bossOverview(SecurityUtils.getUserId(),SecurityUtils.isAdmin())
-        : service.bossOverview(bizDate,SecurityUtils.getUserId(),SecurityUtils.isAdmin()));}
+    public AjaxResult bossOverview(@RequestParam(required=false) String bizDate,
+        @RequestParam(required=false) Long companyDeptId)
+    {return success(service.bossOverview(bizDate,companyDeptId,SecurityUtils.getUserId(),SecurityUtils.isAdmin()));}
 
     @PreAuthorize("@ss.hasPermi('business:boss:view')")
     @GetMapping("/personnel-cost-overview")
