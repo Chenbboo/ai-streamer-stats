@@ -8,8 +8,8 @@ if [[ ! "$release" =~ ^[0-9a-f]{7,40}$ ]]; then
   echo "invalid release id: $release" >&2
   exit 1
 fi
-if [[ ! "$first_migration" =~ ^[1-9][0-9]*$ ]] || (( first_migration < 10 || first_migration > 129 )); then
-  echo "first migration version must be between 10 and 129" >&2
+if [[ ! "$first_migration" =~ ^[1-9][0-9]*$ ]] || (( first_migration < 10 || first_migration > 130 )); then
+  echo "first migration version must be between 10 and 130 (130 skips migrations)" >&2
   exit 1
 fi
 
