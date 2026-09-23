@@ -232,4 +232,27 @@ class BusinessProjectMapperXmlTest
         assertTrue(!query.contains("end_date=null"));
     }
 
+    @Test
+    void bossPersonnelCostPendingAcceptsCnyAndVndMonthlyPolicies()
+    {
+        InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
+        assertNotNull(input);
+        String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+
+        int rowsStart = xml.indexOf("<sql id=\"bossPendingPersonnelCost\"");
+        int rowsEnd = xml.indexOf("</sql>", rowsStart);
+        assertTrue(rowsStart >= 0 && rowsEnd > rowsStart);
+        String rowsQuery = xml.substring(rowsStart, rowsEnd);
+        assertTrue(rowsQuery.contains("currency in ('CNY','VND')"));
+        assertTrue(!rowsQuery.contains("currency='CNY'"));
+
+        int countsStart = xml.indexOf("<select id=\"selectBossPendingCounts\"");
+        int countsEnd = xml.indexOf("</select>", countsStart);
+        assertTrue(countsStart >= 0 && countsEnd > countsStart);
+        String countsQuery = xml.substring(countsStart, countsEnd);
+        assertTrue(countsQuery.contains("currency in ('CNY','VND')"));
+        assertTrue(!countsQuery.contains("currency='CNY'"));
+    }
+
 }
