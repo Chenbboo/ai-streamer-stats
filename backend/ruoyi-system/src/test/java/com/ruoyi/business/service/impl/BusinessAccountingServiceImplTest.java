@@ -246,7 +246,7 @@ class BusinessAccountingServiceImplTest
 
     @Test void bossOverviewAlwaysCarriesInitiatorScope()
     {
-        when(mapper.countProjectsMissingDailyResult(eq(142L),eq(false),any())).thenReturn(3);
+        when(mapper.countProjectsMissingDailyResult(eq(142L),eq(false),any(),isNull())).thenReturn(3);
         service.bossOverview(142L,false);
 
         @SuppressWarnings({"rawtypes","unchecked"})
@@ -292,7 +292,7 @@ class BusinessAccountingServiceImplTest
 
     @Test void bossOverviewIsReadOnlyAndReportsMissingDailyResults()
     {
-        when(mapper.countProjectsMissingDailyResult(eq(142L),eq(false),any())).thenReturn(27);
+        when(mapper.countProjectsMissingDailyResult(eq(142L),eq(false),any(),isNull())).thenReturn(27);
 
         Map<String,Object> result=service.bossOverview(142L,false);
 

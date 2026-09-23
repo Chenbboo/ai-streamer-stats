@@ -47,9 +47,9 @@ class BusinessBossReviewMysqlTest {
         sql("update biz_project set status='CLOSED',actual_end_date='2026-09-12' where project_id=-820001");
         cost(-820001,1,"2026-09-11","PENDING");cost(-820003,2,"2026-09-11","PRICED");
         sql("insert into biz_project_staff_allocation(project_id,user_id,user_name,allocation_value,effective_from,status) values(-820002,3,'Member',100,'2026-09-01','ACTIVE')");
-        assertEquals(1,mapper.countProjectsMissingDailyResult(BOSS,false,java.sql.Date.valueOf("2026-09-11")));
-        assertEquals(2,mapper.countProjectsMissingDailyResult(BOSS,true,java.sql.Date.valueOf("2026-09-11")));
-        assertEquals(0,mapper.countProjectsMissingDailyResult(BOSS,false,java.sql.Date.valueOf("2026-09-13")));
+        assertEquals(1,mapper.countProjectsMissingDailyResult(BOSS,false,java.sql.Date.valueOf("2026-09-11"),null));
+        assertEquals(2,mapper.countProjectsMissingDailyResult(BOSS,true,java.sql.Date.valueOf("2026-09-11"),null));
+        assertEquals(0,mapper.countProjectsMissingDailyResult(BOSS,false,java.sql.Date.valueOf("2026-09-13"),null));
     }
     @Test void readinessScopesCostsAndDraftsToDateAndOwnerWithoutLosingHistoricalDrafts()throws Exception{
         result(-820010,-820001,"2026-09-13",0,0,0,0);
@@ -92,7 +92,7 @@ class BusinessBossReviewMysqlTest {
         sql("insert into biz_project_resource_day(assignment_id,project_id,user_id,biz_date,time_zone,planned_minutes,capacity_minutes) values(-820030,-820004,1,'2026-09-13','Asia/Shanghai',60,480)");
         Map<String,Object> q=query("2026-09-13",BOSS,false);
         assertEquals(1,number(mapper.selectOverviewReadiness(q),"unfinishedWorkCount"));
-        assertEquals(1,mapper.countProjectsMissingDailyResult(BOSS,false,java.sql.Date.valueOf("2026-09-13")));
+        assertEquals(1,mapper.countProjectsMissingDailyResult(BOSS,false,java.sql.Date.valueOf("2026-09-13"),null));
         sql("insert into biz_project_work_entry(entry_id,project_id,user_id,biz_date,time_zone,activity,input_unit,input_quantity,work_minutes,calendar_id,calendar_snapshot_json,unit_policy_id,unit_snapshot_json,minutes_per_day,capacity_minutes,source_key,status,is_current,revision_no,create_user_id,create_by,create_time,update_time) values(-820031,-820004,1,'2026-09-13','Asia/Shanghai','Fixture','MINUTE',60,60,1,'{}',1,'{}',480,480,'review-work','CONFIRMED','1',1,1,'fixture',now(),now())");
         assertEquals(0,number(mapper.selectOverviewReadiness(q),"unfinishedWorkCount"));
         assertEquals(1,number(mapper.selectOverviewReadiness(q),"pendingCostCount"));

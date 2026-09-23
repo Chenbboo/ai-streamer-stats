@@ -60,13 +60,14 @@ class BusinessBossReviewServiceTest {
             assertEquals("INCOMPLETE",service.bossOverview("today",1L,true).get("dataStatus"),key);
         }
         when(mapper.selectOverviewReadiness(anyMap())).thenReturn(row("resultCount",0));
-        when(mapper.countProjectsMissingDailyResult(anyLong(),anyBoolean(),any())).thenReturn(1);
+        when(mapper.countProjectsMissingDailyResult(anyLong(),anyBoolean(),any(),isNull())).thenReturn(1);
         assertEquals("INCOMPLETE",service.bossOverview("today",1L,true).get("dataStatus"));
     }
     @Test void validatesDatesBeforeReadingData() {
-        for(String date:Arrays.asList("2026-02-30","2026-9-01","2026-09-15","",null))
+        for(String date:Arrays.asList("2026-02-30","2026-9-01","2026-09-15",""))
             assertThrows(ServiceException.class,()->service.bossOverview(date,126L,false));
         verifyNoInteractions(mapper);
+        assertEquals("2026-09-14",service.bossOverview(null,126L,false).get("bizDate"));
     }
     @Test void yesterdayCrossesYearAndLeapMonthBoundaries() {
         service.setOverviewClock(Clock.fixed(Instant.parse("2025-12-31T16:00:00Z"),ZoneOffset.UTC));
