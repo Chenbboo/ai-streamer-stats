@@ -47,6 +47,7 @@ import com.ruoyi.business.domain.BusinessProjectWorkPeriod;
 import com.ruoyi.business.domain.BusinessProjectRoutine;
 import com.ruoyi.business.domain.BusinessProjectRoutineReport;
 import com.ruoyi.business.domain.BusinessProjectRoutineDailyTarget;
+import com.ruoyi.business.domain.BusinessProjectWorkReport;
 import com.ruoyi.business.domain.BusinessProjectEffort;
 import com.ruoyi.business.domain.BusinessProjectKpi;
 import com.ruoyi.business.domain.BusinessProjectStaffAllocation;
@@ -77,6 +78,7 @@ class BusinessProjectServiceImplTest
     @Mock private com.ruoyi.business.mapper.BusinessPublicExpenseMapper publicExpenses;
     @Mock private BusinessMemberDayCostService memberDays;
     @Mock private com.ruoyi.business.mapper.BusinessProjectWorkMapper workMapper;
+    @Mock private BusinessProjectWorkReportService workReportService;
     @Mock private com.ruoyi.business.mapper.BusinessIncentiveMapper incentiveMapper;
     @Mock private com.ruoyi.business.attendance.BusinessFeishuService feishuService;
 
@@ -603,10 +605,14 @@ class BusinessProjectServiceImplTest
             .thenReturn(Collections.<Map<String,Object>>emptyList());
         when(mapper.selectMyWorkRoutines(org.mockito.ArgumentMatchers.eq(147L), any(), any(), any()))
             .thenReturn(Collections.singletonList(routine));
+        BusinessProjectWorkReport latestReport = new BusinessProjectWorkReport();
+        latestReport.setReportId(51L);
+        when(workReportService.latestForSubmitter(147L)).thenReturn(Collections.singletonList(latestReport));
 
         Map<String,Object> result = service.workDashboard("DAY", "2026-08-11", 147L);
 
         assertEquals(1, ((List<?>) result.get("routines")).size());
+        assertEquals(51L, ((BusinessProjectWorkReport) ((List<?>) result.get("latestWorkReports")).get(0)).getReportId());
         assertEquals(1, ((Map<?,?>) result.get("summary")).get("reportedRoutineCount"));
         verify(mapper).selectMyWorkTasks(147L, "2026-08-11", "2026-08-11");
         verify(mapper).selectMyWorkRoutines(147L, "2026-08-11", "2026-08-11",
