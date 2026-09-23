@@ -1064,3 +1064,17 @@ where table_schema=database()
 select 3-count(*) as missing_sales_item_rate_snapshots from information_schema.columns
 where table_schema=database() and table_name='jewelry_document_item'
   and column_name in ('platform_rate_snapshot','commission_rate_snapshot','tax_rate_snapshot');
+
+-- V124-V127 member work reports, review, notifications and project-level reports.
+select 2-count(*) as missing_project_work_report_tables from information_schema.tables
+where table_schema=database()
+  and table_name in ('biz_project_work_report','biz_project_work_report_notification');
+select 5-count(*) as missing_project_work_report_review_columns from information_schema.columns
+where table_schema=database() and table_name='biz_project_work_report'
+  and column_name in ('status','reviewed_user_id','reviewed_user_name','review_comment','reviewed_time');
+select 1-count(*) as missing_project_level_report_support from information_schema.columns
+where table_schema=database() and table_name='biz_project_work_report'
+  and column_name='routine_id' and is_nullable='YES';
+select 1-count(*) as missing_project_work_report_notification_index from information_schema.statistics
+where table_schema=database() and table_name='biz_project_work_report_notification'
+  and index_name='uk_work_report_notification_report' and column_name='report_id' and non_unique=0;

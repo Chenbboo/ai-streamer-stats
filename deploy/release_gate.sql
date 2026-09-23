@@ -428,4 +428,18 @@ from (
   select if(count(*)=3,0,1) from information_schema.columns where table_schema=database()
     and table_name='jewelry_document_item'
     and column_name in ('platform_rate_snapshot','commission_rate_snapshot','tax_rate_snapshot')
+  union all
+  select if(count(*)=2,0,1) from information_schema.tables where table_schema=database()
+    and table_name in ('biz_project_work_report','biz_project_work_report_notification')
+  union all
+  select if(count(*)=5,0,1) from information_schema.columns where table_schema=database()
+    and table_name='biz_project_work_report'
+    and column_name in ('status','reviewed_user_id','reviewed_user_name','review_comment','reviewed_time')
+  union all
+  select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
+    and table_name='biz_project_work_report' and column_name='routine_id' and is_nullable='YES'
+  union all
+  select if(count(*)=1,0,1) from information_schema.statistics where table_schema=database()
+    and table_name='biz_project_work_report_notification'
+    and index_name='uk_work_report_notification_report' and column_name='report_id' and non_unique=0
 ) release_gate;
