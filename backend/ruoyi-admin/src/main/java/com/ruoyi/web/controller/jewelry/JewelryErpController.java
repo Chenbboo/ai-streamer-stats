@@ -281,7 +281,7 @@ public class JewelryErpController extends BaseController
     public AjaxResult changeInfluencerPrice(@PathVariable Long id, @PathVariable Long productId,
         @RequestBody Map<String, Object> body)
     {
-        if (!isErpAdministrator()) return error("只有管理员可以修改达人商品固定价");
+        if (!hasPermission("jewelry:influencer:price")) return error("无权修改达人商品固定价");
         service.changeInfluencerProductPrice(id, productId, decimal(body.get("fixedUnitPrice")), string(body.get("reason")),
             SecurityUtils.getUserId(), SecurityUtils.getUsername());
         return success();
@@ -298,7 +298,7 @@ public class JewelryErpController extends BaseController
     @PostMapping("/influencer/{id}/bindings")
     public AjaxResult saveInfluencerBindings(@PathVariable Long id, @RequestBody List<Map<String, Object>> bindings)
     {
-        if (!isErpAdministrator()) return error("只有管理员可以维护达人商品价格");
+        if (!hasPermission("jewelry:influencer:price")) return error("无权维护达人商品价格");
         service.saveInfluencerBindings(id, bindings, SecurityUtils.getUserId(), SecurityUtils.getUsername());
         return success();
     }
@@ -307,7 +307,7 @@ public class JewelryErpController extends BaseController
     @GetMapping("/influencer/bindings/template")
     public void influencerBindingTemplate(HttpServletResponse response) throws java.io.IOException
     {
-        if (!isErpAdministrator()) throw new ServiceException("只有管理员可以导出达人商品绑定模板");
+        if (!hasPermission("jewelry:influencer:price")) throw new ServiceException("无权导出达人商品绑定模板");
         influencerExcelService.writeTemplate(response);
     }
 
@@ -316,7 +316,7 @@ public class JewelryErpController extends BaseController
     public AjaxResult previewInfluencerBindings(@PathVariable Long id, @RequestParam("file") MultipartFile file)
         throws java.io.IOException
     {
-        if (!isErpAdministrator()) return error("只有管理员可以导入达人商品绑定");
+        if (!hasPermission("jewelry:influencer:price")) return error("无权导入达人商品绑定");
         return success(influencerExcelService.preview(file, id));
     }
 
@@ -324,7 +324,7 @@ public class JewelryErpController extends BaseController
     @PostMapping("/influencer/{id}/bindings/confirm")
     public AjaxResult confirmInfluencerBindings(@PathVariable Long id, @RequestBody List<Map<String, Object>> bindings)
     {
-        if (!isErpAdministrator()) return error("只有管理员可以导入达人商品绑定");
+        if (!hasPermission("jewelry:influencer:price")) return error("无权导入达人商品绑定");
         List<Map<String, Object>> checked = influencerExcelService.validateRows(id, bindings);
         boolean invalid = checked.stream().anyMatch(row -> !((List<?>) row.get("errors")).isEmpty());
         Map<String, Object> result = new HashMap<>();
@@ -344,7 +344,7 @@ public class JewelryErpController extends BaseController
     public AjaxResult importInfluencerBindings(@PathVariable Long id, @RequestParam("file") MultipartFile file)
         throws java.io.IOException
     {
-        if (!isErpAdministrator()) return error("只有管理员可以导入达人商品绑定");
+        if (!hasPermission("jewelry:influencer:price")) return error("无权导入达人商品绑定");
         List<Map<String, Object>> bindings = influencerExcelService.parse(file);
         service.saveInfluencerBindings(id, bindings, SecurityUtils.getUserId(), SecurityUtils.getUsername());
         return success(bindings.size());
@@ -361,7 +361,7 @@ public class JewelryErpController extends BaseController
     @PostMapping("/influencer/{id}/bundle-configs")
     public AjaxResult saveInfluencerBundleConfig(@PathVariable Long id, @RequestBody Map<String, Object> body)
     {
-        if (!isErpAdministrator()) return error("只有管理员可以维护达人搭售配置");
+        if (!hasPermission("jewelry:influencer:price")) return error("无权维护达人搭售配置");
         service.saveInfluencerBundleConfig(id, body, SecurityUtils.getUsername());
         return success();
     }
@@ -370,7 +370,7 @@ public class JewelryErpController extends BaseController
     @DeleteMapping("/influencer/{id}/bundle-configs/{configId}")
     public AjaxResult deleteInfluencerBundleConfig(@PathVariable Long id, @PathVariable Long configId)
     {
-        if (!isErpAdministrator()) return error("只有管理员可以维护达人搭售配置");
+        if (!hasPermission("jewelry:influencer:price")) return error("无权维护达人搭售配置");
         service.deleteInfluencerBundleConfig(id, configId);
         return success();
     }

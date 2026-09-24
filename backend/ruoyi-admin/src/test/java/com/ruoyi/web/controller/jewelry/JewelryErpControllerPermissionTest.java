@@ -141,6 +141,27 @@ class JewelryErpControllerPermissionTest
     }
 
     @Test
+    void makerAndAdministratorCanMaintainInfluencerBindingsButReviewerCannot()
+    {
+        IJewelryErpService service = mock(IJewelryErpService.class);
+        JewelryErpController controller = new JewelryErpController();
+        ReflectionTestUtils.setField(controller, "service", service);
+        java.util.List<Map<String, Object>> bindings = Collections.singletonList(
+            Collections.<String, Object>singletonMap("productId", 88L));
+
+        loginAs("jewelry_maker", Collections.singleton("jewelry:influencer:price"));
+        assertTrue(controller.saveInfluencerBindings(9L, bindings).isSuccess());
+        verify(service).saveInfluencerBindings(9L, bindings, 20L, "jewelry_maker");
+
+        loginAs("jewelry_reviewer", Collections.<String>emptySet());
+        assertFalse(controller.saveInfluencerBindings(9L, bindings).isSuccess());
+
+        loginAs("jewelry_admin", Collections.singleton("jewelry:influencer:price"));
+        assertTrue(controller.saveInfluencerBindings(9L, bindings).isSuccess());
+        verify(service).saveInfluencerBindings(9L, bindings, 20L, "jewelry_admin");
+    }
+
+    @Test
     void reviewerDocumentListHidesDraftsButMakerAndAdministratorKeepTheirViews()
     {
         IJewelryErpService service = mock(IJewelryErpService.class);
