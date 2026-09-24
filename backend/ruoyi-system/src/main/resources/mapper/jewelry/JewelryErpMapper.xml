@@ -1101,32 +1101,78 @@
           source_item.item_id
     </select>
     <select id="selectCustomerReturnProductStats" resultType="java.util.LinkedHashMap">
-        select pp.product_id productId,
-          coalesce(sold.sold_qty,0) soldQty,
-          coalesce(returned.returned_qty,0) returnedQty,
-          greatest(coalesce(sold.sold_qty,0)-coalesce(returned.returned_qty,0),0) remainingReturnQty
-        from jewelry_influencer_product_price pp
-        join jewelry_product p on p.product_id=pp.product_id
-          and p.product_type='FINISHED' and p.status='0'
-        left join (
-          select d.influencer_id,i.product_id,sum(i.qty) sold_qty
-          from jewelry_document d
-          join jewelry_document_item i on i.document_id=d.document_id
-          where d.doc_type='SALES_OUT' and d.status='POSTED'
-          group by d.influencer_id,i.product_id
-        ) sold on sold.influencer_id=pp.influencer_id and sold.product_id=pp.product_id
-        left join (
-          select d.influencer_id,i.product_id,sum(i.qty) returned_qty
-          from jewelry_document d
-          join jewelry_document_item i on i.document_id=d.document_id
-          where d.doc_type='CUSTOMER_RETURN'
-            and d.status in ('DRAFT','PENDING_FIRST','PENDING_SECOND','POSTED')
-            <if test="excludeDocumentId != null">and d.document_id != #{excludeDocumentId}</if>
-          group by d.influencer_id,i.product_id
-        ) returned on returned.influencer_id=pp.influencer_id and returned.product_id=pp.product_id
-        where pp.influencer_id=#{influencerId} and pp.binding_status='0'
-          <if test="productId != null">and pp.product_id=#{productId}</if>
-        order by p.sku,pp.product_id
+        select stats.*
+        from (
+          select pp.product_id productId,null mainProductId,'MAIN' saleRole,'SEPARATE' pricingMode,
+            coalesce(sold.sold_qty,0) soldQty,coalesce(returned.returned_qty,0) returnedQty,
+            greatest(coalesce(sold.sold_qty,0)-coalesce(returned.returned_qty,0),0) remainingReturnQty,
+            p.sku sortSku
+          from jewelry_influencer_product_price pp
+          join jewelry_product p on p.product_id=pp.product_id
+            and p.product_type='FINISHED' and p.status='0'
+          left join (
+            select d.influencer_id,i.product_id,sum(i.qty) sold_qty
+            from jewelry_document d
+            join jewelry_document_item i on i.document_id=d.document_id
+            where d.doc_type='SALES_OUT' and d.status='POSTED'
+              and coalesce(nullif(i.sale_role,''),'NORMAL') in ('NORMAL','MAIN')
+            group by d.influencer_id,i.product_id
+          ) sold on sold.influencer_id=pp.influencer_id and sold.product_id=pp.product_id
+          left join (
+            select d.influencer_id,i.product_id,sum(i.qty) returned_qty
+            from jewelry_document d
+            join jewelry_document_item i on i.document_id=d.document_id
+            where d.doc_type='CUSTOMER_RETURN'
+              and d.status in ('DRAFT','PENDING_FIRST','PENDING_SECOND','POSTED')
+              and coalesce(nullif(i.sale_role,''),'NORMAL') in ('NORMAL','MAIN')
+              <if test="excludeDocumentId != null">and d.document_id != #{excludeDocumentId}</if>
+            group by d.influencer_id,i.product_id
+          ) returned on returned.influencer_id=pp.influencer_id and returned.product_id=pp.product_id
+          where pp.influencer_id=#{influencerId} and pp.binding_status='0'
+
+          union all
+
+          select sold.product_id productId,sold.main_product_id mainProductId,'ADDON' saleRole,
+            case when sold.separate_qty=sold.sold_qty then 'SEPARATE' else 'INCLUDED' end pricingMode,
+            sold.sold_qty soldQty,coalesce(returned.returned_qty,0) returnedQty,
+            greatest(sold.sold_qty-coalesce(returned.returned_qty,0),0) remainingReturnQty,
+            addon_product.sku sortSku
+          from (
+            select d.influencer_id,addon.product_id,main.product_id main_product_id,
+              sum(addon.qty) sold_qty,
+              sum(case when coalesce(nullif(addon.pricing_mode,''),'SEPARATE')='SEPARATE'
+                then addon.qty else 0 end) separate_qty
+            from jewelry_document d
+            join jewelry_document_item addon on addon.document_id=d.document_id
+              and addon.sale_role='ADDON' and addon.bundle_group_no is not null
+            join jewelry_document_item main on main.document_id=d.document_id
+              and main.bundle_group_no=addon.bundle_group_no and main.sale_role='MAIN'
+            where d.doc_type='SALES_OUT' and d.status='POSTED'
+            group by d.influencer_id,addon.product_id,main.product_id
+          ) sold
+          join jewelry_product addon_product on addon_product.product_id=sold.product_id
+            and addon_product.product_type in ('ACCESSORY','GIFT') and addon_product.status='0'
+          left join (
+            select d.influencer_id,addon.product_id,main.product_id main_product_id,sum(addon.qty) returned_qty
+            from jewelry_document d
+            join jewelry_document_item addon on addon.document_id=d.document_id
+              and addon.sale_role='ADDON' and addon.bundle_group_no is not null
+            join jewelry_document_item main on main.document_id=d.document_id
+              and main.bundle_group_no=addon.bundle_group_no and main.sale_role='MAIN'
+            where d.doc_type='CUSTOMER_RETURN'
+              and d.status in ('DRAFT','PENDING_FIRST','PENDING_SECOND','POSTED')
+              <if test="excludeDocumentId != null">and d.document_id != #{excludeDocumentId}</if>
+            group by d.influencer_id,addon.product_id,main.product_id
+          ) returned on returned.influencer_id=sold.influencer_id
+            and returned.product_id=sold.product_id and returned.main_product_id=sold.main_product_id
+          where sold.influencer_id=#{influencerId}
+        ) stats
+        <where>
+          <if test="productId != null">and stats.productId=#{productId}</if>
+          <if test="mainProductId != null">and stats.mainProductId=#{mainProductId}</if>
+          <if test="saleRole != null and saleRole != ''">and stats.saleRole=#{saleRole}</if>
+        </where>
+        order by case stats.saleRole when 'MAIN' then 0 else 1 end,stats.sortSku,stats.productId
     </select>
     <select id="selectInspectedQtyBySourceItem" resultType="int">
         select coalesce(sum(i.good_qty+i.defect_qty),0)

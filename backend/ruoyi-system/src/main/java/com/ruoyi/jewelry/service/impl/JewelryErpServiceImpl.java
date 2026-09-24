@@ -712,7 +712,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         Map<String, Object> influencer = mapper.selectInfluencerById(influencerId);
         if (influencer == null || !"0".equals(textValue(influencer.get("status"))))
             throw new ServiceException("达人/主播不存在或已停用");
-        return mapper.selectCustomerReturnProductStats(influencerId, excludeDocumentId, null);
+        return mapper.selectCustomerReturnProductStats(influencerId, excludeDocumentId, null, null, null);
     }
 
     @Override
@@ -1460,6 +1460,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         Set<String> itemKeys = new HashSet<String>();
         Map<Integer, Integer> salesMainCounts = new HashMap<Integer, Integer>();
         Map<Integer, Integer> salesAddonCounts = new HashMap<Integer, Integer>();
+        Map<Integer, Integer> returnMainCounts = new HashMap<Integer, Integer>();
+        Map<Integer, Integer> returnAddonCounts = new HashMap<Integer, Integer>();
         Map<Long, Map<String, Object>> purchaseBindings = new HashMap<Long, Map<String, Object>>();
         if ("PURCHASE_IN".equals(document.getDocType()) && document.getInfluencerId() != null)
         {
@@ -1686,12 +1688,44 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 }
                 else
                 {
-                    if (!itemKeys.add(String.valueOf(item.getProductId())))
-                        throw new ServiceException("同一商品不能在一张单据中重复出现");
+                    String returnRole = normalizedSaleRole(item.getSaleRole());
+                    Integer groupNo = item.getBundleGroupNo();
+                    Long mainProductId = null;
+                    String productType = textValue(product.get("productType"));
+                    if ("ADDON".equals(returnRole))
+                    {
+                        if (groupNo == null || groupNo <= 0)
+                            throw new ServiceException("搭售退货商品缺少组合编号");
+                        if (!"ACCESSORY".equals(productType) && !"GIFT".equals(productType))
+                            throw new ServiceException("搭售退货只能选择随成品售出的配件或赠品");
+                        mainProductId = customerReturnMainProductId(document.getItems(), groupNo);
+                        returnAddonCounts.put(groupNo, returnAddonCounts.getOrDefault(groupNo, 0) + 1);
+                    }
+                    else if ("MAIN".equals(returnRole))
+                    {
+                        if (groupNo == null || groupNo <= 0)
+                            throw new ServiceException("退货组合主商品缺少组合编号");
+                        if (!"FINISHED".equals(productType))
+                            throw new ServiceException("退货组合主商品必须是成品商品");
+                        returnMainCounts.put(groupNo, returnMainCounts.getOrDefault(groupNo, 0) + 1);
+                    }
+                    else
+                    {
+                        if (!"FINISHED".equals(productType))
+                            throw new ServiceException("客户退货独立商品必须是当前达人已绑定的成品商品");
+                        returnRole = "NORMAL";
+                        groupNo = null;
+                    }
+                    String itemKey = item.getProductId() + ":" + (groupNo == null ? "NORMAL" : groupNo);
+                    if (!itemKeys.add(itemKey))
+                        throw new ServiceException("同一退货组合中不能重复选择同一商品");
                     List<Map<String, Object>> returnStats = mapper.selectCustomerReturnProductStats(
-                        document.getInfluencerId(), document.getDocumentId(), item.getProductId());
+                        document.getInfluencerId(), document.getDocumentId(), item.getProductId(), mainProductId,
+                        "ADDON".equals(returnRole) ? "ADDON" : "MAIN");
                     if (returnStats == null || returnStats.isEmpty())
-                        throw new ServiceException("客户退货只能选择当前达人已绑定的成品商品");
+                        throw new ServiceException("ADDON".equals(returnRole)
+                            ? "该商品不是所选成品历史销售组合中的可退搭售商品"
+                            : "客户退货只能选择当前达人已绑定的成品商品");
                     Map<String, Object> returnStat = returnStats.get(0);
                     int soldQty = intValue(returnStat.get("soldQty"));
                     int remainingReturnQty = Math.max(0, intValue(returnStat.get("remainingReturnQty")));
@@ -1700,12 +1734,14 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     if (item.getQty() > remainingReturnQty)
                         throw new ServiceException(item.getProductNameSnapshot() + "退货数量不能超过剩余可退数量"
                             + remainingReturnQty + "件（已售" + soldQty + "件）");
+                    String pricingMode = "ADDON".equals(returnRole)
+                        ? normalizedPricingMode(textValue(returnStat.get("pricingMode"))) : "SEPARATE";
                     if (money(item.getUnitPrice()).signum() <= 0)
                         throw new ServiceException("未关联原销售单时必须填写实际退款单价");
                     item.setSourceItemId(null);
-                    item.setBundleGroupNo(null);
-                    item.setSaleRole("NORMAL");
-                    item.setPricingMode("SEPARATE");
+                    item.setBundleGroupNo(groupNo);
+                    item.setSaleRole(returnRole);
+                    item.setPricingMode(pricingMode);
                 }
             }
             else if ("RETURN_INSPECT".equals(document.getDocType()))
@@ -1777,7 +1813,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             }
         }
         else if ("CUSTOMER_RETURN".equals(document.getDocType()) && document.getSourceDocumentId() == null)
+        {
+            validateCustomerReturnBundleGroups(returnMainCounts, returnAddonCounts);
             applyInfluencerProductPrices(document, false, true);
+        }
         if ("CUSTOMER_RETURN".equals(document.getDocType()) && document.getActualRefundAmount() != null)
             validateNonNegative(document.getActualRefundAmount(), "实际退款总额");
         if ("ASSEMBLY".equals(document.getDocType()))
@@ -1849,6 +1888,37 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 throw new ServiceException("销售组合" + groupNo + "必须且只能有一个成品主商品");
             if (addonCounts.getOrDefault(groupNo, 0) < 1)
                 throw new ServiceException("销售组合" + groupNo + "至少需要一个搭售商品");
+        }
+    }
+
+    private Long customerReturnMainProductId(List<JewelryDocumentItem> items, Integer groupNo)
+    {
+        Long mainProductId = null;
+        for (JewelryDocumentItem candidate : items)
+        {
+            if (!groupNo.equals(candidate.getBundleGroupNo())
+                || !"MAIN".equals(normalizedSaleRole(candidate.getSaleRole()))) continue;
+            if (mainProductId != null)
+                throw new ServiceException("退货组合" + groupNo + "必须且只能有一个成品主商品");
+            mainProductId = candidate.getProductId();
+        }
+        if (mainProductId == null)
+            throw new ServiceException("搭售退货商品必须跟随对应的成品主商品一起退货");
+        return mainProductId;
+    }
+
+    private void validateCustomerReturnBundleGroups(Map<Integer, Integer> mainCounts,
+        Map<Integer, Integer> addonCounts)
+    {
+        Set<Integer> groupNumbers = new HashSet<Integer>();
+        groupNumbers.addAll(mainCounts.keySet());
+        groupNumbers.addAll(addonCounts.keySet());
+        for (Integer groupNo : groupNumbers)
+        {
+            if (mainCounts.getOrDefault(groupNo, 0) != 1)
+                throw new ServiceException("退货组合" + groupNo + "必须且只能有一个成品主商品");
+            if (addonCounts.getOrDefault(groupNo, 0) < 1)
+                throw new ServiceException("退货组合" + groupNo + "至少需要一个搭售商品");
         }
     }
 
@@ -2149,8 +2219,6 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 item.setUnitPrice(entered);
                 item.setInfluencerPriceSnapshot(null);
                 item.setInfluencerPriceVersion(null);
-                item.setSaleRole("NORMAL");
-                item.setPricingMode("SEPARATE");
                 continue;
             }
 

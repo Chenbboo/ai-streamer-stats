@@ -95,6 +95,47 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void customerReturnStatsKeepAddonQuantityUnderItsSoldMainProduct()
+    {
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification) values"
+            + "(19,'MAIN-19','成品','FINISHED','普通'),(20,'ADDON-20','搭售品','ACCESSORY','普通')");
+        execute("insert into jewelry_influencer_product_price(influencer_id,product_id,fixed_unit_price,"
+            + "binding_status) values(8,19,300,'0')");
+        insertDocument(101L, "SALE-101", "SALES_OUT", "POSTED", null);
+        execute("update jewelry_document set influencer_id=8 where document_id=101");
+        insertItem(1001L, 101L, null, 19L, 3);
+        insertItem(1002L, 101L, null, 20L, 2);
+        execute("update jewelry_document_item set sale_role='MAIN',bundle_group_no=1 where item_id=1001");
+        execute("update jewelry_document_item set sale_role='ADDON',bundle_group_no=1,pricing_mode='INCLUDED'"
+            + " where item_id=1002");
+        insertDocument(102L, "RETURN-102", "CUSTOMER_RETURN", "DRAFT", null);
+        execute("update jewelry_document set influencer_id=8 where document_id=102");
+        insertItem(1003L, 102L, null, 19L, 1);
+        insertItem(1004L, 102L, null, 20L, 1);
+        execute("update jewelry_document_item set sale_role='MAIN',bundle_group_no=1 where item_id=1003");
+        execute("update jewelry_document_item set sale_role='ADDON',bundle_group_no=1,pricing_mode='INCLUDED'"
+            + " where item_id=1004");
+
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            List<Map<String, Object>> stats = mapper.selectCustomerReturnProductStats(8L, null,
+                null, null, null);
+            Map<String, Object> main = stats.stream()
+                .filter(item -> "MAIN".equals(mapValue(item, "saleRole"))).findFirst().get();
+            Map<String, Object> addon = stats.stream()
+                .filter(item -> "ADDON".equals(mapValue(item, "saleRole"))).findFirst().get();
+            assertEquals(3, ((Number) mapValue(main, "soldQty")).intValue());
+            assertEquals(2, ((Number) mapValue(main, "remainingReturnQty")).intValue());
+            assertEquals(19L, ((Number) mapValue(addon, "mainProductId")).longValue());
+            assertEquals(2, ((Number) mapValue(addon, "soldQty")).intValue());
+            assertEquals(1, ((Number) mapValue(addon, "remainingReturnQty")).intValue());
+            assertEquals("INCLUDED", mapValue(addon, "pricingMode"));
+            assertEquals(1, mapper.selectCustomerReturnProductStats(8L, null, 20L, 19L, "ADDON").size());
+        }
+    }
+
+    @Test
     void outboundReservationCannotExceedAvailableStock()
     {
         insertStock(1L, 5, 0, 0, 0, 0, 0, "100.00");

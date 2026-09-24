@@ -575,7 +575,7 @@ class JewelryErpServiceImplTest
     }
 
     @Test
-    void unlinkedCustomerReturnOnlyAllowsBoundFinishedProducts()
+    void unlinkedCustomerReturnRejectsStandaloneAccessory()
     {
         Long addonProductId = 101L;
         JewelryDocument customerReturn = document(null, "CUSTOMER_RETURN", null);
@@ -590,7 +590,7 @@ class JewelryErpServiceImplTest
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.saveDocument(customerReturn, MAKER_ID, "maker"));
 
-        assertEquals("客户退货只能选择当前达人已绑定的成品商品", error.getMessage());
+        assertEquals("客户退货独立商品必须是当前达人已绑定的成品商品", error.getMessage());
         verify(mapper, never()).insertDocument(any(JewelryDocument.class));
     }
 
@@ -608,7 +608,7 @@ class JewelryErpServiceImplTest
         stat.put("productId", PRODUCT_ID);
         stat.put("soldQty", 5);
         stat.put("remainingReturnQty", 3);
-        when(mapper.selectCustomerReturnProductStats(RETURN_INFLUENCER_ID, null, PRODUCT_ID))
+        when(mapper.selectCustomerReturnProductStats(RETURN_INFLUENCER_ID, null, PRODUCT_ID, null, "MAIN"))
             .thenReturn(Arrays.asList(stat));
 
         ServiceException error = assertThrows(ServiceException.class,
@@ -632,7 +632,7 @@ class JewelryErpServiceImplTest
         stat.put("productId", PRODUCT_ID);
         stat.put("soldQty", 5);
         stat.put("remainingReturnQty", 3);
-        when(mapper.selectCustomerReturnProductStats(RETURN_INFLUENCER_ID, null, PRODUCT_ID))
+        when(mapper.selectCustomerReturnProductStats(RETURN_INFLUENCER_ID, null, PRODUCT_ID, null, "MAIN"))
             .thenReturn(Arrays.asList(stat));
         when(mapper.insertDocument(customerReturn)).thenAnswer(invocation -> {
             customerReturn.setDocumentId(95L);
@@ -647,6 +647,60 @@ class JewelryErpServiceImplTest
         assertEquals(2, returned.getQty());
         assertEquals("NORMAL", returned.getSaleRole());
         assertEquals("SEPARATE", returned.getPricingMode());
+        verify(mapper).insertDocument(customerReturn);
+    }
+
+    @Test
+    void unlinkedCustomerReturnAllowsHistoricallySoldAddonWithMainProduct()
+    {
+        Long addonProductId = 101L;
+        JewelryDocument customerReturn = document(null, "CUSTOMER_RETURN", null);
+        customerReturn.setSalesChannel("douyin");
+        customerReturn.setReturnReason("成品与搭售品一并退货");
+        customerReturn.setActualRefundAmount(decimal("55.95"));
+        JewelryDocumentItem main = item(null, 1, "50.0000");
+        main.setSaleRole("MAIN");
+        main.setBundleGroupNo(1);
+        JewelryDocumentItem addon = itemForProduct(null, addonProductId, 1);
+        addon.setSaleRole("ADDON");
+        addon.setBundleGroupNo(1);
+        addon.setPricingMode("INCLUDED");
+        addon.setUnitPrice(decimal("5.9500"));
+        customerReturn.setItems(Arrays.asList(main, addon));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("FINISHED"));
+        when(mapper.selectProductById(addonProductId)).thenReturn(product("ACCESSORY"));
+
+        Map<String, Object> mainStat = new HashMap<String, Object>();
+        mainStat.put("productId", PRODUCT_ID);
+        mainStat.put("saleRole", "MAIN");
+        mainStat.put("soldQty", 5);
+        mainStat.put("remainingReturnQty", 3);
+        when(mapper.selectCustomerReturnProductStats(RETURN_INFLUENCER_ID, null, PRODUCT_ID, null, "MAIN"))
+            .thenReturn(Arrays.asList(mainStat));
+        Map<String, Object> addonStat = new HashMap<String, Object>();
+        addonStat.put("productId", addonProductId);
+        addonStat.put("mainProductId", PRODUCT_ID);
+        addonStat.put("saleRole", "ADDON");
+        addonStat.put("pricingMode", "INCLUDED");
+        addonStat.put("soldQty", 5);
+        addonStat.put("remainingReturnQty", 2);
+        when(mapper.selectCustomerReturnProductStats(RETURN_INFLUENCER_ID, null, addonProductId,
+            PRODUCT_ID, "ADDON")).thenReturn(Arrays.asList(addonStat));
+        when(mapper.insertDocument(customerReturn)).thenAnswer(invocation -> {
+            customerReturn.setDocumentId(96L);
+            return 1;
+        });
+        when(mapper.selectDocumentById(96L)).thenReturn(customerReturn);
+        when(mapper.selectDocumentItems(96L)).thenReturn(customerReturn.getItems());
+
+        JewelryDocument saved = service.saveDocument(customerReturn, MAKER_ID, "maker");
+
+        assertEquals(96L, saved.getDocumentId());
+        assertEquals("MAIN", main.getSaleRole());
+        assertEquals(Integer.valueOf(1), main.getBundleGroupNo());
+        assertEquals("ADDON", addon.getSaleRole());
+        assertEquals("INCLUDED", addon.getPricingMode());
+        assertEquals(0, addon.getUnitPrice().compareTo(decimal("5.9500")));
         verify(mapper).insertDocument(customerReturn);
     }
 

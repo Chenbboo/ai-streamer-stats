@@ -115,7 +115,8 @@ public interface JewelryErpMapper
     List<JewelryDocumentItem> selectCustomerReturnSourceItems(@Param("sourceDocumentId") Long sourceDocumentId,
         @Param("excludeDocumentId") Long excludeDocumentId);
     List<Map<String, Object>> selectCustomerReturnProductStats(@Param("influencerId") Long influencerId,
-        @Param("excludeDocumentId") Long excludeDocumentId, @Param("productId") Long productId);
+        @Param("excludeDocumentId") Long excludeDocumentId, @Param("productId") Long productId,
+        @Param("mainProductId") Long mainProductId, @Param("saleRole") String saleRole);
     int selectInspectedQtyBySourceItem(@Param("sourceItemId") Long sourceItemId,
         @Param("excludeDocumentId") Long excludeDocumentId);
     List<JewelryDocumentItem> selectReturnInspectionSourceItems(@Param("sourceDocumentId") Long sourceDocumentId,

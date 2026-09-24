@@ -100,7 +100,7 @@
         <el-alert v-if="form.docType==='PURCHASE_IN' && purchaseHasBoundRows && form.influencerId && !purchaseSupplierOptions.length && !readonly" :title="$tr(&quot;该达人暂无已绑定供应商的成品或赠品商品，请先在达人档案中设置供应商和商品绑定。&quot;)" type="warning" :closable="false" show-icon />
         <el-alert v-if="form.docType==='SALES_OUT' && !readonly" :title="form.influencerId?$tr(&quot;独立销售和组合主商品按达人绑定配置带入价格和费率；搭售可选择有可用库存的配件商品，或当前达人已绑定且有可用库存的赠品商品。&quot;):$tr(&quot;请先选择达人/主播，再选择销售商品。&quot;)" type="info" :closable="false" show-icon />
         <el-alert v-if="form.docType==='CUSTOMER_RETURN' && !form.sourceDocumentId && !readonly"
-          :title="$tr(&quot;请先选择达人/主播。商品列表只展示该达人已绑定的成品；选择商品后会显示已售数量和剩余可退数量，退货数量可在剩余范围内修改。&quot;)"
+          :title="$tr(&quot;请先选择达人/主播。先选择该达人已绑定的成品，再点“选择搭售退货”添加历史上随该成品售出的配件或赠品；每项退货数量均受已售及剩余可退数量限制。&quot;)"
           type="warning" :closable="false" show-icon />
         <el-alert v-if="form.docType==='CUSTOMER_RETURN' && form.sourceDocumentId && form.items.some(item=>normalizedSaleRole(item)==='ADDON') && !readonly"
           :title="$tr(&quot;已按原销售组合带出主商品和搭售散件。修改主商品退货数量会按原组合比例同步散件数量；未实际退回的散件可单独修改数量或删除。&quot;)"
@@ -168,14 +168,15 @@
             <template #default="{ row }">
               <div class="product-picker">
                 <el-select v-model="row.productId" filterable :loading="supportsProductFilters && productFilterLoading || customerReturnProductLoading"
-                  :no-data-text="form.docType==='CUSTOMER_RETURN' && !form.sourceDocumentId && form.influencerId?$tr(&quot;该达人暂无已绑定的成品商品&quot;):$tr(&quot;无数据&quot;)"
+                  :no-data-text="customerReturnNoDataText(row)"
                   :placeholder="form.docType==='PURCHASE_IN' && !row.productTypeSnapshot?$tr(&quot;请先选择商品类型&quot;):form.docType==='PURCHASE_IN' && !form.supplierId?$tr(&quot;请先选择供应商&quot;):['SALES_OUT','CUSTOMER_RETURN'].includes(form.docType)&&!form.influencerId?$tr(&quot;请先选择达人&quot;):$tr(&quot;请选择&quot;)" :disabled="readonly || (form.docType==='PURCHASE_IN' && (!row.productTypeSnapshot || !form.supplierId || (isPurchaseBoundType(row.productTypeSnapshot) && !form.influencerId))) || (['SALES_OUT','CUSTOMER_RETURN'].includes(form.docType)&&!form.influencerId) || ['SUPPLIER_RETURN','RETURN_INSPECT'].includes(form.docType) || (form.docType==='CUSTOMER_RETURN' && !!form.sourceDocumentId)" @change="productChanged(row)">
-                  <el-option v-for="p in availableProducts(row)" :key="p.productId" :label="productOptionLabel(p)" :value="p.productId" :disabled="productOptionDisabled(row,p)" />
+                  <el-option v-for="p in availableProducts(row)" :key="p.productId" :label="productOptionLabel(p,row)" :value="p.productId" :disabled="productOptionDisabled(row,p)" />
                 </el-select>
                 <el-button v-if="(form.docType==='PURCHASE_IN' && row.productTypeSnapshot && !isPurchaseBoundType(row.productTypeSnapshot) && form.supplierId || form.docType==='SAMPLE_IN') && !readonly" type="primary" plain icon="Plus"
                   v-hasPermi="['jewelry:product:add']" @click="openQuickProduct(row)">{{ $tr("新增商品") }}</el-button>
-                <el-button v-if="form.docType==='SALES_OUT' && !readonly && canAddAddon(row)" type="warning" plain icon="Plus"
-                  @click="addAddon(row)">{{ $tr("搭售商品") }}</el-button>
+                <el-button v-if="!readonly && canAddAddon(row) && (form.docType==='SALES_OUT' || isUnlinkedInfluencerReturn())" type="warning" plain icon="Plus"
+                  :disabled="isUnlinkedInfluencerReturn() && !customerReturnAddonStats(row).some(item=>Number(item.remainingReturnQty||0)>0)"
+                  @click="addAddon(row)">{{ form.docType==='CUSTOMER_RETURN'?$tr("选择搭售退货"):$tr("搭售商品") }}</el-button>
               </div>
               <div v-if="form.docType==='SALES_OUT' && normalizedSaleRole(row)==='MAIN' && includedAddonRows(row).length" class="included-addons">
                 <el-button link type="primary" @click="toggleIncludedAddons(row)">{{ expandedBundleGroups[row.bundleGroupNo] ? $tr('收起组合内搭售') : $tr('查看/编辑组合内搭售（{0}种）', [includedAddonRows(row).length]) }}</el-button>
@@ -205,13 +206,13 @@
             <template #default="{row}">
               <el-tag v-if="normalizedSaleRole(row)==='MAIN'" type="success" effect="plain">{{ $tr("组合{0}·主商品", [row.bundleGroupNo]) }}</el-tag>
               <el-tag v-else-if="normalizedSaleRole(row)==='ADDON'" type="warning" effect="plain">{{ $tr("组合{0}·搭售", [row.bundleGroupNo]) }}</el-tag>
-              <el-tag v-else type="info" effect="plain">{{ $tr("独立销售") }}</el-tag>
+              <el-tag v-else type="info" effect="plain">{{ form.docType==='CUSTOMER_RETURN'?$tr("独立退货"):$tr("独立销售") }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column v-if="showSalesBundleColumns" :label="$tr(&quot;搭售用途&quot;)" width="110">
             <template #default="{row}">
-              <el-tag v-if="isAccessoryPackaging(row)" type="warning" effect="plain">{{ $tr("包装耗材") }}</el-tag>
-              <span v-else-if="normalizedSaleRole(row)==='ADDON'">{{ $tr("普通搭售") }}</span>
+              <el-tag v-if="form.docType==='SALES_OUT' && isAccessoryPackaging(row)" type="warning" effect="plain">{{ $tr("包装耗材") }}</el-tag>
+              <span v-else-if="normalizedSaleRole(row)==='ADDON'">{{ form.docType==='CUSTOMER_RETURN'?$tr("一并退回"):$tr("普通搭售") }}</span>
               <span v-else>—</span>
             </template>
           </el-table-column>
@@ -670,11 +671,39 @@ const selectedInfluencerPriceSummary=computed(()=>{
     + (pending ? translateText("，待生效 {0} 种", [pending]) : '')
 })
 const influencerPriceOf=productId=>influencerProductPrices.value.find(item=>String(item.productId)===String(productId))
-const customerReturnProductStatOf=productId=>customerReturnProductStats.value.find(item=>String(item.productId)===String(productId))
+const bundleMainRow=row=>form.items.find(item=>normalizedSaleRole(item)==='MAIN'&&item.bundleGroupNo===row?.bundleGroupNo)
+const customerReturnProductStatOf=(productId,row=null)=>{
+  const role=normalizedSaleRole(row)
+  if(role==='ADDON'){
+    const mainProductId=bundleMainRow(row)?.productId
+    return customerReturnProductStats.value.find(item=>item.saleRole==='ADDON'
+      &&String(item.productId)===String(productId)&&String(item.mainProductId)===String(mainProductId))
+  }
+  return customerReturnProductStats.value.find(item=>item.saleRole!=='ADDON'&&String(item.productId)===String(productId))
+}
+const customerReturnAddonStats=main=>customerReturnProductStats.value.filter(item=>item.saleRole==='ADDON'
+  &&String(item.mainProductId)===String(main?.productId))
 const isConfiguredSalesBinding=price=>price?.priceStatus==='PRICED'&&price.bindingStatus==='0'
   &&price.fixedUnitPrice!=null&&price.unitCost!=null&&price.commissionRate!=null&&price.platformRate!=null&&price.taxRate!=null
 const isActiveSalesBinding=productId=>isConfiguredSalesBinding(influencerPriceOf(productId))
 const isActiveCustomerReturnBinding=productId=>influencerPriceOf(productId)?.bindingStatus==='0'
+const isAllowedCustomerReturnProduct=row=>{
+  const product=productOf(row)
+  return normalizedSaleRole(row)==='ADDON'
+    ?['ACCESSORY','GIFT'].includes(product?.productType)&&!!customerReturnProductStatOf(row.productId,row)
+    :product?.productType==='FINISHED'&&isActiveCustomerReturnBinding(row.productId)
+}
+const customerReturnBundlesValid=()=>{
+  const groups=new Map()
+  for(const row of form.items){
+    if(!row.bundleGroupNo||!['MAIN','ADDON'].includes(normalizedSaleRole(row)))continue
+    const group=groups.get(row.bundleGroupNo)||{main:0,addon:0}
+    if(normalizedSaleRole(row)==='MAIN')group.main+=1
+    else group.addon+=1
+    groups.set(row.bundleGroupNo,group)
+  }
+  return [...groups.values()].every(group=>group.main===1&&group.addon>=1)
+}
 const isPurchaseBoundType=type=>['FINISHED','GIFT'].includes(type)
 const purchaseHasBoundRows=computed(()=>form.docType==='PURCHASE_IN'&&form.items.some(row=>isPurchaseBoundType(row.productTypeSnapshot)||isPurchaseBoundType(productOf(row)?.productType)))
 const purchaseSupplierOptions=computed(()=>{
@@ -724,7 +753,7 @@ async function loadInfluencerReferences(id){
 function applyCustomerReturnProductStatsToRows(){
   if(form.docType!=='CUSTOMER_RETURN'||form.sourceDocumentId)return
   for(const row of form.items){
-    const stat=customerReturnProductStatOf(row.productId)
+    const stat=customerReturnProductStatOf(row.productId,row)
     row.soldQty=Number(stat?.soldQty||0)
     row.remainingReturnQty=Number(stat?.remainingReturnQty||0)
     if(row.productId&&row.remainingReturnQty>0&&Number(row.qty||0)>row.remainingReturnQty)row.qty=row.remainingReturnQty
@@ -745,14 +774,17 @@ async function loadCustomerReturnProductStats(id){
     return false
   }finally{if(request===customerReturnProductRequest)customerReturnProductLoading.value=false}
 }
-const productOptionLabel=product=>{
+const productOptionLabel=(product,row)=>{
   const base=`${product.sku} · ${product.productName} · ${jewelryProductType(product.productType)?.label||product.productType}`
   if(form.docType!=='CUSTOMER_RETURN'||form.sourceDocumentId)return base
-  const stat=customerReturnProductStatOf(product.productId)
+  const stat=customerReturnProductStatOf(product.productId,row)
   return `${base} · ${translateText('已售 {0} 件，可退 {1} 件',[Number(stat?.soldQty||0),Number(stat?.remainingReturnQty||0)])}`
 }
 const productOptionDisabled=(row,product)=>form.docType==='SALES_OUT'&&!isAllowedSalesProduct(row,product.productId)
-  ||form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&Number(customerReturnProductStatOf(product.productId)?.remainingReturnQty||0)<=0
+  ||form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&Number(customerReturnProductStatOf(product.productId,row)?.remainingReturnQty||0)<=0
+const customerReturnNoDataText=row=>form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&form.influencerId
+  ?normalizedSaleRole(row)==='ADDON'?translateText('该成品暂无可退的历史搭售商品'):translateText('该达人暂无已绑定的成品商品')
+  :translateText('无数据')
 function clearRowInfluencerPrice(row){row.influencerPriceSnapshot=null;row.influencerPriceVersion=0;row.influencerPriceStatus='';row.platformRateSnapshot=null;row.commissionRateSnapshot=null;row.taxRateSnapshot=null}
 function applyInfluencerProductPrice(row,{notify=true}={}){
   if(!row?.productId||!form.influencerId){clearRowInfluencerPrice(row);return true}
@@ -903,8 +935,13 @@ const availableProducts=row=>{
     ?isAvailableAddonProduct(product)
     :isAllowedSalesProduct(row,product.productId)
       ||(row.productId!=null&&String(row.productId)===String(product.productId)&&!!form.documentId))
-  if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId)available=available.filter(product=>product.productType==='FINISHED'
-    &&isActiveCustomerReturnBinding(product.productId))
+  if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId){
+    if(normalizedSaleRole(row)==='ADDON'){
+      const addonIds=new Set(customerReturnAddonStats(bundleMainRow(row)).map(item=>String(item.productId)))
+      available=available.filter(product=>addonIds.has(String(product.productId)))
+    }else available=available.filter(product=>product.productType==='FINISHED'
+      &&isActiveCustomerReturnBinding(product.productId))
+  }
   return normalizedSaleRole(row)==='ADDON'?available.filter(product=>product.productType!=='FINISHED'):available
 }
 const productFilterRelations=computed(()=>{
@@ -976,13 +1013,22 @@ function productChanged(row){
     proxy.$modal.msgWarning(translateText('搭售商品只能选择有可用库存的配件或当前达人已绑定的赠品'))
     row.productId=null;clearRowInfluencerPrice(row);return
   }
-  if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId
-    &&(product.productType!=='FINISHED'||!isActiveCustomerReturnBinding(product.productId))){
-    proxy.$modal.msgWarning(translateText('客户退货只能选择当前达人已绑定的成品商品'))
-    row.productId=null;clearRowInfluencerPrice(row);return
+  if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId){
+    const addon=normalizedSaleRole(row)==='ADDON'
+    const valid=addon
+      ?['ACCESSORY','GIFT'].includes(product.productType)&&!!customerReturnProductStatOf(product.productId,row)
+      :product.productType==='FINISHED'&&isActiveCustomerReturnBinding(product.productId)
+    if(!valid){
+      proxy.$modal.msgWarning(translateText(addon?'只能选择历史上随该成品售出的配件或赠品':'客户退货只能选择当前达人已绑定的成品商品'))
+      row.productId=null;clearRowInfluencerPrice(row);return
+    }
+    if(!addon&&normalizedSaleRole(row)==='MAIN'){
+      for(const addonRow of form.items.filter(item=>normalizedSaleRole(item)==='ADDON'&&item.bundleGroupNo===row.bundleGroupNo))
+        Object.assign(addonRow,blankItem(),{bundleGroupNo:row.bundleGroupNo,saleRole:'ADDON',pricingMode:'INCLUDED'})
+    }
   }
   if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId
-    &&Number(customerReturnProductStatOf(product.productId)?.remainingReturnQty||0)<=0){
+    &&Number(customerReturnProductStatOf(product.productId,row)?.remainingReturnQty||0)<=0){
     proxy.$modal.msgWarning(translateText('该商品没有剩余可退数量'))
     row.productId=null;clearRowInfluencerPrice(row);return
   }
@@ -993,8 +1039,9 @@ function productChanged(row){
   if(form.docType==='SAMPLE_IN'&&product.productType!=='SAMPLE'){proxy.$modal.msgWarning(translateText('样品入库只能选择样品商品'));row.productId=null;return}
   if(normalizedSaleRole(row)==='ADDON'&&product.productType==='FINISHED'){proxy.$modal.msgWarning(translateText('搭售商品不能选择成品商品'));row.productId=null;return}
   if(normalizedSaleRole(row)==='MAIN'&&product.productType!=='FINISHED'){proxy.$modal.msgWarning(translateText('销售组合主商品必须选择成品商品'));row.productId=null;return}
-  const duplicate=form.items.some(item=>toRaw(item)!==toRaw(row)&&item.productId!=null&&String(item.productId)===String(row.productId)&&(form.docType==='SAMPLE_IN'?Boolean(item.bizDate&&row.bizDate&&item.bizDate===row.bizDate&&item.supplierId&&row.supplierId&&item.supplierId===row.supplierId):form.docType!=='SALES_OUT'||saleGroupKey(item)===saleGroupKey(row)))
-  if(duplicate){proxy.$modal.msgWarning(form.docType==='SALES_OUT'?translateText('同一销售组合中不能重复选择同一商品'):form.docType==='SAMPLE_IN'?translateText('同一SKU、日期和供应商不能重复，请合并数量'):translateText('同一商品不能重复，请直接修改已有行的数量'));row.productId=null;return}
+  const groupedDocument=['SALES_OUT','CUSTOMER_RETURN'].includes(form.docType)&&!form.sourceDocumentId
+  const duplicate=form.items.some(item=>toRaw(item)!==toRaw(row)&&item.productId!=null&&String(item.productId)===String(row.productId)&&(form.docType==='SAMPLE_IN'?Boolean(item.bizDate&&row.bizDate&&item.bizDate===row.bizDate&&item.supplierId&&row.supplierId&&item.supplierId===row.supplierId):!groupedDocument||saleGroupKey(item)===saleGroupKey(row)))
+  if(duplicate){proxy.$modal.msgWarning(groupedDocument?translateText('同一组合中不能重复选择同一商品'):form.docType==='SAMPLE_IN'?translateText('同一SKU、日期和供应商不能重复，请合并数量'):translateText('同一商品不能重复，请直接修改已有行的数量'));row.productId=null;return}
   if(form.docType==='SAMPLE_IN'){row.sampleSkuInput=product.sku||'';row.skuSnapshot=product.sku||''}
   row.productTypeSnapshot=product.productType||''
   row.specificationSnapshot=product.specification||''
@@ -1004,10 +1051,11 @@ function productChanged(row){
   row.systemQty=Number(product.onHandQty||0)
   row.countedQty=Number(product.onHandQty||0)
   if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId){
-    const stat=customerReturnProductStatOf(product.productId)
+    const stat=customerReturnProductStatOf(product.productId,row)
     row.soldQty=Number(stat?.soldQty||0)
     row.remainingReturnQty=Number(stat?.remainingReturnQty||0)
     row.qty=Math.min(Math.max(1,Number(row.qty||1)),row.remainingReturnQty)
+    if(normalizedSaleRole(row)==='ADDON')row.pricingMode=stat?.pricingMode||'INCLUDED'
   }
   if(form.docType==='COST_ADJUST'){
     row.qty=Number(product.onHandQty||0)
@@ -1054,7 +1102,8 @@ function pricingModeChanged(row){if(isAccessoryPackaging(row))row.pricingMode='I
 function addNormalItem(){form.items.push(form.docType==='PURCHASE_IN'?blankPurchaseItem():blankItem())}
 async function removeItem(index){
   const row=form.items[index]
-  if(form.docType==='SALES_OUT'&&normalizedSaleRole(row)==='MAIN'){
+  const groupedDocument=form.docType==='SALES_OUT'||isUnlinkedInfluencerReturn()
+  if(groupedDocument&&normalizedSaleRole(row)==='MAIN'){
     const groupItems=form.items.filter(item=>item.bundleGroupNo===row.bundleGroupNo)
     if(groupItems.length>1)await proxy.$modal.confirm(translateText("删除主商品会同时删除组合{0}的搭售商品，确认继续吗？", [row.bundleGroupNo]))
     form.items=form.items.filter(item=>item.bundleGroupNo!==row.bundleGroupNo)
@@ -1062,7 +1111,7 @@ async function removeItem(index){
   }
   const groupNo=row.bundleGroupNo
   form.items.splice(index,1)
-  if(form.docType==='SALES_OUT'&&normalizedSaleRole(row)==='ADDON'&&!form.items.some(item=>normalizedSaleRole(item)==='ADDON'&&item.bundleGroupNo===groupNo)){
+  if(groupedDocument&&normalizedSaleRole(row)==='ADDON'&&!form.items.some(item=>normalizedSaleRole(item)==='ADDON'&&item.bundleGroupNo===groupNo)){
     const main=form.items.find(item=>normalizedSaleRole(item)==='MAIN'&&item.bundleGroupNo===groupNo)
     if(main){main.bundleGroupNo=null;main.saleRole='NORMAL';main.pricingMode='SEPARATE'}
   }
@@ -1506,12 +1555,13 @@ function validateDocument(requireSubmit=false){
   if(form.docType==='SUPPLIER_RETURN'&&!form.influencerId){proxy.$modal.msgError(translateText("供应商退货请先选择达人/主播"));return false}
   if(form.docType==='SUPPLIER_RETURN'&&!form.sourceDocumentId){proxy.$modal.msgError(translateText("供应商退货必须选择原采购单"));return false}
   if(form.docType==='CUSTOMER_RETURN'&&!form.influencerId){proxy.$modal.msgError(translateText("客户退货请先选择达人/主播"));return false}
-  if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&form.items.some(x=>productOf(x)?.productType!=='FINISHED'||!isActiveCustomerReturnBinding(x.productId))){proxy.$modal.msgError(translateText("客户退货只能选择当前达人已绑定的成品商品"));return false}
+  if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&form.items.some(x=>!isAllowedCustomerReturnProduct(x))){proxy.$modal.msgError(translateText("客户退货只能选择当前达人已绑定的成品，搭售退货只能选择历史上随该成品售出的配件或赠品"));return false}
+  if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&!customerReturnBundlesValid()){proxy.$modal.msgError(translateText("每个退货组合必须包含一个成品主商品和至少一个搭售商品"));return false}
   if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&form.items.some(x=>Number(x.qty||0)>Number(x.remainingReturnQty||0))){proxy.$modal.msgError(translateText("退货数量不能超过剩余可退数量"));return false}
   if(form.docType==='CUSTOMER_RETURN'&&(form.actualRefundAmount===null||Number(form.actualRefundAmount)<0)){proxy.$modal.msgError(translateText("请填写实际退款总额"));return false}
   if(form.docType==='SALES_OUT'&&!form.influencerId){proxy.$modal.msgError(translateText("销售出库必须选择达人/主播"));return false}
   if(form.docType==='SALES_OUT'&&form.items.some(x=>x.productId&&!isAllowedSalesProduct(x))){proxy.$modal.msgError(translateText('销售商品需完成达人绑定；搭售仅可选择有库存的配件或当前达人已绑定的赠品'));return false}
-  if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&form.items.some(x=>Number(x.unitPrice||0)<=0)){proxy.$modal.msgError(translateText("未关联原销售单时，请填写每件计价商品的实际退款单价"));return false}
+  if(form.docType==='CUSTOMER_RETURN'&&!form.sourceDocumentId&&form.items.some(x=>Number(x.unitPrice||0)<=0)){proxy.$modal.msgError(translateText("未关联原销售单时，请填写每件商品的实际退款单价"));return false}
   if(form.docType==='SALES_OUT'&&form.items.some(x=>normalizedPricingMode(x)!=='INCLUDED'&&Number(x.unitPrice||0)<=0)){proxy.$modal.msgError(translateText('请在达人档案配置商品直播价，并重新选择该商品'));return false}
   if(form.docType==='RETURN_INSPECT'&&!form.influencerId){proxy.$modal.msgError(translateText('退货质检请先选择达人/主播'));return false}
   if(form.docType==='RETURN_INSPECT'&&!form.sourceDocumentId){proxy.$modal.msgError(translateText("退货质检必须选择原客户退货单"));return false}
