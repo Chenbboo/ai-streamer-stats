@@ -4,6 +4,8 @@ import static com.ruoyi.business.attendance.FeishuAttendanceClient.map;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -15,6 +17,7 @@ import com.ruoyi.business.mapper.BusinessFeishuMapper;
 @EnableScheduling
 public class FeishuAttendancePolling
 {
+    private static final Logger LOG=LoggerFactory.getLogger(FeishuAttendancePolling.class);
     @Value("${FEISHU_ATTENDANCE_POLL_ENABLED:false}") private boolean enabled;
     @Value("${FEISHU_ATTENDANCE_POLL_LOOKBACK_DAYS:3}") private int lookbackDays = 3;
     private final BusinessFeishuService service;
@@ -29,11 +32,18 @@ public class FeishuAttendancePolling
         if(!enabled)return;
         for(Map<String,Object> c:mapper.connections())
         {
-            if(!provider.isConfigured(String.valueOf(c.get("tenantKey")))||(c.get("runningRunId")!=null&&(c.get("leaseUntil")==null||!BusinessFeishuService.expired(c.get("leaseUntil")))))continue;
-            LocalDate today=LocalDate.now(ZoneId.of(String.valueOf(c.get("timezone"))));
-            int days=Math.max(1,Math.min(7,lookbackDays));
-            try { service.startSync(((Number)c.get("connectionId")).longValue(),map("windowStart",today.minusDays(days-1).toString(),"windowEnd",today.toString()),0L); }
-            catch(Exception ignored) { /* Detailed run outcome is retained by the service; never log provider payloads. */ }
+            try
+            {
+                if(!provider.isConfigured(String.valueOf(c.get("tenantKey")))||(c.get("runningRunId")!=null&&(c.get("leaseUntil")==null||!BusinessFeishuService.expired(c.get("leaseUntil")))))continue;
+                LocalDate today=LocalDate.now(ZoneId.of(String.valueOf(c.get("timezone"))));
+                int days=Math.max(1,Math.min(7,lookbackDays));
+                service.startScheduledSync(((Number)c.get("connectionId")).longValue(),map("windowStart",today.minusDays(days-1).toString(),"windowEnd",today.toString()));
+            }
+            catch(Exception failure)
+            {
+                // Preparation can fail before a run exists. Never log exception messages or provider payloads.
+                LOG.warn("FEISHU_POLL_START_FAILED connectionId={}, errorType={}",c.get("connectionId"),failure.getClass().getSimpleName());
+            }
         }
     }
 }

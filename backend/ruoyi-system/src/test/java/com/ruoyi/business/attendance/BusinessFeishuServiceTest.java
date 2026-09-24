@@ -7,6 +7,7 @@ import static org.mockito.Mockito.*;
 import java.sql.Date;
 import java.time.LocalDate;
 import java.util.*;
+import java.util.concurrent.Executor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -219,6 +220,77 @@ class BusinessFeishuServiceTest
         when(mapper.connection(1L)).thenReturn(connection());
         assertThrows(ServiceException.class,()->service.sync(1L,map("windowStart","2026-09-01","windowEnd","2026-09-07"),1L));
         verify(mapper,never()).insertRun(anyMap());verify(provider,never()).query(anyString(),anyString(),anyString(),anyList(),any());
+    }
+    @Test void pollingWithRealServiceCompletesAndAuditsAsSystemWithoutUserGrants()
+    {
+        Map<String,Object> c=connection();
+        when(mapper.connections()).thenReturn(Collections.singletonList(c));
+        when(mapper.connection(1L)).thenReturn(c);
+        Map<String,Object> running=connection();running.put("runningRunId",10L);
+        when(mapper.lockConnection(1L)).thenReturn(c,running);
+        when(provider.isConfigured("tenant")).thenReturn(true);
+        when(mapper.mappings(1L)).thenReturn(Collections.singletonList(map("mappingId",3L,"userId",7L,
+            "externalUserId","u1","effectiveFrom",Date.valueOf("2026-01-01"))));
+        doAnswer(inv->{((Map<String,Object>)inv.getArgument(0)).put("runId",10L);return 1;}).when(mapper).insertRun(anyMap());
+        when(mapper.acquireRun(anyMap())).thenReturn(1);
+        when(provider.query(anyString(),anyString(),anyString(),anyList(),any())).thenReturn(Collections.emptyList());
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"executor",(Executor)Runnable::run);
+        FeishuAttendancePolling polling=new FeishuAttendancePolling(service,mapper,provider);
+        org.springframework.test.util.ReflectionTestUtils.setField(polling,"enabled",true);
+
+        polling.poll();
+
+        ArgumentCaptor<Map<String,Object>> started=ArgumentCaptor.forClass(Map.class);
+        verify(mapper).insertRun(started.capture());assertEquals(0L,started.getValue().get("actorId"));
+        verify(mapper).insertAudit(argThat(row->"START_SYNC".equals(row.get("action"))&&Long.valueOf(0L).equals(row.get("actorId"))));
+        ArgumentCaptor<Map<String,Object>> finished=ArgumentCaptor.forClass(Map.class);
+        verify(mapper).releaseRun(finished.capture());
+        assertEquals("COMPLETE",finished.getValue().get("status"));
+        assertEquals(9,finished.getValue().get("completedChunks"));
+        verifyNoInteractions(companyAccess);
+    }
+    @Test void manualSyncRejectsSystemActorAndReadOnlyUsersBeforeCreatingRun()
+    {
+        when(mapper.connection(1L)).thenReturn(connection());
+        when(companyAccess.allowed(8L,110L,"ATTENDANCE_READ")).thenReturn(true);
+        Map<String,Object> input=map("windowStart","2026-09-07","windowEnd","2026-09-07");
+        for(Long actor:Arrays.asList(0L,7L,8L))
+            assertThrows(ServiceException.class,()->service.startSync(1L,input,actor));
+        verify(mapper,never()).insertRun(anyMap());verifyNoInteractions(provider);
+    }
+    @Test void manualSyncStillQueuesForAdministratorAndCompanyIntegrationManager()
+    {
+        when(mapper.connection(1L)).thenReturn(connection());
+        when(mapper.lockConnection(1L)).thenReturn(connection());
+        when(provider.isConfigured("tenant")).thenReturn(true);
+        when(mapper.mappings(1L)).thenReturn(Collections.singletonList(map("mappingId",3L)));
+        when(mapper.acquireRun(anyMap())).thenReturn(1);
+        doAnswer(inv->{((Map<String,Object>)inv.getArgument(0)).put("runId",10L);return 1;}).when(mapper).insertRun(anyMap());
+        Executor executor=mock(Executor.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"executor",executor);
+        for(Long actor:Arrays.asList(1L,9L))
+            assertEquals("RUNNING",service.startSync(1L,map("windowStart","2026-09-07","windowEnd","2026-09-07"),actor).get("status"));
+        ArgumentCaptor<Map<String,Object>> started=ArgumentCaptor.forClass(Map.class);
+        verify(mapper,times(2)).insertRun(started.capture());
+        assertEquals(1L,started.getAllValues().get(0).get("actorId"));
+        assertEquals(9L,started.getAllValues().get(1).get("actorId"));
+        verify(executor,times(2)).execute(any(Runnable.class));
+    }
+    @Test void scheduledSyncStillRequiresCredentialsMappingsBoundedWindowAndFreeLease()
+    {
+        when(mapper.connection(1L)).thenReturn(connection());
+        Map<String,Object> input=map("windowStart","2026-09-07","windowEnd","2026-09-07");
+        assertThrows(ServiceException.class,()->service.startScheduledSync(1L,input));
+        when(provider.isConfigured("tenant")).thenReturn(true);
+        assertThrows(ServiceException.class,()->service.startScheduledSync(1L,map("windowStart","2026-09-01","windowEnd","2026-09-08")));
+        Map<String,Object> running=connection();running.put("runningRunId",10L);
+        running.put("leaseUntil",java.time.LocalDateTime.now().plusMinutes(20));
+        when(mapper.lockConnection(1L)).thenReturn(running);
+        assertThrows(ServiceException.class,()->service.startScheduledSync(1L,input));
+        when(mapper.lockConnection(1L)).thenReturn(connection());
+        assertThrows(ServiceException.class,()->service.startScheduledSync(1L,input));
+        verify(mapper,never()).insertRun(anyMap());
+        verify(provider,never()).query(anyString(),anyString(),anyString(),anyList(),any());
     }
     @Test void successfulReplayIsIdempotentAndPartialFailureDoesNotAdvanceCompleteWatermark()
     {

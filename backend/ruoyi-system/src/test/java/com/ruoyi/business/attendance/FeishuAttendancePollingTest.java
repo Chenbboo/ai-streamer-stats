@@ -24,7 +24,7 @@ class FeishuAttendancePollingTest {
         when(mapper.connections()).thenReturn(Arrays.asList(
             map("connectionId",1L,"tenantKey","t","timezone","Asia/Shanghai","runningRunId",9L,"leaseUntil",LocalDateTime.now().minusMinutes(1)),
             map("connectionId",2L,"tenantKey","t","timezone","Asia/Shanghai","runningRunId",10L,"leaseUntil",LocalDateTime.now().plusMinutes(1))));
-        polling.poll();verify(service).startSync(eq(1L),anyMap(),eq(0L));verifyNoMoreInteractions(service);
+        polling.poll();verify(service).startScheduledSync(eq(1L),anyMap());verifyNoMoreInteractions(service);
     }
     @Test void enabledPollingIncludesTodayAndBoundsReplayToSevenDays() {
         BusinessFeishuService service=mock(BusinessFeishuService.class);
@@ -38,10 +38,36 @@ class FeishuAttendancePollingTest {
         ReflectionTestUtils.setField(polling,"lookbackDays",99);
         polling.poll();
         ArgumentCaptor<Map<String,Object>> args=ArgumentCaptor.forClass(Map.class);
-        verify(service).startSync(eq(1L),args.capture(),eq(0L));
+        verify(service).startScheduledSync(eq(1L),args.capture());
         LocalDate today=LocalDate.now(ZoneId.of("Asia/Shanghai"));
         assertEquals(today.toString(),args.getValue().get("windowEnd"));
         assertEquals(today.minusDays(6).toString(),args.getValue().get("windowStart"));
         verifyNoMoreInteractions(service);
+    }
+    @Test void failedStartIsLoggedWithoutSensitiveMessageAndDoesNotBlockOtherConnections() {
+        BusinessFeishuService service=mock(BusinessFeishuService.class);
+        BusinessFeishuMapper mapper=mock(BusinessFeishuMapper.class);
+        AttendanceProvider provider=mock(AttendanceProvider.class);
+        FeishuAttendancePolling polling=new FeishuAttendancePolling(service,mapper,provider);
+        ReflectionTestUtils.setField(polling,"enabled",true);
+        when(mapper.connections()).thenReturn(Arrays.asList(
+            map("connectionId",1L,"tenantKey","t","timezone","Asia/Shanghai"),
+            map("connectionId",2L,"tenantKey","t","timezone","Asia/Shanghai")));
+        when(provider.isConfigured("t")).thenReturn(true);
+        when(service.startScheduledSync(eq(1L),anyMap())).thenThrow(new IllegalStateException("private-provider-payload"));
+        ch.qos.logback.classic.Logger logger=(ch.qos.logback.classic.Logger)org.slf4j.LoggerFactory.getLogger(FeishuAttendancePolling.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> logs=new ch.qos.logback.core.read.ListAppender<>();
+        logs.start();logger.addAppender(logs);
+        try {
+            polling.poll();
+            verify(service).startScheduledSync(eq(2L),anyMap());
+            assertEquals(1,logs.list.size());
+            ch.qos.logback.classic.spi.ILoggingEvent event=logs.list.get(0);
+            assertEquals(ch.qos.logback.classic.Level.WARN,event.getLevel());
+            assertTrue(event.getFormattedMessage().contains("FEISHU_POLL_START_FAILED connectionId=1"));
+            assertTrue(event.getFormattedMessage().contains("IllegalStateException"));
+            assertFalse(event.getFormattedMessage().contains("private-provider-payload"));
+            assertNull(event.getThrowableProxy());
+        } finally { logger.detachAppender(logs);logs.stop(); }
     }
 }

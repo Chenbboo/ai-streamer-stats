@@ -239,6 +239,17 @@ public class BusinessFeishuService
     public Map<String,Object> startSync(Long connectionId,Map<String,Object> input,Long actor)
     {
         requireIntegration(connectionId,actor);
+        return enqueueSync(connectionId,input,actor);
+    }
+
+    /** Internal scheduler entry only; system actor 0 is an audit identity, not a user permission. */
+    Map<String,Object> startScheduledSync(Long connectionId,Map<String,Object> input)
+    {
+        return enqueueSync(connectionId,input,0L);
+    }
+
+    private Map<String,Object> enqueueSync(Long connectionId,Map<String,Object> input,Long actor)
+    {
         Map<String,Object> prepared=prepareSync(connectionId,input,actor);
         Map<String,Object> run=(Map<String,Object>)prepared.get("run");
         try
