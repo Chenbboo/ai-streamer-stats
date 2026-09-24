@@ -8,7 +8,7 @@ test('only checked fields are sent, not stale product rows or unchecked defaults
     { productIds: [1, 2], changes: { productType: 'SAMPLE' } })
 })
 test('zero and deliberate empty values are retained', () => {
-  const changes = { warningQty: 0, defaultPackFee: 0, category: '', imageUrls: '' }
+  const changes = { warningQty: 0, imageUrls: '' }
   assert.deepEqual(buildProductBatchRequest(rows, Object.keys(changes), changes, true).changes, changes)
 })
 test('basic-only custom permission can edit name or image but not protected fields', () => {
@@ -23,7 +23,7 @@ test('empty selection, duplicate ids and unselected fields cannot be saved', () 
 })
 test('invalid values cannot be saved', () => {
   for (const [key, value] of [['productName', ' '], ['unit', ''], ['status', '3'], ['specification', 'x'],
-    ['warningQty', 1.5], ['warningQty', undefined], ['defaultPackFee', -1], ['defaultPackFee', 1.001]]) {
+    ['warningQty', 1.5], ['warningQty', undefined], ['warningQty', -1]]) {
     assert.throws(() => buildProductBatchRequest(rows, [key], { [key]: value }, true))
   }
 })

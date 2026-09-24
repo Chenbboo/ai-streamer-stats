@@ -35,6 +35,8 @@ public interface JewelryErpMapper
 
     List<Map<String, Object>> selectSupplierList(Map<String, Object> query);
     Map<String, Object> selectSupplierById(Long supplierId);
+    Map<String, Object> selectSupplierByCode(String supplierCode);
+    List<Map<String, Object>> selectSuppliersByName(String supplierName);
     int insertSupplier(Map<String, Object> supplier);
     int updateSupplier(Map<String, Object> supplier);
 
@@ -49,6 +51,7 @@ public interface JewelryErpMapper
         @Param("influencerCode") String influencerCode, @Param("updateBy") String updateBy);
     int updateInfluencer(Map<String, Object> influencer);
     List<Map<String, Object>> selectInfluencerProductPrices(Long influencerId);
+    List<Map<String, Object>> selectInfluencerBindingsByProductId(Long productId);
     int insertInfluencerBinding(Map<String, Object> binding);
     int updateInfluencerBinding(Map<String, Object> binding);
     Map<String, Object> selectProductBySkuAndType(@Param("sku") String sku,
@@ -105,11 +108,14 @@ public interface JewelryErpMapper
         @Param("excludeDocumentId") Long excludeDocumentId);
     int selectSupplierReturnedQtyBySourceItem(@Param("sourceItemId") Long sourceItemId,
         @Param("excludeDocumentId") Long excludeDocumentId);
-    List<JewelryDocument> selectSupplierReturnSourceList(Long supplierId);
+    List<JewelryDocument> selectSupplierReturnSourceList(@Param("influencerId") Long influencerId,
+        @Param("supplierId") Long supplierId);
     List<JewelryDocumentItem> selectSupplierReturnSourceItems(@Param("sourceDocumentId") Long sourceDocumentId,
         @Param("excludeDocumentId") Long excludeDocumentId);
     List<JewelryDocumentItem> selectCustomerReturnSourceItems(@Param("sourceDocumentId") Long sourceDocumentId,
         @Param("excludeDocumentId") Long excludeDocumentId);
+    List<Map<String, Object>> selectCustomerReturnProductStats(@Param("influencerId") Long influencerId,
+        @Param("excludeDocumentId") Long excludeDocumentId, @Param("productId") Long productId);
     int selectInspectedQtyBySourceItem(@Param("sourceItemId") Long sourceItemId,
         @Param("excludeDocumentId") Long excludeDocumentId);
     List<JewelryDocumentItem> selectReturnInspectionSourceItems(@Param("sourceDocumentId") Long sourceDocumentId,

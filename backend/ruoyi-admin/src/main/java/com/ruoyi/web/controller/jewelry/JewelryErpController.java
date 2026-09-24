@@ -164,6 +164,23 @@ public class JewelryErpController extends BaseController
         return success(rows);
     }
 
+    @PreAuthorize("@ss.hasPermi('jewelry:product:list') and @ss.hasPermi('jewelry:influencer:list')")
+    @GetMapping("/product/{id}/bindings")
+    public AjaxResult productBindings(@PathVariable Long id)
+    {
+        Map<String, Object> detail = service.getProductBindingDetail(id);
+        if (isMakerOnly())
+        {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> product = (Map<String, Object>) detail.get("product");
+            product.remove("avgCost");
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> bindings = (List<Map<String, Object>>) detail.get("bindings");
+            removeKeys(bindings, "unitCost");
+        }
+        return success(detail);
+    }
+
     @PreAuthorize("@ss.hasAnyPermi('jewelry:product:add,jewelry:product:edit,jewelry:product:basic-edit')")
     @PostMapping("/product")
     public AjaxResult saveProduct(@RequestBody Map<String, Object> body)
@@ -189,7 +206,7 @@ public class JewelryErpController extends BaseController
         if (string(body.get("sku")).isEmpty() || string(body.get("productName")).isEmpty())
             return error("SKU和商品名称不能为空");
         String productType = defaultString(body.get("productType"), "FINISHED");
-        if (!Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE", "SAMPLE").contains(productType))
+        if (!Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE", "SAMPLE", "GIFT").contains(productType))
             return error("商品类型不正确");
         body.put("productType", productType);
         body.put("imageUrl", string(body.get("imageUrl")));
@@ -299,6 +316,12 @@ public class JewelryErpController extends BaseController
     public AjaxResult saveInfluencerBindings(@PathVariable Long id, @RequestBody List<Map<String, Object>> bindings)
     {
         if (!hasPermission("jewelry:influencer:price")) return error("无权维护达人商品价格");
+        if (bindings != null && bindings.stream().anyMatch(row -> string(row.get("productId")).isEmpty())
+            && !hasPermission("jewelry:product:add")) return error("新建商品档案需要商品新增权限");
+        if (requestsExistingProductImageUpdate(bindings) && !hasProductImageEditPermission())
+            return error("修改已有商品图片需要商品修改权限");
+        if (bindings != null && bindings.stream().anyMatch(row -> row.get("newSupplier") != null)
+            && !hasPermission("jewelry:supplier:add")) return error("新增供应商档案需要供应商新增权限");
         service.saveInfluencerBindings(id, bindings, SecurityUtils.getUserId(), SecurityUtils.getUsername());
         return success();
     }
@@ -334,6 +357,12 @@ public class JewelryErpController extends BaseController
             result.put("rows", checked);
             return success(result);
         }
+        if (checked.stream().anyMatch(row -> string(row.get("productId")).isEmpty())
+            && !hasPermission("jewelry:product:add")) return error("新建商品档案需要商品新增权限");
+        if (requestsExistingProductImageUpdate(checked) && !hasProductImageEditPermission())
+            return error("修改已有商品图片需要商品修改权限");
+        if (checked.stream().anyMatch(row -> row.get("newSupplier") != null)
+            && !hasPermission("jewelry:supplier:add")) return error("新增供应商档案需要供应商新增权限");
         service.saveInfluencerBindings(id, checked, SecurityUtils.getUserId(), SecurityUtils.getUsername());
         result.put("count", checked.size());
         return success(result);
@@ -346,36 +375,16 @@ public class JewelryErpController extends BaseController
     {
         if (!hasPermission("jewelry:influencer:price")) return error("无权导入达人商品绑定");
         List<Map<String, Object>> bindings = influencerExcelService.parse(file);
+        if (bindings.stream().anyMatch(row -> string(row.get("productId")).isEmpty())
+            && !hasPermission("jewelry:product:add")) return error("新建商品档案需要商品新增权限");
+        if (requestsExistingProductImageUpdate(bindings) && !hasProductImageEditPermission())
+            return error("修改已有商品图片需要商品修改权限");
         service.saveInfluencerBindings(id, bindings, SecurityUtils.getUserId(), SecurityUtils.getUsername());
         return success(bindings.size());
     }
 
     @PreAuthorize("@ss.hasPermi('jewelry:influencer:list')")
-    @GetMapping("/influencer/{id}/bundle-configs")
-    public AjaxResult influencerBundleConfigs(@PathVariable Long id)
-    {
-        return success(service.listInfluencerBundleConfigs(id));
-    }
 
-    @PreAuthorize("@ss.hasPermi('jewelry:influencer:price')")
-    @PostMapping("/influencer/{id}/bundle-configs")
-    public AjaxResult saveInfluencerBundleConfig(@PathVariable Long id, @RequestBody Map<String, Object> body)
-    {
-        if (!hasPermission("jewelry:influencer:price")) return error("无权维护达人搭售配置");
-        service.saveInfluencerBundleConfig(id, body, SecurityUtils.getUsername());
-        return success();
-    }
-
-    @PreAuthorize("@ss.hasPermi('jewelry:influencer:price')")
-    @DeleteMapping("/influencer/{id}/bundle-configs/{configId}")
-    public AjaxResult deleteInfluencerBundleConfig(@PathVariable Long id, @PathVariable Long configId)
-    {
-        if (!hasPermission("jewelry:influencer:price")) return error("无权维护达人搭售配置");
-        service.deleteInfluencerBundleConfig(id, configId);
-        return success();
-    }
-
-    @PreAuthorize("@ss.hasPermi('jewelry:influencer:list')")
     @GetMapping("/influencer/{id}/price-history")
     public AjaxResult influencerPriceHistory(@PathVariable Long id)
     {
@@ -539,11 +548,22 @@ public class JewelryErpController extends BaseController
             hasPermission("jewelry:product:add")));
     }
 
+    @PreAuthorize("@ss.hasPermi('jewelry:document:add')")
+    @PostMapping("/document/import-review")
+    @SuppressWarnings("unchecked")
+    public AjaxResult documentImportReview(@RequestBody Map<String, Object> body)
+    {
+        Object rows = body.get("rows");
+        if (!(rows instanceof List)) return error("导入明细格式错误");
+        return success(documentExcelService.review(String.valueOf(body.get("docType")),
+            (List<Map<String, Object>>) rows, hasPermission("jewelry:product:add")));
+    }
+
     @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
     @GetMapping("/document/supplier-return-sources")
-    public AjaxResult supplierReturnSources(@RequestParam Long supplierId)
+    public AjaxResult supplierReturnSources(@RequestParam Long influencerId, @RequestParam Long supplierId)
     {
-        List<JewelryDocument> sources = service.listSupplierReturnSources(supplierId);
+        List<JewelryDocument> sources = service.listSupplierReturnSources(influencerId, supplierId);
         if (isMakerOnly()) redactDocumentFinance(sources);
         return success(sources);
     }
@@ -566,6 +586,14 @@ public class JewelryErpController extends BaseController
         JewelryDocument source = service.getCustomerReturnSource(id, excludeDocumentId);
         if (isMakerOnly()) redactDocumentFinance(source);
         return success(source);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
+    @GetMapping("/document/customer-return-products/{influencerId}")
+    public AjaxResult customerReturnProducts(@PathVariable Long influencerId,
+        @RequestParam(required = false) Long excludeDocumentId)
+    {
+        return success(service.listCustomerReturnProductStats(influencerId, excludeDocumentId));
     }
 
     @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
@@ -738,6 +766,16 @@ public class JewelryErpController extends BaseController
     {
         SysUser user = SecurityUtils.getLoginUser().getUser();
         return user.isAdmin() || SecurityUtils.getLoginUser().getPermissions().contains(permission);
+    }
+    private boolean hasProductImageEditPermission()
+    {
+        return hasPermission("jewelry:product:edit") || hasPermission("jewelry:product:basic-edit");
+    }
+    private boolean requestsExistingProductImageUpdate(List<Map<String, Object>> rows)
+    {
+        return rows != null && rows.stream().anyMatch(row -> !string(row.get("productId")).isEmpty()
+            && (Boolean.TRUE.equals(row.get("imageChanged"))
+                || "true".equalsIgnoreCase(string(row.get("imageChanged")))));
     }
     private String approvalRole(Long documentId)
     {

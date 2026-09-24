@@ -68,8 +68,6 @@
             <div class="new-product-grid">
               <el-form-item :label="$tr(&quot;新成品SKU&quot;)" prop="newOutputProduct.sku"><el-input v-model="form.newOutputProduct.sku" maxlength="64" :placeholder="$tr(&quot;请输入唯一SKU&quot;)"/></el-form-item>
               <el-form-item :label="$tr(&quot;新成品名称&quot;)" prop="newOutputProduct.productName"><el-input v-model="form.newOutputProduct.productName" maxlength="128"/></el-form-item>
-              <el-form-item :label="$tr(&quot;分类&quot;)"><el-input v-model="form.newOutputProduct.category" maxlength="64"/></el-form-item>
-              <el-form-item :label="$tr(&quot;规格类型&quot;)" prop="newOutputProduct.specification"><el-select v-model="form.newOutputProduct.specification" style="width:100%"><el-option v-for="item in jewelrySpecifications" :key="item.value" :label="item.label" :value="item.value"/></el-select></el-form-item>
               <el-form-item :label="$tr(&quot;单位&quot;)"><el-input v-model="form.newOutputProduct.unit" maxlength="16"/></el-form-item>
               <el-form-item :label="$tr(&quot;库存预警值&quot;)"><el-input-number v-model="form.newOutputProduct.warningQty" :min="0" :precision="0"/></el-form-item>
             </div>
@@ -161,7 +159,6 @@
 import { translateText } from '@/locales/translate'
 
 import {listJewelryDocuments,getJewelryDocument,saveJewelryDocument,submitJewelryDocument,withdrawJewelryDocument,listJewelryProductOptions} from '@/api/jewelry/erp'
-import {jewelrySpecifications} from '@/utils/jewelryProduct'
 const {proxy}=getCurrentInstance()
 const loading=ref(false),rows=ref([]),total=ref(0),dialog=ref(false),drawer=ref(false),saving=ref(false),formRef=ref(),detail=ref(null)
 const products=ref([])
@@ -169,10 +166,10 @@ const statuses=[{value:'DRAFT',label:translateText("草稿")},{value:'PENDING_FI
 const outputModes=[{label:translateText("选择已有成品"),value:'EXISTING'},{label:translateText("新建成品"),value:'NEW'}]
 const query=reactive({pageNum:1,pageSize:10,docNo:'',docType:'ASSEMBLY',status:''})
 const blankComponent=()=>({productId:null,itemRole:'COMPONENT',qty:1})
-const blankNewProduct=()=>({sku:'',productName:'',category:'',specification:'普通',unit:'件',warningQty:5})
+const blankNewProduct=()=>({sku:'',productName:'',unit:'件',warningQty:5})
 const blankForm=()=>({documentId:null,bizDate:today(),outputMode:'EXISTING',outputProductId:null,newOutputProduct:blankNewProduct(),outputQty:1,outputImages:'',components:[blankComponent()],laborFee:0,processingFee:0,otherFee:0,remark:''})
 const form=reactive(blankForm())
-const rules={bizDate:[{required:true,message:translateText("请选择业务日期")}],outputProductId:[{required:true,message:translateText("请选择目标成品")}],'newOutputProduct.sku':[{required:true,message:translateText("请输入新成品SKU")}],'newOutputProduct.productName':[{required:true,message:translateText("请输入新成品名称")}],'newOutputProduct.specification':[{required:true,type:'enum',enum:jewelrySpecifications.map(item=>item.value),message:translateText("请选择规格类型")}],outputQty:[{required:true,message:translateText("请输入组装数量")}]}
+const rules={bizDate:[{required:true,message:translateText("请选择业务日期")}],outputProductId:[{required:true,message:translateText("请选择目标成品")}],'newOutputProduct.sku':[{required:true,message:translateText("请输入新成品SKU")}],'newOutputProduct.productName':[{required:true,message:translateText("请输入新成品名称")}],outputQty:[{required:true,message:translateText("请输入组装数量")}]}
 const baseUrl=import.meta.env.VITE_APP_BASE_API
 const imageSrc=url=>!url?'':/^https?:/i.test(url)?url:baseUrl+url
 const firstImage=item=>String(item.imageUrl||item.imageUrls||'').split(',').map(v=>v.trim()).find(Boolean)||''

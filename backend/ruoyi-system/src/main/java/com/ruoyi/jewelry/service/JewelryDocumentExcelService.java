@@ -117,16 +117,20 @@ public class JewelryDocumentExcelService
             if ("PURCHASE_IN".equals(docType))
             {
                 Sheet options = workbook.createSheet("模板选项");
-                String[] productTypes = { "成品商品", "散件商品", "配件商品", "福利商品", "样品商品" };
+                String[] productTypes = { "成品商品", "散件商品", "配件商品", "福利商品", "赠品商品" };
                 for (int i = 0; i < productTypes.length; i++) options.createRow(i).createCell(0).setCellValue(productTypes[i]);
-                options.getRow(0).createCell(1).setCellValue("精品");
-                options.getRow(1).createCell(1).setCellValue("普通");
                 addDropdownValidation(workbook, data, headers, "商品类型（新商品必填）",
                     "ProductTypeOptions", "'模板选项'!$A$1:$A$" + productTypes.length, "商品类型",
-                    "请选择成品商品、散件商品、配件商品、福利商品或样品商品");
-                addDropdownValidation(workbook, data, headers, "规格类型（新商品必填）",
-                    "SpecificationOptions", "'模板选项'!$B$1:$B$2", "规格类型",
-                    "请选择精品或普通");
+                    "请选择成品商品、散件商品、配件商品、福利商品或赠品商品；样品请使用样品入库");
+                workbook.setSheetHidden(workbook.getSheetIndex(options), true);
+            }
+            else if ("SALES_OUT".equals(docType))
+            {
+                Sheet options = workbook.createSheet("模板选项");
+                options.createRow(0).createCell(0).setCellValue("成品商品");
+                addDropdownValidation(workbook, data, headers, "商品类型",
+                    "SalesProductTypeOptions", "'模板选项'!$A$1:$A$1", "商品类型",
+                    "销售出库Excel仅支持选择成品商品");
                 workbook.setSheetHidden(workbook.getSheetIndex(options), true);
             }
             data.createFreezePane(0, 1);
@@ -144,6 +148,93 @@ public class JewelryDocumentExcelService
     }
 
     public Map<String, Object> preview(String docType, InputStream input, boolean allowNewProduct)
+    {
+        return preview(docType, input, allowNewProduct, Collections.emptyMap());
+    }
+
+    /** Recheck edited preview rows with exactly the same rules as the Excel upload. */
+    public Map<String, Object> review(String docType, List<Map<String, Object>> editedRows, boolean allowNewProduct)
+    {
+        requireSupported(docType);
+        if (editedRows == null || editedRows.isEmpty()) throw new ServiceException("没有可导入的商品明细");
+        if (editedRows.size() > MAX_ROWS) throw new ServiceException("单次最多导入" + MAX_ROWS + "行");
+        Map<Integer, String> images = new HashMap<>();
+        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream())
+        {
+            Sheet sheet = workbook.createSheet("导入数据");
+            String[] names = "SALES_OUT".equals(docType)
+                ? new String[] { "SKU", "商品类型", "数量", "成交单价", "包装费/件",
+                    "物流费/件", "鉴定费/件", "其他1/件", "其他2/件", "其他3/件" }
+                : headers(docType);
+            Row header = sheet.createRow(0);
+            for (int i = 0; i < names.length; i++) header.createCell(i).setCellValue(names[i]);
+            header.createCell(names.length).setCellValue("预览行");
+            for (int index = 0; index < editedRows.size(); index++)
+            {
+                Map<String, Object> source = editedRows.get(index);
+                if (source == null) throw new ServiceException("导入明细不能为空");
+                Row target = sheet.createRow(index + 1);
+                for (int column = 0; column < names.length; column++)
+                    target.createCell(column).setCellValue(reviewCell(docType, names[column], source));
+                target.createCell(names.length).setCellValue(index + 1);
+                if ("PURCHASE_IN".equals(docType) || "SAMPLE_IN".equals(docType))
+                {
+                    String image = source.containsKey("imageUrls")
+                        ? firstImage(string(source.get("imageUrls"))) : string(source.get("imageUrl"));
+                    if (!image.isEmpty())
+                    {
+                        if (!image.startsWith("/profile/") || image.contains("..") || image.contains("\\")
+                            || image.contains("?") || image.contains("#"))
+                            throw new ServiceException("商品图片地址无效，请重新上传");
+                        images.put(index + 2, image);
+                    }
+                }
+            }
+            workbook.write(output);
+            Map<String, Object> result = preview(docType, new ByteArrayInputStream(output.toByteArray()),
+                allowNewProduct, images);
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> checked = (List<Map<String, Object>>) result.get("rows");
+            for (int i = 0; i < checked.size(); i++)
+                checked.get(i).put("rowNumber", editedRows.get(i).get("rowNumber"));
+            return result;
+        }
+        catch (ServiceException e) { throw e; }
+        catch (Exception e) { throw new ServiceException("重新校验导入明细失败：" + e.getMessage()); }
+    }
+
+    private String reviewCell(String docType, String header, Map<String, Object> row)
+    {
+        String key;
+        switch (header)
+        {
+            case "SKU": key = "sku"; break;
+            case "商品名称（新商品必填）": key = "productName"; break;
+            case "商品类型（新商品必填）":
+            case "商品类型": key = "productType"; break;
+            case "单位": key = "unit"; break;
+            case "商品": key = "productInput"; break;
+            case "业务日期": key = "bizDate"; break;
+            case "供应商": key = "supplierInput"; break;
+            case "数量": key = "qty"; break;
+            case "采购单价": key = "unitPrice"; break;
+            case "成交单价": key = "unitPrice"; break;
+            case "包装费/件": key = "packFee"; break;
+            case "物流费/件": key = "shipFee"; break;
+            case "鉴定费/件": key = "certFee"; break;
+            case "其他1/件": key = "otherFee1"; break;
+            case "其他2/件": key = "otherFee2"; break;
+            case "其他3/件": key = "otherFee3"; break;
+            case "实盘数量": key = "countedQty"; break;
+            case "调整原因": key = "lineReason"; break;
+            default: return "";
+        }
+        Object value = row.get(key);
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private Map<String, Object> preview(String docType, InputStream input, boolean allowNewProduct,
+        Map<Integer, String> imageOverrides)
     {
         requireSupported(docType);
         try (Workbook workbook = WorkbookFactory.create(input))
@@ -216,8 +307,11 @@ public class JewelryDocumentExcelService
                 String inputType = string(row.get("productType"));
                 String normalizedType = inputType.isEmpty() ? null : normalizeProductType(inputType);
                 if (!inputType.isEmpty() && normalizedType == null)
-                    errors.add("商品类型只能选择成品商品、散件商品、配件商品、福利商品或样品商品");
+                    errors.add("商品类型只能选择成品商品、散件商品、配件商品、福利商品、样品商品或赠品商品");
                 Map<String, Object> product = findProduct(docType, matches, normalizedType);
+                if ("PURCHASE_IN".equals(docType) && ("SAMPLE".equals(normalizedType)
+                    || (product != null && "SAMPLE".equals(string(product.get("productType"))))))
+                    errors.add("样品商品请使用样品入库单据");
                 if (!"SAMPLE_IN".equals(docType) && inputType.isEmpty() && matches.size() > 1)
                     errors.add("同一SKU存在多个商品类型，请填写商品类型");
                 if ("SAMPLE_IN".equals(docType) && !legacySampleSkuHeader)
@@ -247,7 +341,6 @@ public class JewelryDocumentExcelService
                     {
                         row.put("productName", row.get("productInput"));
                         row.put("productType", "SAMPLE");
-                        row.put("specification", "普通");
                         row.put("unit", "件");
                     }
                 }
@@ -258,11 +351,10 @@ public class JewelryDocumentExcelService
                     if (!allowNewProduct) errors.add("当前账号无权新增商品档案");
                     if (string(row.get("productName")).isEmpty()) errors.add("新商品必须填写商品名称");
                     String productType = normalizeProductType(string(row.get("productType")));
-                    if (productType == null) errors.add("新商品类型必须选择成品商品、散件商品、配件商品、福利商品或样品商品");
+                    if (productType == null) errors.add("新商品类型必须选择成品商品、散件商品、配件商品、福利商品或赠品商品");
+                    else if ("FINISHED".equals(productType) || "GIFT".equals(productType))
+                        errors.add("新成品或赠品请先在达人档案建档并绑定，采购导入不能直接新建");
                     else row.put("productType", productType);
-                    String specification = normalizeSpecification(string(row.get("specification")));
-                    if (specification == null) errors.add("新商品规格类型必须选择精品或普通");
-                    else row.put("specification", specification);
                 }
                 if (!newProduct && "PURCHASE_IN".equals(docType))
                 {
@@ -270,20 +362,14 @@ public class JewelryDocumentExcelService
                     if (!inputType.isEmpty())
                     {
                         String normalized = normalizeProductType(inputType);
-                        if (normalized == null) errors.add("商品类型只能选择成品商品、散件商品、配件商品、福利商品或样品商品");
+                        if (normalized == null) errors.add("商品类型只能选择成品商品、散件商品、配件商品、福利商品、样品商品或赠品商品");
                         else if (!normalized.equals(currentType)) errors.add("已有SKU的商品类型与商品档案不一致");
                     }
                     row.put("productType", currentType);
-                    String inputSpecification = string(row.get("specification"));
-                    String currentSpecification = string(product.get("specification"));
-                    if (!inputSpecification.isEmpty())
-                    {
-                        String normalized = normalizeSpecification(inputSpecification);
-                        if (normalized == null) errors.add("规格类型只能选择精品或普通");
-                        else if (!normalized.equals(currentSpecification)) errors.add("已有SKU的规格类型与商品档案不一致");
-                    }
-                    row.put("specification", currentSpecification);
                 }
+                if ("SALES_OUT".equals(docType) && product != null
+                    && !"FINISHED".equals(string(product.get("productType"))))
+                    errors.add("销售Excel只能导入达人已绑定的成品商品；配件搭售请在表单中添加");
                 if ("SAMPLE_IN".equals(docType))
                 {
                     if (string(row.get("bizDate")).isEmpty()) errors.add("业务日期格式应为yyyy-MM-dd");
@@ -302,11 +388,17 @@ public class JewelryDocumentExcelService
                 if ("PURCHASE_IN".equals(docType))
                 {
                     EmbeddedImage embedded = embeddedImages.get(integer(row.get("rowNumber")) - 1);
+                    String reviewedImage = imageOverrides.get(integer(row.get("rowNumber")));
                     if (embedded != null && embedded.error != null) errors.add(embedded.error);
                     String existingImage = product == null ? "" :
                         defaultString(string(product.get("imageUrl")), firstImage(string(product.get("imageUrls"))));
-                    if (embedded == null && existingImage.isEmpty()) errors.add("商品图片不能为空");
-                    if (embedded != null && embedded.error == null)
+                    if (reviewedImage == null && embedded == null && existingImage.isEmpty()) errors.add("商品图片不能为空");
+                    if (reviewedImage != null)
+                    {
+                        row.put("imageUrl", reviewedImage);
+                        row.put("imageUrls", reviewedImage);
+                    }
+                    else if (embedded != null && embedded.error == null)
                     {
                         String imageUrl = storeEmbeddedImage(embedded);
                         row.put("imageUrl", imageUrl);
@@ -321,8 +413,14 @@ public class JewelryDocumentExcelService
                 if ("SAMPLE_IN".equals(docType))
                 {
                     EmbeddedImage embedded = embeddedImages.get(integer(row.get("rowNumber")) - 1);
+                    String reviewedImage = imageOverrides.get(integer(row.get("rowNumber")));
                     if (embedded != null && embedded.error != null) errors.add(embedded.error);
-                    if (embedded != null && embedded.error == null)
+                    if (reviewedImage != null)
+                    {
+                        row.put("imageUrl", reviewedImage);
+                        row.put("imageUrls", reviewedImage);
+                    }
+                    else if (embedded != null && embedded.error == null)
                     {
                         String imageUrl = storeEmbeddedImage(embedded);
                         row.put("imageUrl", imageUrl);
@@ -418,8 +516,6 @@ public class JewelryDocumentExcelService
         {
             row.put("productName", value(source, columns, "商品名称（新商品必填）", formatter, evaluator).trim());
             row.put("productType", value(source, columns, "商品类型（新商品必填）", formatter, evaluator).trim());
-            row.put("category", value(source, columns, "分类", formatter, evaluator).trim());
-            row.put("specification", value(source, columns, "规格类型（新商品必填）", formatter, evaluator).trim());
             row.put("unit", defaultString(value(source, columns, "单位", formatter, evaluator).trim(), "件"));
             row.put("qty", integerValue(value(source, columns, "数量", formatter, evaluator)));
             BigDecimal purchasePrice = decimalValue(value(source, columns, "采购单价", formatter, evaluator));
@@ -510,11 +606,11 @@ public class JewelryDocumentExcelService
         {
             for (Map<String, Object> product : matches)
                 if (inputType.equals(string(product.get("productType")))) return product;
-            if ("PURCHASE_IN".equals(docType))
+            if ("PURCHASE_IN".equals(docType) && !"SAMPLE".equals(inputType) && !"GIFT".equals(inputType))
             {
                 for (Map<String, Object> product : matches)
-                    if (!"SAMPLE".equals(inputType) && !"SAMPLE".equals(string(product.get("productType"))))
-                        return product;
+                    if (!"SAMPLE".equals(string(product.get("productType")))
+                        && !"GIFT".equals(string(product.get("productType")))) return product;
             }
             return null;
         }
@@ -652,27 +748,27 @@ public class JewelryDocumentExcelService
     {
         if ("PURCHASE_IN".equals(docType))
             return new String[] { "SKU", "商品名称（新商品必填）", "商品类型（新商品必填）",
-                "分类", "规格类型（新商品必填）", "单位", "数量", "采购单价", IMAGE_HEADER };
+                "单位", "数量", "采购单价", IMAGE_HEADER };
         if ("SAMPLE_IN".equals(docType))
             return new String[] { "SKU", "商品", "业务日期", "供应商", SAMPLE_IMAGE_HEADER, "数量" };
         if ("SALES_OUT".equals(docType))
-            return new String[] { "SKU", "数量", "成交单价", "包装费/件", "物流费/件", "鉴定费/件",
-                "其他1/件", "其他2/件", "其他3/件", "商品类型" };
+            return new String[] { "SKU", "商品类型", "数量" };
         return new String[] { "SKU", "实盘数量", "调整原因", "商品类型" };
     }
 
     private List<String> requiredHeaders(String docType)
     {
-        String[] headers = headers(docType);
-        return Arrays.asList(("SALES_OUT".equals(docType) || "STOCK_ADJUST".equals(docType))
-            ? Arrays.copyOf(headers, headers.length - 1) : headers);
+        if ("SALES_OUT".equals(docType)) return Arrays.asList("SKU", "数量");
+        if ("STOCK_ADJUST".equals(docType)) return Arrays.asList("SKU", "实盘数量", "调整原因");
+        return Arrays.asList(headers(docType));
     }
 
     private String[] guide(String docType)
     {
         if ("PURCHASE_IN".equals(docType))
-            return new String[] { "一行填写一个SKU，数量必须为正整数。已有SKU只需填写SKU、数量和采购单价；同一SKU有多个商品类型时须填写商品类型。",
-                "新商品必须填写商品名称、商品类型和规格类型；商品类型从五种固定选项中选择，规格类型只能选择“精品”或“普通”。",
+            return new String[] { "导入成品或赠品商品时，先在单据选择达人，再选择其绑定的供应商，并确保商品已绑定该达人和供应商；导入其他商品类型时只需先选择供应商。",
+                "一行填写一个SKU，数量必须为正整数。已有SKU只需填写SKU、数量和采购单价；同一SKU有多个商品类型时须填写商品类型。",
+                "新商品仅支持散件、配件或福利商品，须填写商品名称和商品类型；成品及赠品请先在达人档案建档并绑定，样品请使用样品入库。",
                 "每行只能在“商品图片”列插入一张JPG或PNG图片；已有档案图片的SKU可不重复插图。",
                 "图片应完整放在对应单元格内，并设置为随单元格移动和调整大小。",
                 "确认导入时系统会先创建商品档案。单次最多500行，同一商品不可重复；同一SKU的不同商品类型可分行填写。" };
@@ -684,8 +780,10 @@ public class JewelryDocumentExcelService
                 "同一SKU可填写多行，但相同SKU、日期和供应商必须合并数量；数量须为正整数。",
                 "未建档的SKU在确认导入时按填写的商品名称新建样品商品，需商品新增权限。单价和本次入库成本固定为0；仍须提交并审核后入账。单次最多500行。" };
         if ("SALES_OUT".equals(docType))
-            return new String[] { "一行填写一个SKU，SKU必须已存在；同一SKU有多种商品类型时填写商品类型。", "销售数量不能超过当前可用库存。",
-                "费用均按每件填写，未发生费用时填写0。", "单次最多500行，同一商品不可重复。" };
+            return new String[] { "请先在销售出库表单选择达人/主播；Excel只填写该达人已有效绑定的成品SKU和数量。",
+                "同一SKU有多种商品类型时，商品类型填“成品商品”；销售数量不能超过当前可用库存。",
+                "成交价、成本、佣金率、平台扣点率、税率和履约费用由系统按达人商品绑定自动带入，Excel不重复填写。",
+                "配件搭售请导入后在销售表单中手动添加；单次最多500行，同一商品不可重复。" };
         return new String[] { "一行填写一个SKU，SKU必须已存在；同一SKU有多种商品类型时填写商品类型。", "实盘数量必须为大于等于0的整数。",
             "每一行都必须填写调整原因。", "单次最多500行，同一商品不可重复。" };
     }
@@ -717,7 +815,7 @@ public class JewelryDocumentExcelService
         else if ("SAMPLE_IN".equals(docType))
             widths = new int[] { 20, 20, 18, 26, 20, 12 };
         else if ("SALES_OUT".equals(docType))
-            widths = new int[] { 20, 12, 16, 16, 16, 16, 16, 16, 16, 18 };
+            widths = new int[] { 20, 18, 12 };
         else
             widths = new int[] { 20, 14, 36, 18 };
         for (int i = 0; i < headers.length; i++)
@@ -755,7 +853,7 @@ public class JewelryDocumentExcelService
                 else if ("采购单价".equals(header)) cell.setCellStyle(purchasePriceStyle);
                 else if (header.endsWith("/件") || "成交单价".equals(header))
                     cell.setCellStyle(moneyStyle);
-                else if ("商品类型（新商品必填）".equals(header) || "规格类型（新商品必填）".equals(header)
+                else if ("商品类型（新商品必填）".equals(header)
                     || "单位".equals(header) || IMAGE_HEADER.equals(header)
                     || SAMPLE_IMAGE_HEADER.equals(header)) cell.setCellStyle(centerStyle);
                 else cell.setCellStyle(textStyle);
@@ -843,13 +941,7 @@ public class JewelryDocumentExcelService
         if ("配件商品".equals(value) || "配件".equals(value) || "ACCESSORY".equalsIgnoreCase(value)) return "ACCESSORY";
         if ("福利商品".equals(value) || "福利".equals(value) || "WELFARE".equalsIgnoreCase(value)) return "WELFARE";
         if ("样品商品".equals(value) || "样品".equals(value) || "SAMPLE".equalsIgnoreCase(value)) return "SAMPLE";
-        return null;
-    }
-
-    private String normalizeSpecification(String value)
-    {
-        if ("精品".equals(value)) return "精品";
-        if ("普通".equals(value)) return "普通";
+        if ("赠品商品".equals(value) || "赠品".equals(value) || "GIFT".equalsIgnoreCase(value)) return "GIFT";
         return null;
     }
 
@@ -889,6 +981,21 @@ public class JewelryDocumentExcelService
         }
         extractCellImages(sheet, imageColumn, images);
         return images;
+    }
+
+    /** Resolve pictures inserted into an Excel column to stored product image paths. */
+    public Map<Integer, Map<String, String>> importProductImages(XSSFSheet sheet, int imageColumn)
+    {
+        Map<Integer, Map<String, String>> result = new HashMap<>();
+        for (Map.Entry<Integer, EmbeddedImage> entry : extractEmbeddedImages(sheet, imageColumn).entrySet())
+        {
+            Map<String, String> image = new HashMap<>();
+            if (entry.getValue().error != null) image.put("imageError", entry.getValue().error);
+            else try { image.put("imageUrls", storeEmbeddedImage(entry.getValue())); }
+            catch (ServiceException ex) { image.put("imageError", ex.getMessage()); }
+            result.put(entry.getKey(), image);
+        }
+        return result;
     }
 
     private void extractCellImages(XSSFSheet sheet, int imageColumn, Map<Integer, EmbeddedImage> images)

@@ -5,7 +5,7 @@
       <el-table-column prop="docNo" :label="$tr(&quot;单号&quot;)" width="190"/>
       <el-table-column :label="$tr(&quot;类型&quot;)" width="150"><template #default="{row}">{{typeLabel(row.docType)}}</template></el-table-column>
       <el-table-column prop="bizDate" :label="$tr(&quot;业务日期&quot;)" width="110"/>
-      <el-table-column :label="$tr(&quot;业务对象&quot;)" min-width="150"><template #default="{row}">{{isTransfer(row)?`${row.sourceWarehouse || '—'} → ${row.targetWarehouse || '—'}`:row.supplierNameSnapshot || row.itemSupplierNames || row.salesChannel || (row.docType==='ASSEMBLY'?$tr("手工组装成品"):row.docType==='COST_ADJUST'?$tr("库存成本调整"):'—')}}</template></el-table-column>
+      <el-table-column :label="$tr(&quot;业务对象&quot;)" min-width="150"><template #default="{row}">{{isTransfer(row)?`${row.sourceWarehouse || '—'} → ${row.targetWarehouse || '—'}`:row.docType==='SALES_OUT'?(row.influencerName || row.salesChannel || '—'):row.supplierNameSnapshot || row.itemSupplierNames || (row.docType==='ASSEMBLY'?$tr("手工组装成品"):row.docType==='COST_ADJUST'?$tr("库存成本调整"):'—')}}</template></el-table-column>
       <el-table-column prop="totalQty" :label="$tr(&quot;数量&quot;)" width="90"/>
       <el-table-column :label="$tr(&quot;金额/成本&quot;)" width="120" align="right"><template #default="{row}">{{documentMoney(row.docType==='ASSEMBLY'?row.totalCost:row.totalAmount,row)}}</template></el-table-column>
       <el-table-column :label="$tr(&quot;毛利&quot;)" width="120" align="right"><template #default="{row}"><span v-if="isTransfer(row)||['ASSEMBLY','COST_ADJUST'].includes(row.docType)">—</span><el-button v-else link class="profit-link" :class="{loss:Number(row.totalProfit)<0}" :title="$tr(&quot;查看毛利计算明细&quot;)" @click="showProfit(row)">{{money(row.totalProfit)}}</el-button></template></el-table-column>
@@ -20,6 +20,7 @@
         <el-descriptions-item :label="$tr(&quot;单号&quot;)">{{detail.docNo}}</el-descriptions-item>
         <el-descriptions-item :label="$tr(&quot;类型&quot;)">{{typeLabel(detail.docType)}}</el-descriptions-item>
         <el-descriptions-item :label="detail.docType==='SALES_OUT'?$tr(&quot;达人&quot;):$tr(&quot;供应商&quot;)">{{detail.docType==='SALES_OUT'?(detail.influencerName || $tr("未记录")):supplierNames(detail)}}</el-descriptions-item>
+        <el-descriptions-item v-if="detail.docType==='SALES_OUT'" :label="$tr(&quot;供应商名称&quot;)">{{supplierNames(detail)}}</el-descriptions-item>
         <el-descriptions-item v-if="detail.docType==='PURCHASE_IN'" :label="$tr(&quot;约定退货日期&quot;)">{{detail.supplierReturnDate || $tr("按统一退货期限")}}</el-descriptions-item>
         <el-descriptions-item v-if="isTransfer(detail)" :label="$tr(&quot;出库仓库&quot;)">{{detail.sourceWarehouse}}</el-descriptions-item>
         <el-descriptions-item v-if="isTransfer(detail)" :label="$tr(&quot;入库仓库&quot;)">{{detail.targetWarehouse}}</el-descriptions-item>

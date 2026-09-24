@@ -43,7 +43,7 @@ import com.ruoyi.common.config.RuoYiConfig;
 class JewelryDocumentExcelServiceTest
 {
     private static final String[] PURCHASE_HEADERS = new String[] { "SKU", "商品名称（新商品必填）",
-        "商品类型（新商品必填）", "分类", "规格类型（新商品必填）", "单位", "数量", "采购单价", "商品图片" };
+        "商品类型（新商品必填）", "单位", "数量", "采购单价", "商品图片" };
     private static final String[] SALES_HEADERS = new String[] { "SKU", "数量", "成交单价", "包装费/件",
         "物流费/件", "鉴定费/件", "其他1/件", "其他2/件", "其他3/件" };
     private static final String[] SAMPLE_HEADERS = new String[] { "SKU", "商品", "业务日期",
@@ -63,21 +63,41 @@ class JewelryDocumentExcelServiceTest
     Path tempDir;
 
     @Test
+    void bindingImportStoresPictureInsertedInImageColumn() throws Exception
+    {
+        new RuoYiConfig().setProfile(tempDir.toString());
+        try (XSSFWorkbook workbook = new XSSFWorkbook())
+        {
+            XSSFSheet sheet = workbook.createSheet("达人商品绑定");
+            sheet.createRow(0).createCell(14).setCellValue("图片");
+            sheet.createRow(1).createCell(0).setCellValue("SKU-1");
+            int pictureId = workbook.addPicture(PNG, Workbook.PICTURE_TYPE_PNG);
+            XSSFClientAnchor anchor = new XSSFClientAnchor();
+            anchor.setCol1(14);
+            anchor.setRow1(1);
+            anchor.setCol2(15);
+            anchor.setRow2(2);
+            sheet.createDrawingPatriarch().createPicture(anchor, pictureId);
+
+            Map<Integer, Map<String, String>> images = service.importProductImages(sheet, 14);
+
+            assertTrue(images.get(1).get("imageUrls").startsWith("/profile/jewelry/import/"));
+        }
+    }
+
+    @Test
     void purchaseTemplateRestrictsProductTypeToDropdownValues() throws Exception
     {
         try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(service.createTemplate("PURCHASE_IN"))))
         {
             XSSFSheet sheet = workbook.getSheet("导入数据");
-            assertEquals(2, sheet.getDataValidations().size());
+            assertEquals(1, sheet.getDataValidations().size());
             assertEquals("ProductTypeOptions",
                 sheet.getDataValidations().get(0).getValidationConstraint().getFormula1());
-            assertEquals("SpecificationOptions",
-                sheet.getDataValidations().get(1).getValidationConstraint().getFormula1());
             assertTrue(sheet.getDataValidations().get(0).getSuppressDropDownArrow());
-            assertTrue(sheet.getDataValidations().get(1).getSuppressDropDownArrow());
             assertFalse(sheet.getDataValidations().get(0).getShowPromptBox());
-            assertFalse(sheet.getDataValidations().get(1).getShowPromptBox());
             assertTrue(workbook.isSheetHidden(workbook.getSheetIndex("模板选项")));
+            assertEquals("赠品商品", workbook.getSheet("模板选项").getRow(4).getCell(0).getStringCellValue());
             assertEquals(IndexedColors.DARK_BLUE.getIndex(),
                 sheet.getRow(0).getCell(0).getCellStyle().getFillForegroundColor());
             assertEquals(IndexedColors.WHITE.getIndex(),
@@ -87,34 +107,48 @@ class JewelryDocumentExcelServiceTest
             assertEquals(24 * 256, sheet.getColumnWidth(2));
             assertEquals(FillPatternType.NO_FILL, sheet.getRow(1).getCell(2).getCellStyle().getFillPattern());
             assertEquals(HorizontalAlignment.CENTER, sheet.getRow(1).getCell(2).getCellStyle().getAlignment());
-            assertEquals("#,##0.0000", sheet.getRow(1).getCell(7).getCellStyle().getDataFormatString());
+            assertEquals("#,##0.0000", sheet.getRow(1).getCell(5).getCellStyle().getDataFormatString());
             assertFalse(sheet.isDisplayGridlines());
             assertFalse(((XSSFSheet) sheet).getCTWorksheet().isSetAutoFilter());
             assertEquals("采购入库模板填写说明", workbook.getSheet("填写说明").getRow(0).getCell(0).getStringCellValue());
+            assertTrue(workbook.getSheet("填写说明").getRow(1).getCell(0).getStringCellValue()
+                .contains("先在单据选择达人，再选择其绑定的供应商"));
             assertEquals(44f, workbook.getSheet("填写说明").getRow(3).getHeightInPoints(), 0.1f);
             Sheet options = workbook.getSheet("模板选项");
             assertEquals("成品商品", options.getRow(0).getCell(0).getStringCellValue());
             assertEquals("福利商品", options.getRow(3).getCell(0).getStringCellValue());
-            assertEquals("样品商品", options.getRow(4).getCell(0).getStringCellValue());
+            assertEquals("赠品商品", options.getRow(4).getCell(0).getStringCellValue());
             assertEquals("'模板选项'!$A$1:$A$5", workbook.getName("ProductTypeOptions").getRefersToFormula());
-            assertEquals("精品", options.getRow(0).getCell(1).getStringCellValue());
-            assertEquals("普通", options.getRow(1).getCell(1).getStringCellValue());
         }
     }
 
     @Test
-    void purchasePreviewAcceptsSampleTypeLabelsAndCode() throws Exception
+    void purchasePreviewRejectsSampleTypeLabelsAndCode() throws Exception
     {
         when(mapper.selectProductList(any())).thenReturn(Collections.emptyList());
         new RuoYiConfig().setProfile(tempDir.toString());
         for (String type : new String[] { "样品商品", "样品", "SAMPLE", "sample" })
         {
             Map<String, Object> result = service.preview("PURCHASE_IN", purchaseWorkbookWithImage(
-                new Object[] { "NEW-SAMPLE", "样品项链", type, "项链", "普通", "件", 2, 10, "" }), true);
-            assertEquals(0, result.get("errorCount"));
-            assertEquals(1, result.get("newProductCount"));
-            assertEquals("SAMPLE", rows(result).get(0).get("productType"));
+                new Object[] { "NEW-SAMPLE", "样品项链", type, "件", 2, 10, "" }), true);
+            assertEquals(1, result.get("errorCount"));
+            assertEquals(0, result.get("newProductCount"));
+            assertTrue(String.valueOf(rows(result).get(0).get("errorMessage")).contains("样品商品请使用样品入库单据"));
         }
+    }
+
+    @Test
+    void purchasePreviewRejectsExistingSampleProductWithoutTypeColumn() throws Exception
+    {
+        Map<String, Object> sample = product("SAMPLE-ONLY", 3, 0);
+        sample.put("productType", "SAMPLE");
+        when(mapper.selectProductList(any())).thenReturn(Collections.singletonList(sample));
+
+        Map<String, Object> result = service.preview("PURCHASE_IN", workbook(PURCHASE_HEADERS,
+            new Object[] { "SAMPLE-ONLY", "", "", "", 1, 10, "" }), true);
+
+        assertEquals(1, result.get("errorCount"));
+        assertTrue(String.valueOf(rows(result).get(0).get("errorMessage")).contains("样品商品请使用样品入库单据"));
     }
 
     @Test
@@ -123,7 +157,7 @@ class JewelryDocumentExcelServiceTest
         when(mapper.selectProductList(any())).thenReturn(Collections.singletonList(product("SKU-1", 5, 0)));
 
         Map<String, Object> result = service.preview("PURCHASE_IN", workbook(PURCHASE_HEADERS,
-            new Object[] { "SKU-1", "", "", "", "", "", 3, new BigDecimal("0.12345"), "" }), true);
+            new Object[] { "SKU-1", "", "", "", 3, new BigDecimal("0.12345"), "" }), true);
 
         assertEquals(0, result.get("errorCount"));
         BigDecimal unitPrice = (BigDecimal) rows(result).get(0).get("unitPrice");
@@ -149,15 +183,23 @@ class JewelryDocumentExcelServiceTest
     }
 
     @Test
-    void salesTemplateContainsOtherFeeColumns() throws Exception
+    void salesTemplateOnlyRequiresSkuTypeAndQuantity() throws Exception
     {
         try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(service.createTemplate("SALES_OUT"))))
         {
             XSSFSheet sheet = workbook.getSheet("导入数据");
-            for (int i = 0; i < SALES_HEADERS.length; i++)
-                assertEquals(SALES_HEADERS[i], sheet.getRow(0).getCell(i).getStringCellValue());
-            assertEquals(16 * 256, sheet.getColumnWidth(8));
-            assertEquals(HorizontalAlignment.RIGHT, sheet.getRow(1).getCell(8).getCellStyle().getAlignment());
+            String[] expected = { "SKU", "商品类型", "数量" };
+            for (int i = 0; i < expected.length; i++)
+                assertEquals(expected[i], sheet.getRow(0).getCell(i).getStringCellValue());
+            assertEquals(expected.length, sheet.getRow(0).getLastCellNum());
+            assertEquals(HorizontalAlignment.RIGHT, sheet.getRow(1).getCell(2).getCellStyle().getAlignment());
+            assertEquals(1, sheet.getDataValidations().size());
+            assertEquals("SalesProductTypeOptions",
+                sheet.getDataValidations().get(0).getValidationConstraint().getFormula1());
+            assertEquals("B2:B501", sheet.getDataValidations().get(0).getRegions()
+                .getCellRangeAddresses()[0].formatAsString());
+            assertEquals("成品商品", workbook.getSheet("模板选项").getRow(0).getCell(0).getStringCellValue());
+            assertTrue(workbook.isSheetHidden(workbook.getSheetIndex("模板选项")));
         }
     }
 
@@ -275,10 +317,10 @@ class JewelryDocumentExcelServiceTest
         String[] typedHeaders = java.util.Arrays.copyOf(SALES_HEADERS, SALES_HEADERS.length + 1);
         typedHeaders[SALES_HEADERS.length] = "商品类型";
         Map<String, Object> typed = service.preview("SALES_OUT", workbook(typedHeaders,
-            new Object[] { "SHARED-1", 1, 100, 0, 0, 0, 0, 0, 0, "样品商品" }), false);
+            new Object[] { "SHARED-1", 1, 100, 0, 0, 0, 0, 0, 0, "成品商品" }), false);
         assertEquals(0, typed.get("errorCount"));
-        assertEquals(2L, rows(typed).get(0).get("productId"));
-        assertEquals(2, rows(typed).get(0).get("systemQty"));
+        assertEquals(1L, rows(typed).get(0).get("productId"));
+        assertEquals(9, rows(typed).get(0).get("systemQty"));
     }
 
     @Test
@@ -443,29 +485,30 @@ class JewelryDocumentExcelServiceTest
         new RuoYiConfig().setProfile(tempDir.toString());
 
         Map<String, Object> result = service.preview("PURCHASE_IN", purchaseWorkbookWithImage(
-            new Object[] { "NEW-001", "测试戒指", "散件商品", "戒指", "精品", "件", 2, 6800, "" }), true);
+            new Object[] { "NEW-001", "测试戒指", "散件商品", "件", 2, 6800, "" }), true);
 
         assertEquals(0, result.get("errorCount"));
         assertEquals(1, result.get("newProductCount"));
         Map<String, Object> row = rows(result).get(0);
         assertEquals("NEW", row.get("status"));
         assertEquals("PART", row.get("productType"));
-        assertEquals("精品", row.get("specification"));
+        assertFalse(row.containsKey("specification"));
         assertTrue(String.valueOf(row.get("imageUrl")).startsWith("/profile/jewelry/import/"));
         assertTrue(Files.exists(tempDir.resolve(String.valueOf(row.get("imageUrl"))
             .substring("/profile/".length()).replace("/", java.io.File.separator))));
     }
 
     @Test
-    void purchasePreviewRejectsNewProductWithoutEmbeddedImage() throws Exception
+    void purchasePreviewRejectsNewFinishedProductEvenWithEmbeddedImage() throws Exception
     {
         when(mapper.selectProductList(any())).thenReturn(Collections.emptyList());
+        new RuoYiConfig().setProfile(tempDir.toString());
 
-        Map<String, Object> result = service.preview("PURCHASE_IN", workbook(PURCHASE_HEADERS,
-            new Object[] { "NEW-002", "测试项链", "成品商品", "项链", "普通", "件", 1, 2000, "" }), true);
+        Map<String, Object> result = service.preview("PURCHASE_IN", purchaseWorkbookWithImage(
+            new Object[] { "NEW-002", "测试项链", "成品商品", "件", 1, 2000, "" }), true);
 
         assertEquals(1, result.get("errorCount"));
-        assertTrue(String.valueOf(rows(result).get(0).get("errorMessage")).contains("商品图片不能为空"));
+        assertTrue(String.valueOf(rows(result).get(0).get("errorMessage")).contains("新成品或赠品请先在达人档案建档并绑定"));
     }
 
     @Test
@@ -475,7 +518,7 @@ class JewelryDocumentExcelServiceTest
         new RuoYiConfig().setProfile(tempDir.toString());
 
         Map<String, Object> result = service.preview("PURCHASE_IN", purchaseWorkbookWithImage(
-            new Object[] { "NEW-WEBP", "测试吊坠", "成品商品", "吊坠", "精品", "件", 1, 3000, "" },
+            new Object[] { "NEW-WEBP", "测试吊坠", "散件商品", "件", 1, 3000, "" },
             largePng()), true);
 
         assertEquals(0, result.get("errorCount"));
@@ -495,25 +538,77 @@ class JewelryDocumentExcelServiceTest
         new RuoYiConfig().setProfile(tempDir.toString());
 
         Map<String, Object> accessory = service.preview("PURCHASE_IN", purchaseWorkbookWithImage(
-            new Object[] { "NEW-ACC", "测试配件", "配件商品", "配件", "普通", "件", 1, 10, "" }), true);
+            new Object[] { "NEW-ACC", "测试配件", "配件商品", "件", 1, 10, "" }), true);
         Map<String, Object> welfare = service.preview("PURCHASE_IN", purchaseWorkbookWithImage(
-            new Object[] { "NEW-GIFT", "测试福利", "福利商品", "福利", "精品", "件", 1, 1, "" }), true);
+            new Object[] { "NEW-GIFT", "测试福利", "福利商品", "件", 1, 1, "" }), true);
 
         assertEquals("ACCESSORY", rows(accessory).get(0).get("productType"));
         assertEquals("WELFARE", rows(welfare).get(0).get("productType"));
     }
 
     @Test
-    void purchasePreviewRejectsUnsupportedSpecificationType() throws Exception
+    void purchasePreviewCreatesAndSelectsGiftWithSharedSkuAndName() throws Exception
+    {
+        Map<String, Object> finished = product("SHARED-GIFT", 5, 0);
+        Map<String, Object> sample = product("SHARED-GIFT", 2, 0);
+        sample.put("productId", 2L);
+        sample.put("productType", "SAMPLE");
+        Map<String, Object> gift = product("SHARED-GIFT", 3, 0);
+        gift.put("productId", 3L);
+        gift.put("productType", "GIFT");
+        when(mapper.selectProductList(any())).thenReturn(java.util.Arrays.asList(finished, sample),
+            java.util.Arrays.asList(finished, sample, gift));
+        new RuoYiConfig().setProfile(tempDir.toString());
+        Object[] input = { "SHARED-GIFT", "测试商品", "赠品商品", "件", 1, 0, "" };
+
+        Map<String, Object> created = service.preview("PURCHASE_IN", purchaseWorkbookWithImage(input), true);
+        assertEquals(1, created.get("errorCount"));
+        assertEquals(0, created.get("newProductCount"));
+        assertEquals("赠品商品", rows(created).get(0).get("productType"));
+        assertFalse(rows(created).get(0).containsKey("productId"));
+
+        Map<String, Object> existing = service.preview("PURCHASE_IN", workbook(PURCHASE_HEADERS,
+            new Object[] { "SHARED-GIFT", "测试商品", "赠品商品", "件", 1, 0, "" }), true);
+        assertEquals(0, existing.get("errorCount"));
+        assertEquals(0, existing.get("newProductCount"));
+        assertEquals(3L, rows(existing).get(0).get("productId"));
+    }
+
+    @Test
+    void purchasePreviewDoesNotRequireLegacyClassification() throws Exception
     {
         when(mapper.selectProductList(any())).thenReturn(Collections.emptyList());
         new RuoYiConfig().setProfile(tempDir.toString());
 
         Map<String, Object> result = service.preview("PURCHASE_IN", purchaseWorkbookWithImage(
-            new Object[] { "NEW-SPEC", "测试商品", "成品商品", "项链", "小", "件", 1, 100, "" }), true);
+            new Object[] { "NEW-SPEC", "测试商品", "散件商品", "件", 1, 100, "" }), true);
 
-        assertEquals(1, result.get("errorCount"));
-        assertTrue(String.valueOf(rows(result).get(0).get("errorMessage")).contains("规格类型必须选择精品或普通"));
+        assertEquals(0, result.get("errorCount"));
+        assertFalse(rows(result).get(0).containsKey("specification"));
+    }
+
+    @Test
+    void purchaseReviewAcceptsCorrectedImageAndRechecksEditedValues() throws Exception
+    {
+        when(mapper.selectProductList(any())).thenReturn(Collections.emptyList());
+        Map<String, Object> preview = service.preview("PURCHASE_IN", workbook(PURCHASE_HEADERS,
+            new Object[] { "NEW-1", "测试商品", "散件商品", "件", 2, 10, "" }), true);
+        assertEquals(1, preview.get("errorCount"));
+        Map<String, Object> edited = rows(preview).get(0);
+        edited.put("imageUrls", "/profile/upload/corrected.png");
+        edited.put("qty", 3);
+
+        Map<String, Object> checked = service.review("PURCHASE_IN", Collections.singletonList(edited), true);
+        assertEquals(0, checked.get("errorCount"));
+        assertEquals(1, checked.get("newProductCount"));
+        assertEquals(3, rows(checked).get(0).get("qty"));
+        assertEquals("/profile/upload/corrected.png", rows(checked).get(0).get("imageUrl"));
+        assertEquals(2, rows(checked).get(0).get("rowNumber"));
+
+        edited.put("qty", 0);
+        Map<String, Object> invalid = service.review("PURCHASE_IN", Collections.singletonList(edited), true);
+        assertEquals(1, invalid.get("errorCount"));
+        assertTrue(String.valueOf(rows(invalid).get(0).get("errorMessage")).contains("数量必须是正整数"));
     }
 
     @Test
@@ -559,7 +654,7 @@ class JewelryDocumentExcelServiceTest
 
     private ByteArrayInputStream purchaseWorkbookWithImage(Object[] values, byte[] image) throws Exception
     {
-        return imageWorkbook(PURCHASE_HEADERS, values, 8, image);
+        return imageWorkbook(PURCHASE_HEADERS, values, 6, image);
     }
 
     private ByteArrayInputStream imageWorkbook(String[] headers, Object[] values, int imageColumn,

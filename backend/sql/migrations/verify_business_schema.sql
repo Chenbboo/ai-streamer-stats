@@ -179,7 +179,7 @@ where table_schema=database()
 
 select 'invalid_jewelry_product_type' check_name, count(*) problem_rows
 from jewelry_product
-where product_type not in ('FINISHED','PART','ACCESSORY','WELFARE','SAMPLE')
+where product_type not in ('FINISHED','PART','ACCESSORY','WELFARE','SAMPLE','GIFT')
 union all
 select 'invalid_jewelry_specification', count(*)
 from jewelry_product
@@ -691,6 +691,21 @@ select 'missing_jewelry_influencer_item_price_columns',2-count(*)
 from information_schema.columns
 where table_schema=database() and table_name='jewelry_document_item'
   and column_name in('influencer_price_snapshot','influencer_price_version')
+union all
+select 'missing_jewelry_influencer_binding_unit_cost',1-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='jewelry_influencer_product_price'
+  and column_name='unit_cost'
+union all
+select 'missing_jewelry_influencer_purchase_defaults',2-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='jewelry_influencer_product_price'
+  and column_name in ('preferred_supplier_id','reference_purchase_price')
+union all
+select 'missing_jewelry_gift_sku_scope',1-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='jewelry_product'
+  and column_name='sku_scope' and generation_expression like '%GIFT%'
 union all
 select 'missing_jewelry_influencer_menu',count(*)=0
 from sys_menu where menu_id=3011 and perms='jewelry:influencer:list' and status='0'

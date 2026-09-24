@@ -146,7 +146,7 @@ const money = value =>
   Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const percent = value => `${(Number(value || 0) * 100).toFixed(2)}%`
 const productLabel = item =>
-  translateText("{0} · {1}{2}（可用 {3}，成本 ¥ {4}）", [item.sku, `${item.productName} · ${translateText(jewelryProductType(item.productType)?.label||item.productType)}`, translateText(item.specification) ? ` · ${translateText(item.specification)}` : '', productAvailable(item), money(item.avgCost)])
+translateText("{0} · {1}（可用 {2}，成本 ¥ {3}）", [item.sku, `${item.productName} · ${translateText(jewelryProductType(item.productType)?.label||item.productType)}`, productAvailable(item), money(item.avgCost)])
 const productAvailable = item =>
   Math.max(0, Number(item?.onHandQty || 0) - Number(item?.reservedOutQty || 0))
 const selectedProduct = computed(() => products.value.find(item => item.productId === form.productId))

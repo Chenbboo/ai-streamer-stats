@@ -24,7 +24,7 @@ create table if not exists jewelry_product (
   sku varchar(64) not null comment 'SKU编码',
   product_name varchar(128) not null comment '商品名称',
   product_type varchar(16) not null default 'FINISHED' comment 'FINISHED成品商品 PART散件商品 ACCESSORY配件商品 WELFARE福利商品',
-  sku_scope tinyint generated always as (case when product_type = 'SAMPLE' then 1 else 0 end) stored comment '1样品 0其他商品',
+  sku_scope tinyint generated always as (case when product_type = 'SAMPLE' then 1 when product_type = 'GIFT' then 2 else 0 end) stored comment '0常规 1样品 2赠品',
   category varchar(64) default '' comment '商品分类',
   specification varchar(16) not null default '普通' comment '规格类型：精品或普通',
   image_url varchar(500) default '' comment '商品主图',
@@ -80,14 +80,18 @@ create table if not exists jewelry_influencer (
 
 create table if not exists jewelry_influencer_product_price (
   price_id bigint not null auto_increment,influencer_id bigint not null,product_id bigint not null,
-  fixed_unit_price decimal(18,4) not null,price_status varchar(16) not null default 'PENDING',
+  fixed_unit_price decimal(18,4) not null,unit_cost decimal(18,4) not null default 0 comment '绑定商品成本价',
+  preferred_supplier_id bigint default null comment '常用供应商，仅作采购录单建议',
+  reference_purchase_price decimal(18,4) not null default 0 comment '参考采购单价，仅作采购录单建议',
+  price_status varchar(16) not null default 'PENDING',
   price_version int not null default 0,pending_source_document_id bigint default null,
   price_source_document_id bigint default null,price_effective_time datetime default null,
   create_by varchar(64) default '',create_time datetime default null,
   update_by varchar(64) default '',update_time datetime default null,primary key (price_id),
   unique key uk_jewelry_influencer_product (influencer_id,product_id),
   key idx_jewelry_influencer_price_pending (pending_source_document_id),
-  key idx_jewelry_influencer_product_status (influencer_id,price_status)
+  key idx_jewelry_influencer_product_status (influencer_id,price_status),
+  key idx_jewelry_influencer_preferred_supplier (preferred_supplier_id)
 ) engine=InnoDB default charset=utf8mb4 comment='珠宝ERP达人商品固定价';
 
 create table if not exists jewelry_influencer_price_history (

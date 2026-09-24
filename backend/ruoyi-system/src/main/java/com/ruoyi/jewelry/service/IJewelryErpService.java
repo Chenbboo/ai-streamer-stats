@@ -8,6 +8,7 @@ import com.ruoyi.jewelry.domain.JewelryDocument;
 public interface IJewelryErpService
 {
     List<Map<String, Object>> listProducts(Map<String, Object> query);
+    Map<String, Object> getProductBindingDetail(Long productId);
     int saveProduct(Map<String, Object> product);
     int updateProductBasic(Map<String, Object> product);
     int deleteProducts(List<Long> productIds);
@@ -41,9 +42,10 @@ public interface IJewelryErpService
     JewelryDocument getDocument(Long documentId);
     JewelryDocument getDocumentForDisplay(Long documentId);
     JewelryDocument getReturnInspectionSource(Long sourceDocumentId, Long excludeDocumentId);
-    List<JewelryDocument> listSupplierReturnSources(Long supplierId);
+    List<JewelryDocument> listSupplierReturnSources(Long influencerId, Long supplierId);
     JewelryDocument getSupplierReturnSource(Long sourceDocumentId, Long excludeDocumentId);
     JewelryDocument getCustomerReturnSource(Long sourceDocumentId, Long excludeDocumentId);
+    List<Map<String, Object>> listCustomerReturnProductStats(Long influencerId, Long excludeDocumentId);
     Map<String, Object> assessDocumentRisk(JewelryDocument document);
     Map<String, Object> calculateProfit(Map<String, Object> input);
     JewelryDocument saveDocument(JewelryDocument document, Long userId, String userName);

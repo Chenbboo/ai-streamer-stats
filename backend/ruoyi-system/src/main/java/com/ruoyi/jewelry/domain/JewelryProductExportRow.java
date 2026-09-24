@@ -19,12 +19,6 @@ public class JewelryProductExportRow
     @Excel(name = "商品类型", sort = 3, width = 14)
     private String productType;
 
-    @Excel(name = "分类", sort = 4, width = 16)
-    private String category;
-
-    @Excel(name = "规格类型", sort = 5, width = 12)
-    private String specification;
-
     @Excel(name = "单位", sort = 6, width = 10)
     private String unit;
 
@@ -46,8 +40,6 @@ public class JewelryProductExportRow
         row.sku = text(source.get("sku"));
         row.productName = text(source.get("productName"));
         row.productType = productTypeLabel(text(source.get("productType")));
-        row.category = text(source.get("category"));
-        row.specification = text(source.get("specification"));
         row.unit = text(source.get("unit"));
         row.onHandQty = integer(source.get("onHandQty"));
         row.avgCost = decimal(source.get("avgCost"));
@@ -63,6 +55,7 @@ public class JewelryProductExportRow
         if ("ACCESSORY".equals(value)) return "配件商品";
         if ("WELFARE".equals(value)) return "福利商品";
         if ("SAMPLE".equals(value)) return "样品商品";
+        if ("GIFT".equals(value)) return "赠品商品";
         return value;
     }
 
@@ -91,10 +84,6 @@ public class JewelryProductExportRow
     public void setProductName(String productName) { this.productName = productName; }
     public String getProductType() { return productType; }
     public void setProductType(String productType) { this.productType = productType; }
-    public String getCategory() { return category; }
-    public void setCategory(String category) { this.category = category; }
-    public String getSpecification() { return specification; }
-    public void setSpecification(String specification) { this.specification = specification; }
     public String getUnit() { return unit; }
     public void setUnit(String unit) { this.unit = unit; }
     public Integer getOnHandQty() { return onHandQty; }

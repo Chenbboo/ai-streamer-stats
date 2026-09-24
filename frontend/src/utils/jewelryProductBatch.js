@@ -1,16 +1,11 @@
 import { translateText } from '../locales/translate.js'
-import { jewelryProductTypes, jewelrySpecifications } from './jewelryProduct.js'
+import { jewelryProductTypes } from './jewelryProduct.js'
 
 export const productBatchFields = [
   { key: 'productType', label: translateText("商品类型"), kind: 'select', options: jewelryProductTypes },
-  { key: 'category', label: translateText("分类"), kind: 'text', max: 64 },
-  { key: 'specification', label: translateText("规格类型"), kind: 'select', options: jewelrySpecifications },
   { key: 'unit', label: translateText("单位"), kind: 'text', max: 16 },
   { key: 'warningQty', label: translateText("库存预警值"), kind: 'number', precision: 0, max: 2147483647 },
   { key: 'status', label: translateText("状态"), kind: 'select', options: [{ label: translateText("启用"), value: '0' }, { label: translateText("停用"), value: '1' }] },
-  { key: 'defaultPackFee', label: translateText("默认包装费"), kind: 'number', precision: 2, max: 999999999999.99 },
-  { key: 'defaultShipFee', label: translateText("默认物流费"), kind: 'number', precision: 2, max: 999999999999.99 },
-  { key: 'defaultCertFee', label: translateText("默认鉴定费"), kind: 'number', precision: 2, max: 999999999999.99 },
   { key: 'productName', label: translateText("商品名称"), kind: 'text', max: 128, basic: true },
   { key: 'imageUrls', label: translateText("实物图片"), kind: 'image', basic: true }
 ]

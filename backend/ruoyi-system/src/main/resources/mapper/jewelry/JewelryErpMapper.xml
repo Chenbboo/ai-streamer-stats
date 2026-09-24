@@ -151,15 +151,8 @@
 
     <select id="selectProductList" resultType="java.util.LinkedHashMap">
         select p.product_id productId,p.sku,p.product_name productName,p.product_type productType,
-               (select group_concat(distinct coalesce(nullif(sp.supplier_name,''),
-                   nullif(si.supplier_name_snapshot,''),nullif(sd.supplier_name_snapshot,''))
-                   order by coalesce(nullif(sp.supplier_name,''),
-                   nullif(si.supplier_name_snapshot,''),nullif(sd.supplier_name_snapshot,'')) separator '、')
-                from jewelry_document_item si
-                join jewelry_document sd on sd.document_id=si.document_id
-                  and sd.status='POSTED' and sd.doc_type in ('PURCHASE_IN','SAMPLE_IN')
-                left join jewelry_supplier sp on sp.supplier_id=coalesce(si.supplier_id,sd.supplier_id)
-                where si.product_id=p.product_id) supplierNames,
+               origins.supplierNames,origins.supplierIds,
+               bindings.influencerIds,bindings.boundSupplierIds,
                p.category,p.specification,p.image_url imageUrl,p.image_urls imageUrls,
                p.unit,p.default_pack_fee defaultPackFee,p.default_ship_fee defaultShipFee,
                p.default_cert_fee defaultCertFee,p.warning_qty warningQty,p.status,p.remark,
@@ -167,7 +160,29 @@
                coalesce(s.on_hand_qty,0) onHandQty,coalesce(s.reserved_out_qty,0) reservedOutQty,
                coalesce(s.inspection_qty,0) inspectionQty,coalesce(s.defect_qty,0) defectQty,
                coalesce(s.avg_cost,0) avgCost
-        from jewelry_product p left join jewelry_stock s on s.product_id=p.product_id
+        from jewelry_product p
+        left join jewelry_stock s on s.product_id=p.product_id
+        left join (
+          select si.product_id,
+            group_concat(distinct coalesce(nullif(sp.supplier_name,''),
+              nullif(si.supplier_name_snapshot,''),nullif(sd.supplier_name_snapshot,''))
+              order by coalesce(nullif(sp.supplier_name,''),
+              nullif(si.supplier_name_snapshot,''),nullif(sd.supplier_name_snapshot,'')) separator '、') supplierNames,
+            group_concat(distinct coalesce(si.supplier_id,sd.supplier_id)) supplierIds
+          from jewelry_document_item si
+          join jewelry_document sd on sd.document_id=si.document_id
+            and sd.status='POSTED' and sd.doc_type in ('PURCHASE_IN','SAMPLE_IN')
+          left join jewelry_supplier sp on sp.supplier_id=coalesce(si.supplier_id,sd.supplier_id)
+          group by si.product_id
+        ) origins on origins.product_id=p.product_id
+        left join (
+          select pp.product_id,group_concat(distinct pp.influencer_id) influencerIds,
+            group_concat(distinct pp.preferred_supplier_id) boundSupplierIds
+          from jewelry_influencer_product_price pp
+          join jewelry_influencer influencer on influencer.influencer_id=pp.influencer_id and influencer.status='0'
+          where pp.binding_status='0'
+          group by pp.product_id
+        ) bindings on bindings.product_id=p.product_id
         <where>
             <if test="keyword != null and keyword != ''">
                 and (p.sku like concat('%',#{keyword},'%') or p.product_name like concat('%',#{keyword},'%'))
@@ -211,14 +226,14 @@
         <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
     </delete>
     <insert id="insertProduct" useGeneratedKeys="true" keyProperty="productId">
-        insert into jewelry_product(sku,product_name,product_type,category,specification,image_url,image_urls,unit,default_pack_fee,
+        insert into jewelry_product(sku,product_name,product_type,image_url,image_urls,unit,default_pack_fee,
           default_ship_fee,default_cert_fee,warning_qty,status,create_by,create_time,remark)
-        values(#{sku},#{productName},#{productType},#{category},#{specification},#{imageUrl},#{imageUrls},#{unit},#{defaultPackFee},
+        values(#{sku},#{productName},#{productType},#{imageUrl},#{imageUrls},#{unit},#{defaultPackFee},
           #{defaultShipFee},#{defaultCertFee},#{warningQty},#{status},#{createBy},sysdate(),#{remark})
     </insert>
     <update id="updateProduct">
         update jewelry_product set product_name=#{productName},product_type=#{productType},
-          category=#{category},specification=#{specification},image_url=#{imageUrl},image_urls=#{imageUrls},
+          image_url=#{imageUrl},image_urls=#{imageUrls},
           unit=#{unit},default_pack_fee=#{defaultPackFee},default_ship_fee=#{defaultShipFee},
           default_cert_fee=#{defaultCertFee},warning_qty=#{warningQty},status=#{status},
           update_by=#{updateBy},update_time=sysdate(),remark=#{remark}
@@ -240,8 +255,6 @@
         <set>
             <if test="changes.containsKey('productName')">product_name=#{changes.productName},</if>
             <if test="changes.containsKey('productType')">product_type=#{changes.productType},</if>
-            <if test="changes.containsKey('category')">category=#{changes.category},</if>
-            <if test="changes.containsKey('specification')">specification=#{changes.specification},</if>
             <if test="changes.containsKey('unit')">unit=#{changes.unit},</if>
             <if test="changes.containsKey('imageUrls')">image_urls=#{changes.imageUrls},image_url=#{changes.imageUrls},</if>
             <if test="changes.containsKey('warningQty')">warning_qty=#{changes.warningQty},</if>
@@ -281,6 +294,14 @@
         select supplier_id supplierId,supplier_code supplierCode,supplier_name supplierName,
           status,remark
         from jewelry_supplier where supplier_id=#{supplierId}
+    </select>
+    <select id="selectSupplierByCode" resultType="java.util.LinkedHashMap">
+        select supplier_id supplierId,supplier_code supplierCode,supplier_name supplierName,status
+        from jewelry_supplier where supplier_code=#{supplierCode}
+    </select>
+    <select id="selectSuppliersByName" resultType="java.util.LinkedHashMap">
+        select supplier_id supplierId,supplier_code supplierCode,supplier_name supplierName,status
+        from jewelry_supplier where supplier_name=#{supplierName} order by supplier_id
     </select>
     <insert id="insertSupplier" useGeneratedKeys="true" keyProperty="supplierId">
         insert into jewelry_supplier(supplier_code,supplier_name,contact_name,contact_phone,address,settlement_type,
@@ -371,38 +392,60 @@
     </update>
     <select id="selectInfluencerProductPrices" resultType="java.util.LinkedHashMap">
         select pp.price_id priceId,pp.influencer_id influencerId,pp.product_id productId,
-          p.sku,p.product_name productName,p.product_type productType,
-          pp.fixed_unit_price fixedUnitPrice,pp.price_status priceStatus,pp.price_version priceVersion,
+          p.sku,p.product_name productName,p.product_type productType,p.category,p.specification,p.unit,p.image_urls imageUrls,
+          pp.fixed_unit_price fixedUnitPrice,pp.unit_cost unitCost,pp.price_status priceStatus,pp.price_version priceVersion,
           pp.pending_source_document_id pendingSourceDocumentId,pending_doc.doc_no pendingSourceDocNo,
           pp.price_source_document_id priceSourceDocumentId,source_doc.doc_no priceSourceDocNo,
           pp.price_effective_time priceEffectiveTime,pp.update_time updateTime,
           pp.commission_rate commissionRate,pp.platform_rate platformRate,pp.tax_rate taxRate,
           pp.pack_fee packFee,pp.ship_fee shipFee,pp.cert_fee certFee,
+          pp.preferred_supplier_id preferredSupplierId,preferred_supplier.supplier_name preferredSupplierName,
+          pp.reference_purchase_price referencePurchasePrice,
           pp.binding_status bindingStatus,pp.binding_remark bindingRemark
         from jewelry_influencer_product_price pp
         join jewelry_product p on p.product_id=pp.product_id
+        left join jewelry_supplier preferred_supplier on preferred_supplier.supplier_id=pp.preferred_supplier_id
         left join jewelry_document pending_doc on pending_doc.document_id=pp.pending_source_document_id
         left join jewelry_document source_doc on source_doc.document_id=pp.price_source_document_id
         where pp.influencer_id=#{influencerId}
         order by case when pp.price_status='PENDING' then 0 else 1 end,p.sku
+    </select>
+    <select id="selectInfluencerBindingsByProductId" resultType="java.util.LinkedHashMap">
+        select pp.price_id priceId,pp.product_id productId,pp.influencer_id influencerId,
+          i.influencer_code influencerCode,i.influencer_name influencerName,
+          i.platform,i.sales_channel salesChannel,i.status influencerStatus,
+          pp.fixed_unit_price fixedUnitPrice,pp.unit_cost unitCost,
+          pp.reference_purchase_price referencePurchasePrice,
+          pp.commission_rate commissionRate,pp.platform_rate platformRate,pp.tax_rate taxRate,
+          pp.pack_fee packFee,pp.ship_fee shipFee,pp.cert_fee certFee,
+          pp.preferred_supplier_id preferredSupplierId,s.supplier_name preferredSupplierName,
+          pp.price_status priceStatus,pp.price_version priceVersion,
+          pp.price_effective_time priceEffectiveTime,
+          pp.binding_status bindingStatus,pp.binding_remark bindingRemark
+        from jewelry_influencer_product_price pp
+        join jewelry_influencer i on i.influencer_id=pp.influencer_id
+        left join jewelry_supplier s on s.supplier_id=pp.preferred_supplier_id
+        where pp.product_id=#{productId}
+        order by i.influencer_code,i.influencer_id
     </select>
     <select id="selectProductBySkuAndType" resultType="java.util.LinkedHashMap">
         select product_id productId,sku,product_name productName,product_type productType,status
         from jewelry_product where sku=#{sku} and product_type=#{productType} limit 1
     </select>
     <insert id="insertInfluencerBinding">
-        insert into jewelry_influencer_product_price(influencer_id,product_id,fixed_unit_price,price_status,
+        insert into jewelry_influencer_product_price(influencer_id,product_id,fixed_unit_price,unit_cost,price_status,
           price_version,price_effective_time,commission_rate,platform_rate,tax_rate,
-          pack_fee,ship_fee,cert_fee,binding_status,binding_remark,create_by,create_time,update_by,update_time)
-        values(#{influencerId},#{productId},#{fixedUnitPrice},'PRICED',1,sysdate(),
-          #{commissionRate},#{platformRate},#{taxRate},#{packFee},#{shipFee},#{certFee},
+          pack_fee,ship_fee,cert_fee,preferred_supplier_id,reference_purchase_price,binding_status,binding_remark,create_by,create_time,update_by,update_time)
+        values(#{influencerId},#{productId},#{fixedUnitPrice},#{unitCost},'PRICED',1,sysdate(),
+          #{commissionRate},#{platformRate},#{taxRate},#{packFee},#{shipFee},#{certFee},#{preferredSupplierId},#{referencePurchasePrice},
           #{bindingStatus},#{bindingRemark},#{userName},sysdate(),#{userName},sysdate())
     </insert>
     <update id="updateInfluencerBinding">
-        update jewelry_influencer_product_price set fixed_unit_price=#{fixedUnitPrice},
+        update jewelry_influencer_product_price set fixed_unit_price=#{fixedUnitPrice},unit_cost=#{unitCost},
           price_version=price_version+1,price_source_document_id=null,price_effective_time=sysdate(),
           commission_rate=#{commissionRate},platform_rate=#{platformRate},tax_rate=#{taxRate},
           pack_fee=#{packFee},ship_fee=#{shipFee},cert_fee=#{certFee},
+          preferred_supplier_id=#{preferredSupplierId},reference_purchase_price=#{referencePurchasePrice},
           binding_status=#{bindingStatus},binding_remark=#{bindingRemark},
           update_by=#{userName},update_time=sysdate()
         where influencer_id=#{influencerId} and product_id=#{productId}
@@ -410,9 +453,10 @@
     </update>
     <select id="selectInfluencerProductPrice" resultType="java.util.LinkedHashMap">
         select price_id priceId,influencer_id influencerId,product_id productId,
-          fixed_unit_price fixedUnitPrice,price_status priceStatus,price_version priceVersion,binding_status bindingStatus,
+          fixed_unit_price fixedUnitPrice,unit_cost unitCost,price_status priceStatus,price_version priceVersion,binding_status bindingStatus,
           commission_rate commissionRate,platform_rate platformRate,tax_rate taxRate,
           pack_fee packFee,ship_fee shipFee,cert_fee certFee,
+          preferred_supplier_id preferredSupplierId,reference_purchase_price referencePurchasePrice,
           pending_source_document_id pendingSourceDocumentId,price_source_document_id priceSourceDocumentId,
           price_effective_time priceEffectiveTime
         from jewelry_influencer_product_price
@@ -420,9 +464,10 @@
     </select>
     <select id="selectInfluencerProductPriceForUpdate" resultType="java.util.LinkedHashMap">
         select price_id priceId,influencer_id influencerId,product_id productId,
-          fixed_unit_price fixedUnitPrice,price_status priceStatus,price_version priceVersion,binding_status bindingStatus,
+          fixed_unit_price fixedUnitPrice,unit_cost unitCost,price_status priceStatus,price_version priceVersion,binding_status bindingStatus,
           commission_rate commissionRate,platform_rate platformRate,tax_rate taxRate,
           pack_fee packFee,ship_fee shipFee,cert_fee certFee,
+          preferred_supplier_id preferredSupplierId,reference_purchase_price referencePurchasePrice,
           pending_source_document_id pendingSourceDocumentId,price_source_document_id priceSourceDocumentId,
           price_effective_time priceEffectiveTime
         from jewelry_influencer_product_price
@@ -913,6 +958,7 @@
             </choose>
             <if test="hideDrafts">and d.status&lt;&gt;'DRAFT'</if>
             <if test="creatorUserId != null">and d.creator_user_id=#{creatorUserId}</if>
+            <if test="influencerId != null">and d.influencer_id=#{influencerId}</if>
         </where>
         order by d.document_id desc
     </select>
@@ -992,6 +1038,7 @@
         select d.*
         from jewelry_document d
         where d.doc_type='PURCHASE_IN' and d.status='POSTED'
+          and d.influencer_id=#{influencerId}
           and d.supplier_id=#{supplierId}
           and not exists (
             select 1 from jewelry_document reversal
@@ -1052,6 +1099,34 @@
         order by coalesce(source_item.bundle_group_no,2147483647),
           case source_item.sale_role when 'MAIN' then 0 when 'ADDON' then 1 else 2 end,
           source_item.item_id
+    </select>
+    <select id="selectCustomerReturnProductStats" resultType="java.util.LinkedHashMap">
+        select pp.product_id productId,
+          coalesce(sold.sold_qty,0) soldQty,
+          coalesce(returned.returned_qty,0) returnedQty,
+          greatest(coalesce(sold.sold_qty,0)-coalesce(returned.returned_qty,0),0) remainingReturnQty
+        from jewelry_influencer_product_price pp
+        join jewelry_product p on p.product_id=pp.product_id
+          and p.product_type='FINISHED' and p.status='0'
+        left join (
+          select d.influencer_id,i.product_id,sum(i.qty) sold_qty
+          from jewelry_document d
+          join jewelry_document_item i on i.document_id=d.document_id
+          where d.doc_type='SALES_OUT' and d.status='POSTED'
+          group by d.influencer_id,i.product_id
+        ) sold on sold.influencer_id=pp.influencer_id and sold.product_id=pp.product_id
+        left join (
+          select d.influencer_id,i.product_id,sum(i.qty) returned_qty
+          from jewelry_document d
+          join jewelry_document_item i on i.document_id=d.document_id
+          where d.doc_type='CUSTOMER_RETURN'
+            and d.status in ('DRAFT','PENDING_FIRST','PENDING_SECOND','POSTED')
+            <if test="excludeDocumentId != null">and d.document_id != #{excludeDocumentId}</if>
+          group by d.influencer_id,i.product_id
+        ) returned on returned.influencer_id=pp.influencer_id and returned.product_id=pp.product_id
+        where pp.influencer_id=#{influencerId} and pp.binding_status='0'
+          <if test="productId != null">and pp.product_id=#{productId}</if>
+        order by p.sku,pp.product_id
     </select>
     <select id="selectInspectedQtyBySourceItem" resultType="int">
         select coalesce(sum(i.good_qty+i.defect_qty),0)

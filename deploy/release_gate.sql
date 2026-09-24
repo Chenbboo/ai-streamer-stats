@@ -89,6 +89,18 @@ from (
 
   union all
   select if(count(*)=1,0,1)
+  from information_schema.columns
+  where table_schema=database() and table_name='jewelry_influencer_product_price'
+    and column_name='unit_cost'
+
+  union all
+  select if(count(*)=2,0,1)
+  from information_schema.columns
+  where table_schema=database() and table_name='jewelry_influencer_product_price'
+    and column_name in ('preferred_supplier_id','reference_purchase_price')
+
+  union all
+  select if(count(*)=1,0,1)
   from information_schema.tables
   where table_schema=database() and table_name='biz_staff_leave_request'
 
@@ -389,6 +401,7 @@ from (
   select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
     and table_name='jewelry_product' and column_name='sku_scope'
     and generation_expression like '%SAMPLE%'
+    and generation_expression like '%GIFT%'
   union all
   select if(count(*)=2,0,1) from information_schema.statistics where table_schema=database()
     and table_name='jewelry_product' and index_name='uk_jewelry_product_sku_scope'

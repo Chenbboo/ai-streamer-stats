@@ -162,6 +162,38 @@ class JewelryErpControllerPermissionTest
     }
 
     @Test
+    void creatingProductThroughBindingRequiresProductAddPermission()
+    {
+        IJewelryErpService service = mock(IJewelryErpService.class);
+        JewelryErpController controller = new JewelryErpController();
+        ReflectionTestUtils.setField(controller, "service", service);
+        loginAs("jewelry_admin", Collections.singleton("jewelry:influencer:price"));
+        Map<String, Object> newProduct = new HashMap<String, Object>();
+        newProduct.put("sku", "NEW-1");
+        newProduct.put("productName", "新成品");
+
+        assertFalse(controller.saveInfluencerBindings(9L, Collections.singletonList(newProduct)).isSuccess());
+        newProduct.put("productId", "");
+        assertFalse(controller.saveInfluencerBindings(9L, Collections.singletonList(newProduct)).isSuccess());
+        verify(service, never()).saveInfluencerBindings(any(), any(), any(), any());
+    }
+
+    @Test
+    void creatingSupplierThroughBindingRequiresSupplierAddPermission()
+    {
+        IJewelryErpService service = mock(IJewelryErpService.class);
+        JewelryErpController controller = new JewelryErpController();
+        ReflectionTestUtils.setField(controller, "service", service);
+        loginAs("jewelry_admin", Collections.singleton("jewelry:influencer:price"));
+        Map<String, Object> row = new HashMap<String, Object>();
+        row.put("productId", 1L);
+        row.put("newSupplier", Map.of("supplierCode", "NEW-SUP", "supplierName", "新供应商"));
+
+        assertFalse(controller.saveInfluencerBindings(9L, Collections.singletonList(row)).isSuccess());
+        verify(service, never()).saveInfluencerBindings(any(), any(), any(), any());
+    }
+
+    @Test
     void reviewerDocumentListHidesDraftsButMakerAndAdministratorKeepTheirViews()
     {
         IJewelryErpService service = mock(IJewelryErpService.class);
@@ -218,7 +250,7 @@ class JewelryErpControllerPermissionTest
         ReflectionTestUtils.setField(controller, "service", service);
         loginAsMakerWithProductAdd();
 
-        for (String productType : Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE", "SAMPLE"))
+        for (String productType : Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE", "SAMPLE", "GIFT"))
         {
             Map<String, Object> product = new HashMap<String, Object>();
             product.put("sku", productType + "-001");
@@ -226,7 +258,7 @@ class JewelryErpControllerPermissionTest
             product.put("productType", productType);
             assertTrue(controller.saveProduct(product).isSuccess());
         }
-        verify(service, times(5)).saveProduct(any());
+        verify(service, times(6)).saveProduct(any());
     }
 
     @Test

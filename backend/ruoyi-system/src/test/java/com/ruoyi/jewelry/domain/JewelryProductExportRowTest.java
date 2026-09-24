@@ -16,6 +16,8 @@ class JewelryProductExportRowTest
         Map<String, Object> source = new HashMap<String, Object>();
         source.put("productType", "SAMPLE");
         assertEquals("样品商品", JewelryProductExportRow.from(source).getProductType());
+        source.put("productType", "GIFT");
+        assertEquals("赠品商品", JewelryProductExportRow.from(source).getProductType());
     }
 
     @Test

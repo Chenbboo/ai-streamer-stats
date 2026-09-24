@@ -33,17 +33,15 @@ test('locale changes update shared messages in both directions', () => {
   } finally { i18n.global.locale.value = 'zh-CN' }
 })
 
-test('Vietnamese product labels retain canonical specification and product type values', async () => {
+test('Vietnamese product labels retain canonical product type values', async () => {
   try {
     i18n.global.locale.value = 'vi-VN'
-    const { jewelrySpecifications, jewelryProductTypes } = await import('../utils/jewelryProduct.js?locale-test')
-    assert.deepEqual(jewelrySpecifications.map(item => item.value), ['精品', '普通'])
-    assert.ok(jewelrySpecifications.every(item => !/[\u3400-\u9fff]/.test(item.label)))
-    assert.deepEqual(jewelryProductTypes.map(item => item.value), ['FINISHED', 'PART', 'ACCESSORY', 'WELFARE', 'SAMPLE'])
+    const { jewelryProductTypes } = await import('../utils/jewelryProduct.js?locale-test')
+    assert.deepEqual(jewelryProductTypes.map(item => item.value), ['FINISHED', 'PART', 'ACCESSORY', 'WELFARE', 'SAMPLE', 'GIFT'])
     const { buildProductBatchRequest } = await import('../utils/jewelryProductBatch.js')
-    assert.deepEqual(buildProductBatchRequest([{ productId: 1 }], ['specification', 'unit'], { specification: '普通', unit: '件' }, true), {
-      productIds: [1], changes: { specification: '普通', unit: '件' }
+    assert.deepEqual(buildProductBatchRequest([{ productId: 1 }], ['unit'], { unit: '件' }, true), {
+      productIds: [1], changes: { unit: '件' }
     })
-    assert.throws(() => buildProductBatchRequest([{ productId: 1 }], ['specification'], { specification: 'Thông thường' }, true))
+    assert.throws(() => buildProductBatchRequest([{ productId: 1 }], ['specification'], { specification: '普通' }, true))
   } finally { i18n.global.locale.value = 'zh-CN' }
 })
