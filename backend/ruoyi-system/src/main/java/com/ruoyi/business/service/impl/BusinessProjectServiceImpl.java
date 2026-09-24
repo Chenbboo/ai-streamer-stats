@@ -3263,6 +3263,14 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         Map<String,Object> confirmedFacts=accountingMapper.sumProjectFacts(selectedId,yesterdayDate);
         BigDecimal projectCost=decimal(confirmedFacts==null?null:confirmedFacts.get("costAmount"))
             .setScale(2,RoundingMode.HALF_UP);
+        BigDecimal bonusCost=decimal(confirmedFacts==null?null:confirmedFacts.get("bonusCost"))
+            .setScale(2,RoundingMode.HALF_UP);
+        BigDecimal publicCost=decimal(confirmedFacts==null?null:confirmedFacts.get("publicCost"));
+        Map<String,Object> dailyPublic=publicExpenses.sumDailyCost(selectedId,yesterdayDate);
+        // Daily recognition replaces its monthly settlement fact, while legacy public facts remain included.
+        if(dailyPublic!=null)publicCost=publicCost.subtract(decimal(dailyPublic.get("monthlyFactAmount")))
+            .add(decimal(dailyPublic.get("amount")));
+        publicCost=publicCost.setScale(2,RoundingMode.HALF_UP);
         BigDecimal personnelCost=BigDecimal.ZERO;
         int pendingPersonnelCount=0;
         if(BusinessMemberDayCostService.enabled(detail)||"ACTUAL_WORK_V1".equals(detail.getCostPolicyVersion()))
@@ -3287,8 +3295,10 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         yesterdaySpend.put("bizDate",yesterday);
         yesterdaySpend.put("personnelCost",personnelCost);
         yesterdaySpend.put("projectCost",projectCost);
+        yesterdaySpend.put("bonusCost",bonusCost);
+        yesterdaySpend.put("publicCost",publicCost);
         yesterdaySpend.put("pendingPersonnelCount",pendingPersonnelCount);
-        yesterdaySpend.put("amount",projectCost.add(personnelCost));
+        yesterdaySpend.put("amount",projectCost.add(personnelCost).add(bonusCost).add(publicCost));
         accounting.put("yesterdaySpend",yesterdaySpend);
         accounting.put("dailyRevenue", accountingMapper.selectProjectRevenueSummary(selectedId,
             java.sql.Date.valueOf(today)));

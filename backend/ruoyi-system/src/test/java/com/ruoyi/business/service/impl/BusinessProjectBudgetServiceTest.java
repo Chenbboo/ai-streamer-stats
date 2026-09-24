@@ -331,4 +331,161 @@ class BusinessProjectBudgetServiceTest
         assertEquals("2026-10-01",((Map<?,?>)p.getBudget().get("steadyMonth")).get("startDate"));
         assertSame(staff,p.getStaffingLines().get(0));
     }
+    @Test void finiteDewiForecastUsesEachMonthAndKeepsApprovedWholeProjectAmount()
+    {
+        p.setPlanStartDate(Date.valueOf("2026-09-12"));p.setPlanEndDate(Date.valueOf("2026-12-11"));
+        p.setStaffingLines(Collections.emptyList());
+        p.setRevenueLines(Arrays.asList(row("expectedAmount",47700,"occurrenceType","ONE_TIME","expectedDate","2026-09-12"),
+            row("expectedAmount",6000,"occurrenceType","MONTHLY","expectedDate","2026-09-12"),
+            row("expectedAmount",2000,"occurrenceType","MONTHLY","expectedDate","2026-09-12")));
+        Map<String,Object> budget=service.estimate(p);List<Map<String,Object>> months=months(budget);
+        assertEquals("PROJECT",budget.get("cycle"));assertEquals(new BigDecimal("71966.67"),budget.get("revenueAmount"));
+        assertEquals(Arrays.asList("52766.67","8266.67","8000.00","2933.33"),
+            months.stream().map(m->m.get("revenueAmount").toString()).collect(java.util.stream.Collectors.toList()));
+        assertEquals("2026-09-12",months.get(0).get("startDate"));assertEquals("2026-09-30",months.get(0).get("endDate"));
+        assertEquals("2026-12-01",months.get(3).get("startDate"));assertEquals("2026-12-11",months.get(3).get("endDate"));
+        assertEquals(budget.get("revenueAmount"),sum(months,"revenueAmount"));
+        assertEquals("CALENDAR_MONTH_V2",budget.get("monthlyForecastVersion"));
+    }
+    @Test void unlimitedRefreshChangesOnlySteadyMonthAndKeepsSavedMonthlyHistory()
+    {
+        staff.put("participationMode","FOLLOW_PROJECT");
+        Map<String,Object> saved=service.estimate(p);p.setBudget(saved);
+        Map<String,Object> first=(Map<String,Object>)saved.get("firstMonth");
+        List<Map<String,Object>> history=months(saved);
+        BigDecimal originalFirstCost=(BigDecimal)first.get("personnelAmount");
+        rate.put("unitCost",new BigDecimal("33000"));
+
+        service.refreshMonthlyForecast(p);
+
+        assertSame(first,p.getBudget().get("firstMonth"));assertSame(history,p.getBudget().get("monthlyForecasts"));
+        assertEquals(originalFirstCost,first.get("personnelAmount"));
+        assertEquals(saved.get("personnelAmount"),p.getBudget().get("personnelAmount"));
+        assertEquals(saved.get("totalAmount"),p.getBudget().get("totalAmount"));
+        assertEquals(new BigDecimal("33000.00"),((Map<?,?>)p.getBudget().get("steadyMonth")).get("personnelAmount"));
+        assertEquals(new BigDecimal("33000.00"),p.getRecurringEstimatedTotalCost());
+    }
+    @Test void finiteForecastClipsStaffParticipationAcrossYearsWithoutChangingPlanDates()
+    {
+        p.setPlanStartDate(Date.valueOf("2026-12-15"));p.setPlanEndDate(Date.valueOf("2027-02-10"));
+        staff.put("planStartDate","2026-12-21");staff.put("planEndDate","2027-01-15");
+        rate.put("costMode","DAILY");rate.put("unitCost",100);p.getBudget().put("businessAmount",500);
+        p.setExpenseLines(Collections.singletonList(row("amount",200,"occurrenceType","ONE_TIME","occurDate","2027-01-01")));
+        Map<String,Object> budget=service.estimate(p);List<Map<String,Object>> months=months(budget);
+        assertEquals(Arrays.asList("2026-12","2027-01","2027-02"),
+            months.stream().map(m->m.get("month").toString()).collect(java.util.stream.Collectors.toList()));
+        assertEquals(new BigDecimal("900.00"),months.get(0).get("personnelAmount"));
+        assertEquals(new BigDecimal("1100.00"),months.get(1).get("personnelAmount"));
+        assertEquals(new BigDecimal("0.00"),months.get(2).get("personnelAmount"));
+        assertEquals(new BigDecimal("0.00"),months.get(0).get("plannedBusinessAmount"));
+        assertEquals(new BigDecimal("200.00"),months.get(1).get("plannedBusinessAmount"));
+        assertEquals(budget.get("personnelAmount"),sum(months,"personnelAmount"));
+        assertEquals(budget.get("plannedTotalCost"),sum(months,"plannedTotalCost"));
+        assertEquals("2026-12-21",staff.get("planStartDate"));assertEquals("2027-01-15",staff.get("planEndDate"));
+    }
+    @Test void finiteForecastMonthlyPersonnelRoundingAndRateGapsRemainLocalToEachMonth()
+    {
+        p.setPlanStartDate(Date.valueOf("2026-09-12"));p.setPlanEndDate(Date.valueOf("2026-12-11"));
+        staff.put("participationMode","FOLLOW_PROJECT");rate.put("unitCost",new BigDecimal("12345.67"));
+        Map<String,Object> budget=service.estimate(p);
+        assertEquals(budget.get("personnelAmount"),sum(months(budget),"personnelAmount"));
+        assertEquals(new BigDecimal("12345.67"),months(budget).get(1).get("personnelAmount"));
+        rate.put("effectiveTo","2026-10-31");budget=service.estimate(p);
+        assertNull(budget.get("personnelAmount"));assertEquals("READY",months(budget).get(1).get("status"));
+        assertNull(months(budget).get(2).get("personnelAmount"));assertNull(months(budget).get(2).get("profit"));
+        assertEquals("PENDING",months(budget).get(2).get("status"));
+        assertTrue(months(budget).get(2).get("issues").toString().contains("缺少有效成本费率"));
+    }
+    @Test void undatedOneTimeAmountsAndFundingOccurOnlyInFirstForecastMonth()
+    {
+        p.setPlanEndDate(Date.valueOf("2026-11-30"));p.setStaffingLines(Collections.emptyList());
+        p.setParentProjectId(1L);p.setParentFundingAmount(new BigDecimal("2000"));
+        p.setRevenueLines(Collections.singletonList(row("expectedAmount",1000,"occurrenceType","ONE_TIME")));
+        p.setExpenseLines(Collections.singletonList(row("amount",200,"occurrenceType","ONE_TIME")));
+        Map<String,Object> budget=service.estimate(p);List<Map<String,Object>> months=months(budget);
+        assertEquals(new BigDecimal("3000.00"),months.get(0).get("revenueAmount"));
+        assertEquals(new BigDecimal("200.00"),months.get(0).get("plannedBusinessAmount"));
+        for(int i=1;i<months.size();i++){
+            assertEquals(new BigDecimal("0.00"),months.get(i).get("revenueAmount"));
+            assertEquals(new BigDecimal("0.00"),months.get(i).get("plannedBusinessAmount"));
+        }
+        assertEquals(budget.get("revenueAmount"),sum(months,"revenueAmount"));
+    }
+    @Test void finiteMonthCentRemaindersReconcileRevenueCostsAndProfitToWholeProject()
+    {
+        p.setPlanEndDate(Date.valueOf("2026-12-16"));p.setStaffingLines(Collections.emptyList());
+        p.setRevenueLines(Collections.singletonList(row("expectedAmount",new BigDecimal("0.01"),"occurrenceType","WEEKLY")));
+        p.setExpenseLines(Collections.singletonList(row("amount",new BigDecimal("0.01"),"occurrenceType","MONTHLY")));
+        Map<String,Object> budget=service.estimate(p);List<Map<String,Object>> months=months(budget);
+        assertEquals(new BigDecimal("0.15"),budget.get("revenueAmount"));
+        assertEquals(new BigDecimal("0.04"),budget.get("plannedBusinessAmount"));
+        for(String key:Arrays.asList("revenueAmount","plannedBusinessAmount","plannedTotalCost","profit"))
+            assertEquals(budget.get(key),sum(months,key),key);
+    }
+    @Test void oldFiniteSnapshotRefreshRequiresSamePersonnelBasisAndPreservesFrozenTotals()
+    {
+        p.setPlanEndDate(Date.valueOf("2026-10-31"));staff.put("participationMode","FOLLOW_PROJECT");
+        Map<String,Object> original=service.estimate(p);original.remove("monthlyForecastVersion");
+        // Old snapshots may omit per-person totals while retaining complete daily rate references.
+        ((List<Map<String,Object>>)original.get("staffingStatus")).forEach(s->s.remove("amount"));
+        p.setBudget(original);p.setBudgetLimit(new BigDecimal("77777"));p.setEstimatedPersonnelCost(new BigDecimal("88888"));
+        service.refreshMonthlyForecast(p);
+        assertEquals(original.get("personnelAmount"),sum(months(p.getBudget()),"personnelAmount"));
+        assertEquals(original.get("totalAmount"),p.getBudget().get("totalAmount"));
+        assertEquals(new BigDecimal("77777"),p.getBudgetLimit());assertEquals(new BigDecimal("88888"),p.getEstimatedPersonnelCost());
+        p.setBudget(original);rate.put("version",2);service.refreshMonthlyForecast(p);
+        for(Map<String,Object> month:months(p.getBudget())){
+            assertNull(month.get("personnelAmount"));assertNull(month.get("plannedTotalCost"));assertNull(month.get("profit"));
+            assertEquals("PENDING",month.get("status"));assertTrue(month.get("issues").toString().contains("暂无法还原原计划的分月人员成本"));
+        }
+        assertEquals(original.get("personnelAmount"),p.getBudget().get("personnelAmount"));
+        assertEquals(original.get("totalAmount"),p.getBudget().get("totalAmount"));
+        p.setBudget(original);rate.put("version",1);rate.put("unitCost",33000);service.refreshMonthlyForecast(p);
+        assertNull(months(p.getBudget()).get(0).get("personnelAmount"));
+        assertEquals(original.get("personnelAmount"),p.getBudget().get("personnelAmount"));
+    }
+    @Test void oldFiniteSnapshotWithoutBasisKeepsIncomeButDoesNotInventPersonnelAmounts()
+    {
+        p.setPlanEndDate(Date.valueOf("2026-10-31"));staff.put("participationMode","FOLLOW_PROJECT");
+        p.setRevenueLines(Collections.singletonList(row("expectedAmount",1000,"expectedDate","2026-10-01")));
+        Map<String,Object> saved=row("businessAmount",500,"personnelAmount",44000,"totalAmount",44500);p.setBudget(saved);
+        service.refreshMonthlyForecast(p);
+        assertEquals(new BigDecimal("1000.00"),months(p.getBudget()).get(1).get("revenueAmount"));
+        assertNull(months(p.getBudget()).get(1).get("personnelAmount"));
+        assertEquals(44500,p.getBudget().get("totalAmount"));assertFalse(saved.containsKey("monthlyForecasts"));
+    }
+    @Test void historicalPeriodAndKnownZeroPersonnelOverrideShiftedRootDates()
+    {
+        p.setPlanStartDate(Date.valueOf("2026-08-31"));p.setPlanEndDate(Date.valueOf("2026-10-30"));
+        p.setStaffingLines(Collections.emptyList());
+        Map<String,Object> saved=row("startDate","2026-09-01","endDate","2026-10-31","businessAmount",500,"personnelAmount",0,"totalAmount",500);
+        p.setBudget(saved);service.refreshMonthlyForecast(p);
+        assertEquals("2026-09",months(p.getBudget()).get(0).get("month"));
+        assertEquals("2026-09-01",months(p.getBudget()).get(0).get("startDate"));
+        assertEquals("2026-10-31",months(p.getBudget()).get(1).get("endDate"));
+        assertEquals(new BigDecimal("0.00"),months(p.getBudget()).get(0).get("personnelAmount"));
+        assertEquals(Date.valueOf("2026-08-31"),p.getPlanStartDate());
+    }
+    @Test void correctedFiniteSnapshotDoesNotRepriceWhenReadAgain()
+    {
+        p.setPlanEndDate(Date.valueOf("2026-10-31"));staff.put("participationMode","FOLLOW_PROJECT");
+        Map<String,Object> saved=service.estimate(p);p.setBudget(saved);
+        clearInvocations(mapper,proposals);rate.put("unitCost",999999);service.refreshMonthlyForecast(p);
+        assertSame(saved,p.getBudget());verifyNoInteractions(mapper,proposals);
+    }
+    @Test void longForecastCentRemainderNeverCreatesNegativeRevenueOrExpense()
+    {
+        p.setPlanStartDate(Date.valueOf("2026-01-01"));p.setPlanEndDate(Date.valueOf("2030-12-31"));
+        p.setStaffingLines(Collections.emptyList());
+        p.setRevenueLines(Collections.singletonList(row("expectedAmount",new BigDecimal("0.02"),"occurrenceType","WEEKLY")));
+        p.setExpenseLines(Collections.singletonList(row("amount",new BigDecimal("0.02"),"occurrenceType","WEEKLY")));
+        Map<String,Object> budget=service.estimate(p);List<Map<String,Object>> months=months(budget);
+        assertEquals(60,months.size());
+        for(String key:Arrays.asList("revenueAmount","plannedBusinessAmount")){
+            assertEquals(budget.get(key),sum(months,key));
+            assertTrue(months.stream().allMatch(m->((BigDecimal)m.get(key)).signum()>=0),key);
+        }
+    }
+    private List<Map<String,Object>> months(Map<String,Object> budget){return (List<Map<String,Object>>)budget.get("monthlyForecasts");}
+    private BigDecimal sum(List<Map<String,Object>> rows,String key){return rows.stream().map(r->(BigDecimal)r.get(key)).reduce(BigDecimal.ZERO.setScale(2),BigDecimal::add);}
 }

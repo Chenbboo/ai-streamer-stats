@@ -46,7 +46,14 @@
         <article><span>{{ $tr("全部待办") }}</span><b :class="{'stat-attention':allOwnerTodos.length}">{{ allOwnerTodos.length }}<small>{{ $tr("项") }}</small></b><p>{{ allUrgentTodoCount ? allUrgentTodoCount + $tr(" 项优先处理") : $tr("暂无紧急事项") }}</p></article>
         <article><span>{{ $tr("未完成任务") }}</span><b>{{ allOpenTaskCount }}<small>{{ $tr("项") }}</small></b><p :class="{'stat-attention':allOverdueTaskCount}">{{ allOverdueTaskCount ? allOverdueTaskCount + $tr(" 项已逾期") : $tr("全部按计划推进") }}</p></article>
         <article><span>{{ $tr("今日确认收入") }}</span><b class="all-currency-total">{{ allRevenueTotal }}</b><p>{{ $tr("汇总全部负责项目") }}</p></article>
-        <article><span>{{ $tr("昨日花费") }}</span><el-tooltip placement="top" effect="light"><template #content><div v-for="item in allSpendBreakdown" :key="item.currency" class="spend-tooltip-group"><strong>{{ item.currency }}</strong><div>{{ $tr("人员成本：{0} {1}", [money(item.personnel), item.currency]) }}</div><div>{{ $tr("项目成本：{0} {1}", [money(item.project), item.currency]) }}</div></div></template><b class="all-currency-total spend-hover">{{ allSpendTotal }}</b></el-tooltip><p>{{ $tr("人员 {0} · 项目 {1}", [allPersonnelCostTotal, allProjectCostTotal]) }}</p></article>
+        <article><span>{{ $tr("昨日花费") }}</span>
+          <el-tooltip placement="top" effect="light"><template #content><div v-for="item in allSpendBreakdown" :key="item.currency" class="spend-tooltip-group"><strong>{{ item.currency }}</strong>
+            <div>{{ $tr("人员成本：{0} {1}", [money(item.personnel), item.currency]) }}</div><div>{{ $tr("业务成本：{0} {1}", [money(item.project), item.currency]) }}</div>
+            <div>{{ $tr("项目奖金：{0} {1}", [money(item.bonus), item.currency]) }}</div><div>{{ $tr("公共费用（含暂估）：{0} {1}", [money(item.public), item.currency]) }}</div>
+            <div v-if="item.pendingPersonnelCount">{{ $tr("{0} 项人员成本待计价", [item.pendingPersonnelCount]) }}</div>
+          </div></template><b class="all-currency-total spend-hover">{{ allSpendTotal }}</b></el-tooltip>
+          <p>{{ $tr("人员 {0} · 业务 {1}", [allPersonnelCostTotal, allProjectCostTotal]) }}<br>{{ $tr("奖金 {0} · 公共费用 {1}", [allBonusCostTotal, allPublicCostTotal]) }}</p>
+        </article>
       </section>
 
       <section class="panel owner-todos">
@@ -83,7 +90,14 @@
               <el-table-column :label="$tr(&quot;项目&quot;)" min-width="210" fixed="left"><template #default="{row}"><div class="all-project-name"><b>{{ row.project.projectName }}</b><small>{{ row.project.companyName || $tr("归属公司待设置") }}</small></div></template></el-table-column>
               <el-table-column :label="$tr(&quot;参项人员&quot;)" min-width="115"><template #default="{row}">{{ $tr("{0} 人", [row.project.members?.length || 0]) }}</template></el-table-column>
               <el-table-column :label="$tr(&quot;今日确认收入&quot;)" min-width="170"><template #default="{row}"><b class="amount-profit">{{ money(row.accounting?.dailyRevenue?.confirmedAmount) }} {{ row.project.baseCurrency || 'CNY' }}</b><small class="table-subtext">{{ $tr("{0} 笔待确认", [row.accounting?.dailyRevenue?.draftCount || 0]) }}</small></template></el-table-column>
-              <el-table-column :label="$tr(&quot;昨日花费&quot;)" min-width="205"><template #default="{row}"><el-tooltip placement="top" effect="light"><template #content><div>{{ $tr("人员成本：{0} {1}", [money(row.accounting?.yesterdaySpend?.personnelCost), row.project.baseCurrency || 'CNY']) }}</div><div>{{ $tr("项目成本：{0} {1}", [money(row.accounting?.yesterdaySpend?.projectCost), row.project.baseCurrency || 'CNY']) }}</div><div v-if="row.accounting?.yesterdaySpend?.pendingPersonnelCount">{{ $tr("{0} 项人员成本待计价", [row.accounting.yesterdaySpend.pendingPersonnelCount]) }}</div></template><b class="spend-hover">{{ money(row.accounting?.yesterdaySpend?.amount) }} {{ row.project.baseCurrency || 'CNY' }}</b></el-tooltip><small class="table-subtext">{{ $tr("人员 {0} · 项目 {1}", [money(row.accounting?.yesterdaySpend?.personnelCost), money(row.accounting?.yesterdaySpend?.projectCost)]) }}</small></template></el-table-column>
+              <el-table-column :label="$tr(&quot;昨日花费&quot;)" min-width="205"><template #default="{row}">
+                <el-tooltip placement="top" effect="light"><template #content>
+                  <div>{{ $tr("人员成本：{0} {1}", [money(row.accounting?.yesterdaySpend?.personnelCost), row.project.baseCurrency || 'CNY']) }}</div><div>{{ $tr("业务成本：{0} {1}", [money(row.accounting?.yesterdaySpend?.projectCost), row.project.baseCurrency || 'CNY']) }}</div>
+                  <div>{{ $tr("项目奖金：{0} {1}", [money(row.accounting?.yesterdaySpend?.bonusCost), row.project.baseCurrency || 'CNY']) }}</div><div>{{ $tr("公共费用（含暂估）：{0} {1}", [money(row.accounting?.yesterdaySpend?.publicCost), row.project.baseCurrency || 'CNY']) }}</div>
+                  <div v-if="row.accounting?.yesterdaySpend?.pendingPersonnelCount">{{ $tr("{0} 项人员成本待计价", [row.accounting.yesterdaySpend.pendingPersonnelCount]) }}</div>
+                </template><b class="spend-hover">{{ money(row.accounting?.yesterdaySpend?.amount) }} {{ row.project.baseCurrency || 'CNY' }}</b></el-tooltip>
+                <small class="table-subtext">{{ $tr("人员 {0} · 业务 {1}", [money(row.accounting?.yesterdaySpend?.personnelCost), money(row.accounting?.yesterdaySpend?.projectCost)]) }}<br>{{ $tr("奖金 {0} · 公共费用 {1}", [money(row.accounting?.yesterdaySpend?.bonusCost), money(row.accounting?.yesterdaySpend?.publicCost)]) }}</small>
+              </template></el-table-column>
               <el-table-column :label="$tr(&quot;人员成本配置&quot;)" min-width="155"><template #default="{row}"><el-tag :type="entryPersonnelIssueCount(row)?'warning':'success'" effect="plain">{{ entryPersonnelIssueCount(row) ? entryPersonnelIssueCount(row)+$tr(" 项待完善") : $tr("正常") }}</el-tag></template></el-table-column>
               <el-table-column :label="$tr(&quot;操作&quot;)" width="105" fixed="right"><template #default="{row}"><el-button link type="primary" @click="selectProject(row.project.projectId,'people')">{{ $tr("查看明细") }}</el-button></template></el-table-column>
             </el-table>
@@ -114,7 +128,14 @@
         <article><span>{{ $tr("待办事项") }}</span><b :class="{'stat-attention':ownerTodos.length}">{{ ownerTodos.length }}<small>{{ $tr("项") }}</small></b><p>{{ urgentTodoCount ? urgentTodoCount + $tr(" 项优先处理") : $tr("当前项目") }}</p></article>
         <article><span>{{ $tr("未完成任务") }}</span><b>{{ openTasks.length }}<small>{{ $tr("项") }}</small></b><p :class="{'stat-attention':overdueTaskCount}">{{ overdueTaskCount ? overdueTaskCount + $tr(" 项已逾期") : $tr("按计划推进") }}</p></article>
         <article><span>{{ $tr("今日确认收入") }}</span><b>{{ money(dailyRevenue.confirmedAmount || 0) }}<small>{{ project.baseCurrency || 'CNY' }}</small></b><p>{{ Number(dailyRevenue.draftCount || 0) ? dailyRevenue.draftCount + $tr(" 笔待确认") : Number(dailyRevenue.confirmedCount || 0) ? $tr("已计入项目核算") : $tr("今日尚未填报") }}</p></article>
-        <article><span>{{ $tr("昨日花费") }}</span><el-tooltip placement="top" effect="light"><template #content><div>{{ $tr("人员成本：{0} {1}", [money(accounting.yesterdaySpend?.personnelCost), project.baseCurrency || 'CNY']) }}</div><div>{{ $tr("项目成本：{0} {1}", [money(accounting.yesterdaySpend?.projectCost), project.baseCurrency || 'CNY']) }}</div><div v-if="accounting.yesterdaySpend?.pendingPersonnelCount">{{ $tr("{0} 项人员成本待计价", [accounting.yesterdaySpend.pendingPersonnelCount]) }}</div></template><b class="spend-hover">{{ money(accounting.yesterdaySpend?.amount) }}<small>{{ project.baseCurrency || 'CNY' }}</small></b></el-tooltip><p>{{ $tr("人员 {0} · 项目 {1}", [money(accounting.yesterdaySpend?.personnelCost), money(accounting.yesterdaySpend?.projectCost)]) }}</p></article>
+        <article><span>{{ $tr("昨日花费") }}</span>
+          <el-tooltip placement="top" effect="light"><template #content>
+            <div>{{ $tr("人员成本：{0} {1}", [money(accounting.yesterdaySpend?.personnelCost), project.baseCurrency || 'CNY']) }}</div><div>{{ $tr("业务成本：{0} {1}", [money(accounting.yesterdaySpend?.projectCost), project.baseCurrency || 'CNY']) }}</div>
+            <div>{{ $tr("项目奖金：{0} {1}", [money(accounting.yesterdaySpend?.bonusCost), project.baseCurrency || 'CNY']) }}</div><div>{{ $tr("公共费用（含暂估）：{0} {1}", [money(accounting.yesterdaySpend?.publicCost), project.baseCurrency || 'CNY']) }}</div>
+            <div v-if="accounting.yesterdaySpend?.pendingPersonnelCount">{{ $tr("{0} 项人员成本待计价", [accounting.yesterdaySpend.pendingPersonnelCount]) }}</div>
+          </template><b class="spend-hover">{{ money(accounting.yesterdaySpend?.amount) }}<small>{{ project.baseCurrency || 'CNY' }}</small></b></el-tooltip>
+          <p>{{ $tr("人员 {0} · 业务 {1}", [money(accounting.yesterdaySpend?.personnelCost), money(accounting.yesterdaySpend?.projectCost)]) }}<br>{{ $tr("奖金 {0} · 公共费用 {1}", [money(accounting.yesterdaySpend?.bonusCost), money(accounting.yesterdaySpend?.publicCost)]) }}</p>
+        </article>
       </section>
       <section class="panel owner-todos">
         <div class="panel-head"><div><h2>{{ $tr("我的待办 ") }}<el-tag size="small" :type="ownerTodos.length ? 'warning' : 'success'">{{ $tr("{0} 项", [ownerTodos.length]) }}</el-tag></h2><p>{{ $tr("{0} · 同时显示跨项目投入调整待确认事项", [project.projectName]) }}</p></div></div>
@@ -567,13 +588,18 @@ const allRevenueTotal=computed(()=>currencyTotal(allProjectWorkspaces.value,item
 const allSpendTotal=computed(()=>currencyTotal(allProjectWorkspaces.value,item=>item.accounting?.yesterdaySpend?.amount))
 const allPersonnelCostTotal=computed(()=>currencyTotal(allProjectWorkspaces.value,item=>item.accounting?.yesterdaySpend?.personnelCost))
 const allProjectCostTotal=computed(()=>currencyTotal(allProjectWorkspaces.value,item=>item.accounting?.yesterdaySpend?.projectCost))
+const allBonusCostTotal=computed(()=>currencyTotal(allProjectWorkspaces.value,item=>item.accounting?.yesterdaySpend?.bonusCost))
+const allPublicCostTotal=computed(()=>currencyTotal(allProjectWorkspaces.value,item=>item.accounting?.yesterdaySpend?.publicCost))
 const allSpendBreakdown=computed(()=>{
   const groups=new Map()
   for(const entry of allProjectWorkspaces.value){
     const currency=entry.project?.baseCurrency||'CNY'
-    const group=groups.get(currency)||{currency,personnel:0,project:0}
+    const group=groups.get(currency)||{currency,personnel:0,project:0,bonus:0,public:0,pendingPersonnelCount:0}
     group.personnel+=Number(entry.accounting?.yesterdaySpend?.personnelCost||0)
     group.project+=Number(entry.accounting?.yesterdaySpend?.projectCost||0)
+    group.bonus+=Number(entry.accounting?.yesterdaySpend?.bonusCost||0)
+    group.public+=Number(entry.accounting?.yesterdaySpend?.publicCost||0)
+    group.pendingPersonnelCount+=Number(entry.accounting?.yesterdaySpend?.pendingPersonnelCount||0)
     groups.set(currency,group)
   }
   return [...groups.values()]

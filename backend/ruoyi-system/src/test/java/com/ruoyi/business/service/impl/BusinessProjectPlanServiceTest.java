@@ -142,5 +142,103 @@ class BusinessProjectPlanServiceTest
         project.setBaseCurrency("VND");
         assertThrows(ServiceException.class,()->service.request(1L,input,10L,"owner"));
     }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(longs={10L,20L,1L})
+    void monthlyReadProjectionPreservesApprovedBudgetsAndArchivedJson(Long actor) throws Exception
+    {
+        project.setBaselineVersion(2);project.setBaseCurrency("CNY");
+        Map<String,Object> approved=row("cycle","PROJECT","startDate","2026-09-12","endDate","2026-12-11",
+            "personnelAmount",27958.25,"totalAmount",27958.25,"revenueAmount",71966.67,
+            "monthlyForecasts",java.util.Collections.singletonList(row("month","2026-09","revenueAmount",71966.67)),
+            "revenueLines",java.util.Collections.singletonList(row("expectedAmount",47700,"expectedDate",Date.valueOf("2026-09-12").getTime())),
+            "expenseLines",java.util.Collections.singletonList(row("amount",100,"occurDate",Date.valueOf("2026-09-12").getTime())));
+        String template=json.writeValueAsString(row("budget",approved));project.setTemplateSnapshotJson(template);
+        String currentJson=json.writeValueAsString(row("budget",approved,"planStartDate","2026-09-11","planEndDate","2026-12-10",
+            "staffingLines",java.util.Collections.singletonList(row("userId",30,"planStartDate",Date.valueOf("2026-09-12").getTime(),"planEndDate",Date.valueOf("2026-12-11").getTime(),"participationMode","CUSTOM"))));
+        String olderJson=json.writeValueAsString(row("budget",row("cycle","PROJECT","startDate","2026-01-01","endDate","2026-02-01","totalAmount",100),
+            "assignments",java.util.Arrays.asList(row("userId",40,"status","ACTIVE","effectiveFrom","2026-01-10","effectiveTo","2026-01-20"),row("userId",50,"status","INACTIVE"))));
+        String changeJson=json.writeValueAsString(row("budget",row("cycle","PROJECT","startDate","2027-01-01","endDate","2027-03-31","totalAmount",200)));
+        Map<String,Object> baseline=row("baselineVersion",2,"snapshotJson",currentJson);
+        when(projectMapper.selectProjectById(1L)).thenReturn(project);
+        when(mapper.selectBaselines(1L)).thenReturn(java.util.Arrays.asList(baseline,row("baselineVersion",1,"snapshotJson",olderJson)));
+        when(mapper.selectPlanChanges(1L)).thenReturn(java.util.Collections.singletonList(row("snapshotJson",changeJson,"status","RETURNED")));
+        doAnswer(invocation->{
+            com.ruoyi.business.domain.BusinessProjectProposal proposal=invocation.getArgument(0);
+            Map<String,Object> projected=new java.util.LinkedHashMap<>(proposal.getBudget());
+            projected.put("monthlyForecasts",java.util.Collections.singletonList(row("startDate",com.ruoyi.common.utils.DateUtils.parseDateToStr("yyyy-MM-dd",proposal.getPlanStartDate()),"revenueAmount",52766.67)));
+            proposal.setBudget(projected);return null;
+        }).when(budgets).refreshMonthlyForecast(any());
+
+        Map<String,Object> result=service.plan(1L,actor,actor==1L);
+
+        ArgumentCaptor<com.ruoyi.business.domain.BusinessProjectProposal> proposals=ArgumentCaptor.forClass(com.ruoyi.business.domain.BusinessProjectProposal.class);
+        verify(budgets,times(4)).refreshMonthlyForecast(proposals.capture());
+        java.util.List<com.ruoyi.business.domain.BusinessProjectProposal> inputs=proposals.getAllValues();
+        assertEquals("2026-09-12",com.ruoyi.common.utils.DateUtils.parseDateToStr("yyyy-MM-dd",inputs.get(0).getPlanStartDate()));
+        assertEquals("2026-12-11",com.ruoyi.common.utils.DateUtils.parseDateToStr("yyyy-MM-dd",inputs.get(0).getPlanEndDate()));
+        assertTrue(inputs.get(0).getStaffingLines().get(0).get("planStartDate") instanceof java.util.Date);
+        assertEquals("2026-09-12",inputs.get(0).getRevenueLines().get(0).get("expectedDate"));
+        assertEquals("2026-09-12",inputs.get(0).getExpenseLines().get(0).get("occurDate"));
+        assertEquals(1,inputs.get(1).getStaffingLines().size());assertEquals("CUSTOM",inputs.get(1).getStaffingLines().get(0).get("participationMode"));
+        assertEquals("2027-01-01",com.ruoyi.common.utils.DateUtils.parseDateToStr("yyyy-MM-dd",inputs.get(2).getPlanStartDate()));
+        assertEquals(1,inputs.get(3).getStaffingLines().size());
+        Map<String,Object> current=(Map<String,Object>)result.get("currentPlan");
+        Map<String,Object> displayed=(Map<String,Object>)current.get("budget");
+        assertEquals(27958.25,displayed.get("totalAmount"));assertEquals(71966.67,displayed.get("revenueAmount"));
+        Map<String,Object> returned=((java.util.List<Map<String,Object>>)result.get("baselines")).get(0);
+        assertEquals(currentJson,returned.get("snapshotJson"));assertTrue(returned.containsKey("displaySnapshot"));
+        assertFalse(baseline.containsKey("displaySnapshot"));assertEquals(template,project.getTemplateSnapshotJson());
+        assertEquals(71966.67,((java.util.List<Map<String,Object>>)project.getBudget().get("monthlyForecasts")).get(0).get("revenueAmount"));
+        verify(mapper,never()).selectAssignments(anyLong());verify(mapper,never()).applyPlanChange(anyMap());verify(mapper,never()).insertBaseline(anyMap());verify(budgets,never()).estimate(any());
+    }
+    @Test void missingHistoricalStaffDoesNotLoadTodaysAssignments() throws Exception
+    {
+        project.setBaselineVersion(2);
+        project.setTemplateSnapshotJson("{\"budget\":{\"cycle\":\"PROJECT\",\"startDate\":\"2026-09-12\",\"endDate\":\"2026-12-11\",\"personnelAmount\":100}}");
+        when(projectMapper.selectProjectById(1L)).thenReturn(project);
+        when(mapper.selectBaselines(1L)).thenReturn(java.util.Collections.singletonList(row("baselineVersion",1,"snapshotJson","{\"staffingLines\":[{\"userId\":30}]}")));
+        service.plan(1L,10L,false);
+        ArgumentCaptor<com.ruoyi.business.domain.BusinessProjectProposal> proposal=ArgumentCaptor.forClass(com.ruoyi.business.domain.BusinessProjectProposal.class);
+        verify(budgets).refreshMonthlyForecast(proposal.capture());assertTrue(proposal.getValue().getStaffingLines().isEmpty());
+        verify(mapper,never()).selectAssignments(anyLong());
+    }
+    @Test void malformedArchiveRemainsReadableWithoutProjection()
+    {
+        when(projectMapper.selectProjectById(1L)).thenReturn(project);
+        when(mapper.selectBaselines(1L)).thenReturn(java.util.Arrays.asList(row("baselineVersion",1,"snapshotJson","bad-json"),row("snapshotJson","null")));
+        Map<String,Object> result=service.plan(1L,10L,false);
+        for(Map<String,Object> baseline:(java.util.List<Map<String,Object>>)result.get("baselines"))assertFalse(baseline.containsKey("displaySnapshot"));
+        verifyNoInteractions(budgets);
+    }
+    @Test void monthlyProjectionDoesNotBypassProjectReadPermission()
+    {
+        when(projectMapper.selectProjectById(1L)).thenReturn(project);
+        assertThrows(ServiceException.class,()->service.plan(1L,99L,false));verifyNoInteractions(budgets);
+    }
+    @Test void epochCashDatesPassRealBudgetValidationAndAppearOnlyInTheirMonth() throws Exception
+    {
+        project.setBaseCurrency("CNY");
+        long occurrence=Date.valueOf("2026-09-12").getTime();
+        Map<String,Object> approved=row("cycle","PROJECT","startDate","2026-09-12","endDate","2026-10-11","personnelAmount",0,"businessAmount",10,
+            "revenueLines",java.util.Collections.singletonList(row("expectedAmount",100,"expectedDate",occurrence,"occurrenceType","ONE_TIME")),
+            "expenseLines",java.util.Collections.singletonList(row("amount",10,"occurDate",occurrence,"occurrenceType","ONE_TIME")));
+        project.setTemplateSnapshotJson(json.writeValueAsString(row("budget",approved)));
+        String snapshot=json.writeValueAsString(row("budget",approved));
+        when(projectMapper.selectProjectById(1L)).thenReturn(project);
+        when(mapper.selectBaselines(1L)).thenReturn(java.util.Collections.singletonList(row("baselineVersion",1,"snapshotJson",snapshot)));
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"budgets",new BusinessProjectBudgetService());
+
+        Map<String,Object> result=service.plan(1L,10L,false);
+
+        Map<String,Object> current=(Map<String,Object>)result.get("currentPlan");
+        java.util.List<Map<String,Object>> months=(java.util.List<Map<String,Object>>)((Map<String,Object>)current.get("budget")).get("monthlyForecasts");
+        assertEquals(2,months.size());
+        for(Map<String,Object> month:months){assertEquals("READY",month.get("status"));assertTrue(((java.util.List<?>)month.get("issues")).isEmpty());}
+        assertEquals(new java.math.BigDecimal("100.00"),months.get(0).get("revenueAmount"));
+        assertEquals(new java.math.BigDecimal("10.00"),months.get(0).get("plannedBusinessAmount"));
+        assertEquals(new java.math.BigDecimal("0.00"),months.get(1).get("revenueAmount"));
+        assertEquals(new java.math.BigDecimal("0.00"),months.get(1).get("plannedBusinessAmount"));
+        assertEquals(snapshot,((java.util.List<Map<String,Object>>)result.get("baselines")).get(0).get("snapshotJson"));
+    }
     private Map<String,Object> change(){return row("version",3,"reason","增加交付验证","objective","完成成果交付","applicationReason","调整立项计划","planStartDate","2026-01-01","planEndDate","2026-06-01","acceptanceCriteria","检查成果清单");}
 }

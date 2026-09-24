@@ -36,8 +36,16 @@ public class BusinessProjectPlanService
         List<Map<String,Object>> changes=mapper.selectPlanChanges(projectId);
         for(Map<String,Object> change:changes)change.put("canReview",canReview(p,change,actor));
         List<Map<String,Object>> baselines=mapper.selectBaselines(projectId);
-        Map<String,Object> result=new LinkedHashMap<String,Object>();result.put("baselines",baselines);result.put("changes",changes);result.put("forecast",mapper.selectForecast(projectId));
-        result.put("currentPlan",currentPlan(p,baselines));
+        Map<String,Object> result=new LinkedHashMap<String,Object>();
+        result.put("baselines",displaySnapshots(p,baselines));result.put("changes",displaySnapshots(p,changes));result.put("forecast",mapper.selectForecast(projectId));
+        Map<String,Object> current=currentPlan(p,baselines);
+        // This projection belongs only to the read response; normalize() must use approved inputs.
+        Map<String,Object> source=Collections.emptyMap();
+        for(Map<String,Object> baseline:baselines)
+            if(String.valueOf(p.getBaselineVersion()).equals(String.valueOf(baseline.get("baselineVersion")))){
+                source=readSnapshot(baseline.get("snapshotJson"));break;
+            }
+        current.put("budget",displayBudget(p,source,p.getBudget()));result.put("currentPlan",current);
         result.put("canRequestChange",actor.equals(p.getMainOwnerUserId())&&mutable(p));result.put("canForecast",actor.equals(p.getMainOwnerUserId())&&mutable(p));result.put("version",p.getVersion());result.put("baselineVersion",p.getBaselineVersion());return result;
     }
 
@@ -242,6 +250,75 @@ public class BusinessProjectPlanService
             if(result.containsKey("revenueLines")&&result.containsKey("expenseLines")&&result.containsKey("targetLines"))break;
         }catch(Exception ignored){}
         result.putIfAbsent("revenueLines",Collections.emptyList());result.putIfAbsent("expenseLines",Collections.emptyList());result.putIfAbsent("targetLines",Collections.emptyList());return result;
+    }
+
+    /** Preserve the archived JSON verbatim and expose corrected monthly views separately. */
+    private List<Map<String,Object>> displaySnapshots(BusinessProject p,List<Map<String,Object>> rows)
+    {
+        List<Map<String,Object>> result=new ArrayList<>();
+        for(Map<String,Object> row:rows){
+            Map<String,Object> copy=new LinkedHashMap<>(row);
+            Map<String,Object> snapshot=readSnapshot(row.get("snapshotJson"));
+            if(!snapshot.isEmpty()){
+                Map<String,Object> budget=snapshot.get("budget") instanceof Map?(Map<String,Object>)snapshot.get("budget"):null;
+                if(budget==null){
+                    Map<String,Object> template=readSnapshot(snapshot.get("templateSnapshotJson"));
+                    if(template.get("budget") instanceof Map)budget=(Map<String,Object>)template.get("budget");
+                }
+                if(budget!=null)snapshot.put("budget",displayBudget(p,snapshot,budget));
+                copy.put("displaySnapshot",snapshot);
+            }
+            result.add(copy);
+        }
+        return result;
+    }
+    private Map<String,Object> readSnapshot(Object value)
+    {
+        try{Map<String,Object> snapshot=json.readValue(text(value),new TypeReference<Map<String,Object>>(){});return snapshot==null?Collections.emptyMap():snapshot;}
+        catch(Exception ignored){return Collections.emptyMap();}
+    }
+    private Map<String,Object> displayBudget(BusinessProject p,Map<String,Object> snapshot,Map<String,Object> budget)
+    {
+        if(budget==null)return null;
+        Date from=snapshotDate(budget.get("startDate"));
+        Date to="PROJECT".equals(budget.get("cycle"))?snapshotDate(budget.get("endDate")):snapshotDate(snapshot.get("planEndDate"));
+        if(from==null)from=snapshotDate(snapshot.get("planStartDate"));
+        if(from==null||to==null)return budget;
+        BusinessProjectProposal proposal=new BusinessProjectProposal();
+        proposal.setPlanStartDate(from);proposal.setPlanEndDate(to);
+        proposal.setTemplateVersion(snapshot.get("templateVersion")==null?p.getTemplateVersion():text(snapshot.get("templateVersion")));
+        proposal.setCompanyDeptId(snapshot.get("companyDeptId")==null?p.getCompanyDeptId():id(snapshot.get("companyDeptId")));
+        proposal.setBaseCurrency(budget.get("currency")==null?p.getBaseCurrency():text(budget.get("currency")));
+        proposal.setParentProjectId(snapshot.get("parentProjectId")==null?p.getParentId():id(snapshot.get("parentProjectId")));
+        Object funding=budget.containsKey("parentFundingRevenue")?budget.get("parentFundingRevenue"):snapshot.get("parentFundingAmount");
+        if(funding!=null)proposal.setParentFundingAmount(new BigDecimal(String.valueOf(funding)));
+        proposal.setBudget(new LinkedHashMap<>(budget));
+        proposal.setRevenueLines(displayLines(budget.containsKey("revenueLines")?budget.get("revenueLines"):snapshot.get("revenueLines"),"expectedDate"));
+        proposal.setExpenseLines(displayLines(budget.containsKey("expenseLines")?budget.get("expenseLines"):snapshot.get("expenseLines"),"occurDate"));
+        proposal.setGoalMode("NO_TOTAL");
+        List<Map<String,Object>> staff=new ArrayList<>();
+        boolean assignments=!(snapshot.get("staffingLines") instanceof List);
+        for(Map<String,Object> saved:snapshotRows(snapshot.get(assignments?"assignments":"staffingLines"))){
+            if(assignments&&!"ACTIVE".equals(saved.get("status")))continue;
+            Map<String,Object> person=new LinkedHashMap<>(saved);
+            person.put("planStartDate",snapshotDate(saved.get(assignments?"effectiveFrom":"planStartDate")));
+            person.put("planEndDate",snapshotDate(saved.get(assignments?"effectiveTo":"planEndDate")));
+            if(assignments)person.putIfAbsent("participationMode",person.get("planEndDate")==null?"UNLIMITED":"CUSTOM");
+            staff.add(person);
+        }
+        // Never substitute today's resource assignments for a missing historical staffing plan.
+        proposal.setStaffingLines(staff);budgets.refreshMonthlyForecast(proposal);return proposal.getBudget();
+    }
+    private Date snapshotDate(Object value){return value instanceof Date?(Date)value:value instanceof Number?new Date(((Number)value).longValue()):DateUtils.parseDate(value);}
+    private List<Map<String,Object>> snapshotRows(Object value){return value instanceof List?(List<Map<String,Object>>)value:Collections.emptyList();}
+    private List<Map<String,Object>> displayLines(Object value,String dateField)
+    {
+        List<Map<String,Object>> result=new ArrayList<>();
+        for(Map<String,Object> saved:snapshotRows(value)){
+            Map<String,Object> line=new LinkedHashMap<>(saved);Date date=snapshotDate(saved.get(dateField));
+            line.put(dateField,date==null?null:DateUtils.parseDateToStr("yyyy-MM-dd",date));result.add(line);
+        }
+        return result;
     }
     private boolean canReview(BusinessProject p,Map<String,Object> row,Long actor){return mutable(p)&&"SUBMITTED".equals(row.get("status"))&&companyAccess.project(p,actor)&&!actor.equals(id(row.get("requestUserId")));}
     private boolean mutable(BusinessProject p){return !BusinessProjectLifecycle.isAccountingClosed(p)&&!Arrays.asList("CLOSED","CANCELED","ACCEPTANCE").contains(p.getStatus());}

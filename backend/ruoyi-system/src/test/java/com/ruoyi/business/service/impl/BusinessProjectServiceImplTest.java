@@ -499,9 +499,58 @@ class BusinessProjectServiceImplTest
         assertEquals(yesterday.toString(),yesterdaySpend.get("bizDate"));
         assertEquals(new BigDecimal("40.13"),yesterdaySpend.get("personnelCost"));
         assertEquals(new BigDecimal("70.20"),yesterdaySpend.get("projectCost"));
+        assertEquals(new BigDecimal("0.00"),yesterdaySpend.get("bonusCost"));
+        assertEquals(new BigDecimal("0.00"),yesterdaySpend.get("publicCost"));
         assertEquals(new BigDecimal("110.33"),yesterdaySpend.get("amount"));
         assertEquals(1,yesterdaySpend.get("pendingPersonnelCount"));
         verify(accountingMapper).selectProjectDailySpendItems(81L,java.sql.Date.valueOf(yesterday.plusDays(1)));
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+        "0, 0, 80, 50, 430",        // Daily public estimate and confirmed bonus.
+        "1000, 1000, 80, 50, 430",  // Monthly settlement must not duplicate daily recognized cost.
+        "80, 0, 0, 50, 430",        // Historical public fact without daily recognition.
+        "1080, 1000, 80, 50, 510",  // Historical and daily public costs coexist.
+        "0, 0, 80, -50, 330"        // Reversed bonus net amount remains signed.
+    })
+    void ownerWorkbenchYesterdaySpendIncludesBonusAndRecognizedPublicCosts(
+        String publicFactAmount,String monthlyFactAmount,String dailyPublicAmount,String bonusAmount,String expectedTotal)
+    {
+        java.time.LocalDate yesterday=java.time.LocalDate.now().minusDays(1);
+        java.sql.Date yesterdayDate=java.sql.Date.valueOf(yesterday);
+        BusinessProject owned=project(81L,23L,"ACTIVE","APPROVED");
+        owned.setCostPolicyVersion(BusinessMemberDayCostService.POLICY);
+        when(mapper.selectProjectList(any())).thenReturn(Collections.singletonList(owned));
+        when(mapper.selectProjectById(81L)).thenReturn(owned);
+        Map<String,Object> facts=new HashMap<>();
+        facts.put("costAmount",new BigDecimal("100.00"));
+        facts.put("bonusCost",new BigDecimal(bonusAmount));
+        facts.put("publicCost",new BigDecimal(publicFactAmount));
+        when(accountingMapper.sumProjectFacts(81L,yesterdayDate)).thenReturn(facts);
+        Map<String,Object> daily=new HashMap<>();
+        daily.put("amount",new BigDecimal(dailyPublicAmount));
+        daily.put("estimatedAmount",new BigDecimal(dailyPublicAmount));
+        daily.put("monthlyFactAmount",new BigDecimal(monthlyFactAmount));
+        when(publicExpenses.sumDailyCost(81L,yesterdayDate)).thenReturn(daily);
+        Map<String,Object> personnel=new HashMap<>();
+        personnel.put("pricingStatus","PRICED");personnel.put("amount",new BigDecimal("200.00"));
+        when(memberDays.calculate(owned,yesterday,yesterday)).thenReturn(Collections.singletonList(personnel));
+
+        Map<?,?> accounting=(Map<?,?>)service.ownerWorkbench(81L,23L,false).get("accounting");
+        Map<?,?> spend=(Map<?,?>)accounting.get("yesterdaySpend");
+
+        assertEquals(yesterday.toString(),spend.get("bizDate"));
+        assertEquals(new BigDecimal("100.00"),spend.get("projectCost"));
+        assertEquals(new BigDecimal("200.00"),spend.get("personnelCost"));
+        assertEquals(new BigDecimal(bonusAmount).setScale(2),spend.get("bonusCost"));
+        assertEquals(new BigDecimal(publicFactAmount).subtract(new BigDecimal(monthlyFactAmount))
+            .add(new BigDecimal(dailyPublicAmount)).setScale(2),spend.get("publicCost"));
+        assertEquals(new BigDecimal(expectedTotal).setScale(2),spend.get("amount"));
+        assertEquals(0,spend.get("pendingPersonnelCount"));
+        verify(accountingMapper).sumProjectFacts(81L,yesterdayDate);
+        verify(publicExpenses).sumDailyCost(81L,yesterdayDate);
+        verify(publicExpenses,never()).sumDailyCost(81L,java.sql.Date.valueOf(yesterday.plusDays(1)));
     }
 
     @Test
