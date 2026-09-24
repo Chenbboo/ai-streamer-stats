@@ -16,6 +16,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -382,14 +384,24 @@ class JewelryErpMapperIntegrationTest
         String ctes = stockSql.substring(stockSql.indexOf("return_config as"), stockSql.indexOf("select p.product_id productId"));
         // Execute the actual production filter, excluding unrelated MySQL-only age projections.
         String from = stockSql.substring(stockSql.indexOf("from jewelry_stock s join jewelry_product p", stockSql.indexOf("select p.product_id productId")), stockSql.lastIndexOf("order by p.product_id desc"));
-        assertEquals(expected, intValue("with " + ctes
-            + ", warning_config as (select 25 warning_days) select count(*) " + from));
         String dashboardSql = sqlSessionFactory.getConfiguration()
             .getMappedStatement("com.ruoyi.jewelry.mapper.JewelryErpMapper.selectDashboard")
             .getBoundSql(Collections.emptyMap()).getSql();
         int end = dashboardSql.indexOf(") supplierReturnWarningCount");
         int start = dashboardSql.lastIndexOf("(select count(*)", end);
-        assertEquals(expected, intValue("with " + ctes + " " + dashboardSql.substring(start + 1, end)));
+        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement())
+        {
+            materializeDeadlineCtes(connection, ctes);
+            statement.execute("create local temporary table warning_config as select 25 warning_days");
+            for (String querySql : Arrays.asList("select count(*) " + from, dashboardSql.substring(start + 1, end)))
+            {
+                try (ResultSet result = statement.executeQuery(querySql))
+                {
+                    assertTrue(result.next());
+                    assertEquals(expected, result.getInt(1));
+                }
+            }
+        }
     }
 
     private void saleEvent(Long id, int qty, String date)
@@ -417,10 +429,13 @@ class JewelryErpMapperIntegrationTest
             .getMappedStatement("com.ruoyi.jewelry.mapper.JewelryErpMapper.selectStockList")
             .getBoundSql(Collections.emptyMap()).getSql();
         String ctes = sql.substring(sql.indexOf("return_config as"), sql.indexOf("select p.product_id productId"));
-        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement();
-             ResultSet result = statement.executeQuery("with " + ctes + " select " + column + " from stock_origin_summary where product_id=1"))
+        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement())
         {
-            return result.next() ? result.getString(1) : null;
+            materializeDeadlineCtes(connection, ctes);
+            try (ResultSet result = statement.executeQuery("select " + column + " from stock_origin_summary where product_id=1"))
+            {
+                return result.next() ? result.getString(1) : null;
+            }
         }
     }
 
@@ -440,13 +455,16 @@ class JewelryErpMapperIntegrationTest
         for (String type : Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE", "SAMPLE", "FINISHED"))
         {
             execute("update jewelry_product set product_type='" + type + "' where product_id=1");
-            try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement();
-                 ResultSet result = statement.executeQuery("with " + ctes
-                    + " select rd.deadline,rd.doc_no from jewelry_stock s join jewelry_product p on p.product_id=s.product_id " + deadlineJoin))
+            try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement())
             {
-                assertEquals(true, result.next());
-                assertEquals("FINISHED".equals(type) ? java.sql.Date.valueOf("2026-09-14") : null, result.getDate(1));
-                assertEquals("FINISHED".equals(type) ? "PUR-1" : null, result.getString(2));
+                materializeDeadlineCtes(connection, ctes);
+                try (ResultSet result = statement.executeQuery(
+                    "select rd.deadline,rd.doc_no from jewelry_stock s join jewelry_product p on p.product_id=s.product_id " + deadlineJoin))
+                {
+                    assertTrue(result.next());
+                    assertEquals("FINISHED".equals(type) ? java.sql.Date.valueOf("2026-09-14") : null, result.getDate(1));
+                    assertEquals("FINISHED".equals(type) ? "PUR-1" : null, result.getString(2));
+                }
             }
             // Product-type gating must not alter the independent stock-age calculation.
             assertEquals("2026-08-20", originValue("oldest_inbound_date"));
@@ -472,13 +490,53 @@ class JewelryErpMapperIntegrationTest
         String sql = sqlSessionFactory.getConfiguration()
             .getMappedStatement("com.ruoyi.jewelry.mapper.JewelryErpMapper.selectStockList")
             .getBoundSql(Collections.emptyMap()).getSql();
-          String ctes = sql.substring(sql.indexOf("return_config as"), sql.indexOf("select p.product_id productId"));
-        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement();
-             ResultSet result = statement.executeQuery("with " + ctes
-                 + " select " + column + " from remaining_deadlines where deadline_rank=1"))
+        String ctes = sql.substring(sql.indexOf("return_config as"), sql.indexOf("select p.product_id productId"));
+        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement())
         {
-            if (!result.next()) return null;
-            return "deadline".equals(column) ? result.getDate(1).toString() : result.getString(1);
+            materializeDeadlineCtes(connection, ctes);
+            try (ResultSet result = statement.executeQuery("select " + column + " from remaining_deadlines where deadline_rank=1"))
+            {
+                if (!result.next()) return null;
+                return "deadline".equals(column) ? result.getDate(1).toString() : result.getString(1);
+            }
+        }
+    }
+
+    private void materializeDeadlineCtes(Connection connection, String ctes) throws Exception
+    {
+        // H2 1.4 repeatedly expands this shared CTE graph while optimizing joins.
+        // Evaluate each production SELECT unchanged, in dependency order, on the same fixture.
+        // Connection-local tables disappear on close. This checks results, not MySQL query plans.
+        Pattern header = Pattern.compile("\\s*,?\\s*([a-z_]+)\\s+as\\s*\\(", Pattern.CASE_INSENSITIVE);
+        int offset = 0;
+        try (Statement statement = connection.createStatement())
+        {
+            while (!ctes.substring(offset).trim().isEmpty())
+            {
+                Matcher match = header.matcher(ctes).region(offset, ctes.length());
+                assertTrue(match.lookingAt(), "Unrecognized production CTE at " + offset);
+                String name = match.group(1);
+                int start = match.end(), cursor = start, depth = 1;
+                boolean quoted = false;
+                while (cursor < ctes.length() && depth > 0)
+                {
+                    char current = ctes.charAt(cursor++);
+                    if (current == '\'')
+                    {
+                        if (quoted && cursor < ctes.length() && ctes.charAt(cursor) == '\'') cursor++;
+                        else quoted = !quoted;
+                    }
+                    else if (!quoted)
+                    {
+                        if (current == '(') depth++;
+                        else if (current == ')') depth--;
+                    }
+                }
+                assertEquals(0, depth, "Unclosed production CTE: " + name);
+                assertFalse(quoted, "Unclosed SQL literal in " + name);
+                statement.execute("create local temporary table " + name + " as " + ctes.substring(start, cursor - 1));
+                offset = cursor;
+            }
         }
     }
 

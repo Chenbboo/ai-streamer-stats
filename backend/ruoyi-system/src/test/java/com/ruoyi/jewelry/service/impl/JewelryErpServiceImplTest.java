@@ -2823,8 +2823,8 @@ class JewelryErpServiceImplTest
         Map<String, Object> finished = product("FINISHED");
         finished.put("sku", "CP-001");
         List<Map<String, Object>> bindings = Arrays.asList(
-            Map.of("influencerName", "达人甲", "platformRate", new BigDecimal("0.10")),
-            Map.of("influencerName", "达人乙", "platformRate", new BigDecimal("0.20")));
+            influencerBinding("达人甲", "0.10"),
+            influencerBinding("达人乙", "0.20"));
         when(mapper.selectProductById(PRODUCT_ID)).thenReturn(finished);
         when(mapper.selectInfluencerBindingsByProductId(PRODUCT_ID)).thenReturn(bindings);
 
@@ -2849,7 +2849,7 @@ class JewelryErpServiceImplTest
             return 1;
         });
         when(mapper.insertInfluencerBinding(any())).thenReturn(1);
-        Map<String, Object> supplier = Map.of("supplierCode", "NEW-SUP", "supplierName", "新供应商");
+        Map<String, Object> supplier = supplierRequest("NEW-SUP", "新供应商");
         Map<String, Object> first = new HashMap<>();
         first.put("productId", PRODUCT_ID);
         first.put("fixedUnitPrice", "100");
@@ -2880,7 +2880,7 @@ class JewelryErpServiceImplTest
         row.put("commissionPercent", "60");
         row.put("platformPercent", "40");
         row.put("bindingStatus", "0");
-        row.put("newSupplier", Map.of("supplierCode", "NEW-SUP", "supplierName", "新供应商"));
+        row.put("newSupplier", supplierRequest("NEW-SUP", "新供应商"));
 
         assertThrows(ServiceException.class, () -> service.saveInfluencerBindings(
             SALES_INFLUENCER_ID, Arrays.asList(row), MAKER_ID, "admin"));
@@ -3535,6 +3535,22 @@ class JewelryErpServiceImplTest
     private BigDecimal decimal(String value)
     {
         return new BigDecimal(value);
+    }
+
+    private Map<String, Object> influencerBinding(String name, String rate)
+    {
+        Map<String, Object> binding = new HashMap<>();
+        binding.put("influencerName", name);
+        binding.put("platformRate", new BigDecimal(rate));
+        return binding;
+    }
+
+    private Map<String, Object> supplierRequest(String code, String name)
+    {
+        Map<String, Object> supplier = new HashMap<>();
+        supplier.put("supplierCode", code);
+        supplier.put("supplierName", name);
+        return supplier;
     }
 
     private BigDecimal decimalEq(String value)

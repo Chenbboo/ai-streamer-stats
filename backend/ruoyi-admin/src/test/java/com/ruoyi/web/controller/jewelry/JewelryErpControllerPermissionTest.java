@@ -187,7 +187,10 @@ class JewelryErpControllerPermissionTest
         loginAs("jewelry_admin", Collections.singleton("jewelry:influencer:price"));
         Map<String, Object> row = new HashMap<String, Object>();
         row.put("productId", 1L);
-        row.put("newSupplier", Map.of("supplierCode", "NEW-SUP", "supplierName", "新供应商"));
+        Map<String, Object> supplier = new HashMap<>();
+        supplier.put("supplierCode", "NEW-SUP");
+        supplier.put("supplierName", "新供应商");
+        row.put("newSupplier", supplier);
 
         assertFalse(controller.saveInfluencerBindings(9L, Collections.singletonList(row)).isSuccess());
         verify(service, never()).saveInfluencerBindings(any(), any(), any(), any());

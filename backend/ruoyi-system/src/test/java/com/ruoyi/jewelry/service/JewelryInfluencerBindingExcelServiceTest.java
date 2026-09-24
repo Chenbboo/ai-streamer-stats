@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -46,8 +47,8 @@ class JewelryInfluencerBindingExcelServiceTest
             Row header = workbook.getSheet("达人商品绑定").getRow(0);
             assertEquals("商品SKU", header.getCell(0).getStringCellValue());
             assertEquals("商品名称", header.getCell(1).getStringCellValue());
-            assertEquals(List.of("成品商品", "赠品商品"),
-                List.of(workbook.getSheet("达人商品绑定").getDataValidations().get(0)
+            assertEquals(Arrays.asList("成品商品", "赠品商品"),
+                Arrays.asList(workbook.getSheet("达人商品绑定").getDataValidations().get(0)
                     .getValidationConstraint().getExplicitListValues()));
             String[] names = { "商品SKU", "商品名称", "商品类型", "供应商名称", "直播成交价", "商品成本价",
                 "采购单价", "达人佣金率(%)", "平台扣点率(%)", "税率(%)", "包装费", "物流费",
@@ -98,7 +99,7 @@ class JewelryInfluencerBindingExcelServiceTest
     {
         when(mapper.selectProductBySkuAndType("SKU-1", "FINISHED")).thenReturn(null);
         when(mapper.selectProductBySkuAndType("SKU-2", "FINISHED")).thenReturn(null);
-        when(mapper.selectSuppliersByName("天吉珠宝")).thenReturn(List.of(supplier(7L, "天吉珠宝", "0")));
+        when(mapper.selectSuppliersByName("天吉珠宝")).thenReturn(Collections.singletonList(supplier(7L, "天吉珠宝", "0")));
         MockHttpServletResponse response = new MockHttpServletResponse();
         service.writeTemplate(response);
         try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(response.getContentAsByteArray()));
@@ -132,7 +133,7 @@ class JewelryInfluencerBindingExcelServiceTest
     {
         when(mapper.selectProductBySkuAndType("NEW-IMAGE", "FINISHED")).thenReturn(null);
         when(documentExcelService.importProductImages(any(XSSFSheet.class), eq(14)))
-            .thenReturn(Map.of(1, Map.of("imageUrls", "/profile/jewelry/import/test.png")));
+            .thenReturn(Collections.singletonMap(1, Collections.singletonMap("imageUrls", "/profile/jewelry/import/test.png")));
         MockHttpServletResponse response = new MockHttpServletResponse();
         service.writeTemplate(response);
         try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(response.getContentAsByteArray()));
@@ -161,7 +162,7 @@ class JewelryInfluencerBindingExcelServiceTest
     void duplicateSupplierNameRequiresSpecificSelection()
     {
         when(mapper.selectProductBySkuAndType("FINISHED-1", "FINISHED")).thenReturn(null);
-        when(mapper.selectSuppliersByName("同名供应商")).thenReturn(List.of(
+        when(mapper.selectSuppliersByName("同名供应商")).thenReturn(Arrays.asList(
             supplier(7L, "同名供应商", "0"), supplier(8L, "同名供应商", "0")));
         Map<String, Object> row = new HashMap<>();
         row.put("sku", "FINISHED-1");
@@ -173,7 +174,7 @@ class JewelryInfluencerBindingExcelServiceTest
         row.put("preferredSupplierName", "同名供应商");
         row.put("bindingStatus", "0");
 
-        service.validateRows(null, List.of(row));
+        service.validateRows(null, Collections.singletonList(row));
 
         assertTrue(errors(row).stream().anyMatch(error -> error.contains("供应商名称重复")));
     }
@@ -184,7 +185,7 @@ class JewelryInfluencerBindingExcelServiceTest
         when(mapper.selectProductBySkuAndType("NEW-1", "FINISHED")).thenReturn(null);
         when(mapper.selectProductBySkuAndType("NEW-2", "FINISHED")).thenReturn(null);
         when(mapper.selectSupplierByCode("NEW-01")).thenReturn(null);
-        Map<String, Object> supplier = Map.of("supplierCode", "NEW-01", "supplierName", "新供应商");
+        Map<String, Object> supplier = supplierRequest("NEW-01", "新供应商");
         Map<String, Object> first = new HashMap<>();
         first.put("sku", "NEW-1");
         first.put("productType", "FINISHED");
@@ -200,15 +201,15 @@ class JewelryInfluencerBindingExcelServiceTest
         second.put("productName", "成品2");
         second.put("productType", "FINISHED");
 
-        service.validateRows(null, List.of(first, second));
+        service.validateRows(null, Arrays.asList(first, second));
 
         assertTrue(errors(first).isEmpty(), errors(first).toString());
         assertTrue(errors(second).isEmpty(), errors(second).toString());
         assertEquals("新供应商", first.get("preferredSupplierName"));
         assertEquals("新供应商", second.get("preferredSupplierName"));
 
-        second.put("newSupplier", Map.of("supplierCode", "NEW-01", "supplierName", "另一供应商"));
-        service.validateRows(null, List.of(first, second));
+        second.put("newSupplier", supplierRequest("NEW-01", "另一供应商"));
+        service.validateRows(null, Arrays.asList(first, second));
         assertTrue(errors(second).stream().anyMatch(error -> error.contains("信息不一致")));
     }
 
@@ -321,7 +322,7 @@ class JewelryInfluencerBindingExcelServiceTest
         row.put("referencePurchasePrice", "35.00");
         row.put("bindingStatus", "0");
 
-        service.validateRows(null, List.of(row));
+        service.validateRows(null, Collections.singletonList(row));
 
         assertTrue(errors(row).isEmpty());
         assertTrue(!row.containsKey("productId"));
@@ -341,7 +342,7 @@ class JewelryInfluencerBindingExcelServiceTest
         row.put("referencePurchasePrice", "0.25");
         row.put("bindingStatus", "0");
 
-        service.validateRows(null, List.of(row));
+        service.validateRows(null, Collections.singletonList(row));
 
         assertTrue(errors(row).isEmpty(), errors(row).toString());
         assertTrue(!row.containsKey("productId"));
@@ -351,6 +352,14 @@ class JewelryInfluencerBindingExcelServiceTest
     private List<String> errors(Map<String, Object> row)
     {
         return (List<String>) row.get("errors");
+    }
+
+    private Map<String, Object> supplierRequest(String code, String name)
+    {
+        Map<String, Object> supplier = new HashMap<>();
+        supplier.put("supplierCode", code);
+        supplier.put("supplierName", name);
+        return supplier;
     }
 
     private MockMultipartFile workbookWithErrors() throws Exception
