@@ -97,7 +97,7 @@
                   <div>{{ $tr("内部项目支出：{0} {1}", [money(row.accounting?.todaySpend?.internalProjectCost), row.project.baseCurrency || 'CNY']) }}</div>
                   <div>{{ $tr("项目奖金：{0} {1}", [money(row.accounting?.todaySpend?.bonusCost), row.project.baseCurrency || 'CNY']) }}</div><div>{{ $tr("公共费用（含暂估）：{0} {1}", [money(row.accounting?.todaySpend?.publicCost), row.project.baseCurrency || 'CNY']) }}</div>
                   <div v-if="row.accounting?.todaySpend?.pendingPersonnelCount">{{ $tr("{0} 项人员成本待计价", [row.accounting.todaySpend.pendingPersonnelCount]) }}</div>
-                </template><b class="spend-hover">{{ money(row.accounting?.todaySpend?.amount) }} {{ row.project.baseCurrency || 'CNY' }}</b></el-tooltip>
+                </template><b class="spend-hover spend-history-entry" role="button" tabindex="0" :aria-label="$tr('查看每日花费明细')" @click="openSpendHistory(row.project)" @keydown.enter.prevent="openSpendHistory(row.project)" @keydown.space.prevent="openSpendHistory(row.project)">{{ money(row.accounting?.todaySpend?.amount) }} {{ row.project.baseCurrency || 'CNY' }}</b></el-tooltip>
                 <small class="table-subtext">{{ $tr("人员 {0} · 业务 {1}", [money(row.accounting?.todaySpend?.personnelCost), money(row.accounting?.todaySpend?.projectCost)]) }}<br>{{ $tr("内部项目支出：{0} {1}", [money(row.accounting?.todaySpend?.internalProjectCost), row.project.baseCurrency || 'CNY']) }}<br>{{ $tr("奖金 {0} · 公共费用 {1}", [money(row.accounting?.todaySpend?.bonusCost), money(row.accounting?.todaySpend?.publicCost)]) }}</small>
               </template></el-table-column>
               <el-table-column :label="$tr(&quot;人员成本配置&quot;)" min-width="155"><template #default="{row}"><el-tag :type="entryPersonnelIssueCount(row)?'warning':'success'" effect="plain">{{ entryPersonnelIssueCount(row) ? entryPersonnelIssueCount(row)+$tr(" 项待完善") : $tr("正常") }}</el-tag></template></el-table-column>
@@ -130,7 +130,7 @@
         <article><span>{{ $tr("待办事项") }}</span><b :class="{'stat-attention':ownerTodos.length}">{{ ownerTodos.length }}<small>{{ $tr("项") }}</small></b><p>{{ urgentTodoCount ? urgentTodoCount + $tr(" 项优先处理") : $tr("当前项目") }}</p></article>
         <article><span>{{ $tr("未完成任务") }}</span><b>{{ openTasks.length }}<small>{{ $tr("项") }}</small></b><p :class="{'stat-attention':overdueTaskCount}">{{ overdueTaskCount ? overdueTaskCount + $tr(" 项已逾期") : $tr("按计划推进") }}</p></article>
         <article><span>{{ $tr("填写收入") }}</span><InternalProjectIncomeTooltip :items="accounting.internalRevenueItems || []"><b class="revenue-hover">{{ money(dailyRevenue.confirmedAmount || 0) }}<small>{{ project.baseCurrency || 'CNY' }}</small></b></InternalProjectIncomeTooltip><p>{{ $tr("内部项目收入：{0} {1}", [money(internalRevenueAmount(accounting.internalRevenueItems)), project.baseCurrency || 'CNY']) }}<br>{{ Number(dailyRevenue.draftCount || 0) ? dailyRevenue.draftCount + $tr(" 笔待确认") : Number(dailyRevenue.confirmedCount || 0) ? $tr("已计入项目核算") : $tr("今日尚未填报") }}</p></article>
-        <article><span>{{ $tr("填写花费") }}</span>
+        <article class="spend-history-entry spend-history-card" role="button" tabindex="0" :aria-label="$tr('查看每日花费明细')" @click="openSpendHistory(project)" @keydown.enter.prevent="openSpendHistory(project)" @keydown.space.prevent="openSpendHistory(project)"><span>{{ $tr("填写花费") }} · {{ $tr("点击查看明细") }}</span>
           <el-tooltip placement="top" effect="light"><template #content>
             <div>{{ $tr("人员成本：{0} {1}", [money(accounting.todaySpend?.personnelCost), project.baseCurrency || 'CNY']) }}</div><div>{{ $tr("业务成本：{0} {1}", [money(accounting.todaySpend?.projectCost), project.baseCurrency || 'CNY']) }}</div>
             <div>{{ $tr("内部项目支出：{0} {1}", [money(accounting.todaySpend?.internalProjectCost), project.baseCurrency || 'CNY']) }}</div>
@@ -338,6 +338,8 @@
       </el-tabs>
     </template>
 
+    <ProjectSpendHistoryDialog v-model="spendHistoryDialog" :project-id="spendHistoryProject.projectId" :project-name="spendHistoryProject.projectName" />
+
     <el-dialog v-model="revenueDialog" :title="isLateSettlement ? $tr(&quot;补录执行期间收入&quot;) : $tr(&quot;录入今日收入&quot;)" width="min(680px, 94vw)" append-to-body>
       <el-alert :title="$tr(&quot;负责人确认后收入将直接计入项目经营结果；如需更正，请通过新增记录或财务冲正保留审计轨迹。&quot;)" type="success" :closable="false" show-icon />
       <el-form :model="revenueForm" label-width="92px" class="report-form">
@@ -518,6 +520,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 import BusinessProjectWorkPanel from '@/components/BusinessProjectWorkPanel/index.vue'
 import InternalProjectIncomeTooltip from '@/components/InternalProjectIncomeTooltip/index.vue'
+import ProjectSpendHistoryDialog from '@/components/ProjectSpendHistoryDialog/index.vue'
 import BusinessProjectPlanPanel from '@/components/BusinessProjectPlanPanel/index.vue'
 import BusinessSettlementPanel from '@/components/BusinessSettlementPanel/index.vue'
 import PublicExpenseOwnerPanel from '@/views/business/components/PublicExpenseOwnerPanel.vue'
@@ -529,6 +532,8 @@ import { canContinueProjectSettlement, isSeparatedDelivery, isDeliveryEnded, pro
 import { buildWorkReportStats } from '@/utils/workReportStats'
 
 const route=useRoute(),router=useRouter()
+const spendHistoryDialog=ref(false),spendHistoryProject=ref({})
+function openSpendHistory(value){if(!value?.projectId)return;spendHistoryProject.value={projectId:value.projectId,projectName:value.projectName};spendHistoryDialog.value=true}
 const userStore=useUserStore()
 const publicExpensePanel=ref(null)
 const publicExpenseBills=ref([]),publicExpenseTodoFailed=ref(false),publicExpenseTodoLoading=ref(false)
@@ -1071,6 +1076,7 @@ useBusinessRefreshOnReactivated(() => load(selectedProjectId.value || initialPro
 <style scoped>
 .spend-hover{display:inline-block;margin-top:8px;cursor:help;text-decoration:underline dotted #9aa9b7;text-underline-offset:4px}
 .revenue-hover{cursor:help;text-decoration:underline dotted #9aa9b7;text-underline-offset:4px}
+.spend-history-entry,.spend-history-card .spend-hover{cursor:pointer}.spend-history-entry:focus-visible{outline:2px solid #409eff;outline-offset:-2px}.spend-history-card:hover{background:#f5fafb}
 .progress-evidence-inputs{display:flex;width:100%;min-width:0;flex-direction:column;gap:12px}
 .evidence-text{margin:0 0 16px;padding:12px 14px;border-radius:8px;background:#f5f8fa;color:#405166;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
 .owner-work-reports-panel{margin-top:14px}.owner-work-report-row{padding:14px 0;border-top:1px solid #e9edf0}.owner-work-report-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.owner-work-report-row small{display:block;margin-top:6px;color:#8996a1}.owner-work-report-row p{margin:10px 0 4px;color:#405166;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}

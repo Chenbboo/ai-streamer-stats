@@ -109,6 +109,7 @@ public interface IBusinessProjectService
     Map<String, Object> dashboard(Map<String, Object> query, Long userId, boolean viewAll, boolean boss);
     Map<String, Object> bossPending(Map<String, Object> query, Long userId, boolean viewAll);
     Map<String, Object> ownerWorkbench(Long projectId, Long userId, boolean viewAll);
+    Map<String, Object> ownerSpendHistory(Long projectId, String month, String bizDate, Long userId, boolean viewAll);
     Map<String, Object> workDashboard(String period, String anchorDate, Long userId);
     BusinessProjectEffort saveMyEffort(BusinessProjectEffort effort, Long userId, String userName);
     Map<String, Object> confirmProjectEffortWeek(Long projectId, String anchorDate,

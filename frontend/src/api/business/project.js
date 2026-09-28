@@ -13,6 +13,7 @@ export const readAllBusinessProjectDeletionNotifications = () => request({ url: 
 export const getBusinessProjectCompanies = () => request({ url: '/business/project/company-options', method: 'get' })
 export const getBusinessProjectDepartments = () => request({ url: '/business/project/department-options', method: 'get' })
 export const getBusinessProject = id => request({ url: `/business/project/${id}`, method: 'get' })
+export const getBusinessOwnerSpendHistory = (id, params) => request({ url: `/business/owner/spend-history/${id}`, method: 'get', params })
 export const getBusinessProjectSettlementStatus = id => request({ url: `/business/project/${id}/settlement-status`, method: 'get' })
 export const closeBusinessProjectAccounting = (id, data) => request({ url: `/business/project/${id}/accounting-close`, method: 'post', data })
 export const endBusinessProjectDeliveryAwaitingCosts = (id, data) => request({ url: `/business/project/${id}/delivery-end-awaiting-costs`, method: 'post', data })

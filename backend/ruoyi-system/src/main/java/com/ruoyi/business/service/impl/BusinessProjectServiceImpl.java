@@ -3174,6 +3174,135 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         return total;
     }
 
+    /** Read-only history uses the same live cost basis as the owner's today card. */
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String,Object> ownerSpendHistory(Long projectId,String month,String bizDate,Long userId,boolean viewAll)
+    {
+        BusinessProject detail=requireProject(projectId);
+        if(!viewAll&&(userId==null||!userId.equals(detail.getMainOwnerUserId())))
+            throw new ServiceException("只能查看自己负责项目的花费明细");
+        java.time.LocalDate today=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")),from,to;
+        try
+        {
+            if(StringUtils.isNotBlank(bizDate))
+            {
+                if(StringUtils.isNotBlank(month)||!bizDate.matches("\\d{4}-\\d{2}-\\d{2}"))throw new IllegalArgumentException();
+                from=to=java.time.LocalDate.parse(bizDate);
+            }
+            else
+            {
+                if(StringUtils.isNotBlank(month)&&!month.matches("\\d{4}-\\d{2}"))throw new IllegalArgumentException();
+                java.time.YearMonth selected=StringUtils.isBlank(month)?java.time.YearMonth.from(today):java.time.YearMonth.parse(month);
+                from=selected.atDay(1);to=selected.atEndOfMonth();
+                if(to.isAfter(today))to=today;
+            }
+            if(from.getYear()<1900||from.isAfter(today))throw new IllegalArgumentException();
+        }
+        catch(RuntimeException invalid){throw new ServiceException("请选择有效的月份或日期，不能查看未来花费");}
+
+        // Calculate one bounded month once, rather than recalculating member timelines for every day.
+        Map<String,List<Map<String,Object>>> personnelByDay=null;
+        if(BusinessMemberDayCostService.enabled(detail)&&!BusinessProjectLifecycle.isAccountingClosed(detail))
+        {
+            personnelByDay=new HashMap<>();
+            List<Map<String,Object>> costs=memberDays.calculate(detail,from,to);
+            if(costs!=null)for(Map<String,Object> cost:costs)
+                personnelByDay.computeIfAbsent(spendItemDate(cost.get("bizDate")),key->new ArrayList<>()).add(cost);
+        }
+        Map<String,Object> factQuery=new HashMap<>();
+        factQuery.put("projectId",projectId);factQuery.put("viewAll",true);
+        factQuery.put("dateFrom",from.toString());factQuery.put("dateTo",to.toString());
+        List<Map<String,Object>> facts=accountingMapper.selectFacts(factQuery);
+        Map<String,List<Map<String,Object>>> factsByDay=new HashMap<>();
+        if(facts!=null)for(Map<String,Object> fact:facts)
+            if("COST".equals(fact.get("factKind"))&&Arrays.asList("CONFIRMED","REVERSED").contains(fact.get("status"))
+                &&!"COMPANY_PUBLIC_COST".equals(fact.get("categoryCode")))
+            {
+                Map<String,Object> item=new LinkedHashMap<>();
+                for(String field:Arrays.asList("factId","categoryName","amount","currency","description","counterparty","status","recordedTime"))
+                    item.put(field,fact.get(field));
+                factsByDay.computeIfAbsent(spendItemDate(fact.get("bizDate")),key->new ArrayList<>()).add(item);
+            }
+        List<Map<String,Object>> rows=new ArrayList<>();
+        Map<String,Object> totals=new LinkedHashMap<>();
+        List<String> amountFields=Arrays.asList("amount","personnelCost","projectCost","internalProjectCost","bonusCost","publicCost","publicEstimatedCost");
+        for(String field:amountFields)totals.put(field,BigDecimal.ZERO.setScale(2));
+        int pending=0;
+        for(java.time.LocalDate date=to;!date.isBefore(from);date=date.minusDays(1))
+        {
+            List<Map<String,Object>> costs=personnelByDay==null?null:personnelByDay.getOrDefault(date.toString(),Collections.emptyList());
+            Map<String,Object> row=projectSpendDay(detail,date,costs,true);
+            row.put("expenseItems",factsByDay.getOrDefault(date.toString(),Collections.emptyList()));rows.add(row);
+            for(String field:amountFields)totals.put(field,decimal(totals.get(field)).add(decimal(row.get(field))));
+            pending+=((Number)row.get("pendingPersonnelCount")).intValue();
+        }
+        totals.put("pendingPersonnelCount",pending);
+        Map<String,Object> result=new LinkedHashMap<>();
+        result.put("projectId",projectId);result.put("projectName",detail.getProjectName());result.put("currency",detail.getBaseCurrency());
+        result.put("dateFrom",from.toString());result.put("dateTo",to.toString());result.put("rows",rows);result.put("totals",totals);
+        return result;
+    }
+
+    private String spendItemDate(Object value)
+    {
+        if(value instanceof Date)return new SimpleDateFormat("yyyy-MM-dd").format((Date)value);
+        String date=String.valueOf(value);return date.length()>=10?date.substring(0,10):date;
+    }
+
+    private Map<String,Object> projectSpendDay(BusinessProject detail,java.time.LocalDate date,
+        List<Map<String,Object>> suppliedCosts,boolean includeDetails)
+    {
+        Long id=detail.getProjectId();java.sql.Date bizDate=java.sql.Date.valueOf(date);
+        Map<String,Object> facts=accountingMapper.sumProjectFacts(id,bizDate);
+        BigDecimal internal=decimal(facts==null?null:facts.get("internalProjectCost")).setScale(2,RoundingMode.HALF_UP);
+        BigDecimal business=decimal(facts==null?null:facts.get("costAmount")).setScale(2,RoundingMode.HALF_UP).subtract(internal);
+        BigDecimal bonus=decimal(facts==null?null:facts.get("bonusCost")).setScale(2,RoundingMode.HALF_UP);
+        BigDecimal publicCost=decimal(facts==null?null:facts.get("publicCost"));
+        Map<String,Object> dailyPublic=publicExpenses.sumDailyCost(id,bizDate);
+        // Replace monthly recognition with daily recognition; never deduct the public cost twice.
+        if(dailyPublic!=null)publicCost=publicCost.subtract(decimal(dailyPublic.get("monthlyFactAmount"))).add(decimal(dailyPublic.get("amount")));
+        publicCost=publicCost.setScale(2,RoundingMode.HALF_UP);
+        boolean pricedPolicy=BusinessMemberDayCostService.enabled(detail)||"ACTUAL_WORK_V1".equals(detail.getCostPolicyVersion());
+        List<Map<String,Object>> costs=suppliedCosts;
+        BigDecimal personnel=BigDecimal.ZERO;int pending=0;
+        if(pricedPolicy)
+        {
+            if(costs==null)costs=BusinessMemberDayCostService.enabled(detail)
+                ?BusinessProjectLifecycle.isAccountingClosed(detail)?memberDays.dayCosts(id,bizDate):memberDays.calculate(detail,date,date)
+                :workMapper.selectWorkCosts(id,bizDate);
+            if(costs!=null)for(Map<String,Object> item:costs)
+                if("PRICED".equals(item.get("pricingStatus"))&&item.get("amount")!=null)personnel=personnel.add(decimal(item.get("amount")));
+                else pending++;
+        }
+        else
+        {
+            personnel=decimal(accountingMapper.sumProjectPersonnelCost(id,bizDate));
+            if(includeDetails)costs=accountingMapper.selectProjectPersonnelCostDetails(id,bizDate);
+        }
+        personnel=personnel.setScale(2,RoundingMode.HALF_UP);
+        Map<String,Object> row=new LinkedHashMap<>();
+        row.put("bizDate",date.toString());row.put("currency",detail.getBaseCurrency());row.put("personnelCost",personnel);
+        row.put("projectCost",business);row.put("internalProjectCost",internal);row.put("bonusCost",bonus);row.put("publicCost",publicCost);
+        row.put("publicEstimatedCost",decimal(dailyPublic==null?null:dailyPublic.get("estimatedAmount")).setScale(2,RoundingMode.HALF_UP));
+        row.put("pendingPersonnelCount",pending);row.put("amount",personnel.add(business).add(internal).add(bonus).add(publicCost));
+        if(includeDetails)
+        {
+            List<Map<String,Object>> items=new ArrayList<>();
+            if(costs!=null)for(Map<String,Object> cost:costs)
+            {
+                Map<String,Object> item=new LinkedHashMap<>();
+                item.put("name",cost.get("componentName")!=null?cost.get("componentName"):cost.get("userName"));
+                item.put("amount",cost.get("amount"));
+                item.put("calculationDetail",cost.get("issue")!=null?cost.get("issue"):
+                    cost.get("calculationDetail")!=null?cost.get("calculationDetail"):cost.get("basisJson"));
+                item.put("pricingStatus",pricedPolicy?cost.get("pricingStatus"):"PRICED");items.add(item);
+            }
+            row.put("personnelItems",items);
+        }
+        return row;
+    }
+
     @Override
     public Map<String, Object> ownerWorkbench(Long projectId, Long userId, boolean viewAll)
     {
@@ -3263,53 +3392,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             accounting.put("dailySpend",zero);
         }
         accounting.put("dailySpendItems",dailySpendItems);
-        java.time.LocalDate spendDay=java.time.LocalDate.parse(today);
-        java.sql.Date spendDate=java.sql.Date.valueOf(spendDay);
-        Map<String,Object> confirmedFacts=accountingMapper.sumProjectFacts(selectedId,spendDate);
-        BigDecimal projectCost=decimal(confirmedFacts==null?null:confirmedFacts.get("costAmount"))
-            .setScale(2,RoundingMode.HALF_UP);
-        BigDecimal internalProjectCost=decimal(confirmedFacts==null?null:confirmedFacts.get("internalProjectCost"))
-            .setScale(2,RoundingMode.HALF_UP);
-        // The accounting cost total includes internal expenses; split them only for the workbench breakdown.
-        projectCost=projectCost.subtract(internalProjectCost);
-        BigDecimal bonusCost=decimal(confirmedFacts==null?null:confirmedFacts.get("bonusCost"))
-            .setScale(2,RoundingMode.HALF_UP);
-        BigDecimal publicCost=decimal(confirmedFacts==null?null:confirmedFacts.get("publicCost"));
-        Map<String,Object> dailyPublic=publicExpenses.sumDailyCost(selectedId,spendDate);
-        // Daily recognition replaces its monthly settlement fact, while legacy public facts remain included.
-        if(dailyPublic!=null)publicCost=publicCost.subtract(decimal(dailyPublic.get("monthlyFactAmount")))
-            .add(decimal(dailyPublic.get("amount")));
-        publicCost=publicCost.setScale(2,RoundingMode.HALF_UP);
-        BigDecimal personnelCost=BigDecimal.ZERO;
-        int pendingPersonnelCount=0;
-        if(BusinessMemberDayCostService.enabled(detail)||"ACTUAL_WORK_V1".equals(detail.getCostPolicyVersion()))
-        {
-            List<Map<String,Object>> costItems=BusinessMemberDayCostService.enabled(detail)
-                ?BusinessProjectLifecycle.isAccountingClosed(detail)
-                    ?memberDays.dayCosts(selectedId,spendDate)
-                    :memberDays.calculate(detail,spendDay,spendDay)
-                :workMapper.selectWorkCosts(selectedId,spendDate);
-            if(costItems!=null)for(Map<String,Object> item:costItems)
-                if("PRICED".equals(item.get("pricingStatus"))&&item.get("amount")!=null)
-                    personnelCost=personnelCost.add(new BigDecimal(String.valueOf(item.get("amount"))));
-                else pendingPersonnelCount++;
-        }
-        else
-        {
-            BigDecimal legacyCost=accountingMapper.sumProjectPersonnelCost(selectedId,spendDate);
-            if(legacyCost!=null)personnelCost=legacyCost;
-        }
-        personnelCost=personnelCost.setScale(2,RoundingMode.HALF_UP);
-        Map<String,Object> todaySpend=new LinkedHashMap<>();
-        todaySpend.put("bizDate",today);
-        todaySpend.put("personnelCost",personnelCost);
-        todaySpend.put("projectCost",projectCost);
-        todaySpend.put("internalProjectCost",internalProjectCost);
-        todaySpend.put("bonusCost",bonusCost);
-        todaySpend.put("publicCost",publicCost);
-        todaySpend.put("pendingPersonnelCount",pendingPersonnelCount);
-        todaySpend.put("amount",projectCost.add(internalProjectCost).add(personnelCost).add(bonusCost).add(publicCost));
-        accounting.put("todaySpend",todaySpend);
+        accounting.put("todaySpend",projectSpendDay(detail,java.time.LocalDate.parse(today),null,false));
         accounting.put("dailyRevenue", accountingMapper.selectProjectRevenueSummary(selectedId,
             java.sql.Date.valueOf(today)));
         List<Map<String,Object>> internalRevenueItems=accountingMapper.selectProjectInternalRevenueItems(selectedId,

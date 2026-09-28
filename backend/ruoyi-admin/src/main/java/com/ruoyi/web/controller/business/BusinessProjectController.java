@@ -630,6 +630,14 @@ public class BusinessProjectController extends BaseController
         return success(projectService.ownerWorkbench(projectId, currentUserId(), isAdministrator()));
     }
 
+    @PreAuthorize("@ss.hasPermi('business:project:owner:view')")
+    @GetMapping("/owner/spend-history/{projectId}")
+    public AjaxResult ownerSpendHistory(@PathVariable Long projectId,
+        @RequestParam(required = false) String month, @RequestParam(required = false) String bizDate)
+    {
+        return success(projectService.ownerSpendHistory(projectId, month, bizDate, currentUserId(), isAdministrator()));
+    }
+
     @PreAuthorize("@ss.hasPermi('business:project:work:view')")
     @GetMapping("/work/dashboard")
     public AjaxResult workDashboard(@RequestParam(required = false) String period,
