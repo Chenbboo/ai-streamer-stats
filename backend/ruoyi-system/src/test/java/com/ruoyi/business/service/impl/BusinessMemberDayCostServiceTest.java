@@ -180,4 +180,34 @@ class BusinessMemberDayCostServiceTest {
         List<Map<String,Object>> rows=service.calculate(project,LocalDate.parse("2026-09-01"),LocalDate.parse("2026-09-01"));
         assertEquals(new BigDecimal("101.23"),rows.get(0).get("amount"));assertEquals("historical snapshot",rows.get(0).get("basisJson"));
     }
+    private List<Map<String,Object>> todayAttendance(String leaveStatus){
+        return Arrays.asList(
+            row("userId",7L,"observationId",610L,"businessDate","2026-09-28","kind","LEAVE","normalizedStatus",leaveStatus,"quality","KNOWN","intervalsJson","[[1790557200,1790762400]]"),
+            row("userId",7L,"observationId",626L,"businessDate","2026-09-28","kind","SHIFT","normalizedStatus","CONFIRMED","quality","KNOWN","intervalsJson","[[1790557200,1790589600]]"));
+    }
+    @Test void lateSyncedLeaveOverridesSavedDayWithoutReplacingOriginalRate() throws Exception {
+        LocalDate today=LocalDate.parse("2026-09-28");
+        rate.put("unitCost",11250);
+        List<Map<String,Object>> original=service.calculate(project,today,today);
+        assertEquals(new BigDecimal("511.36"),original.get(0).get("amount"));
+        when(costs.selectCosts(1L)).thenReturn(original);
+        when(costs.selectCostAttendance(1L,"2026-09-28","2026-09-28")).thenReturn(todayAttendance("CONFIRMED"));
+        rate.put("unitCost",99999);
+        List<Map<String,Object>> deducted=service.calculate(project,today,today);
+        assertEquals(new BigDecimal("0.00"),deducted.get(0).get("amount"));
+        when(costs.selectCosts(1L)).thenReturn(deducted);
+        when(costs.selectCostAttendance(1L,"2026-09-28","2026-09-28")).thenReturn(todayAttendance("CANCELED"));
+        assertEquals(new BigDecimal("511.36"),service.calculate(project,today,today).get(0).get("amount"));
+    }
+    @Test void synchronizationUpdatesDailyResultAndRepeatedSyncIsIdempotent(){
+        project.setActualStartDate(Date.valueOf("2026-09-28"));project.setActualEndDate(Date.valueOf("2026-09-28"));
+        List<Map<String,Object>> original=service.calculate(project,LocalDate.parse("2026-09-28"),LocalDate.parse("2026-09-28"));
+        when(costs.selectCosts(1L)).thenReturn(original);
+        when(costs.selectCostAttendance(1L,"2026-09-28","2026-09-28")).thenReturn(todayAttendance("CONFIRMED"));
+        List<Map<String,Object>> deducted=service.calculate(project,LocalDate.parse("2026-09-28"),LocalDate.parse("2026-09-28"));
+        when(costs.selectCosts(1L)).thenReturn(original,deducted);
+        service.synchronize(1L);service.synchronize(1L);
+        verify(costs,times(1)).insertCost(argThat(c->new BigDecimal("0.00").equals(c.get("amount"))));
+        verify(accounting,times(1)).recalculatePersonnelCost(1L,Date.valueOf("2026-09-28"),"member-day-cost");
+    }
 }

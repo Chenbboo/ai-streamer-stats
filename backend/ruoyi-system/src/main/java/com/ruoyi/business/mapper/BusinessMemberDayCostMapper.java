@@ -9,6 +9,7 @@ public interface BusinessMemberDayCostMapper {
     List<Map<String,Object>> selectRolePeriods(@Param("projectId") Long projectId);
     int saveRolePeriod(@Param("projectId") Long projectId,@Param("userId") Long userId,@Param("effectiveFrom") Date effectiveFrom,@Param("role") String role,@Param("operator") String operator);
     List<Map<String,Object>> selectCosts(@Param("projectId") Long projectId);
+    List<Map<String,Object>> selectCostAttendance(@Param("projectId") Long projectId,@Param("dateFrom") String dateFrom,@Param("dateTo") String dateTo);
     List<Map<String,Object>> selectDayCosts(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     int deleteDay(@Param("projectId") Long projectId,@Param("bizDate") String bizDate);
     int deleteRemovalDayCost(@Param("projectId") Long projectId,@Param("userId") Long userId,@Param("bizDate") Date bizDate);

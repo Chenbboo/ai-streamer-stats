@@ -15,6 +15,7 @@ import com.ruoyi.business.service.IBusinessAccountingService;
 import com.ruoyi.business.support.BusinessProjectLifecycle;
 import com.ruoyi.business.support.BusinessProjectReadAccess;
 import com.ruoyi.business.support.BusinessPersonnelCost;
+import com.ruoyi.business.support.BusinessMemberDayLeaveCost;
 import com.ruoyi.business.support.BusinessAllocationWeights;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
@@ -38,13 +39,24 @@ public class BusinessMemberDayCostService {
     public int deleteRemovalDayCost(Long projectId,Long userId,Date date){return mapper.deleteRemovalDayCost(projectId,userId,date);}
 
     public void saveRole(Long projectId,Long userId,Date date,String role,String operator){mapper.saveRolePeriod(projectId,userId,date,role,operator);}
-    // A priced day is an accounting fact. Later policy/role/calendar changes never rewrite it.
+    // Keep original rate/weight/calendar pricing; current approved leave adjusts only open day costs.
+    private boolean preserveCost(Map<String,Object> row){
+        return "PRICED".equals(row.get("pricingStatus"))&&row.get("amount")!=null
+            ||BusinessMemberDayLeaveCost.hasBase(row,json);
+    }
+    private List<Map<String,Object>> applyLeave(Long projectId,List<Map<String,Object>> rows){
+        LocalDate from=null,to=null;
+        for(Map<String,Object> row:rows){LocalDate date=day(row.get("bizDate"));if(date.isBefore(BusinessMemberDayLeaveCost.EFFECTIVE_FROM))continue;
+            if(from==null||date.isBefore(from))from=date;if(to==null||date.isAfter(to))to=date;}
+        if(from==null)return rows;
+        return BusinessMemberDayLeaveCost.apply(rows,mapper.selectCostAttendance(projectId,from.toString(),to.toString()),json);
+    }
     private List<Map<String,Object>> preservePriced(Long projectId,LocalDate from,LocalDate to,List<Map<String,Object>> desired){
         Map<String,Map<String,Object>> merged=new LinkedHashMap<>();
         for(Map<String,Object> row:desired)merged.put(row.get("userId")+":"+day(row.get("bizDate")),row);
         for(Map<String,Object> row:mapper.selectCosts(projectId)){
             LocalDate d=day(row.get("bizDate"));
-            if(!d.isBefore(from)&&!d.isAfter(to)&&"PRICED".equals(row.get("pricingStatus"))&&row.get("amount")!=null)
+            if(!d.isBefore(from)&&!d.isAfter(to)&&preserveCost(row))
                 merged.put(row.get("userId")+":"+d,new LinkedHashMap<>(row));
         }
         List<Map<String,Object>> result=new ArrayList<>(merged.values());
@@ -67,14 +79,16 @@ public class BusinessMemberDayCostService {
         if(from==null||from.isAfter(LocalDate.now()))return;
         LocalDate to=LocalDate.now();
         if(p.getActualEndDate()!=null&&day(p.getActualEndDate()).isBefore(to))to=day(p.getActualEndDate());
-        List<Map<String,Object>> desired=calculateCurrent(p,from,to);
+        List<Map<String,Object>> desired=calculateBase(p,from,to);
         List<Map<String,Object>> stored=mapper.selectCosts(projectId);
         // Also retain priced rows outside a changed project window.
         Map<String,List<Map<String,Object>>> old=group(stored),next=group(desired);
-        for(Map<String,Object> row:stored)if("PRICED".equals(row.get("pricingStatus"))&&row.get("amount")!=null){
+        for(Map<String,Object> row:stored)if(preserveCost(row)){
             String key=day(row.get("bizDate")).toString();List<Map<String,Object>> rows=next.computeIfAbsent(key,k->new ArrayList<>());
-            rows.removeIf(r->Objects.equals(id(r.get("userId")),id(row.get("userId"))));rows.add(row);
+            rows.removeIf(r->Objects.equals(id(r.get("userId")),id(row.get("userId"))));rows.add(new LinkedHashMap<>(row));
         }
+        List<Map<String,Object>> merged=new ArrayList<>();for(List<Map<String,Object>> rows:next.values())merged.addAll(rows);
+        next=group(applyLeave(projectId,merged));
         Set<String> dates=new TreeSet<>();dates.addAll(old.keySet());dates.addAll(next.keySet());
         Set<String> legacyDates=new HashSet<>(mapper.selectLegacyResultDates(projectId));dates.addAll(legacyDates);
         for(String date:dates) {
@@ -95,9 +109,12 @@ public class BusinessMemberDayCostService {
         Collections.sort(values);return values.toString();
     }
     public List<Map<String,Object>> calculate(BusinessProject p,LocalDate from,LocalDate to){
-        return preservePriced(p.getProjectId(),from,to,calculateCurrent(p,from,to));
+        return applyLeave(p.getProjectId(),preservePriced(p.getProjectId(),from,to,calculateBase(p,from,to)));
     }
     public List<Map<String,Object>> calculateCurrent(BusinessProject p,LocalDate from,LocalDate to){
+        return applyLeave(p.getProjectId(),calculateBase(p,from,to));
+    }
+    private List<Map<String,Object>> calculateBase(BusinessProject p,LocalDate from,LocalDate to){
         List<Map<String,Object>> result=new ArrayList<>();
         BusinessPersonnelCost pricing=new BusinessPersonnelCost();
         List<Map<String,Object>> roles=mapper.selectRolePeriods(p.getProjectId());

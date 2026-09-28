@@ -16,6 +16,25 @@
   <select id="selectOpenProjects" resultType="long">select project_id from biz_project where del_flag='0' and cost_policy_version='MEMBER_DAYS_V1' and coalesce(accounting_state,'OPEN')&lt;&gt;'CLOSED' and coalesce(actual_start_date,plan_start_date)&lt;=current_date()</select>
   <sql id="columns">project_id projectId,user_id userId,user_name userName,biz_date bizDate,amount,currency,pricing_status pricingStatus,issue,rate_policy_id ratePolicyId,calendar_id calendarId,basis_json basisJson,concat(user_name,' · 工作日成本') componentName,basis_json calculationDetail</sql>
   <select id="selectCosts" resultType="map">select <include refid="columns"/> from biz_project_member_day_cost where project_id=#{projectId} order by biz_date,user_id</select>
+  <!-- Current approved/canceled revisions only; mapping dates continue to apply after retirement.
+       PARALLEL connections already supply the live readonly attendance page. This cost policy does
+       not change source-switching state, local leave, payroll, or confirmed actual work. -->
+  <select id="selectCostAttendance" resultType="map">
+    select distinct o.observation_id observationId,o.user_id userId,o.business_date businessDate,
+      o.kind,o.normalized_status normalizedStatus,o.quality,o.intervals_json intervalsJson
+    from biz_feishu_observation o
+    join biz_feishu_mapping m on m.mapping_id=o.mapping_id and m.connection_id=o.connection_id and m.user_id=o.user_id
+      and m.status in ('CONFIRMED','RETIRED') and m.effective_from&lt;=o.business_date
+      and (m.effective_to is null or m.effective_to&gt;=o.business_date)
+    join biz_feishu_connection c on c.connection_id=o.connection_id and c.state in ('PARALLEL','ACTIVE')
+    where o.is_current=1 and o.kind in ('LEAVE','SHIFT') and o.business_date between #{dateFrom} and #{dateTo}
+      and o.user_id in (
+        select user_id from biz_project_member where project_id=#{projectId}
+        union select user_id from biz_project_member_cost_period where project_id=#{projectId}
+        union select user_id from biz_project_member_day_cost where project_id=#{projectId}
+      )
+    order by o.business_date,o.user_id,o.observation_id
+  </select>
   <select id="selectDayCosts" resultType="map">select <include refid="columns"/> from biz_project_member_day_cost where project_id=#{projectId} and biz_date=#{bizDate} order by user_id</select>
   <delete id="deleteDay">delete from biz_project_member_day_cost where project_id=#{projectId} and biz_date=#{bizDate}</delete>
   <delete id="deleteRemovalDayCost">delete from biz_project_member_day_cost where project_id=#{projectId} and user_id=#{userId} and biz_date=#{bizDate}</delete>
