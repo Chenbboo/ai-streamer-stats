@@ -28,7 +28,7 @@ export function buildOwnerTodos({ data = {}, userId, today, permissions = [], kp
       add('kpi-setup', translateText("设置项目 KPI"), translateText("项目已启动，请设置指标并发布考核方案"), 'kpi-settings', { urgent: true })
   }
   if (active && report && p.goalMode !== 'NO_TOTAL' && !data.todayProjectProgress)
-    add('progress', translateText("填报今日项目进度"), today, 'progress')
+    add('progress', translateText("填报本月项目进度"), today, 'progress')
   const dailyRevenue = data.accounting?.dailyRevenue
   const hasDailyRevenueRecord = Number(dailyRevenue?.confirmedCount || 0) + Number(dailyRevenue?.draftCount || 0) > 0
   if (executing && accountingOpen && p.companyDeptId && report && !hasDailyRevenueRecord)

@@ -6,6 +6,7 @@ import java.util.*;
 import org.apache.ibatis.session.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import com.ruoyi.business.domain.BusinessProject;
 import com.ruoyi.business.domain.BusinessProjectProgressReport;
 
 class BusinessProjectProgressMapperIntegrationTest {
@@ -23,11 +24,31 @@ class BusinessProjectProgressMapperIntegrationTest {
         }
     }
     BusinessProjectProgressReport report(Long projectId,int version,int percent,String snapshot) {
+        return report(projectId,version,percent,snapshot,java.time.LocalDate.now());
+    }
+    BusinessProjectProgressReport report(Long projectId,int version,int percent,String snapshot,java.time.LocalDate bizDate) {
         BusinessProjectProgressReport r=new BusinessProjectProgressReport();r.setProjectId(projectId);r.setParentProjectId(projectId==1L?null:1L);
-        r.setProjectNameSnapshot("child");r.setBizDate(java.sql.Date.valueOf("2026-09-11"));r.setCreateTime(new java.util.Date());
+        r.setProjectNameSnapshot("child");r.setBizDate(java.sql.Date.valueOf(bizDate));r.setCreateTime(new java.util.Date());
         r.setProgress(percent);r.setVersion(version);r.setCompletionSummary("阶段成果 "+version);r.setIssuesRisks("无");
         r.setNextPlan("下一步");r.setSyncTasks(true);r.setSyncRoutines(false);r.setSnapshotJson(snapshot);
         r.setSubmittedUserId(9L);r.setSubmittedUserName("负责人");r.setEvidenceUrls("");r.setCreateBy("owner");return r;
+    }
+    @Test void currentProgressUsesOnlyTheLatestReportFromTheCurrentCalendarMonth() {
+        try(SqlSession session=factory.openSession()) {
+            BusinessProjectMapper projects=session.getMapper(BusinessProjectMapper.class);
+            java.time.LocalDate today=java.time.LocalDate.now();
+            projects.insertProjectProgressReport(report(2L,1,90,"{\"month\":\"previous\"}",today.minusMonths(1)));
+            BusinessProject beforeCurrentMonthReport=projects.selectProjectById(2L);
+            assertEquals(0,beforeCurrentMonthReport.getProgressPercent());
+            assertNull(beforeCurrentMonthReport.getProgressReportId());
+
+            BusinessProjectProgressReport current=report(2L,2,35,"{\"month\":\"current\"}",today);
+            projects.insertProjectProgressReport(current);session.clearCache();
+            BusinessProject inCurrentMonth=projects.selectProjectById(2L);
+            assertEquals(35,inCurrentMonth.getProgressPercent());
+            assertEquals(current.getReportId(),inCurrentMonth.getProgressReportId());
+            assertEquals(2,session.getMapper(BusinessProjectProgressMapper.class).history(2L).size());
+        }
     }
     @Test void sameDayCorrectionsKeepBothVersionsAndReadLatestByInsertionOrder() {
         try(SqlSession session=factory.openSession()) {

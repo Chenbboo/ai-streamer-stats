@@ -153,6 +153,8 @@
         left join biz_project_progress_report latest_progress on latest_progress.report_id=(
           select progress_report.report_id from biz_project_progress_report progress_report
           where progress_report.project_id=p.project_id
+          and extract(year from progress_report.biz_date)=extract(year from current_date)
+          and extract(month from progress_report.biz_date)=extract(month from current_date)
           order by progress_report.report_id desc limit 1)
     </sql>
 

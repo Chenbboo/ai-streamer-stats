@@ -6,7 +6,7 @@
         <el-alert v-if="mode === 'submit'" :title="allowSubmit ? $tr(&quot;每次提交生成新版本，历史汇报和关联快照永久保留。&quot;) : $tr(&quot;历史汇报和关联快照永久保留。&quot;)" type="info" :closable="false" show-icon />
         <el-form v-if="mode === 'submit' && canSubmit" ref="formRef" :model="form" :rules="rules" label-position="top" class="report-form">
           <el-row :gutter="16"><el-col :span="12"><el-form-item :label="$tr(&quot;汇报人&quot;)"><el-input :model-value="data.reporterName" disabled /></el-form-item></el-col><el-col :span="12"><el-form-item :label="$tr(&quot;汇报时间&quot;)"><el-input :model-value="$tr(&quot;提交时由系统自动记录&quot;)" disabled /></el-form-item></el-col></el-row>
-          <el-form-item :label="$tr(&quot;进度百分比&quot;)" prop="progress"><el-input-number v-model="form.progress" :min="0" :max="100" :precision="0" /><span class="hint">{{ $tr("% · 当前 {0}%，纠正允许下调", [data.progressPercent ?? 0]) }}</span></el-form-item>
+          <el-form-item :label="$tr(&quot;本月进度百分比&quot;)" prop="progress"><el-input-number v-model="form.progress" :min="0" :max="100" :precision="0" /><span class="hint">{{ $tr("% · 本月当前 {0}%，纠正允许下调；下月自动从0开始", [data.progressPercent ?? 0]) }}</span></el-form-item>
           <el-form-item v-for="field in fields" :key="field.key" :label="field.label" :prop="field.key"><el-input v-model="form[field.key]" type="textarea" :rows="3" :maxlength="2000" show-word-limit :placeholder="field.placeholder" /></el-form-item>
           <el-form-item :label="$tr(&quot;成果凭证（选填）&quot;)">
             <div class="evidence-inputs">
@@ -20,11 +20,11 @@
         </el-form>
         <template v-else>
           <section class="progress-overview">
-            <div class="overall-progress"><span>{{ $tr("项目当前整体进度") }}</span><strong>{{ data.progressPercent ?? 0 }}<small>%</small></strong><el-progress :percentage="Number(data.progressPercent) || 0" :show-text="false" :stroke-width="7" color="#328b80" /></div>
-            <div><span>{{ $tr("本项目汇报记录") }}</span><strong>{{ data.reports?.length || 0 }}<small>{{ $tr("条") }}</small></strong><p>{{ $tr("选择历史记录，查看当时的进度与成果") }}</p></div>
-            <div class="overview-tip"><b>{{ $tr("项目进度由负责人填报") }}</b><p>{{ $tr("主项目与子项目分别汇报；最新汇报默认展开。") }}</p></div>
+            <div class="overall-progress"><span>{{ $tr("本月项目进度") }}</span><strong>{{ data.progressPercent ?? 0 }}<small>%</small></strong><el-progress :percentage="Number(data.progressPercent) || 0" :show-text="false" :stroke-width="7" color="#328b80" /></div>
+            <div><span>{{ $tr("历史汇报记录") }}</span><strong>{{ data.reports?.length || 0 }}<small>{{ $tr("条") }}</small></strong><p>{{ $tr("选择历史记录，查看当时的进度与成果") }}</p></div>
+            <div class="overview-tip"><b>{{ $tr("本月进度由负责人填报") }}</b><p>{{ $tr("主项目与子项目分别填报；下月自动从0开始，历史汇报永久保留。") }}</p></div>
           </section>
-          <el-button v-if="canSubmit" type="primary" @click="startNew">{{ $tr("汇报进度 / 提交纠正版本") }}</el-button>
+          <el-button v-if="canSubmit" type="primary" @click="startNew">{{ $tr("汇报本月进度 / 提交纠正版本") }}</el-button>
           <el-collapse v-if="data.children?.length" :model-value="['children']" class="aggregate"><el-collapse-item name="children" :title="$tr(&quot;各子项目分别填报的进度与最新汇报&quot;)">
             <el-table :data="data.children" size="small"><el-table-column prop="projectName" :label="$tr(&quot;子项目&quot;)" min-width="130"/><el-table-column :label="$tr(&quot;进度&quot;)" width="85"><template #default="{row}">{{ row.progressPercent ?? 0 }}%</template></el-table-column><el-table-column prop="progressSummary" :label="$tr(&quot;最新阶段成果&quot;)" min-width="180"/><el-table-column width="95"><template #default="{row}"><el-button link type="primary" @click="open(row)">{{ $tr("查看汇报") }}</el-button></template></el-table-column></el-table>
           </el-collapse-item></el-collapse>

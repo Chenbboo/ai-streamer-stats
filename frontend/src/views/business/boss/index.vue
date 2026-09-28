@@ -233,7 +233,7 @@
             <span><el-tag size="small" effect="plain">{{ managementLabel[row.managementMode] || row.managementMode }}</el-tag><el-tag size="small" type="success" effect="plain">{{ closeMethodLabel[row.closeMethod] || row.closeMethod }}</el-tag><BusinessProjectState :project="row" /></span>
           </div>
           <div class="progress-row">
-            <span>{{ $tr("进度") }}</span>
+            <span>{{ $tr("本月进度") }}</span>
             <el-progress :percentage="progress(row)" :status="row.status === 'CLOSED' ? 'success' : undefined" :stroke-width="8" />
             <span :title="progressHint(row)">{{ progressText(row) }}</span>
           </div>
@@ -241,7 +241,7 @@
             <div><span>{{ $tr("{0} · {1}填报", [row.progressBizDate, row.progressReporterName || row.mainOwnerName]) }}</span><b>{{ row.progressSummary }}</b></div>
             <el-button v-if="row.progressEvidenceUrls || row.progressEvidenceText" size="small" type="primary" plain @click="openProgressEvidence(row)">{{ $tr("成果凭证") }}</el-button>
           </div>
-          <div v-else-if="!['CLOSED','CANCELED'].includes(row.status)" class="latest-progress-empty">{{ $tr("负责人尚未填报项目整体进度") }}</div>
+          <div v-else-if="!['CLOSED','CANCELED'].includes(row.status)" class="latest-progress-empty">{{ $tr("负责人尚未填报本月项目进度") }}</div>
           <div class="project-card-foot">
             <span>{{ $tr("{0} 负责", [row.mainOwnerName || $tr("未指定")]) }}</span>
             <el-tag size="small" :type="kpiMeta(row).tone" effect="light">KPI {{ kpiMeta(row).label }}</el-tag>
@@ -459,8 +459,8 @@ const progress = row => {
 }
 const progressText = row => !row.progressReportId && !['CLOSED', 'CANCELED'].includes(row.status) ? translateText("暂无填报") : `${progress(row)}%`
 const progressHint = row => row.progressReportId
-  ? translateText("项目负责人于 {0} 填报，与一次性任务进度独立", [row.progressBizDate])
-  : row.status === 'CLOSED' ? translateText("项目已正式结项") : row.status === 'CANCELED' ? translateText("项目已取消") : translateText("等待项目负责人填报整体完成进度")
+  ? translateText("项目负责人于 {0} 填报本月进度，与一次性任务进度独立", [row.progressBizDate])
+  : row.status === 'CLOSED' ? translateText("项目已正式结项") : row.status === 'CANCELED' ? translateText("项目已取消") : translateText("等待项目负责人填报本月项目进度")
 const evidencePaths = value => String(value || '').split(',').map(item => item.trim()).filter(Boolean)
 const evidenceCount = value => evidencePaths(value).length
 const evidenceName = path => { const clean = path.split('?')[0]; try { return decodeURIComponent(clean.slice(clean.lastIndexOf('/') + 1)) || translateText("成果凭证") } catch { return clean.slice(clean.lastIndexOf('/') + 1) || translateText("成果凭证") } }
