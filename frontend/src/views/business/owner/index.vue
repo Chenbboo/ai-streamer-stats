@@ -106,17 +106,24 @@
           </section>
         </el-tab-pane>
         <el-tab-pane :label="$tr(&quot;项目与结算&quot;)" name="project">
-          <div class="owner-section-intro"><span>{{ $tr("同步查看所有项目的周期、KPI 和结算状态") }}</span></div>
+          <div class="owner-section-intro"><span>{{ $tr("项目情况与结算事项一览") }}</span></div>
+          <section class="owner-quick-stats project-list-stats">
+            <article><span>{{ $tr('负责项目') }}</span><b>{{ allProjectWorkspaces.length }}<small>{{ $tr('个') }}</small></b><p>{{ $tr('{0} 个执行中', [allActiveProjectCount]) }}</p></article>
+            <article><span>{{ $tr('项目结算待办') }}</span><b>{{ allProjectWorkspaces.some(entry=>entry.settlementFailed) ? '—' : allProjectSettlementCount }}<small>{{ $tr('项') }}</small></b><p>{{ $tr('不含公司共享公共费用') }}</p></article>
+            <article><span>{{ $tr('公司共享待办') }}</span><b>{{ publicExpenseTodoFailed ? '—' : publicExpenseTodos.length }}<small>{{ $tr('项') }}</small></b><p>{{ $tr('本人需要办理的共享事项') }}</p><el-button link type="primary" @click="goToWorkspace('public-expense')">{{ $tr('查看费用') }}</el-button></article>
+          </section>
+          <el-alert v-if="allProjectsLoadWarning" :title="$tr(&quot;部分项目的 KPI 或结算状态暂未加载，其他数据已正常显示，可刷新重试。&quot;)" type="warning" :closable="false" />
           <section class="panel all-project-table-panel">
             <el-table :data="allProjectWorkspaces" row-key="project.projectId">
               <el-table-column :label="$tr(&quot;项目&quot;)" min-width="210" fixed="left"><template #default="{row}"><div class="all-project-name"><b>{{ row.project.projectName }}</b><small>{{ row.project.projectNo }}</small></div></template></el-table-column>
-              <el-table-column :label="$tr(&quot;治理方式&quot;)" min-width="165"><template #default="{row}"><b>{{ managementLabel[row.project.managementMode] || row.project.managementMode }}</b><small class="table-subtext">{{ closeMethodLabel[row.project.closeMethod] || row.project.closeMethod }}</small></template></el-table-column>
+              <el-table-column :label="$tr(&quot;项目状态&quot;)" min-width="135"><template #default="{row}"><el-tag :type="statusTone[row.project.status] || 'info'" effect="plain">{{ projectStatusLabel(row.project) }}</el-tag><small class="table-subtext">{{ closeMethodLabel[row.project.closeMethod] || row.project.closeMethod }}</small></template></el-table-column>
               <el-table-column :label="$tr(&quot;计划周期&quot;)" min-width="210"><template #default="{row}">{{ $tr("{0} 至 {1}", [row.project.planStartDate || '—', row.project.planEndDate || $tr("不限期")]) }}</template></el-table-column>
-              <el-table-column :label="$tr(&quot;项目KPI&quot;)" min-width="145"><template #default="{row}"><b>{{ $tr("{0} 项", [entryCurrentKpis(row).length]) }}</b><small class="table-subtext">{{ $tr("{0} 个已发布方案", [entryPublishedPlans(row)]) }}</small></template></el-table-column>
-              <el-table-column :label="$tr(&quot;结算待处理&quot;)" min-width="140"><template #default="{row}"><el-tag :type="entrySettlementPending(row)?'warning':'success'" effect="plain">{{ entrySettlementPending(row) ? entrySettlementPending(row)+$tr(" 项") : $tr("无") }}</el-tag></template></el-table-column>
-              <el-table-column :label="$tr(&quot;操作&quot;)" width="105" fixed="right"><template #default="{row}"><el-button link type="primary" @click="selectProject(row.project.projectId,'project')">{{ $tr("查看结算") }}</el-button></template></el-table-column>
+              <el-table-column :label="$tr('本月汇报')" min-width="125"><template #default="{row}"><span v-if="entryReportedProgress(row) !== null">{{ entryReportedProgress(row) }}%</span><span v-else class="table-subtext">{{ $tr('尚未汇报') }}</span><small v-if="entryReportedProgress(row) !== null" class="table-subtext">{{ row.project.progressBizDate }}</small></template></el-table-column>
+              <el-table-column :label="$tr('项目结算待办')" min-width="175"><template #default="{row}"><el-tag :type="row.settlementFailed ? 'info' : entrySettlementPending(row) ? 'warning' : 'success'" effect="plain">{{ row.settlementFailed ? $tr('暂未加载') : entrySettlementPending(row) ? $tr('{0} 项', [entrySettlementPending(row)]) : $tr('无') }}</el-tag><small v-if="Number(row.settlement?.pendingKpiCount)>0" class="table-subtext">{{ $tr('KPI待结算') }} · {{ row.settlement.pendingKpiCount }}</small><small v-if="Number(row.settlement?.pendingPublicExpenseCount)>0" class="table-subtext">{{ $tr('公共费用见公司共享') }}</small></template></el-table-column>
+              <el-table-column :label="$tr(&quot;操作&quot;)" width="120" fixed="right"><template #default="{row}"><el-button link type="primary" @click="selectProjectSettlement(row.project.projectId, 'overview')">{{ $tr('项目概览') }}</el-button><el-button class="settlement-row-action" link type="primary" @click="selectProjectSettlement(row.project.projectId, 'settlement')">{{ $tr('结算办理') }}</el-button></template></el-table-column>
             </el-table>
           </section>
+          <section class="panel project-shared-expenses"><div class="panel-head"><div><h2>{{ $tr('公司共享事项') }}</h2><p>{{ $tr('公司公共费用按事项计数，不在不同项目中重复累计') }}</p></div><el-button @click="goToWorkspace('public-expense')">{{ $tr('进入公共费用') }}</el-button></div><el-alert v-if="publicExpenseTodoFailed" :title="$tr('公共费用待办暂未加载，请刷新重试')" type="warning" :closable="false" /><article v-for="item in publicExpenseTodos" :key="item.key" class="owner-todo-row"><div class="todo-copy"><b>{{ item.title }}</b><small>{{ item.detail }}</small></div><el-button type="primary" plain size="small" @click="openPublicExpenseTodo(item)">{{ $tr('查看并办理') }}</el-button></article><p v-if="!publicExpenseTodos.length&&!publicExpenseTodoFailed" class="todo-empty">{{ $tr('当前没有本人需要办理的公司公共费用事项') }}</p></section>
         </el-tab-pane>
         <el-tab-pane :label="$tr(&quot;公共费用&quot;)" name="public-expense" lazy>
           <div class="owner-section-intro"><span>{{ $tr("查看本人承担的公司公共费用，并统一分配到负责项目") }}</span></div>
@@ -315,21 +322,7 @@
           </article>
         </el-tab-pane>
         <el-tab-pane :label="$tr(&quot;项目与结算&quot;)" name="project" lazy>
-          <div class="owner-section-intro"><span>{{ $tr("查看项目资料，办理 KPI、交付与后续结算") }}</span><el-button link type="primary" @click="openProject">{{ $tr("查看验收与里程碑") }}</el-button></div>
-          <div class="owner-finance-grid"><article class="panel project-summary">
-            <div class="project-title"><div><small>{{ project.projectNo }}</small><h2>{{ project.projectName }}</h2></div><el-tag :type="statusTone[project.status] || 'info'">{{ projectStatusLabel(project) }}</el-tag></div>
-            <p>{{ project.objective || $tr("尚未填写项目目标") }}</p>
-      <dl><div><dt>{{ $tr("归属老板") }}</dt><dd>{{ project.sponsorOwnerName || project.initiatorName }}</dd></div><div><dt>{{ $tr("归属公司") }}</dt><dd>{{ project.companyName || $tr("待设置") }}</dd></div><div><dt>{{ $tr("计划周期") }}</dt><dd>{{ project.planStartDate ? $tr("{0} 至 {1}", [project.planStartDate, project.planEndDate || $tr("不限期")]) : '—' }}</dd></div><div><dt>{{ $tr("目标模式") }}</dt><dd>{{ project.goalMode==='NO_TOTAL'?$tr("持续经营"):`${projectProgress}%` }}</dd></div></dl>
-          </article><article class="panel">
-            <div class="panel-head"><div><h2>{{ $tr("项目 KPI") }}</h2><p>{{ $tr("项目指标独立确认；奖金申请在人员系统的奖金激励办理。") }}</p></div><el-button size="small" @click="openKpiBonus">{{ $tr("管理项目指标") }}</el-button></div>
-            <div v-if="!currentKpis.length" class="empty-block compact">{{ $tr("尚未设置 KPI") }}</div>
-            <div v-for="kpi in currentKpis" :key="kpi.kpiId" class="kpi-row"><span><b>{{ kpi.kpiName }}</b><small>{{ $tr("项目目标 {0} {1}", [kpi.targetValue, $tr(kpi.unit) || '']) }}</small></span><strong>{{ kpi.weight }}%</strong></div>
-          </article></div>
-          <BusinessSettlementPanel :project="project" @closed="load(selectedProjectId)" />
-          <section v-if="usesActualWork" class="panel owner-plan-panel"><BusinessProjectPlanPanel :project="project" @changed="load(project.projectId)"/></section>
-          <details class="panel owner-governance"><summary>{{ $tr("项目治理要求") }}<span>{{ $tr("查看说明") }}</span></summary><el-alert class="governance-alert" :title="`${managementLabel[project.managementMode] || project.managementMode} · ${closeMethodLabel[project.closeMethod] || project.closeMethod}`" :description="governanceDescription" type="info" :closable="false" show-icon>
-        <template #default><el-button link type="primary" @click="openProject">{{ $tr("查看治理要求与验收进度") }}</el-button></template>
-      </el-alert></details>
+          <OwnerProjectSettlement :project="project" :summary="settlementSummary" :kpi="todoKpi" :load-failed="settlementLoadFailed" :kpi-failed="todoLoadFailed" :public-expense-failed="publicExpenseTodoFailed" :public-expense-todos="publicExpenseTodos" :public-expense-bills="publicExpenseBills" :open-task-count="openTasks.length" :open-risk-count="entryOpenRisks({project})" :initial-tab="projectSettlementTab" :refresh-key="settlementRefreshKey" @update:initial-tab="projectSettlementTab=$event" @all-projects="selectProjectSettlement(ALL_PROJECTS, 'overview')" @people="goToWorkspace('people')" @public-expense="handleProjectPublicExpense" @refresh="refreshProjectSettlement" />
         </el-tab-pane>
         <el-tab-pane :label="$tr(&quot;公共费用&quot;)" name="public-expense" lazy>
           <div class="owner-section-intro"><span>{{ $tr("查看本人承担的公司公共费用，并统一分配到负责项目") }}</span></div>
@@ -521,8 +514,7 @@ import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 import BusinessProjectWorkPanel from '@/components/BusinessProjectWorkPanel/index.vue'
 import InternalProjectIncomeTooltip from '@/components/InternalProjectIncomeTooltip/index.vue'
 import ProjectSpendHistoryDialog from '@/components/ProjectSpendHistoryDialog/index.vue'
-import BusinessProjectPlanPanel from '@/components/BusinessProjectPlanPanel/index.vue'
-import BusinessSettlementPanel from '@/components/BusinessSettlementPanel/index.vue'
+import OwnerProjectSettlement from './components/OwnerProjectSettlement.vue'
 import PublicExpenseOwnerPanel from '@/views/business/components/PublicExpenseOwnerPanel.vue'
 import { getProjectKpiWorkspace } from '@/api/business/kpi'
 import { listProjectProposals } from '@/api/business/proposal'
@@ -530,6 +522,7 @@ import { buildOwnerTodos, buildPublicExpenseTodos, buildAllocationReviewTodos, b
 import { getOwnerPublicExpenseWorkspace } from '@/api/business/publicExpense'
 import { canContinueProjectSettlement, isSeparatedDelivery, isDeliveryEnded, projectAccountingState } from '@/utils/businessProjectState'
 import { buildWorkReportStats } from '@/utils/workReportStats'
+import { projectSettlementCount, reportedProjectProgress } from '@/utils/ownerSettlement'
 
 const route=useRoute(),router=useRouter()
 const spendHistoryDialog=ref(false),spendHistoryProject=ref({})
@@ -568,6 +561,7 @@ const todoKpi=ref(null),todoLoadFailed=ref(false),todosExpanded=ref(false),allTo
 const allProjectWorkspaces=ref([]),allProjectsLoadWarning=ref(false)
 let ownerRequest=0
 const workspaceTab=ref('execution'),workspaceTabs=ref(null),settlementSummary=ref({}),settlementLoadFailed=ref(false)
+const projectSettlementTab=ref('overview'),settlementRefreshKey=ref(0)
 const allocationReviewTodos=computed(()=>buildAllocationReviewTodos(data.value.pendingAllocationRequests||[],projects.value))
 const childAcceptanceTodos=computed(()=>buildChildAcceptanceTodos(data.value.pendingChildAcceptanceReviews||[]))
 const crossProjectTodos=computed(()=>[...proposalHandoffTodos.value,...childAcceptanceTodos.value])
@@ -600,6 +594,7 @@ const allOwnerTodos=computed(()=>[...crossProjectTodos.value,...allocationReview
 const visibleAllOwnerTodos=computed(()=>allTodosExpanded.value?allOwnerTodos.value:allOwnerTodos.value.slice(0,5))
 const allUrgentTodoCount=computed(()=>allOwnerTodos.value.filter(item=>item.urgent).length)
 const allActiveProjectCount=computed(()=>allProjectWorkspaces.value.filter(item=>item.project.status==='ACTIVE').length)
+const allProjectSettlementCount=computed(()=>allProjectWorkspaces.value.reduce((total,entry)=>total+(entrySettlementPending(entry)||0),0))
 const allOpenTaskCount=computed(()=>allProjectWorkspaces.value.reduce((sum,item)=>sum+entryOpenTasks(item).length,0))
 const allOverdueTaskCount=computed(()=>allProjectWorkspaces.value.reduce((sum,item)=>sum+entryOverdueTasks(item),0))
 const allRevenueTotal=computed(()=>currencyTotal(allProjectWorkspaces.value,item=>item.accounting?.dailyRevenue?.confirmedAmount))
@@ -777,7 +772,8 @@ function entryOverdueTasks(entry){return entryOpenTasks(entry).filter(task=>task
 function entryOpenRisks(entry){return (entry.project?.risks||[]).filter(item=>item.status==='OPEN').length}
 function entryCurrentKpis(entry){return (entry.operating?.kpis||[]).filter(item=>item.status==='CURRENT')}
 function entryPublishedPlans(entry){return (entry.kpi?.plans||[]).filter(item=>item.status==='PUBLISHED').length}
-function entrySettlementPending(entry){const value=entry.settlement||{};return Number(value.pendingCostCount||0)+Number(value.pendingFactCount||0)+Number(value.pendingAwardCount||0)}
+function entrySettlementPending(entry){return projectSettlementCount(entry.settlement)}
+function entryReportedProgress(entry){return reportedProjectProgress(entry.project, today().slice(0,7))}
 function entryPersonnelIssueCount(entry){const alert=(entry.allocationAlerts||[]).find(item=>Number(item.projectId)===Number(entry.project.projectId));return Number(alert?.missingAllocationCount||0)+Number(alert?.missingRegionCount||0)+Number(alert?.missingCostCount||0)}
 function projectEntryProgress(entry){return Math.min(100,Math.max(0,Math.round(Number(entry.project?.progressPercent||0))))}
 function xu(value){return Number(value||0).toLocaleString('zh-CN',{maximumFractionDigits:2})}
@@ -817,7 +813,7 @@ async function load(projectId){
           canLoadKpi?getProjectKpiWorkspace(projectId):Promise.resolve({data:null})
         ])
         if(settlementResult.status==='rejected'||kpiResult.status==='rejected')allProjectsLoadWarning.value=true
-        return {...entry,settlement:settlementResult.status==='fulfilled'?(settlementResult.value.data||{}):{},kpi:kpiResult.status==='fulfilled'?kpiResult.value.data:null}
+        return {...entry,settlement:settlementResult.status==='fulfilled'?(settlementResult.value.data||{}):{},settlementFailed:settlementResult.status==='rejected'||!settlementResult.value?.data?.projectId,kpi:kpiResult.status==='fulfilled'?kpiResult.value.data:null}
       }))
       if(request!==ownerRequest)return
       data.value={...seed,project:null,projects:projectRows}
@@ -829,13 +825,13 @@ async function load(projectId){
     allProjectWorkspaces.value=[];allProjectsLoadWarning.value=false
     const{data:payload={}}=await getBusinessOwnerWorkbench(projectId||undefined)
     if(request!==ownerRequest)return
-    if(data.value.project?.projectId!==payload.project?.projectId){todosExpanded.value=false;workspaceTab.value='execution'}
+    if(data.value.project?.projectId!==payload.project?.projectId){todosExpanded.value=false;workspaceTab.value='execution';projectSettlementTab.value='overview'}
     data.value=payload;selectedProjectId.value=payload.project?.projectId||null
     if(selectedProjectId.value){
       router.replace({query:{...route.query,projectId:selectedProjectId.value}})
       const currentProjectId=selectedProjectId.value
       const statusRequest=getBusinessProjectSettlementStatus(currentProjectId)
-        .then(response=>{if(request===ownerRequest)settlementSummary.value=response.data||{}})
+        .then(response=>{if(request===ownerRequest){settlementSummary.value=response.data||{};settlementLoadFailed.value=!response.data?.projectId}})
         .catch(()=>{if(request===ownerRequest)settlementLoadFailed.value=true})
       const kpiRequest=userStore.permissions.includes('*:*:*')||userStore.permissions.includes('business:kpi:list')
         ? getProjectKpiWorkspace(currentProjectId).then(response=>{if(request===ownerRequest)todoKpi.value=response.data||{}}).catch(()=>{if(request===ownerRequest)todoLoadFailed.value=true})
@@ -850,7 +846,7 @@ function handleOwnerTodo(item){
   if(item.action==='public-expense')return openPublicExpenseTodo(item)
   if(item.action==='allocation-review')return openAllocationReview(item)
   if(item.action==='people')return goToWorkspace('people')
-  if(item.action==='settlement')return goToWorkspace('project')
+  if(item.action==='settlement'){projectSettlementTab.value='settlement';return goToWorkspace('project')}
   if(item.action==='progress')return openProjectProgressReport()
   if(item.action==='revenue')return openRevenue()
   if(item.action==='spend')return openDailySpend()
@@ -880,9 +876,12 @@ async function goToWorkspace(tab){
   await nextTick()
   workspaceTabs.value?.$el?.querySelector(':scope > .el-tabs__header')?.scrollIntoView({block:'start'})
 }
-async function refreshWorkbench(){await Promise.all([load(selectedProjectId.value),publicExpensePanel.value?.refresh()])}
-function switchProject(id){workspaceTab.value='execution';load(id)}
+async function refreshWorkbench(){await Promise.all([load(selectedProjectId.value),publicExpensePanel.value?.refresh()]);settlementRefreshKey.value++}
+async function switchProject(id){const inProject=workspaceTab.value==='project';await load(id);if(inProject)await goToWorkspace('project')}
 async function selectProject(projectId,tab){await load(projectId);if(tab)await goToWorkspace(tab)}
+async function selectProjectSettlement(projectId,tab){await load(projectId);projectSettlementTab.value=tab;await goToWorkspace('project')}
+function handleProjectPublicExpense(item){return item?openPublicExpenseTodo(item):goToWorkspace('public-expense')}
+async function refreshProjectSettlement(){await load(selectedProjectId.value);settlementRefreshKey.value++;await goToWorkspace('project')}
 async function handleAllOwnerTodo(item){if(item.action==='proposal-handoff')return openProposalHandoff(item);if(item.action==='child-acceptance')return openChildAcceptance(item);if(item.action==='allocation-review')return openAllocationReview(item);if(item.action==='public-expense')return openPublicExpenseTodo(item);await load(item.projectId);await nextTick();return handleOwnerTodo(item)}
 function openProposalHandoff(item){router.push({path:'/business/project-proposals',query:{id:item.proposalId,edit:'1'}})}
 function openChildAcceptance(item){router.push({path:'/business/projects',query:{id:item.projectId,tab:item.tab||'overview'}})}
@@ -1055,6 +1054,8 @@ useBusinessRefreshOnReactivated(() => load(selectedProjectId.value || initialPro
 
 
 <style scoped>
+.owner-quick-stats.project-list-stats{display:grid;gap:14px;grid-template-columns:repeat(3,minmax(0,1fr));margin:12px 0 18px}.project-list-stats article{padding:16px;border:1px solid var(--el-border-color-lighter);border-radius:9px;background:var(--el-bg-color)}.project-list-stats article>span{color:var(--el-text-color-secondary);font-size:12px}.project-list-stats article b{display:block;margin:8px 0;font-size:27px}.project-list-stats article b small{font-size:12px;font-weight:400;margin-left:6px}.project-list-stats article p{color:var(--el-text-color-secondary);font-size:12px;margin:0}.project-shared-expenses{margin-top:16px}.settlement-row-action{display:block;margin:7px 0 0!important}
+@media(max-width:600px){.owner-quick-stats.project-list-stats{display:grid;gap:14px;grid-template-columns:repeat(3,minmax(0,1fr))}.project-list-stats article{padding:12px 9px}.project-list-stats article b{font-size:24px}.project-shared-expenses .panel-head{align-items:flex-start;flex-direction:column}}
 .owner-todos{margin-top:16px}.owner-todos h2{display:flex;align-items:center;gap:10px}.owner-todo-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid #edf0f3}.todo-dot{flex:0 0 8px;height:8px;border-radius:50%;background:#e6a23c}.todo-dot.urgent{background:#f56c6c}.todo-copy{flex:1;min-width:0}.todo-copy b,.todo-copy small{display:block}.todo-copy b{font-size:14px}.todo-copy small{margin-top:4px;color:#84919f;overflow-wrap:anywhere}.todo-empty{padding:14px 0;color:#238067}.todo-expand{margin-top:10px}@media(max-width:640px){.owner-todo-row{flex-wrap:wrap}.todo-copy{flex-basis:calc(100% - 24px)}.owner-todo-row>.el-button{margin-left:20px}}
 .owner-page{min-height:calc(100vh - 84px);padding:24px;background:#f3f6f8;color:#172335}.owner-hero{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:25px 28px;border-radius:16px;background:linear-gradient(120deg,#173b59,#1d6d70);color:#fff}.owner-hero span{font-size:11px;letter-spacing:.17em;color:#6de0da}.owner-hero h1{margin:5px 0;font-size:28px}.owner-hero p{margin:0;color:#c1d4de}.hero-actions{display:flex;align-items:center;gap:10px}.hero-actions .el-select{width:360px}.metric-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin:16px 0}.metric-grid article{min-width:0;padding:17px 19px;border:1px solid #dfe6eb;border-radius:12px;background:#fff}.metric-grid article.metric-warning{border-color:#efc36d;background:#fffaf0}.metric-grid article.metric-warning b{color:#b87513}.metric-grid span,.metric-grid small{display:block}.metric-grid span{color:#6f7d8c}.metric-grid b{display:block;margin:6px 0;font-size:26px;white-space:nowrap}.metric-grid b em{color:#697786;font-size:14px;font-style:normal;font-weight:500}.metric-grid small{color:#98a2ad}.amount-profit{color:#198069}.amount-loss,.danger{color:#cf4650}.allocation-alert-panel{margin-bottom:14px;border-color:#efcf93;background:#fffdf8}.allocation-alert-row{display:grid;grid-template-columns:minmax(220px,.8fr) minmax(220px,1.2fr) auto;align-items:center;gap:16px;padding:13px 4px;border-top:1px solid #f1e5ce}.allocation-alert-row>span{display:flex;min-width:0;flex-direction:column;gap:4px}.allocation-alert-row small{color:#8b7755}.allocation-alert-row p{margin:0;color:#7a633d;overflow-wrap:anywhere}.workspace-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,.65fr);gap:14px}.main-column,.side-column{display:flex;min-width:0;flex-direction:column;gap:14px}.panel{padding:18px;border:1px solid #dfe6eb;border-radius:13px;background:#fff}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.panel h2{margin:0;font-size:17px}.panel p{margin:4px 0;color:#84919f;font-size:12px}.routine-card{display:flex;align-items:center;gap:18px;padding:15px 4px;border-top:1px solid #edf0f2}.routine-main{display:flex;min-width:0;flex:1;flex-direction:column;gap:7px}.routine-title{display:flex;align-items:center;gap:8px}.routine-main>small{color:#8b97a4}.routine-main>p{margin:0}.routine-result{display:flex;min-width:128px;align-items:flex-end;flex-direction:column;gap:6px}.routine-result span{color:#7e8b99;font-size:12px}.routine-result b{font-size:18px}.routine-result .routine-xu{color:#198069}.assignee-report-hint{color:#8b97a4}.task-card{display:flex;align-items:center;gap:12px;padding:13px 4px;border-top:1px solid #edf0f2}.task-card>i{width:8px;height:8px;border-radius:50%;background:#8794a3}.task-card>i.priority-high{background:#d44951}.task-card>i.priority-medium{background:#d68b2a}.task-card>i.priority-low{background:#3f9178}.task-content{display:flex;min-width:0;flex:1;flex-direction:column;gap:5px}.task-content small,.kpi-row small,.risk-row small,.fact-row small,.effort-member-row small{color:#8b97a4}.leave-note{color:#7b6a91!important}.task-actions,.effort-actions{display:flex}.effort-member-row{display:grid;grid-template-columns:minmax(150px,1fr) auto auto auto auto;align-items:center;gap:16px;padding:13px 4px;border-top:1px solid #edf0f2}.effort-member-row>span:first-child{display:flex;min-width:0;flex-direction:column}.fact-row{display:flex;align-items:center;gap:10px;padding:13px 4px;border-top:1px solid #edf0f2}.fact-row>span:nth-child(2){display:flex;min-width:0;flex:1;flex-direction:column}.fact-row strong{white-space:nowrap}.project-title{display:flex;align-items:flex-start;justify-content:space-between}.project-title small{color:#81909e}.project-summary>p{margin:14px 0;line-height:1.7}.project-summary dl{margin:0}.project-summary dl>div{display:flex;justify-content:space-between;padding:9px 0;border-top:1px solid #edf0f2}.project-summary dt{color:#7b8997}.project-summary dd{margin:0;text-align:right}.kpi-row,.risk-row{display:flex;align-items:center;gap:9px;padding:11px 2px;border-top:1px solid #edf0f2}.kpi-row>span,.risk-row>span{display:flex;min-width:0;flex:1;flex-direction:column}.empty-block{padding:28px 0;text-align:center;color:#9aa5b0}.empty-block.compact{padding:15px 0}.no-project{margin-top:16px;padding:50px;border:1px solid #dfe6eb;border-radius:14px;background:#fff}.no-project p{color:#8c98a5}.report-form{margin-top:18px}.returned-spend-alert{margin-top:12px}@media(max-width:1300px){.metric-grid{grid-template-columns:repeat(3,1fr)}}@media(max-width:1050px){.metric-grid{grid-template-columns:repeat(2,1fr)}.workspace-grid{grid-template-columns:1fr}}@media(max-width:640px){.owner-page{padding:12px}.owner-hero{align-items:flex-start;flex-direction:column;padding:20px}.hero-actions{width:100%;align-items:stretch;flex-direction:column}.hero-actions .el-select,.hero-actions .el-button{width:100%}.metric-grid{gap:8px}.metric-grid article{padding:14px}.panel-head{align-items:flex-start}.effort-actions{align-items:stretch;flex-direction:column}.effort-member-row{grid-template-columns:1fr 1fr}.effort-member-row>span:first-child,.effort-member-row>.el-tag{grid-column:1/-1}.effort-member-row>.el-button{justify-self:start}.allocation-alert-row{grid-template-columns:1fr}.allocation-alert-row .el-button{width:100%}.routine-card,.task-card,.fact-row{align-items:flex-start;flex-wrap:wrap}.routine-result{width:100%;align-items:stretch}.routine-result b{font-size:17px}.task-actions{width:100%;justify-content:flex-end}.fact-row strong{margin-left:auto}}
 .hero-actions{justify-content:flex-end;flex-wrap:wrap}.hero-actions .el-button{margin:0}.hero-actions .el-select{width:320px}@media(max-width:1300px){.owner-hero{align-items:flex-start;flex-direction:column}.hero-actions{width:100%;justify-content:flex-start}.hero-actions .el-select{flex:1;min-width:280px}}@media(max-width:640px){.hero-actions .el-select{min-width:0}}

@@ -1,12 +1,12 @@
 <template>
-  <section class="settlement-panel" v-loading="loading">
+  <section class="settlement-panel" :class="{'settlement-panel-compact':compact}" v-loading="loading">
     <div class="settlement-heading">
       <div class="heading-copy">
         <div class="heading-title-row">
-          <h3>{{ $tr("交付与结算") }}</h3>
-          <BusinessProjectState :project="displayProject" />
+          <h3>{{ compact ? $tr('管理费与结项条件') : $tr("交付与结算") }}</h3>
+          <BusinessProjectState v-if="!compact" :project="displayProject" />
         </div>
-        <p class="heading-description">{{ $tr("查看交付进度、结算待办和项目管理费") }}</p>
+        <p v-if="!compact" class="heading-description">{{ $tr("查看交付进度、结算待办和项目管理费") }}</p>
       </div>
       <div class="actions heading-actions">
         <el-button size="small" link type="primary" @click="expanded=!expanded">{{ expanded?$tr("收起详情"):$tr("查看详情") }}</el-button>
@@ -17,7 +17,7 @@
     </div>
     <p v-if="expanded" class="policy-hint">{{ policyHint }}</p>
     <el-alert v-if="loadFailed" :title="$tr(&quot;暂时无法读取结项检查，请刷新后核对；当前不能办理结项。&quot;)" type="warning" :closable="false" show-icon />
-    <template v-else-if="summary">
+    <template v-else-if="summary && (!compact || expanded)">
       <el-alert v-if="summary.deliveryAwaitingCosts" :title="$tr(&quot;交付已于 {0} 结束。请结清交付结束月份的公司公共费用，再确认最终核算与管理费。&quot;, [summary.actualEndDate||$tr(&quot;记录日期&quot;)])" type="info" :closable="false" show-icon class="delivery-alert" />
       <div class="management-card">
         <div class="management-head">
@@ -53,7 +53,7 @@
         </template>
       </div>
 
-      <div v-if="summary.accountingState==='OPEN'" class="settlement-progress">
+      <div v-if="!compact&&summary.accountingState==='OPEN'" class="settlement-progress">
         <span class="progress-label">{{ $tr("结算进度") }}</span>
         <div class="settlement-counts">
           <span v-for="item in pendingCounts" :key="item.key">{{ item.label }}<b>{{ item.count }}</b></span>
@@ -61,16 +61,16 @@
         </div>
       </div>
       <ul v-if="expanded&&summary.blockers?.length" class="settlement-blockers">
-        <li v-for="(blocker,index) in summary.blockers" :key="`${blocker.code}-${index}`">{{ blockerLabels[blocker.code]||blocker.label }}<template v-if="Number(blocker.count)>1"> · {{ blocker.count }}</template></li>
+        <li v-for="(blocker,index) in summary.blockers" :key="`${blocker.code}-${index}`">{{ compact&&blocker.label ? translateServerMessage(blocker.label) : blockerLabels[blocker.code]||translateServerMessage(blocker.label) }}<template v-if="Number(blocker.count)>1"> · {{ blocker.count }}</template></li>
       </ul>
       <p v-else-if="summary.canClose" class="ready">{{ $tr("结项检查已通过。核对最终金额后，可一次完成结项、核算并冻结数据。") }}</p>
-      <div v-if="expanded&&summary.accountingState==='OPEN'" class="actions links">
+      <div v-if="!compact&&expanded&&summary.accountingState==='OPEN'" class="actions links">
         <el-button v-hasPermi="['business:kpi:list']" link type="primary" @click="openKpi">{{ $tr("办理KPI结算") }}</el-button>
         <el-button v-hasPermi="['business:accounting:list']" link type="primary" @click="openAccounting">{{ $tr("查看收支与核算") }}</el-button>
         <el-button v-if="Number(summary.pendingPublicExpenseCount)>0" v-hasPermi="['business:public-expense:list']" link type="primary" @click="openPublicExpenses">{{ $tr("办理公司公共费用月结") }}</el-button>
       </div>
     </template>
-    <BusinessClosedAdjustments v-if="projectAccountingState(displayProject)==='CLOSED'" :project="displayProject" @changed="emit('closed')" />
+    <BusinessClosedAdjustments v-if="(!compact||expanded)&&projectAccountingState(displayProject)==='CLOSED'" :project="displayProject" @changed="emit('closed')" />
 
     <el-dialog v-model="feeDialog" :title="$tr(&quot;设置项目管理费&quot;)" width="min(620px,94vw)" append-to-body destroy-on-close>
       <el-alert :title="$tr(&quot;负责人当前在管 {0} 个项目，已达到管理费设置条件。设置不会审批或暂停项目，关闭核算时才确认成本。&quot;, [fee?.projectCount||0])" type="info" :closable="false" show-icon />
@@ -131,7 +131,7 @@
 </template>
 
 <script setup>
-import { translateText } from '@/locales/translate'
+import { translateText, translateServerMessage } from '@/locales/translate'
 
 import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -141,7 +141,7 @@ import { isDeliveryEnded, isSeparatedDelivery, projectAccountingState } from '@/
 import BusinessClosedAdjustments from '@/components/BusinessClosedAdjustments/index.vue'
 import BusinessProjectState from '@/components/BusinessProjectState/index.vue'
 
-const props=defineProps({project:{type:Object,required:true},refreshKey:{type:[String,Number],default:''}})
+const props=defineProps({project:{type:Object,required:true},refreshKey:{type:[String,Number],default:''},compact:{type:Boolean,default:false}})
 const emit=defineEmits(['closed']),router=useRouter()
 const loading=ref(false),closing=ref(false),loadFailed=ref(false),summary=ref(null),expanded=ref(false)
 const feeDialog=ref(false),feeSaving=ref(false),closeDialog=ref(false),closeReason=ref(''),paymentDialog=ref(false),paymentSaving=ref(false)
@@ -151,7 +151,7 @@ const paymentForm=reactive({amount:null,paidDate:'',method:'BANK',referenceNo:''
 const paymentMethods={BANK:translateText("银行转账"),WECHAT:translateText("微信"),ALIPAY:translateText("支付宝"),CASH:translateText("现金"),OTHER:translateText("其他")}
 const blockerLabels={PENDING_AWARD:translateText("奖金奖励单尚待处理或取消"),PENDING_COST:translateText("成员工作日缺少有效成本或日历"),LEGACY_POLICY:translateText("沿用原结项关账规则"),DELIVERY_OPEN:translateText("项目尚未完成交付或取消"),ACCOUNTING_CLOSED:translateText("项目核算已关闭"),MISSING_END_DATE:translateText("缺少实际结束日期，请核对"),PENDING_KPI:translateText("仍有未完成KPI结算，包括尚未到期的周期"),PENDING_EFFORT:translateText("仍有投入待确认"),PENDING_LEAVE:translateText("仍有假勤待处理"),PENDING_FACT:translateText("仍有收支待确认或退回修改"),MANAGEMENT_FEE_PENDING:translateText("项目管理费尚未设置，请设置规则或明确不发放")}
 const fee=computed(()=>summary.value?.managementFee||null)
-const pendingCounts=computed(()=>[['pendingKpiCount',translateText("KPI待结算")],['pendingFactCount',translateText("收支待处理")],['pendingPublicExpenseCount',translateText("公共费用待月结")],['pendingAwardCount',translateText("奖金待处理")],['pendingCostCount',translateText("人员成本待完善")],['pendingLeaveCount',translateText("假勤待处理")]].map(([key,label])=>({key,label,count:Number(summary.value?.[key]||0)})).filter(item=>item.count>0))
+const pendingCounts=computed(()=>[['pendingKpiCount',translateText("KPI待结算")],['pendingEffortCount',translateText('人员投入确认')],['pendingFactCount',translateText("收支待处理")],['pendingPublicExpenseCount',translateText("公共费用待月结")],['pendingAwardCount',translateText("奖金待处理")],['pendingCostCount',translateText("人员成本待完善")],['pendingLeaveCount',translateText("假勤待处理")]].map(([key,label])=>({key,label,count:Number(summary.value?.[key]||0)})).filter(item=>item.count>0))
 let requestSequence=0
 const displayProject=computed(()=>({...props.project,...(summary.value||{})}))
 const deliveryReviewer=computed(()=>props.project.parentId?translateText("主项目主负责人"):translateText("归属老板"))
@@ -187,6 +187,7 @@ defineExpose({openClose})
 </script>
 
 <style scoped>
+.settlement-panel.settlement-panel-compact{padding:16px 18px;margin-top:16px;border-radius:9px;background:var(--el-bg-color);box-shadow:none}.settlement-panel-compact .settlement-heading h3{font-size:15px}.settlement-panel-compact .management-card{box-shadow:none}
 .fee-grid.fee-grid-single{grid-template-columns:minmax(0,1fr)}
 .settlement-panel{padding:20px;margin:16px 0;border:1px solid #e2e8f0;border-radius:14px;background:#f8fafc;box-shadow:0 1px 2px rgba(15,23,42,.03)}
 .delivery-alert,.delivery-review{margin-top:16px}.delivery-review :deep(.el-descriptions__content){white-space:pre-wrap;overflow-wrap:anywhere}.delivery-approval{margin-top:12px;white-space:normal}.legacy-separation-note{color:#916525;line-height:1.7}
