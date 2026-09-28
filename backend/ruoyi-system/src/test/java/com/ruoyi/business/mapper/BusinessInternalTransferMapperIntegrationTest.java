@@ -49,7 +49,7 @@ class BusinessInternalTransferMapperIntegrationTest
             List<Map<String,Object>> options=session.getMapper(BusinessAccountingMapper.class).selectInternalTransferProjects();
             assertEquals(4,options.size());
             assertTrue(options.stream().anyMatch(p->Long.valueOf(3).equals(p.get("projectId"))));
-            assertEquals(1,((Number)options.stream().filter(p->Long.valueOf(4).equals(p.get("projectId"))).findFirst().orElseThrow().get("accountingClosed")).intValue());
+            assertEquals(1,((Number)options.stream().filter(p->Long.valueOf(4).equals(p.get("projectId"))).findFirst().orElseThrow(NoSuchElementException::new).get("accountingClosed")).intValue());
             for(Map<String,Object> option:options){assertFalse(option.containsKey("budgetLimit"));assertFalse(option.containsKey("initiatorUserId"));}
             List<Map<String,Object>> categories=session.getMapper(BusinessAccountingMapper.class).selectCategories();
             assertEquals(2,categories.size());assertTrue(categories.stream().noneMatch(c->"INTERNAL_PROJECT_REVENUE".equals(c.get("categoryCode"))));

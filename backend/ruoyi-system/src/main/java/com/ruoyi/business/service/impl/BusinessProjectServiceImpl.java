@@ -2642,12 +2642,15 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
                 archive.put("projectName",received.get(0).getProjectNameSnapshot());
                 archive.put("progressPercent",received.get(0).getProgress());archive.put("reports",received);
                 archive.put("canSubmit",false);archive.put("canConfigureWeights",false);
+                archive.put("archiveOnly",true);
                 return archive;
             }
         }
         Map<String,Object> result = new LinkedHashMap<>();
         result.put("projectId", projectId); result.put("projectName", project.getProjectName());
         result.put("parentId", project.getParentId()); result.put("progressPercent", project.getProgressPercent());
+        result.put("status",project.getStatus());result.put("progressReportId",project.getProgressReportId());
+        result.put("progressBizDate",project.getProgressBizDate());
         result.put("canConfigureWeights", false);
         result.put("canSubmit", !"2".equals(project.getDelFlag()) && Objects.equals(userId,project.getMainOwnerUserId())
             && ("ACTIVE".equals(project.getStatus()) || "PAUSED".equals(project.getStatus()))
@@ -2669,6 +2672,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
                 Map<String,Object> summary = new LinkedHashMap<>();
                 summary.put("projectId",child.getProjectId()); summary.put("projectName",child.getProjectName());
                 summary.put("progressPercent",child.getProgressPercent());
+                summary.put("status",child.getStatus());summary.put("progressReportId",child.getProgressReportId());
+                summary.put("progressBizDate",child.getProgressBizDate());
                 summary.put("progressSummary",child.getProgressSummary()); summary.put("progressReportTime",child.getProgressReportTime());
                 summaries.add(summary);
             }

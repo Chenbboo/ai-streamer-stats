@@ -15,3 +15,13 @@ export function progressEventTarget(event) {
   const match = /^\[子项目:(\d+)\]\[汇报:(\d+)\]/.exec(event.comment || '')
   return match ? { projectId: Number(match[1]), reportId: Number(match[2]) } : null
 }
+
+// The server selects the current calendar month's report. A real 0% report is
+// different from its 0% fallback when no report exists; never infer progress from tasks.
+export function monthlyProgressPercent(project) {
+  if (project?.status === 'CLOSED') return 100
+  if (project?.status === 'CANCELED') return 0
+  if (!project?.progressReportId || project.progressPercent == null || project.progressPercent === '') return null
+  const value = Number(project.progressPercent)
+  return Number.isFinite(value) ? Math.min(100, Math.max(0, Math.round(value))) : null
+}

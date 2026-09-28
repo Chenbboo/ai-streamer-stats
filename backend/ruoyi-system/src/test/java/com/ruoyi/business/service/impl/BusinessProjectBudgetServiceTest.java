@@ -345,7 +345,7 @@ class BusinessProjectBudgetServiceTest
         assertEquals("2026-09-12",months.get(0).get("startDate"));assertEquals("2026-09-30",months.get(0).get("endDate"));
         assertEquals("2026-12-01",months.get(3).get("startDate"));assertEquals("2026-12-11",months.get(3).get("endDate"));
         assertEquals(budget.get("revenueAmount"),sum(months,"revenueAmount"));
-        assertEquals("CALENDAR_MONTH_V2",budget.get("monthlyForecastVersion"));
+        assertEquals("CALENDAR_MONTH_V3",budget.get("monthlyForecastVersion"));
     }
     @Test void unlimitedRefreshChangesOnlySteadyMonthAndKeepsSavedMonthlyHistory()
     {
@@ -485,6 +485,96 @@ class BusinessProjectBudgetServiceTest
             assertEquals(budget.get(key),sum(months,key));
             assertTrue(months.stream().allMatch(m->((BigDecimal)m.get(key)).signum()>=0),key);
         }
+    }
+    @Test void finiteForecastIncludesPreparationAndFinalPaymentInTheirActualMonths()
+    {
+        p.setPlanEndDate(Date.valueOf("2026-09-30"));p.setStaffingLines(Collections.emptyList());
+        p.setExpenseLines(Collections.singletonList(row("amount",200,"occurDate","2026-08-15")));
+        p.setRevenueLines(Collections.singletonList(row("expectedAmount",1000,"expectedDate","2026-10-15")));
+        Map<String,Object> budget=service.estimate(p);
+        assertEquals("READY",budget.get("status"));
+        assertEquals(new BigDecimal("1000.00"),budget.get("revenueAmount"));
+        assertEquals(new BigDecimal("200.00"),budget.get("plannedTotalCost"));
+        assertEquals(new BigDecimal("800.00"),budget.get("profit"));
+        List<Map<String,Object>> forecast=months(budget);
+        assertEquals(Arrays.asList("2026-08","2026-09","2026-10"),Arrays.asList(forecast.get(0).get("month"),forecast.get(1).get("month"),forecast.get(2).get("month")));
+        assertEquals(new BigDecimal("200.00"),forecast.get(0).get("plannedBusinessAmount"));
+        assertEquals(new BigDecimal("1000.00"),forecast.get(2).get("revenueAmount"));
+        assertEquals(budget.get("revenueAmount"),sum(forecast,"revenueAmount"));
+        assertEquals(budget.get("plannedTotalCost"),sum(forecast,"plannedTotalCost"));
+        assertTrue(forecast.stream().allMatch(m->"READY".equals(m.get("status"))));
+        service.apply(p);assertEquals(new BigDecimal("800.00"),p.getExpectedProfit());
+    }
+    @Test void cashMonthsDoNotExtendPersonnelOrRecurringCostsOrRepeatUndatedFunding()
+    {
+        p.setPlanEndDate(Date.valueOf("2026-09-30"));staff.put("participationMode","FOLLOW_PROJECT");
+        p.setParentProjectId(1L);p.setParentFundingAmount(new BigDecimal("100"));
+        p.getBudget().put("businessAmount",1100);
+        p.setExpenseLines(Arrays.asList(row("amount",200,"occurDate","2026-08-15"),row("amount",30,"occurrenceType","DAILY","occurDate","2026-08-01")));
+        p.setRevenueLines(Arrays.asList(row("expectedAmount",1000,"expectedDate","2026-10-15"),row("expectedAmount",50)));
+        Map<String,Object> budget=service.estimate(p);List<Map<String,Object>> forecast=months(budget);
+        assertEquals(3,forecast.size());
+        assertEquals(new BigDecimal("0.00"),forecast.get(0).get("personnelAmount"));
+        assertEquals(new BigDecimal("22000.00"),forecast.get(1).get("personnelAmount"));
+        assertEquals(new BigDecimal("0.00"),forecast.get(2).get("personnelAmount"));
+        assertEquals(new BigDecimal("200.00"),forecast.get(0).get("plannedBusinessAmount"));
+        assertEquals(new BigDecimal("900.00"),forecast.get(1).get("plannedBusinessAmount"));
+        assertEquals(new BigDecimal("0.00"),forecast.get(2).get("plannedBusinessAmount"));
+        assertEquals(new BigDecimal("150.00"),forecast.get(1).get("revenueAmount"));
+        assertEquals(budget.get("plannedTotalCost"),sum(forecast,"plannedTotalCost"));
+        assertTrue(forecast.stream().allMatch(m->"READY".equals(m.get("status"))));
+    }
+    @Test void invalidOutsideCashDatesRemainPendingWithoutMovingMoneyIntoExecutionMonths()
+    {
+        p.setPlanEndDate(Date.valueOf("2026-09-30"));p.setStaffingLines(Collections.emptyList());
+        p.setExpenseLines(Collections.singletonList(row("amount",200,"occurDate","2026-02-15")));
+        p.setRevenueLines(Collections.singletonList(row("expectedAmount",1000,"expectedDate","2026-04-15")));
+        Map<String,Object> budget=service.estimate(p);
+        assertEquals("PENDING",budget.get("status"));
+        assertEquals(new BigDecimal("0.00"),sum(months(budget),"plannedBusinessAmount"));
+        assertEquals("2026-04",months(budget).get(0).get("month"));
+    }
+    @Test void partialExecutionMonthStillIncludesOneOffsOnEitherSideOfExecutionDates()
+    {
+        p.setPlanStartDate(Date.valueOf("2026-09-10"));p.setPlanEndDate(Date.valueOf("2026-09-20"));p.setStaffingLines(Collections.emptyList());
+        p.setExpenseLines(Collections.singletonList(row("amount",200,"occurDate","2026-09-01")));
+        p.setRevenueLines(Collections.singletonList(row("expectedAmount",1000,"expectedDate","2026-09-30")));
+        Map<String,Object> budget=service.estimate(p);
+        assertEquals(1,months(budget).size());
+        assertEquals(new BigDecimal("200.00"),months(budget).get(0).get("plannedBusinessAmount"));
+        assertEquals(new BigDecimal("1000.00"),months(budget).get(0).get("revenueAmount"));
+    }
+    @Test void historicalV2SnapshotStaysFrozenEvenWithOutOfPeriodOneOffs()
+    {
+        p.setPlanEndDate(Date.valueOf("2026-09-30"));
+        Map<String,Object> saved=row("monthlyForecastVersion","CALENDAR_MONTH_V2","revenueAmount",0,"totalAmount",500);
+        p.setBudget(saved);p.setRevenueLines(Collections.singletonList(row("expectedAmount",1000,"expectedDate","2026-10-15")));
+        clearInvocations(mapper,proposals);service.refreshMonthlyForecast(p);
+        assertSame(saved,p.getBudget());verifyNoInteractions(mapper,proposals);
+    }
+    @Test void recurringCentRemaindersStayInExecutionMonthsNotTheFinalPaymentMonth()
+    {
+        p.setPlanStartDate(Date.valueOf("2026-01-01"));p.setPlanEndDate(Date.valueOf("2030-12-31"));p.setStaffingLines(Collections.emptyList());
+        p.setRevenueLines(Arrays.asList(row("expectedAmount",new BigDecimal("0.02"),"occurrenceType","WEEKLY"),row("expectedAmount",1000,"expectedDate","2031-06-15")));
+        p.setExpenseLines(Arrays.asList(row("amount",new BigDecimal("0.02"),"occurrenceType","WEEKLY"),row("amount",200,"occurDate","2025-07-15")));
+        Map<String,Object> budget=service.estimate(p);List<Map<String,Object>> forecast=months(budget);
+        assertEquals(72,forecast.size());
+        assertEquals(new BigDecimal("1000.00"),forecast.get(71).get("revenueAmount"));
+        assertEquals(new BigDecimal("0.00"),forecast.get(71).get("plannedBusinessAmount"));
+        assertEquals(new BigDecimal("200.00"),forecast.get(0).get("plannedBusinessAmount"));
+        for(String key:Arrays.asList("revenueAmount","plannedBusinessAmount"))assertEquals(budget.get(key),sum(forecast,key));
+    }
+    @Test void legacySnapshotReadDoesNotRetroactivelyIncludeOutOfPeriodOneOffs()
+    {
+        p.setPlanEndDate(Date.valueOf("2026-09-30"));p.setStaffingLines(Collections.emptyList());
+        p.setBudget(row("startDate","2026-09-01","endDate","2026-09-30","personnelAmount",0,"revenueAmount",0,"plannedTotalCost",0,"totalAmount",200));
+        p.setExpenseLines(Collections.singletonList(row("amount",200,"occurDate","2026-08-15")));
+        p.setRevenueLines(Collections.singletonList(row("expectedAmount",1000,"expectedDate","2026-10-15")));
+        service.refreshMonthlyForecast(p);
+        assertEquals(1,months(p.getBudget()).size());
+        assertEquals(new BigDecimal("0.00"),sum(months(p.getBudget()),"revenueAmount"));
+        assertEquals(0,p.getBudget().get("revenueAmount"));assertEquals(200,p.getBudget().get("totalAmount"));
+        assertEquals("CALENDAR_MONTH_V2",p.getBudget().get("monthlyForecastVersion"));
     }
     private List<Map<String,Object>> months(Map<String,Object> budget){return (List<Map<String,Object>>)budget.get("monthlyForecasts");}
     private BigDecimal sum(List<Map<String,Object>> rows,String key){return rows.stream().map(r->(BigDecimal)r.get(key)).reduce(BigDecimal.ZERO.setScale(2),BigDecimal::add);}

@@ -120,6 +120,27 @@ class BusinessProjectProgressServiceTest {
         verify(progressMapper).history(20L);
         verify(mapper,never()).selectMemberRole(anyLong(),anyLong());
     }
+    @Test void workspaceExposesMonthlyReportIdentityAndKeepsMissingDistinctFromZero() {
+        when(mapper.selectProjectById(20L)).thenReturn(child);
+        when(progressMapper.archiveProject(10L)).thenReturn(parent);
+        child.setProgressPercent(0);
+        Map<String,Object> missing=service.progressWorkspace(20L,8L,false,false);
+        assertEquals("ACTIVE",missing.get("status"));assertNull(missing.get("progressReportId"));
+        child.setProgressReportId(31L);child.setProgressBizDate(new Date());
+        Map<String,Object> reported=service.progressWorkspace(20L,8L,false,false);
+        assertEquals(31L,reported.get("progressReportId"));assertEquals(0,reported.get("progressPercent"));
+        assertEquals(child.getProgressBizDate(),reported.get("progressBizDate"));
+    }
+    @Test void childSummaryCarriesMonthlyReportIdentityAndStatus() {
+        when(mapper.selectProjectById(10L)).thenReturn(parent);
+        when(mapper.selectActiveUserById(8L)).thenReturn(Collections.singletonMap("nickName","主项目负责人"));
+        when(mapper.selectProjectList(anyMap())).thenReturn(Collections.singletonList(child));
+        child.setProgressReportId(31L);child.setProgressPercent(0);
+        Map<String,Object> workspace=service.progressWorkspace(10L,8L,false,false);
+        Map<?,?> summary=(Map<?,?>)((List<?>)workspace.get("children")).get(0);
+        assertEquals(31L,summary.get("progressReportId"));assertEquals(0,summary.get("progressPercent"));
+        assertEquals("ACTIVE",summary.get("status"));
+    }
     @Test void strangerCannotReadReportHistory() {
         when(mapper.selectProjectById(20L)).thenReturn(child);
         when(progressMapper.archiveProject(10L)).thenReturn(parent);
@@ -155,6 +176,7 @@ class BusinessProjectProgressServiceTest {
         Map<String,Object> data=service.progressWorkspace(20L,7L,false,false);
         assertEquals(false,data.get("canSubmit"));assertFalse(data.containsKey("snapshot"));
         assertEquals(Collections.singletonList(received),data.get("reports"));
+        assertEquals(true,data.get("archiveOnly"));
         verify(progressMapper,never()).history(anyLong());verify(mapper,never()).selectTasks(anyLong());
     }
 }

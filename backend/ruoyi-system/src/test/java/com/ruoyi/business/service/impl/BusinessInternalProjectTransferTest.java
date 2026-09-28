@@ -172,7 +172,7 @@ class BusinessInternalProjectTransferTest
         verify(mapper,times(1)).selectInternalTransferProjects();
     }
 
-    private BusinessOperatingFact incomeFor(Long id){return facts.values().stream().filter(f->("INTERNAL-PROJECT-REVENUE-"+id).equals(f.getIdempotencyKey())).findFirst().orElseThrow();}
+    private BusinessOperatingFact incomeFor(Long id){return facts.values().stream().filter(f->("INTERNAL-PROJECT-REVENUE-"+id).equals(f.getIdempotencyKey())).findFirst().orElseThrow(java.util.NoSuchElementException::new);}
     private BigDecimal net(Long id,String kind){return facts.values().stream().filter(f->id.equals(f.getProjectId())&&kind.equals(f.getFactKind())&&Arrays.asList("CONFIRMED","REVERSED").contains(f.getStatus())).map(BusinessOperatingFact::getAmount).reduce(BigDecimal.ZERO,BigDecimal::add).setScale(2);}
     private BusinessOperatingFact input(Long target){BusinessOperatingFact f=new BusinessOperatingFact();f.setProjectId(1L);f.setTargetProjectId(target);f.setCategoryId(6L);f.setBizDate(java.sql.Date.valueOf(java.time.LocalDate.now()));f.setCurrency("CNY");f.setAmount(new BigDecimal("50.00"));f.setDescription("内部协作费用");f.setRequestId("request-1234567890123456");return f;}
     private Map<String,Object> project(Long id){Map<String,Object> p=new HashMap<>();p.put("projectId",id);p.put("projectName","项目"+id);p.put("mainOwnerUserId",9L);p.put("companyDeptId",110L);p.put("currency","CNY");p.put("status","ACTIVE");p.put("accountingState","OPEN");p.put("accountingMode","PROFIT");return p;}

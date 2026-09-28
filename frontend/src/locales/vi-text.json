@@ -8387,5 +8387,7 @@
   "本月进度 / 最新汇报": "Tiến độ tháng này / báo cáo mới nhất",
   "本月尚无汇报": "Tháng này chưa có báo cáo",
   "主项目本月进度由负责人填报，点击查看各子项目汇报": "Tiến độ tháng này của dự án chính do người phụ trách báo cáo; nhấp để xem báo cáo của từng dự án con",
-  "填报本月项目进度": "Báo cáo tiến độ dự án tháng này"
+  "填报本月项目进度": "Báo cáo tiến độ dự án tháng này",
+  "本月尚未汇报": "Tháng này chưa có báo cáo",
+  "时间进度按全项目周期计算，不与本月完成率比较": "Tiến độ thời gian được tính theo toàn bộ thời gian dự án, không so sánh với tỷ lệ hoàn thành tháng này"
 }

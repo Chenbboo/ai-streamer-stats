@@ -17,7 +17,8 @@ import com.ruoyi.common.utils.DateUtils;
 @Service
 public class BusinessProjectBudgetService
 {
-    private static final String MONTHLY_FORECAST_VERSION="CALENDAR_MONTH_V2";
+    private static final String MONTHLY_FORECAST_VERSION="CALENDAR_MONTH_V3";
+    private static final String EXECUTION_FORECAST_VERSION="CALENDAR_MONTH_V2";
     private static final String HISTORICAL_PERSONNEL_ISSUE="暂无法还原原计划的分月人员成本，请重新测算计划";
     @Autowired private BusinessProjectProposalMapper proposals;
     @Autowired private BusinessProjectWorkMapper mapper;
@@ -57,24 +58,39 @@ public class BusinessProjectBudgetService
     public Map<String,Object> estimate(BusinessProjectProposal proposal) {
         ensureOwner(proposal);
         Map<String,Object> result=estimate(proposal,false);
-        addMonthlyForecasts(proposal,result);
+        addMonthlyForecasts(proposal,result,true);
         return result;
     }
-    private void addMonthlyForecasts(BusinessProjectProposal proposal,Map<String,Object> result) {
+    private void addMonthlyForecasts(BusinessProjectProposal proposal,Map<String,Object> result,boolean includeAllFiniteOneOffs) {
         if(proposal.getPlanStartDate()!=null){
             LocalDate first=date(proposal.getPlanStartDate()).withDayOfMonth(1);
             LocalDate last=proposal.getPlanEndDate()==null?first.plusMonths(11):date(proposal.getPlanEndDate()).withDayOfMonth(1);
+            if(includeAllFiniteOneOffs&&proposal.getPlanEndDate()!=null){
+                for(boolean revenue:Arrays.asList(true,false))
+                    for(Map<String,Object> line:rows(revenue?proposal.getRevenueLines():proposal.getExpenseLines())){
+                        if(!"ONE_TIME".equals(occurrence(line))||revenue&&!"BASE".equals(String.valueOf(line.getOrDefault("scenario","BASE"))))continue;
+                        Object raw=line.get(revenue?"expectedDate":"occurDate");LocalDate occurred=date(raw);
+                        String issue=revenue?com.ruoyi.business.support.BusinessProposalPlanDates.revenueIssue(raw,proposal.getPlanStartDate(),proposal.getPlanEndDate(),"收入测算",1)
+                            :com.ruoyi.business.support.BusinessProposalPlanDates.expenseIssue(raw,proposal.getPlanStartDate(),proposal.getPlanEndDate(),"支出计划",1);
+                        if(occurred==null||issue!=null)continue;
+                        LocalDate cashMonth=occurred.withDayOfMonth(1);
+                        if(cashMonth.isBefore(first))first=cashMonth;
+                        if(cashMonth.isAfter(last))last=cashMonth;
+                    }
+            }
             List<Map<String,Object>> forecasts=new ArrayList<Map<String,Object>>();
-            for(LocalDate month=first;!month.isAfter(last)&&forecasts.size()<60;month=month.plusMonths(1))
+            // Preserve five years of execution preview plus the permitted six cash months on either side.
+            int limit=includeAllFiniteOneOffs&&proposal.getPlanEndDate()!=null?72:60;
+            for(LocalDate month=first;!month.isAfter(last)&&forecasts.size()<limit;month=month.plusMonths(1))
             {
-                Map<String,Object> forecast=monthlyForecast(proposal,month,false);
+                Map<String,Object> forecast=monthlyForecast(proposal,month,false,includeAllFiniteOneOffs);
                 forecast.put("month",month.toString().substring(0,7));forecasts.add(forecast);
             }
             if(proposal.getPlanEndDate()!=null&&!forecasts.isEmpty()
                 &&last.toString().substring(0,7).equals(forecasts.get(forecasts.size()-1).get("month")))
-                reconcileMonthlyRounding(proposal,forecasts);
+                reconcileMonthlyRounding(proposal,forecasts,includeAllFiniteOneOffs);
             result.put("monthlyForecasts",forecasts);
-            result.put("monthlyForecastVersion",MONTHLY_FORECAST_VERSION);
+            result.put("monthlyForecastVersion",includeAllFiniteOneOffs?MONTHLY_FORECAST_VERSION:EXECUTION_FORECAST_VERSION);
         }
         if(proposal.getPlanStartDate()!=null&&proposal.getPlanEndDate()==null){
             LocalDate first=date(proposal.getPlanStartDate()).withDayOfMonth(1);
@@ -82,22 +98,33 @@ public class BusinessProjectBudgetService
             result.put("steadyMonth",monthlyForecast(proposal,first.plusMonths(1),true));
         }
     }
-    private void reconcileMonthlyRounding(BusinessProjectProposal proposal,List<Map<String,Object>> forecasts){
+    private void reconcileMonthlyRounding(BusinessProjectProposal proposal,List<Map<String,Object>> forecasts,boolean includeAllFiniteOneOffs){
         LocalDate start=date(proposal.getPlanStartDate()),end=date(proposal.getPlanEndDate());
         List<String> issues=new ArrayList<>();
-        BigDecimal revenue=plannedAmount(proposal.getRevenueLines(),"expectedAmount","expectedDate",start,end,true,issues);
+        // Invalid draft dates must remain validation errors, not money moved into an execution month.
+        validateLineDates(proposal,proposal.getRevenueLines(),"expectedDate","收入测算",issues);
+        validateLineDates(proposal,proposal.getExpenseLines(),"occurDate","支出计划",issues);
+        if(!issues.isEmpty())return;
+        LocalDate cashStart=includeAllFiniteOneOffs?null:start,cashEnd=includeAllFiniteOneOffs?null:end;
+        BigDecimal revenue=plannedAmount(proposal.getRevenueLines(),"expectedAmount","expectedDate",start,end,true,issues,null,cashStart,cashEnd);
         if(proposal.getParentProjectId()!=null&&proposal.getParentFundingAmount()!=null)
             revenue=revenue.add(proposal.getParentFundingAmount().setScale(2,RoundingMode.HALF_UP));
-        BigDecimal business=plannedAmount(proposal.getExpenseLines(),"amount","occurDate",start,end,false,issues);
+        BigDecimal business=plannedAmount(proposal.getExpenseLines(),"amount","occurDate",start,end,false,issues,null,cashStart,cashEnd);
         for(Map<String,Object> forecast:forecasts){
             revenue=revenue.subtract(amountOrNull(forecast.get("revenueAmount")));
             business=business.subtract(amountOrNull(forecast.get("plannedBusinessAmount")));
         }
-        // Reconcile independently rounded months to the unchanged whole-project estimate.
+        // Cash-only months cannot receive rounding adjustments for execution-period recurring costs.
+        List<Map<String,Object>> executionMonths=new ArrayList<>();
+        for(Map<String,Object> forecast:forecasts){
+            LocalDate month=LocalDate.parse(forecast.get("month")+"-01");
+            if(!month.isBefore(start.withDayOfMonth(1))&&!month.isAfter(end.withDayOfMonth(1)))executionMonths.add(forecast);
+        }
+        // Reconcile independently rounded months to the whole-project estimate.
         // For very small recurring amounts over many months, spread a negative remainder
         // backwards as needed instead of inventing a negative last month's revenue or cost.
-        applyMonthlyRemainder(forecasts,"revenueAmount",revenue);
-        applyMonthlyRemainder(forecasts,"plannedBusinessAmount",business);
+        applyMonthlyRemainder(executionMonths,"revenueAmount",revenue);
+        applyMonthlyRemainder(executionMonths,"plannedBusinessAmount",business);
         for(Map<String,Object> forecast:forecasts){
             BigDecimal personnel=amountOrNull(forecast.get("personnelAmount"));
             BigDecimal cost=personnel==null?null:personnel.add(amountOrNull(forecast.get("plannedBusinessAmount")));
@@ -117,7 +144,8 @@ public class BusinessProjectBudgetService
         if(proposal.getPlanStartDate()==null||proposal.getBudget()==null
             ||proposal.getTemplateVersion()==null||"LEGACY_V1".equals(proposal.getTemplateVersion()))return;
         boolean finite=proposal.getPlanEndDate()!=null;
-        if(finite&&MONTHLY_FORECAST_VERSION.equals(proposal.getBudget().get("monthlyForecastVersion")))return;
+        Object savedVersion=proposal.getBudget().get("monthlyForecastVersion");
+        if(finite&&(MONTHLY_FORECAST_VERSION.equals(savedVersion)||EXECUTION_FORECAST_VERSION.equals(savedVersion)))return;
         BusinessProjectProposal copy=new BusinessProjectProposal();org.springframework.beans.BeanUtils.copyProperties(proposal,copy);
         if(!finite){
             // Keep the established open-ended behavior: only its forward-looking steady month
@@ -140,7 +168,9 @@ public class BusinessProjectBudgetService
         }
         ensureOwner(copy);
         Map<String,Object> budget=new LinkedHashMap<String,Object>(proposal.getBudget());
-        Map<String,Object> refreshed=estimate(copy);
+        // Legacy read projections retain their original execution-only cash policy, not a re-estimate.
+        Map<String,Object> refreshed=estimate(copy,false,null,false);
+        addMonthlyForecasts(copy,refreshed,false);
         if(finite){
             BigDecimal savedPersonnel=amountOrNull(budget.get("personnelAmount"));
             List<String> savedBasis=personnelBasis(budget.get("basis"));
@@ -185,6 +215,9 @@ public class BusinessProjectBudgetService
         }
     }
     private Map<String,Object> monthlyForecast(BusinessProjectProposal source,LocalDate month,boolean recurringOnly){
+        return monthlyForecast(source,month,recurringOnly,true);
+    }
+    private Map<String,Object> monthlyForecast(BusinessProjectProposal source,LocalDate month,boolean recurringOnly,boolean includeAllFiniteOneOffs){
         BusinessProjectProposal copy=new BusinessProjectProposal();org.springframework.beans.BeanUtils.copyProperties(source,copy);
         Map<String,Object> input=new LinkedHashMap<String,Object>();if(source.getBudget()!=null)input.putAll(source.getBudget());
         input.put("cycle","MONTH");input.put("anchorDate",month.toString());copy.setBudget(input);
@@ -192,7 +225,7 @@ public class BusinessProjectBudgetService
         // 主项目拨款是一次性内部收入，只在子项目开始月份计入预测。
         if(recurringOnly||date(source.getPlanStartDate())==null
             ||!month.equals(date(source.getPlanStartDate()).withDayOfMonth(1)))copy.setParentFundingAmount(null);
-        Map<String,Object> estimate=estimate(copy,false,month);
+        Map<String,Object> estimate=estimate(copy,false,month,includeAllFiniteOneOffs);
         Map<String,Object> result=new LinkedHashMap<String,Object>();
         for(String key:Arrays.asList("startDate","endDate","currency","revenueAmount","plannedBusinessAmount","personnelAmount","plannedTotalCost","profit","status","issues","staffingStatus","personnelCostRule"))result.put(key,estimate.get(key));
         result.put("recurringOnly",recurringOnly);return result;
@@ -202,6 +235,8 @@ public class BusinessProjectBudgetService
     private Map<String,Object> estimate(BusinessProjectProposal proposal,boolean resourcePlan)
     { return estimate(proposal,resourcePlan,null); }
     private Map<String,Object> estimate(BusinessProjectProposal proposal,boolean resourcePlan,LocalDate forecastMonth)
+    { return estimate(proposal,resourcePlan,forecastMonth,true); }
+    private Map<String,Object> estimate(BusinessProjectProposal proposal,boolean resourcePlan,LocalDate forecastMonth,boolean includeAllFiniteOneOffs)
     {
         Map<String,Object> input=proposal.getBudget()==null?Collections.<String,Object>emptyMap():proposal.getBudget();
         Map<String,Object> result=new LinkedHashMap<String,Object>();List<String> issues=new ArrayList<String>();
@@ -253,13 +288,20 @@ public class BusinessProjectBudgetService
         }
         result.put("policyVersion","PLANNED_BUDGET_V1");result.put("cycle",cycle);
         result.put("startDate",start==null?null:start.toString());result.put("endDate",end==null?null:end.toString());
+        boolean cashOnlyMonth=forecastMonth!=null&&start!=null&&end!=null&&end.isBefore(start);
+        if(cashOnlyMonth){result.put("startDate",forecastMonth.toString());result.put("endDate",forecastMonth.plusMonths(1).minusDays(1).toString());}
         String currency=proposal.getBaseCurrency()==null?"CNY":proposal.getBaseCurrency().trim().toUpperCase(Locale.ROOT);
         result.put("currency",currency);
         validateLineDates(proposal,proposal.getRevenueLines(),"expectedDate","收入测算",issues);
         validateLineDates(proposal,proposal.getExpenseLines(),"occurDate","支出计划",issues);
         if(!"NO_TOTAL".equals(proposal.getGoalMode()))validateLineDates(proposal,proposal.getTargetLines(),"dueDate","量化目标",issues);
         LocalDate forecastOrigin=forecastMonth==null?null:projectStart;
-        BigDecimal external=plannedAmount(proposal.getExpenseLines(),"amount","occurDate",start,end,false,issues,forecastOrigin);
+        // Only finite whole-project estimates include all one-offs. Rolling budgets stay date-filtered.
+        LocalDate cashStart=start,cashEnd=end;
+        if(includeAllFiniteOneOffs&&projectEnd!=null){
+            cashStart=forecastMonth;cashEnd=forecastMonth==null?null:forecastMonth.plusMonths(1).minusDays(1);
+        }
+        BigDecimal external=plannedAmount(proposal.getExpenseLines(),"amount","occurDate",start,end,false,issues,forecastOrigin,cashStart,cashEnd);
         BigDecimal expensePlanTotal=BigDecimal.ZERO.setScale(2);
         if ("TOTAL".equals(mode) && !resourcePlan)
             for (Map<String,Object> line : rows(proposal.getExpenseLines()))
@@ -271,7 +313,7 @@ public class BusinessProjectBudgetService
             if (!resourcePlan && input.get("businessAmount")==null) business=expensePlanTotal;
             else if (proposal.getBudget()!=null) business=money(input.get("businessAmount"),"业务预算",issues);
         }
-        BigDecimal externalRevenue=plannedAmount(proposal.getRevenueLines(),"expectedAmount","expectedDate",start,end,true,issues,forecastOrigin);
+        BigDecimal externalRevenue=plannedAmount(proposal.getRevenueLines(),"expectedAmount","expectedDate",start,end,true,issues,forecastOrigin,cashStart,cashEnd);
         BigDecimal fundingRevenue=proposal.getParentProjectId()==null||proposal.getParentFundingAmount()==null
             ?BigDecimal.ZERO:proposal.getParentFundingAmount().setScale(2,RoundingMode.HALF_UP);
         BigDecimal revenue=externalRevenue.add(fundingRevenue);
@@ -288,6 +330,8 @@ public class BusinessProjectBudgetService
             Map<String,Object> staffStatus=new LinkedHashMap<>();
             List<String> staffIssues=new ArrayList<>();
             staffStatus.put("userId",staff.get("userId"));staffStatus.put("issues",staffIssues);staffStatus.put("status","READY");staffingStatus.add(staffStatus);
+            // No employment or rate lookup outside the execution period (including legacy cost modes).
+            if(cashOnlyMonth){staffStatus.put("amount",BigDecimal.ZERO.setScale(2));staffStatus.put("currency",currency);continue;}
             String label=String.valueOf(staff.getOrDefault("userName","所选人员"));
             try
             {
@@ -438,9 +482,9 @@ public class BusinessProjectBudgetService
         }
         return total;
     }
-    private BigDecimal plannedAmount(List<Map<String,Object>> lines,String field,String dateField,LocalDate start,LocalDate end,boolean revenue,List<String> issues)
-    { return plannedAmount(lines,field,dateField,start,end,revenue,issues,null); }
     private BigDecimal plannedAmount(List<Map<String,Object>> lines,String field,String dateField,LocalDate start,LocalDate end,boolean revenue,List<String> issues,LocalDate forecastOrigin)
+    { return plannedAmount(lines,field,dateField,start,end,revenue,issues,forecastOrigin,start,end); }
+    private BigDecimal plannedAmount(List<Map<String,Object>> lines,String field,String dateField,LocalDate start,LocalDate end,boolean revenue,List<String> issues,LocalDate forecastOrigin,LocalDate cashStart,LocalDate cashEnd)
     {
         BigDecimal total=BigDecimal.ZERO;
         for(Map<String,Object> line:rows(lines))
@@ -450,7 +494,7 @@ public class BusinessProjectBudgetService
             BigDecimal amount=money(line.get(field),revenue?"预计收入":"计划支出",issues);if(amount==null)continue;
             // An undated one-off belongs to the initial project period, never every forecast month.
             if(d==null&&forecastOrigin!=null&&"ONE_TIME".equals(frequency))d=forecastOrigin;
-            if("ONE_TIME".equals(frequency)){if(d!=null&&(start!=null&&d.isBefore(start)||end!=null&&d.isAfter(end)))continue;total=total.add(amount);continue;}
+            if("ONE_TIME".equals(frequency)){if(d!=null&&(cashStart!=null&&d.isBefore(cashStart)||cashEnd!=null&&d.isAfter(cashEnd)))continue;total=total.add(amount);continue;}
             if(start==null||end==null||end.isBefore(start))continue;
             LocalDate from=d!=null&&d.isAfter(start)?d:start;if(from.isAfter(end))continue;
             BigDecimal days=BigDecimal.valueOf(java.time.temporal.ChronoUnit.DAYS.between(from,end)+1);

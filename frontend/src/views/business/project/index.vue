@@ -84,9 +84,9 @@
         <el-tabs ref="detailTabs" v-model="activeTab" class="project-detail-tabs">
           <el-tab-pane :label="$tr(&quot;项目总览&quot;)" name="overview">
             <section class="cockpit-hero">
-              <div v-if="detail.parentId || detail.goalMode!=='NO_TOTAL'"><span>{{ $tr("本月项目进度") }}</span><el-button class="progress-link" link type="primary" @click="progressPanel.open(detail)"><strong>{{ projectProgress(detail) }}%</strong></el-button><small v-if="detail.subprojectCount">{{ $tr("主项目本月进度由负责人填报，点击查看各子项目汇报") }}</small><el-progress :percentage="projectProgress(detail)" :stroke-width="9" /></div>
+              <div v-if="detail.parentId || detail.goalMode!=='NO_TOTAL'"><span>{{ $tr("本月项目进度") }}</span><el-button class="progress-link" link type="primary" @click="progressPanel.open(detail)"><strong :class="{'progress-unreported':monthlyProgressPercent(detail)==null}">{{ monthlyProgressPercent(detail)==null?$tr("本月尚未汇报"):`${monthlyProgressPercent(detail)}%` }}</strong></el-button><small v-if="detail.subprojectCount">{{ $tr("主项目本月进度由负责人填报，点击查看各子项目汇报") }}</small><el-progress v-if="monthlyProgressPercent(detail)!=null" :percentage="monthlyProgressPercent(detail)" :stroke-width="9" /></div>
               <div v-else><span>{{ $tr("项目目标模式") }}</span><strong>{{ $tr("持续经营") }}</strong><small>{{ $tr("不填写虚假的总完成百分比，以每日目标和任务成果持续跟踪。") }}</small></div>
-              <div><span>{{ $tr("计划时间进度") }}</span><strong>{{ scheduleProgress }}%</strong><el-progress :percentage="scheduleProgress" :status="scheduleProgress>projectProgress(detail)?'warning':undefined" :stroke-width="9" /></div>
+              <div><span>{{ $tr("计划时间进度") }}</span><strong>{{ scheduleProgress }}%</strong><el-progress :percentage="scheduleProgress" :stroke-width="9" /></div>
               <div><span>{{ $tr("剩余时间") }}</span><strong>{{ remainingDaysText }}</strong><small>{{ scheduleStatusText }}</small></div>
             </section>
             <el-alert v-if="cockpitError" :title="$tr(&quot;经营数据暂时无法读取，任务、进度和目标信息仍可正常查看。&quot;)" type="warning" :closable="false" show-icon />
@@ -315,7 +315,7 @@ import BusinessProjectPlanPanel from '@/components/BusinessProjectPlanPanel/inde
 import BusinessSettlementPanel from '@/components/BusinessSettlementPanel/index.vue'
 import { isSeparatedDelivery, isDeliveryEnded, projectAccountingState } from '@/utils/businessProjectState'
 import BusinessProjectProgress from '@/components/BusinessProjectProgress/index.vue'
-import { progressEventTarget } from '@/utils/projectProgress'
+import { progressEventTarget, monthlyProgressPercent } from '@/utils/projectProgress'
 import useUserStore from '@/store/modules/user'
 import { getProjectKpiWorkspace } from '@/api/business/kpi'
 import { getBusinessProjectDashboard } from '@/api/business/accounting'
@@ -453,7 +453,7 @@ const budgetTone=computed(()=>cockpitCostIncomplete.value?'is-warning':budgetUsa
 const cockpitDateRange=computed(()=>translateText("{0} 至 {1}", [detail.value?.planStartDate||translateText("项目开始"), todayText()]))
 const scheduleProgress=computed(()=>{if(!detail.value?.planStartDate||!detail.value?.planEndDate)return 0;const start=dateMs(detail.value.planStartDate),end=dateMs(detail.value.planEndDate),now=Math.min(Math.max(Date.now(),start),end);return end<=start?100:Math.round((now-start)*100/(end-start))})
 const remainingDaysText=computed(()=>{if(!detail.value?.planEndDate)return translateText("不限期");const days=Math.ceil((dateMs(detail.value.planEndDate)-dayStart())/86400000);return days<0?translateText("逾期 {0} 天", [Math.abs(days)]):days===0?translateText("今天到期"):translateText("{0} 天", [days])})
-const scheduleStatusText=computed(()=>detail.value?.goalMode==='NO_TOTAL'?translateText("不限期项目以每日成果持续跟踪"):scheduleProgress.value>projectProgress(detail.value)?translateText("进度落后时间计划 {0} 个百分点", [scheduleProgress.value-projectProgress(detail.value)]):translateText("当前进度不落后于时间计划"))
+const scheduleStatusText=computed(()=>!detail.value?.planEndDate?translateText("不限期项目以每日成果持续跟踪"):translateText("时间进度按全项目周期计算，不与本月完成率比较"))
 const openTaskCount=computed(()=>(detail.value?.tasks||[]).filter(item=>item.status!=='DONE').length)
 const overdueTaskCount=computed(()=>(detail.value?.tasks||[]).filter(item=>item.status!=='DONE'&&item.dueDate&&item.dueDate<todayText()).length)
 const openRiskCount=computed(()=>(detail.value?.risks||[]).filter(item=>item.status==='OPEN').length)
@@ -493,11 +493,6 @@ const stageClosureState=computed(()=>{
   if(kpiClosureState.value.ready!==true)return {...base,tone:kpiClosureState.value.tone||'warning',label:translateText("等待KPI结算"),title:translateText("里程碑已全部验收，KPI结算尚未确认"),description:translateText("完成并确认全部KPI结算后，即可发起项目结项。")}
   return {...base,tone:'success',label:translateText("可以申请"),title:translateText("所有里程碑已完成，结项申请条件已满足"),description:myRole.value==='OWNER'?translateText("提交后由{0}检验，通过后项目才会结项。", [acceptanceReviewerLabel.value]):translateText("等待项目负责人提交结项申请。"),canRequest:myRole.value==='OWNER'}
 })
-const projectProgress = row => {
-  const value = Number(row.progressPercent)
-  if (Number.isFinite(value)) return Math.min(100, Math.max(0, Math.round(value)))
-  return row.taskCount ? Math.round((row.completedTaskCount || 0) * 100 / row.taskCount) : 0
-}
 const isKpiBlockedCloseAction=action=>['CLOSE','REQUEST_CLOSE','SUBMIT_ACCEPTANCE'].includes(action.key)&&kpiClosureState.value.ready===false
 const userOptionLabel = user => `${user.nickName || user.userName} · ${user.userName} · ${user.companyName || translateText("集团")}${user.deptName && user.deptName !== user.companyName ? ` / ${user.deptName}` : ''}`
 const memberOptionLabel = member => `${member.userNameSnapshot}${member.accountName ? ` · ${member.accountName}` : ` · ID ${member.userId}`}`
@@ -840,4 +835,5 @@ useBusinessRefreshOnReactivated(async () => {
 @media(max-width:760px){.execution-metrics{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:760px){.cockpit-hero,.cockpit-metrics,.cockpit-columns{grid-template-columns:1fr}.kpi-overview-row{grid-template-columns:1fr}.kpi-overview-row>span{text-align:left}.cockpit-card-head{gap:8px}.cockpit-metrics,.kpi-settlement-summary{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:760px){.kpi-close-guard{grid-template-columns:auto minmax(0,1fr)}.kpi-close-guard>.el-button,.stage-close-actions{grid-column:1/-1;width:100%}.stage-close-actions{display:grid;grid-template-columns:1fr 1fr}.stage-close-actions :deep(.el-button){width:100%}.kpi-close-progress{grid-template-columns:1fr}}
+.cockpit-hero .progress-link{height:auto;max-width:100%;white-space:normal;text-align:left}.cockpit-hero .progress-unreported{font-size:16px;line-height:1.6}
 </style>
