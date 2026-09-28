@@ -37,7 +37,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     private java.time.Clock overviewClock = java.time.Clock.system(java.time.ZoneId.of("Asia/Shanghai"));
     void setOverviewClock(java.time.Clock clock) { overviewClock = clock.withZone(java.time.ZoneId.of("Asia/Shanghai")); }
     private static final List<String> MANUAL_EXPENSE_CATEGORY_CODES = Arrays.asList("PURCHASE_COST", "PLATFORM_FEE",
-        "MARKETING_COST", "LOGISTICS_COST", "ADMIN_ALLOCATION", "OTHER_EXPENSE");
+        "MARKETING_COST", "LOGISTICS_COST", "INTERNAL_PROJECT_COST", "OTHER_EXPENSE");
     @Autowired private BusinessAccountingMapper mapper;
     @Autowired private com.ruoyi.business.mapper.BusinessPublicExpenseMapper publicExpenses;
     @Autowired private BusinessProfitTaxService profitTax;
@@ -329,7 +329,8 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     public BusinessOperatingFact saveProjectDailySpend(BusinessOperatingFact fact,Long userId,String userName,boolean viewAll)
     {
         if(fact==null||fact.getProjectId()==null)throw new ServiceException("请选择归属项目");
-        Map<String,Object> project=mapper.selectProjectForAccountingForUpdate(fact.getProjectId());
+        Map<Long,Map<String,Object>> lockedProjects=lockSpendProjects(fact);
+        Map<String,Object> project=lockedProjects.get(fact.getProjectId());
         if(project==null)throw new ServiceException("项目不存在");
         if(!viewAll&&!String.valueOf(userId).equals(String.valueOf(project.get("mainOwnerUserId"))))
             throw new ServiceException("只有项目主负责人可以填写今日项目总花费");
@@ -363,6 +364,27 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         if(!fact.getCurrency().equals(String.valueOf(project.get("currency")).toUpperCase()))
             throw new ServiceException("支出币种必须与项目本位币一致，当前为 "+project.get("currency"));
 
+        boolean internal="INTERNAL_PROJECT_COST".equals(String.valueOf(category.get("categoryCode")));
+        Map<String,Object> target=null;
+        if(internal)
+        {
+            if(fact.getTargetProjectId()==null)throw new ServiceException("请选择指定项目");
+            if(fact.getProjectId().equals(fact.getTargetProjectId()))throw new ServiceException("指定项目不能是支出项目本身");
+            target=lockedProjects.get(fact.getTargetProjectId());
+            if(target==null)throw new ServiceException("指定项目不存在");
+            ensureAccountingOpen(target);
+            if(target.get("companyDeptId")==null)throw new ServiceException("指定项目尚未设置归属公司");
+            if(!Arrays.asList("ACTIVE","ACCEPTANCE").contains(String.valueOf(target.get("status")))&&!isPostDeliverySettlement(target))
+                throw new ServiceException("指定项目尚未进入执行，不能接收内部项目收入");
+            if(!fact.getCurrency().equalsIgnoreCase(String.valueOf(target.get("currency"))))
+                throw new ServiceException("指定项目币种必须与支出币种一致，跨币种内部收支暂不支持");
+            ensureBusinessDate(target,fact.getBizDate(),false);
+            Date targetStart=dateValue(target.get("actualStartDate"));
+            if(targetStart!=null&&day(fact.getBizDate()).before(day(targetStart)))
+                throw new ServiceException("业务日期不能早于指定项目的实际开始日期");
+        }
+        else fact.setTargetProjectId(null);
+
         BusinessOperatingFact previous=null;
         if(fact.getFactId()!=null)
         {
@@ -382,11 +404,16 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         fact.setSourceDomain("PROJECT_DAILY");fact.setSourceType("DAILY_ITEM");fact.setSourceId(IdUtils.fastSimpleUUID());
         fact.setSourceLineKey("ITEM");
         fact.setStatus("DRAFT");
-        if(previous!=null)createReversal(previous,"负责人修改项目花费明细",userId,userName);
+        if(previous!=null)
+        {
+            reverseInternalIncome(previous,lockedProjects,"负责人修改项目花费明细",userId,userName);
+            createReversal(previous,"负责人修改项目花费明细",userId,userName);
+        }
         fact.setFactId(null);fact.setIdempotencyKey(requestKey);
         fact.setCreateUserId(userId);fact.setCreateBy(userName);mapper.insertFact(fact);
         BusinessOperatingFact draft=mapper.selectFactById(fact.getFactId());
         if(mapper.confirmFact(draft.getFactId(),userId,userName,draft.getVersion())!=1)throw changed();
+        if(internal)recordInternalIncome(fact,project,target,userId,userName);
         recalculateInternal(fact.getProjectId(),fact.getBizDate(),userName);
         return mapper.selectFactById(fact.getFactId());
     }
@@ -396,9 +423,12 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     public BusinessOperatingFact reverseProjectDailySpend(Long factId,String reason,Long userId,String userName,boolean viewAll)
     {
         if(StringUtils.isBlank(reason))throw new ServiceException("请填写冲销原因");
+        BusinessOperatingFact snapshot=mapper.selectFactById(factId);
+        if(snapshot==null)throw new ServiceException("花费明细不存在");
+        Map<Long,Map<String,Object>> lockedProjects=lockSpendProjects(snapshot);
         BusinessOperatingFact original=mapper.selectFactByIdForUpdate(factId);
         if(original==null)throw new ServiceException("花费明细不存在");
-        Map<String,Object> project=mapper.selectProjectForAccountingForUpdate(original.getProjectId());
+        Map<String,Object> project=lockedProjects.get(original.getProjectId());
         if(project==null)throw new ServiceException("项目不存在");
         if(!viewAll&&!String.valueOf(userId).equals(String.valueOf(project.get("mainOwnerUserId"))))
             throw new ServiceException("只有项目主负责人可以冲销项目花费");
@@ -407,9 +437,77 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             ||!Arrays.asList("DAILY_TOTAL","DAILY_ITEM").contains(original.getSourceType()))
             throw new ServiceException("只能冲销项目花费明细");
         if(!"CONFIRMED".equals(original.getStatus()))throw new ServiceException("只有已计入的花费可以冲销");
+        reverseInternalIncome(original,lockedProjects,reason.trim(),userId,userName);
         BusinessOperatingFact reversal=createReversal(original,reason.trim(),userId,userName);
         recalculateInternal(original.getProjectId(),original.getBizDate(),userName);
         return reversal;
+    }
+
+    @Override
+    public List<Map<String,Object>> internalTransferProjects(Long sourceProjectId,Long userId,boolean viewAll)
+    {
+        Map<String,Object> source=mapper.selectProjectForAccounting(sourceProjectId);
+        if(source==null)throw new ServiceException("项目不存在");
+        if(!viewAll&&!String.valueOf(userId).equals(String.valueOf(source.get("mainOwnerUserId"))))
+            throw new ServiceException("只有项目主负责人可以选择内部收支指定项目");
+        // Intentionally a minimal all-project directory, not an accounting dashboard or member directory.
+        return mapper.selectInternalTransferProjects();
+    }
+
+    private Map<Long,Map<String,Object>> lockSpendProjects(BusinessOperatingFact input)
+    {
+        java.util.Set<Long> ids=new java.util.TreeSet<>();ids.add(input.getProjectId());
+        if(input.getTargetProjectId()!=null)ids.add(input.getTargetProjectId());
+        if(input.getFactId()!=null)
+        {
+            BusinessOperatingFact previous=mapper.selectFactById(input.getFactId());
+            if(previous!=null&&input.getProjectId().equals(previous.getProjectId())&&previous.getTargetProjectId()!=null)
+                ids.add(previous.getTargetProjectId());
+        }
+        Map<Long,Map<String,Object>> result=new LinkedHashMap<>();
+        // Reciprocal transfers and edits lock all participating projects in the same order.
+        for(Long id:ids)result.put(id,mapper.selectProjectForAccountingForUpdate(id));
+        return result;
+    }
+
+    private void recordInternalIncome(BusinessOperatingFact expense,Map<String,Object> source,
+        Map<String,Object> target,Long userId,String userName)
+    {
+        Map<String,Object> category=mapper.selectCategoryByCode("INTERNAL_PROJECT_REVENUE");
+        if(category==null)throw new ServiceException("内部项目收入类别尚未初始化，请先执行数据库迁移");
+        BusinessOperatingFact income=new BusinessOperatingFact();
+        income.setProjectId(expense.getTargetProjectId());income.setCompanyDeptId(longValue(target.get("companyDeptId")));
+        income.setBizDate(expense.getBizDate());income.setCategoryId(longValue(category.get("categoryId")));
+        income.setCategoryCode("INTERNAL_PROJECT_REVENUE");income.setCategoryName("内部项目收入");income.setFactKind("REVENUE");
+        income.setAmount(expense.getAmount());income.setCurrency(expense.getCurrency());
+        income.setDescription(StringUtils.substring("内部项目收入（"+source.get("projectName")+"）："+expense.getDescription(),0,500));
+        income.setCounterparty(String.valueOf(source.get("projectName")));
+        income.setSourceDomain("INTERNAL_PROJECT");income.setSourceType("TRANSFER_REVENUE");
+        income.setSourceId(String.valueOf(expense.getFactId()));income.setSourceLineKey(String.valueOf(expense.getProjectId()));
+        income.setIdempotencyKey("INTERNAL-PROJECT-REVENUE-"+expense.getFactId());income.setStatus("CONFIRMED");
+        income.setConfirmedUserId(userId);income.setConfirmedUserName(userName);income.setConfirmedTime(new Date());
+        income.setCreateUserId(userId);income.setCreateBy(userName);
+        income.setRemark("由来源项目支出自动生成，修改或冲销须在来源支出处理");mapper.insertFact(income);
+        recalculateInternal(income.getProjectId(),income.getBizDate(),userName);
+    }
+
+    private void reverseInternalIncome(BusinessOperatingFact expense,Map<Long,Map<String,Object>> lockedProjects,
+        String reason,Long userId,String userName)
+    {
+        // Pre-migration internal expenses have no recipient and must not invent historical revenue.
+        if(!"INTERNAL_PROJECT_COST".equals(expense.getCategoryCode())||expense.getTargetProjectId()==null)return;
+        Map<String,Object> target=lockedProjects.get(expense.getTargetProjectId());
+        if(target==null)throw new ServiceException("原指定项目不存在，不能调整内部项目收支");
+        ensureAccountingOpen(target);
+        BusinessOperatingFact income=mapper.selectFactByIdempotencyKey("INTERNAL-PROJECT-REVENUE-"+expense.getFactId());
+        if(income==null||!expense.getTargetProjectId().equals(income.getProjectId())
+            ||!"INTERNAL_PROJECT_REVENUE".equals(income.getCategoryCode())||!"CONFIRMED".equals(income.getStatus())
+            ||!sameDay(expense.getBizDate(),income.getBizDate())
+            ||decimal(expense.getAmount()).compareTo(decimal(income.getAmount()))!=0
+            ||!java.util.Objects.equals(expense.getCurrency(),income.getCurrency()))
+            throw new ServiceException("内部项目关联收入异常，请核对原始收支");
+        createReversal(income,reason,userId,userName);
+        recalculateInternal(income.getProjectId(),income.getBizDate(),userName);
     }
 
     @Override
@@ -478,6 +576,9 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         if(project.get("companyDeptId")==null)throw new ServiceException("该项目尚未设置归属公司，请先编辑项目选择上海或越南公司");
         Map<String,Object> category=mapper.selectCategoryById(fact.getCategoryId());
         if(category==null)throw new ServiceException("请选择有效的收支类别");
+        if(Arrays.asList("INTERNAL_PROJECT_COST","INTERNAL_PROJECT_REVENUE").contains(String.valueOf(category.get("categoryCode"))))
+            throw new ServiceException("内部项目收支须通过负责人工作台的填写花费关联生成");
+        fact.setTargetProjectId(null);
         if("COMPANY_PUBLIC_COST".equals(String.valueOf(category.get("categoryCode"))))
             throw new ServiceException("公司公共费用只能通过月结或公共费用调整入账，不能手工录入");
         if("PROJECT_MANAGEMENT_FEE".equals(String.valueOf(category.get("categoryCode"))))
@@ -590,6 +691,8 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     {
         if(StringUtils.isBlank(reason))throw new ServiceException("请填写冲销原因");
         BusinessOperatingFact original=requireFact(factId,userId,viewAll);
+        if("INTERNAL_PROJECT_REVENUE".equals(original.getCategoryCode())||original.getTargetProjectId()!=null)
+            throw new ServiceException("内部项目关联收支须在来源项目的填写花费中统一修改或冲销");
         if("COMPANY_PUBLIC_COST".equals(original.getCategoryCode()))
             throw new ServiceException("公司公共费用须在原月账中登记调整，不能单独冲销分摊流水");
         Map<String,Object> project = mapper.selectProjectForAccountingForUpdate(original.getProjectId());
@@ -618,6 +721,8 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             ||decimal(saved.getAmount()).compareTo(decimal(input.getAmount()))!=0
             ||decimal(saved.getQuantity()).compareTo(decimal(input.getQuantity()))!=0
             ||(!key.startsWith("SPEND-")&&!java.util.Objects.equals(saved.getCategoryId(),input.getCategoryId()))
+            ||!java.util.Objects.equals(saved.getTargetProjectId(),input.getTargetProjectId())
+            ||(key.startsWith("SPEND-")&&input.getCategoryId()!=null&&!java.util.Objects.equals(saved.getCategoryId(),input.getCategoryId()))
             ||(!StringUtils.isBlank(input.getCurrency())&&!input.getCurrency().trim().equalsIgnoreCase(saved.getCurrency()))
             ||!StringUtils.defaultString(saved.getAttachmentUrls()).equals(StringUtils.defaultString(input.getAttachmentUrls()))
             ||!StringUtils.defaultString(saved.getCounterparty()).equals(StringUtils.defaultString(input.getCounterparty()))
@@ -657,6 +762,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         if(mapper.markFactReversed(original.getFactId(),userName,original.getVersion())!=1)throw changed();
         BusinessOperatingFact reversal=new BusinessOperatingFact();
         reversal.setProjectId(original.getProjectId());reversal.setCompanyDeptId(original.getCompanyDeptId());
+        reversal.setTargetProjectId(original.getTargetProjectId());
         reversal.setBizDate(original.getBizDate());reversal.setCategoryId(original.getCategoryId());
         reversal.setCategoryCode(original.getCategoryCode());reversal.setCategoryName(original.getCategoryName());
         reversal.setFactKind(original.getFactKind());reversal.setAmount(negate(original.getAmount()));

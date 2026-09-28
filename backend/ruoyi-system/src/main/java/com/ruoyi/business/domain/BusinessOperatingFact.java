@@ -13,6 +13,9 @@ public class BusinessOperatingFact extends BaseEntity
     public String getRequestId(){return requestId;}
     public void setRequestId(String value){requestId=value;}
     private Long projectId;
+    private Long targetProjectId;
+    public Long getTargetProjectId(){return targetProjectId;}
+    public void setTargetProjectId(Long value){targetProjectId=value;}
     private Long companyDeptId;
     @JsonFormat(pattern = "yyyy-MM-dd") private Date bizDate;
     private Long categoryId;

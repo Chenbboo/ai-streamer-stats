@@ -616,6 +616,47 @@ class BusinessAccountingServiceImplTest
         verify(mapper,never()).insertFact(any());
     }
 
+    @Test void ownerCanSaveInternalProjectExpenseAsAConfirmedCost()
+    {
+        when(mapper.selectProjectForAccounting(41L)).thenReturn(separatedProject("CANCELED","OPEN"));
+        Map<String,Object> target=project(42L,18L);target.put("status","ACTIVE");
+        when(mapper.selectProjectForAccounting(42L)).thenReturn(target);
+        when(mapper.selectCategoryByCode("INTERNAL_PROJECT_REVENUE")).thenReturn(category(7L,"INTERNAL_PROJECT_REVENUE"));
+        Map<String,Object> category=new HashMap<>();
+        category.put("categoryId",6L);category.put("categoryCode","INTERNAL_PROJECT_COST");
+        category.put("categoryName","内部项目支出");category.put("factKind","COST");
+        when(mapper.selectCategoryById(6L)).thenReturn(category);
+        BusinessOperatingFact fact=lateFact();fact.setCategoryId(6L);fact.setVersion(0);fact.setTargetProjectId(42L);
+        doAnswer(call->{call.<BusinessOperatingFact>getArgument(0).setFactId(410L);return 1;}).when(mapper).insertFact(any());
+        when(mapper.selectFactById(410L)).thenReturn(fact);
+        when(mapper.confirmFact(410L,9L,"owner9",0)).thenReturn(1);
+        when(mapper.sumProjectFacts(41L,fact.getBizDate())).thenReturn(Collections.emptyMap());
+        when(mapper.sumProjectFacts(42L,fact.getBizDate())).thenReturn(Collections.emptyMap());
+
+        service.saveProjectDailySpend(fact,9L,"owner9",false);
+
+        assertEquals("INTERNAL_PROJECT_COST",fact.getCategoryCode());
+        assertEquals("内部项目支出",fact.getCategoryName());
+        assertEquals("COST",fact.getFactKind());
+        assertEquals(42L,fact.getTargetProjectId());
+        verify(mapper).confirmFact(410L,9L,"owner9",0);
+        verify(mapper,org.mockito.Mockito.times(2)).insertDailyResult(any());
+    }
+
+    @Test void ownerDailySpendRejectsRetiredManagementAllocationCategory()
+    {
+        when(mapper.selectProjectForAccounting(41L)).thenReturn(separatedProject("CANCELED","OPEN"));
+        Map<String,Object> category=category(11L,"ADMIN_ALLOCATION");category.put("factKind","COST");
+        when(mapper.selectCategoryById(11L)).thenReturn(category);
+        BusinessOperatingFact fact=lateFact();fact.setCategoryId(11L);
+
+        ServiceException error=assertThrows(ServiceException.class,
+            ()->service.saveProjectDailySpend(fact,9L,"owner9",false));
+
+        assertTrue(error.getMessage().contains("支出类别"));
+        verify(mapper,never()).insertFact(any());
+    }
+
     @Test void futureAccountingDateIsRejectedBeforeAnyResultWrite()
     {
         when(mapper.selectProjectForAccounting(41L)).thenReturn(separatedProject("ACTIVE","OPEN"));

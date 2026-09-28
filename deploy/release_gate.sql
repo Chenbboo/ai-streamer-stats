@@ -336,6 +336,19 @@ from (
 
   union all
   select if(count(*)=1,0,1)
+  from biz_fact_category
+  where category_code='INTERNAL_PROJECT_COST' and fact_kind='COST' and status='0'
+    and category_name='内部项目支出'
+
+  union all
+  select if(count(*)=1,0,1) from information_schema.columns
+  where table_schema=database() and table_name='biz_operating_fact' and column_name='target_project_id'
+  union all
+  select if(count(*)=1,0,1) from biz_fact_category
+  where category_code='INTERNAL_PROJECT_REVENUE' and fact_kind='REVENUE' and status='0'
+
+  union all
+  select if(count(*)=1,0,1)
   from sys_menu child join sys_menu parent on parent.menu_id=child.parent_id
   where parent.parent_id=0 and parent.path='finance' and child.menu_type='C'
     and child.status='0' and child.path='public-expenses'

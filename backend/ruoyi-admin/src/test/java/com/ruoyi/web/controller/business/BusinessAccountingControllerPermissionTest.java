@@ -43,6 +43,7 @@ class BusinessAccountingControllerPermissionTest
         assertPermission("save","@ss.hasAnyPermi('business:accounting:add,business:boss:view')");
         assertPermission("saveProjectFact","@ss.hasPermi('business:project:report')");
         assertPermission("saveProjectDailySpend","@ss.hasPermi('business:project:report')");
+        assertPermission("internalTransferProjects","@ss.hasPermi('business:project:report')");
         assertPermission("confirm","@ss.hasPermi('business:accounting:confirm')");
         assertPermission("reverse","@ss.hasPermi('business:accounting:confirm')");
         assertPermission("recalculate","@ss.hasPermi('business:accounting:recalculate')");

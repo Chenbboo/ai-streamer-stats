@@ -19,6 +19,11 @@ public class BusinessAccountingController extends BaseController
 {
     @Autowired private IBusinessAccountingService service;
 
+    @PreAuthorize("@ss.hasPermi('business:project:report')")
+    @GetMapping("/internal-transfer-projects/{projectId}")
+    public AjaxResult internalTransferProjects(@PathVariable Long projectId)
+    {return success(service.internalTransferProjects(projectId,SecurityUtils.getUserId(),SecurityUtils.isAdmin()));}
+
     @PreAuthorize("@ss.hasPermi('business:accounting:list')")
     @GetMapping("/dashboard")
     public AjaxResult dashboard(@RequestParam Map<String,Object> query)

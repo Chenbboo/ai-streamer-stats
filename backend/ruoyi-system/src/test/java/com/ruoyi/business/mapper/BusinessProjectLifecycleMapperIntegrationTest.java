@@ -298,7 +298,7 @@ class BusinessProjectLifecycleMapperIntegrationTest
             + "reviewed_user_name varchar(100),reviewed_time timestamp,review_comment varchar(500),accounting_fact_id bigint,"
             + "voided_user_id bigint,voided_user_name varchar(100),voided_time timestamp,version int default 0,"
             + "create_by varchar(100),create_time timestamp,update_by varchar(100),update_time timestamp)");
-        execute("create table biz_operating_fact(fact_id bigint primary key,project_id bigint,company_dept_id bigint,biz_date date,"
+        execute("create table biz_operating_fact(fact_id bigint primary key,project_id bigint,target_project_id bigint,company_dept_id bigint,biz_date date,"
             + "category_id bigint,category_code varchar(100),category_name varchar(100),fact_kind varchar(30),amount decimal(18,2),"
             + "quantity decimal(18,2),currency varchar(3),unit varchar(30),description varchar(500),counterparty varchar(100),"
             + "attachment_urls varchar(500),source_domain varchar(50),source_type varchar(50),source_id varchar(100),"

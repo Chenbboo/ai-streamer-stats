@@ -15,6 +15,7 @@ public interface BusinessAccountingMapper
     int confirmNoSpend(@Param("projectId") Long projectId,@Param("bizDate") Date date,@Param("userId") Long userId,@Param("userName") String userName);
     List<Map<String,Object>> selectCompanies();
     List<Map<String,Object>> selectCategories();
+    List<Map<String,Object>> selectInternalTransferProjects();
     default List<Map<String,Object>> selectProjectOptions(Long userId,boolean viewAll)
     { return selectProjectOptions(userId,viewAll,false); }
     List<Map<String,Object>> selectProjectOptions(@Param("userId") Long userId,@Param("viewAll") boolean viewAll,
@@ -29,6 +30,7 @@ public interface BusinessAccountingMapper
     BusinessOperatingFact selectConfirmedProjectDailySpend(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     List<BusinessOperatingFact> selectProjectDailySpendItems(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     Map<String,Object> selectProjectRevenueSummary(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
+    List<Map<String,Object>> selectProjectInternalRevenueItems(@Param("projectId") Long projectId,@Param("bizDate") Date bizDate);
     Map<String,Object> selectProjectForAccounting(Long projectId);
     Map<String,Object> selectProjectForAccountingForUpdate(Long projectId);
     Map<String,Object> selectProjectBonusSettlement(Long settlementId);

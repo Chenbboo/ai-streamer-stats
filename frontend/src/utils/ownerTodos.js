@@ -32,9 +32,9 @@ export function buildOwnerTodos({ data = {}, userId, today, permissions = [], kp
   const dailyRevenue = data.accounting?.dailyRevenue
   const hasDailyRevenueRecord = Number(dailyRevenue?.confirmedCount || 0) + Number(dailyRevenue?.draftCount || 0) > 0
   if (executing && accountingOpen && p.companyDeptId && report && !hasDailyRevenueRecord)
-    add('revenue', translateText("填写今日收入"), translateText("无收入可直接确认"), 'revenue', { allowZero: true })
+    add('revenue', translateText("填写收入"), translateText("无收入可直接确认"), 'revenue', { allowZero: true })
   if (executing && accountingOpen && p.companyDeptId && report && !data.accounting?.dailySpend)
-    add('spend', translateText("填写今日花费"), translateText("无支出可直接确认"), 'spend', { allowZero: true })
+    add('spend', translateText("填写花费"), translateText("无支出可直接确认"), 'spend', { allowZero: true })
   else if (accountingOpen && p.companyDeptId && report && data.accounting?.dailySpend?.status === 'RETURNED')
     add('spend', translateText("修改退回的花费"), data.accounting.dailySpend.returnReason || translateText("修改后重新确认"), 'spend', { urgent: true })
   if (executing) {

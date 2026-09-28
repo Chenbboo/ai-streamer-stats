@@ -8,8 +8,17 @@
   <select id="selectCategories" resultType="map">
     select category_id categoryId,category_code categoryCode,category_name categoryName,fact_kind factKind,
       default_sign defaultSign,unit_type unitType from biz_fact_category
-    where status='0' and category_code not in ('SUBPROJECT_FUNDING_COST','SUBPROJECT_FUNDING_REVENUE')
+    where status='0' and category_code not in ('SUBPROJECT_FUNDING_COST','SUBPROJECT_FUNDING_REVENUE','INTERNAL_PROJECT_REVENUE')
     order by sort_order,category_id
+  </select>
+  <select id="selectInternalTransferProjects" resultType="map">
+    select project_id projectId,project_name projectName,base_currency currency,company_dept_id companyDeptId,
+      status,actual_start_date actualStartDate,actual_end_date actualEndDate,
+      case when (delivery_policy_version='SEPARATED_V1' and accounting_state='OPEN')
+        or (coalesce(delivery_policy_version,'LEGACY_V1')='LEGACY_V1'
+          and status not in ('CLOSED','CANCELED') and (accounting_state is null or accounting_state='OPEN'))
+        then 0 else 1 end accountingClosed
+    from biz_project where del_flag='0' order by project_name,project_id
   </select>
   <select id="selectProjectOptions" resultType="map">
     select p.project_id projectId,p.project_no projectNo,p.project_name projectName,p.company_dept_id companyDeptId,
@@ -60,7 +69,7 @@
   </select>
   <select id="selectFacts" resultType="map">
     select f.fact_id factId,f.project_id projectId,p.project_name projectName,p.project_no projectNo,
-      f.company_dept_id companyDeptId,d.dept_name companyName,f.biz_date bizDate,f.category_id categoryId,
+      f.company_dept_id companyDeptId,d.dept_name companyName,f.biz_date bizDate,f.category_id categoryId,f.target_project_id targetProjectId,
       f.category_code categoryCode,f.category_name categoryName,f.fact_kind factKind,f.amount,f.quantity,
       f.currency,f.unit,f.description,f.counterparty,f.attachment_urls attachmentUrls,f.source_domain sourceDomain,
       f.source_type sourceType,f.status,f.reversal_fact_id reversalFactId,f.version,
@@ -87,7 +96,7 @@
     order by f.biz_date desc,f.fact_id desc
   </select>
   <sql id="factByIdSql">
-    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,
+    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,target_project_id targetProjectId,
       category_code categoryCode,category_name categoryName,fact_kind factKind,amount,quantity,currency,unit,
       description,counterparty,attachment_urls attachmentUrls,source_domain sourceDomain,source_type sourceType,
       source_id sourceId,source_line_key sourceLineKey,status,reversal_fact_id reversalFactId,idempotency_key idempotencyKey,
@@ -103,7 +112,7 @@
     <include refid="factByIdSql"/> for update
   </select>
   <select id="selectFactByIdempotencyKey" resultType="com.ruoyi.business.domain.BusinessOperatingFact">
-    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,
+    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,target_project_id targetProjectId,
       category_code categoryCode,category_name categoryName,fact_kind factKind,amount,quantity,currency,unit,
       description,counterparty,attachment_urls attachmentUrls,source_domain sourceDomain,source_type sourceType,
       source_id sourceId,source_line_key sourceLineKey,status,reversal_fact_id reversalFactId,idempotency_key idempotencyKey,
@@ -122,7 +131,7 @@
     where category_code=#{categoryCode} and status='0' limit 1
   </select>
   <select id="selectCurrentProjectDailySpend" resultType="com.ruoyi.business.domain.BusinessOperatingFact">
-    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,
+    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,target_project_id targetProjectId,
       category_code categoryCode,category_name categoryName,fact_kind factKind,amount,quantity,currency,unit,
       description,counterparty,attachment_urls attachmentUrls,source_domain sourceDomain,source_type sourceType,
       source_id sourceId,source_line_key sourceLineKey,status,reversal_fact_id reversalFactId,idempotency_key idempotencyKey,
@@ -134,7 +143,7 @@
     order by field(status,'DRAFT','RETURNED','CONFIRMED'),fact_id desc limit 1
   </select>
   <select id="selectConfirmedProjectDailySpend" resultType="com.ruoyi.business.domain.BusinessOperatingFact">
-    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,
+    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,target_project_id targetProjectId,
       category_code categoryCode,category_name categoryName,fact_kind factKind,amount,quantity,currency,unit,
       description,counterparty,attachment_urls attachmentUrls,source_domain sourceDomain,source_type sourceType,
       source_id sourceId,source_line_key sourceLineKey,status,reversal_fact_id reversalFactId,idempotency_key idempotencyKey,
@@ -145,7 +154,7 @@
       and source_type='DAILY_TOTAL' and status='CONFIRMED' order by fact_id desc limit 1
   </select>
   <select id="selectProjectDailySpendItems" resultType="com.ruoyi.business.domain.BusinessOperatingFact">
-    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,
+    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,target_project_id targetProjectId,
       category_code categoryCode,category_name categoryName,fact_kind factKind,amount,quantity,currency,unit,
       description,counterparty,attachment_urls attachmentUrls,source_domain sourceDomain,source_type sourceType,
       source_id sourceId,source_line_key sourceLineKey,status,reversal_fact_id reversalFactId,idempotency_key idempotencyKey,
@@ -164,6 +173,22 @@
       sum(case when status='DRAFT' then 1 else 0 end) draftCount
     from biz_operating_fact
     where project_id=#{projectId} and biz_date=#{bizDate} and fact_kind='REVENUE'
+  </select>
+  <select id="selectProjectInternalRevenueItems" resultType="map">
+    select income.fact_id factId,income.project_id projectId,income.biz_date bizDate,
+      expense.fact_id sourceFactId,expense.project_id sourceProjectId,
+      coalesce(nullif(income.counterparty,''),source.project_name,'来源项目') sourceProjectName,
+      expense.description,income.amount,income.currency
+    from biz_operating_fact income
+    join biz_operating_fact expense on expense.fact_id=income.source_id
+      and expense.category_code='INTERNAL_PROJECT_COST' and expense.status='CONFIRMED'
+      and expense.target_project_id=income.project_id and expense.biz_date=income.biz_date
+    left join biz_project source on source.project_id=expense.project_id
+    where income.project_id=#{projectId} and income.biz_date=#{bizDate}
+      and income.category_code='INTERNAL_PROJECT_REVENUE' and income.fact_kind='REVENUE'
+      and income.source_domain='INTERNAL_PROJECT' and income.source_type='TRANSFER_REVENUE'
+      and income.status='CONFIRMED'
+    order by income.fact_id desc
   </select>
   <sql id="projectAccountingColumns">
     select project_id projectId,parent_id parentId,
@@ -200,11 +225,11 @@
     where project_id=#{projectId} and user_id=#{userId} and status='0' limit 1
   </select>
   <insert id="insertFact" parameterType="com.ruoyi.business.domain.BusinessOperatingFact" useGeneratedKeys="true" keyProperty="factId">
-    insert into biz_operating_fact(project_id,company_dept_id,biz_date,category_id,category_code,category_name,fact_kind,
+    insert into biz_operating_fact(project_id,target_project_id,company_dept_id,biz_date,category_id,category_code,category_name,fact_kind,
       amount,quantity,currency,unit,description,counterparty,attachment_urls,source_domain,source_type,source_id,
       source_line_key,status,reversal_fact_id,idempotency_key,version,confirmed_user_id,confirmed_user_name,confirmed_time,
       create_user_id,create_by,create_time,remark)
-    values(#{projectId},#{companyDeptId},#{bizDate},#{categoryId},#{categoryCode},#{categoryName},#{factKind},
+    values(#{projectId},#{targetProjectId},#{companyDeptId},#{bizDate},#{categoryId},#{categoryCode},#{categoryName},#{factKind},
       #{amount},#{quantity},#{currency},#{unit},#{description},#{counterparty},#{attachmentUrls},#{sourceDomain},
       #{sourceType},#{sourceId},#{sourceLineKey},#{status},#{reversalFactId},#{idempotencyKey},0,
       #{confirmedUserId},#{confirmedUserName},#{confirmedTime},#{createUserId},#{createBy},sysdate(),#{remark})
@@ -235,6 +260,7 @@
   <select id="sumProjectFacts" resultType="map">
     select coalesce(sum(case when fact_kind='REVENUE' then amount else 0 end),0) revenueAmount,
       coalesce(sum(case when fact_kind='COST' and category_code not in ('PROJECT_BONUS_COST','COMPANY_PUBLIC_COST') then amount else 0 end),0) costAmount,
+      coalesce(sum(case when fact_kind='COST' and category_code='INTERNAL_PROJECT_COST' then amount else 0 end),0) internalProjectCost,
       coalesce(sum(case when fact_kind='COST' and category_code='PROJECT_BONUS_COST' then amount else 0 end),0) bonusCost,
       coalesce(sum(case when fact_kind='COST' and category_code='COMPANY_PUBLIC_COST' then amount else 0 end),0) publicCost,
       coalesce(sum(case when fact_kind='ADJUSTMENT' then amount else 0 end),0) adjustmentAmount,

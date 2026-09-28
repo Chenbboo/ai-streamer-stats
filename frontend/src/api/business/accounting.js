@@ -8,6 +8,7 @@ export const getBusinessPersonnelCostOverview = params => request({url:'/busines
 export const saveBusinessOperatingFact = data => request({url:'/business/accounting/fact',method:'post',data})
 export const saveBusinessProjectFact = data => request({url:'/business/accounting/project-fact',method:'post',data})
 export const saveBusinessProjectDailySpend = data => request({url:'/business/accounting/project-daily-spend',method:'post',data})
+export const getInternalTransferProjects = projectId => request({url:`/business/accounting/internal-transfer-projects/${projectId}`,method:'get'})
 export const reverseBusinessProjectDailySpend = (id,data) => request({url:`/business/accounting/project-daily-spend/${id}/reverse`,method:'post',data})
 export const confirmBusinessOperatingFact = id => request({url:`/business/accounting/fact/${id}/confirm`,method:'put'})
 export const returnBusinessOperatingFact = (id,data) => request({url:`/business/accounting/fact/${id}/return`,method:'put',data})
