@@ -1073,6 +1073,10 @@ select 1-count(*) as missing_project_deletion_notification_index from informatio
 where table_schema=database() and table_name='biz_project_delete_notification'
   and index_name='uk_project_delete_notification_request' and column_name='request_id' and non_unique=0;
 
+-- V136 monthly completion standard.
+select 1-count(*) as missing_project_progress_completion_standard from information_schema.columns
+where table_schema=database() and table_name='biz_project_progress_report' and column_name='completion_standard';
+
 -- V122-V123 influencer bindings and per-item sales rate snapshots.
 select 2-count(*) as missing_influencer_binding_tables from information_schema.tables
 where table_schema=database()

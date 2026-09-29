@@ -62,6 +62,7 @@
         <result property="taskCount" column="task_count"/>
         <result property="completedTaskCount" column="completed_task_count"/>
         <result property="progressPercent" column="progress_percent"/>
+        <result property="progressCompletionStandard" column="progress_completion_standard"/>
         <result property="progressWeight" column="progress_weight"/>
         <result property="subprojectCount" column="subproject_count"/>
         <result property="progressReportId" column="progress_report_id"/>
@@ -141,6 +142,7 @@
           when p.status='CANCELED' then 0
           else coalesce(latest_progress.progress,0)
         end progress_percent,
+        coalesce(latest_progress.completion_standard,'STANDARD') progress_completion_standard,
         latest_progress.report_id progress_report_id,latest_progress.biz_date progress_biz_date,
         latest_progress.completion_summary progress_summary,latest_progress.evidence_urls progress_evidence_urls,
         latest_progress.evidence_text progress_evidence_text,
@@ -1118,22 +1120,22 @@
         order by biz_date desc,report_id desc
     </select>
     <insert id="insertProjectProgressReport" parameterType="com.ruoyi.business.domain.BusinessProjectProgressReport" useGeneratedKeys="true" keyProperty="reportId">
-        insert into biz_project_progress_report(project_id,biz_date,progress,completion_summary,evidence_urls,evidence_text,
+        insert into biz_project_progress_report(project_id,biz_date,progress,completion_standard,completion_summary,evidence_urls,evidence_text,
           submitted_user_id,submitted_user_name,version,create_by,create_time,issues_risks,next_plan,
           sync_tasks,sync_routines,snapshot_json,parent_project_id,project_name_snapshot)
-        values(#{projectId},#{bizDate},#{progress},#{completionSummary},#{evidenceUrls},#{evidenceText},
+        values(#{projectId},#{bizDate},#{progress},#{completionStandard},#{completionSummary},#{evidenceUrls},#{evidenceText},
           #{submittedUserId},#{submittedUserName},#{version},#{createBy},#{createTime},#{issuesRisks},#{nextPlan},
           #{syncTasks},#{syncRoutines},#{snapshotJson},#{parentProjectId},#{projectNameSnapshot})
     </insert>
     <select id="selectProjectProgressReport" resultType="com.ruoyi.business.domain.BusinessProjectProgressReport">
-        select report_id reportId,project_id projectId,biz_date bizDate,progress,
+        select report_id reportId,project_id projectId,biz_date bizDate,progress,completion_standard completionStandard,
           completion_summary completionSummary,evidence_urls evidenceUrls,evidence_text evidenceText,submitted_user_id submittedUserId,
           submitted_user_name submittedUserName,version,create_by createBy,create_time createTime,
           update_by updateBy,update_time updateTime
         from biz_project_progress_report where project_id=#{projectId} and biz_date=#{bizDate} order by report_id desc limit 1
     </select>
     <select id="selectLatestProjectProgressReport" resultType="com.ruoyi.business.domain.BusinessProjectProgressReport">
-        select report_id reportId,project_id projectId,biz_date bizDate,progress,
+        select report_id reportId,project_id projectId,biz_date bizDate,progress,completion_standard completionStandard,
           completion_summary completionSummary,evidence_urls evidenceUrls,evidence_text evidenceText,submitted_user_id submittedUserId,
           submitted_user_name submittedUserName,version,create_by createBy,create_time createTime,
           update_by updateBy,update_time updateTime

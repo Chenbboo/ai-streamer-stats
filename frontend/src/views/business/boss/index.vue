@@ -224,7 +224,7 @@
           </div>
           <div class="progress-row">
             <span>{{ $tr("本月进度") }}</span>
-            <el-progress :percentage="progress(row)" :status="row.status === 'CLOSED' ? 'success' : undefined" :stroke-width="8" />
+            <BusinessMonthlyProgress :project="row" :value="progress(row)" :show-text="false" :status="row.status === 'CLOSED' ? 'success' : undefined" :stroke-width="8" />
             <span :title="progressHint(row)">{{ progressText(row) }}</span>
           </div>
           <div v-if="row.progressReportId" class="latest-progress-report">
@@ -332,6 +332,8 @@ import { reviewProjectProposal } from '@/api/business/proposal'
 import { saveBusinessStaffCostPolicies, saveBusinessStaffCostPolicy } from '@/api/business/staff'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 import BusinessProjectState from '@/components/BusinessProjectState/index.vue'
+import BusinessMonthlyProgress from '@/components/BusinessMonthlyProgress/index.vue'
+import { monthlyProgressPercent } from '@/utils/projectProgress'
 import { isDeliveryEnded } from '@/utils/businessProjectState'
 
 const router = useRouter()
@@ -441,13 +443,7 @@ const costPreviews = computed(() => {
   })
 })
 
-const progress = row => {
-  if (row.status === 'CLOSED') return 100
-  if (row.status === 'CANCELED') return 0
-  const value = Number(row.progressPercent)
-  if (Number.isFinite(value)) return Math.min(100, Math.max(0, Math.round(value)))
-  return 0
-}
+const progress = row => monthlyProgressPercent(row) ?? 0
 const progressText = row => !row.progressReportId && !['CLOSED', 'CANCELED'].includes(row.status) ? translateText("暂无填报") : `${progress(row)}%`
 const progressHint = row => row.progressReportId
   ? translateText("项目负责人于 {0} 填报本月进度，与一次性任务进度独立", [row.progressBizDate])

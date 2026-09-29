@@ -6,7 +6,8 @@
         <el-alert v-if="mode === 'submit'" :title="allowSubmit ? $tr(&quot;每次提交生成新版本，历史汇报和关联快照永久保留。&quot;) : $tr(&quot;历史汇报和关联快照永久保留。&quot;)" type="info" :closable="false" show-icon />
         <el-form v-if="mode === 'submit' && canSubmit" ref="formRef" :model="form" :rules="rules" label-position="top" class="report-form">
           <el-row :gutter="16"><el-col :span="12"><el-form-item :label="$tr(&quot;汇报人&quot;)"><el-input :model-value="data.reporterName" disabled /></el-form-item></el-col><el-col :span="12"><el-form-item :label="$tr(&quot;汇报时间&quot;)"><el-input :model-value="$tr(&quot;提交时由系统自动记录&quot;)" disabled /></el-form-item></el-col></el-row>
-          <el-form-item :label="$tr(&quot;本月进度百分比&quot;)" prop="progress"><el-input-number v-model="form.progress" :min="0" :max="100" :precision="0" /><span class="hint">{{ monthlyProgressPercent(data)==null?$tr("本月尚未汇报"):$tr("% · 本月当前 {0}%，纠正允许下调；下月自动从0开始", [monthlyProgressPercent(data)]) }}</span></el-form-item>
+          <el-form-item :label="$tr('完成标准')" prop="completionStandard"><el-select v-model="form.completionStandard" :placeholder="$tr('请选择完成标准')"><el-option :label="$tr('标准完成')" value="STANDARD" /><el-option :label="$tr('超额完成')" value="EXCESS" /></el-select></el-form-item>
+          <el-form-item :label="$tr(&quot;本月进度百分比&quot;)" prop="progress"><el-input-number v-model="form.progress" :min="0" :max="projectProgressLimit(form)" :precision="0" /><span class="hint">{{ monthlyProgressPercent(data)==null?$tr("本月尚未汇报"):$tr("% · 本月当前 {0}%，纠正允许下调；下月自动从0开始", [monthlyProgressPercent(data)]) }}</span></el-form-item>
           <el-form-item v-for="field in fields" :key="field.key" :label="field.label" :prop="field.key"><el-input v-model="form[field.key]" type="textarea" :rows="3" :maxlength="2000" show-word-limit :placeholder="field.placeholder" /></el-form-item>
           <el-form-item :label="$tr(&quot;成果凭证（选填）&quot;)">
             <div class="evidence-inputs">
@@ -20,7 +21,7 @@
         </el-form>
         <template v-else>
           <section class="progress-overview">
-            <div v-if="!data.archiveOnly" class="overall-progress"><span>{{ $tr("本月项目进度") }}</span><strong :class="{'progress-unreported':monthlyProgressPercent(data)==null}">{{ monthlyProgressPercent(data)==null?$tr("本月尚未汇报"):monthlyProgressPercent(data) }}<small v-if="monthlyProgressPercent(data)!=null">%</small></strong><el-progress v-if="monthlyProgressPercent(data)!=null" :percentage="monthlyProgressPercent(data)" :show-text="false" :stroke-width="7" color="#328b80" /></div>
+            <div v-if="!data.archiveOnly" class="overall-progress"><span>{{ $tr("本月项目进度") }}</span><el-tag v-if="isExcessCompletion(data)" size="small" type="warning">{{ $tr('超额完成项目') }}</el-tag><strong :class="{'progress-unreported':monthlyProgressPercent(data)==null}">{{ monthlyProgressPercent(data)==null?$tr("本月尚未汇报"):monthlyProgressPercent(data) }}<small v-if="monthlyProgressPercent(data)!=null">%</small></strong><BusinessMonthlyProgress v-if="monthlyProgressPercent(data)!=null" :project="data" :show-text="false" :stroke-width="7" /></div>
             <div><span>{{ $tr("历史汇报记录") }}</span><strong>{{ data.reports?.length || 0 }}<small>{{ $tr("条") }}</small></strong><p>{{ $tr("选择历史记录，查看当时的进度与成果") }}</p></div>
             <div class="overview-tip"><b>{{ $tr("本月进度由负责人填报") }}</b><p>{{ $tr("主项目与子项目分别填报；下月自动从0开始，历史汇报永久保留。") }}</p></div>
           </section>
@@ -45,22 +46,24 @@ import { getProjectProgress, submitBusinessProjectProgressReport } from '@/api/b
 import ProgressSnapshot from './ProgressSnapshot.vue'
 import ReportHistory from './ReportHistory.vue'
 import BusinessFileUpload from '@/components/BusinessFileUpload/index.vue'
-import { monthlyProgressPercent } from '@/utils/projectProgress'
+import { monthlyProgressPercent, projectProgressLimit, progressSubmissionIssue, isExcessCompletion } from '@/utils/projectProgress'
+import BusinessMonthlyProgress from '@/components/BusinessMonthlyProgress/index.vue'
 const props = defineProps({ allowSubmit: { type: Boolean, default: true } })
 const emit = defineEmits(['submitted','closed'])
 const visible=ref(false), loading=ref(false), saving=ref(false), error=ref(false), mode=ref('history'), data=ref({}), formRef=ref(null), selectedReportId=ref(null)
 const canSubmit=computed(()=>props.allowSubmit && data.value.canSubmit)
-const form=reactive({ progress:0,completionSummary:'',issuesRisks:'',nextPlan:'',evidenceText:'',evidenceUrls:'',syncTasks:true,syncRoutines:true })
+const form=reactive({ progress:0,completionStandard:'',completionSummary:'',issuesRisks:'',nextPlan:'',evidenceText:'',evidenceUrls:'',syncTasks:true,syncRoutines:true })
 const fields=[{key:'completionSummary',label:translateText("阶段成果"),placeholder:translateText("本阶段已完成的工作与成果")},{key:'issuesRisks',label:translateText("问题风险（选填）"),placeholder:translateText("有问题或风险时填写，无需填写“无”")},{key:'nextPlan',label:translateText("下一步计划（选填）"),placeholder:translateText("如有下一步安排，可在此补充")}]
 const rules={completionSummary:[{required:true,whitespace:true,message:translateText("请填写阶段成果"),trigger:'blur'}]}
-rules.progress=[{required:true,type:'number',min:0,max:100,message:translateText("进度必须为0至100的整数"),trigger:'change'}]
+rules.completionStandard=[{required:true,message:translateText('请选择完成标准'),trigger:'change'}]
+rules.progress=[{validator:(_rule,_value,callback)=>callback(progressSubmissionIssue(form)==='range'?new Error(translateText('项目进度必须为0至{0}的整数',[projectProgressLimit(form)])):undefined),trigger:'change'}]
 let projectId=null, sequence=0
 async function load() {
  const seq=++sequence; loading.value=true;error.value=false
  try { const res=await getProjectProgress(projectId); if(seq!==sequence)return;data.value=res.data; if(mode.value==='submit'){ if(canSubmit.value)startNew();else mode.value='history' } }
  catch { if(seq===sequence)error.value=true } finally { if(seq===sequence)loading.value=false }
 }
-function startNew(){if(!canSubmit.value)return;Object.assign(form,{progress:monthlyProgressPercent(data.value)??0,completionSummary:'',issuesRisks:'',nextPlan:'',evidenceText:'',evidenceUrls:'',syncTasks:true,syncRoutines:true});mode.value='submit';formRef.value?.clearValidate()}
+function startNew(){if(!canSubmit.value)return;Object.assign(form,{progress:monthlyProgressPercent(data.value)??0,completionStandard:data.value.progressReportId?data.value.progressCompletionStandard||'STANDARD':'',completionSummary:'',issuesRisks:'',nextPlan:'',evidenceText:'',evidenceUrls:'',syncTasks:true,syncRoutines:true});mode.value='submit';formRef.value?.clearValidate()}
 async function open(row, requestedMode='history'){ if(saving.value)return;projectId=row.projectId;selectedReportId.value=row.reportId||null;mode.value=props.allowSubmit?requestedMode:'history';data.value={};visible.value=true;await load() }
 async function submit(){if(!canSubmit.value || saving.value || !formRef.value)return;saving.value=true;try{if(!await formRef.value.validate().catch(()=>false))return;const result=await submitBusinessProjectProgressReport({...form,evidenceText:form.evidenceText?.trim()||'',projectId});mode.value='history';selectedReportId.value=result.data.reportId;ElMessage.success(translateText("汇报已提交，历史版本已保留"));emit('submitted',{projectId,parentId:data.value.parentId});await load()}finally{saving.value=false}}
 defineExpose({open})

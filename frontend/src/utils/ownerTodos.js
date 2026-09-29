@@ -69,8 +69,6 @@ export function buildOwnerTodos({ data = {}, userId, today, permissions = [], kp
       for (const m of p.milestones || []) if (!['DONE','REVIEWING'].includes(m.status) && milestoneTasksReady(p.tasks, m.milestoneId))
         add(`milestone-${m.milestoneId}`, translateText("完成阶段成果并提交验收"), m.milestoneName, 'project', { tab: 'stageAcceptance', urgent: !!m.planDate && day(m.planDate) < today })
     }
-    if (Number(p.progressPercent) >= 100)
-      add('close', translateText("办理项目结项"), translateText("项目进度已达 100%"), 'project', { tab: p.closeMethod === 'RESULT_ACCEPTANCE' ? 'acceptance' : 'overview' })
   }
   if (accountingOpen && kpiWorkspace.canSettle && can('business:kpi:settle')) for (const plan of kpiWorkspace.plans || []) {
     if (plan.status !== 'VOIDED' && ['DRAFT','RETURNED'].includes(plan.settlementStatus) && day(plan.cycleEnd) && day(plan.cycleEnd) < today)

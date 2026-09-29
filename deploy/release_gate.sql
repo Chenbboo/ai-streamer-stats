@@ -476,4 +476,8 @@ from (
   select if(count(*)=3,0,1) from sys_dept
     where parent_id=111 and dept_name in ('团播部','人事部','电商部')
       and status='0' and del_flag='0'
+  union all
+  select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
+    and table_name='biz_project_progress_report' and column_name='completion_standard'
+    and data_type='varchar' and is_nullable='NO' and column_default='STANDARD'
 ) release_gate;

@@ -76,6 +76,7 @@ public class BusinessProject extends BaseEntity
     private Integer completedTaskCount;
     /** 项目负责人最新填报的项目完成百分比；已关闭项目固定为 100。 */
     private Integer progressPercent;
+    private String progressCompletionStandard;
     private Long progressReportId;
     @JsonFormat(pattern = "yyyy-MM-dd") private Date progressBizDate;
     private String progressSummary;
@@ -217,6 +218,8 @@ public class BusinessProject extends BaseEntity
     public void setCompletedTaskCount(Integer completedTaskCount) { this.completedTaskCount = completedTaskCount; }
     public Integer getProgressPercent() { return progressPercent; }
     public void setProgressPercent(Integer progressPercent) { this.progressPercent = progressPercent; }
+    public String getProgressCompletionStandard() { return progressCompletionStandard; }
+    public void setProgressCompletionStandard(String value) { progressCompletionStandard = value; }
     public Long getProgressReportId() { return progressReportId; }
     public void setProgressReportId(Long progressReportId) { this.progressReportId = progressReportId; }
     public Date getProgressBizDate() { return progressBizDate; }

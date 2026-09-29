@@ -32,7 +32,7 @@ class BusinessProjectProgressServiceTest {
 }
     BusinessProjectProgressReport report() {
         BusinessProjectProgressReport report=new BusinessProjectProgressReport();
-        report.setProjectId(20L);report.setProgress(40);report.setCompletionSummary("完成第一阶段");
+        report.setProjectId(20L);report.setProgress(40);report.setCompletionStandard("STANDARD");report.setCompletionSummary("完成第一阶段");
         report.setEvidenceText("成果链接：https://example.test/result");
         report.setIssuesRisks("无");report.setNextPlan("完成第二阶段");return report;
     }
@@ -83,6 +83,35 @@ class BusinessProjectProgressServiceTest {
         assertThrows(ServiceException.class,()->service.submitProjectProgressReport(input,9L,"owner",false));
         verify(mapper,never()).insertProjectProgressReport(any());
     }
+    @Test void missingUnknownStandardAndOutOfRangeValuesRejectBeforeWriting() {
+        for(String standard:Arrays.asList(null,"","INVALID","standard")) {
+            BusinessProjectProgressReport input=report();input.setCompletionStandard(standard);
+            assertThrows(ServiceException.class,()->service.submitProjectProgressReport(input,9L,"owner",false));
+        }
+        for(String standard:Arrays.asList("STANDARD","EXCESS")) {
+            for(Integer value:Arrays.asList(null,-1,"EXCESS".equals(standard)?301:101)) {
+                BusinessProjectProgressReport input=report();input.setCompletionStandard(standard);input.setProgress(value);
+                assertThrows(ServiceException.class,()->service.submitProjectProgressReport(input,9L,"owner",false));
+            }
+        }
+        verify(mapper,never()).insertProjectProgressReport(any());verify(mapper,never()).insertEvent(any());
+    }
+    @Test void bothCompletionLimitsAreAcceptedWithoutClosingTheProject() {
+        when(mapper.selectProjectByIdForUpdate(10L)).thenReturn(parent);
+        when(mapper.selectActiveUserById(8L)).thenReturn(Collections.singletonMap("nickName","主项目负责人"));
+        doAnswer(call->{((BusinessProjectProgressReport)call.getArgument(0)).setReportId(41L);return 1;})
+            .when(mapper).insertProjectProgressReport(any());
+        for(String standard:Arrays.asList("STANDARD","EXCESS")) {
+            for(int percent:Arrays.asList(0,"EXCESS".equals(standard)?300:100)) {
+                BusinessProjectProgressReport input=report();input.setProjectId(10L);input.setCompletionStandard(standard);input.setProgress(percent);
+                BusinessProjectProgressReport saved=service.submitProjectProgressReport(input,8L,"parent",false);
+                assertEquals(standard,saved.getCompletionStandard());assertEquals(percent,saved.getProgress());
+                assertEquals("ACTIVE",parent.getStatus());
+            }
+        }
+        verify(mapper,times(4)).insertProjectProgressReport(any());
+        verify(progressMapper,never()).notifyOwner(anyLong(),anyLong());
+    }
     @Test void dailySubprojectReportAcceptsMissingOrBlankRiskAndPlan() {
         when(mapper.selectProjectById(10L)).thenReturn(parent);
         Map<String,Object> user=new HashMap<>();user.put("userName","owner");
@@ -127,8 +156,10 @@ class BusinessProjectProgressServiceTest {
         Map<String,Object> missing=service.progressWorkspace(20L,8L,false,false);
         assertEquals("ACTIVE",missing.get("status"));assertNull(missing.get("progressReportId"));
         child.setProgressReportId(31L);child.setProgressBizDate(new Date());
+        child.setProgressCompletionStandard("EXCESS");child.setProgressPercent(220);
         Map<String,Object> reported=service.progressWorkspace(20L,8L,false,false);
-        assertEquals(31L,reported.get("progressReportId"));assertEquals(0,reported.get("progressPercent"));
+        assertEquals(31L,reported.get("progressReportId"));assertEquals(220,reported.get("progressPercent"));
+        assertEquals("EXCESS",reported.get("progressCompletionStandard"));
         assertEquals(child.getProgressBizDate(),reported.get("progressBizDate"));
     }
     @Test void childSummaryCarriesMonthlyReportIdentityAndStatus() {
@@ -136,10 +167,12 @@ class BusinessProjectProgressServiceTest {
         when(mapper.selectActiveUserById(8L)).thenReturn(Collections.singletonMap("nickName","主项目负责人"));
         when(mapper.selectProjectList(anyMap())).thenReturn(Collections.singletonList(child));
         child.setProgressReportId(31L);child.setProgressPercent(0);
+        child.setProgressCompletionStandard("EXCESS");
         Map<String,Object> workspace=service.progressWorkspace(10L,8L,false,false);
         Map<?,?> summary=(Map<?,?>)((List<?>)workspace.get("children")).get(0);
         assertEquals(31L,summary.get("progressReportId"));assertEquals(0,summary.get("progressPercent"));
         assertEquals("ACTIVE",summary.get("status"));
+        assertEquals("EXCESS",summary.get("progressCompletionStandard"));
     }
     @Test void strangerCannotReadReportHistory() {
         when(mapper.selectProjectById(20L)).thenReturn(child);

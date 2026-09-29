@@ -84,7 +84,7 @@
         <el-tabs ref="detailTabs" v-model="activeTab" class="project-detail-tabs">
           <el-tab-pane :label="$tr(&quot;项目总览&quot;)" name="overview">
             <section class="cockpit-hero">
-              <div v-if="detail.parentId || detail.goalMode!=='NO_TOTAL'"><span>{{ $tr("本月项目进度") }}</span><el-button class="progress-link" link type="primary" @click="progressPanel.open(detail)"><strong :class="{'progress-unreported':monthlyProgressPercent(detail)==null}">{{ monthlyProgressPercent(detail)==null?$tr("本月尚未汇报"):`${monthlyProgressPercent(detail)}%` }}</strong></el-button><small v-if="detail.subprojectCount">{{ $tr("主项目本月进度由负责人填报，点击查看各子项目汇报") }}</small><el-progress v-if="monthlyProgressPercent(detail)!=null" :percentage="monthlyProgressPercent(detail)" :stroke-width="9" /></div>
+              <div v-if="detail.parentId || detail.goalMode!=='NO_TOTAL'"><span>{{ $tr("本月项目进度") }}</span><el-button class="progress-link" link type="primary" @click="progressPanel.open(detail)"><strong :class="{'progress-unreported':monthlyProgressPercent(detail)==null}">{{ monthlyProgressPercent(detail)==null?$tr("本月尚未汇报"):`${monthlyProgressPercent(detail)}%` }}</strong></el-button><small v-if="detail.subprojectCount">{{ $tr("主项目本月进度由负责人填报，点击查看各子项目汇报") }}</small><BusinessMonthlyProgress v-if="monthlyProgressPercent(detail)!=null" :project="detail" :stroke-width="9" /></div>
               <div v-else><span>{{ $tr("项目目标模式") }}</span><strong>{{ $tr("持续经营") }}</strong><small>{{ $tr("不填写虚假的总完成百分比，以每日目标和任务成果持续跟踪。") }}</small></div>
               <div><span>{{ $tr("计划时间进度") }}</span><strong>{{ scheduleProgress }}%</strong><el-progress :percentage="scheduleProgress" :stroke-width="9" /></div>
               <div><span>{{ $tr("剩余时间") }}</span><strong>{{ remainingDaysText }}</strong><small>{{ scheduleStatusText }}</small></div>
@@ -315,6 +315,7 @@ import BusinessProjectPlanPanel from '@/components/BusinessProjectPlanPanel/inde
 import BusinessSettlementPanel from '@/components/BusinessSettlementPanel/index.vue'
 import { isSeparatedDelivery, isDeliveryEnded, projectAccountingState } from '@/utils/businessProjectState'
 import BusinessProjectProgress from '@/components/BusinessProjectProgress/index.vue'
+import BusinessMonthlyProgress from '@/components/BusinessMonthlyProgress/index.vue'
 import { progressEventTarget, monthlyProgressPercent } from '@/utils/projectProgress'
 import useUserStore from '@/store/modules/user'
 import { getProjectKpiWorkspace } from '@/api/business/kpi'

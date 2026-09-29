@@ -15,7 +15,7 @@
           <section class="project-card">
             <div class="card-heading"><h3>{{ $tr('项目目标与进度') }}</h3></div><p class="objective">{{ project.objective || $tr('尚未填写项目目标') }}</p>
             <div class="card-divider"></div><div class="card-heading"><h4>{{ $tr('本月汇报进度') }}</h4><span v-if="progress !== null">{{ progress }}%</span><el-tag v-else type="info" effect="plain">{{ $tr('尚未汇报') }}</el-tag></div>
-            <el-progress v-if="progress !== null" :percentage="progress" :show-text="false" :stroke-width="6" />
+            <BusinessMonthlyProgress v-if="progress !== null" :project="project" :value="progress" :show-text="false" :stroke-width="6" />
             <div class="card-bottom"><span>{{ progress !== null ? $tr('最近汇报 {0}', [project.progressBizDate]) : $tr('等待负责人提交本月进度') }}</span><el-button v-hasPermi="['business:project:list']" link type="primary" @click="openReports()">{{ $tr('查看汇报') }}</el-button></div>
           </section>
           <section class="project-card"><div class="card-heading"><h3>{{ $tr('项目信息') }}</h3></div><dl class="project-info"><dt>{{ $tr('项目负责人') }}</dt><dd>{{ project.mainOwnerName || '—' }}</dd><dt>{{ $tr('发起人') }}</dt><dd>{{ project.sponsorOwnerName || project.initiatorName || '—' }}</dd><dt>{{ $tr('计划周期') }}</dt><dd>{{ project.planStartDate ? $tr('{0} 至 {1}', [project.planStartDate, project.planEndDate || $tr('不限期')]) : '—' }}</dd><dt>{{ $tr('归属公司') }}</dt><dd>{{ project.companyName || $tr('待设置') }}</dd></dl></section>
@@ -42,7 +42,7 @@
               <div class="child-period"><span class="muted">{{ $tr('计划周期') }}</span><p>{{ child.planStartDate ? $tr('{0} 至 {1}', [child.planStartDate, child.planEndDate || $tr('不限期')]) : '—' }}</p></div>
               <div class="child-progress">
                 <div class="child-progress-heading"><span class="muted">{{ $tr('本月汇报进度') }}</span><strong v-if="projectProgress(child) !== null">{{ projectProgress(child) }}%</strong><el-tag v-else type="info" effect="plain" size="small">{{ $tr('尚未汇报') }}</el-tag></div>
-                <el-progress v-if="projectProgress(child) !== null" :percentage="projectProgress(child)" :show-text="false" :stroke-width="5" />
+                <BusinessMonthlyProgress v-if="projectProgress(child) !== null" :project="child" :value="projectProgress(child)" :show-text="false" :stroke-width="5" />
                 <span class="child-report-date muted">{{ projectProgress(child) !== null ? $tr('最近汇报 {0}', [child.progressBizDate]) : $tr('等待负责人提交本月进度') }}</span>
                 <el-button link type="primary" @click="openReports(child.projectId)">{{ $tr('查看汇报') }}</el-button>
               </div>
@@ -86,6 +86,7 @@ import BusinessProjectState from '@/components/BusinessProjectState/index.vue'
 import BusinessSettlementPanel from '@/components/BusinessSettlementPanel/index.vue'
 import BusinessProjectPlanPanel from '@/components/BusinessProjectPlanPanel/index.vue'
 import BusinessProjectProgress from '@/components/BusinessProjectProgress/index.vue'
+import BusinessMonthlyProgress from '@/components/BusinessMonthlyProgress/index.vue'
 
 const props=defineProps({project:{type:Object,required:true},summary:{type:Object,default:()=>({})},kpi:{type:Object,default:null},loadFailed:Boolean,kpiFailed:Boolean,publicExpenseFailed:Boolean,publicExpenseTodos:{type:Array,default:()=>[]},publicExpenseBills:{type:Array,default:()=>[]},openTaskCount:{type:Number,default:0},openRiskCount:{type:Number,default:0},initialTab:{type:String,default:'overview'},refreshKey:{type:Number,default:0}})
 const emit=defineEmits(['people','public-expense','refresh','all-projects','update:initialTab'])

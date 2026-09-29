@@ -1,4 +1,5 @@
 // Public expenses are company obligations referenced by several projects.
+import { projectProgressLimit } from './projectProgress.js'
 // Keep them out of project totals rather than counting the same bill twice.
 export const projectSettlementFields = ['pendingKpiCount', 'pendingEffortCount', 'pendingFactCount', 'pendingCostCount', 'pendingAwardCount', 'pendingLeaveCount']
 
@@ -14,5 +15,5 @@ export function pendingKpiPlans(workspace) {
 export function reportedProjectProgress(project, month) {
   if (!project?.progressReportId || String(project.progressBizDate || '').slice(0, 7) !== month) return null
   const value = Number(project.progressPercent)
-  return Number.isFinite(value) ? Math.min(100, Math.max(0, Math.round(value))) : null
+  return Number.isFinite(value) ? Math.min(projectProgressLimit(project), Math.max(0, Math.round(value))) : null
 }

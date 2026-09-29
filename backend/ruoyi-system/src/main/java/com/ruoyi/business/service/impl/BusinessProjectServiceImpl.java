@@ -2548,8 +2548,11 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             throw new ServiceException("项目执行中或暂停时才能汇报进度");
         if (project.getParentId() == null && "NO_TOTAL".equals(effectiveGoalMode(project)))
             throw new ServiceException("不计入总目标的持续经营项目无需填写项目完成百分比");
-        if (report.getProgress() == null || report.getProgress() < 0 || report.getProgress() > 100)
-            throw new ServiceException("项目进度必须在0到100之间");
+        if (!"STANDARD".equals(report.getCompletionStandard()) && !"EXCESS".equals(report.getCompletionStandard()))
+            throw new ServiceException("请选择完成标准：标准完成或超额完成");
+        int progressLimit = "EXCESS".equals(report.getCompletionStandard()) ? 300 : 100;
+        if (report.getProgress() == null || report.getProgress() < 0 || report.getProgress() > progressLimit)
+            throw new ServiceException("项目进度必须在0到" + progressLimit + "之间");
         validateProgressText(report.getCompletionSummary(), "阶段成果", true);
         // Daily completion forms do not require risks or a next-step plan, including for subprojects.
         validateProgressText(report.getIssuesRisks(), "问题风险", false);
@@ -2649,6 +2652,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         Map<String,Object> result = new LinkedHashMap<>();
         result.put("projectId", projectId); result.put("projectName", project.getProjectName());
         result.put("parentId", project.getParentId()); result.put("progressPercent", project.getProgressPercent());
+        result.put("progressCompletionStandard", project.getProgressCompletionStandard());
         result.put("status",project.getStatus());result.put("progressReportId",project.getProgressReportId());
         result.put("progressBizDate",project.getProgressBizDate());
         result.put("canConfigureWeights", false);
@@ -2672,6 +2676,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
                 Map<String,Object> summary = new LinkedHashMap<>();
                 summary.put("projectId",child.getProjectId()); summary.put("projectName",child.getProjectName());
                 summary.put("progressPercent",child.getProgressPercent());
+                summary.put("progressCompletionStandard",child.getProgressCompletionStandard());
                 summary.put("status",child.getStatus());summary.put("progressReportId",child.getProgressReportId());
                 summary.put("progressBizDate",child.getProgressBizDate());
                 summary.put("progressSummary",child.getProgressSummary()); summary.put("progressReportTime",child.getProgressReportTime());
