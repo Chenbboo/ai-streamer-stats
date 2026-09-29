@@ -31,6 +31,7 @@ public interface IJewelryErpService
     void deleteInfluencerBundleConfig(Long influencerId, Long configId);
     List<Map<String, Object>> listStock(Map<String, Object> query);
     List<Map<String, Object>> listSampleInboundDetails(Long productId);
+    List<Map<String, Object>> listStockInboundDetails(Long productId);
     List<Map<String, Object>> listTransactions(Map<String, Object> query);
     int getStockWarningDays();
     int getSupplierReturnDays();

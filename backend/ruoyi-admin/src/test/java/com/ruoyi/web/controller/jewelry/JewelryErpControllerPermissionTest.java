@@ -94,6 +94,7 @@ class JewelryErpControllerPermissionTest
         expected.put("confirmInfluencerBindings", "@ss.hasPermi('jewelry:influencer:price')");
         expected.put("stockList", "@ss.hasPermi('jewelry:stock:list')");
         expected.put("stockSupplierOptions", "@ss.hasPermi('jewelry:stock:list')");
+        expected.put("stockInboundDetails", "@ss.hasPermi('jewelry:stock:list')");
         expected.put("supplierReturnDays", "@ss.hasPermi('jewelry:stock:list')");
         expected.put("updateSupplierReturnDays", "@ss.hasPermi('jewelry:stock:config')");
         expected.put("updateSupplierReturnDate", "@ss.hasPermi('jewelry:stock:config')");
@@ -118,6 +119,29 @@ class JewelryErpControllerPermissionTest
             assertNotNull(authorization, entry.getKey() + " 缺少权限保护");
             assertEquals(entry.getValue(), authorization.value(),
                 entry.getKey() + " 的权限标识发生了非预期变化");
+        }
+    }
+
+    @Test
+    void inboundCostsKeepExistingStockFinanceVisibility()
+    {
+        IJewelryErpService service = mock(IJewelryErpService.class);
+        JewelryErpController controller = new JewelryErpController();
+        ReflectionTestUtils.setField(controller, "service", service);
+        for (String role : Arrays.asList("jewelry_maker", "jewelry_reviewer", "jewelry_admin"))
+        {
+            Map<String, Object> row = new HashMap<>();
+            row.put("inspectionQty", 2);
+            row.put("defectQty", 1);
+            row.put("avgCost", 20);
+            row.put("stockAmount", 60);
+            when(service.listStockInboundDetails(1L)).thenReturn(Collections.singletonList(row));
+            loginAs(role, Collections.singleton("jewelry:stock:list"));
+            assertTrue(controller.stockInboundDetails(1L).isSuccess());
+            assertEquals(2, row.get("inspectionQty"));
+            assertEquals(1, row.get("defectQty"));
+            assertEquals(!"jewelry_maker".equals(role), row.containsKey("avgCost"));
+            assertEquals(!"jewelry_maker".equals(role), row.containsKey("stockAmount"));
         }
     }
 

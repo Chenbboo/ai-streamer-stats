@@ -39,34 +39,45 @@
         </div>
       </div>
     </div>
-    <el-table ref="stockTable" :max-height="tableMaxHeight" :data="rows" v-loading="loading" border
-      @expand-change="onSampleExpand">
-      <el-table-column v-if="appliedProductType==='SAMPLE'" type="expand" width="48">
+    <el-table ref="stockTable" class="stock-ledger-table" :max-height="tableMaxHeight" :data="rows" v-loading="loading" border
+      @expand-change="onInboundExpand">
+      <el-table-column v-if="canExpandInbounds" type="expand" width="48">
         <template #default="{row}">
-          <div class="sample-expanded">
-            <div v-if="row.sampleInboundLoading" class="sample-expanded-state">{{ $tr("正在加载入库记录…") }}</div>
-            <el-button v-else-if="row.sampleInboundError" link type="primary" @click="loadSampleInboundDetails(row)">{{ $tr("加载失败，点击重试") }}</el-button>
-            <div v-else-if="!row.sampleInboundDetails.length" class="sample-expanded-state">{{ $tr("暂无已生效的样品入库记录") }}</div>
-            <el-table v-else :data="row.sampleInboundDetails" :show-header="false" border size="small" max-height="360" class="sample-inbound-table">
+          <div class="inbound-expanded">
+            <div v-if="row.inboundLoading" class="inbound-expanded-state">{{ $tr("正在加载入库记录…") }}</div>
+            <el-button v-else-if="row.inboundError" link type="primary" @click="loadInboundDetails(row)">{{ $tr("加载失败，点击重试") }}</el-button>
+            <div v-else-if="!row.inboundDetails.length" class="inbound-expanded-state">{{ $tr("暂无已生效的入库记录") }}</div>
+            <el-table v-else :data="row.inboundDetails" :show-header="false" border size="small" class="inbound-detail-table">
               <el-table-column width="140"/>
               <el-table-column min-width="180"/>
+              <el-table-column width="160"/>
               <el-table-column width="110"/>
-              <el-table-column width="100"/>
               <el-table-column :label="$tr(&quot;账面总库存&quot;)" width="115" align="right"><template #default="{row:item}">{{item.totalStockQty}}</template></el-table-column>
+              <el-table-column v-if="appliedProductType!=='SAMPLE'" :label="$tr(&quot;可售库存&quot;)" prop="onHandQty" width="100" align="right"/>
+              <el-table-column v-if="appliedProductType!=='SAMPLE'" :label="$tr(&quot;出库冻结&quot;)" prop="reservedOutQty" width="100" align="right"/>
               <el-table-column :label="$tr(&quot;可用库存&quot;)" width="100" align="right"><template #default="{row:item}">{{item.availableQty}}</template></el-table-column>
-              <el-table-column :label="$tr(&quot;入库时间&quot;)" width="115">
+              <el-table-column :label="appliedProductType==='SAMPLE'?$tr(&quot;入库时间&quot;):$tr(&quot;最早入库&quot;)" width="115">
                 <template #default="{row:item}">
-                  {{formatInboundDate(item.inboundDate)}}
-                  <small class="sample-detail-note">{{ $tr("货号 {0} · {1}", [item.goodsNo || '—', item.docNo]) }}</small>
+                  {{Number(item.stockOriginUnknown)?$tr("来源待确认"):formatInboundDate(item.inboundDate)}}
+                  <small v-if="row.productType==='SAMPLE'" class="inbound-detail-note">{{ $tr("货号 {0} · {1}", [item.goodsNo || '—', item.docNo]) }}</small>
+                  <small v-else-if="item.docNo" class="inbound-detail-note">{{item.docNo}}</small>
                 </template>
               </el-table-column>
-              <el-table-column :label="$tr(&quot;库龄&quot;)" width="90" align="right"><template #default="{row:item}">{{ $tr("{0}天", [item.stockAgeDays]) }}</template></el-table-column>
-              <el-table-column :label="$tr(&quot;离供应商退货时间&quot;)" width="185">
+              <el-table-column :label="$tr(&quot;库龄&quot;)" width="90" align="right"><template #default="{row:item}">{{item.inboundDate?$tr("{0}天", [item.stockAgeDays]):$tr("来源待确认")}}</template></el-table-column>
+              <el-table-column :label="$tr(&quot;离供应商退货时间&quot;)" width="185" align="center">
                 <template #default="{row:item}">
-                  <el-tag :type="Number(item.supplierReturnDays)<=0?'danger':Number(item.supplierReturnDays)<7?'warning':'success'" effect="plain">{{returnCountdown(item.supplierReturnDays)}}</el-tag>
-                  <small class="sample-detail-note">{{ $tr("截止 {0} · {1}", [formatInboundDate(item.supplierReturnDate), item.supplierName || $tr("供应商未记录")]) }}</small>
+                  <span v-if="Number(item.stockOriginUnknown)">{{ $tr("来源待确认") }}</span>
+                  <template v-else>
+                    <el-tag v-if="item.supplierReturnDays!=null" :type="Number(item.supplierReturnDays)<=0?'danger':Number(item.supplierReturnDays)<7?'warning':'success'" effect="plain">{{returnCountdown(item.supplierReturnDays)}}</el-tag>
+                    <span v-else>{{returnCountdown(item.supplierReturnDays)}}</span>
+                    <small v-if="item.supplierReturnDate" class="inbound-detail-note">{{ $tr("截止 {0} · {1}", [formatInboundDate(item.supplierReturnDate), item.supplierName || $tr("供应商未记录")]) }}</small>
+                  </template>
                 </template>
               </el-table-column>
+              <el-table-column v-if="appliedProductType!=='SAMPLE'" :label="$tr(&quot;待检&quot;)" prop="inspectionQty" width="85" align="right"/>
+              <el-table-column v-if="appliedProductType!=='SAMPLE'" :label="$tr(&quot;次品&quot;)" prop="defectQty" width="85" align="right"/>
+              <el-table-column v-if="canViewFinance&&appliedProductType!=='SAMPLE'" :label="$tr(&quot;可售平均成本&quot;)" prop="avgCost" width="125" align="right"/>
+              <el-table-column v-if="canViewFinance&&appliedProductType!=='SAMPLE'" :label="$tr(&quot;库存总金额&quot;)" prop="stockAmount" width="120" align="right"/>
               <el-table-column :label="$tr(&quot;操作&quot;)" width="90"><template #default><el-button link type="primary" @click="showFlow(row)">{{ $tr("流水") }}</el-button></template></el-table-column>
             </el-table>
           </div>
@@ -81,7 +92,7 @@
       </template>
     </el-table-column><el-table-column prop="stockAgeDays" :label="$tr(&quot;库龄&quot;)" width="90" align="right"><template #default="{row}"><el-tooltip v-if="Number(row.stockOriginUnknown)" :content="$tr(&quot;缺少有效原入库或采购依据，不能以退货或质检日期重新计算库龄。&quot;)"><span>{{ $tr("来源待确认") }}</span></el-tooltip><el-tag v-else-if="row.ageWarning" type="danger" effect="plain">{{ $tr("{0}天", [row.stockAgeDays]) }}</el-tag><span v-else>{{row.oldestInboundDate ? $tr("{0}天", [row.stockAgeDays]) : '—'}}</span></template></el-table-column><el-table-column :label="$tr(&quot;离供应商退货时间&quot;)" width="185" align="center">
       <template #default="{row}">
-        <span v-if="!['FINISHED','SAMPLE'].includes(row.productType)">—</span>
+        <span v-if="!['FINISHED','GIFT','SAMPLE'].includes(row.productType)">—</span>
         <el-tooltip v-else-if="row.supplierReturnDate" placement="top"
           :content="row.productType==='SAMPLE'?$tr('样品入库来源：{0}；供应商：{1}。按每行入库日期及剩余库存推算，显示最早退货期限。',[row.supplierReturnDocNo,row.supplierReturnSupplierName || '—']):$tr(&quot;采购单：{0}；供应商：{1}。{2}&quot;, [row.supplierReturnDocNo, row.supplierReturnSupplierName || '—', Number(row.stockOriginFirstPurchase)?$tr(&quot;退回商品存在多次采购，按首次采购单计算，特殊约定日期优先。&quot;):$tr(&quot;按先进先出推算剩余采购批次，显示最早退货期限。&quot;)])">
           <div class="return-deadline">
@@ -104,7 +115,7 @@ import { translateText } from '@/locales/translate'
 
 import {useElementSize,useWindowSize} from '@vueuse/core'
 import useSettingsStore from '@/store/modules/settings'
-import {listJewelryStock,listJewelryStockSupplierOptions,listJewelryTransactions,listJewelrySampleInbounds,getJewelryStockWarningDays,updateJewelryStockWarningDays} from '@/api/jewelry/erp'
+import {listJewelryStock,listJewelryStockSupplierOptions,listJewelryTransactions,listJewelrySampleInbounds,listJewelryStockInbounds,getJewelryStockWarningDays,updateJewelryStockWarningDays} from '@/api/jewelry/erp'
 import {getJewelrySupplierReturnDays,updateJewelrySupplierReturnDays} from '@/api/jewelry/erp'
 import useUserStore from '@/store/modules/user'
 import {jewelryProductType,jewelryProductTypes} from '@/utils/jewelryProduct'
@@ -131,26 +142,28 @@ const canConfigureWarning=computed(()=>userStore.roles.includes('admin')||userSt
 const {proxy}=getCurrentInstance()
 const routeWarningType=['quantity','age','supplierReturn'].includes(route.query.warningType)?route.query.warningType:'all'
 const appliedProductType=ref('')
+const canExpandInbounds=computed(()=>['SAMPLE','FINISHED','GIFT'].includes(appliedProductType.value))
 const supplierOptions=ref([])
 const rows=ref([]),flows=ref([]),total=ref(0),loading=ref(false),drawer=ref(false),warningDays=ref(25),savingWarning=ref(false);const query=reactive({pageNum:1,pageSize:10,keyword:'',productType:'',supplierIds:[],inStockOnly:false,warningOnly:route.query.warningOnly==='true',warningType:routeWarningType})
 async function loadSupplierOptions(){supplierOptions.value=(await listJewelryStockSupplierOptions()).data||[]}
-async function load(){loading.value=true;try{const productType=query.productType;const r=await listJewelryStock({...query,supplierIds:query.supplierIds.join(',')});rows.value=(r.rows||[]).map(row=>({...row,sampleInboundDetails:[],sampleInboundLoaded:false,sampleInboundLoading:false,sampleInboundError:false}));appliedProductType.value=productType;total.value=r.total||0;await nextTick();stockTable.value?.setScrollTop(0)}finally{loading.value=false}}
-async function loadSampleInboundDetails(row){
-  if(row.sampleInboundLoaded||row.sampleInboundLoading)return
-  row.sampleInboundLoading=true
-  row.sampleInboundError=false
+async function load(){loading.value=true;try{const productType=query.productType;const r=await listJewelryStock({...query,supplierIds:query.supplierIds.join(',')});rows.value=(r.rows||[]).map(row=>({...row,inboundDetails:[],inboundLoaded:false,inboundLoading:false,inboundError:false}));appliedProductType.value=productType;total.value=r.total||0;await nextTick();stockTable.value?.setScrollTop(0)}finally{loading.value=false}}
+async function loadInboundDetails(row){
+  if(row.inboundLoaded||row.inboundLoading)return
+  row.inboundLoading=true
+  row.inboundError=false
   try{
-    const result=await listJewelrySampleInbounds(row.productId)
-    row.sampleInboundDetails=result.data||[]
-    row.sampleInboundLoaded=true
-  }catch(error){row.sampleInboundError=true}
-  finally{row.sampleInboundLoading=false}
+    const result=await (row.productType==='SAMPLE'?listJewelrySampleInbounds(row.productId):listJewelryStockInbounds(row.productId))
+    row.inboundDetails=result.data||[]
+    row.inboundLoaded=true
+  }catch(error){row.inboundError=true}
+  finally{row.inboundLoading=false}
 }
-function onSampleExpand(row,expandedRows){
-  if(row.productType==='SAMPLE'&&expandedRows.some(item=>item.productId===row.productId))loadSampleInboundDetails(row)
+function onInboundExpand(row,expandedRows){
+  if(['SAMPLE','FINISHED','GIFT'].includes(row.productType)&&expandedRows.some(item=>item.productId===row.productId))loadInboundDetails(row)
 }
 function formatInboundDate(value){return value?String(value).slice(0,10):'—'}
 function returnCountdown(days){
+  if(days==null)return '—'
   const count=Number(days)
   if(!Number.isFinite(count))return '—'
   return count>0?translateText("剩余 {0} 天", [count]):count===0?translateText("今天到期"):translateText("已超期 {0} 天", [Math.abs(count)])
@@ -204,8 +217,11 @@ loadWarningDays();loadReturnDays();loadSupplierOptions();load()
 }
 </style>
 <style scoped>
-.sample-expanded{padding-left:48px}
-.sample-expanded-state{color:#909399;padding:12px 0;font-size:13px}
-.sample-detail-note{display:block;color:#909399;font-size:11px;line-height:1.4;margin-top:3px;overflow-wrap:anywhere}
-.sample-inbound-table :deep(.el-table__cell){vertical-align:top}
+.inbound-expanded{padding-left:48px}
+.stock-ledger-table :deep(.el-table__expanded-cell){padding:0}
+.inbound-expanded-state{color:#909399;padding:12px 0;font-size:13px}
+.inbound-detail-note{display:block;color:#909399;font-size:11px;line-height:1.4;margin-top:3px;overflow-wrap:anywhere}
+.inbound-detail-table :deep(.el-table__cell){vertical-align:top}
+.inbound-detail-table :deep(.el-scrollbar__wrap){overflow-x:hidden}
+.inbound-detail-table :deep(.el-scrollbar__bar.is-horizontal){display:none}
 </style>

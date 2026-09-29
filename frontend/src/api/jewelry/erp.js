@@ -27,6 +27,7 @@ export const getJewelryInfluencerBundleItems = (id) => request({ url: `/jewelry/
 export const listJewelryStock = (params) => request({ url: '/jewelry/stock/list', method: 'get', params })
 export const listJewelryStockSupplierOptions = () => request({ url: '/jewelry/stock/supplier-options', method: 'get' })
 export const listJewelrySampleInbounds = (productId) => request({ url: `/jewelry/stock/sample-inbounds/${productId}`, method: 'get' })
+export const listJewelryStockInbounds = (productId) => request({ url: `/jewelry/stock/inbounds/${productId}`, method: 'get' })
 export const listJewelryTransactions = (params) => request({ url: '/jewelry/stock/transactions', method: 'get', params })
 export const getJewelryStockWarningDays = () => request({ url: '/jewelry/stock/warning-days', method: 'get' })
 export const getJewelrySupplierReturnDays = () => request({ url: '/jewelry/stock/supplier-return-days', method: 'get' })

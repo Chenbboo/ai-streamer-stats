@@ -592,6 +592,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     @Override
     public List<Map<String, Object>> listSampleInboundDetails(Long productId) { return mapper.selectSampleInboundDetails(productId); }
     @Override
+    public List<Map<String, Object>> listStockInboundDetails(Long productId) { return mapper.selectStockInboundDetails(productId); }
+    @Override
     public List<Map<String, Object>> listTransactions(Map<String, Object> query) { return mapper.selectStockTransactions(query); }
     @Override
     public int getStockWarningDays()

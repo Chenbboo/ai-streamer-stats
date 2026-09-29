@@ -938,6 +938,8 @@ class JewelryErpMapperIntegrationTest
             assertEquals(1, rows.size());
             assertEquals("SAMPLE-1", rows.get(0).get("sku"));
         }
+        query.put("warningOnly", true);
+        query.put("warningType", "supplierReturn");
         String stockSql = sqlSessionFactory.getConfiguration()
             .getMappedStatement("com.ruoyi.jewelry.mapper.JewelryErpMapper.selectStockList")
             .getBoundSql(query).getSql().replaceAll("\\s+", " ");
@@ -1004,6 +1006,130 @@ class JewelryErpMapperIntegrationTest
         {
             assertEquals(17, ((Number) session.getMapper(JewelryErpMapper.class)
                 .selectSampleInboundDetails(1L).get(0).get("supplierReturnDays")).intValue());
+        }
+    }
+
+    @Test
+    void finishedInboundBalancesDeductOwnSupplierReturnsAndReserveOldestSaleableReceipt()
+    {
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification)"
+            + " values(1,'FINISHED-1','成品','FINISHED','普通')");
+        execute("insert into sys_config(config_key,config_value) values('jewelry.supplier.return.days','10')");
+        insertDocument(1L, "PURCHASE-OLD", "PURCHASE_IN", "POSTED", null);
+        insertDocument(2L, "PURCHASE-NEW", "PURCHASE_IN", "POSTED", null);
+        insertDocument(3L, "RETURN-OLD", "SUPPLIER_RETURN", "POSTED", 1L);
+        insertDocument(4L, "PURCHASE-DRAFT", "PURCHASE_IN", "DRAFT", null);
+        insertDocument(5L, "PURCHASE-REVERSED", "PURCHASE_IN", "REVERSED", null);
+        insertDocument(6L, "RETURN-REVERSED", "SUPPLIER_RETURN", "REVERSED", 2L);
+        insertItem(11L, 1L, null, 1L, 5);
+        insertItem(21L, 2L, null, 1L, 8);
+        insertItem(31L, 3L, 11L, 1L, 2);
+        insertItem(41L, 4L, null, 1L, 30);
+        insertItem(51L, 5L, null, 1L, 30);
+        insertItem(61L, 6L, 21L, 1L, 5);
+        execute("update jewelry_document set biz_date=timestampadd(DAY,-9,current_date) where document_id=1");
+        execute("update jewelry_document set biz_date=timestampadd(DAY,-2,current_date),"
+            + "supplier_return_date=timestampadd(DAY,3,current_date) where document_id=2");
+        insertStock(1L, 10, 4, 1, 0, 0, 0, "100.00");
+        execute("update jewelry_stock set inspection_cost_amount=35.50 where product_id=1");
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            List<Map<String, Object>> details = session.getMapper(JewelryErpMapper.class).selectStockInboundDetails(1L);
+            assertEquals(2, details.size());
+            Map<String, Object> newest = details.get(0), oldest = details.get(1);
+            assertEquals("PURCHASE-NEW", newest.get("docNo"));
+            assertEquals(8, ((Number) newest.get("totalStockQty")).intValue());
+            assertEquals(8, ((Number) newest.get("onHandQty")).intValue());
+            assertEquals(2, ((Number) newest.get("reservedOutQty")).intValue());
+            assertEquals(6, ((Number) newest.get("availableQty")).intValue());
+            assertEquals(0, ((Number) newest.get("inspectionQty")).intValue());
+            assertEquals(0, ((Number) newest.get("defectQty")).intValue());
+            assertEquals(0, new BigDecimal(newest.get("avgCost").toString()).compareTo(new BigDecimal("100.00")));
+            assertEquals(0, new BigDecimal(newest.get("stockAmount").toString()).compareTo(new BigDecimal("800.00")));
+            assertEquals(2, ((Number) newest.get("stockAgeDays")).intValue());
+            assertEquals(3, ((Number) newest.get("supplierReturnDays")).intValue());
+            assertEquals(3, ((Number) oldest.get("totalStockQty")).intValue());
+            assertEquals(2, ((Number) oldest.get("onHandQty")).intValue());
+            assertEquals(2, ((Number) oldest.get("reservedOutQty")).intValue());
+            assertEquals(0, ((Number) oldest.get("availableQty")).intValue());
+            assertEquals(1, ((Number) oldest.get("inspectionQty")).intValue());
+            assertEquals(0, new BigDecimal(oldest.get("stockAmount").toString()).compareTo(new BigDecimal("235.50")));
+            assertEquals(9, ((Number) oldest.get("stockAgeDays")).intValue());
+            assertEquals(1, ((Number) oldest.get("supplierReturnDays")).intValue());
+            assertEquals(11, details.stream().mapToInt(row -> ((Number) row.get("totalStockQty")).intValue()).sum());
+            assertEquals(10, details.stream().mapToInt(row -> ((Number) row.get("onHandQty")).intValue()).sum());
+            assertEquals(4, details.stream().mapToInt(row -> ((Number) row.get("reservedOutQty")).intValue()).sum());
+            assertEquals(6, details.stream().mapToInt(row -> ((Number) row.get("availableQty")).intValue()).sum());
+        }
+    }
+
+    @Test
+    void giftInboundDetailsKeepSameDayReceiptsSeparateAndUnmatchedStockWithoutDates()
+    {
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification) values"
+            + "(1,'GIFT-1','赠品','GIFT','普通'),(2,'PART-2','散件','PART','普通')");
+        insertDocument(1L, "GIFT-ONE", "PURCHASE_IN", "POSTED", null);
+        insertDocument(2L, "GIFT-TWO", "PURCHASE_IN", "POSTED", null);
+        execute("update jewelry_document set biz_date=timestampadd(DAY,-4,current_date)");
+        insertItem(11L, 1L, null, 1L, 2);
+        insertItem(21L, 2L, null, 1L, 3);
+        insertStock(1L, 7, 2, 0, 0, 1, 0, "0.00");
+        insertStock(2L, 1, 0, 0, 0, 0, 0, "0.00");
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            List<Map<String, Object>> details = mapper.selectStockInboundDetails(1L);
+            assertEquals(3, details.size());
+            assertEquals("GIFT-TWO", details.get(0).get("docNo"));
+            assertEquals("GIFT-ONE", details.get(1).get("docNo"));
+            assertEquals(21, ((Number) details.get(0).get("supplierReturnDays")).intValue());
+            Map<String, Object> unmatched = details.get(2);
+            assertEquals(1, ((Number) unmatched.get("stockOriginUnknown")).intValue());
+            assertEquals(3, ((Number) unmatched.get("totalStockQty")).intValue());
+            assertEquals(2, ((Number) unmatched.get("onHandQty")).intValue());
+            assertEquals(1, ((Number) unmatched.get("defectQty")).intValue());
+            assertEquals(0, new BigDecimal(unmatched.get("stockAmount").toString()).signum());
+            assertEquals(null, unmatched.get("inboundDate"));
+            assertEquals(null, unmatched.get("supplierReturnDate"));
+            assertEquals(8, details.stream().mapToInt(row -> ((Number) row.get("totalStockQty")).intValue()).sum());
+            assertEquals(7, details.stream().mapToInt(row -> ((Number) row.get("onHandQty")).intValue()).sum());
+            assertEquals(2, details.stream().mapToInt(row -> ((Number) row.get("reservedOutQty")).intValue()).sum());
+            assertEquals(5, details.stream().mapToInt(row -> ((Number) row.get("availableQty")).intValue()).sum());
+            assertTrue(mapper.selectStockInboundDetails(2L).isEmpty());
+        }
+    }
+
+    @Test
+    void inboundConditionAndCostAllocationsReconcileAfterRounding()
+    {
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification)"
+            + " values(1,'COST-1','成品成本','FINISHED','普通')");
+        for (long id = 1; id <= 3; id++)
+        {
+            insertDocument(id, "COST-" + id, "PURCHASE_IN", "POSTED", null);
+            insertItem(id * 10, id, null, 1L, 3);
+        }
+        insertStock(1L, 2, 0, 3, 0, 3, 0, "12.345678");
+        execute("update jewelry_stock set inspection_cost_amount=17.123456,"
+            + "defect_cost_amount=8.654321 where product_id=1");
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            List<Map<String, Object>> details = session.getMapper(JewelryErpMapper.class).selectStockInboundDetails(1L);
+            assertEquals(3, details.size());
+            assertEquals(3, details.stream().mapToInt(row -> ((Number) row.get("inspectionQty")).intValue()).sum());
+            assertEquals(3, details.stream().mapToInt(row -> ((Number) row.get("defectQty")).intValue()).sum());
+            BigDecimal total = BigDecimal.ZERO;
+            for (Map<String, Object> row : details)
+            {
+                assertEquals(((Number) row.get("totalStockQty")).intValue(),
+                    ((Number) row.get("onHandQty")).intValue()
+                    + ((Number) row.get("inspectionQty")).intValue()
+                    + ((Number) row.get("defectQty")).intValue());
+                assertEquals(0, new BigDecimal(row.get("avgCost").toString()).compareTo(new BigDecimal("12.345678")));
+                total = total.add(new BigDecimal(row.get("stockAmount").toString()));
+            }
+            assertEquals(0, total.compareTo(decimalValue("select round(on_hand_qty*avg_cost"
+                + "+inspection_cost_amount+defect_cost_amount,2) from jewelry_stock where product_id=1")));
         }
     }
 

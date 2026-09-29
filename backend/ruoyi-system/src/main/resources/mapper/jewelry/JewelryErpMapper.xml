@@ -777,7 +777,7 @@
         from jewelry_stock s join jewelry_product p on p.product_id=s.product_id
         left join stock_origin_summary os on os.product_id=s.product_id
         left join remaining_deadlines rd on rd.product_id=s.product_id and rd.deadline_rank=1
-          and p.product_type in ('FINISHED','SAMPLE')
+          and p.product_type in ('FINISHED','GIFT','SAMPLE')
         cross join warning_config wc
         <where>
             <if test="keyword != null and keyword != ''">
@@ -858,6 +858,92 @@
         from sample_allocated_rows i
         where i.product_id=#{productId}
         order by i.inbound_date desc,i.item_id desc
+    </select>
+    <resultMap id="stockInboundDetailMap" type="java.util.LinkedHashMap" extends="sampleInboundDetailMap">
+        <result property="stockOriginUnknown" column="stock_origin_unknown"/>
+        <result property="inspectionQty" column="inspection_qty"/>
+        <result property="defectQty" column="defect_qty"/>
+        <result property="avgCost" column="avg_cost"/>
+        <result property="stockAmount" column="stock_amount"/>
+    </resultMap>
+    <!-- Receipts do not store physical batch balances. Infer the remaining receipt
+         quantities by FIFO, deduct linked supplier returns from their own receipt,
+         and reserve the oldest remaining saleable stock first. Keep any balance
+         without a posted receipt separate instead of inventing an inbound date. -->
+    <select id="selectStockInboundDetails" resultMap="stockInboundDetailMap">
+        with return_config as (
+          select coalesce(max(case when cast(config_value as decimal(10,0)) between 1 and 365
+            then cast(config_value as decimal(10,0)) end),25) return_days
+          from sys_config where config_key='jewelry.supplier.return.days'
+        ), current_stock as (
+          select s.on_hand_qty,s.reserved_out_qty,s.inspection_qty,s.defect_qty,s.avg_cost,
+            s.inspection_cost_amount,s.defect_cost_amount,
+            s.on_hand_qty+s.inspection_qty+s.defect_qty total_qty
+          from jewelry_stock s join jewelry_product p on p.product_id=s.product_id
+          where s.product_id=#{productId} and p.product_type in ('FINISHED','GIFT')
+        ), supplier_returned as (
+          select ri.source_item_id,sum(ri.qty) returned_qty
+          from jewelry_document_item ri join jewelry_document rd on rd.document_id=ri.document_id
+          where ri.product_id=#{productId} and rd.doc_type='SUPPLIER_RETURN'
+            and rd.status='POSTED' and ri.source_item_id is not null
+          group by ri.source_item_id
+        ), receipts as (
+          select i.item_id,d.biz_date inbound_date,i.qty,
+            greatest(i.qty-coalesce(sr.returned_qty,0),0) layer_qty,
+            coalesce(i.supplier_name_snapshot,d.supplier_name_snapshot) supplier_name_snapshot,d.doc_no,
+            coalesce(d.supplier_return_date,timestampadd(DAY,rc.return_days,d.biz_date)) supplier_return_date
+          from jewelry_document_item i join jewelry_document d on d.document_id=i.document_id
+          join jewelry_product p on p.product_id=i.product_id and p.product_type in ('FINISHED','GIFT')
+          cross join return_config rc left join supplier_returned sr on sr.source_item_id=i.item_id
+          where i.product_id=#{productId} and d.doc_type='PURCHASE_IN' and d.status='POSTED'
+        ), ordered_receipts as (
+          select r.*,sum(layer_qty) over(order by inbound_date desc,item_id desc
+            rows between unbounded preceding and current row) cumulative_qty
+          from receipts r
+        ), allocated_receipts as (
+          select r.item_id,r.inbound_date,r.qty,r.supplier_name_snapshot,r.doc_no,r.supplier_return_date,
+            greatest(least(s.total_qty,r.cumulative_qty)-least(s.total_qty,r.cumulative_qty-r.layer_qty),0) total_stock_qty,
+            greatest(least(s.on_hand_qty,r.cumulative_qty)-least(s.on_hand_qty,r.cumulative_qty-r.layer_qty),0) on_hand_qty,
+            greatest(least(s.on_hand_qty+s.inspection_qty,r.cumulative_qty)
+              -least(s.on_hand_qty+s.inspection_qty,r.cumulative_qty-r.layer_qty),0) saleable_inspection_qty,
+            0 stock_origin_unknown
+          from ordered_receipts r cross join current_stock s
+          union all
+          select null,null,0,null,null,null,
+            greatest(s.total_qty-coalesce((select sum(layer_qty) from receipts),0),0),
+            greatest(s.on_hand_qty-coalesce((select sum(layer_qty) from receipts),0),0),
+            greatest(s.on_hand_qty+s.inspection_qty-coalesce((select sum(layer_qty) from receipts),0),0),1
+          from current_stock s
+          where s.total_qty &gt; coalesce((select sum(layer_qty) from receipts),0)
+        ), condition_layers as (
+          select r.*,saleable_inspection_qty-on_hand_qty inspection_qty,
+            total_stock_qty-saleable_inspection_qty defect_qty from allocated_receipts r
+        ), saleable_layers as (
+          select r.*,sum(on_hand_qty) over(order by stock_origin_unknown,inbound_date,item_id
+            rows between unbounded preceding and current row) cumulative_saleable,
+            sum(inspection_qty) over(order by stock_origin_unknown,inbound_date,item_id
+              rows between unbounded preceding and current row) cumulative_inspection,
+            sum(defect_qty) over(order by stock_origin_unknown,inbound_date,item_id
+              rows between unbounded preceding and current row) cumulative_defect
+          from condition_layers r
+        ), reserved_layers as (
+          select r.*,greatest(least(s.reserved_out_qty,r.cumulative_saleable)
+            -least(s.reserved_out_qty,r.cumulative_saleable-r.on_hand_qty),0) reserved_out_qty,
+            s.avg_cost,
+            round(r.cumulative_saleable*s.avg_cost
+              +coalesce(r.cumulative_inspection*s.inspection_cost_amount/nullif(s.inspection_qty,0),0)
+              +coalesce(r.cumulative_defect*s.defect_cost_amount/nullif(s.defect_qty,0),0),2)
+            -round((r.cumulative_saleable-r.on_hand_qty)*s.avg_cost
+              +coalesce((r.cumulative_inspection-r.inspection_qty)*s.inspection_cost_amount/nullif(s.inspection_qty,0),0)
+              +coalesce((r.cumulative_defect-r.defect_qty)*s.defect_cost_amount/nullif(s.defect_qty,0),0),2) stock_amount
+          from saleable_layers r cross join current_stock s
+        )
+        select item_id,inbound_date,qty,total_stock_qty,on_hand_qty,reserved_out_qty,
+          inspection_qty,defect_qty,avg_cost,stock_amount,
+          on_hand_qty-reserved_out_qty available_qty,supplier_name_snapshot,doc_no,stock_origin_unknown,
+          timestampdiff(DAY,inbound_date,curdate()) stock_age_days,supplier_return_date,
+          timestampdiff(DAY,curdate(),supplier_return_date) supplier_return_days
+        from reserved_layers order by stock_origin_unknown,inbound_date desc,item_id desc
     </select>
     <select id="selectStockWarningDays" resultType="java.lang.Integer">
         select coalesce(max(cast(config_value as unsigned)),25)
