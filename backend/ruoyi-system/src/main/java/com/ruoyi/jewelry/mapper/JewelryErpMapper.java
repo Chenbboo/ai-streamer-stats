@@ -123,6 +123,7 @@ public interface JewelryErpMapper
     List<JewelryDocumentItem> selectReturnInspectionSourceItems(@Param("sourceDocumentId") Long sourceDocumentId,
         @Param("excludeDocumentId") Long excludeDocumentId);
     List<JewelryDocumentItem> selectDocumentItems(Long documentId);
+    JewelryDocumentItem selectDocumentItemById(Long itemId);
     int insertDocument(JewelryDocument document);
     int updateDocument(JewelryDocument document);
     int updateDocumentFinancials(JewelryDocument document);

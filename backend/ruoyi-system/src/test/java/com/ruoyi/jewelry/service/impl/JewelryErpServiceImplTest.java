@@ -1482,6 +1482,108 @@ class JewelryErpServiceImplTest
         verify(mapper, never()).insertDocument(any(JewelryDocument.class));
     }
 
+    private JewelryDocument multiPurchaseSupplierReturn()
+    {
+        JewelryDocument returned = freeSampleReturn("FINISHED", "100");
+        returned.getItems().get(0).setUnitPrice(decimal("120"));
+        JewelryDocument firstPurchase = mapper.selectDocumentById(90L);
+        JewelryDocumentItem firstItem = mapper.selectDocumentItems(90L).get(0);
+        firstItem.setDocumentId(90L);
+        lenient().when(mapper.selectDocumentItemById(901L)).thenReturn(firstItem);
+        JewelryDocument secondPurchase = document(91L, "PURCHASE_IN", "POSTED");
+        secondPurchase.setSupplierId(9L);
+        secondPurchase.setInfluencerId(SALES_INFLUENCER_ID);
+        JewelryDocumentItem secondItem = item(902L, 1, "200");
+        secondItem.setDocumentId(91L);
+        when(mapper.selectDocumentById(91L)).thenReturn(secondPurchase);
+        when(mapper.selectDocumentItemById(902L)).thenReturn(secondItem);
+        lenient().when(mapper.selectDocumentByIdForUpdate(90L)).thenReturn(firstPurchase);
+        lenient().when(mapper.selectDocumentByIdForUpdate(91L)).thenReturn(secondPurchase);
+        JewelryDocumentItem secondReturn = item(null, 1, "220");
+        secondReturn.setSourceItemId(902L);
+        // Client-supplied row metadata must be replaced by its true source item.
+        secondReturn.setSourceDocumentId(999L);
+        secondReturn.setSourceDocNo("FORGED");
+        returned.setItems(Arrays.asList(returned.getItems().get(0), secondReturn));
+        return returned;
+    }
+
+    @Test
+    void supplierReturnCanSaveAndSubmitMultiplePurchasesWithSameProductAndSeparatePrices()
+    {
+        JewelryDocument document = multiPurchaseSupplierReturn();
+        when(mapper.insertDocument(document)).thenAnswer(invocation -> {document.setDocumentId(104L);return 1;});
+        when(mapper.selectDocumentById(104L)).thenReturn(document);
+        when(mapper.selectDocumentItems(104L)).thenReturn(document.getItems());
+        service.saveDocument(document, MAKER_ID, "maker");
+        assertMoney("-340", document.getTotalAmount());
+        assertMoney("100", document.getItems().get(0).getSourceUnitPrice());
+        assertMoney("200", document.getItems().get(1).getSourceUnitPrice());
+        assertEquals(Long.valueOf(91), document.getItems().get(1).getSourceDocumentId());
+        assertEquals("DOC-91", document.getItems().get(1).getSourceDocNo());
+        verify(mapper, times(2)).insertDocumentItem(any(JewelryDocumentItem.class));
+        when(mapper.reserveOutbound(PRODUCT_ID, 1)).thenReturn(1);
+        service.submit(104L, MAKER_ID, "maker");
+        org.mockito.InOrder locks = org.mockito.Mockito.inOrder(mapper);
+        locks.verify(mapper).selectDocumentByIdForUpdate(90L);
+        locks.verify(mapper).selectDocumentByIdForUpdate(91L);
+        verify(mapper, times(2)).reserveOutbound(PRODUCT_ID, 1);
+        verify(mapper).updateDocumentStatus(104L, "DRAFT", "PENDING_FIRST", MAKER_ID, "maker", null, null);
+        document.setStatus("PENDING_FIRST");
+        Map<String, Object> liveStock = stock(10, 2, 0, 0, 0, 0, "100", "0", "0");
+        when(mapper.selectStockForUpdate(PRODUCT_ID)).thenReturn(liveStock);
+        when(mapper.applyStock(eq(PRODUCT_ID), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), any(), any(), any()))
+            .thenAnswer(invocation -> {
+                liveStock.put("onHandQty", invocation.getArgument(1));
+                liveStock.put("reservedOutQty", invocation.getArgument(2));
+                return 1;
+            });
+        service.approve(104L, "", null, REVIEWER_ONE_ID, "reviewer");
+        assertEquals(8, liveStock.get("onHandQty"));
+        assertEquals(0, liveStock.get("reservedOutQty"));
+        verify(mapper).updateDocumentStatus(104L, "PENDING_FIRST", "POSTED", REVIEWER_ONE_ID, "reviewer", null, 1);
+        assertMoney("-340", document.getTotalAmount());
+    }
+
+    @Test
+    void supplierReturnRejectsCombinedQuantityAboveAvailableInventory()
+    {
+        JewelryDocument document = multiPurchaseSupplierReturn();
+        when(mapper.selectStockForUpdate(PRODUCT_ID)).thenReturn(stock(1, 0, 0, 0, 0, 0, "0", "0", "0"));
+        ServiceException error = assertThrows(ServiceException.class, () -> service.saveDocument(document, MAKER_ID, "maker"));
+        assertTrue(error.getMessage().contains("跨采购单合计"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void supplierReturnValidatesEveryAdditionalPurchaseSupplierInfluencerAndReversal()
+    {
+        JewelryDocument document = multiPurchaseSupplierReturn();
+        JewelryDocument additional = mapper.selectDocumentById(91L);
+        additional.setSupplierId(8L);
+        assertTrue(assertThrows(ServiceException.class, () -> service.saveDocument(document, MAKER_ID, "maker"))
+            .getMessage().contains("供应商不一致"));
+        additional.setSupplierId(9L);
+        additional.setInfluencerId(RETURN_INFLUENCER_ID);
+        assertTrue(assertThrows(ServiceException.class, () -> service.saveDocument(document, MAKER_ID, "maker"))
+            .getMessage().contains("达人/主播不一致"));
+        additional.setInfluencerId(SALES_INFLUENCER_ID);
+        lenient().when(mapper.countReversalBySource(91L)).thenReturn(1);
+        assertTrue(assertThrows(ServiceException.class, () -> service.saveDocument(document, MAKER_ID, "maker"))
+            .getMessage().contains("红冲"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void supplierReturnAdditionalBatchCannotExceedItsOwnRemainingQuota()
+    {
+        JewelryDocument document = multiPurchaseSupplierReturn();
+        lenient().when(mapper.selectSupplierReturnedQtyBySourceItem(902L, null)).thenReturn(1);
+        assertTrue(assertThrows(ServiceException.class, () -> service.saveDocument(document, MAKER_ID, "maker"))
+            .getMessage().contains("剩余可退数量0件"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
     @Test
     void supplierReturnCannotExceedCurrentAvailableStockEvenWithPurchaseQuota()
     {

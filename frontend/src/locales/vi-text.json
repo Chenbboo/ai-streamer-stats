@@ -1,4 +1,8 @@
 {
+  "选择采购单，追加商品": "Chọn phiếu mua để thêm sản phẩm",
+  "可连续选择同达人、同供应商的采购单追加商品，不替换已有明细；每行保留原采购单，同一商品跨单合计不得超过可用库存。": "Có thể chọn liên tiếp phiếu mua của cùng người giới thiệu và nhà cung cấp để thêm sản phẩm, không thay thế chi tiết hiện có; mỗi dòng giữ phiếu mua gốc, tổng số lượng trả của cùng sản phẩm không được vượt tồn kho khả dụng.",
+  "采购单正在加载，请稍后再保存": "Đang tải phiếu mua, vui lòng lưu sau",
+  "同一商品跨采购单合计退货数量不能超过可用库存，原采购明细不能重复添加": "Tổng số lượng trả của cùng sản phẩm qua nhiều phiếu mua không được vượt tồn kho khả dụng; không được thêm trùng chi tiết mua gốc",
   "开始月份不能晚于结束月份": "Tháng bắt đầu không được sau tháng kết thúc",
   "图表月份须为有效的 yyyy-MM 月份": "Tháng biểu đồ phải hợp lệ và có định dạng yyyy-MM",
   "图表月份不能晚于本月": "Không thể chọn tháng sau tháng hiện tại",

@@ -55,6 +55,9 @@
         <result property="productId" column="product_id"/>
         <result property="itemRole" column="item_role"/>
         <result property="sourceItemId" column="source_item_id"/>
+        <result property="sourceDocumentId" column="source_document_id"/>
+        <result property="sourceDocNo" column="source_doc_no"/>
+        <result property="availableReturnQty" column="available_return_qty"/>
         <result property="bundleGroupNo" column="bundle_group_no"/>
         <result property="saleRole" column="sale_role"/>
         <result property="pricingMode" column="pricing_mode"/>
@@ -1110,9 +1113,12 @@
           and status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
     </select>
     <select id="countActiveSupplierReturnsBySource" resultType="int">
-        select count(*) from jewelry_document
-        where doc_type='SUPPLIER_RETURN' and source_document_id=#{sourceDocumentId}
-          and status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
+        select count(*) from jewelry_document d
+        where d.doc_type='SUPPLIER_RETURN' and d.status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
+          and (d.source_document_id=#{sourceDocumentId} or exists (
+            select 1 from jewelry_document_item ri
+            join jewelry_document_item pi on pi.item_id=ri.source_item_id
+            where ri.document_id=d.document_id and pi.document_id=#{sourceDocumentId}))
     </select>
     <select id="countPendingCostChangesByProduct" resultType="int">
         select count(*)
@@ -1168,7 +1174,6 @@
                 from jewelry_document_item return_item
                 join jewelry_document return_doc on return_doc.document_id=return_item.document_id
                 where return_doc.doc_type='SUPPLIER_RETURN'
-                  and return_doc.source_document_id=d.document_id
                   and return_item.source_item_id=source_item.item_id
                   and return_doc.status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
               ),0)
@@ -1177,6 +1182,7 @@
     </select>
     <select id="selectSupplierReturnSourceItems" resultMap="itemMap">
         select source_item.*,
+          greatest(0,coalesce(stock.on_hand_qty,0)-coalesce(stock.reserved_out_qty,0)) available_return_qty,
           greatest(0,least(source_item.qty-coalesce(returned.returned_qty,0),
             coalesce(stock.on_hand_qty,0)-coalesce(stock.reserved_out_qty,0))) remaining_return_qty
         from jewelry_document_item source_item
@@ -1186,7 +1192,6 @@
           from jewelry_document_item return_item
           join jewelry_document return_doc on return_doc.document_id=return_item.document_id
           where return_doc.doc_type='SUPPLIER_RETURN'
-            and return_doc.source_document_id=#{sourceDocumentId}
             and return_doc.status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
             <if test="excludeDocumentId != null">and return_doc.document_id != #{excludeDocumentId}</if>
           group by return_item.source_item_id
@@ -1318,6 +1323,7 @@
     </select>
     <select id="selectDocumentItems" resultMap="itemMap">
         select item.*,source_item.unit_price source_unit_price,
+          source_item.document_id source_document_id,source_doc.doc_no source_doc_no,
           (select group_concat(distinct coalesce(nullif(sp.supplier_name,''),
               nullif(inbound_item.supplier_name_snapshot,''),nullif(inbound.supplier_name_snapshot,''))
               order by coalesce(nullif(sp.supplier_name,''),
@@ -1329,8 +1335,12 @@
            where inbound_item.product_id=item.product_id) product_supplier_names
         from jewelry_document_item item
         left join jewelry_document_item source_item on source_item.item_id=item.source_item_id
+        left join jewelry_document source_doc on source_doc.document_id=source_item.document_id
         where item.document_id=#{documentId}
         order by item.item_id
+    </select>
+    <select id="selectDocumentItemById" resultMap="itemMap">
+        select * from jewelry_document_item where item_id=#{itemId}
     </select>
     <insert id="insertDocument" useGeneratedKeys="true" keyProperty="documentId">
         insert into jewelry_document(doc_no,doc_type,biz_date,supplier_return_date,status,supplier_id,supplier_name_snapshot,sales_channel,

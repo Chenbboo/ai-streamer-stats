@@ -86,6 +86,7 @@
             </div>
           </template>
         </el-table-column>
+        <el-table-column v-if="detail.docType==='SUPPLIER_RETURN'" prop="sourceDocNo" :label="$tr('原采购单')" width="220" show-overflow-tooltip/>
         <el-table-column v-if="detail.docType!=='SALES_OUT'" :label="$tr(&quot;供应商&quot;)" min-width="140" show-overflow-tooltip><template #default="{row}">{{itemSupplierNames(row,detail)}}</template></el-table-column>
         <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="systemQty" :label="$tr(&quot;系统库存&quot;)"/>
         <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="countedQty" :label="$tr(&quot;实盘库存&quot;)"/>

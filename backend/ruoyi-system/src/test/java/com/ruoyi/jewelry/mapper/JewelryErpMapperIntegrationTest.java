@@ -1315,6 +1315,44 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void multiPurchaseSupplierReturnTracksEverySourceAndBlocksReversingAnyReferencedPurchase()
+    {
+        insertStock(10L, 10, 0, 0, 0, 0, 0, "12");
+        insertDocument(1L, "MULTI-PURCHASE-1", "PURCHASE_IN", "POSTED", null);
+        insertDocument(2L, "MULTI-PURCHASE-2", "PURCHASE_IN", "POSTED", null);
+        execute("update jewelry_document set supplier_id=9,influencer_id=17 where document_id in (1,2)");
+        insertItem(101L, 1L, null, 10L, 2);
+        insertItem(201L, 2L, null, 10L, 3);
+        insertDocument(3L, "MULTI-RETURN", "SUPPLIER_RETURN", "PENDING_FIRST", 1L);
+        insertItem(301L, 3L, 101L, 10L, 1);
+        insertItem(302L, 3L, 201L, 10L, 3);
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            assertEquals(1, mapper.countActiveSupplierReturnsBySource(1L));
+            assertEquals(1, mapper.countActiveSupplierReturnsBySource(2L));
+            assertEquals(1, mapper.selectSupplierReturnSourceItems(1L, null).get(0).getRemainingReturnQty());
+            assertTrue(mapper.selectSupplierReturnSourceItems(2L, null).isEmpty());
+            assertEquals(1, mapper.selectSupplierReturnSourceList(17L, 9L).size());
+            assertEquals(Long.valueOf(1), mapper.selectSupplierReturnSourceList(17L, 9L).get(0).getDocumentId());
+            List<JewelryDocumentItem> rows = mapper.selectDocumentItems(3L);
+            assertEquals(Long.valueOf(1), rows.get(0).getSourceDocumentId());
+            assertEquals("MULTI-PURCHASE-1", rows.get(0).getSourceDocNo());
+            assertEquals(Long.valueOf(2), rows.get(1).getSourceDocumentId());
+            assertEquals("MULTI-PURCHASE-2", rows.get(1).getSourceDocNo());
+            assertEquals(Long.valueOf(2), mapper.selectDocumentItemById(201L).getDocumentId());
+        }
+        execute("update jewelry_document set status='REVERSED' where document_id=3");
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            assertEquals(0, mapper.countActiveSupplierReturnsBySource(2L));
+            assertEquals(3, mapper.selectSupplierReturnSourceItems(2L, null).get(0).getRemainingReturnQty());
+            assertEquals(2, mapper.selectSupplierReturnSourceList(17L, 9L).size());
+        }
+    }
+
+    @Test
     void inspectionAndDefectReservationsRespectTheirOwnAvailableQuantities()
     {
         insertStock(1L, 5, 0, 3, 1, 2, 0, "100.00");

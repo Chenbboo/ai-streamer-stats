@@ -11,6 +11,10 @@ public class JewelryDocumentItem
     private Long productId;
     private String itemRole;
     private Long sourceItemId;
+    // Derived from sourceItemId on read/validation; not independent persisted references.
+    private Long sourceDocumentId;
+    private String sourceDocNo;
+    private Integer availableReturnQty;
     private Integer bundleGroupNo;
     private String saleRole;
     private String pricingMode;
@@ -63,6 +67,12 @@ public class JewelryDocumentItem
     public void setItemRole(String itemRole) { this.itemRole = itemRole; }
     public Long getSourceItemId() { return sourceItemId; }
     public void setSourceItemId(Long sourceItemId) { this.sourceItemId = sourceItemId; }
+    public Long getSourceDocumentId() { return sourceDocumentId; }
+    public void setSourceDocumentId(Long sourceDocumentId) { this.sourceDocumentId = sourceDocumentId; }
+    public String getSourceDocNo() { return sourceDocNo; }
+    public void setSourceDocNo(String sourceDocNo) { this.sourceDocNo = sourceDocNo; }
+    public Integer getAvailableReturnQty() { return availableReturnQty; }
+    public void setAvailableReturnQty(Integer availableReturnQty) { this.availableReturnQty = availableReturnQty; }
     public Integer getBundleGroupNo() { return bundleGroupNo; }
     public void setBundleGroupNo(Integer bundleGroupNo) { this.bundleGroupNo = bundleGroupNo; }
     public String getSaleRole() { return saleRole; }
