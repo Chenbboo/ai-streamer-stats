@@ -271,7 +271,7 @@
             <template #default="{ row }">
               <span v-if="readonly">{{ row.qty }}</span>
               <el-input-number v-else v-model="row.qty" :min="1" :max="linkedReturnMaxQty(row)"
-                :disabled="form.docType==='SUPPLIER_RETURN' && (!form.sourceDocumentId || Number(row.remainingReturnQty || 0)<=0) || form.docType==='CUSTOMER_RETURN' && !form.sourceDocumentId && (!row.productId || Number(row.remainingReturnQty || 0)<=0)"
+                :disabled="form.docType==='SUPPLIER_RETURN' && (!row.productId || supplierReturnSourceLoading || supplierReturnProductError || Number(row.remainingReturnQty || 0)<=0) || form.docType==='CUSTOMER_RETURN' && !form.sourceDocumentId && (!row.productId || Number(row.remainingReturnQty || 0)<=0)"
                 @change="linkedReturnQtyChanged(row)" />
             </template>
           </el-table-column>

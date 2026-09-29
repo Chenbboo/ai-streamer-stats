@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { parse, compileScript, compileTemplate } from 'vue/compiler-sfc'
-import { supplierReturnProductRows, refreshSupplierReturnProducts, supplierReturnProductQuantitiesValid } from './jewelrySupplierReturn.js'
+import { supplierReturnProductRows, refreshSupplierReturnProducts, supplierReturnProductQuantitiesValid, supplierReturnMaxQty } from './jewelrySupplierReturn.js'
 
 test('purchase splits merge for editing without changing different actual prices', () => {
   const rows = supplierReturnProductRows([{productId:1,qty:2,unitPrice:150.1234,sourceItemId:11},
@@ -27,6 +27,28 @@ test('sum across different price rows respects combined quota and positive integ
   rows[1].qty=0.5; assert.equal(supplierReturnProductQuantitiesValid(rows),false)
 })
 const vue=readFileSync(new URL('../views/jewelry/document/index.vue',import.meta.url),'utf8')
+test('quantity control works without a manual purchase source and retains quota/loading guards',()=>{
+  const quantityControl=vue.match(/<el-input-number v-else v-model="row\.qty"[^>]*>/)[0]
+  const disabled=new Function('form','row','supplierReturnSourceLoading','supplierReturnProductError',
+    `return Boolean(${quantityControl.match(/:disabled="([^"]*)"/)[1]})`)
+  const form={docType:'SUPPLIER_RETURN',sourceDocumentId:null,items:[]}
+  const row={productId:10,qty:1,remainingReturnQty:4,availableReturnQty:4}
+  form.items=[row]
+  assert.equal(disabled(form,row,false,false),false)
+  assert.equal(supplierReturnMaxQty(row,form.items),4)
+  row.qty=4; assert.equal(supplierReturnProductQuantitiesValid(form.items),true)
+  row.qty=5; assert.equal(supplierReturnProductQuantitiesValid(form.items),false)
+  assert.equal(disabled(form,row,true,false),true)
+  assert.equal(disabled(form,row,false,true),true)
+  assert.equal(disabled(form,{...row,productId:null},false,false),true)
+  assert.equal(disabled(form,{...row,remainingReturnQty:0},false,false),true)
+  row.qty=1
+  form.items.push({...row,qty:2})
+  assert.equal(supplierReturnMaxQty(row,form.items),2)
+  form.docType='CUSTOMER_RETURN'
+  assert.equal(disabled(form,row,false,false),false)
+  assert.equal(disabled(form,{...row,remainingReturnQty:0},false,false),true)
+})
 function harness(){
   const start=vue.indexOf('async function loadSupplierReturnProducts('),end=vue.indexOf('async function supplierChanged(',start)
   const pending=[]
