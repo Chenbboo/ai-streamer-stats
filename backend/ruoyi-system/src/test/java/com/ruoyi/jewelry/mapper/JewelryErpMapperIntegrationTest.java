@@ -515,6 +515,131 @@ class JewelryErpMapperIntegrationTest
         execute("insert into jewelry_stock_transaction values(" + id + ",1," + id + "," + id + ",-" + qty + ",current_timestamp)");
     }
 
+    @Test
+    void accessoryProductsNeverTriggerStockAgeWarningsButKeepQuantityWarnings() throws Exception
+    {
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification)"
+            + " values(1,'AGE-1','库龄分类测试','ACCESSORY','普通')");
+        insertStock(1L, 10, 0, 0, 0, 0, 0, "10");
+        deadlinePurchase(1L, 10, java.time.LocalDate.now().plusDays(60).toString());
+        execute("insert into sys_config(config_key,config_value) values('jewelry.stock.warning.days','25')");
+        // Include the exact warning boundary and a much older receipt.
+        for (int age : new int[] {24, 25, 90})
+        {
+            execute("update jewelry_document set biz_date=timestampadd(DAY,-" + age
+                + ",current_date) where document_id=1");
+            for (String type : Arrays.asList("ACCESSORY", "FINISHED", "GIFT", "PART", "WELFARE", "SAMPLE"))
+            {
+                execute("update jewelry_product set product_type='" + type + "' where product_id=1");
+                int ageWarning = !"ACCESSORY".equals(type) && age >= 25 ? 1 : 0;
+                assertStockWarningCounts(ageWarning, ageWarning, 0);
+            }
+        }
+        execute("update jewelry_product set product_type='ACCESSORY' where product_id=1");
+        execute("update jewelry_stock set reserved_out_qty=5 where product_id=1");
+        assertStockWarningCounts(0, 1, 1);
+    }
+
+    @Test
+    void accessoryStockHasNoCalculatedAgeOrSupplierReturnDeadline() throws Exception
+    {
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification)"
+            + " values(1,'TIME-1','库存时间测试','ACCESSORY','普通')");
+        insertStock(1L, 10, 0, 0, 0, 0, 0, "10");
+        deadlinePurchase(1L, 10, java.time.LocalDate.now().plusDays(10).toString());
+        execute("update jewelry_document set biz_date=timestampadd(DAY,-90,current_date) where document_id=1");
+        String sql = sqlSessionFactory.getConfiguration()
+            .getMappedStatement("com.ruoyi.jewelry.mapper.JewelryErpMapper.selectStockList")
+            .getBoundSql(Collections.emptyMap()).getSql();
+        String ctes = sql.substring(sql.indexOf("return_config as"), sql.indexOf("select p.product_id productId"));
+        int ageStart = sql.indexOf("case when p.product_type='ACCESSORY'", sql.indexOf("select p.product_id productId"));
+        int returnStart = sql.indexOf("case when p.product_type='ACCESSORY'", ageStart + 1);
+        String projections = sql.substring(ageStart, sql.indexOf("end stockAgeDays", ageStart) + 16)
+            + "," + sql.substring(returnStart, sql.indexOf("end supplierReturnDays", returnStart) + 22);
+        projections = projections.replace("datediff(curdate(),os.oldest_inbound_date)",
+            "datediff(DAY,os.oldest_inbound_date,curdate())");
+        for (String type : Arrays.asList("ACCESSORY", "FINISHED", "ACCESSORY"))
+        {
+            execute("update jewelry_product set product_type='" + type + "' where product_id=1");
+            for (boolean explicitDeadline : Arrays.asList(true, false))
+            {
+                execute("update jewelry_document set supplier_return_date=" + (explicitDeadline
+                    ? "timestampadd(DAY,10,current_date)" : "null") + " where document_id=1");
+                try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement())
+                {
+                    materializeDeadlineCtes(connection, ctes);
+                    String from = " from jewelry_stock s join jewelry_product p on p.product_id=s.product_id"
+                        + " left join stock_origin_summary os on os.product_id=s.product_id"
+                        + " left join remaining_deadlines rd on rd.product_id=s.product_id and rd.deadline_rank=1";
+                    try (ResultSet result = statement.executeQuery("select " + projections + ",rd.deadline" + from))
+                    {
+                        assertTrue(result.next());
+                        assertEquals("ACCESSORY".equals(type) ? null : 90L, result.getObject(1));
+                        assertEquals("ACCESSORY".equals(type) ? null : explicitDeadline ? 10L : -65L, result.getObject(2));
+                        assertEquals(!"ACCESSORY".equals(type), result.getObject(3) != null);
+                    }
+                    // Keep the recorded inbound date even though accessories have no age calculation.
+                    try (ResultSet result = statement.executeQuery("select origin_date,deadline from original_inbound"))
+                    {
+                        assertTrue(result.next());
+                        assertEquals(java.sql.Date.valueOf(java.time.LocalDate.now().minusDays(90)), result.getDate(1));
+                        assertEquals(!"ACCESSORY".equals(type), result.getObject(2) != null);
+                    }
+                }
+            }
+        }
+    }
+
+    private void assertStockWarningCounts(int ageExpected, int allExpected, int quantityExpected) throws Exception
+    {
+        MappedStatement stockStatement = sqlSessionFactory.getConfiguration()
+            .getMappedStatement("com.ruoyi.jewelry.mapper.JewelryErpMapper.selectStockList");
+        String stockSql = stockStatement.getBoundSql(Collections.emptyMap()).getSql();
+        String ctes = stockSql.substring(stockSql.indexOf("return_config as"), stockSql.indexOf("select p.product_id productId"));
+        String dashboardSql = sqlSessionFactory.getConfiguration()
+            .getMappedStatement("com.ruoyi.jewelry.mapper.JewelryErpMapper.selectDashboard")
+            .getBoundSql(Collections.emptyMap()).getSql();
+        List<String> queries = new ArrayList<String>();
+        List<Integer> expected = new ArrayList<Integer>();
+        int flagStart = stockSql.lastIndexOf("case when", stockSql.indexOf("end ageWarning"));
+        String ageFlag = stockSql.substring(flagStart, stockSql.indexOf("end ageWarning") + 3);
+        String stockFrom = stockSql.substring(stockSql.indexOf("from jewelry_stock s join jewelry_product p", stockSql.indexOf("select p.product_id productId")), stockSql.lastIndexOf("order by p.product_id desc"));
+        queries.add("select " + ageFlag + " " + stockFrom);
+        expected.add(ageExpected);
+        for (String type : Arrays.asList("age", "all", "quantity"))
+        {
+            Map<String, Object> query = new HashMap<String, Object>();
+            query.put("warningOnly", true);
+            query.put("warningType", type);
+            String sql = stockStatement.getBoundSql(query).getSql();
+            queries.add("select count(*) " + sql.substring(sql.indexOf("from jewelry_stock s join jewelry_product p", sql.indexOf("select p.product_id productId")), sql.lastIndexOf("order by p.product_id desc")));
+            expected.add("age".equals(type) ? ageExpected : "all".equals(type) ? allExpected : quantityExpected);
+        }
+        for (String field : Arrays.asList("ageWarningCount", "warningCount"))
+        {
+            int end = dashboardSql.indexOf(") " + field);
+            int start = dashboardSql.lastIndexOf("(select count(*)", end);
+            queries.add(dashboardSql.substring(start + 1, end));
+            expected.add("ageWarningCount".equals(field) ? ageExpected : allExpected);
+        }
+        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement())
+        {
+            materializeDeadlineCtes(connection, ctes);
+            statement.execute("create local temporary table warning_config as select 25 warning_days");
+            for (int index = 0; index < queries.size(); index++)
+            {
+                // H2 uses the three-argument form; all production predicates and joins stay intact.
+                String sql = queries.get(index).replace("datediff(curdate(),os.oldest_inbound_date)",
+                    "datediff(DAY,os.oldest_inbound_date,curdate())");
+                try (ResultSet result = statement.executeQuery(sql))
+                {
+                    assertTrue(result.next());
+                    assertEquals(expected.get(index).intValue(), result.getInt(1), sql);
+                }
+            }
+        }
+    }
+
     private void inspectedReturn(Long returnId, Long inspectId, Long saleItemId, int qty, String returnDate, String inspectDate)
     {
         insertDocument(returnId, "RETURN-" + returnId, "CUSTOMER_RETURN", "POSTED", saleItemId);

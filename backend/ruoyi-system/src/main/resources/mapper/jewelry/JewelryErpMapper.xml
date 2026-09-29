@@ -631,7 +631,8 @@
         original_inbound as (
           select t.product_id,t.transaction_id,d.document_id,d.doc_no,d.supplier_name_snapshot,
             d.doc_type,coalesce(inbound_item.biz_date,d.biz_date) origin_date,
-            case when d.doc_type='PURCHASE_IN' then coalesce(d.supplier_return_date,
+            case when origin_product.product_type='ACCESSORY' then null
+              when d.doc_type='PURCHASE_IN' then coalesce(d.supplier_return_date,
               timestampadd(DAY,rc.return_days,d.biz_date)) else null end deadline,
             case when d.doc_type='PURCHASE_IN'
               then greatest(t.on_hand_change-coalesce(sr.returned_qty,0),0)
@@ -639,6 +640,7 @@
           from jewelry_stock_transaction t
           join jewelry_document d on d.document_id=t.document_id
           join jewelry_document_item inbound_item on inbound_item.item_id=t.item_id
+          left join jewelry_product origin_product on origin_product.product_id=t.product_id
           cross join return_config rc
           left join supplier_returned sr on sr.source_item_id=t.item_id
           where t.on_hand_change &gt; 0 and d.status='POSTED'
@@ -742,6 +744,11 @@
         p.status='0' and p.product_type in ('FINISHED','SAMPLE') and s.on_hand_qty &gt; 0
         and rd.deadline is not null and timestampdiff(DAY,curdate(),rd.deadline) &lt; 7
     </sql>
+    <sql id="stockAgeWarningPredicate">
+        p.product_type &lt;&gt; 'ACCESSORY' and s.on_hand_qty &gt; 0
+        and os.oldest_inbound_date is not null
+        and datediff(curdate(),os.oldest_inbound_date) &gt;= wc.warning_days
+    </sql>
     <select id="selectStockList" resultType="java.util.LinkedHashMap">
         with warning_config as (
           select coalesce(max(cast(config_value as unsigned)),25) warning_days
@@ -767,16 +774,17 @@
                round(s.on_hand_qty*s.avg_cost+s.inspection_cost_amount+s.defect_cost_amount,2) stockAmount,
                s.update_time updateTime,
                os.oldest_inbound_date oldestInboundDate,
-               case when s.on_hand_qty &gt; 0 and os.oldest_inbound_date is not null
+               case when p.product_type='ACCESSORY' then null
+                 when s.on_hand_qty &gt; 0 and os.oldest_inbound_date is not null
                  then datediff(curdate(),os.oldest_inbound_date) else 0 end stockAgeDays,
                wc.warning_days warningDays,coalesce(os.origin_unknown,0) stockOriginUnknown,
                coalesce(os.origin_first_purchase,0) stockOriginFirstPurchase,
                rd.deadline supplierReturnDate,
-               timestampdiff(DAY,curdate(),rd.deadline) supplierReturnDays,
+               case when p.product_type='ACCESSORY' then null
+                 else timestampdiff(DAY,curdate(),rd.deadline) end supplierReturnDays,
                rd.doc_no supplierReturnDocNo,rd.supplier_name_snapshot supplierReturnSupplierName,
                case when (s.on_hand_qty-s.reserved_out_qty) &lt;= p.warning_qty then 1 else 0 end quantityWarning,
-               case when s.on_hand_qty &gt; 0 and os.oldest_inbound_date is not null
-                 and datediff(curdate(),os.oldest_inbound_date) &gt;= wc.warning_days then 1 else 0 end ageWarning
+               case when <include refid="stockAgeWarningPredicate"/> then 1 else 0 end ageWarning
         from jewelry_stock s join jewelry_product p on p.product_id=s.product_id
         left join stock_origin_summary os on os.product_id=s.product_id
         left join remaining_deadlines rd on rd.product_id=s.product_id and rd.deadline_rank=1
@@ -804,8 +812,7 @@
                         and (s.on_hand_qty-s.reserved_out_qty) &lt;= p.warning_qty
                     </when>
                     <when test="warningType == 'age'">
-                        and s.on_hand_qty &gt; 0 and os.oldest_inbound_date is not null
-                          and datediff(curdate(),os.oldest_inbound_date) &gt;= wc.warning_days
+                        and (<include refid="stockAgeWarningPredicate"/>)
                     </when>
                     <when test="warningType == 'supplierReturn'">
                         and (<include refid="supplierReturnWarningPredicate"/>)
@@ -813,8 +820,7 @@
                     <otherwise>
                         and ((s.on_hand_qty-s.reserved_out_qty) &lt;= p.warning_qty
                           or (<include refid="supplierReturnWarningPredicate"/>)
-                          or (s.on_hand_qty &gt; 0 and os.oldest_inbound_date is not null
-                            and datediff(curdate(),os.oldest_inbound_date) &gt;= wc.warning_days))
+                          or (<include refid="stockAgeWarningPredicate"/>))
                     </otherwise>
                 </choose>
             </if>
@@ -1020,8 +1026,7 @@
              join jewelry_product p on p.product_id=s.product_id
              left join stock_origin_summary os on os.product_id=s.product_id
              cross join warning_config wc
-             where p.status='0' and s.on_hand_qty&gt;0 and os.oldest_inbound_date is not null
-               and datediff(curdate(),os.oldest_inbound_date)&gt;=wc.warning_days) ageWarningCount,
+             where p.status='0' and (<include refid="stockAgeWarningPredicate"/>)) ageWarningCount,
           (select count(*) from jewelry_stock s
              join jewelry_product p on p.product_id=s.product_id
              left join stock_origin_summary os on os.product_id=s.product_id
@@ -1030,8 +1035,7 @@
                or exists (select 1 from remaining_deadlines rd
                  where rd.product_id=s.product_id and rd.deadline_rank=1
                    and (<include refid="supplierReturnWarningPredicate"/>))
-               or (s.on_hand_qty&gt;0 and os.oldest_inbound_date is not null
-                 and datediff(curdate(),os.oldest_inbound_date)&gt;=wc.warning_days))) warningCount,
+               or (<include refid="stockAgeWarningPredicate"/>))) warningCount,
           coalesce((select round(sum(d.total_amount),2)
              from jewelry_document d
              left join jewelry_document src on src.document_id=d.source_document_id

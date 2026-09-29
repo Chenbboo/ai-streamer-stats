@@ -64,7 +64,7 @@
                 </template>
               </el-table-column>
               <el-table-column :label="$tr(&quot;库龄&quot;)" width="90" align="right"><template #default="{row:item}">{{item.inboundDate?$tr("{0}天", [item.stockAgeDays]):$tr("来源待确认")}}</template></el-table-column>
-              <el-table-column :label="$tr(&quot;离供应商退货时间&quot;)" width="185" align="center">
+              <el-table-column v-if="appliedProductType!=='ACCESSORY'" :label="$tr(&quot;离供应商退货时间&quot;)" width="185" align="center">
                 <template #default="{row:item}">
                   <span v-if="Number(item.stockOriginUnknown)">{{ $tr("来源待确认") }}</span>
                   <template v-else>
@@ -90,7 +90,7 @@
         </el-tooltip>
         <span v-else>{{Number(row.stockOriginUnknown)?$tr("来源待确认"):row.oldestInboundDate || '—'}}</span>
       </template>
-    </el-table-column><el-table-column prop="stockAgeDays" :label="$tr(&quot;库龄&quot;)" width="90" align="right"><template #default="{row}"><el-tooltip v-if="Number(row.stockOriginUnknown)" :content="$tr(&quot;缺少有效原入库或采购依据，不能以退货或质检日期重新计算库龄。&quot;)"><span>{{ $tr("来源待确认") }}</span></el-tooltip><el-tag v-else-if="row.ageWarning" type="danger" effect="plain">{{ $tr("{0}天", [row.stockAgeDays]) }}</el-tag><span v-else>{{row.oldestInboundDate ? $tr("{0}天", [row.stockAgeDays]) : '—'}}</span></template></el-table-column><el-table-column :label="$tr(&quot;离供应商退货时间&quot;)" width="185" align="center">
+    </el-table-column><el-table-column v-if="appliedProductType!=='ACCESSORY'" prop="stockAgeDays" :label="$tr(&quot;库龄&quot;)" width="90" align="right"><template #default="{row}"><span v-if="row.productType==='ACCESSORY'">—</span><el-tooltip v-else-if="Number(row.stockOriginUnknown)" :content="$tr(&quot;缺少有效原入库或采购依据，不能以退货或质检日期重新计算库龄。&quot;)"><span>{{ $tr("来源待确认") }}</span></el-tooltip><el-tag v-else-if="row.ageWarning" type="danger" effect="plain">{{ $tr("{0}天", [row.stockAgeDays]) }}</el-tag><span v-else>{{row.oldestInboundDate ? $tr("{0}天", [row.stockAgeDays]) : '—'}}</span></template></el-table-column><el-table-column v-if="appliedProductType!=='ACCESSORY'" :label="$tr(&quot;离供应商退货时间&quot;)" width="185" align="center">
       <template #default="{row}">
         <span v-if="!['FINISHED','GIFT','SAMPLE'].includes(row.productType)">—</span>
         <el-tooltip v-else-if="row.supplierReturnDate" placement="top"
