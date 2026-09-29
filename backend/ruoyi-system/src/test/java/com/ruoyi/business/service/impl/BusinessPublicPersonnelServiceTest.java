@@ -78,6 +78,38 @@ class BusinessPublicPersonnelServiceTest {
         project(true);
         assertEquals(bd("0.00"),service.snapshot(10L,"2025-02","CNY",Arrays.asList(edit())).get("publicAmount"));
     }
+    @SuppressWarnings("unchecked")
+    @Test void canceledProjectTwentyFivePercentIsSplitAmongThreeRemainingProjects(){
+        when(work.selectBudgetRates(2L,"2025-02-01","2025-02-28")).thenReturn(Arrays.asList(
+            row("costMode","MONTHLY","unitCost",bd("9375.00"),"currency","CNY")));
+        List<Map<String,Object>> timeline=new ArrayList<>();
+        for(long projectId=10;projectId<=13;projectId++){
+            BusinessProject p=new BusinessProject();p.setProjectId(projectId);p.setProjectName("项目"+projectId);p.setBaseCurrency("CNY");
+            p.setStatus(projectId==11?"CANCELED":"ACTIVE");
+            when(projects.selectProjectById(projectId)).thenReturn(p);
+            timeline.add(row("projectId",projectId,"allocationId",projectId,"allocationValue",bd("25.00"),
+                "effectiveFrom","2025-02-01","projectEndDate",projectId==11?"2025-02-20":null,"confirmationStatus","CONFIRMED"));
+        }
+        when(projects.selectUserAllocationTimeline(2L)).thenReturn(timeline);
+        Map<String,Object> person=previewPerson();
+        assertEquals(bd("9375.00"),person.get("projectAmount"));
+        assertEquals(bd("100.00"),person.get("projectAllocationPercent"));
+        List<Map<String,Object>> details=(List<Map<String,Object>>)person.get("projectAllocations");
+        assertEquals(3,details.size());assertTrue(details.stream().noneMatch(r->Long.valueOf(11).equals(r.get("projectId"))));
+        assertEquals(bd("33.34"),details.get(0).get("allocationPercent"));
+        assertEquals(bd("33.33"),details.get(1).get("allocationPercent"));
+        assertEquals(bd("33.33"),details.get(2).get("allocationPercent"));
+        assertEquals(bd("9375.00"),details.stream().map(r->(BigDecimal)r.get("amount")).reduce(BigDecimal.ZERO,BigDecimal::add));
+        assertEquals(bd("0.00"),service.automaticSnapshot(10L,"2025-02","CNY",null).get("publicAmount"));
+    }
+    @Test void deletedProjectMetadataKeepsHistoricalMonthlyPreviewReadable(){
+        when(projects.selectUserAllocationTimeline(2L)).thenReturn(Arrays.asList(
+            row("projectId",3L,"allocationId",30L,"allocationValue",bd("100.00"),"effectiveFrom","2025-02-01",
+                "projectEndDate","2025-03-10","projectName","已删除项目","projectCurrency","CNY")));
+        Map<String,Object> person=previewPerson();
+        assertEquals(bd("10000.00"),person.get("projectAmount"));
+        assertTrue(((List<?>)person.get("projectIssues")).isEmpty());
+    }
     @Test void pendingAllocationCannotBePassedOffAsZero(){
         project(false);
         when(projects.selectUserAllocationTimeline(2L)).thenReturn(Arrays.asList(

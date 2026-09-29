@@ -1473,13 +1473,129 @@ class JewelryErpServiceImplTest
 
         when(mapper.selectDocumentById(90L)).thenReturn(purchase);
         when(mapper.selectDocumentItems(90L)).thenReturn(Arrays.asList(purchaseItem));
-        when(mapper.selectSupplierReturnedQtyBySourceItem(901L, null)).thenReturn(3);
+        when(mapper.selectSupplierReturnedQuantitiesForUpdate(901L, null)).thenReturn(Arrays.asList(3));
 
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.saveDocument(supplierReturn, MAKER_ID, "maker"));
 
         assertTrue(error.getMessage().contains("剩余可退数量2件"));
         verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    private JewelryDocument automaticSupplierReturn(int qty, String price)
+    {
+        JewelryDocument returned = multiPurchaseSupplierReturn();
+        mapper.selectDocumentById(91L);
+        JewelryDocumentItem first = mapper.selectDocumentItems(90L).get(0);
+        JewelryDocumentItem second = mapper.selectDocumentItemById(902L);
+        first.setQty(2); second.setQty(3);
+        first.setSourceDocumentId(90L); first.setSourceDocNo("DOC-90");
+        second.setSourceDocumentId(91L); second.setSourceDocNo("DOC-91");
+        first.setRemainingReturnQty(2); second.setRemainingReturnQty(3);
+        first.setAvailableReturnQty(10); second.setAvailableReturnQty(10);
+        lenient().when(mapper.selectSupplierReturnAllocationSources(SALES_INFLUENCER_ID, 9L, null))
+            .thenReturn(Arrays.asList(first, second));
+        returned.setSupplierReturnAutoAllocate(true);
+        returned.setSourceDocumentId(null);
+        JewelryDocumentItem requested = item(null, qty, price);
+        requested.setSourceItemId(99999L); // Automatic mode never trusts client purchase links.
+        returned.setItems(Arrays.asList(requested));
+        return returned;
+    }
+
+    @Test
+    void automaticSupplierReturnSplitsFifoAndPreservesActualPriceThroughSubmission()
+    {
+        JewelryDocument returned = automaticSupplierReturn(4, "150.1234");
+        when(mapper.insertDocument(returned)).thenAnswer(invocation -> {returned.setDocumentId(104L);return 1;});
+        when(mapper.selectDocumentById(104L)).thenReturn(returned);
+        when(mapper.selectDocumentItems(104L)).thenAnswer(invocation -> returned.getItems());
+        service.saveDocument(returned, MAKER_ID, "maker");
+        assertEquals(2, returned.getItems().size());
+        assertEquals(Long.valueOf(901), returned.getItems().get(0).getSourceItemId());
+        assertEquals(Long.valueOf(902), returned.getItems().get(1).getSourceItemId());
+        assertEquals(2, returned.getItems().get(0).getQty());
+        assertEquals(2, returned.getItems().get(1).getQty());
+        assertMoney("100", returned.getItems().get(0).getSourceUnitPrice());
+        assertMoney("200", returned.getItems().get(1).getSourceUnitPrice());
+        assertMoney("150.1234", returned.getItems().get(1).getUnitPrice());
+        assertMoney("-600.4936", returned.getTotalAmount());
+        verify(mapper, times(2)).selectSupplierReturnAllocationSources(SALES_INFLUENCER_ID, 9L, null);
+        org.mockito.InOrder locks = org.mockito.Mockito.inOrder(mapper);
+        locks.verify(mapper).selectDocumentByIdForUpdate(90L);
+        locks.verify(mapper).selectDocumentByIdForUpdate(91L);
+        when(mapper.reserveOutbound(PRODUCT_ID, 2)).thenReturn(1);
+        service.submit(104L, MAKER_ID, "maker");
+        verify(mapper, times(2)).reserveOutbound(PRODUCT_ID, 2);
+        verify(mapper).updateDocumentStatus(104L, "DRAFT", "PENDING_FIRST", MAKER_ID, "maker", null, null);
+    }
+
+    @Test
+    void automaticSupplierReturnListsAggregatedQuotaCappedBySharedInventory()
+    {
+        automaticSupplierReturn(1, "150");
+        List<Map<String, Object>> products = service.listSupplierReturnProducts(SALES_INFLUENCER_ID, 9L);
+        assertEquals(1, products.size());
+        assertEquals(5, products.get(0).get("remainingReturnQty"));
+        assertMoney("100", (BigDecimal) products.get(0).get("referencePurchasePrice"));
+        mapper.selectDocumentItems(90L).get(0).setAvailableReturnQty(3);
+        assertEquals(3, service.listSupplierReturnProducts(SALES_INFLUENCER_ID, 9L).get(0).get("remainingReturnQty"));
+        assertThrows(ServiceException.class, () -> service.listSupplierReturnProducts(null, 9L));
+        assertThrows(ServiceException.class, () -> service.listSupplierReturnProducts(SALES_INFLUENCER_ID, null));
+    }
+
+    @Test
+    void automaticSupplierReturnRejectsExcessQuotaAndLatestStockWithoutWrites()
+    {
+        JewelryDocument excess = automaticSupplierReturn(6, "150");
+        assertTrue(assertThrows(ServiceException.class,
+            () -> service.saveDocument(excess, MAKER_ID, "maker")).getMessage().contains("采购可退额度不足"));
+        JewelryDocument returned = automaticSupplierReturn(4, "150");
+        when(mapper.selectStockForUpdate(PRODUCT_ID)).thenReturn(stock(3, 0, 0, 0, 0, 0, "100", "0", "0"));
+        JewelryDocument tooMany = returned;
+        assertThrows(ServiceException.class, () -> service.saveDocument(tooMany, MAKER_ID, "maker"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void automaticSupplierReturnRechecksQuotaAfterSourceLocks()
+    {
+        JewelryDocument returned = automaticSupplierReturn(4, "150");
+        List<JewelryDocumentItem> before = mapper.selectSupplierReturnAllocationSources(SALES_INFLUENCER_ID, 9L, null);
+        when(mapper.selectSupplierReturnAllocationSources(SALES_INFLUENCER_ID, 9L, null))
+            .thenReturn(before, java.util.Collections.emptyList());
+        assertThrows(ServiceException.class, () -> service.saveDocument(returned, MAKER_ID, "maker"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void automaticSupplierReturnUsesLatestOccupiedQuotaAndReversalAfterWaitingForLocks()
+    {
+        JewelryDocument returned = automaticSupplierReturn(4, "150");
+        lenient().when(mapper.selectSupplierReturnedQuantitiesForUpdate(901L, null)).thenReturn(Arrays.asList(2));
+        assertTrue(assertThrows(ServiceException.class,
+            () -> service.saveDocument(returned, MAKER_ID, "maker")).getMessage().contains("采购可退额度不足"));
+        JewelryDocument reversed = automaticSupplierReturn(1, "150");
+        when(mapper.selectReversalIdsBySourceForUpdate(90L)).thenReturn(Arrays.asList(777L));
+        assertTrue(assertThrows(ServiceException.class,
+            () -> service.saveDocument(reversed, MAKER_ID, "maker")).getMessage().contains("红冲"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void automaticSupplierReturnKeepsDifferentActualPricesAndCumulativeSourceQuota()
+    {
+        JewelryDocument returned = automaticSupplierReturn(1, "150");
+        returned.setItems(Arrays.asList(item(null, 1, "150"), item(null, 1, "160")));
+        when(mapper.insertDocument(returned)).thenAnswer(invocation -> {returned.setDocumentId(104L);return 1;});
+        when(mapper.selectDocumentById(104L)).thenReturn(returned);
+        when(mapper.selectDocumentItems(104L)).thenAnswer(invocation -> returned.getItems());
+        service.saveDocument(returned, MAKER_ID, "maker");
+        assertEquals(2, returned.getItems().size());
+        assertEquals(returned.getItems().get(0).getSourceItemId(), returned.getItems().get(1).getSourceItemId());
+        assertMoney("-310", returned.getTotalAmount());
+        mapper.selectDocumentItems(90L).get(0).setQty(1);
+        assertThrows(ServiceException.class, () -> service.saveDocument(returned, MAKER_ID, "maker"));
     }
 
     private JewelryDocument multiPurchaseSupplierReturn()
@@ -1578,7 +1694,7 @@ class JewelryErpServiceImplTest
     void supplierReturnAdditionalBatchCannotExceedItsOwnRemainingQuota()
     {
         JewelryDocument document = multiPurchaseSupplierReturn();
-        lenient().when(mapper.selectSupplierReturnedQtyBySourceItem(902L, null)).thenReturn(1);
+        lenient().when(mapper.selectSupplierReturnedQuantitiesForUpdate(902L, null)).thenReturn(Arrays.asList(1));
         assertTrue(assertThrows(ServiceException.class, () -> service.saveDocument(document, MAKER_ID, "maker"))
             .getMessage().contains("剩余可退数量0件"));
         verify(mapper, never()).insertDocument(any(JewelryDocument.class));
@@ -1592,7 +1708,7 @@ class JewelryErpServiceImplTest
         purchase.setInfluencerId(SALES_INFLUENCER_ID);
         when(mapper.selectDocumentById(90L)).thenReturn(purchase);
         when(mapper.selectDocumentItems(90L)).thenReturn(Arrays.asList(item(901L, 29, "750")));
-        when(mapper.selectSupplierReturnedQtyBySourceItem(901L, null)).thenReturn(8);
+        when(mapper.selectSupplierReturnedQuantitiesForUpdate(901L, null)).thenReturn(Arrays.asList(8));
         for (int[] sample : new int[][] {{12,0,13,12},{12,3,10,9},{0,0,1,0}})
         {
             when(mapper.selectStockForUpdate(PRODUCT_ID))

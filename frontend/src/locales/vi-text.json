@@ -8529,5 +8529,15 @@
   "请选择有效的月份或日期，不能查看未来花费": "Chọn tháng hoặc ngày hợp lệ; không thể xem chi phí trong tương lai",
   "日成本：{0} {1}": "Chi phí ngày: {0} {1}",
   "项目投入：{0}%": "Phân bổ dự án: {0}%",
-  "含请假调整": "Bao gồm điều chỉnh nghỉ phép"
+  "含请假调整": "Bao gồm điều chỉnh nghỉ phép",
+  "选择达人和供应商后直接选择可退商品；保存时按较早的有效采购单自动分配来源，可退数量受采购额度与当前可用库存限制。实际退货单价请核对填写。": "Sau khi chọn KOL và nhà cung cấp, chọn trực tiếp sản phẩm có thể trả. Khi lưu, hệ thống tự phân bổ nguồn từ phiếu mua hợp lệ cũ hơn; số lượng bị giới hạn bởi hạn mức mua và tồn khả dụng. Vui lòng kiểm tra đơn giá trả thực tế.",
+  "可退商品加载失败，请重试后再保存": "Không tải được sản phẩm có thể trả; hãy thử lại trước khi lưu",
+  "刷新可退商品": "Làm mới sản phẩm có thể trả",
+  "参考采购单价": "Đơn giá mua tham khảo",
+  "所选达人和供应商暂无可退商品": "KOL và nhà cung cấp đã chọn hiện không có sản phẩm có thể trả",
+  "请等待可退商品加载成功后再保存": "Vui lòng đợi tải thành công sản phẩm có thể trả trước khi lưu",
+  "同一商品合计退货数量不能超过当前剩余可退数量": "Tổng số lượng trả của cùng một sản phẩm không được vượt quá số lượng còn có thể trả",
+  "所选达人和供应商的采购可退额度不足，请刷新商品后重试": "Hạn mức trả hàng mua của KOL và nhà cung cấp đã chọn không đủ; hãy làm mới sản phẩm và thử lại",
+  "退货数量必须大于0": "Số lượng trả phải lớn hơn 0",
+  "只能修改自己创建的草稿或已驳回单据": "Chỉ được sửa bản nháp hoặc chứng từ bị từ chối do chính mình tạo"
 }

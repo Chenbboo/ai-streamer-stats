@@ -40,6 +40,9 @@ export const getJewelryDocument = (id) => request({ url: `/jewelry/document/${id
 export const listSupplierReturnSources = (influencerId, supplierId) => request({
   url: '/jewelry/document/supplier-return-sources', method: 'get', params: { influencerId, supplierId }
 })
+export const listSupplierReturnProducts = (influencerId, supplierId) => request({
+  url: '/jewelry/document/supplier-return-products', method: 'get', params: { influencerId, supplierId }
+})
 export const getSupplierReturnSource = (id, excludeDocumentId) => request({
   url: `/jewelry/document/supplier-return-source/${id}`,
   method: 'get', params: excludeDocumentId ? { excludeDocumentId } : undefined

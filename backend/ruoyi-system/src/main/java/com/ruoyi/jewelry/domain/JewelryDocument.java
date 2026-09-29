@@ -62,6 +62,10 @@ public class JewelryDocument extends BaseEntity
     private String rejectReason;
     private Integer version;
     private List<JewelryDocumentItem> items;
+    // Request-only: resolved purchase links are persisted on the items, not this flag.
+    private boolean supplierReturnAutoAllocate;
+    public boolean isSupplierReturnAutoAllocate() { return supplierReturnAutoAllocate; }
+    public void setSupplierReturnAutoAllocate(boolean value) { this.supplierReturnAutoAllocate = value; }
     private Map<String, Object> newOutputProduct;
 
     public Long getDocumentId() { return documentId; }

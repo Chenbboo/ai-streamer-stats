@@ -44,6 +44,7 @@ public interface IJewelryErpService
     JewelryDocument getDocumentForDisplay(Long documentId);
     JewelryDocument getReturnInspectionSource(Long sourceDocumentId, Long excludeDocumentId);
     List<JewelryDocument> listSupplierReturnSources(Long influencerId, Long supplierId);
+    List<Map<String, Object>> listSupplierReturnProducts(Long influencerId, Long supplierId);
     JewelryDocument getSupplierReturnSource(Long sourceDocumentId, Long excludeDocumentId);
     JewelryDocument getCustomerReturnSource(Long sourceDocumentId, Long excludeDocumentId);
     List<Map<String, Object>> listCustomerReturnProductStats(Long influencerId, Long excludeDocumentId);

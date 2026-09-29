@@ -700,13 +700,20 @@
     </update>
     <select id="selectUserAllocationTimeline" resultType="map">
         select a.project_id projectId,a.allocation_id allocationId,a.allocation_value allocationValue,
+          p.project_name projectName,p.base_currency projectCurrency,
           a.effective_from effectiveFrom,a.effective_to effectiveTo,a.confirmation_status confirmationStatus,
           a.version allocationVersion,
           greatest(coalesce(p.plan_start_date,p.actual_start_date),coalesce(p.actual_start_date,p.plan_start_date)) projectStartDate,
-          coalesce(p.actual_end_date,p.plan_end_date) projectEndDate
+          case when p.del_flag='2' then
+            least(coalesce(p.actual_end_date,p.plan_end_date,date(coalesce(deletion.deletedAt,p.update_time))),
+              date(coalesce(deletion.deletedAt,p.update_time)))
+            else coalesce(p.actual_end_date,p.plan_end_date) end projectEndDate
         from biz_project_staff_allocation a join biz_project p on p.project_id=a.project_id
+        left join (select project_id,min(create_time) deletedAt from biz_project_event
+          where event_type='DELETE' group by project_id) deletion on deletion.project_id=p.project_id
         where a.user_id=#{userId} and a.status='ACTIVE' and a.allocation_mode='PERCENTAGE'
-          and p.del_flag='0' and p.cost_policy_version='MEMBER_DAYS_V1'
+          and p.cost_policy_version='MEMBER_DAYS_V1'
+          and (p.del_flag='0' or (p.del_flag='2' and coalesce(deletion.deletedAt,p.update_time) is not null))
         order by a.effective_from,a.project_id,a.allocation_id
     </select>
 

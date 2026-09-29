@@ -47,3 +47,36 @@ export function supplierReturnMaxQty(row, rows) {
   return Math.max(1, Math.min(Number(row.remainingReturnQty || 0),
     row.availableReturnQty == null ? Infinity : Number(row.availableReturnQty) - others))
 }
+
+// Editing keeps different actual prices separate, while merging automatic purchase splits.
+export function supplierReturnProductRows(rows) {
+  const grouped = new Map()
+  for (const row of rows) {
+    const key = row.productId ? `${row.productId}:${Number(row.unitPrice || 0).toFixed(4)}` : `empty:${grouped.size}`
+    const current = grouped.get(key)
+    if (current) current.qty += Number(row.qty || 0)
+    else grouped.set(key, { ...row, qty: Number(row.qty || 0), sourceItemId: null, sourceDocumentId: null, sourceDocNo: '' })
+  }
+  return [...grouped.values()]
+}
+
+export function refreshSupplierReturnProducts(rows, products) {
+  const options = new Map(products.map(product => [String(product.productId), product]))
+  return rows.map(row => {
+    const product = options.get(String(row.productId))
+    return { ...row, remainingReturnQty: Number(product?.remainingReturnQty || 0),
+      availableReturnQty: Number(product?.remainingReturnQty || 0),
+      sourceUnitPrice: product?.referencePurchasePrice ?? row.sourceUnitPrice }
+  })
+}
+
+export function supplierReturnProductQuantitiesValid(rows) {
+  const totals = new Map(), limits = new Map()
+  for (const row of rows) {
+    const key = String(row.productId), qty = Number(row.qty)
+    if (!row.productId || !Number.isSafeInteger(qty) || qty <= 0) return false
+    totals.set(key, (totals.get(key) || 0) + qty)
+    limits.set(key, Math.min(limits.get(key) ?? Infinity, Number(row.remainingReturnQty || 0)))
+  }
+  return rows.length > 0 && [...totals].every(([key, qty]) => qty <= limits.get(key))
+}

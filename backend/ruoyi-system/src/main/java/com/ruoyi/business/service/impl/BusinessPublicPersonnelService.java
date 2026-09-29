@@ -81,10 +81,13 @@ public class BusinessPublicPersonnelService {
         for(Map.Entry<Long,Map<String,Object>> allocation:weights.entrySet()) {
             Long projectId=allocation.getKey();
             com.ruoyi.business.domain.BusinessProject project=projects.selectProjectById(projectId);
-            String name=project==null?"未知项目":project.getProjectName();
             Map<String,Object> weight=allocation.getValue();
+            // Deleted projects remain dated donors in the timeline. Their source metadata
+            // also lets a historical preview show the original share before deletion.
+            String name=project==null?String.valueOf(weight.getOrDefault("projectName","未知项目")):project.getProjectName();
+            Object projectCurrency=project==null?weight.get("projectCurrency"):project.getBaseCurrency();
             BigDecimal percent=decimal(weight.get("allocationValue"));
-            if(project==null||!currency.equals(project.getBaseCurrency()))
+            if(!currency.equals(projectCurrency))
                 addProjectIssue(person,"项目币种与人员月成本不一致",projectId,name);
             if("PENDING".equals(weight.get("confirmationStatus")))
                 addProjectIssue(person,"项目投入比例待负责人确认",projectId,name);

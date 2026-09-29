@@ -1440,6 +1440,47 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void automaticSupplierReturnSourcesUseEligibleContextFifoAndActiveReturnQuotas()
+    {
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,status) values(10,'AUTO-10','自动退供','FINISHED','0')");
+        insertStock(10L, 8, 2, 4, 0, 0, 0, "12");
+        for (long id = 1; id <= 7; id++)
+        {
+            insertDocument(id, "AUTO-PURCHASE-" + id, "PURCHASE_IN", id == 5 ? "DRAFT" : "POSTED", null);
+            execute("update jewelry_document set supplier_id=9,influencer_id=17,biz_date='2026-09-02' where document_id=" + id);
+            insertItem(id * 100 + 1, id, null, 10L, 4);
+        }
+        execute("update jewelry_document set biz_date='2026-09-01' where document_id=2");
+        execute("update jewelry_document set supplier_id=8 where document_id=3");
+        execute("update jewelry_document set influencer_id=18 where document_id=4");
+        insertDocument(8L, "AUTO-REVERSAL", "REVERSAL", "DRAFT", 6L);
+        insertDocument(9L, "AUTO-RETURN", "SUPPLIER_RETURN", "PENDING_FIRST", 1L);
+        insertItem(901L, 9L, 101L, 10L, 1);
+        insertItem(902L, 9L, 201L, 10L, 2);
+        insertItem(903L, 9L, 701L, 10L, 4);
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            List<JewelryDocumentItem> sources = mapper.selectSupplierReturnAllocationSources(17L, 9L, null);
+            assertEquals(2, sources.size());
+            assertEquals(Long.valueOf(201), sources.get(0).getItemId());
+            assertEquals(Long.valueOf(2), sources.get(0).getSourceDocumentId());
+            assertEquals("AUTO-PURCHASE-2", sources.get(0).getSourceDocNo());
+            assertEquals(2, sources.get(0).getRemainingReturnQty());
+            assertEquals(6, sources.get(0).getAvailableReturnQty());
+            assertEquals(3, sources.get(1).getRemainingReturnQty());
+            assertEquals(Arrays.asList(2), mapper.selectSupplierReturnedQuantitiesForUpdate(201L, null));
+            assertTrue(mapper.selectSupplierReturnedQuantitiesForUpdate(201L, 9L).isEmpty());
+            assertEquals(Arrays.asList(8L), mapper.selectReversalIdsBySourceForUpdate(6L));
+        }
+        execute("update jewelry_product set status='1' where product_id=10");
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            assertTrue(session.getMapper(JewelryErpMapper.class).selectSupplierReturnAllocationSources(17L, 9L, null).isEmpty());
+        }
+    }
+
+    @Test
     void multiPurchaseSupplierReturnTracksEverySourceAndBlocksReversingAnyReferencedPurchase()
     {
         insertStock(10L, 10, 0, 0, 0, 0, 0, "12");

@@ -1159,6 +1159,19 @@
           and d.status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
           <if test="excludeDocumentId != null">and d.document_id != #{excludeDocumentId}</if>
     </select>
+    <select id="selectSupplierReturnedQuantitiesForUpdate" resultType="int">
+        select i.qty from jewelry_document_item i
+        join jewelry_document d on d.document_id=i.document_id
+        where d.doc_type='SUPPLIER_RETURN' and i.source_item_id=#{sourceItemId}
+          and d.status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
+          <if test="excludeDocumentId != null">and d.document_id != #{excludeDocumentId}</if>
+        order by d.document_id,i.item_id for update
+    </select>
+    <select id="selectReversalIdsBySourceForUpdate" resultType="long">
+        select document_id from jewelry_document
+        where doc_type='REVERSAL' and source_document_id=#{sourceDocumentId}
+        order by document_id for update
+    </select>
     <select id="selectSupplierReturnSourceList" resultMap="documentMap">
         select d.*
         from jewelry_document d
@@ -1203,6 +1216,31 @@
         where source_item.document_id=#{sourceDocumentId}
           and source_item.qty &gt; coalesce(returned.returned_qty,0)
         order by source_item.item_id
+    </select>
+    <select id="selectSupplierReturnAllocationSources" resultMap="itemMap">
+        select source_item.*,d.document_id source_document_id,d.doc_no source_doc_no,
+          greatest(0,stock.on_hand_qty-stock.reserved_out_qty) available_return_qty,
+          source_item.qty-coalesce(returned.returned_qty,0) remaining_return_qty
+        from jewelry_document_item source_item
+        join jewelry_document d on d.document_id=source_item.document_id
+        join jewelry_product product on product.product_id=source_item.product_id and product.status='0'
+        join jewelry_stock stock on stock.product_id=source_item.product_id
+        left join (
+          select return_item.source_item_id,sum(return_item.qty) returned_qty
+          from jewelry_document_item return_item
+          join jewelry_document return_doc on return_doc.document_id=return_item.document_id
+          where return_doc.doc_type='SUPPLIER_RETURN'
+            and return_doc.status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
+            <if test="excludeDocumentId != null">and return_doc.document_id != #{excludeDocumentId}</if>
+          group by return_item.source_item_id
+        ) returned on returned.source_item_id=source_item.item_id
+        where d.doc_type='PURCHASE_IN' and d.status='POSTED'
+          and d.influencer_id=#{influencerId} and d.supplier_id=#{supplierId}
+          and source_item.qty &gt; coalesce(returned.returned_qty,0)
+          and stock.on_hand_qty &gt; stock.reserved_out_qty
+          and not exists (select 1 from jewelry_document reversal
+            where reversal.doc_type='REVERSAL' and reversal.source_document_id=d.document_id)
+        order by d.biz_date,d.document_id,source_item.item_id
     </select>
     <select id="selectCustomerReturnSourceItems" resultMap="itemMap">
         select source_item.*,
