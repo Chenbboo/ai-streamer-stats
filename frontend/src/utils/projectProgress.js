@@ -18,10 +18,31 @@ export function progressEventTarget(event) {
 
 // The server selects the current calendar month's report. A real 0% report is
 // different from its 0% fallback when no report exists; never infer progress from tasks.
+export function isExcessCompletion(project) {
+  return (project?.progressCompletionStandard || project?.completionStandard) === 'EXCESS'
+}
+
+export function projectProgressLimit(project) {
+  return isExcessCompletion(project) ? 300 : 100
+}
+
+// Element Plus accepts only 0–100 for the visual track, not the business value.
+export function projectProgressBarPercent(project, value) {
+  const progress = Number(value)
+  return Number.isFinite(progress) ? Math.min(100, Math.max(0, progress * 100 / projectProgressLimit(project))) : 0
+}
+
+export function progressSubmissionIssue(report, minimum = 0) {
+  if (!['STANDARD', 'EXCESS'].includes(report?.completionStandard)) return 'standard'
+  const value = report.progress
+  if (!Number.isInteger(value) || value < 0 || value > projectProgressLimit(report)) return 'range'
+  return value < minimum ? 'minimum' : null
+}
+
 export function monthlyProgressPercent(project) {
   if (project?.status === 'CLOSED') return 100
   if (project?.status === 'CANCELED') return 0
   if (!project?.progressReportId || project.progressPercent == null || project.progressPercent === '') return null
   const value = Number(project.progressPercent)
-  return Number.isFinite(value) ? Math.min(100, Math.max(0, Math.round(value))) : null
+  return Number.isFinite(value) ? Math.min(projectProgressLimit(project), Math.max(0, Math.round(value))) : null
 }

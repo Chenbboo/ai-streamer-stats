@@ -1,4 +1,13 @@
 {
+  "完成标准": "Tiêu chuẩn hoàn thành",
+  "请选择完成标准": "Vui lòng chọn tiêu chuẩn hoàn thành",
+  "请选择完成标准：标准完成或超额完成": "Vui lòng chọn tiêu chuẩn hoàn thành: tiêu chuẩn hoặc vượt mức",
+  "项目进度必须在0到300之间": "Tiến độ dự án phải nằm trong khoảng từ 0 đến 300",
+  "标准完成": "Hoàn thành tiêu chuẩn",
+  "超额完成": "Hoàn thành vượt mức",
+  "超额完成项目": "Dự án hoàn thành vượt mức",
+  "项目进度必须为0至{0}的整数": "Tiến độ dự án phải là số nguyên từ 0 đến {0}",
+  "标准完成上限100%，超额完成上限300%；本月达标不触发结项提示。": "Hoàn thành tiêu chuẩn tối đa 100%, vượt mức tối đa 300%; đạt mục tiêu tháng không kích hoạt nhắc kết thúc dự án.",
   "{0} 个子项目": "{0} dự án con",
   "负责人：{0}": "Người phụ trách: {0}",
   "查看里程碑验收": "Xem nghiệm thu cột mốc",

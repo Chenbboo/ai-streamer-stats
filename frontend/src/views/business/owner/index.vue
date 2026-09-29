@@ -76,7 +76,7 @@
           <section class="panel all-project-table-panel">
             <el-table :data="allProjectWorkspaces" row-key="project.projectId">
               <el-table-column :label="$tr(&quot;项目&quot;)" min-width="210" fixed="left"><template #default="{row}"><div class="all-project-name"><b>{{ row.project.projectName }}</b><small>{{ $tr("{0} · {1}负责", [projectStatusLabel(row.project), row.project.mainOwnerName || userStore.name]) }}</small></div></template></el-table-column>
-              <el-table-column :label="$tr(&quot;项目进度&quot;)" min-width="150"><template #default="{row}"><span v-if="row.project.goalMode==='NO_TOTAL'">{{ $tr("持续经营") }}</span><el-progress v-else :percentage="projectEntryProgress(row)" :stroke-width="7" /></template></el-table-column>
+              <el-table-column :label="$tr(&quot;项目进度&quot;)" min-width="150"><template #default="{row}"><span v-if="row.project.goalMode==='NO_TOTAL'">{{ $tr("持续经营") }}</span><BusinessMonthlyProgress v-else :project="row.project" :value="projectEntryProgress(row)" :stroke-width="7" /></template></el-table-column>
               <el-table-column :label="$tr(&quot;持续工作&quot;)" min-width="155"><template #default="{row}"><b>{{ $tr("{0} 项", [entryTodayRoutines(row).length]) }}</b><small class="table-subtext">{{ $tr("{0} 项今日未报", [entryUnreportedRoutines(row)]) }}</small></template></el-table-column>
               <el-table-column :label="$tr(&quot;一次性任务&quot;)" min-width="165"><template #default="{row}"><b>{{ $tr("{0} 项未完成", [entryOpenTasks(row).length]) }}</b><small class="table-subtext">{{ $tr("{0} 项已逾期", [entryOverdueTasks(row)]) }}</small></template></el-table-column>
               <el-table-column :label="$tr(&quot;风险&quot;)" min-width="115"><template #default="{row}">{{ $tr("{0} 项待处理", [entryOpenRisks(row)]) }}</template></el-table-column>
@@ -256,7 +256,7 @@
             <el-alert v-else-if="!canReportProgress" :title="progressReportBlockReason" type="info" :closable="false" show-icon />
             <div v-if="project.goalMode!=='NO_TOTAL'" class="project-progress-card">
               <div class="project-progress-title"><span><b>{{ project.projectName }}</b><small>{{ $tr("{0}负责", [project.mainOwnerName || $tr("未指定负责人")]) }}</small></span><strong>{{ projectProgress }}%</strong></div>
-              <el-progress :percentage="projectProgress" :status="project.status==='CLOSED'?'success':undefined" :stroke-width="9" />
+              <BusinessMonthlyProgress :project="project" :value="projectProgress" :status="project.status==='CLOSED'?'success':undefined" :stroke-width="9" />
               <template v-if="project.progressReportId">
                 <div class="project-progress-meta"><span>{{ $tr("{0} · {1}填报", [project.progressBizDate, project.progressReporterName || project.mainOwnerName]) }}</span><el-tag v-if="todayProjectProgress" size="small" type="success">{{ $tr("今日已填报") }}</el-tag></div>
                 <p class="project-progress-summary">{{ $tr("实际完成情况：{0}", [project.progressSummary]) }}</p>
@@ -361,8 +361,9 @@
       <el-alert :title="`${projectProgressForm.projectName || ''} · ${accounting.bizDate || today()}`" type="info" :closable="false" show-icon />
       <el-form :model="projectProgressForm" label-width="108px" class="report-form project-progress-form">
         <el-form-item :label="$tr(&quot;项目名称&quot;)"><el-input :model-value="projectProgressForm.projectName" disabled /></el-form-item>
+        <el-form-item :label="$tr('完成标准')" required><el-select v-model="projectProgressForm.completionStandard" :placeholder="$tr('请选择完成标准')" style="width:100%"><el-option :label="$tr('标准完成')" value="STANDARD" :disabled="Number(projectProgressForm.minimumProgress || 0)>100" /><el-option :label="$tr('超额完成')" value="EXCESS" /></el-select></el-form-item>
         <el-form-item :label="$tr(&quot;实际完成情况&quot;)" required><el-input v-model="projectProgressForm.completionSummary" type="textarea" :rows="4" maxlength="2000" show-word-limit :placeholder="$tr(&quot;请说明今天推动项目完成的内容和结果&quot;)" /></el-form-item>
-        <el-form-item :label="$tr(&quot;本月项目进度&quot;)" required><el-slider v-model="projectProgressForm.progress" show-input :min="0" :max="100" :disabled="Number(projectProgressForm.minimumProgress || 0) >= 100" @input="keepProjectProgress" /><small class="progress-tip">{{ $tr("本月当前进度 {0}%，只能向上调整，与一次性任务进度无关；下月自动从0开始。", [projectProgressForm.minimumProgress || 0]) }}</small></el-form-item>
+        <el-form-item :label="$tr(&quot;本月项目进度&quot;)" required><el-slider v-model="projectProgressForm.progress" show-input :min="0" :max="projectProgressFormLimit" :disabled="!projectProgressForm.completionStandard || Number(projectProgressForm.minimumProgress || 0) >= projectProgressFormLimit" @input="keepProjectProgress" /><small class="progress-tip">{{ $tr("本月当前进度 {0}%，只能向上调整，与一次性任务进度无关；下月自动从0开始。", [projectProgressForm.minimumProgress || 0]) }}</small><small class="progress-tip">{{ $tr('标准完成上限100%，超额完成上限300%；本月达标不触发结项提示。') }}</small></el-form-item>
         <el-form-item :label="$tr(&quot;成果凭证（选填）&quot;)">
           <div class="progress-evidence-inputs">
             <el-input v-model="projectProgressForm.evidenceText" type="textarea" :rows="3" maxlength="2000" show-word-limit :placeholder="$tr(&quot;可填写文字成果凭证，或在下方上传文件&quot;)" />
@@ -523,6 +524,8 @@ import { getOwnerPublicExpenseWorkspace } from '@/api/business/publicExpense'
 import { canContinueProjectSettlement, isSeparatedDelivery, isDeliveryEnded, projectAccountingState } from '@/utils/businessProjectState'
 import { buildWorkReportStats } from '@/utils/workReportStats'
 import { projectSettlementCount, reportedProjectProgress } from '@/utils/ownerSettlement'
+import { monthlyProgressPercent, projectProgressLimit, progressSubmissionIssue } from '@/utils/projectProgress'
+import BusinessMonthlyProgress from '@/components/BusinessMonthlyProgress/index.vue'
 
 const route=useRoute(),router=useRouter()
 const spendHistoryDialog=ref(false),spendHistoryProject=ref({})
@@ -687,7 +690,7 @@ const effortMembers=computed(()=>{
 })
 const confirmedEffortDays=computed(()=>effortMembers.value.reduce((sum,item)=>sum+item.confirmedDays,0))
 const totalEffortDays=computed(()=>effortMembers.value.reduce((sum,item)=>sum+item.days,0))
-const projectProgress=computed(()=>Math.min(100,Math.max(0,Math.round(Number(project.value?.progressPercent||0)))))
+const projectProgress=computed(()=>monthlyProgressPercent(project.value)??0)
 const statusLabel={DRAFT:translateText("草稿"),PLANNING:translateText("规划中"),ACTIVE:translateText("执行中"),PAUSED:translateText("已暂停"),ACCEPTANCE:translateText("待验收"),CLOSED:translateText("已结项"),CANCELED:translateText("已取消")}
 const statusTone={DRAFT:'info',PLANNING:'warning',ACTIVE:'primary',PAUSED:'info',ACCEPTANCE:'success',CLOSED:'success',CANCELED:'danger'}
 const projectStatusLabel=item=>item?.status==='ACCEPTANCE'&&item?.closeMethod==='STAGED_ACCEPTANCE'?translateText("待结项"):statusLabel[item?.status]||item?.status
@@ -724,6 +727,7 @@ let spendDateRequest=0
 const blankRevenue=()=>({requestId:newSubmissionId(),projectId:null,bizDate:today(),categoryId:null,amount:null,currency:'CNY',description:'',counterparty:'',attachmentUrls:'',remark:''})
 const revenueForm=ref(blankRevenue())
 const projectProgressForm=ref({})
+const projectProgressFormLimit=computed(()=>Math.max(projectProgressLimit(projectProgressForm.value), Number(projectProgressForm.value.minimumProgress||0)))
 const routineReportForm=ref({})
 const dailyTargetForm=reactive({})
 const effortReturnForm=ref({userId:null,userName:'',bizDate:today(),reviewComment:''})
@@ -775,7 +779,7 @@ function entryPublishedPlans(entry){return (entry.kpi?.plans||[]).filter(item=>i
 function entrySettlementPending(entry){return projectSettlementCount(entry.settlement)}
 function entryReportedProgress(entry){return reportedProjectProgress(entry.project, today().slice(0,7))}
 function entryPersonnelIssueCount(entry){const alert=(entry.allocationAlerts||[]).find(item=>Number(item.projectId)===Number(entry.project.projectId));return Number(alert?.missingAllocationCount||0)+Number(alert?.missingRegionCount||0)+Number(alert?.missingCostCount||0)}
-function projectEntryProgress(entry){return Math.min(100,Math.max(0,Math.round(Number(entry.project?.progressPercent||0))))}
+function projectEntryProgress(entry){return monthlyProgressPercent(entry.project)??0}
 function xu(value){return Number(value||0).toLocaleString('zh-CN',{maximumFractionDigits:2})}
 function signed(value){const n=Number(value||0);return `${n>0?'+':''}${money(n)}`}
 function amountTone(value){return Number(value||0)<0?'amount-loss':'amount-profit'}
@@ -940,9 +944,9 @@ async function submitRevenue(){
     await load(selectedProjectId.value)
   }finally{saving.value=false}
 }
-function openProjectProgressReport(){const current=Number(projectProgress.value||0),todayReport=todayProjectProgress.value||{};projectProgressForm.value={reportId:todayReport.reportId||null,projectId:project.value.projectId,bizDate:accounting.value.bizDate||today(),projectName:project.value.projectName,minimumProgress:current,progress:Number(todayReport.progress??current),completionSummary:todayReport.completionSummary||'',evidenceUrls:todayReport.evidenceUrls||'',evidenceText:todayReport.evidenceText||''};projectProgressDialog.value=true}
+function openProjectProgressReport(){const current=Number(projectProgress.value||0),todayReport=todayProjectProgress.value||{};projectProgressForm.value={reportId:todayReport.reportId||null,projectId:project.value.projectId,bizDate:accounting.value.bizDate||today(),projectName:project.value.projectName,minimumProgress:current,progress:Number(todayReport.progress??current),completionStandard:todayReport.completionStandard||(project.value.progressReportId?project.value.progressCompletionStandard:'')||'',completionSummary:todayReport.completionSummary||'',evidenceUrls:todayReport.evidenceUrls||'',evidenceText:todayReport.evidenceText||''};projectProgressDialog.value=true}
 function keepProjectProgress(value){const minimum=Number(projectProgressForm.value.minimumProgress||0);if(Number(value)<minimum)projectProgressForm.value.progress=minimum}
-async function submitProjectProgress(){const form=projectProgressForm.value;if(!form.completionSummary?.trim())return ElMessage.warning(translateText("请填写实际完成情况"));if(form.progress===null||form.progress===undefined||Number(form.progress)<Number(form.minimumProgress||0)||Number(form.progress)>100)return ElMessage.warning(translateText("本月项目进度只能增加，不能低于 {0}%", [form.minimumProgress||0]));saving.value=true;try{await submitBusinessProjectProgressReport({...form,evidenceText:form.evidenceText?.trim()||''});projectProgressDialog.value=false;ElMessage.success(translateText("本月项目进度已保存并同步到老板工作台"));await load(selectedProjectId.value)}finally{saving.value=false}}
+async function submitProjectProgress(){const form=projectProgressForm.value;const issue=progressSubmissionIssue(form,Number(form.minimumProgress||0));if(issue==='standard')return ElMessage.warning(translateText('请选择完成标准'));if(issue==='range')return ElMessage.warning(translateText('项目进度必须为0至{0}的整数',[projectProgressLimit(form)]));if(issue==='minimum')return ElMessage.warning(translateText("本月项目进度只能增加，不能低于 {0}%", [form.minimumProgress||0]));if(!form.completionSummary?.trim())return ElMessage.warning(translateText("请填写实际完成情况"));saving.value=true;try{await submitBusinessProjectProgressReport({...form,evidenceText:form.evidenceText?.trim()||''});projectProgressDialog.value=false;ElMessage.success(translateText("本月项目进度已保存并同步到老板工作台"));await load(selectedProjectId.value)}finally{saving.value=false}}
 async function confirmEffort(item){
   saving.value=true
   try{

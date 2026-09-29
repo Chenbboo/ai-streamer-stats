@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { canReportProgress, taskCompletion, readProgressSnapshot, progressEventTarget, monthlyProgressPercent } from './projectProgress.js'
+import { canReportProgress, taskCompletion, readProgressSnapshot, progressEventTarget, monthlyProgressPercent, projectProgressLimit, projectProgressBarPercent, progressSubmissionIssue } from './projectProgress.js'
 test('only the active or paused child owner has the submit action',()=>{
  const child={parentId:1,mainOwnerUserId:9,status:'ACTIVE'}
  assert.equal(canReportProgress(child,'9'),true)
@@ -41,4 +41,32 @@ test('detail separates whole-project time from monthly reported completion',()=>
  assert.doesNotMatch(source,/scheduleProgress\.value\s*>\s*projectProgress|scheduleProgress>projectProgress|进度落后时间计划/)
  assert.match(source,/时间进度按全项目周期计算，不与本月完成率比较/)
  assert.match(source,/本月尚未汇报/)
+})
+
+test('completion standard controls the reported limit and the visual scale independently',()=>{
+ const standard={status:'ACTIVE',progressReportId:17,progressPercent:180,progressCompletionStandard:'STANDARD'}
+ const excess={...standard,progressCompletionStandard:'EXCESS'}
+ assert.equal(monthlyProgressPercent(standard),100)
+ assert.equal(monthlyProgressPercent(excess),180)
+ assert.equal(monthlyProgressPercent({...excess,progressPercent:300}),300)
+ assert.equal(monthlyProgressPercent({...excess,progressPercent:400}),300)
+ assert.equal(projectProgressLimit(excess),300)
+ assert.equal(projectProgressLimit({}),100)
+ assert.equal(projectProgressBarPercent(excess,150),50)
+ assert.equal(projectProgressBarPercent(excess,300),100)
+ assert.equal(projectProgressBarPercent(standard,100),100)
+ assert.equal(projectProgressBarPercent(excess,NaN),0)
+ assert.equal(projectProgressBarPercent(excess,-1),0)
+ assert.equal(monthlyProgressPercent({...excess,progressReportId:null}),null)
+})
+
+test('completion standard is mandatory and accepts only integers within its own cap',()=>{
+ assert.equal(progressSubmissionIssue({progress:50}),'standard')
+ assert.equal(progressSubmissionIssue({completionStandard:'OTHER',progress:50}),'standard')
+ for(const [completionStandard,max] of [['STANDARD',100],['EXCESS',300]]) {
+  for(const progress of [0,max])assert.equal(progressSubmissionIssue({completionStandard,progress}),null)
+  for(const progress of [null,undefined,-1,max+1,1.5,'100',NaN,Infinity])assert.equal(progressSubmissionIssue({completionStandard,progress}),'range')
+ }
+ assert.equal(progressSubmissionIssue({completionStandard:'EXCESS',progress:150},200),'minimum')
+ assert.equal(progressSubmissionIssue({completionStandard:'EXCESS',progress:200},200),null)
 })

@@ -32,6 +32,12 @@ test('expense todos deduplicate allocations and preserve separate currencies', (
 })
 
 const permissions = ['business:kpi:manage']
+test('monthly target completion never creates a project-close todo',()=>{
+ for(const completionStandard of ['STANDARD','EXCESS']) for(const progressPercent of [99,100,150,300]) {
+  const rows=buildOwnerTodos({data:{project:{projectId:12,status:'ACTIVE',goalMode:'TOTAL',closeMethod:'DIRECT',progressPercent,progressCompletionStandard:completionStandard}},userId:9,today:'2026-09-29',permissions:['*:*:*']})
+  assert.equal(rows.some(row=>row.key==='close'),false)
+ }
+})
 const data = { project: { projectId: 12, status: 'ACTIVE', accountingState: 'OPEN', goalMode: 'NO_TOTAL' } }
 
 test('active owner receives KPI setup todo when no plan has been published', () => {

@@ -33,6 +33,7 @@ public class BusinessProjectProgressReport extends BaseEntity
     private Long projectId;
     @JsonFormat(pattern = "yyyy-MM-dd") private Date bizDate;
     private Integer progress;
+    private String completionStandard;
     private String completionSummary;
     private String evidenceUrls;
     private String evidenceText;
@@ -48,6 +49,8 @@ public class BusinessProjectProgressReport extends BaseEntity
     public void setBizDate(Date bizDate) { this.bizDate = bizDate; }
     public Integer getProgress() { return progress; }
     public void setProgress(Integer progress) { this.progress = progress; }
+    public String getCompletionStandard() { return completionStandard; }
+    public void setCompletionStandard(String completionStandard) { this.completionStandard = completionStandard; }
     public String getCompletionSummary() { return completionSummary; }
     public void setCompletionSummary(String completionSummary) { this.completionSummary = completionSummary; }
     public String getEvidenceUrls() { return evidenceUrls; }

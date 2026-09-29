@@ -21,7 +21,7 @@ public interface BusinessProjectProgressMapper {
         + "from biz_project_task_report where project_id=#{id} order by report_id")
     List<Map<String,Object>> taskReports(Long id);
 
-    String COLUMNS = "report_id reportId,project_id projectId,biz_date bizDate,progress,completion_summary completionSummary,"
+    String COLUMNS = "report_id reportId,project_id projectId,biz_date bizDate,progress,completion_standard completionStandard,completion_summary completionSummary,"
         + "evidence_urls evidenceUrls,evidence_text evidenceText,submitted_user_id submittedUserId,submitted_user_name submittedUserName,version,"
         + "create_time createTime,issues_risks issuesRisks,next_plan nextPlan,sync_tasks syncTasks,sync_routines syncRoutines,"
         + "snapshot_json snapshotJson,parent_project_id parentProjectId,project_name_snapshot projectNameSnapshot";

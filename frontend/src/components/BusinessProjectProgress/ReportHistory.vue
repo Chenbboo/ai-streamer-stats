@@ -22,7 +22,8 @@
         <div><span class="detail-eyebrow">{{ linkProject ? activeReport.projectNameSnapshot || $tr("子项目汇报") : $tr("项目进度汇报") }}</span><h3>{{ $tr("第 {0} 次汇报", [activeReport.version]) }}<el-tag v-if="activeId === String(orderedReports[0]?.reportId)" size="small" effect="plain">{{ $tr("最新") }}</el-tag></h3></div>
         <div class="detail-progress"><span>{{ $tr("本次汇报进度") }}</span><strong>{{ activeReport.progress }}<small>%</small></strong></div>
       </header>
-      <el-progress :percentage="Number(activeReport.progress) || 0" :show-text="false" :stroke-width="7" color="#328b80" />
+      <el-tag size="small" :type="isExcessCompletion(activeReport)?'warning':'info'">{{ $tr(isExcessCompletion(activeReport)?'超额完成':'标准完成') }}</el-tag>
+      <BusinessMonthlyProgress :project="activeReport" :value="Number(activeReport.progress)||0" :show-text="false" :stroke-width="7" />
       <div class="detail-meta"><span>{{ $tr("汇报人 ") }}<b>{{ activeReport.submittedUserName || $tr("未记录") }}</b></span><span>{{ $tr("提交时间 ") }}<b>{{ activeReport.createTime || $tr("未记录") }}</b></span></div>
       <el-button v-if="linkProject" link type="primary" @click="$emit('open-project', { projectId: activeReport.projectId, reportId: activeReport.reportId })">{{ $tr("查看该子项目全部汇报 →") }}</el-button>
       <section class="content-section"><h4>{{ $tr("阶段成果") }}</h4><p class="summary-text">{{ activeReport.completionSummary || $tr("本次未填写阶段成果") }}</p></section>
@@ -49,7 +50,8 @@
 </template>
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { readProgressSnapshot } from '@/utils/projectProgress'
+import { readProgressSnapshot, isExcessCompletion } from '@/utils/projectProgress'
+import BusinessMonthlyProgress from '@/components/BusinessMonthlyProgress/index.vue'
 import ProgressSnapshot from './ProgressSnapshot.vue'
 import BusinessFileUpload from '@/components/BusinessFileUpload/index.vue'
 const props = defineProps({ reports: Array, selectedReportId: [Number, String], linkProject: Boolean })
