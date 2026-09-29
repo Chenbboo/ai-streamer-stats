@@ -1,4 +1,16 @@
 export default {
+  bossCharts: {
+    revenueShare: 'Tỷ trọng doanh thu dự án', totalRevenue: 'Tổng doanh thu ròng', noPositiveRevenue: 'Chưa có doanh thu dương', revenueReversals: 'Doanh thu âm / Hoàn nhập', revenueDenominator: 'Tỷ trọng tính trên doanh thu dương; doanh thu ròng đã bao gồm số tiền âm.',
+    month: 'Chọn tháng', monthFormat: 'MM/YYYY', currency: 'Loại tiền hiển thị',
+    monthMode: 'Cách chọn tháng', singleMonth: 'Một tháng', multipleMonths: 'Nhiều tháng', startMonth: 'Tháng bắt đầu', endMonth: 'Tháng kết thúc',
+    departmentResults: 'Kết quả phòng ban trong kỳ · {count} phòng ban',
+    trend: 'Xu hướng kinh doanh', recognized: 'Số tiền đã hạch toán', revenue: 'Doanh thu', cost: 'Chi phí', profit: 'Kết quả trước thuế',
+    trendDescription: 'Biểu đồ cột doanh thu và chi phí cùng đường kết quả trước thuế; ngày chưa có kết quả được để trống.',
+    costShare: 'Tỷ trọng chi phí dự án', projectCount: '{count} dự án', totalCost: 'Tổng chi phí ròng',
+    others: 'Khác ({count} dự án)', reversals: 'Chi phí âm / Hoàn nhập',
+    positiveDenominator: 'Tỷ trọng tính trên chi phí dương; chi phí ròng đã bao gồm số tiền âm.',
+    noPositive: 'Chưa có chi phí dương', noData: 'Chưa có kết quả hạch toán trong kỳ', selectCompany: 'Vui lòng chọn công ty trong phần tổng kết'
+  },
   navigation: {
     assetLoadFailed: 'Chưa mở được trang mới do không tải được tài nguyên. Vui lòng kiểm tra kết nối rồi tải lại.',
     failed: 'Không thể chuyển trang. Vui lòng thử lại hoặc tải lại trang.'

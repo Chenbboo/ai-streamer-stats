@@ -106,6 +106,13 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
     public Map<String,Object> bossOverview(String requestedDate,Long companyDeptId,Long userId,boolean viewAll)
     {
+        java.time.LocalDate today=java.time.LocalDate.now(overviewClock);
+        java.time.LocalDate date=resolveBossDate(requestedDate);
+        return bossOverviewInternal(date.toString(),today.toString(),companyDeptId,userId,viewAll,true);
+    }
+
+    private java.time.LocalDate resolveBossDate(String requestedDate)
+    {
         java.time.LocalDate today=java.time.LocalDate.now(overviewClock), date;
         if("yesterday".equals(requestedDate)) date=today.minusDays(1);
         else if(requestedDate==null||"today".equals(requestedDate)) date=today;
@@ -114,7 +121,45 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             date=java.time.LocalDate.parse(requestedDate);
         } catch(RuntimeException ex) { throw new ServiceException("经营日期须为有效的 yyyy-MM-dd 日期"); }
         if(date.isAfter(today))throw new ServiceException("经营日期不能晚于今天");
-        return bossOverviewInternal(date.toString(),today.toString(),companyDeptId,userId,viewAll,true);
+        return date;
+    }
+
+    @Override
+    @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
+    public Map<String,Object> bossCharts(String requestedMonth,Long companyDeptId,Long userId,boolean viewAll)
+    { return bossCharts(requestedMonth,requestedMonth,companyDeptId,userId,viewAll); }
+
+    private java.time.YearMonth chartMonth(String value)
+    {
+        try {
+            if(value==null||!value.matches("[1-9]\\d{3}-(0[1-9]|1[0-2])"))throw new IllegalArgumentException();
+            return java.time.YearMonth.parse(value);
+        } catch(RuntimeException ex) { throw new ServiceException("图表月份须为有效的 yyyy-MM 月份"); }
+    }
+
+    @Override
+    @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
+    public Map<String,Object> bossCharts(String monthFrom,String monthTo,Long companyDeptId,Long userId,boolean viewAll)
+    {
+        java.time.LocalDate today=java.time.LocalDate.now(overviewClock);
+        java.time.YearMonth first=chartMonth(monthFrom),last=chartMonth(monthTo);
+        if(first.isAfter(last))throw new ServiceException("开始月份不能晚于结束月份");
+        if(last.isAfter(java.time.YearMonth.from(today)))throw new ServiceException("图表月份不能晚于本月");
+        java.time.LocalDate start=first.atDay(1),end=last.atEndOfMonth();
+        if(end.isAfter(today))end=today;
+        if(companyDeptId==null)throw new ServiceException("请选择经营回顾公司");
+        Map<String,Object> query=new HashMap<>();
+        query.put("dateFrom",start.toString());query.put("dateTo",end.toString());
+        query.put("companyDeptId",companyDeptId);query.put("userId",userId);query.put("viewAll",viewAll);
+        query.put("monthly",!first.equals(last));
+        Map<String,Object> result=new LinkedHashMap<>();
+        result.put("dateFrom",start.toString());result.put("dateTo",end.toString());
+        result.put("monthFrom",monthFrom);result.put("monthTo",monthTo);result.put("monthly",query.get("monthly"));
+        result.put("companyDeptId",companyDeptId);
+        // Both charts read the same stored result versions and company boundary. No synchronization or recalculation.
+        result.put("trend",mapper.selectBossChartTrend(query));
+        result.put("projects",mapper.selectBossChartProjects(query));
+        return result;
     }
 
     private Map<String,Object> bossOverviewInternal(String today,String currentDate,Long companyDeptId,Long userId,boolean viewAll,boolean review)

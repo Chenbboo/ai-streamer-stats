@@ -1,4 +1,16 @@
 export default {
+  bossCharts: {
+    revenueShare: '项目收入占比', totalRevenue: '累计净收入', noPositiveRevenue: '暂无正数收入', revenueReversals: '负数收入 / 冲销', revenueDenominator: '占比按正数项目收入计算；净收入已计入负数金额。',
+    month: '选择月份', monthFormat: 'YYYY年MM月', currency: '展示币种',
+    monthMode: '月份选择方式', singleMonth: '单月', multipleMonths: '多个月份', startMonth: '开始月份', endMonth: '结束月份',
+    departmentResults: '期间部门结果 · {count} 个部门',
+    trend: '经营趋势', recognized: '已核算金额', revenue: '收入', cost: '成本', profit: '税前经营结果',
+    trendDescription: '收入和成本柱状图，以及税前经营结果折线图；未生成日结果的日期留空。',
+    costShare: '项目成本占比', projectCount: '{count} 个项目', totalCost: '累计净成本',
+    others: '其他（{count} 个项目）', reversals: '负数成本 / 冲销',
+    positiveDenominator: '占比按正数项目成本计算；净成本已计入负数金额。',
+    noPositive: '暂无正数成本', noData: '所选期间暂无已核算结果', selectCompany: '请先选择经营回顾公司'
+  },
   navigation: {
     assetLoadFailed: '新页面暂未打开，页面资源加载失败。请检查网络后刷新重试。',
     failed: '页面切换失败，请重试或刷新页面。'

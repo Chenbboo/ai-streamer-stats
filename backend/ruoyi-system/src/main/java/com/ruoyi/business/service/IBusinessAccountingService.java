@@ -8,6 +8,8 @@ import com.ruoyi.business.domain.BusinessOperatingFact;
 
 public interface IBusinessAccountingService
 {
+    Map<String,Object> bossCharts(String month,Long companyDeptId,Long userId,boolean viewAll);
+    Map<String,Object> bossCharts(String monthFrom,String monthTo,Long companyDeptId,Long userId,boolean viewAll);
     Map<String,Object> dashboard(Map<String,Object> query,Long userId,boolean viewAll);
     Map<String,Object> projectDashboard(Long projectId,Map<String,Object> query,Long userId,boolean viewAll);
     Map<String,Object> bossOverview(Long userId,boolean viewAll);

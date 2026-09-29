@@ -598,6 +598,28 @@
       <otherwise>r.biz_date=#{bizDate}</otherwise>
     </choose>
   </sql>
+  <sql id="bossChartSource">
+    from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+    where r.is_current='1' and r.biz_date between #{dateFrom} and #{dateTo}
+      and r.company_dept_id=#{companyDeptId}
+    <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+  </sql>
+  <select id="selectBossChartTrend" resultType="map">
+    select p.base_currency currency,
+      <choose><when test="monthly">date_format(r.biz_date,'%Y-%m')</when><otherwise>date_format(r.biz_date,'%Y-%m-%d')</otherwise></choose> bucket,
+      sum(r.revenue_amount) revenueAmount,
+      sum(r.cost_amount+r.personnel_cost+r.bonus_cost+r.public_cost) costAmount,
+      sum(r.profit_amount) profitAmount,count(*) resultCount,count(distinct r.biz_date) availableDays
+    <include refid="bossChartSource"/>
+    group by p.base_currency,bucket order by p.base_currency,bucket
+  </select>
+  <select id="selectBossChartProjects" resultType="map">
+    select p.base_currency currency,r.project_id projectId,p.project_name projectName,
+      sum(r.revenue_amount) revenueAmount,
+      sum(r.cost_amount+r.personnel_cost+r.bonus_cost+r.public_cost) costAmount
+    <include refid="bossChartSource"/>
+    group by p.base_currency,r.project_id,p.project_name order by p.base_currency,costAmount desc,r.project_id
+  </select>
   <select id="selectProjectProfitRanking" resultType="map">
     select p.base_currency currency,r.project_id projectId,p.project_name projectName,p.company_dept_id companyDeptId,d.dept_name companyName,
       sum(r.revenue_amount) revenueAmount,sum(r.cost_amount) businessCost,sum(r.personnel_cost) personnelCost,

@@ -19,4 +19,7 @@ class BusinessBossReviewControllerTest {
     @Test void noDateUsesTheDefaultTodayScope(){controller.bossOverview(null,null);verify(service).bossOverview(null,null,126L,false);verifyNoMoreInteractions(service);}
     @Test void reviewDateIsPassedWithAuthenticatedScope(){controller.bossOverview("yesterday",null);verify(service).bossOverview("yesterday",null,126L,false);verifyNoMoreInteractions(service);}
     @Test void administratorScopeAndCompanyFilterComeFromRequest(){actor(1L);controller.bossOverview("2026-09-11",111L);verify(service).bossOverview("2026-09-11",111L,1L,true);}
+    @Test void chartQueriesUseAuthenticatedOwnerAndRequestedCompany(){controller.bossCharts("2026-09",null,null,110L);verify(service).bossCharts("2026-09",110L,126L,false);}
+    @Test void administratorChartsUseAdminScope(){actor(1L);controller.bossCharts("2026-08",null,null,111L);verify(service).bossCharts("2026-08",111L,1L,true);}
+    @Test void monthRangeUsesAuthenticatedCompanyScope(){controller.bossCharts(null,"2026-07","2026-09",110L);verify(service).bossCharts("2026-07","2026-09",110L,126L,false);}
 }

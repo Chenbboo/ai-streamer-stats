@@ -51,6 +51,17 @@ public class BusinessAccountingController extends BaseController
     {return success(service.bossOverview(bizDate,companyDeptId,SecurityUtils.getUserId(),SecurityUtils.isAdmin()));}
 
     @PreAuthorize("@ss.hasPermi('business:boss:view')")
+    @GetMapping("/boss-charts")
+    public AjaxResult bossCharts(@RequestParam(required=false) String month,
+        @RequestParam(required=false) String monthFrom,@RequestParam(required=false) String monthTo,
+        @RequestParam Long companyDeptId)
+    {
+        if(monthFrom!=null||monthTo!=null)
+            return success(service.bossCharts(monthFrom,monthTo,companyDeptId,SecurityUtils.getUserId(),SecurityUtils.isAdmin()));
+        return success(service.bossCharts(month,companyDeptId,SecurityUtils.getUserId(),SecurityUtils.isAdmin()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:boss:view')")
     @GetMapping("/personnel-cost-overview")
     public AjaxResult personnelCostOverview(@RequestParam Map<String,Object> query)
     {return success(service.personnelCostOverview(query,SecurityUtils.getUserId(),SecurityUtils.isAdmin()));}

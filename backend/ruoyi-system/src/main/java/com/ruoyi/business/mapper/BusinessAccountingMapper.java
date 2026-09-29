@@ -60,6 +60,8 @@ public interface BusinessAccountingMapper
     List<Map<String,Object>> selectDailyResultItems(Long resultId);
     Map<String,Object> selectDailySummary(Map<String,Object> query);
     List<Map<String,Object>> selectDailySummaryByCurrency(Map<String,Object> query);
+    List<Map<String,Object>> selectBossChartTrend(Map<String,Object> query);
+    List<Map<String,Object>> selectBossChartProjects(Map<String,Object> query);
     int countDraftFacts(Map<String,Object> query);
     Map<String,Object> selectOverviewReadiness(Map<String,Object> query);
     int countPendingCostsInRange(Map<String,Object> query);

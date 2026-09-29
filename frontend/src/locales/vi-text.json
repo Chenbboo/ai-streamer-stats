@@ -1,4 +1,8 @@
 {
+  "开始月份不能晚于结束月份": "Tháng bắt đầu không được sau tháng kết thúc",
+  "图表月份须为有效的 yyyy-MM 月份": "Tháng biểu đồ phải hợp lệ và có định dạng yyyy-MM",
+  "图表月份不能晚于本月": "Không thể chọn tháng sau tháng hiện tại",
+  "请选择经营回顾公司": "Vui lòng chọn công ty trong phần tổng kết kinh doanh",
   "{0} 个子项目": "{0} dự án con",
   "负责人：{0}": "Người phụ trách: {0}",
   "查看里程碑验收": "Xem nghiệm thu cột mốc",

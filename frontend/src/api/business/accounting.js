@@ -1,5 +1,9 @@
 import request from '@/utils/request'
 
+export function getBusinessBossCharts(params) {
+  return request({ url: '/business/accounting/boss-charts', method: 'get', params })
+}
+
 export const getBusinessAccountingDashboard = params => request({url:'/business/accounting/dashboard',method:'get',params})
 export const getBusinessProjectDashboard = (projectId, params) => request({url:`/business/accounting/project-dashboard/${projectId}`,method:'get',params})
 export const getBusinessBossAccountingOverview = params => request({url:'/business/accounting/boss-overview',method:'get',params})
