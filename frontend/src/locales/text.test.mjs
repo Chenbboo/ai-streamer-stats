@@ -45,3 +45,24 @@ test('Vietnamese product labels retain canonical product type values', async () 
     assert.throws(() => buildProductBatchRequest([{ productId: 1 }], ['specification'], { specification: '普通' }, true))
   } finally { i18n.global.locale.value = 'zh-CN' }
 })
+
+test('sample supplier-return warnings translate in Chinese and Vietnamese without losing source details', () => {
+  const messages = [
+    '个商品退供不足7天',
+    '退供不足7天的成品和样品',
+    '统计有可售库存的成品和样品，距供应商退货期限不足7天（含今天到期和已超期，不含剩余7天）'
+  ]
+  for (const source of messages) {
+    assert.equal(translateCopy(source, 'zh-CN'), source)
+    const translated = translateCopy(source, 'vi-VN')
+    assert.notEqual(translated, source)
+    assert.equal(translated.match(/[\u3400-\u9fff]/), null)
+  }
+  const source = '样品入库来源：{0}；供应商：{1}。按每行入库日期及剩余库存推算，显示最早退货期限。'
+  for (const locale of ['zh-CN', 'vi-VN']) {
+    const translated = translateCopy(source, locale, ['YP-001', 'JC'])
+    assert.ok(translated.includes('YP-001'))
+    assert.ok(translated.includes('JC'))
+    assert.equal(translated.match(/\{[01]\}/), null)
+  }
+})

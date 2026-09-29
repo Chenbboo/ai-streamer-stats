@@ -46,7 +46,7 @@ const notices = [
   { key: 'pendingFirstCount', label: translateText("张单据待审核"), name: translateText("待审核单据"), icon: DocumentChecked, path: '/jewelry/approval', query: { status: 'PENDING' } },
   { key: 'quantityWarningCount', label: translateText("个商品库存不足"), name: translateText("库存不足商品"), icon: Warning, path: '/jewelry/stock', query: { warningOnly: 'true', warningType: 'quantity' } },
   { key: 'ageWarningCount', label: translateText("个商品库龄超期"), name: translateText("库龄超期商品"), icon: Clock, path: '/jewelry/stock', query: { warningOnly: 'true', warningType: 'age' } },
-  { key: 'supplierReturnWarningCount', label: translateText("个成品退供不足7天"), name: translateText("退供不足7天的成品"), description: translateText("仅统计有可售库存的成品，距供应商退货期限不足7天（含今天到期和已超期，不含剩余7天）"), icon: Clock, path: '/jewelry/stock', query: { warningOnly: 'true', warningType: 'supplierReturn' } }
+  { key: 'supplierReturnWarningCount', label: translateText("个商品退供不足7天"), name: translateText("退供不足7天的成品和样品"), description: translateText("统计有可售库存的成品和样品，距供应商退货期限不足7天（含今天到期和已超期，不含剩余7天）"), icon: Clock, path: '/jewelry/stock', query: { warningOnly: 'true', warningType: 'supplierReturn' } }
 ]
 const metrics = computed(() => canViewFinance.value ? allMetrics : allMetrics.filter(item => !item.money))
 const format = (v, money) => money ? `¥ ${Number(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : Number(v || 0).toLocaleString()

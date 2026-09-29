@@ -18,7 +18,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import com.ruoyi.jewelry.mapper.JewelryErpMapper;
 
-/** Sends the same finished-product supplier-return warnings shown in ERP overview. */
+/** Sends the same finished-product and sample supplier-return warnings shown in ERP overview. */
 @Component
 @EnableScheduling
 public class JewelrySupplierReturnMailScheduler
@@ -126,7 +126,7 @@ public class JewelrySupplierReturnMailScheduler
             SimpleMailMessage message = new SimpleMailMessage();
             message.setFrom(from);
             message.setTo(to);
-            message.setSubject("[珠宝ERP] 成品商品供应商退货期限预警（" + alertDate + "）");
+            message.setSubject("[珠宝ERP] 成品与样品供应商退货期限预警（" + alertDate + "）");
             message.setText(buildBody(alertDate, warnings));
             sender.send(message);
         }
@@ -160,18 +160,19 @@ public class JewelrySupplierReturnMailScheduler
     static String buildBody(LocalDate alertDate, List<Map<String, Object>> warnings)
     {
         StringBuilder body = new StringBuilder();
-        body.append(alertDate).append(" 珠宝ERP成品商品退供预警\n")
-            .append("范围：仍有在库数量、距约定退供日期不足7天（含到期和超期）的成品商品。\n")
+        body.append(alertDate).append(" 珠宝ERP成品与样品退供预警\n")
+            .append("范围：仍有在库数量、距约定退供日期不足7天（含到期和超期）的成品与样品商品。\n")
             .append("共 ").append(warnings.size()).append(" 种。请登录库存台账核对批次与退货安排。\n\n");
         for (Map<String, Object> row : warnings)
         {
             body.append("SKU: ").append(value(row, "sku"))
                 .append("；商品: ").append(value(row, "productName"))
+                .append("；类型: ").append("SAMPLE".equals(row.get("productType")) ? "样品商品" : "成品商品")
                 .append("；在库: ").append(value(row, "onHandQty"))
                 .append("；截止: ").append(value(row, "supplierReturnDate"))
                 .append("；剩余天数: ").append(value(row, "supplierReturnDays"))
                 .append("；供应商: ").append(value(row, "supplierReturnSupplierName"))
-                .append("；原采购单: ").append(value(row, "supplierReturnDocNo"))
+                .append("；入库来源单: ").append(value(row, "supplierReturnDocNo"))
                 .append('\n');
         }
         body.append("\n本邮件由系统自动发送，请勿直接回复。");

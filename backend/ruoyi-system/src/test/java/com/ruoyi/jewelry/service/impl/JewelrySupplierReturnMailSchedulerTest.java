@@ -72,6 +72,24 @@ class JewelrySupplierReturnMailSchedulerTest
     }
 
     @Test
+    void sampleWarningsUseSameDigestAndIdentifySampleSource()
+    {
+        when(provider.getIfAvailable()).thenReturn(sender);
+        Map<String, Object> sample = warning();
+        sample.put("productType", "SAMPLE");
+        sample.put("supplierReturnDocNo", "样品入库单-1");
+        when(mapper.selectStockList(any())).thenReturn(Arrays.asList(warning(), sample));
+        when(mapper.claimSupplierReturnMail(any(), anyString(), anyInt())).thenReturn(1);
+        scheduler(true, "recipient@example.com", "auth-code").sendDaily();
+        ArgumentCaptor<SimpleMailMessage> mail = ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(sender).send(mail.capture());
+        assertTrue(mail.getValue().getSubject().contains("成品与样品"));
+        assertTrue(mail.getValue().getText().contains("类型: 样品商品"));
+        assertTrue(mail.getValue().getText().contains("入库来源单: 样品入库单-1"));
+        assertTrue(mail.getValue().getText().contains("共 2 种"));
+    }
+
+    @Test
     void duplicateClaimDoesNotSend()
     {
         when(provider.getIfAvailable()).thenReturn(sender);

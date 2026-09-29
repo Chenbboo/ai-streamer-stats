@@ -399,7 +399,7 @@ class JewelryErpMapperIntegrationTest
             assertSupplierReturnWarningCount(days < 7 ? 1 : 0);
         }
         execute("update jewelry_document set supplier_return_date=current_date where document_id=1");
-        for (String type : Arrays.asList("PART", "ACCESSORY", "WELFARE", "SAMPLE"))
+        for (String type : Arrays.asList("PART", "ACCESSORY", "WELFARE"))
         {
             execute("update jewelry_product set product_type='" + type + "' where product_id=1");
             assertSupplierReturnWarningCount(0);
@@ -412,6 +412,68 @@ class JewelryErpMapperIntegrationTest
         execute("update jewelry_stock set on_hand_qty=10 where product_id=1");
         execute("update jewelry_document set status='REVERSED' where document_id=1");
         assertSupplierReturnWarningCount(0);
+    }
+
+    @Test
+    void sampleReturnWarningMatchesRemainingBatchesAndStrictSevenDayBoundary() throws Exception
+    {
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification)"
+            + " values(1,'SAMPLE-WARN','样品预警测试','SAMPLE','普通')");
+        insertStock(1L, 3, 0, 0, 0, 0, 0, "0");
+        insertDocument(1L, "SAMPLE-OLD", "SAMPLE_IN", "POSTED", null);
+        insertDocument(2L, "SAMPLE-NEW", "SAMPLE_IN", "POSTED", null);
+        insertDocument(3L, "SAMPLE-DRAFT", "SAMPLE_IN", "DRAFT", null);
+        insertDocument(4L, "SAMPLE-REVERSED", "SAMPLE_IN", "REVERSED", null);
+        insertItem(1L, 1L, null, 1L, 2);
+        insertItem(2L, 2L, null, 1L, 3);
+        insertItem(3L, 3L, null, 1L, 10);
+        insertItem(4L, 4L, null, 1L, 10);
+        execute("update jewelry_document_item set biz_date=timestampadd(DAY,-40,current_date),"
+            + "supplier_name_snapshot='旧供应商' where item_id<>2");
+        for (int days : new int[] {-5, 0, 1, 6, 7, 8})
+        {
+            execute("update jewelry_document_item set biz_date=timestampadd(DAY," + (days - 25)
+                + ",current_date),supplier_name_snapshot='新供应商' where item_id=2");
+            assertEquals(java.time.LocalDate.now().plusDays(days).toString(), nextDeadline());
+            assertEquals("SAMPLE-NEW", deadlineValue("doc_no"));
+            assertEquals("新供应商", deadlineValue("supplier_name_snapshot"));
+            assertSupplierReturnWarningCount(days < 7 ? 1 : 0);
+        }
+        // One old unit remains: count this product once and use its older deadline.
+        execute("update jewelry_stock set on_hand_qty=4 where product_id=1");
+        assertEquals(java.time.LocalDate.now().minusDays(15).toString(), nextDeadline());
+        assertSupplierReturnWarningCount(1);
+        execute("insert into sys_config(config_key,config_value) values('jewelry.supplier.return.days','50')");
+        assertEquals(java.time.LocalDate.now().plusDays(10).toString(), nextDeadline());
+        assertSupplierReturnWarningCount(0);
+        execute("update jewelry_stock set on_hand_qty=0 where product_id=1");
+        assertEquals(null, nextDeadline());
+        assertSupplierReturnWarningCount(0);
+        execute("update jewelry_stock set on_hand_qty=3 where product_id=1");
+        execute("update sys_config set config_value='25' where config_key='jewelry.supplier.return.days'");
+        execute("update jewelry_document_item set biz_date=timestampadd(DAY,-23,current_date) where item_id=2");
+        assertSupplierReturnWarningCount(1);
+        execute("update jewelry_product set status='1' where product_id=1");
+        assertSupplierReturnWarningCount(0);
+    }
+
+    @Test
+    void samplePurchaseReturnConsumesItsOwnBatchAndReversalRestoresDeadline() throws Exception
+    {
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification)"
+            + " values(1,'SAMPLE-PURCHASE','历史采购样品','SAMPLE','普通')");
+        insertStock(1L, 2, 0, 0, 0, 0, 0, "0");
+        deadlinePurchase(1L, 2, java.time.LocalDate.now().plusDays(8).toString());
+        deadlinePurchase(2L, 2, java.time.LocalDate.now().plusDays(2).toString());
+        execute("update jewelry_document set biz_date=timestampadd(DAY,-20,current_date) where document_id=1");
+        execute("update jewelry_document set biz_date=timestampadd(DAY,-10,current_date) where document_id=2");
+        insertDocument(3L, "SAMPLE-RETURN", "SUPPLIER_RETURN", "POSTED", 2L);
+        insertItem(3L, 3L, 2L, 1L, 2);
+        assertEquals("PUR-1", deadlineValue("doc_no"));
+        assertSupplierReturnWarningCount(0);
+        execute("update jewelry_document set status='REVERSED' where document_id=3");
+        assertEquals("PUR-2", deadlineValue("doc_no"));
+        assertSupplierReturnWarningCount(1);
     }
 
     private void assertSupplierReturnWarningCount(int expected) throws Exception
@@ -481,7 +543,7 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
-    void onlyFinishedProductsExposeSupplierReturnCountdown() throws Exception
+    void onlyFinishedAndSampleProductsExposeSupplierReturnCountdown() throws Exception
     {
         insertStock(1L, 10, 0, 0, 0, 0, 0, "10");
         deadlinePurchase(1L, 10, "2026-09-14");
@@ -503,8 +565,8 @@ class JewelryErpMapperIntegrationTest
                     "select rd.deadline,rd.doc_no from jewelry_stock s join jewelry_product p on p.product_id=s.product_id " + deadlineJoin))
                 {
                     assertTrue(result.next());
-                    assertEquals("FINISHED".equals(type) ? java.sql.Date.valueOf("2026-09-14") : null, result.getDate(1));
-                    assertEquals("FINISHED".equals(type) ? "PUR-1" : null, result.getString(2));
+                    assertEquals(Arrays.asList("FINISHED", "SAMPLE").contains(type) ? java.sql.Date.valueOf("2026-09-14") : null, result.getDate(1));
+                    assertEquals(Arrays.asList("FINISHED", "SAMPLE").contains(type) ? "PUR-1" : null, result.getString(2));
                 }
             }
             // Product-type gating must not alter the independent stock-age calculation.
@@ -864,7 +926,7 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
-    void sampleProductsCanBeFilteredAndAreNotSupplierReturnWarningCandidates()
+    void sampleProductsCanBeFilteredAndAreSupplierReturnWarningCandidates()
     {
         execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification)"
             + " values(1,'SAMPLE-1','样品项链','SAMPLE','普通'),(2,'FINISHED-1','成品项链','FINISHED','普通')");
@@ -880,7 +942,7 @@ class JewelryErpMapperIntegrationTest
             .getMappedStatement("com.ruoyi.jewelry.mapper.JewelryErpMapper.selectStockList")
             .getBoundSql(query).getSql().replaceAll("\\s+", " ");
         assertTrue(stockSql.contains("p.product_type=?"));
-        assertTrue(stockSql.contains("p.product_type='FINISHED'"));
+        assertTrue(stockSql.contains("p.product_type in ('FINISHED','SAMPLE')"));
     }
 
     @Test
@@ -908,12 +970,13 @@ class JewelryErpMapperIntegrationTest
             + "sample_goods_no='YP-11',supplier_name_snapshot='供应商甲' where item_id=11");
         execute("update jewelry_document_item set biz_date=timestampadd(DAY,-3,current_date),"
             + "sample_goods_no='YP-12',supplier_name_snapshot='供应商乙' where item_id=12");
+        execute("update jewelry_document set biz_date=timestampadd(DAY,-30,current_date) where document_id=4");
 
         try (SqlSession session = sqlSessionFactory.openSession())
         {
             JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
             List<Map<String, Object>> details = mapper.selectSampleInboundDetails(1L);
-            assertEquals(2, details.size());
+            assertEquals(3, details.size());
             assertEquals(3, ((Number) details.get(0).get("stockAgeDays")).intValue());
             assertEquals(7, ((Number) details.get(0).get("supplierReturnDays")).intValue());
             assertEquals("YP-12", details.get(0).get("goodsNo"));

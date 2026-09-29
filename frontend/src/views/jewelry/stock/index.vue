@@ -63,7 +63,7 @@
               <el-table-column :label="$tr(&quot;库龄&quot;)" width="90" align="right"><template #default="{row:item}">{{ $tr("{0}天", [item.stockAgeDays]) }}</template></el-table-column>
               <el-table-column :label="$tr(&quot;离供应商退货时间&quot;)" width="185">
                 <template #default="{row:item}">
-                  <span :class="{danger:Number(item.supplierReturnDays)<=0}">{{returnCountdown(item.supplierReturnDays)}}</span>
+                  <el-tag :type="Number(item.supplierReturnDays)<=0?'danger':Number(item.supplierReturnDays)<7?'warning':'success'" effect="plain">{{returnCountdown(item.supplierReturnDays)}}</el-tag>
                   <small class="sample-detail-note">{{ $tr("截止 {0} · {1}", [formatInboundDate(item.supplierReturnDate), item.supplierName || $tr("供应商未记录")]) }}</small>
                 </template>
               </el-table-column>
@@ -81,9 +81,9 @@
       </template>
     </el-table-column><el-table-column prop="stockAgeDays" :label="$tr(&quot;库龄&quot;)" width="90" align="right"><template #default="{row}"><el-tooltip v-if="Number(row.stockOriginUnknown)" :content="$tr(&quot;缺少有效原入库或采购依据，不能以退货或质检日期重新计算库龄。&quot;)"><span>{{ $tr("来源待确认") }}</span></el-tooltip><el-tag v-else-if="row.ageWarning" type="danger" effect="plain">{{ $tr("{0}天", [row.stockAgeDays]) }}</el-tag><span v-else>{{row.oldestInboundDate ? $tr("{0}天", [row.stockAgeDays]) : '—'}}</span></template></el-table-column><el-table-column :label="$tr(&quot;离供应商退货时间&quot;)" width="185" align="center">
       <template #default="{row}">
-        <span v-if="row.productType!=='FINISHED'">—</span>
+        <span v-if="!['FINISHED','SAMPLE'].includes(row.productType)">—</span>
         <el-tooltip v-else-if="row.supplierReturnDate" placement="top"
-          :content="$tr(&quot;采购单：{0}；供应商：{1}。{2}&quot;, [row.supplierReturnDocNo, row.supplierReturnSupplierName || '—', Number(row.stockOriginFirstPurchase)?$tr(&quot;退回商品存在多次采购，按首次采购单计算，特殊约定日期优先。&quot;):$tr(&quot;按先进先出推算剩余采购批次，显示最早退货期限。&quot;)])">
+          :content="row.productType==='SAMPLE'?$tr('样品入库来源：{0}；供应商：{1}。按每行入库日期及剩余库存推算，显示最早退货期限。',[row.supplierReturnDocNo,row.supplierReturnSupplierName || '—']):$tr(&quot;采购单：{0}；供应商：{1}。{2}&quot;, [row.supplierReturnDocNo, row.supplierReturnSupplierName || '—', Number(row.stockOriginFirstPurchase)?$tr(&quot;退回商品存在多次采购，按首次采购单计算，特殊约定日期优先。&quot;):$tr(&quot;按先进先出推算剩余采购批次，显示最早退货期限。&quot;)])">
           <div class="return-deadline">
             <el-tag :type="Number(row.supplierReturnDays)<=0?'danger':Number(row.supplierReturnDays)<7?'warning':'success'" effect="plain">
               {{Number(row.supplierReturnDays)>0?$tr("剩余 {0} 天", [row.supplierReturnDays]):Number(row.supplierReturnDays)===0?$tr("今天到期"):$tr("已超期 {0} 天", [Math.abs(Number(row.supplierReturnDays))])}}
