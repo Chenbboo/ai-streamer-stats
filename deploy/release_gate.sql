@@ -480,4 +480,12 @@ from (
   select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
     and table_name='biz_project_progress_report' and column_name='completion_standard'
     and data_type='varchar' and is_nullable='NO' and column_default='STANDARD'
+  union all
+  select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
+    and table_name='sys_dept' and column_name='public_cost_source'
+    and data_type='varchar' and character_maximum_length>=24 and is_nullable='NO'
+  union all
+  select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
+    and table_name='biz_public_expense_daily' and column_name='it_transfer_amount'
+    and data_type='decimal' and numeric_precision>=20 and numeric_scale=2 and is_nullable='NO'
 ) release_gate;

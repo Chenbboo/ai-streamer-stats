@@ -846,7 +846,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
     @Override
     public void ensureProjectCanClose(Long projectId)
     {
-        if(publicExpenses!=null&&publicExpenses.countProjectPending(projectId)>0)
+        if(publicExpenses!=null&&((publicExpenses.countItSourceProject(projectId)==0&&publicExpenses.countProjectPending(projectId)>0)||publicExpenses.countProjectItLossPending(projectId)>0))
             throw new ServiceException("项目相关月份的公司公共费用尚未完成分摊或月结，请先在公司公共费用中处理");
         if(mapper.countProjectUnsettledFacts(projectId)>0)
             throw new ServiceException("项目仍有待确认或已退回未修改的收支，请处理完成后再结项");

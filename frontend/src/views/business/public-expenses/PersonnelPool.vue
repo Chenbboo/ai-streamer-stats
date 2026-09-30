@@ -1,32 +1,61 @@
 <template>
   <section class="personnel-pool" v-loading="loading">
-    <div class="heading"><div><h2>{{ $tr("公共人员成本") }}</h2><p>{{ $tr("项目直接承担金额＝人员月成本 × 当月有效项目投入比例之和；剩余成本按老板设置的部门、负责人比例分摊。") }}</p></div><div class="actions"><el-button :disabled="disabled || saving" :loading="loading" @click="refreshPreview">{{ $tr("刷新") }}</el-button><el-button v-if="editable" type="primary" :disabled="disabled || loading || loadFailed || !previewLoaded || blocked" :loading="saving" @click="save">{{ $tr("下一步：分摊给负责人") }}</el-button><el-button v-else-if="bill?.status === 'PUBLISHED'" type="primary" :disabled="disabled || saving" @click="emit('recall')">{{ $tr("退回修改") }}</el-button></div></div>
-    <template v-if="snapshot">
-      <div class="metrics"><div><span>{{ $tr("人员月成本合计") }}</span><b>{{ money(snapshot.totalAmount) }}</b></div><div><span>{{ $tr("项目已承担金额") }}</span><b>{{ money(Number(snapshot.projectAmount) + Number(snapshot.businessAmount)) }}</b></div><div><span>{{ $tr("公共人员成本合计") }}</span><b>{{ money(snapshot.publicAmount) }} {{ filters.currency }}</b></div><div><span>{{ $tr("日暂估金额（÷ 21.75）") }}</span><b>{{ money(snapshot.dailyReference) }}</b></div></div>
-      <el-alert :type="snapshot.estimated ? 'warning' : 'success'" :closable="false" :title="snapshot.estimated ? $tr(&quot;本月金额为整月暂估；月底请刷新整月人员成本，再与日常公共费用一起月结。&quot;) : $tr(&quot;整月人员成本已保存，将与日常公共费用一起月结。&quot;)" />
-      <el-collapse><el-collapse-item :title="$tr(&quot;查看人员成本来源（仅老板可见）&quot;)"><el-table :data="snapshot.rows"><el-table-column prop="userName" :label="$tr(&quot;人员&quot;)" min-width="100"/><el-table-column prop="deptName" :label="$tr(&quot;所属部门&quot;)" min-width="110"/><el-table-column :label="$tr(&quot;人员月成本&quot;)" min-width="120"><template #default="{ row }">{{ money(row.totalAmount) }}</template></el-table-column><el-table-column :label="$tr(&quot;项目已承担金额&quot;)" min-width="220"><template #default="{ row }">{{ money(Number(row.projectAmount) + Number(row.businessAmount)) }}<small v-for="item in row.projectAllocations || []" :key="item.projectId">{{ item.projectName }}：{{ item.allocationPercent }}% × {{ money(row.totalAmount) }} = {{ money(item.amount) }}</small></template></el-table-column><el-table-column :label="$tr(&quot;待分摊金额&quot;)" min-width="120"><template #default="{ row }">{{ money(row.publicAmount) }}</template></el-table-column></el-table></el-collapse-item></el-collapse>
-    </template>
-    <div class="current-source">
-      <el-alert v-if="!snapshot" :title="bill?.status === 'PUBLISHED' ? $tr(&quot;本月账单已下发，尚未加入公共人员成本。下方为人员数据预览，未计入费用；加入前需退回修改，修改后重新下发。&quot;) : bill?.status === 'SETTLED' ? $tr(&quot;本月账单已结算，未包含公共人员成本。下方仅供核对，不改动已结算账单。&quot;) : $tr(&quot;金额自动读取，无需重复填写。点击“下一步”，选择部门、负责人及分摊比例。&quot;)" type="info" :closable="false" show-icon/>
-      <el-alert v-if="loadFailed" class="note" :title="$tr(&quot;人员成本加载失败，请点击“刷新”重试。&quot;)" type="error" :closable="false" show-icon/>
-      <template v-else-if="previewLoaded">
-        <div class="metrics preview-metrics"><div><span>{{ $tr("人员数量") }}</span><b>{{ $tr("{0} 人", [rows.length]) }}</b></div><div><span>{{ $tr("人员月成本合计（预览）") }}</span><b>{{ money(previewPayroll) }}</b></div><div><span>{{ $tr("公共人员成本合计（预览）") }}</span><b>{{ money(total) }}</b></div><div><span>{{ $tr("日暂估金额（÷ 21.75）") }}</span><b>{{ money(total == null ? null : total / 21.75) }}</b></div></div>
-        <el-alert v-if="rows.some(row => remainder(row) != null && remainder(row) < 0)" type="error" :closable="false" :title="$tr(&quot;项目已承担金额超过人员月成本，请先核对人员成本和项目投入记录。&quot;)"/>
-        <el-alert v-if="incompleteCount" type="warning" :closable="false" show-icon :title="$tr(&quot;{0} 位人员成本待完善，请核对下方说明；待完善金额不会按零计入分摊。&quot;, [incompleteCount])"/>
-        <el-alert v-for="issue in preview.issues || []" :key="issue" class="note" type="warning" :closable="false" :title="issue"/>
-        <el-table :data="rows" class="source-preview" max-height="440" :empty-text="$tr(&quot;所选公司、月份和币种暂无适用人员。请核对人员归属及成本设置。&quot;)">
-          <el-table-column prop="userName" :label="$tr(&quot;人员&quot;)" min-width="120"/><el-table-column prop="deptName" :label="$tr(&quot;所属部门&quot;)" min-width="110"/>
-          <el-table-column :label="$tr(&quot;人员月成本&quot;)" min-width="130"><template #default="{ row }">{{ money(row.totalAmount) }}</template></el-table-column>
-          <el-table-column :label="$tr(&quot;项目直接承担金额&quot;)" min-width="230"><template #default="{ row }"><span>{{ money(row.projectAmount) }}</span><small v-for="item in row.projectAllocations || []" :key="item.projectId">{{ item.projectName }}：{{ item.allocationPercent }}% × {{ money(row.totalAmount) }} = {{ money(item.amount) }}</small><small v-if="row.projectIssues?.length" class="warning">{{ $tr("投入比例待完善，暂不计入分摊") }}</small></template></el-table-column>
-          <el-table-column v-if="rows.some(row => businessAmount(row) > 0)" :label="$tr(&quot;历史已入账扣除&quot;)" min-width="130"><template #default="{ row }">{{ money(businessAmount(row)) }}</template></el-table-column>
-          <el-table-column :label="$tr(&quot;待分摊金额&quot;)" min-width="130"><template #default="{ row }">{{ money(row.projectIssues?.length ? null : remainder(row)) }}</template></el-table-column>
-          <el-table-column :label="$tr(&quot;数据状态&quot;)" min-width="250"><template #default="{ row }"><div class="review-status"><el-tag v-if="row.issues?.length" type="warning" effect="plain">{{ $tr("月成本待完善") }}</el-tag><el-tag v-if="row.projectIssues?.length" type="warning" effect="plain">{{ $tr("项目成本待完善") }}</el-tag><span v-if="!row.issues?.length && !row.projectIssues?.length">{{ $tr("已自动计算") }}</span><el-button v-else link type="primary" @click="showIssues(row)">{{ $tr("查看原因") }}</el-button></div></template></el-table-column>
-        </el-table>
-      </template>
-      <p v-else-if="loading" class="note">{{ $tr("正在获取本公司人员及项目成本…") }}</p>
+    <div class="heading">
+      <div><h2>{{ $tr("公共人员成本与IT净亏损") }}</h2><p class="subtitle">{{ $tr("先确定月度项目承担金额，再按有效参与日期入账；请假另行扣减。其他人员未分配的余额及IT净亏损按公共费用规则分摊。") }}</p></div>
+      <div class="actions">
+        <el-button :disabled="disabled || saving" :loading="loading" @click="refreshPreview">{{ $tr("刷新") }}</el-button>
+        <el-button v-if="editable" type="primary" :disabled="disabled || loading || loadFailed || !previewLoaded || blocked" :loading="saving" @click="save">{{ $tr("下一步：分摊给负责人") }}</el-button>
+        <el-button v-else-if="bill?.status === 'PUBLISHED'" type="primary" :disabled="disabled || saving" @click="emit('recall')">{{ $tr("退回修改") }}</el-button>
+      </div>
     </div>
-    <el-alert v-if="rows.some(row => businessAmount(row) > 0)" class="note" type="info" :closable="false" :title="$tr(&quot;历史已关联的人员支出继续自动扣除，避免重复分摊。&quot;)"/>
-    <p class="note">{{ $tr("按月计价的人员，其月成本与人员成本设置中的月度内部费率一致；月内多次调价时按生效期间折算。需要调整金额时请到人员成本设置修改。公共人员成本单独设置部门、负责人比例。负责人分摊到项目后，日结果按月分摊金额 ÷ 21.75 暂估；月结以实际月分摊金额替换暂估金额，不重复扣费。") }}</p>
+    <el-alert v-if="!snapshot && bill?.status === 'PUBLISHED'" class="note" :title="$tr(&quot;本月账单已下发，待分配金额尚未计入账单。&quot;)" type="info" :closable="false" show-icon />
+    <el-alert v-else-if="!snapshot && bill?.status === 'SETTLED'" class="note" :title="$tr(&quot;本月账单已结算，下方金额仅供预览。&quot;)" type="info" :closable="false" show-icon />
+    <el-alert v-if="loadFailed" class="note" :title="$tr(&quot;人员成本加载失败，请点击“刷新”重试。&quot;)" type="error" :closable="false" show-icon />
+    <template v-else-if="previewLoaded && showPreview">
+      <el-alert v-if="rows.some(row => remainder(row) != null && remainder(row) < 0)" class="note" type="error" :closable="false" :title="$tr(&quot;项目已承担金额超过人员月成本，请先核对人员成本和项目投入记录。&quot;)" />
+      <el-alert v-if="incompleteCount" class="note" type="warning" :closable="false" show-icon :title="$tr(&quot;{0} 位人员成本待完善，请先核对后再分配。&quot;, [incompleteCount])" />
+      <el-alert v-for="issue in preview.issues || []" :key="issue" class="note" type="warning" :closable="false" :title="translateServerMessage(issue)" />
+    </template>
+    <template v-if="previewLoaded || snapshot">
+      <div class="metrics">
+        <div><span>{{ $tr("人员数量") }}</span><b>{{ $tr("{0} 人", [displayRows.length]) }}</b></div>
+        <div><span>{{ showPreview ? $tr("人员月成本合计（预览）") : $tr("人员月成本合计") }}</span><b>{{ money(displayPayroll) }}</b></div>
+        <div><span>{{ showPreview ? $tr("待分摊公共成本合计（预览）") : $tr("待分摊公共成本合计") }}</span><b>{{ money(pendingTotal) }} <small>{{ filters.currency }}</small></b></div>
+      </div>
+      <el-table :data="displayRows" class="source-preview" max-height="440" :empty-text="$tr(&quot;所选公司、月份和币种暂无适用人员。请核对人员归属及成本设置。&quot;)">
+        <el-table-column prop="userName" :label="$tr(&quot;人员&quot;)" min-width="120" />
+        <el-table-column prop="deptName" :label="$tr(&quot;所属部门&quot;)" min-width="120" />
+        <el-table-column :label="$tr(&quot;人员月成本&quot;)" min-width="130"><template #default="{ row }">{{ money(row.totalAmount) }}</template></el-table-column>
+        <el-table-column :label="$tr(&quot;项目月度承担金额&quot;)" min-width="260">
+          <template #default="{ row }">
+            <span>{{ money(row.projectAmount) }}</span>
+            <small v-for="item in row.projectAllocations || []" :key="item.projectId" class="allocation-detail">{{ allocationProjectName(item) }}：{{ money(item.amount) }}（{{ $tr("约占 {0}%", [item.allocationPercent]) }}）</small>
+            <small v-if="row.projectIssues?.length" class="allocation-detail warning">{{ $tr("投入比例待完善，暂不计入分摊") }}</small>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="displayRows.some(row => businessAmount(row) > 0)" :label="$tr(&quot;历史已入账扣除&quot;)" min-width="130"><template #default="{ row }">{{ money(businessAmount(row)) }}</template></el-table-column>
+        <el-table-column :label="$tr(&quot;待分摊金额&quot;)" min-width="130"><template #default="{ row }">{{ money(row.publicAmount !== undefined ? row.publicAmount : remainder(row)) }}</template></el-table-column>
+        <el-table-column :label="$tr(&quot;数据状态&quot;)" min-width="180">
+          <template #default="{ row }">
+            <div class="review-status">
+              <el-tag v-if="row.issues?.length" type="warning" effect="plain">{{ $tr("月成本待完善") }}</el-tag>
+              <el-tag v-if="row.projectIssues?.length" type="warning" effect="plain">{{ $tr("项目成本待完善") }}</el-tag>
+              <span v-if="!row.issues?.length && !row.projectIssues?.length">{{ $tr("已自动计算") }}</span>
+              <el-button v-else link type="primary" @click="showIssues(row)">{{ $tr("查看原因") }}</el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div v-if="displaySource.itLoss" class="pending-total" aria-live="polite">
+        <span>{{ $tr("IT待分配金额") }}</span>
+        <div class="amount">
+          <el-tag v-if="showPreview" size="small" type="info" effect="plain">{{ $tr("预览") }}</el-tag>
+          <el-tag v-else-if="snapshot.estimated" size="small" type="info" effect="plain">{{ $tr("暂估") }}</el-tag>
+          <b>{{ money(itPendingAmount) }}</b>
+          <span class="currency">{{ filters.currency }}</span>
+        </div>
+      </div>
+    </template>
     <el-dialog v-model="issuesDialog" :title="$tr(&quot;{0} · 成本核对原因&quot;, [selectedRow?.userName || ''])" width="min(720px, 94vw)" append-to-body>
       <p class="issue-intro">{{ $tr("项目直接承担金额按人员月成本和当月有效投入比例计算。请核对成本币种及投入比例的确认状态。") }}</p>
       <section v-for="group in issueGroups" :key="group.title" class="issue-group">
@@ -43,9 +72,9 @@
   </section>
 </template>
 <script setup>
-import { translateText } from '@/locales/translate'
+import { translateText, translateServerMessage } from '@/locales/translate'
 
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getPublicPersonnelPreview, savePublicPersonnel } from '@/api/business/publicExpense'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
@@ -75,12 +104,31 @@ function formatDates(dates) {
 }
 const snapshot = computed(() => props.bill?.personnel)
 const money = value => value == null || !Number.isFinite(Number(value)) ? translateText("待完善") : Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const allocationProjectName = item => {
+  const current = (preview.value.personnelDetails || []).flatMap(row => row.projectAllocations || []).find(detail => String(detail.projectId) === String(item.projectId))
+  const name = current?.projectName || item.projectName || translateText("历史项目 #{0}", [item.projectId])
+  return (current?.projectDeleted ?? item.projectDeleted) ? translateText("{0}（已删除）", [name]) : name
+}
 const businessAmount = row => Number(row.businessAmount || 0)
 const remainder = row => row.totalAmount == null || row.projectIssues?.length ? null : Math.round((Number(row.totalAmount) - Number(row.projectAmount) - businessAmount(row)) * 100) / 100
 const incompleteCount = computed(() => rows.value.filter(row => row.totalAmount == null || row.projectIssues?.length).length)
-const previewPayroll = computed(() => rows.value.some(row => row.totalAmount == null) ? null : rows.value.reduce((sum, row) => sum + Number(row.totalAmount), 0))
-const total = computed(() => incompleteCount.value || preview.value.issues?.length ? null : rows.value.reduce((sum, row) => sum + Number(remainder(row) || 0), 0))
-const blocked = computed(() => !rows.value.length || preview.value.issues?.length > 0 || rows.value.some(row => row.totalAmount == null || remainder(row) < 0 || row.projectIssues?.length))
+const total = computed(() => incompleteCount.value || preview.value.issues?.length ? null : preview.value.sourceMode === 'DEPARTMENT_NET_V1' ? preview.value.publicAmount : rows.value.reduce((sum, row) => sum + Number(remainder(row) || 0), 0))
+const pendingTotal = computed(() => !props.editable && snapshot.value ? snapshot.value.publicAmount : previewLoaded.value && !loadFailed.value ? total.value : null)
+const showPreview = computed(() => props.editable || !snapshot.value)
+const displaySource = computed(() => showPreview.value ? preview.value : snapshot.value)
+const displayRows = computed(() => {
+  const source = displaySource.value || {}
+  if (source.personnelDetails) return source.personnelDetails
+  const savedRows = source.rows || []
+  if (!showPreview.value && source.sourceMode === 'DEPARTMENT_NET_V1') {
+    const savedUsers = new Set(savedRows.map(row => row.userId))
+    return [...savedRows, ...(preview.value.personnelDetails || []).filter(row => row.directProjectCost && !savedUsers.has(row.userId))]
+  }
+  return savedRows
+})
+const displayPayroll = computed(() => displayRows.value.some(row => row.totalAmount == null) ? null : displayRows.value.reduce((sum, row) => sum + Number(row.totalAmount), 0))
+const itPendingAmount = computed(() => showPreview.value && loadFailed.value ? null : displaySource.value?.itLoss?.netLoss)
+const blocked = computed(() => (!rows.value.length && !preview.value.itLoss?.projects?.length) || preview.value.issues?.length > 0 || rows.value.some(row => row.totalAmount == null || remainder(row) < 0 || row.projectIssues?.length))
 async function fetchPreview() {
   if (loading.value || saving.value) return false
   loading.value = true; loadFailed.value = false; emit('busy', true)
@@ -97,6 +145,7 @@ async function refreshPreview() {
   await fetchPreview()
 }
 onMounted(fetchPreview)
+onBeforeUnmount(() => emit('busy', false))
 useBusinessRefreshOnReactivated(fetchPreview)
 async function save() {
   if (!props.editable || props.disabled || blocked.value || saving.value || loading.value || loadFailed.value || !previewLoaded.value) return
@@ -110,12 +159,30 @@ async function save() {
 </script>
 <style scoped>
 .personnel-pool { padding: 22px; border: 1px solid #e2e9ed; border-radius: 12px; background: var(--el-bg-color); }
-.heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
-h2 { margin: 0 0 8px; font-size: 18px; } p, small { color: #758591; font-size: 13px; line-height: 1.7; } small { display: block; }
-.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; } .metrics > div { padding: 18px; background: #f1f8f6; border-radius: 10px; }
-.metrics span { display: block; color: #73858e; font-size: 13px; }.metrics b { display: block; margin-top: 10px; font-size: 22px; color: #245e55; }
-.actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }.actions .el-button + .el-button { margin-left: 0; }.preview-metrics { margin-top: 18px; }.source-preview { margin-top: 18px; }
-.note { margin-top: 16px; }.source-table { margin: 18px 0; }.source-table .el-input-number { width: 100%; }.warning { color: #c78018; }.preview-total { padding: 16px; background: #f1f8f6; border-radius: 8px; }
-.review-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }.issue-intro { margin-top: 0; }.issue-group { margin-top: 20px; }.issue-group h3 { font-size: 15px; }.issue-item { padding: 12px 16px; margin-top: 8px; background: var(--el-fill-color-light); border-radius: 8px; line-height: 1.8; }.issue-item p { margin: 4px 0 0; overflow-wrap: anywhere; }.issue-help { margin-bottom: 0; }
-@media(max-width: 800px) { .metrics { grid-template-columns: 1fr 1fr; }.heading { flex-wrap: wrap; } }
+.heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+h2 { margin: 0; font-size: 18px; }
+p { color: #758591; font-size: 13px; line-height: 1.7; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.actions .el-button + .el-button { margin-left: 0; }
+.subtitle { margin: 8px 0 0; }
+.note { margin-top: 16px; }
+.metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
+.metrics > div { padding: 18px; background: #f1f8f6; border-radius: 10px; }
+.metrics span { display: block; color: #73858e; font-size: 13px; }
+.metrics b { display: block; margin-top: 10px; font-size: 22px; color: #245e55; font-variant-numeric: tabular-nums; }
+.metrics small { font-size: 13px; font-weight: normal; }
+.allocation-detail { display: block; color: #758591; font-size: 13px; line-height: 1.7; }
+.review-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pending-total { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; margin-top: 20px; background: #f1f8f6; border-radius: 8px; color: #73858e; font-size: 14px; }
+.amount { display: flex; align-items: center; gap: 10px; }
+.amount b { color: #245e55; font-size: 24px; font-variant-numeric: tabular-nums; }
+.currency { font-size: 13px; }
+.warning { color: #c78018; }
+.issue-intro { margin-top: 0; }
+.issue-group { margin-top: 20px; }
+.issue-group h3 { font-size: 15px; }
+.issue-item { padding: 12px 16px; margin-top: 8px; background: var(--el-fill-color-light); border-radius: 8px; line-height: 1.8; }
+.issue-item p { margin: 4px 0 0; overflow-wrap: anywhere; }
+.issue-help { margin-bottom: 0; }
+@media(max-width: 800px) { .heading, .pending-total { flex-wrap: wrap; }.amount { flex-wrap: wrap; }.metrics { grid-template-columns: 1fr; } }
 </style>

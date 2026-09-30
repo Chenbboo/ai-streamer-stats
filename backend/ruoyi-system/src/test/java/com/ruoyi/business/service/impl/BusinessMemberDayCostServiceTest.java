@@ -35,6 +35,73 @@ class BusinessMemberDayCostServiceTest {
         when(work.selectMembers(1L)).thenReturn(Collections.singletonList(member));when(work.selectCalendars()).thenReturn(Collections.singletonList(calendar));
         when(work.selectBudgetRates(eq(7L),anyString(),anyString())).thenReturn(Collections.singletonList(rate));
     }
+    void directPayrollFixture(){
+        project.setActualStartDate(Date.valueOf("2026-09-23"));member.put("joinedDate","2026-09-23");rate.put("unitCost",11250);
+        when(costs.selectStaffMetadata(eq(7L),any())).thenReturn(row("departmentCostSource","DIRECT_PROJECT"));
+        Map<String,Object> allocation=row("projectId",1L,"userId",7L,"allocationValue",20,"confirmationStatus","CONFIRMED","effectiveFrom","2026-09-23","projectStartDate","2026-09-23","projectCurrency","CNY");
+        when(projects.selectUserAllocationTimeline(7L)).thenReturn(Collections.singletonList(allocation));
+        when(costs.selectAllocationPeriods(1L)).thenReturn(Collections.singletonList(allocation));
+    }
+    @Test void directDepartmentProjectsReceiveEntireMonthlySalaryAndReportWindowsDoNotChangeDailyPricing(){
+        directPayrollFixture();
+        List<Map<String,Object>> month=service.calculateCurrent(project,LocalDate.parse("2026-09-01"),LocalDate.parse("2026-09-30"));
+        assertEquals(6,month.size());assertTrue(month.stream().allMatch(r->"PRICED".equals(r.get("pricingStatus"))));
+        assertEquals(new BigDecimal("11250.00"),month.stream().map(r->(BigDecimal)r.get("amount")).reduce(BigDecimal.ZERO,BigDecimal::add));
+        Map<String,Object> day=service.calculateCurrent(project,LocalDate.parse("2026-09-29"),LocalDate.parse("2026-09-29")).get(0);
+        assertEquals(new BigDecimal("1875.00"),day.get("amount"));assertTrue(day.get("basisJson").toString().contains("DIRECT_PROJECT_FULL_MONTH_V2"));
+    }
+    @Test void preservedDeletedProjectCostsKeepTheirNameAndAmountInMonthlyDetails(){
+        directPayrollFixture();
+        when(costs.selectUserMonthCosts(7L,"2026-09")).thenReturn(Collections.singletonList(row("projectId",17L,"bizDate","2026-09-21","amount",new BigDecimal("170.46"),"currency","CNY","projectName","唐勃珠宝","projectNo","OLD17","projectDelFlag","2")));
+        List<Map<String,Object>> details=service.fullMonthlyPayroll(7L,java.time.YearMonth.of(2026,9),"CNY");
+        Map<String,Object> deleted=details.stream().filter(r->Long.valueOf(17L).equals(r.get("projectId"))).findFirst().get();
+        assertEquals("唐勃珠宝",deleted.get("projectName"));assertEquals(true,deleted.get("projectDeleted"));assertEquals(new BigDecimal("170.46"),deleted.get("amount"));
+        assertEquals(new BigDecimal("11250.00"),details.stream().map(r->(BigDecimal)r.get("amount")).reduce(BigDecimal.ZERO,BigDecimal::add));
+    }
+    @Test void supportMonthlyPreviewAndProjectDayCostUseTheSamePartialBudget(){
+        directPayrollFixture();rate.put("unitCost",7500);
+        when(costs.selectStaffMetadata(eq(7L),any())).thenReturn(row("departmentCostSource","STAFF_REMAINDER"));
+        BigDecimal preview=service.fullMonthlyPayroll(7L,java.time.YearMonth.of(2026,9),"CNY").stream().map(r->(BigDecimal)r.get("amount")).reduce(BigDecimal.ZERO,BigDecimal::add);
+        List<Map<String,Object>> rows=service.calculateCurrent(project,LocalDate.parse("2026-09-01"),LocalDate.parse("2026-09-30"));
+        assertEquals(new BigDecimal("1500.00"),preview);assertEquals(preview,rows.stream().map(r->(BigDecimal)r.get("amount")).reduce(BigDecimal.ZERO,BigDecimal::add));
+        assertTrue(rows.stream().allMatch(r->r.get("basisJson").toString().contains("MONTH_PROJECT_SHARE_V1")));
+    }
+    @Test void foreignHistoricalCostBlocksMonthlyPreviewAndDailyPricing(){
+        directPayrollFixture();
+        when(costs.selectUserMonthCosts(7L,"2026-09")).thenReturn(Collections.singletonList(row("projectId",17L,"bizDate","2026-09-21","amount",new BigDecimal("100.00"),"currency","VND")));
+        assertThrows(ServiceException.class,()->service.fullMonthlyPayroll(7L,java.time.YearMonth.of(2026,9),"CNY"));
+        Map<String,Object> day=service.calculateCurrent(project,LocalDate.parse("2026-09-29"),LocalDate.parse("2026-09-29")).get(0);
+        assertEquals("PENDING",day.get("pricingStatus"));assertNull(day.get("amount"));assertEquals("成本币种与项目不一致",day.get("issue"));
+    }
+    @Test void supportMonthRepricingReplacesPartialCostsOnceAndPreservesOtherMonths(){
+        directPayrollFixture();rate.put("unitCost",7500);
+        when(costs.selectStaffMetadata(eq(7L),any())).thenReturn(row("departmentCostSource","STAFF_REMAINDER"));
+        LocalDate from=LocalDate.parse("2026-09-23"),to=LocalDate.parse("2026-09-29");project.setActualEndDate(Date.valueOf(to));
+        List<Map<String,Object>> desired=service.calculateCurrent(project,from,to);
+        List<Map<String,Object>> original=new ArrayList<>();
+        for(Map<String,Object> d:desired){Map<String,Object> r=new LinkedHashMap<>(d);r.put("amount",new BigDecimal("68.18"));r.put("basisJson","old-priced-basis");original.add(r);}
+        when(costs.selectCosts(1L)).thenReturn(original,desired);
+        if(java.time.YearMonth.now().equals(java.time.YearMonth.of(2026,9))){
+            service.synchronize(1L);service.synchronize(1L);
+            verify(costs,times(desired.size())).insertCost(anyMap());verify(accounting,times(desired.size())).recalculatePersonnelCost(eq(1L),any(),eq("member-day-cost"));
+        }
+        Map<String,Object> old=row("userId",7L,"bizDate","2026-08-31","amount",new BigDecimal("68.18"),"pricingStatus","PRICED","basisJson","historical");
+        when(costs.selectCosts(1L)).thenReturn(Collections.singletonList(old));
+        assertEquals(new BigDecimal("68.18"),service.calculate(project,LocalDate.parse("2026-08-31"),LocalDate.parse("2026-08-31")).get(0).get("amount"));
+    }
+    @Test void directDepartmentPendingWeightsCannotTurnIntoPartialOrZeroPayroll(){
+        directPayrollFixture();when(projects.selectUserAllocationTimeline(7L)).thenReturn(Collections.singletonList(row("projectId",1L,"allocationValue",20,"confirmationStatus","PENDING","effectiveFrom","2026-09-23")));
+        Map<String,Object> day=service.calculateCurrent(project,LocalDate.parse("2026-09-29"),LocalDate.parse("2026-09-29")).get(0);
+        assertEquals("PENDING",day.get("pricingStatus"));assertNull(day.get("amount"));
+    }
+    @Test void currentMonthDirectPayrollReplacesExistingPartialPricingButKeepsClosedAccounting(){
+        directPayrollFixture();
+        when(costs.selectCosts(1L)).thenReturn(Collections.singletonList(row("userId",7L,"bizDate","2026-09-29","amount",new BigDecimal("102.27"),"pricingStatus","PRICED","basisJson","{}")));
+        Map<String,Object> day=service.calculate(project,LocalDate.parse("2026-09-29"),LocalDate.parse("2026-09-29")).get(0);
+        if(java.time.YearMonth.now().equals(java.time.YearMonth.of(2026,9)))assertEquals(new BigDecimal("1875.00"),day.get("amount"));
+        project.setAccountingState("CLOSED");clearInvocations(costs,accounting);service.synchronize(1L);
+        verify(costs,never()).deleteDay(anyLong(),anyString());verifyNoInteractions(accounting);
+    }
     List<Map<String,Object>> week(){return service.calculate(project,LocalDate.parse("2026-08-31"),LocalDate.parse("2026-09-06"));}
     @Test void fiveWeekdaysWithoutAnyWorkReportOrPercentage(){
         assertEquals(5,week().size());assertEquals(new BigDecimal("1047.62"),week().get(0).get("amount"));

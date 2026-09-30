@@ -463,7 +463,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         int effortCount = BusinessMemberDayCostService.enabled(project)?0:"ACTUAL_WORK_V1".equals(project.getCostPolicyVersion()) ? workMapper.countPendingWork(projectId) : mapper.countPendingProjectEfforts(projectId);
         int pendingCostCount = BusinessMemberDayCostService.enabled(project)?memberDays.pending(projectId):"ACTUAL_WORK_V1".equals(project.getCostPolicyVersion()) ? workMapper.countPendingCosts(projectId) : 0;
         int factCount = accountingMapper.countProjectUnsettledFacts(projectId);
-        int publicExpenseCount = publicExpenses == null ? 0 : publicExpenses.countProjectPending(projectId);
+        int publicExpenseCount = publicExpenses == null ? 0 : publicExpenses.countItSourceProject(projectId)>0
+            ? publicExpenses.countProjectItLossPending(projectId) : publicExpenses.countProjectPending(projectId);
         int awardCount = incentiveMapper.countPendingAwards(projectId);
         Map<String, Object> managementFee;
         if (managementFeeService == null)

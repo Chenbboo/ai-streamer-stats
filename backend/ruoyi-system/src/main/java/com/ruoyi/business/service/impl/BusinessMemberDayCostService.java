@@ -2,6 +2,7 @@ package com.ruoyi.business.service.impl;
 
 import java.math.*;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.*;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,6 +18,7 @@ import com.ruoyi.business.support.BusinessProjectReadAccess;
 import com.ruoyi.business.support.BusinessPersonnelCost;
 import com.ruoyi.business.support.BusinessMemberDayLeaveCost;
 import com.ruoyi.business.support.BusinessAllocationWeights;
+import com.ruoyi.business.support.BusinessFullProjectPayroll;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
 
@@ -44,6 +46,11 @@ public class BusinessMemberDayCostService {
         return "PRICED".equals(row.get("pricingStatus"))&&row.get("amount")!=null
             ||BusinessMemberDayLeaveCost.hasBase(row,json);
     }
+    private boolean repriceMonthlyPayroll(Map<String,Object> old,Map<String,Object> desired){
+        return desired!=null&&(String.valueOf(desired.get("basisJson")).contains("\"fullCostAllocationRequired\":true")
+            ||String.valueOf(desired.get("basisJson")).contains("\"monthlyCostAllocationRequired\":true"))
+            &&YearMonth.from(day(old.get("bizDate"))).equals(YearMonth.now());
+    }
     private List<Map<String,Object>> applyLeave(Long projectId,List<Map<String,Object>> rows){
         LocalDate from=null,to=null;
         for(Map<String,Object> row:rows){LocalDate date=day(row.get("bizDate"));if(date.isBefore(BusinessMemberDayLeaveCost.EFFECTIVE_FROM))continue;
@@ -56,7 +63,7 @@ public class BusinessMemberDayCostService {
         for(Map<String,Object> row:desired)merged.put(row.get("userId")+":"+day(row.get("bizDate")),row);
         for(Map<String,Object> row:mapper.selectCosts(projectId)){
             LocalDate d=day(row.get("bizDate"));
-            if(!d.isBefore(from)&&!d.isAfter(to)&&preserveCost(row))
+            if(!d.isBefore(from)&&!d.isAfter(to)&&preserveCost(row)&&!repriceMonthlyPayroll(row,merged.get(row.get("userId")+":"+d)))
                 merged.put(row.get("userId")+":"+d,new LinkedHashMap<>(row));
         }
         List<Map<String,Object>> result=new ArrayList<>(merged.values());
@@ -83,7 +90,10 @@ public class BusinessMemberDayCostService {
         List<Map<String,Object>> stored=mapper.selectCosts(projectId);
         // Also retain priced rows outside a changed project window.
         Map<String,List<Map<String,Object>>> old=group(stored),next=group(desired);
+        Map<String,Map<String,Object>> desiredCosts=new HashMap<>();
+        for(Map<String,Object> row:desired)desiredCosts.put(row.get("userId")+":"+day(row.get("bizDate")),row);
         for(Map<String,Object> row:stored)if(preserveCost(row)){
+            if(repriceMonthlyPayroll(row,desiredCosts.get(row.get("userId")+":"+day(row.get("bizDate")))))continue;
             String key=day(row.get("bizDate")).toString();List<Map<String,Object>> rows=next.computeIfAbsent(key,k->new ArrayList<>());
             rows.removeIf(r->Objects.equals(id(r.get("userId")),id(row.get("userId"))));rows.add(new LinkedHashMap<>(row));
         }
@@ -135,6 +145,11 @@ public class BusinessMemberDayCostService {
             List<Map<String,Object>> rates=work.selectBudgetRates(userId,from.toString(),to.toString());
             List<Map<String,Object>> allocationTimeline=projects.selectUserAllocationTimeline(userId);
             boolean automaticWeights=allocationTimeline!=null&&!allocationTimeline.isEmpty();
+            Map<String,Object> staffMetadata=mapper.selectStaffMetadata(userId,null);
+            boolean fullPayroll=staffMetadata!=null&&"DIRECT_PROJECT".equals(staffMetadata.get("departmentCostSource"));
+            boolean monthlyPayroll=fullPayroll||staffMetadata!=null&&"STAFF_REMAINDER".equals(staffMetadata.get("departmentCostSource"));
+            BusinessFullProjectPayroll payroll=monthlyPayroll?new BusinessFullProjectPayroll(allocationTimeline==null?Collections.emptyList():allocationTimeline,calendars,fullPayrollScopes(userId,allocationTimeline),fullPayroll):null;
+            Map<YearMonth,List<Map<String,Object>>> monthlyRates=new HashMap<>(),monthlyStored=new HashMap<>();
             for(LocalDate date=from;!date.isAfter(to);date=date.plusDays(1)) {
                 boolean released=false;
                 for(Map<String,Object> pause:pauses)if(!date.isBefore(day(pause.get("effectiveFrom")))&&(pause.get("effectiveTo")==null||date.isBefore(day(pause.get("effectiveTo"))))){released=true;break;}
@@ -161,7 +176,8 @@ public class BusinessMemberDayCostService {
                     effectiveAllocation=BusinessAllocationWeights.at(allocationTimeline,date).get(p.getProjectId());
                     allocationPercent=effectiveAllocation==null?null:new BigDecimal(String.valueOf(effectiveAllocation.get("allocationValue")));
                 }
-                String issue=allocationPercent==null?"缺少该日期有效的项目投入权重":null;BigDecimal amount=null;BigDecimal fullDailyCost=null;Map<String,Object> rate=null;
+                boolean allocateFull=monthlyPayroll&&!date.isBefore(BusinessFullProjectPayroll.EFFECTIVE_FROM);
+                String issue=allocationPercent==null?"缺少该日期有效的项目投入权重":null;BigDecimal amount=null;BigDecimal fullDailyCost=null;Map<String,Object> rate=null,payrollBasis=null;
                 if(allocation!=null&&"PENDING".equals(allocation.get("confirmationStatus")))issue="人员投入待确认，请由相关项目负责人确认分配";
                 if(issue==null&&(allocationPercent.signum()<0||allocationPercent.compareTo(new BigDecimal("100"))>0))issue="项目投入权重必须在0%至100%之间";
                 if(calendar==null||!covers(calendar,"effectiveFrom","effectiveTo",date))issue="缺少该日期有效的工作日历";
@@ -170,7 +186,15 @@ public class BusinessMemberDayCostService {
                     List<Map<String,Object>> matches=new ArrayList<>();for(Map<String,Object> r:rates)if(covers(r,"effectiveFrom","effectiveTo",date))matches.add(r);
                     if(matches.size()!=1)issue=matches.isEmpty()?"缺少有效用人成本":"成本生效日期重叠";
                     else {rate=matches.get(0);if(!p.getBaseCurrency().equals(rate.get("currency")))issue="成本币种与项目不一致";
-                        else try{fullDailyCost=pricing.amount(rate,calendar,date,new BigDecimal("100"));amount=pricing.amount(rate,calendar,date,allocationPercent);}catch(ServiceException ex){issue=ex.getMessage();}}
+                        else try{
+                            if(allocateFull) {
+                                YearMonth month=YearMonth.from(date);
+                                List<Map<String,Object>> allRates=monthlyRates.computeIfAbsent(month,k->work.selectBudgetRates(userId,k.atDay(1).toString(),k.atEndOfMonth().toString()));
+                                List<Map<String,Object>> allStored=monthlyStored.computeIfAbsent(month,k->mapper.selectUserMonthCosts(userId,k.toString()));
+                                payrollBasis=payroll.amount(p.getProjectId(),date,calendar,allRates,allStored,p.getBaseCurrency(),day(staffMetadata.get("hireDate")));
+                                allocationPercent=new BigDecimal(String.valueOf(payrollBasis.get("allocationValue")));amount=(BigDecimal)payrollBasis.get("amount");fullDailyCost=(BigDecimal)payrollBasis.get("fullDailyCost");
+                            } else {fullDailyCost=pricing.amount(rate,calendar,date,new BigDecimal("100"));amount=pricing.amount(rate,calendar,date,allocationPercent);}
+                        }catch(ServiceException ex){issue=ex.getMessage();}}
                 }
                 String metadataKey=userId+":"+(rate==null?"":rate.get("policyId"));
                 final Long metadataPolicy=rate==null?null:id(rate.get("policyId"));
@@ -190,11 +214,62 @@ public class BusinessMemberDayCostService {
                     basis.put("autoRedistributed",Boolean.TRUE.equals(effectiveAllocation.get("autoRedistributed")));
                     basis.put("allocationRule","ENDED_PROJECT_EQUAL_SHARE_V1");
                 }
+                if(allocateFull){
+                    basis.put("fullCostAllocationRequired",fullPayroll);if(!fullPayroll)basis.put("monthlyCostAllocationRequired",true);basis.put("allocationRule",fullPayroll?BusinessFullProjectPayroll.RULE:BusinessFullProjectPayroll.SUPPORT_RULE);
+                    basis.put("formula",fullPayroll?"整月人员成本按有效参与日期与归一项目比例分配，全部计入项目":"月度项目承担金额按有效参与日期分配，未分配余额进入公共成本");
+                    if(payrollBasis!=null)for(String field:Arrays.asList("originalAllocationValue","fullMonthlyCost","frozenMonthlyCost","allocationWorkingDays","costShareFrom","costShareTo"))basis.put(field,payrollBasis.get(field));
+                }
                 try{cost.put("basisJson",json.writeValueAsString(basis));}catch(Exception ex){throw new ServiceException("工作日成本依据无法保存");}
                 if(calculated.add(userId+":"+date))result.add(cost);
             }
         }
         result.sort(Comparator.comparing(c->String.valueOf(c.get("bizDate"))));
+        return result;
+    }
+    public List<Map<String,Object>> fullMonthlyPayroll(Long userId,YearMonth month,String currency){
+        List<Map<String,Object>> timeline=projects.selectUserAllocationTimeline(userId),calendars=work.selectCalendars();
+        if(month.equals(YearMonth.now())){
+            LocalDate asOf=LocalDate.now();Map<Long,Map<String,Object>> effective=BusinessAllocationWeights.at(timeline,asOf);
+            for(Map<String,Object> member:projects.selectUserAllocationWorkspace(userId,java.sql.Date.valueOf(asOf))){
+                Long projectId=id(member.get("projectId"));if(effective.containsKey(projectId))continue;
+                BusinessProject project=projects.selectProjectById(projectId);
+                if(project!=null&&(projectStart(project)!=null&&projectStart(project).isAfter(asOf)
+                    ||project.getPlanEndDate()!=null&&day(project.getPlanEndDate()).isBefore(asOf)))continue;
+                throw new ServiceException("缺少当前有效的项目投入比例");
+            }
+        }
+        Map<String,Object> calendar=null;
+        for(Map<String,Object> c:calendars)if(covers(c,"effectiveFrom","effectiveTo",month.atEndOfMonth())&&(calendar==null||id(c.get("calendarId"))<id(calendar.get("calendarId"))))calendar=c;
+        if(calendar==null)throw new ServiceException("盈利部门人员缺少有效工作日历");
+        Map<String,Object> metadata=mapper.selectStaffMetadata(userId,null);
+        BusinessFullProjectPayroll payroll=new BusinessFullProjectPayroll(timeline==null?Collections.emptyList():timeline,calendars,fullPayrollScopes(userId,timeline),metadata!=null&&"DIRECT_PROJECT".equals(metadata.get("departmentCostSource")));
+        List<Map<String,Object>> stored=mapper.selectUserMonthCosts(userId,month.toString());
+        List<Map<String,Object>> result=payroll.allocations(month,calendar,work.selectBudgetRates(userId,month.atDay(1).toString(),month.atEndOfMonth().toString()),
+            stored,currency,metadata==null?null:day(metadata.get("hireDate")));
+        Map<Long,Map<String,Object>> historicalProjects=new HashMap<>();
+        for(Map<String,Object> cost:stored)historicalProjects.put(id(cost.get("projectId")),cost);
+        for(Map<String,Object> detail:result){
+            Map<String,Object> historical=historicalProjects.get(id(detail.get("projectId")));
+            if(historical!=null){
+                detail.put("projectName",historical.get("projectName"));detail.put("projectNo",historical.get("projectNo"));
+                detail.put("projectDeleted","2".equals(historical.get("projectDelFlag")));
+            }
+        }
+        return result;
+    }
+    private Map<Long,Map<String,Object>> fullPayrollScopes(Long userId,List<Map<String,Object>> timeline){
+        Map<Long,Map<String,Object>> result=new TreeMap<>();if(timeline==null)return result;
+        for(Map<String,Object> period:timeline){
+            Long projectId=id(period.get("projectId"));if(result.containsKey(projectId))continue;
+            BusinessProject project=projects.selectProjectById(projectId);Map<String,Object> scope=new LinkedHashMap<>();
+            scope.put("accountingState",project==null?"CLOSED":project.getAccountingState());scope.put("delFlag",project==null?"2":project.getDelFlag());
+            List<Map<String,Object>> members=new ArrayList<>(),plans=new ArrayList<>(),roles=new ArrayList<>();
+            for(Map<String,Object> row:work.selectMembers(projectId))if(userId.equals(id(row.get("userId"))))members.add(row);
+            for(Map<String,Object> row:mapper.selectPastMemberships(projectId))if(userId.equals(id(row.get("userId"))))members.add(row);
+            for(Map<String,Object> row:work.selectAssignments(projectId))if(userId.equals(id(row.get("userId"))))plans.add(row);
+            for(Map<String,Object> row:mapper.selectRolePeriods(projectId))if(userId.equals(id(row.get("userId"))))roles.add(row);
+            scope.put("members",members);scope.put("plans",plans);scope.put("roles",roles);scope.put("pauses",mapper.selectCostPauses(projectId));result.put(projectId,scope);
+        }
         return result;
     }
     @Transactional

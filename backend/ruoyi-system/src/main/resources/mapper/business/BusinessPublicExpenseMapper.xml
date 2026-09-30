@@ -4,7 +4,12 @@
 
  <select id="selectPersonnelStaff" resultType="map">
   select u.user_id userId,coalesce(nullif(u.nick_name,''),u.user_name) userName,d.dept_id deptId,d.dept_name deptName,
-   profile.employment_type employmentType,profile.employment_status employmentStatus,date_format(profile.hire_date,'%Y-%m-%d') hireDate
+   profile.employment_type employmentType,profile.employment_status employmentStatus,date_format(profile.hire_date,'%Y-%m-%d') hireDate,
+   exists(select 1 from sys_dept source_dept where source_dept.parent_id=#{companyDeptId}
+    and source_dept.public_cost_source in('DIRECT_PROJECT','IT_NET_LOSS')
+    and (source_dept.dept_id=d.dept_id or find_in_set(source_dept.dept_id,d.ancestors))) publicCostExcluded,
+   exists(select 1 from sys_dept it where it.parent_id=#{companyDeptId} and it.public_cost_source='IT_NET_LOSS'
+    and (it.dept_id=d.dept_id or find_in_set(it.dept_id,d.ancestors))) itPayroll
   from sys_user u join sys_dept d on d.dept_id=u.dept_id left join biz_staff_profile profile on profile.user_id=u.user_id
   where (d.dept_id=#{companyDeptId} or find_in_set(#{companyDeptId},d.ancestors))
    and (profile.hire_date is null or profile.hire_date&lt;=last_day(concat(#{month},'-01')))
@@ -12,6 +17,69 @@
     or exists(select 1 from biz_staff_cost_policy c where c.user_id=u.user_id and c.status='ACTIVE'
      and c.effective_from&lt;=last_day(concat(#{month},'-01')) and (c.effective_to is null or c.effective_to&gt;=concat(#{month},'-01'))))
   order by d.order_num,u.user_id
+ </select>
+ <!-- Department IDs and descendants are resolved within the selected company. Project
+      attribution follows the existing accounting rule: explicit department, then owner. -->
+ <select id="selectItLossProjects" resultType="map">
+  select p.project_id projectId,p.project_name projectName,p.accounting_state accountingState,p.del_flag delFlag,p.cost_policy_version costPolicyVersion,
+   (select sum(r.personnel_cost) from biz_project_daily_result r where r.project_id=p.project_id and r.is_current='1'
+    and date_format(r.biz_date,'%Y-%m')=#{month} and r.biz_date&lt;=current_date()) personnelCost,
+   coalesce(p.department_id,owner.dept_id) departmentId,
+   (select count(*) from biz_project_daily_result r where r.project_id=p.project_id and r.is_current='1'
+    and date_format(r.biz_date,'%Y-%m')=#{month} and r.biz_date&lt;=current_date()) resultCount,
+   (select sum(r.profit_amount + coalesce((select sum(t.it_transfer_amount) from biz_public_expense_daily t
+      join biz_public_expense_month b on b.bill_id=t.bill_id
+      where t.project_id=r.project_id and t.biz_date=r.biz_date and t.it_transfer_amount&lt;0
+       and json_unquote(json_extract(b.personnel_snapshot,'$.sourceMode'))='DEPARTMENT_NET_V1'),0))
+    from biz_project_daily_result r where r.project_id=p.project_id and r.is_current='1'
+     and date_format(r.biz_date,'%Y-%m')=#{month} and r.biz_date&lt;=current_date()) profitAmount,
+   (select date_format(max(r.biz_date),'%Y-%m-%d') from biz_project_daily_result r
+    where r.project_id=p.project_id and r.is_current='1' and date_format(r.biz_date,'%Y-%m')=#{month}
+     and r.biz_date&lt;=current_date()) latestDate,
+   (select count(*) from biz_project_member_day_cost c where c.project_id=p.project_id
+    and p.cost_policy_version='MEMBER_DAYS_V1' and date_format(c.biz_date,'%Y-%m')=#{month}
+    and c.biz_date&lt;=current_date() and (c.pricing_status!='PRICED' or c.amount is null))
+   + (select count(*) from biz_project_work_entry e left join biz_project_work_cost c on c.entry_id=e.entry_id
+    where e.project_id=p.project_id and p.cost_policy_version='ACTUAL_WORK_V1' and e.is_current='1'
+     and date_format(e.biz_date,'%Y-%m')=#{month} and e.biz_date&lt;=current_date()
+     and (e.status in('DRAFT','SUBMITTED','RETURNED','WITHDRAWN') or (e.status='CONFIRMED'
+      and (c.amount is null or c.pricing_status!='PRICED' or exists(select 1 from biz_project_work_event v
+       where v.entry_id=e.entry_id and v.status!='DONE')))))
+   + (select count(*) from biz_project_resource_day d where d.project_id=p.project_id
+    and p.cost_policy_version='ACTUAL_WORK_V1' and d.planned_minutes&gt;0 and date_format(d.biz_date,'%Y-%m')=#{month}
+    and d.biz_date&lt;=current_date() and (p.actual_end_date is null or p.actual_end_date&gt;=d.biz_date)
+    and not exists(select 1 from biz_project_work_entry e where e.project_id=d.project_id
+     and e.user_id=d.user_id and e.biz_date=d.biz_date and e.is_current='1' and e.status='CONFIRMED')) pendingCostCount,
+   (select count(*) from biz_operating_fact f where f.project_id=p.project_id
+    and date_format(f.biz_date,'%Y-%m')=#{month} and f.biz_date&lt;=current_date()
+    and f.status in('DRAFT','RETURNED')) unfinishedFactCount,
+   (select count(*) from (
+     select project_id,biz_date from biz_project_member_day_cost
+     union select project_id,biz_date from biz_operating_fact where status in('CONFIRMED','REVERSED')
+     union select project_id,biz_date from biz_project_work_entry where is_current='1' and status='CONFIRMED'
+    ) expected where expected.project_id=p.project_id and date_format(expected.biz_date,'%Y-%m')=#{month}
+     and expected.biz_date&lt;=current_date() and not exists(select 1 from biz_project_daily_result r
+      where r.project_id=p.project_id and r.biz_date=expected.biz_date and r.is_current='1')) missingResultCount
+  from biz_project p left join sys_user owner on owner.user_id=coalesce(p.main_owner_user_id,p.initiator_user_id)
+   join sys_dept project_dept on project_dept.dept_id=coalesce(p.department_id,owner.dept_id)
+  where p.company_dept_id=#{companyDeptId} and p.base_currency=#{currency}
+   and exists(select 1 from sys_dept it where it.parent_id=#{companyDeptId} and it.public_cost_source='IT_NET_LOSS'
+    and (it.dept_id=project_dept.dept_id or find_in_set(it.dept_id,project_dept.ancestors)))
+   and coalesce(p.actual_start_date,p.plan_start_date,'1900-01-01')&lt;=least(last_day(concat(#{month},'-01')),current_date())
+   and coalesce(p.actual_end_date,p.plan_end_date,'9999-12-31')&gt;=concat(#{month},'-01')
+   and p.del_flag='0' order by p.project_id
+ </select>
+ <select id="countProjectItLossPending" resultType="int">
+  select count(*) from biz_public_expense_month b
+  where b.status in('DRAFT','PUBLISHED') and json_unquote(json_extract(b.personnel_snapshot,'$.sourceMode'))='DEPARTMENT_NET_V1'
+   and json_contains(json_extract(b.personnel_snapshot,'$.itLoss.transfers'),json_object('projectId',#{projectId}))
+ </select>
+ <select id="countItSourceProject" resultType="int">
+  select count(*) from biz_project p left join sys_user owner on owner.user_id=coalesce(p.main_owner_user_id,p.initiator_user_id)
+   join sys_dept d on d.dept_id=coalesce(p.department_id,owner.dept_id)
+  where p.project_id=#{projectId} and exists(select 1 from sys_dept it
+   where it.parent_id=p.company_dept_id and it.public_cost_source='IT_NET_LOSS'
+    and (it.dept_id=d.dept_id or find_in_set(it.dept_id,d.ancestors)))
  </select>
  <select id="selectPersonnelProjects" resultType="long">
   select distinct p.project_id from biz_project p
@@ -28,14 +96,23 @@
   order by f.fact_id
  </select>
  <select id="selectDailyBills" resultType="long">select bill_id from biz_public_expense_month where recognition_mode='DAILY_V1' and bill_month&lt;=date_format(current_date(),'%Y-%m') order by company_dept_id,bill_id</select>
- <select id="selectDailyRows" resultType="map">select bill_id billId,project_id projectId,date_format(biz_date,'%Y-%m-%d') bizDate,amount,status from biz_public_expense_daily where bill_id=#{billId} order by project_id,biz_date</select>
- <insert id="upsertDailyRow">insert into biz_public_expense_daily(bill_id,project_id,biz_date,amount,status) values(#{billId},#{projectId},#{bizDate},#{amount},#{status}) on duplicate key update amount=values(amount),status=values(status)</insert>
+ <select id="selectDailyRows" resultType="map">select bill_id billId,project_id projectId,date_format(biz_date,'%Y-%m-%d') bizDate,amount,status,it_transfer_amount itTransferAmount from biz_public_expense_daily where bill_id=#{billId} order by project_id,biz_date</select>
+ <select id="selectRetainedDailyCosts" resultType="map">
+  select d.project_id projectId,p.project_name projectName,sum(d.amount) amount
+  from biz_public_expense_daily d left join biz_project p on p.project_id=d.project_id
+  where d.bill_id=#{billId} and coalesce(d.it_transfer_amount,0)=0
+   and (p.project_id is null or p.del_flag!='0' or p.accounting_state='CLOSED')
+   and not exists(select 1 from biz_public_expense_project a join biz_public_expense_owner o on o.allocation_id=a.allocation_id
+    where o.bill_id=d.bill_id and a.project_id=d.project_id)
+  group by d.project_id,p.project_name having sum(d.amount)&gt;0 order by d.project_id
+ </select>
+ <insert id="upsertDailyRow">insert into biz_public_expense_daily(bill_id,project_id,biz_date,amount,status,it_transfer_amount) values(#{billId},#{projectId},#{bizDate},#{amount},#{status},coalesce(#{itTransferAmount},0)) on duplicate key update amount=values(amount),status=values(status),it_transfer_amount=values(it_transfer_amount)</insert>
  <delete id="deleteDailyRow">delete from biz_public_expense_daily where bill_id=#{billId} and project_id=#{projectId} and biz_date=#{bizDate}</delete>
  <select id="selectUnrecognizedDailyDates" resultType="map">
   select distinct d.project_id projectId,date_format(d.biz_date,'%Y-%m-%d') bizDate
   from biz_public_expense_daily d join biz_project p on p.project_id=d.project_id
   left join biz_project_daily_result r on r.project_id=d.project_id and r.biz_date=d.biz_date and r.is_current='1'
-  where d.bill_id=#{billId} and d.biz_date&lt;=current_date() and coalesce(p.accounting_state,'OPEN')='OPEN'
+  where d.bill_id=#{billId} and d.biz_date&lt;=current_date() and p.del_flag='0' and coalesce(p.accounting_state,'OPEN')='OPEN'
   and (r.result_id is null or r.public_cost!=(select sum(x.amount) from biz_public_expense_daily x where x.project_id=d.project_id and x.biz_date=d.biz_date))
  </select>
  <select id="sumDailyCost" resultType="map">
@@ -47,13 +124,14 @@
  </select>
  <select id="dailyProjectSummary" resultType="map">
   select coalesce(sum(case when date_format(biz_date,'%Y-%m')=#{month} and biz_date&lt;=current_date() then amount else 0 end),0) accruedMonthAmount,
+   coalesce(-sum(case when date_format(biz_date,'%Y-%m')=#{month} and biz_date&lt;=current_date() then it_transfer_amount else 0 end),0) itTransferredMonthAmount,
    coalesce(sum(case when biz_date&lt;=current_date() then amount else 0 end),0) accruedLifetimeAmount,
    coalesce(sum(case when date_format(biz_date,'%Y-%m')=#{month} and biz_date&lt;=current_date() and status='ESTIMATED' then amount else 0 end),0) estimatedMonthAmount,
    coalesce(sum(case when biz_date=current_date() and date_format(biz_date,'%Y-%m')=#{month} then amount else 0 end),0) todayAmount,
    exists(select 1 from biz_public_expense_month b join biz_project p on p.company_dept_id=b.company_dept_id and p.base_currency=b.currency where p.project_id=#{projectId} and b.bill_month=#{month} and b.recognition_mode='DAILY_V1') dailyRecognition
   from biz_public_expense_daily where project_id=#{projectId}
  </select>
- <select id="selectProjectDailyCosts" resultType="map">select date_format(biz_date,'%Y-%m-%d') bizDate,sum(amount) amount,case when sum(status='ESTIMATED')&gt;0 then 'ESTIMATED' else 'CONFIRMED' end status,biz_date&lt;=current_date() accrued from biz_public_expense_daily where project_id=#{projectId} and date_format(biz_date,'%Y-%m')=#{month} group by biz_date order by biz_date</select>
+ <select id="selectProjectDailyCosts" resultType="map">select date_format(biz_date,'%Y-%m-%d') bizDate,sum(amount) amount,-sum(it_transfer_amount) itTransferredAmount,case when sum(status='ESTIMATED')&gt;0 then 'ESTIMATED' else 'CONFIRMED' end status,biz_date&lt;=current_date() accrued from biz_public_expense_daily where project_id=#{projectId} and date_format(biz_date,'%Y-%m')=#{month} group by biz_date order by biz_date</select>
  <select id="selectCompanies" resultType="map">
   select d.dept_id companyDeptId,d.dept_name companyName,d.leader_user_id leaderUserId
   from sys_dept d where d.parent_id=100 and d.status='0' and d.del_flag='0'
@@ -64,6 +142,8 @@
   select d.dept_id deptId,d.dept_name deptName,d.parent_id parentId
   from sys_dept d where d.del_flag='0' and d.status='0'
   and d.dept_id!=#{companyDeptId} and find_in_set(#{companyDeptId},d.ancestors)
+  and not exists(select 1 from sys_dept it where it.parent_id=#{companyDeptId} and it.public_cost_source='IT_NET_LOSS'
+   and (it.dept_id=d.dept_id or find_in_set(it.dept_id,d.ancestors)))
   order by d.order_num,d.dept_id
  </select>
  <select id="selectOwners" resultType="map">
@@ -72,6 +152,8 @@
   left join biz_staff_profile profile on profile.user_id=u.user_id
   where u.del_flag='0' and u.status='0' and (d.dept_id=#{companyDeptId} or find_in_set(#{companyDeptId},d.ancestors))
   and coalesce(profile.employment_status,'ACTIVE')!='LEFT'
+  and not exists(select 1 from sys_dept it where it.parent_id=#{companyDeptId} and it.public_cost_source='IT_NET_LOSS'
+   and (it.dept_id=d.dept_id or find_in_set(it.dept_id,d.ancestors)))
   and (exists(select 1 from sys_user_role ur join sys_role r on r.role_id=ur.role_id where ur.user_id=u.user_id and r.role_key='project_owner' and r.status='0' and r.del_flag='0')
   or exists(select 1 from biz_project p where p.main_owner_user_id=u.user_id and p.company_dept_id=#{companyDeptId} and p.del_flag='0')) order by u.user_id
  </select>
@@ -81,6 +163,11 @@
   and (p.delivery_policy_version='SEPARATED_V1' or p.status not in('CLOSED','CANCELED'))
   and coalesce(p.actual_start_date,p.plan_start_date,'1900-01-01') &lt;= last_day(concat(#{month},'-01'))
   and (p.actual_end_date is null or p.actual_end_date &gt;= concat(#{month},'-01'))
+  and not exists(select 1 from sys_dept it join sys_dept project_dept on
+   (project_dept.dept_id=it.dept_id or find_in_set(it.dept_id,project_dept.ancestors))
+   where it.parent_id=#{companyDeptId} and it.public_cost_source='IT_NET_LOSS'
+    and project_dept.dept_id=coalesce(p.department_id,(select u.dept_id from sys_user u
+     where u.user_id=coalesce(p.main_owner_user_id,p.initiator_user_id))))
   <if test="ownerUserId != null">and p.main_owner_user_id=#{ownerUserId}</if>
   <if test="currency != null">and p.base_currency=#{currency}</if> order by p.project_id
  </select>
@@ -166,5 +253,5 @@
    +(select count(distinct policy.currency) <include refid="missingPolicyMonths"/> and date_format(date_add(concat(policy.start_month,'-01'),interval months.n month),'%Y-%m')=#{month}) pendingCount
   from biz_project p where p.project_id=#{projectId} and p.del_flag='0'
  </select>
- <select id="selectProjectHistory" resultType="map">select b.bill_id billId,b.bill_month month,b.currency,b.status,o.owner_name ownerName,o.cost_pool costPool,o.dept_name deptName,a.percentage,a.amount,d.dept_name companyName from biz_public_expense_project a join biz_public_expense_owner o on o.allocation_id=a.allocation_id join biz_public_expense_month b on b.bill_id=o.bill_id join sys_dept d on d.dept_id=b.company_dept_id where a.project_id=#{projectId} and b.status in('PUBLISHED','SETTLED') order by b.bill_month desc,b.bill_id</select>
+ <select id="selectProjectHistory" resultType="map">select b.bill_id billId,b.bill_month month,b.currency,b.status,o.owner_name ownerName,o.cost_pool costPool,o.dept_name deptName,a.percentage,a.amount,d.dept_name companyName,coalesce(json_unquote(json_extract(b.personnel_snapshot,'$.sourceMode'))='DEPARTMENT_NET_V1',0) departmentNet from biz_public_expense_project a join biz_public_expense_owner o on o.allocation_id=a.allocation_id join biz_public_expense_month b on b.bill_id=o.bill_id join sys_dept d on d.dept_id=b.company_dept_id where a.project_id=#{projectId} and b.status in('PUBLISHED','SETTLED') order by b.bill_month desc,b.bill_id</select>
 </mapper>

@@ -1111,3 +1111,9 @@ where table_schema=database() and table_name in ('biz_project_proposal','biz_pro
 select 3-count(*) as missing_vietnam_company_departments from sys_dept
 where parent_id=111 and dept_name in ('团播部','人事部','电商部')
   and status='0' and del_flag='0';
+
+-- V137 department source classification and separate IT transfer credits.
+select 1-count(*) as missing_department_public_cost_source from information_schema.columns
+where table_schema=database() and table_name='sys_dept' and column_name='public_cost_source';
+select 1-count(*) as missing_public_daily_it_transfer_amount from information_schema.columns
+where table_schema=database() and table_name='biz_public_expense_daily' and column_name='it_transfer_amount';

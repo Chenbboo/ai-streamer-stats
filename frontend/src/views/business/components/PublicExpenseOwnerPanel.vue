@@ -15,14 +15,14 @@
     <div v-else class="expense-bills">
       <article v-for="bill in bills" :key="bill.allocationId" class="expense-bill">
         <div class="bill-heading">
-          <div><h3>{{ bill.companyName || $tr("公司公共费用") }} · {{ bill.costPool === 'PERSONNEL' ? $tr("公共人员成本") : $tr("日常公共费用") }} <small>{{ bill.currency }}</small></h3><p>{{ $tr("公司费用合计 {0} {1} × 分摊比例 {2}%", [money(bill.totalAmount), bill.currency, percent(bill.percentage)]) }}</p></div>
+          <div><h3>{{ bill.companyName || $tr("公司公共费用") }} · {{ bill.costPool === 'COMBINED' ? $tr("公共费用合计") : bill.costPool === 'PERSONNEL' ? $tr(bill.costPoolLabel || "公共人员成本") : $tr("日常公共费用") }} <small>{{ bill.currency }}</small></h3><p>{{ $tr("公司费用合计 {0} {1} × 分摊比例 {2}%", [money(bill.totalAmount), bill.currency, percent(bill.percentage)]) }}</p></div>
           <el-tag :type="statusTone(bill)" effect="plain">{{ statusLabel(bill) }}</el-tag>
         </div>
         <div class="expense-metrics">
           <div><span>{{ $tr("月分摊金额") }}</span><strong>{{ money(bill.amount) }}<small>{{ bill.currency }}</small></strong></div>
           <div><span>{{ $tr("已分摊金额{0}", [bill.status === 'DRAFT' ? $tr("（草稿）") : '']) }}</span><strong>{{ money(bill.allocatedAmount) }}</strong></div>
           <div><span>{{ $tr("待分摊金额") }}</span><strong :class="{ attention: Number(bill.remainingAmount) > 0 }">{{ money(bill.remainingAmount) }}</strong></div>
-          <div><span>{{ $tr("成本计入") }}</span><strong>{{ bill.billStatus === "SETTLED" ? $tr("已确认") : bill.status === "SUBMITTED" ? $tr("按天暂估") : $tr("待提交") }}</strong><small>{{ bill.costPool === 'PERSONNEL' ? $tr("日暂估金额 {0} {1}，月分摊金额 ÷ 21.75", [money(bill.amount / 21.75), bill.currency]) : $tr("已提交的分摊按项目日期计入成本") }}</small></div>
+          <div><span>{{ $tr("成本计入") }}</span><strong>{{ bill.billStatus === "SETTLED" ? $tr("已确认") : bill.status === "SUBMITTED" ? $tr("按天暂估") : $tr("待提交") }}</strong><small>{{ bill.costPool === 'PERSONNEL' && !bill.departmentNet ? $tr("日暂估金额 {0} {1}，月分摊金额 ÷ 21.75", [money(bill.amount / 21.75), bill.currency]) : $tr("已提交的分摊按项目日期计入成本") }}</small></div>
         </div>
         <el-alert v-if="bill.billStatus !== 'SETTLED' && bill.status !== 'SUBMITTED'" class="bill-alert" :title="Number(bill.remainingAmount) > 0 ? $tr(&quot;公共费用待分摊，项目经营参考结果尚不完整。&quot;) : $tr(&quot;项目分摊已保存为草稿，提交后按天计入暂估成本。&quot;)" type="warning" :closable="false" show-icon />
         <div class="bill-actions">
@@ -37,12 +37,12 @@
         </el-table>
       </article>
     </div>
-    <p class="expense-footnote">{{ $tr("提交后，公共人员成本按月分摊金额 ÷ 21.75 展示每日暂估金额；日常公共费用按承担期间的自然日暂估。两类费用统一月结，以实际月分摊金额替换暂估金额，不重复扣费。请勿再录入项目其他花费。") }}</p>
+    <p class="expense-footnote">{{ $tr("新公共支持成本和日常公共费用按业务项目承担期间的自然日计入，IT亏损转分不增加公司总成本；历史人员分摊保留原日暂估口径。请勿重复录入项目花费。") }}</p>
 
     <el-dialog v-model="dialogVisible" :title="$tr(&quot;{0} · {1} 项目分摊&quot;, [activeBill?.companyName || $tr(&quot;公司公共费用&quot;), activeBill?.month || month])" width="min(920px, 96vw)" append-to-body :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving" :before-close="closeDialog">
       <div v-if="activeBill" v-loading="saving || loading" class="allocation-dialog">
         <div class="allocation-summary">
-          <span v-if="activeBill.costPool === 'PERSONNEL'">{{ $tr("日暂估金额 ") }}<b>{{ money(activeBill.amount / 21.75) }} {{ activeBill.currency }}</b></span><span>{{ $tr("月分摊金额 ") }}<b>{{ money(activeBill.amount) }} {{ activeBill.currency }}</b></span>
+          <span v-if="activeBill.costPool === 'PERSONNEL' && !activeBill.departmentNet">{{ $tr("日暂估金额 ") }}<b>{{ money(activeBill.amount / 21.75) }} {{ activeBill.currency }}</b></span><span>{{ $tr("月分摊金额 ") }}<b>{{ money(activeBill.amount) }} {{ activeBill.currency }}</b></span>
           <span>{{ $tr("比例合计 ") }}<b :class="{ attention: percentageTotal !== 100 }">{{ percent(percentageTotal) }}%</b></span>
           <span>{{ $tr("待分摊金额 ") }}<b>{{ money(previewRemaining) }} {{ activeBill.currency }}</b></span>
         </div>
@@ -53,7 +53,7 @@
         <el-table :data="previewRows" row-key="projectId" :empty-text="$tr(&quot;暂无项目分摊记录&quot;)">
           <el-table-column :label="$tr(&quot;项目&quot;)" min-width="190"><template #default="{ row }"><b>{{ row.projectName }}</b><small v-if="row.unavailable && !readOnly" class="unavailable-project">{{ $tr("当前不可分摊，请将比例设为 0") }}</small></template></el-table-column>
           <el-table-column :label="$tr(&quot;分摊比例&quot;)" width="190"><template #default="{ row, $index }"><span v-if="readOnly">{{ percent(row.percentage) }}%</span><div v-else class="percentage-input"><el-input-number v-model="allocationRows[$index].percentage" :min="0" :max="100" :precision="2" :step="1" :disabled="saving || loading" controls-position="right" :aria-label="$tr(&quot;{0}分摊比例&quot;, [row.projectName])" /><span>%</span></div></template></el-table-column>
-          <el-table-column v-if="activeBill.costPool === 'PERSONNEL'" :label="$tr(&quot;日暂估金额（÷ 21.75）&quot;)" min-width="150" align="right"><template #default="{ row }">{{ money(row.amount / 21.75) }}</template></el-table-column>
+          <el-table-column v-if="activeBill.costPool === 'PERSONNEL' && !activeBill.departmentNet" :label="$tr(&quot;日暂估金额（÷ 21.75）&quot;)" min-width="150" align="right"><template #default="{ row }">{{ money(row.amount / 21.75) }}</template></el-table-column>
           <el-table-column :label="$tr(&quot;月分摊金额&quot;)" min-width="155" align="right"><template #default="{ row }">{{ money(row.amount) }} {{ activeBill.currency }}</template></el-table-column>
         </el-table>
         <div class="allocation-totals"><span>{{ $tr("合计 {0}%", [percent(percentageTotal)]) }}</span><b>{{ money(previewAllocated) }} {{ activeBill.currency }}</b></div>

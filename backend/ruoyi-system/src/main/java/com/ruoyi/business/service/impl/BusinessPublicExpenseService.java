@@ -56,7 +56,7 @@ public class BusinessPublicExpenseService
     public Map<String,Object> personnelPreview(Long companyId,String selectedMonth,String selectedCurrency,Long userId) {
         requireCompany(requiredId(companyId),userId);
         String period=month(selectedMonth).toString(),unit=currency(selectedCurrency);
-        Map<String,Object> preview=personnel.automaticPreview(companyId,period,unit,personnelSource(mapper.selectMonth(companyId,period,unit)));
+        Map<String,Object> preview=personnel.allocationPreview(companyId,period,unit,personnelSource(mapper.selectMonth(companyId,period,unit)));
         preview.remove("businessFacts");return preview;
     }
     private Map<String,Object> personnelSource(Map<String,Object> bill) {
@@ -70,7 +70,7 @@ public class BusinessPublicExpenseService
         if(bill!=null){bill=lockBill(id(bill.get("billId")));version(bill,input);state(bill,"DRAFT");}
         else if(input.get("version")!=null)throw error("月账已变化，请刷新");
         if(input.containsKey("rows"))throw error("人员成本由系统自动计算，请刷新页面后设置分摊比例");
-        Map<String,Object> snapshot=personnel.automaticSnapshot(companyId,selectedMonth,selectedCurrency,personnelSource(bill));
+        Map<String,Object> snapshot=personnel.allocationSnapshot(companyId,selectedMonth,selectedCurrency,personnelSource(bill));
         if(bill==null) {
             Map<String,Object> generate=map("companyDeptId",companyId,"month",selectedMonth,"currency",selectedCurrency,"personnelInit",true);
             bill=generateMonth(generate,userId,userName);bill=lockBill(id(bill.get("billId")));
@@ -79,7 +79,7 @@ public class BusinessPublicExpenseService
         bill.put("personnelAmount",amount);bill.put("personnelSnapshot",JSON.toJSONString(snapshot));
         bill.put("totalAmount",decimal(bill.get("totalAmount")).subtract(old).add(amount));
         replaceOwners(bill,mapper.selectOwnerAllocations(id(bill.get("billId"))));touchBill(bill);
-        return finishBill(id(bill.get("billId")),"PERSONNEL","按人员成本设置自动汇总未由项目承担的成本，更新分摊金额",userId,userName);
+        return finishBill(id(bill.get("billId")),"PERSONNEL","业务部门人员成本直接归项目；IT项目当月盈亏抵扣后汇总净亏损，与其他公共人员成本统一分摊",userId,userName);
     }
 
     @Transactional(isolation=Isolation.READ_COMMITTED)
@@ -167,7 +167,7 @@ public class BusinessPublicExpenseService
         Map<String,Object> bill=lockBill(billId);requireBoss(bill,userId);version(bill,input);state(bill,"DRAFT");
         String selectedPool=pool(input);
         List<Map<String,Object>> combined=new ArrayList<>();
-        for(Map<String,Object> row:mapper.selectOwnerAllocations(billId))if(!selectedPool.equals(pool(row)))combined.add(row);
+        if(!"COMBINED".equals(selectedPool))for(Map<String,Object> row:mapper.selectOwnerAllocations(billId))if(!selectedPool.equals(pool(row)))combined.add(row);
         for(Map<String,Object> row:rows(input,"allocations")){row.put("costPool",selectedPool);combined.add(row);}
         replaceOwners(bill,combined);touchBill(bill);
         return finishBill(billId,"OWNERS","保存负责人分配草稿",userId,userName);
@@ -181,8 +181,13 @@ public class BusinessPublicExpenseService
         if(previous==null)throw error("上月没有可复制的分配");
         Set<Long> valid=index(mapper.selectOwners(id(bill.get("companyDeptId"))),"userId").keySet();
         String selectedPool=pool(input);List<Map<String,Object>> selected=new ArrayList<>();
-        for(Map<String,Object> row:mapper.selectOwnerAllocations(billId))if(!selectedPool.equals(pool(row)))selected.add(row);
-        for(Map<String,Object> row:mapper.selectOwnerAllocations(id(previous.get("billId"))))if(selectedPool.equals(pool(row))&&valid.contains(id(row.get("ownerUserId")))){row.remove("deptId");selected.add(row);}
+        if("COMBINED".equals(selectedPool)) {
+            for(Map<String,Object> row:combinedOwners(previous,mapper.selectOwnerAllocations(id(previous.get("billId")))))
+                if(valid.contains(id(row.get("ownerUserId")))){row.remove("deptId");selected.add(row);}
+        } else {
+            for(Map<String,Object> row:mapper.selectOwnerAllocations(billId))if(!selectedPool.equals(pool(row)))selected.add(row);
+            for(Map<String,Object> row:mapper.selectOwnerAllocations(id(previous.get("billId"))))if(selectedPool.equals(pool(row))&&valid.contains(id(row.get("ownerUserId")))){row.remove("deptId");selected.add(row);}
+        }
         replaceOwners(bill,selected);touchBill(bill);return finishBill(billId,"COPY_OWNERS","复制上月仍有效的负责人比例，请核对合计",userId,userName);
     }
 
@@ -191,6 +196,9 @@ public class BusinessPublicExpenseService
     {
         Map<String,Object> bill=lockBill(billId);requireBoss(bill,userId);version(bill,input);state(bill,"DRAFT");
         List<Map<String,Object>> owners=mapper.selectOwnerAllocations(billId);completePools(bill,owners);
+        if(BusinessPublicPersonnelService.departmentNet(bill))personnel.validateSource(bill);
+        if(BusinessPublicPersonnelService.departmentNet(bill)&&!"DAILY_V1".equals(bill.get("recognitionMode")))
+            throw error("历史月结口径账单不能新增IT亏损转分，请使用新的月账");
         Map<Long,Map<String,Object>> valid=index(mapper.selectOwners(id(bill.get("companyDeptId"))),"userId");
         for(Map<String,Object> owner:owners)if(!valid.containsKey(id(owner.get("ownerUserId"))))throw error("负责人已不属于该公司，请重新分配");
         bill.put("status","PUBLISHED");touchBill(bill);return finishBill(billId,"PUBLISHED","下发月费用给负责人",userId,userName);
@@ -201,6 +209,7 @@ public class BusinessPublicExpenseService
     {
         Map<String,Object> bill=lockBill(billId);requireBoss(bill,userId);version(bill,input);state(bill,"PUBLISHED");
         String reason=required(input.get("reason"),"退回原因",500);
+        ensureRecallKeepsItBalanced(bill);
         event(id(bill.get("companyDeptId")),billId,"BEFORE_RECALL",reason,billView(bill),userId,userName);
         mapper.deleteBillProjects(billId);
         for(Map<String,Object> owner:mapper.selectOwnerAllocations(billId)){owner.put("status","DRAFT");if(mapper.updateOwner(owner)!=1)throw error("负责人分摊已更新，请刷新");}
@@ -233,10 +242,15 @@ public class BusinessPublicExpenseService
         requireOwner(owner,userId);version(owner,input);state(bill,"PUBLISHED");
         Map<String,Object> previous=mapper.selectMonth(id(bill.get("companyDeptId")),month(text(bill.get("month"))).minusMonths(1).toString(),text(bill.get("currency")));
         if(previous==null)throw error("上月没有可复制的项目分摊");
-        Map<String,Object> old=null;for(Map<String,Object> row:mapper.selectOwnerAllocations(id(previous.get("billId"))))if(userId.equals(id(row.get("ownerUserId")))&&pool(owner).equals(pool(row)))old=row;
-        if(old==null)throw error("上月没有本人的项目分摊");
+        List<Map<String,Object>> oldOwners=new ArrayList<>();
+        for(Map<String,Object> row:mapper.selectOwnerAllocations(id(previous.get("billId"))))if(userId.equals(id(row.get("ownerUserId")))&&("COMBINED".equals(pool(owner))||pool(owner).equals(pool(row))))oldOwners.add(row);
+        if(oldOwners.isEmpty())throw error("上月没有本人的项目分摊");
+        List<Map<String,Object>> previousRows=new ArrayList<>();
+        String selectedPool=pool(owner);Map<String,Object> samePool=oldOwners.stream().filter(row->selectedPool.equals(pool(row))).findFirst().orElse(null);
+        if(samePool!=null)previousRows.addAll(mapper.selectProjectAllocations(id(samePool.get("allocationId"))));
+        else previousRows=mergedProjectShares(oldOwners);
         Set<Long> valid=index(projectOptions(owner,bill),"projectId").keySet();List<Map<String,Object>> selected=new ArrayList<>();
-        for(Map<String,Object> row:mapper.selectProjectAllocations(id(old.get("allocationId"))))if(valid.contains(id(row.get("projectId"))))selected.add(row);
+        for(Map<String,Object> row:previousRows)if(valid.contains(id(row.get("projectId"))))selected.add(row);
         replaceProjects(owner,bill,selected);touchBill(bill);
         event(id(bill.get("companyDeptId")),id(bill.get("billId")),"COPY_PROJECTS","复制上月仍有效的项目比例，请核对合计",selected,userId,userName);
         if(dailyCosts!=null)dailyCosts.synchronize(id(bill.get("billId")));
@@ -249,7 +263,7 @@ public class BusinessPublicExpenseService
         Map<String,Object> owner=owner(allocationId),bill=lockBill(id(owner.get("billId")));owner=owner(allocationId);
         requireOwner(owner,userId);version(owner,input);state(bill,"PUBLISHED");
         List<Map<String,Object>> rows=mapper.selectProjectAllocations(allocationId);complete(rows,decimal(owner.get("amount")));
-        for(Map<String,Object> row:rows)validateProject(requiredId(row.get("projectId")),bill,id(owner.get("ownerUserId")),true);
+        for(Map<String,Object> row:rows){validateProject(requiredId(row.get("projectId")),bill,id(owner.get("ownerUserId")),true);validateLossRecipient(id(row.get("projectId")),bill,pool(owner));}
         owner.put("status","SUBMITTED");if(mapper.updateOwner(owner)!=1)throw error("分摊已更新，请刷新");touchBill(bill);
         event(id(bill.get("companyDeptId")),id(bill.get("billId")),"SUBMITTED","负责人提交项目分摊",ownerView(owner(allocationId),bill),userId,userName);
         if(dailyCosts!=null)dailyCosts.synchronize(id(bill.get("billId")));
@@ -291,6 +305,9 @@ public class BusinessPublicExpenseService
         Map<String,Object> bill=lockBill(billId);requireBoss(bill,userId);state(bill,"SETTLED");
         Long projectId=requiredId(input.get("projectId"));BigDecimal amount=money(input.get("amount"),true);
         if(amount.signum()==0)throw error("调整金额不能为0");String reason=required(input.get("reason"),"调整原因",500),key=required(input.get("requestKey"),"请求标识",64);
+        boolean departmentNet=BusinessPublicPersonnelService.departmentNet(bill);
+        if(departmentNet&&"PERSONNEL".equals(pool(input)))throw error("IT亏损转分及公共人员来源已封存，此处仅能调整日常公共费用");
+        if(amount.signum()>0&&mapper.countItSourceProject(projectId)>0)throw error("IT项目不承担日常公共费用或公共支持成本，请选择业务项目");
         Map<String,Object> duplicate=mapper.selectAdjustmentByRequest(billId,key);
         if(duplicate!=null)
         {
@@ -298,7 +315,11 @@ public class BusinessPublicExpenseService
             return billView(bill);
         }
         version(bill,input);BigDecimal original=BigDecimal.ZERO;boolean found=false;
-        for(Map<String,Object> owner:mapper.selectOwnerAllocations(billId))for(Map<String,Object> row:mapper.selectProjectAllocations(id(owner.get("allocationId"))))if(projectId.equals(id(row.get("projectId")))){found=true;original=original.add(decimal(row.get("amount")));}
+        for(Map<String,Object> owner:mapper.selectOwnerAllocations(billId))if(!departmentNet||!"PERSONNEL".equals(pool(owner)))for(Map<String,Object> row:mapper.selectProjectAllocations(id(owner.get("allocationId"))))if(projectId.equals(id(row.get("projectId")))) {
+            found=true;BigDecimal base=decimal(row.get("amount"));
+            if(departmentNet&&"COMBINED".equals(pool(owner)))base=poolAmount(bill,"COMBINED").signum()==0?BigDecimal.ZERO:base.multiply(poolAmount(bill,"EXPENSE").subtract(decimal(bill.get("retainedAmount"))).max(BigDecimal.ZERO)).divide(poolAmount(bill,"COMBINED"),2,RoundingMode.DOWN);
+            original=original.add(base);
+        }
         if(!found)throw error("只能调整该月已分摊的项目");
         for(Map<String,Object> adjustment:mapper.selectAdjustments(billId,projectId))original=original.add(decimal(adjustment.get("amount")));
         if(original.add(amount).signum()<0)throw error("调整后项目公共费用不能为负数");
@@ -317,6 +338,8 @@ public class BusinessPublicExpenseService
             &&!com.ruoyi.business.support.BusinessProjectReadAccess.isParentOwner(project,userId,projects)
             &&accounting.selectAccountingMemberRole(projectId,userId)==null)throw error("无权查看该项目公共费用");
         Map<String,Object> out=mapper.readProjectCosts(projectId,month(month).toString());if(out==null)out=map("monthAmount",BigDecimal.ZERO);
+        boolean itSource=mapper.countItSourceProject(projectId)>0;out.put("itLossSource",itSource);
+        if(itSource)out.put("pendingCount",mapper.countProjectItLossPending(projectId));
         List<Map<String,Object>> history=mapper.selectProjectHistory(projectId),selected=new ArrayList<>();String selectedMonth=month(month).toString();
         for(Map<String,Object> row:history)if(selectedMonth.equals(row.get("month")))selected.add(row);
         Map<String,Object> dailySummary=mapper.dailyProjectSummary(projectId,selectedMonth);
@@ -327,22 +350,55 @@ public class BusinessPublicExpenseService
 
     private static String pool(Map<String,Object> row) {
         String value=row.get("costPool")==null?"EXPENSE":String.valueOf(row.get("costPool"));
-        if(!Arrays.asList("EXPENSE","PERSONNEL").contains(value))throw error("费用分摊类型不正确");return value;
+        if(!Arrays.asList("EXPENSE","PERSONNEL","COMBINED").contains(value))throw error("费用分摊类型不正确");return value;
     }
     private static BigDecimal poolAmount(Map<String,Object> bill,String pool) {
         BigDecimal personnel=decimal(bill.get("personnelAmount"));
-        return "PERSONNEL".equals(pool)?personnel:decimal(bill.get("totalAmount")).subtract(personnel);
+        return "COMBINED".equals(pool)?decimal(bill.get("totalAmount")).subtract(decimal(bill.get("retainedAmount"))):"PERSONNEL".equals(pool)?personnel:decimal(bill.get("totalAmount")).subtract(personnel);
+    }
+    private static List<String> allocationPools(List<Map<String,Object>> rows) {
+        boolean combined=rows.stream().anyMatch(row->"COMBINED".equals(pool(row)));
+        if(combined&&rows.stream().anyMatch(row->!"COMBINED".equals(pool(row))))throw error("合并分摊不能与独立分摊同时使用，请重新保存负责人比例");
+        return combined?Collections.singletonList("COMBINED"):Arrays.asList("EXPENSE","PERSONNEL");
+    }
+    /** Convert old separate shares by their monetary weights, without duplicating owners. */
+    static List<Map<String,Object>> combinedOwners(Map<String,Object> bill,List<Map<String,Object>> rows) {
+        if(rows.stream().anyMatch(row->"COMBINED".equals(pool(row)))) {
+            allocationPools(rows);List<Map<String,Object>> out=new ArrayList<>();List<BigDecimal> amounts=allocate(poolAmount(bill,"COMBINED"),percentages(rows,"ownerUserId"));
+            for(int i=0;i<rows.size();i++){Map<String,Object> row=new LinkedHashMap<>(rows.get(i));row.put("amount",amounts.get(i));out.add(row);}return out;
+        }
+        Map<Long,Map<String,Object>> owners=new LinkedHashMap<>();Map<Long,BigDecimal> weights=new LinkedHashMap<>();
+        BigDecimal total=poolAmount(bill,"COMBINED");
+        for(Map<String,Object> row:rows) {
+            Long user=id(row.get("ownerUserId"));owners.putIfAbsent(user,new LinkedHashMap<>(row));
+            weights.merge(user,decimal(row.get("amount")),BigDecimal::add);
+        }
+        BigDecimal allocated=weights.values().stream().reduce(BigDecimal.ZERO,BigDecimal::add),basis=BigDecimal.ZERO;
+        Set<String> existingPools=new HashSet<>();for(Map<String,Object> row:rows)existingPools.add(pool(row));
+        for(String kind:existingPools)basis=basis.add(poolAmount(bill,kind));
+        List<BigDecimal> rates=new ArrayList<>();
+        for(BigDecimal weight:weights.values())rates.add(allocated.signum()==0?BigDecimal.ZERO:weight.multiply(HUNDRED).divide(allocated,16,RoundingMode.DOWN));
+        // If only daily expenses had shares, carry those relative shares over
+        // to the combined bill. A partially allocated existing pool stays partial.
+        BigDecimal covered=basis.signum()==0?HUNDRED:allocated.multiply(HUNDRED).divide(basis,2,RoundingMode.HALF_UP).min(HUNDRED);
+        List<BigDecimal> percentages=allocate(covered,rates),amounts=allocate(total,percentages);List<Map<String,Object>> out=new ArrayList<>();int i=0;
+        for(Map<String,Object> row:owners.values()) {
+            BigDecimal percentage=percentages.get(i);BigDecimal amount=amounts.get(i++);if(percentage.signum()==0)continue;
+            row.put("costPool","COMBINED");row.put("percentage",percentage);row.put("amount",amount);out.add(row);
+        }
+        return out;
     }
     private static void completePools(Map<String,Object> bill,List<Map<String,Object>> rows) {
-        for(String kind:Arrays.asList("EXPENSE","PERSONNEL")) {
+        for(String kind:allocationPools(rows)) {
             List<Map<String,Object>> selected=new ArrayList<>();for(Map<String,Object> row:rows)if(kind.equals(pool(row)))selected.add(row);
             complete(selected,poolAmount(bill,kind));
         }
     }
     private void replaceOwners(Map<String,Object> bill,List<Map<String,Object>> rows) {
+        allocationBasis(bill);
         Map<Long,Map<String,Object>> valid=index(mapper.selectOwners(id(bill.get("companyDeptId"))),"userId");
         List<Map<String,Object>> inserts=new ArrayList<>();Long billId=id(bill.get("billId"));
-        for(String kind:Arrays.asList("EXPENSE","PERSONNEL")) {
+        for(String kind:allocationPools(rows)) {
             List<Map<String,Object>> selected=new ArrayList<>();for(Map<String,Object> row:rows)if(kind.equals(pool(row)))selected.add(row);
             List<BigDecimal> percentages=percentages(selected,"ownerUserId"),amounts=allocate(poolAmount(bill,kind),percentages);
             for(int i=0;i<selected.size();i++) {
@@ -358,7 +414,7 @@ public class BusinessPublicExpenseService
     private void replaceProjects(Map<String,Object> owner,Map<String,Object> bill,List<Map<String,Object>> rows)
     {
         List<BigDecimal> percentages=percentages(rows,"projectId"),amounts=allocate(decimal(owner.get("amount")),percentages);
-        List<BusinessProject> selected=new ArrayList<>();for(Map<String,Object> row:rows)selected.add(validateProject(requiredId(row.get("projectId")),bill,id(owner.get("ownerUserId")),true));
+        List<BusinessProject> selected=new ArrayList<>();for(Map<String,Object> row:rows){Long projectId=requiredId(row.get("projectId"));validateLossRecipient(projectId,bill,pool(owner));selected.add(validateProject(projectId,bill,id(owner.get("ownerUserId")),true));}
         mapper.deleteOwnerProjects(id(owner.get("allocationId")));
         for(int i=0;i<rows.size();i++)mapper.insertProject(map("allocationId",owner.get("allocationId"),"projectId",selected.get(i).getProjectId(),"projectName",selected.get(i).getProjectName(),"percentage",percentages.get(i),"amount",amounts.get(i)));
         owner.put("status","DRAFT");if(mapper.updateOwner(owner)!=1)throw error("分摊已更新，请刷新");
@@ -390,30 +446,81 @@ public class BusinessPublicExpenseService
 
     private Map<String,Object> billView(Map<String,Object> bill)
     {
+        allocationBasis(bill);
         Map<String,Object> out=new LinkedHashMap<>(bill);if(bill.get("personnelSnapshot")!=null)out.put("personnel",JSON.parseObject(text(bill.get("personnelSnapshot"))));out.remove("personnelSnapshot");Long billId=id(bill.get("billId"));List<Map<String,Object>> entries=mapper.selectEntries(billId);
         for(Map<String,Object> entry:entries)entry.put("estimated",truth(entry.get("estimated")));out.put("entries",entries);
         List<Map<String,Object>> owners=new ArrayList<>();for(Map<String,Object> owner:mapper.selectOwnerAllocations(billId))owners.add(ownerView(owner,bill));
         List<Map<String,Object>> adjustments=mapper.selectAdjustments(billId,null);BigDecimal delta=BigDecimal.ZERO;
         for(Map<String,Object> adjustment:adjustments)delta=delta.add(decimal(adjustment.get("amount")));
-        out.put("ownerAllocations",owners);out.put("adjustments",adjustments);out.put("adjustmentAmount",delta);out.put("adjustedTotalAmount",decimal(bill.get("totalAmount")).add(delta));return out;
+        out.put("ownerAllocations",owners);
+        if("DRAFT".equals(bill.get("status")))out.put("combinedOwnerDraft",combinedOwners(bill,mapper.selectOwnerAllocations(billId)));
+        out.put("adjustments",adjustments);out.put("adjustmentAmount",delta);out.put("adjustedTotalAmount",decimal(bill.get("totalAmount")).add(delta));return out;
     }
 
     private Map<String,Object> ownerView(Map<String,Object> owner,Map<String,Object> bill)
     {
+        if(!bill.containsKey("retainedAmount"))allocationBasis(bill);
         Map<String,Object> out=new LinkedHashMap<>(owner);for(String field:Arrays.asList("companyDeptId","companyName","month","currency","totalAmount"))out.put(field,bill.get(field));out.put("billStatus",bill.get("status"));
         List<Map<String,Object>> rows=mapper.selectProjectAllocations(id(owner.get("allocationId")));BigDecimal allocated=BigDecimal.ZERO;for(Map<String,Object> row:rows)allocated=allocated.add(decimal(row.get("amount")));
         out.put("projects",rows);out.put("allocatedAmount",allocated);out.put("remainingAmount",decimal(owner.get("amount")).subtract(allocated));out.put("dailyReference",daily(decimal(owner.get("amount"))));out.put("projectOptions",projectOptions(owner,bill));
         String kind=pool(owner);out.put("costPool",kind);out.put("totalAmount",poolAmount(bill,kind));
-        List<Map<String,Object>> entries="PERSONNEL".equals(kind)?new ArrayList<>(Collections.singletonList(map("name","公共人员成本","category","PERSONNEL","amount",poolAmount(bill,kind),"estimated",!"SETTLED".equals(bill.get("status"))))):mapper.selectEntries(id(bill.get("billId")));
+        boolean departmentNet=BusinessPublicPersonnelService.departmentNet(bill);out.put("departmentNet",departmentNet);
+        out.put("costPoolLabel","COMBINED".equals(kind)?"公共费用合计":departmentNet?"公共人员成本与IT净亏损":"公共人员成本");
+        List<Map<String,Object>> entries="PERSONNEL".equals(kind)?new ArrayList<>(Collections.singletonList(map("name",out.get("costPoolLabel"),"category","PERSONNEL","amount",poolAmount(bill,kind),"estimated",!"SETTLED".equals(bill.get("status"))))):mapper.selectEntries(id(bill.get("billId")));
+        if("COMBINED".equals(kind)) {
+            entries=new ArrayList<>(entries);
+            if(decimal(bill.get("personnelAmount")).signum()>0)entries.add(map("name",departmentNet?"公共人员成本与IT净亏损":"公共人员成本","category","PERSONNEL","amount",decimal(bill.get("personnelAmount")),"estimated",!"SETTLED".equals(bill.get("status"))));
+            if(decimal(bill.get("retainedAmount")).signum()>0)entries=new ArrayList<>(Collections.singletonList(map("name","公共费用合计","category","OTHER","amount",poolAmount(bill,kind),"estimated",entries.stream().anyMatch(entry->truth(entry.get("estimated"))))));
+        }
         List<BigDecimal> rates=new ArrayList<>();BigDecimal left=HUNDRED,total=poolAmount(bill,kind);
         for(int i=0;i<entries.size();i++){BigDecimal rate=total.signum()==0?BigDecimal.ZERO:(i==entries.size()-1?left:decimal(entries.get(i).get("amount")).multiply(HUNDRED).divide(total,16,RoundingMode.DOWN));rates.add(rate);left=left.subtract(rate);}
         List<BigDecimal> amounts=allocate(decimal(owner.get("amount")),rates);
         for(int i=0;i<entries.size();i++){entries.get(i).put("estimated",truth(entries.get(i).get("estimated")));entries.get(i).put("ownerAmount",amounts.get(i));}out.put("entries",entries);return out;
     }
-    private List<Map<String,Object>> projectOptions(Map<String,Object> owner,Map<String,Object> bill){return mapper.selectProjects(id(bill.get("companyDeptId")),id(owner.get("ownerUserId")),text(bill.get("month")),text(bill.get("currency")));}
+    private List<Map<String,Object>> projectOptions(Map<String,Object> owner,Map<String,Object> bill){
+        List<Map<String,Object>> options=new ArrayList<>(mapper.selectProjects(id(bill.get("companyDeptId")),id(owner.get("ownerUserId")),text(bill.get("month")),text(bill.get("currency"))));
+        if(BusinessPublicPersonnelService.departmentNet(bill)&&!"EXPENSE".equals(pool(owner)))options.removeIf(row->lossSourceProjects(bill).contains(id(row.get("projectId"))));
+        return options;
+    }
+    private void validateLossRecipient(Long projectId,Map<String,Object> bill,String kind){
+        if(mapper.countItSourceProject(projectId)>0)throw error("IT项目不承担日常公共费用或公共支持成本，请选择业务项目");
+        if(!"EXPENSE".equals(kind)&&BusinessPublicPersonnelService.departmentNet(bill)&&lossSourceProjects(bill).contains(projectId))
+            throw error("IT项目是亏损来源，不能再次承担本月公共支持成本");
+    }
+    @SuppressWarnings("unchecked") private Set<Long> lossSourceProjects(Map<String,Object> bill){
+        Set<Long> ids=new HashSet<>();Map<String,Object> snapshot=personnelSource(bill);
+        if(snapshot!=null&&snapshot.get("itLoss") instanceof Map)for(Map<String,Object> project:(List<Map<String,Object>>)((Map<?,?>)snapshot.get("itLoss")).get("projects"))ids.add(id(project.get("projectId")));
+        return ids;
+    }
     private Map<String,Object> finishBill(Long billId,String type,String reason,Long userId,String userName){if(dailyCosts!=null)dailyCosts.synchronize(billId);Map<String,Object> out=billView(mapper.selectBill(billId));event(id(out.get("companyDeptId")),billId,type,reason,out,userId,userName);return out;}
     private void touchBill(Map<String,Object> bill){if(mapper.updateBill(bill)!=1)throw error("月费用已更新，请刷新后重试");bill.put("version",integer(bill.get("version"))+1);}
-    private Map<String,Object> lockBill(Long billId){Map<String,Object> first=mapper.selectBill(billId);if(first==null)throw error("月费用不存在");mapper.selectCompanyForUpdate(id(first.get("companyDeptId")));return mapper.selectBillForUpdate(billId);}
+    private Map<String,Object> lockBill(Long billId){Map<String,Object> first=mapper.selectBill(billId);if(first==null)throw error("月费用不存在");mapper.selectCompanyForUpdate(id(first.get("companyDeptId")));return allocationBasis(mapper.selectBillForUpdate(billId));}
+    private Map<String,Object> allocationBasis(Map<String,Object> bill) {
+        List<Map<String,Object>> retained=mapper.selectRetainedDailyCosts(id(bill.get("billId")));BigDecimal amount=BigDecimal.ZERO;
+        for(Map<String,Object> row:retained)amount=amount.add(decimal(row.get("amount")));
+        if(amount.compareTo(decimal(bill.get("totalAmount")))>0)throw error("已保留历史成本超过月费用总额，请核对费用明细");
+        bill.put("retainedCosts",retained);bill.put("retainedAmount",amount);bill.put("allocatableAmount",decimal(bill.get("totalAmount")).subtract(amount));return bill;
+    }
+    private void ensureRecallKeepsItBalanced(Map<String,Object> bill) {
+        if(!BusinessPublicPersonnelService.departmentNet(bill))return;
+        Map<String,Object> snapshot=personnelSource(bill);Map<?,?> it=snapshot.get("itLoss") instanceof Map?(Map<?,?>)snapshot.get("itLoss"):Collections.emptyMap();
+        if(decimal(it.get("netLoss")).signum()==0)return;
+        Long billId=id(bill.get("billId"));Set<Long> protectedProjects=new TreeSet<>();
+        for(Map<String,Object> owner:mapper.selectOwnerAllocations(billId))if(!"EXPENSE".equals(pool(owner))&&"SUBMITTED".equals(owner.get("status")))for(Map<String,Object> row:mapper.selectProjectAllocations(id(owner.get("allocationId"))))if(decimal(row.get("amount")).signum()>0)protectedProjects.add(id(row.get("projectId")));
+        for(Map<String,Object> row:mapper.selectDailyRows(billId))if(decimal(row.get("itTransferAmount")).signum()<0)protectedProjects.add(id(row.get("projectId")));
+        for(Long projectId:protectedProjects){BusinessProject project=projects.selectProjectByIdForUpdate(projectId);if(project==null||!"0".equals(project.getDelFlag())||"CLOSED".equals(project.getAccountingState()))throw error("已关账或删除的项目含IT亏损转分，不能退回，请先核对历史成本");}
+    }
+    private List<Map<String,Object>> mergedProjectShares(List<Map<String,Object>> owners) {
+        Map<Long,BigDecimal> weights=new LinkedHashMap<>();BigDecimal basis=BigDecimal.ZERO;
+        for(Map<String,Object> owner:owners){basis=basis.add(decimal(owner.get("amount")));for(Map<String,Object> row:mapper.selectProjectAllocations(id(owner.get("allocationId"))))weights.merge(id(row.get("projectId")),decimal(row.get("amount")),BigDecimal::add);}
+        if(basis.signum()==0)return mapper.selectProjectAllocations(id(owners.get(0).get("allocationId")));
+        BigDecimal assigned=weights.values().stream().reduce(BigDecimal.ZERO,BigDecimal::add);if(assigned.signum()==0)return Collections.emptyList();
+        BigDecimal covered=assigned.multiply(HUNDRED).divide(basis,2,RoundingMode.HALF_UP).min(HUNDRED);
+        if(assigned.compareTo(basis)<0&&covered.compareTo(HUNDRED)==0)covered=new BigDecimal("99.99");
+        List<BigDecimal> rates=new ArrayList<>();for(BigDecimal weight:weights.values())rates.add(weight.multiply(HUNDRED).divide(assigned,16,RoundingMode.DOWN));
+        List<BigDecimal> shares=allocate(covered,rates);List<Map<String,Object>> out=new ArrayList<>();int i=0;
+        for(Long projectId:weights.keySet()){BigDecimal share=shares.get(i++);if(share.signum()>0)out.add(map("projectId",projectId,"percentage",share));}return out;
+    }
     private void requireCompany(Long companyId,Long userId){Map<String,Object> company=mapper.selectCompanyForUpdate(companyId);if(company==null||!companyAccess.allowed(userId,companyId,"BUSINESS"))throw error("只有获授权的公司老板可以管理该公司的公共费用");}
     private void requireBoss(Map<String,Object> bill,Long userId){requireCompany(id(bill.get("companyDeptId")),userId);}
     private Map<String,Object> owner(Long allocationId){Map<String,Object> out=mapper.selectOwner(allocationId);if(out==null)throw error("负责人分摊不存在或已被老板退回，请刷新");return out;}

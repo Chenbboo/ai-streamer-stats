@@ -14,17 +14,19 @@
         <div><span>{{ costs.dailyRecognition ? $tr("其中：本月暂估") : $tr("累计已结算费用") }}</span><b>{{ money(costs.dailyRecognition ? costs.estimatedMonthAmount : costs.lifetimeAmount) }}<small>{{ displayCurrency }}</small></b></div>
         <div><span>{{ costs.dailyRecognition ? $tr("今日公共费用") : $tr("计入方式") }}</span><b>{{ costs.dailyRecognition ? money(costs.todayAmount) : $tr("历史月结") }}<small v-if="costs.dailyRecognition">{{ displayCurrency }}</small></b><small>{{ costs.dailyRecognition ? $tr("已包含在项目日成本中") : $tr("保留原月结记录") }}</small></div>
       </div>
+      <p v-if="Number(costs.itTransferredMonthAmount) > 0" class="project-expense-note">{{ $tr("本月IT亏损已转出 {0} {1}；对应业务项目计入相同金额，公司总成本不变。", [money(costs.itTransferredMonthAmount), displayCurrency]) }}</p>
       <el-table :data="costs.allocations || []" size="small" :empty-text="$tr(&quot;本月暂无项目分摊记录&quot;)">
         <el-table-column prop="companyName" :label="$tr(&quot;公司&quot;)" min-width="140" />
-        <el-table-column prop="ownerName" :label="$tr(&quot;分摊负责人&quot;)" min-width="110" /><el-table-column :label="$tr(&quot;费用类型&quot;)" min-width="120"><template #default="{ row }">{{ row.costPool === 'PERSONNEL' ? $tr("公共人员成本") : $tr("日常公共费用") }}</template></el-table-column>
+        <el-table-column prop="ownerName" :label="$tr(&quot;分摊负责人&quot;)" min-width="110" /><el-table-column :label="$tr(&quot;费用类型&quot;)" min-width="120"><template #default="{ row }">{{ row.costPool === 'COMBINED' ? $tr("公共费用合计") : row.costPool === 'PERSONNEL' ? (row.departmentNet ? $tr("公共人员成本与IT净亏损") : $tr("公共人员成本")) : $tr("日常公共费用") }}</template></el-table-column>
         <el-table-column :label="$tr(&quot;分摊比例&quot;)" min-width="125" align="right"><template #default="{ row }">{{ Number(row.percentage || 0).toFixed(2) }}%</template></el-table-column>
         <el-table-column :label="$tr(&quot;月分摊金额&quot;)" min-width="155" align="right"><template #default="{ row }">{{ money(row.amount) }} {{ row.currency || displayCurrency }}</template></el-table-column>
-        <el-table-column :label="$tr(&quot;日暂估金额（÷ 21.75）&quot;)" min-width="130" align="right"><template #default="{ row }">{{ row.costPool === 'PERSONNEL' ? money(row.amount / 21.75) : '—' }}</template></el-table-column><el-table-column :label="$tr(&quot;状态&quot;)" min-width="130"><template #default="{ row }"><el-tag :type="row.status === 'SETTLED' ? 'success' : row.status === 'SUBMITTED' ? 'primary' : 'warning'" size="small" effect="plain">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
+        <el-table-column :label="$tr(&quot;日暂估金额（÷ 21.75）&quot;)" min-width="130" align="right"><template #default="{ row }">{{ row.costPool === 'PERSONNEL' && !row.departmentNet ? money(row.amount / 21.75) : '—' }}</template></el-table-column><el-table-column :label="$tr(&quot;状态&quot;)" min-width="130"><template #default="{ row }"><el-tag :type="row.status === 'SETTLED' ? 'success' : row.status === 'SUBMITTED' ? 'primary' : 'warning'" size="small" effect="plain">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
       </el-table>
       <el-collapse v-if="costs.dailyCosts?.length" class="daily-cost-details">
         <el-collapse-item :title="$tr(&quot;查看每日分摊明细&quot;)" name="days">
           <el-table :data="costs.dailyCosts" size="small">
             <el-table-column prop="bizDate" :label="$tr(&quot;日期&quot;)" />
+            <el-table-column :label="$tr(&quot;其中IT亏损转出&quot;)"><template #default="{ row }">{{ money(row.itTransferredAmount) }} {{ displayCurrency }}</template></el-table-column>
             <el-table-column :label="$tr(&quot;公共费用&quot;)"><template #default="{ row }">{{ money(row.amount) }} {{ displayCurrency }}</template></el-table-column>
             <el-table-column :label="$tr(&quot;状态&quot;)"><template #default="{ row }"><el-tag :type="!row.accrued ? 'info' : row.status === 'ESTIMATED' ? 'warning' : 'success'">{{ !row.accrued ? $tr("未到日期，尚未计入") : row.status === 'ESTIMATED' ? $tr("暂估，已计入成本") : $tr("已确认") }}</el-tag></template></el-table-column>
           </el-table>
@@ -38,7 +40,7 @@
           <el-table-column prop="reason" :label="$tr(&quot;调整原因&quot;)" min-width="220" />
         </el-table>
       </template>
-      <p class="project-expense-note">{{ $tr("负责人提交后，公共人员成本按月分摊金额 ÷ 21.75 计入每日暂估金额；日常公共费用按承担期间的自然日暂估。未来日期暂不计入。统一月结时，以实际月分摊金额替换暂估金额并处理尾差，不重复扣费。") }}</p>
+      <p class="project-expense-note">{{ $tr("新公共支持成本和日常公共费用按承担期间的自然日计入，未来日期暂不计入。IT亏损转出以成本抵减显示，与业务项目转入对应；历史账单保留原暂估口径，月结不重复扣费。") }}</p>
     </template>
   </section>
 </template>

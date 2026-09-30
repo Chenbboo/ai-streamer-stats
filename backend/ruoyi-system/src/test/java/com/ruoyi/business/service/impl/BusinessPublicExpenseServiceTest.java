@@ -63,10 +63,26 @@ class BusinessPublicExpenseServiceTest
         bill.put("status","DRAFT");when(mapper.selectMonth(100L,"2025-02","CNY")).thenReturn(bill);
         Map<String,Object> input=map("companyDeptId",100L,"month","2025-02","currency","CNY","version",0,"rows",Arrays.asList(map("totalAmount",1)));
         assertThrows(RuntimeException.class,()->service.savePersonnel(input,10L,"老板"));verifyNoInteractions(personnel);verify(mapper,never()).updateBill(anyMap());
-        input.remove("rows");when(personnel.automaticSnapshot(100L,"2025-02","CNY",null)).thenReturn(map("publicAmount",bd("60.00"),"sourceMode","AUTOMATIC","rows",Collections.emptyList()));
+        input.remove("rows");when(personnel.allocationSnapshot(100L,"2025-02","CNY",null)).thenReturn(map("publicAmount",bd("60.00"),"sourceMode","DEPARTMENT_NET_V1","rows",Collections.emptyList()));
         when(mapper.selectOwners(100L)).thenReturn(Arrays.asList(map("userId",20L,"userName","负责人","deptId",201L)));
         service.savePersonnel(input,10L,"老板");assertEquals(bd("160.00"),bill.get("totalAmount"));assertEquals(bd("60.00"),bill.get("personnelAmount"));
-        verify(personnel).automaticSnapshot(100L,"2025-02","CNY",null);
+        verify(personnel).allocationSnapshot(100L,"2025-02","CNY",null);
+    }
+    @Test void itProjectsCannotReceiveEitherCostPoolEvenWithAValidOwner() {
+        when(mapper.countItSourceProject(4L)).thenReturn(1);
+        for(String pool:Arrays.asList("EXPENSE","PERSONNEL","COMBINED")) {
+            owner.put("costPool",pool);
+            assertThrows(RuntimeException.class,()->service.saveProjects(2L,map("version",0,"allocations",Arrays.asList(allocation)),20L,"负责人"));
+            assertThrows(RuntimeException.class,()->service.submit(2L,map("version",0),20L,"负责人"));
+        }
+        verify(mapper,never()).deleteOwnerProjects(anyLong());verify(mapper,never()).updateOwner(anyMap());
+    }
+    @Test void publicSupportSourceCannotBeChangedByAnUnbalancedGenericAdjustment() {
+        bill.put("status","SETTLED");bill.put("personnelSnapshot","{\"sourceMode\":\"DEPARTMENT_NET_V1\"}");
+        assertThrows(RuntimeException.class,()->service.adjust(1L,map("projectId",4L,"amount",1,"reason","核对","requestKey","test","costPool","PERSONNEL"),10L,"老板"));
+        owner.put("costPool","PERSONNEL");
+        assertThrows(RuntimeException.class,()->service.adjust(1L,map("projectId",4L,"amount",1,"reason","核对","requestKey","test","version",0),10L,"老板"));
+        verify(mapper,never()).insertAdjustment(anyMap());verify(accounting,never()).insertFact(any());
     }
     @Test void separatePoolsAllowSameOwnerWithoutMixingPercentages() {
         bill.put("status","DRAFT");bill.put("personnelAmount",bd("60.00"));owner.put("amount",bd("40.00"));
@@ -74,6 +90,74 @@ class BusinessPublicExpenseServiceTest
         service.saveOwners(1L,map("version",0,"costPool","PERSONNEL","allocations",Arrays.asList(map("ownerUserId",20L,"deptId",201L,"percentage",100))),10L,"老板");
         verify(mapper).insertOwner(argThat(r->"PERSONNEL".equals(r.get("costPool"))&&bd("60.00").equals(r.get("amount"))));
         verify(mapper).insertOwner(argThat(r->"EXPENSE".equals(r.get("costPool"))&&bd("40.00").equals(r.get("amount"))));
+    }
+    @Test void combinedOwnersReplaceBothOldPoolsAndAllocateTheFullTotalExactlyOnce() {
+        bill.put("status","DRAFT");bill.put("totalAmount",bd("72209.83"));bill.put("personnelAmount",bd("26143.17"));
+        when(mapper.selectOwners(100L)).thenReturn(Arrays.asList(map("userId",20L,"userName","A","deptId",201L),map("userId",21L,"userName","B","deptId",202L)));
+        when(mapper.selectOwnerAllocations(1L)).thenReturn(Arrays.asList(owner,map("ownerUserId",20L,"costPool","PERSONNEL","percentage",100,"amount",bd("26143.17"))));
+        service.saveOwners(1L,map("version",0,"costPool","COMBINED","allocations",Arrays.asList(map("ownerUserId",20L,"percentage",60),map("ownerUserId",21L,"percentage",40))),10L,"老板");
+        verify(mapper,times(2)).insertOwner(argThat(r->"COMBINED".equals(r.get("costPool"))));
+        verify(mapper).insertOwner(argThat(r->Long.valueOf(20L).equals(r.get("ownerUserId"))&&bd("43325.90").equals(r.get("amount"))));
+        verify(mapper).insertOwner(argThat(r->Long.valueOf(21L).equals(r.get("ownerUserId"))&&bd("28883.93").equals(r.get("amount"))));
+    }
+    @Test void combinedPublishNeedsOneCompleteSetAndRejectsMixedOrDuplicateOwners() {
+        bill.put("status","DRAFT");bill.put("personnelAmount",bd("60.00"));owner.put("costPool","COMBINED");
+        when(mapper.selectOwners(100L)).thenReturn(Arrays.asList(map("userId",20L,"userName","负责人","deptId",201L)));
+        owner.put("percentage",bd("99"));
+        assertThrows(RuntimeException.class,()->service.publish(1L,map("version",0),10L,"老板"));
+        assertThrows(RuntimeException.class,()->service.saveOwners(1L,map("version",0,"costPool","COMBINED","allocations",Arrays.asList(map("ownerUserId",20L,"percentage",50),map("ownerUserId",20L,"percentage",50))),10L,"老板"));
+        assertThrows(RuntimeException.class,()->service.saveOwners(1L,map("version",0,"costPool","PERSONNEL","allocations",Arrays.asList(map("ownerUserId",20L,"percentage",100))),10L,"老板"));
+        verify(mapper,never()).deleteOwners(anyLong());
+        owner.put("percentage",bd("100"));
+        assertDoesNotThrow(()->service.publish(1L,map("version",0),10L,"老板"));
+        assertEquals("PUBLISHED",bill.get("status"));
+    }
+    @Test void combinedOwnerTaskHasOneTotalAndAllSourceEntriesWithoutPayrollDetails() {
+        bill.put("totalAmount",bd("160.00"));bill.put("personnelAmount",bd("60.00"));
+        bill.put("personnelSnapshot","{\"sourceMode\":\"DEPARTMENT_NET_V1\",\"personnelDetails\":[{\"userName\":\"private\"}]}");
+        owner.put("costPool","COMBINED");owner.put("amount",bd("160.00"));
+        when(mapper.selectOwnerBills(20L,"2025-02")).thenReturn(Arrays.asList(owner));
+        Map<String,Object> view=(Map<String,Object>)((List<?>)service.ownerWorkspace("2025-02",20L).get("bills")).get(0);
+        assertEquals(bd("160.00"),view.get("totalAmount"));assertEquals("公共费用合计",view.get("costPoolLabel"));
+        assertFalse(view.containsKey("personnel"));assertFalse(view.containsKey("personnelSnapshot"));
+        List<Map<String,Object>> entries=(List<Map<String,Object>>)view.get("entries");assertEquals(2,entries.size());
+        assertEquals(bd("160.00"),entries.stream().map(r->(BigDecimal)r.get("ownerAmount")).reduce(BigDecimal.ZERO,BigDecimal::add));
+    }
+    @Test void oldOwnerPoolsMergeByAmountsAndIncompleteCoverageStaysIncomplete() {
+        bill.put("personnelAmount",bd("60.00"));
+        List<Map<String,Object>> old=Arrays.asList(map("ownerUserId",20L,"costPool","EXPENSE","amount",bd("40.00")),map("ownerUserId",20L,"costPool","PERSONNEL","amount",bd("30.00")),map("ownerUserId",21L,"costPool","PERSONNEL","amount",bd("30.00")));
+        List<Map<String,Object>> merged=BusinessPublicExpenseService.combinedOwners(bill,old);
+        assertEquals(2,merged.size());assertEquals(bd("70.00"),merged.get(0).get("percentage"));assertEquals(bd("30.00"),merged.get(1).get("percentage"));
+        merged=BusinessPublicExpenseService.combinedOwners(bill,Collections.singletonList(old.get(0)));
+        assertEquals(bd("100.00"),merged.get(0).get("percentage"));
+        assertEquals(bd("100.00"),merged.get(0).get("amount"));
+        merged=BusinessPublicExpenseService.combinedOwners(bill,Collections.singletonList(map("ownerUserId",20L,"costPool","EXPENSE","amount",bd("20.00"))));
+        assertEquals(bd("50.00"),merged.get(0).get("percentage"));
+        assertEquals(bd("50.00"),merged.get(0).get("amount"));
+    }
+    @Test void copyingPreviousSeparatePoolsProducesOneCombinedSharePerOwner() {
+        bill.put("status","DRAFT");bill.put("totalAmount",bd("200.00"));
+        Map<String,Object> prior=map("billId",9L,"totalAmount",bd("100.00"));
+        when(mapper.selectMonth(100L,"2025-01","CNY")).thenReturn(prior);
+        when(mapper.selectOwnerAllocations(9L)).thenReturn(Arrays.asList(map("ownerUserId",20L,"costPool","EXPENSE","amount",bd("40.00")),map("ownerUserId",20L,"costPool","PERSONNEL","amount",bd("60.00"))));
+        when(mapper.selectOwners(100L)).thenReturn(Arrays.asList(map("userId",20L,"userName","负责人","deptId",201L)));
+        service.copyOwners(1L,map("version",0,"costPool","COMBINED"),10L,"老板");
+        verify(mapper,times(1)).insertOwner(argThat(r->"COMBINED".equals(r.get("costPool"))&&bd("100.00").equals(r.get("percentage"))&&bd("200.00").equals(r.get("amount"))));
+    }
+    @Test void settledCombinedAdjustmentCannotReduceTheSealedSupportSources() {
+        when(mapper.selectAdjustmentByRequest(eq(1L),anyString())).thenReturn(null);
+        bill.put("status","SETTLED");bill.put("personnelAmount",bd("60.00"));bill.put("personnelSnapshot","{\"sourceMode\":\"DEPARTMENT_NET_V1\"}");
+        owner.put("costPool","COMBINED");
+        assertEquals("调整后项目公共费用不能为负数",assertThrows(RuntimeException.class,()->service.adjust(1L,map("version",0,"projectId",4L,"amount",-41,"reason","核对","requestKey","blocked"),10L,"老板")).getMessage());
+        assertDoesNotThrow(()->service.adjust(1L,map("version",0,"projectId",4L,"amount",-40,"reason","核对","requestKey","ordinary"),10L,"老板"));
+        verify(mapper,times(1)).insertAdjustment(anyMap());
+    }
+    @Test void zeroCombinedBillCanReceiveAnOrdinaryAdjustmentWithoutDividingByZero() {
+        when(mapper.selectAdjustmentByRequest(eq(1L),anyString())).thenReturn(null);
+        bill.put("status","SETTLED");bill.put("totalAmount",bd("0.00"));bill.put("personnelAmount",bd("0.00"));bill.put("personnelSnapshot","{\"sourceMode\":\"DEPARTMENT_NET_V1\"}");
+        owner.put("costPool","COMBINED");owner.put("amount",bd("0.00"));allocation.put("amount",bd("0.00"));
+        assertDoesNotThrow(()->service.adjust(1L,map("version",0,"projectId",4L,"amount",1,"reason","补录日常费用","requestKey","zero"),10L,"老板"));
+        verify(mapper).insertAdjustment(anyMap());
     }
     @Test void cannotPublishUntilBothPoolsAreCompletelyAllocated() {
         bill.put("status","DRAFT");bill.put("personnelAmount",bd("60.00"));owner.put("amount",bd("40.00"));
@@ -200,6 +284,63 @@ class BusinessPublicExpenseServiceTest
         when(mapper.selectOwnerBills(20L,"2025-02")).thenReturn(Arrays.asList(owner));when(mapper.selectEntries(1L)).thenReturn(Arrays.asList(map("amount",bd("0.01")),map("amount",bd("0.01"))));
         Map<String,Object> result=service.ownerWorkspace("2025-02",20L);Map<?,?> view=(Map<?,?>)((List<?>)result.get("bills")).get(0);
         BigDecimal total=BigDecimal.ZERO;for(Object entry:(List<?>)view.get("entries"))total=total.add((BigDecimal)((Map<?,?>)entry).get("ownerAmount"));assertEquals(bd("0.01"),total);
+    }
+    @Test void retainedHistoryReducesTheCombinedBudgetAndStaleAmountsCannotPublish() {
+        bill.put("status","DRAFT");bill.put("totalAmount",bd("72209.83"));bill.put("personnelAmount",bd("26143.17"));
+        when(mapper.selectRetainedDailyCosts(1L)).thenReturn(Arrays.asList(map("projectId",11L,"amount",bd("230.33"))));
+        when(mapper.selectOwners(100L)).thenReturn(Arrays.asList(map("userId",20L,"deptId",201L),map("userId",21L,"deptId",202L)));
+        service.saveOwners(1L,map("version",0,"costPool","COMBINED","allocations",Arrays.asList(map("ownerUserId",20L,"percentage",90),map("ownerUserId",21L,"percentage",10))),10L,"老板");
+        assertEquals(bd("71979.50"),bill.get("allocatableAmount"));
+        verify(mapper).insertOwner(argThat(r->bd("64781.55").equals(r.get("amount"))));
+        verify(mapper).insertOwner(argThat(r->bd("7197.95").equals(r.get("amount"))));
+        owner.put("costPool","COMBINED");owner.put("amount",bd("72209.83"));
+        clearInvocations(mapper);
+        assertThrows(RuntimeException.class,()->service.publish(1L,map("version",1),10L,"老板"));
+        verify(mapper,never()).updateBill(anyMap());
+        owner.put("amount",bd("71979.50"));
+        assertDoesNotThrow(()->service.publish(1L,map("version",1),10L,"老板"));
+    }
+    @Test void combinedPreviewRepricesExistingOwnersWithoutMutatingStoredRows() {
+        bill.put("totalAmount",bd("100.00"));bill.put("retainedAmount",bd("20.00"));owner.put("costPool","COMBINED");
+        assertEquals(bd("80.00"),BusinessPublicExpenseService.combinedOwners(bill,Arrays.asList(owner)).get(0).get("amount"));
+        assertEquals(bd("100.00"),owner.get("amount"));
+    }
+    @Test void combinedOwnerSourcesUseOnlyTheAvailableBudgetAfterHistoricalDeduction() {
+        when(mapper.selectRetainedDailyCosts(1L)).thenReturn(Arrays.asList(map("amount",bd("20.00"))));
+        owner.put("costPool","COMBINED");owner.put("amount",bd("80.00"));
+        when(mapper.selectOwnerBills(20L,"2025-02")).thenReturn(Arrays.asList(owner));
+        Map<?,?> view=(Map<?,?>)((List<?>)service.ownerWorkspace("2025-02",20L).get("bills")).get(0);
+        assertEquals(bd("80.00"),view.get("totalAmount"));
+        assertEquals(bd("80.00"),((Map<?,?>)((List<?>)view.get("entries")).get(0)).get("ownerAmount"));
+        assertFalse(view.containsKey("personnelSnapshot"));
+    }
+    @Test void retainedAmountsAboveTheBudgetBlockWrites() {
+        when(mapper.selectRetainedDailyCosts(1L)).thenReturn(Arrays.asList(map("amount",bd("100.01"))));
+        assertThrows(RuntimeException.class,()->service.recall(1L,map("version",0,"reason","核对"),10L,"老板"));
+        verify(mapper,never()).deleteBillProjects(anyLong());
+    }
+    @Test void previousSeparateProjectPoolsMergeByMoneyAndInvalidProjectsStayUnallocated() {
+        owner.put("costPool","COMBINED");
+        when(mapper.selectMonth(100L,"2025-01","CNY")).thenReturn(map("billId",9L));
+        when(mapper.selectOwnerAllocations(9L)).thenReturn(Arrays.asList(
+            map("allocationId",8L,"ownerUserId",20L,"costPool","EXPENSE","amount",bd("40.00")),
+            map("allocationId",9L,"ownerUserId",20L,"costPool","PERSONNEL","amount",bd("60.00")),
+            map("allocationId",10L,"ownerUserId",99L,"costPool","EXPENSE","amount",bd("100.00"))));
+        when(mapper.selectProjectAllocations(8L)).thenReturn(Arrays.asList(map("projectId",4L,"percentage",100,"amount",bd("40.00"))));
+        when(mapper.selectProjectAllocations(9L)).thenReturn(Arrays.asList(map("projectId",4L,"percentage",50,"amount",bd("30.00")),map("projectId",5L,"percentage",50,"amount",bd("30.00"))));
+        when(mapper.selectProjects(100L,20L,"2025-02","CNY")).thenReturn(Arrays.asList(map("projectId",4L)));
+        service.copyProjects(2L,map("version",0),20L,"负责人");
+        verify(mapper).insertProject(argThat(r->Long.valueOf(4L).equals(r.get("projectId"))&&bd("70.00").equals(r.get("percentage"))&&bd("70.00").equals(r.get("amount"))));
+        verify(mapper,times(1)).insertProject(anyMap());verify(mapper,never()).selectProjectAllocations(10L);
+    }
+    @Test void recallCannotOrphanItCreditsOnAClosedRecipientOrSource() {
+        bill.put("personnelSnapshot","{\"sourceMode\":\"DEPARTMENT_NET_V1\",\"itLoss\":{\"netLoss\":10}}");
+        owner.put("costPool","COMBINED");project.setAccountingState("CLOSED");
+        assertThrows(RuntimeException.class,()->service.recall(1L,map("version",0,"reason","核对"),10L,"老板"));
+        project.setAccountingState("OPEN");
+        when(mapper.selectDailyRows(1L)).thenReturn(Arrays.asList(map("projectId",5L,"itTransferAmount",bd("-10.00"))));
+        assertThrows(RuntimeException.class,()->service.recall(1L,map("version",0,"reason","核对"),10L,"老板"));
+        verify(mapper,never()).deleteBillProjects(anyLong());verify(mapper,never()).insertEvent(anyMap());
     }
     private static BigDecimal bd(String value){return new BigDecimal(value);}
     private static Map<String,Object> map(Object... values){Map<String,Object> out=new LinkedHashMap<>();for(int i=0;i<values.length;i+=2)out.put(String.valueOf(values[i]),values[i+1]);return out;}

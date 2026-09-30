@@ -24,9 +24,9 @@
       <nav class="flow-steps" :aria-label="$tr(&quot;费用办理步骤&quot;)">
         <button v-for="(label, index) in ['核对费用', '分摊给负责人', '分摊进度与月结']" :key="label" type="button" :aria-current="step === index + 1 ? 'step' : undefined" :class="{ current: step === index + 1 }" :disabled="saving || loading || (index === 1 && !bill) || (index === 2 && (!bill || bill.status === 'DRAFT'))" @click="selectStep(index + 1)"><span>{{ index + 1 }}</span>{{ label }}</button>
       </nav>
-          <el-radio-group v-if="step === 1" v-model="costTab" class="pool-tabs" :disabled="saving || loading || dirty"><el-radio-button value="EXPENSE">{{ $tr("日常公共费用") }}</el-radio-button><el-radio-button value="PERSONNEL">{{ $tr("公共人员成本") }}</el-radio-button></el-radio-group>
-          <PersonnelPool v-if="step === 1 && costTab === 'PERSONNEL'" :key="`${filters.companyDeptId}-${filters.month}-${filters.currency}`" :filters="filters" :bill="bill" :editable="canManage && (!bill || bill.status === 'DRAFT')" :disabled="saving || loading || dirty" @busy="saving = $event" @saved="personnelSaved" @recall="recallMonth" />
-          <div v-if="step === 1 && costTab === 'PERSONNEL' && bill?.personnel" class="table-footer"><span>{{ $tr("两类费用分别设置分摊比例，统一下发和月结。") }}</span><el-button type="primary" :disabled="saving || loading" @click="costPool = 'PERSONNEL'; restoreOwners(); selectStep(2)">{{ $tr("查看负责人分摊") }}</el-button></div>
+          <el-radio-group v-if="step === 1" v-model="costTab" class="pool-tabs" :disabled="saving || loading || dirty"><el-radio-button value="EXPENSE">{{ $tr("日常公共费用") }}</el-radio-button><el-radio-button value="PERSONNEL">{{ $tr("公共人员成本与IT净亏损") }}</el-radio-button></el-radio-group>
+          <PersonnelPool v-if="step === 1 && costTab === 'PERSONNEL'" :key="`${filters.companyDeptId}-${filters.month}-${filters.currency}`" :filters="filters" :bill="bill" :editable="canManage && (!bill || bill.status === 'DRAFT')" :disabled="saving || loading || dirty" @busy="personnelBusy = $event" @saved="personnelSaved" @recall="recallMonth" />
+          <div v-if="step === 1 && costTab === 'PERSONNEL' && bill?.personnel" class="table-footer"><span>{{ $tr("所有费用合并为一个总额，按同一套负责人比例分摊。") }}</span><el-button type="primary" :disabled="saving || loading" @click="selectStep(2)">{{ $tr("查看负责人分摊") }}</el-button></div>
           <section v-if="step === 1 && costTab === 'EXPENSE'" class="expense-panel fees-panel">
             <div class="section-header"><div><h2>{{ $tr("{0} 费用明细", [filters.month]) }}</h2><p>{{ bill ? $tr("核对本月金额。尚未确认的费用可以先分摊，月结前再确认。") : $tr("已自动带出本月适用的常用费用，确认后即可分摊。") }}</p></div><div class="actions"><el-button v-if="(!bill || bill.status === 'DRAFT') && canManage" icon="Plus" :disabled="saving || loading" @click="openPolicy()">{{ $tr("添加费用") }}</el-button><el-button v-if="bill?.status === 'DRAFT' && canManage && missingPoliciesCount" :disabled="dirty || loading" :loading="saving" @click="syncNewPolicies">{{ $tr("加入新增费用（{0}）", [missingPoliciesCount]) }}</el-button><el-button v-if="bill?.status === 'PUBLISHED' && canManage" :disabled="loading || saving" @click="recallMonth">{{ $tr("退回修改") }}</el-button><el-button v-if="bill?.status === 'SETTLED' && canManage" :disabled="loading || saving" @click="openAdjustment">{{ $tr("登记调整") }}</el-button></div></div>
             <template v-if="!bill">
@@ -61,22 +61,23 @@
 
           <section v-if="bill && step > 1" class="expense-panel allocation-panel">
             <div class="section-header"><div><h2>{{ step === 2 ? $tr("这些费用由谁承担？") : $tr("项目分摊进度") }}</h2><p>{{ bill.status === 'DRAFT' ? $tr("填写各负责人的分摊比例，合计 100% 后即可下发到工作台。") : $tr("负责人在自己的工作台分摊到项目并提交，你在这里查看进度和月结。") }}</p></div><div v-if="canEditMonth" class="actions"><el-button :disabled="saving || dirty" @click="copyOwners">{{ $tr("沿用上月比例") }}</el-button><el-button icon="Plus" :disabled="saving" @click="addOwner">{{ $tr("添加负责人") }}</el-button></div><div v-else class="actions"><el-button v-if="bill.status === 'PUBLISHED' && canManage" :disabled="saving || loading" @click="recallMonth">{{ $tr("退回修改") }}</el-button><el-button v-if="bill.status === 'SETTLED' && canManage" :disabled="saving || loading" @click="openAdjustment">{{ $tr("登记调整") }}</el-button></div></div>
-            <el-radio-group :model-value="costPool" class="pool-tabs" :disabled="saving || loading" @change="changePool"><el-radio-button value="EXPENSE">{{ $tr("日常公共费用 · {0}", [money(expenseAmount)]) }}</el-radio-button><el-radio-button v-if="bill.personnel" value="PERSONNEL">{{ $tr("公共人员成本 · {0}", [money(bill.personnelAmount)]) }}</el-radio-button></el-radio-group>
-            <p class="pool-note">{{ $tr("{0} 两类费用均分摊完成后统一下发。", [costPool === 'PERSONNEL' ? $tr("按部门选择负责人分摊公共人员成本；日暂估金额为月分摊金额 ÷ 21.75。") : $tr("日常公共费用按独立比例分摊。")]) }}</p>
+            <div v-if="combinedAllocation" class="combined-total"><span>{{ $tr("待分摊总额") }}</span><strong>{{ money(selectedPoolAmount) }} {{ filters.currency }}</strong><small v-if="Number(bill.retainedAmount) > 0">{{ $tr("月费用 {0} − 已保留历史成本 {1}", [money(bill.totalAmount), money(bill.retainedAmount)]) }}</small></div>
+            <el-radio-group v-else :model-value="costPool" class="pool-tabs" :disabled="saving || loading" @change="changePool"><el-radio-button value="EXPENSE">{{ $tr("日常公共费用 · {0}", [money(expenseAmount)]) }}</el-radio-button><el-radio-button v-if="bill.personnel" value="PERSONNEL">{{ $tr("公共人员成本与IT净亏损 · {0}", [money(bill.personnelAmount)]) }}</el-radio-button></el-radio-group>
+            <p class="pool-note">{{ combinedAllocation ? $tr("日常公共费用、公共人员成本与IT净亏损合并分摊，负责人只需分配一次；IT部不承担公共费用。") : $tr("历史账单保留原分摊记录；退回修改后按合并总额重新分摊。") }}</p>
             <div v-if="step === 3" class="settlement-bar"><div><b>{{ bill.status === 'SETTLED' ? $tr("本月已结算") : $tr("确认月结") }}</b><p>{{ bill.status === 'SETTLED' ? $tr("公共费用已计入项目成本。后续增减可登记调整，原记录保留。") : settleNotice }}</p><p v-if="bill.status === 'PUBLISHED'">{{ $tr("待分摊到项目 {0} {1} · {2} 位负责人待提交", [money(projectRemainingAmount), filters.currency, pendingOwnerCount]) }}</p></div><el-button v-if="bill.status === 'PUBLISHED' && canManage" type="primary" :disabled="!canSettle || loading" :loading="saving" @click="settleMonth">{{ $tr("确认月结") }}</el-button></div>
             <el-table :data="ownerRows" :empty-text="$tr(&quot;请添加负责人并填写分摊比例&quot;)">
               <el-table-column :label="$tr(&quot;部门&quot;)" min-width="180"><template #default="{ row }"><el-select v-if="canEditMonth" v-model="row.deptId" class="owner-department-select" filterable :placeholder="$tr(&quot;先选择部门&quot;)" :no-data-text="$tr(&quot;该公司尚未设置启用的部门&quot;)" :disabled="!canEditMonth" @change="changeOwnerDepartment(row)"><el-option v-for="dept in ownerDepartments" :key="dept.deptId" :label="dept.deptName" :value="dept.deptId" /></el-select><span v-else>{{ row.deptName || $tr("公司直属") }}</span></template></el-table-column>
               <el-table-column :label="$tr(&quot;负责人&quot;)" min-width="170"><template #default="{ row }"><el-select v-if="canEditMonth" v-model="row.ownerUserId" class="owner-person-select" filterable :disabled="!row.deptId" :placeholder="row.deptId ? $tr(&quot;选择该部门负责人&quot;) : $tr(&quot;请先选择部门&quot;)" :no-data-text="$tr(&quot;该部门暂无可选负责人，请先完善人员所属部门&quot;)"><el-option v-if="row.ownerUserId && !ownerOptions(row).some(owner => Number(owner.userId) === Number(row.ownerUserId))" :value="row.ownerUserId" :label="row.ownerName || ownerName(row.ownerUserId)" disabled /><el-option v-for="owner in ownerOptions(row)" :key="owner.userId" :label="owner.userName" :value="owner.userId" /></el-select><b v-else>{{ row.ownerName || ownerName(row.ownerUserId) }}</b></template></el-table-column>
               <el-table-column :label="$tr(&quot;分摊比例&quot;)" min-width="155"><template #default="{ row }"><span v-if="canEditMonth" class="percentage-field"><el-input-number v-model="row.percentage" :min="0" :max="100" :precision="2" :controls="false" :aria-label="$tr(&quot;负责人分摊比例&quot;)" /> %</span><span v-else>{{ row.percentage }}%</span></template></el-table-column>
               <el-table-column :label="$tr(&quot;月分摊金额（{0}）&quot;, [filters.currency])" min-width="150" align="right"><template #default="{ row, $index }">{{ money(canEditMonth && ownersDirty ? ownerAmountPreview($index) : row.amount) }}</template></el-table-column>
-              <el-table-column v-if="costPool === 'PERSONNEL'" :label="$tr(&quot;日暂估金额（÷ 21.75）&quot;)" min-width="145" align="right"><template #default="{ row, $index }">{{ money((canEditMonth && ownersDirty ? ownerAmountPreview($index) : row.amount) / 21.75) }}</template></el-table-column>
+              <el-table-column v-if="costPool === 'PERSONNEL' && !departmentNet" :label="$tr(&quot;日暂估金额（÷ 21.75）&quot;)" min-width="145" align="right"><template #default="{ row, $index }">{{ money((canEditMonth && ownersDirty ? ownerAmountPreview($index) : row.amount) / 21.75) }}</template></el-table-column>
               <el-table-column :label="$tr(&quot;项目分摊&quot;)" min-width="170"><template #default="{ row }"><template v-if="bill.status !== 'DRAFT'"><el-tag :type="row.status === 'SUBMITTED' ? 'success' : 'warning'">{{ row.status === 'SUBMITTED' ? $tr("已提交") : $tr("待提交") }}</el-tag><small>{{ $tr("待分摊 {0}", [money(row.remainingAmount)]) }}</small></template><span v-else>{{ $tr("下发后由负责人分摊") }}</span></template></el-table-column>
               <el-table-column v-if="canEditMonth" :label="$tr(&quot;操作&quot;)" width="80"><template #default="{ $index }"><el-button type="danger" link :disabled="saving" @click="ownerRows.splice($index, 1)">{{ $tr("移除") }}</el-button></template></el-table-column>
               <el-table-column v-else type="expand"><template #default="{ row }"><el-table class="project-details" :data="row.projects || []" :empty-text="$tr(&quot;负责人尚未分摊到项目&quot;)"><el-table-column prop="projectName" :label="$tr(&quot;项目&quot;)" /><el-table-column :label="$tr(&quot;分摊比例&quot;)"><template #default="{ row: project }">{{ project.percentage }}%</template></el-table-column><el-table-column :label="$tr(&quot;月分摊金额&quot;)"><template #default="{ row: project }">{{ money(project.amount) }} {{ filters.currency }}</template></el-table-column></el-table></template></el-table-column>
             </el-table>
-            <div class="table-footer"><span :class="percentComplete ? 'success-text' : 'warning-text'">{{ $tr("比例合计：") }}<b>{{ percentageTotal.toFixed(2) }}%</b><em v-if="ownersDirty">{{ $tr(" · 尚未保存") }}</em></span><div v-if="bill.status === 'DRAFT' && canManage" class="actions"><el-button :disabled="dirty || saving || loading" @click="selectStep(1)">{{ $tr("上一步") }}</el-button><el-button v-if="ownersDirty" :disabled="saving || loading" @click="restoreOwners">{{ $tr("还原") }}</el-button><el-button :disabled="!ownersDirty || entriesDirty || loading" :loading="saving" @click="saveOwners">{{ $tr("暂存比例") }}</el-button><el-button type="primary" :disabled="entriesDirty || !allPoolsReady || loading" :loading="saving" @click="publishMonth">{{ $tr("保存并下发") }}</el-button></div></div>
-            <el-table v-if="costPool === 'PERSONNEL' && departmentTotals.length" :data="departmentTotals" class="section-gap"><el-table-column prop="name" :label="$tr(&quot;部门分摊汇总&quot;)"/><el-table-column :label="$tr(&quot;月分摊金额&quot;)" align="right"><template #default="{ row }">{{ money(row.amount) }} {{ filters.currency }}</template></el-table-column><el-table-column :label="$tr(&quot;日暂估金额（÷ 21.75）&quot;)" align="right"><template #default="{ row }">{{ money(row.amount / 21.75) }} {{ filters.currency }}</template></el-table-column></el-table>
-            <p v-if="bill.status === 'DRAFT'" class="filter-note">{{ $tr("部门来自所选公司的组织架构。先选部门，再选负责人；若没有可选人员，请先在人员管理中设置负责人的所属部门。") }}</p>
+            <div class="table-footer"><span :class="percentComplete ? 'success-text' : 'warning-text'">{{ $tr("比例合计：") }}<b>{{ percentageTotal.toFixed(2) }}%</b><em v-if="ownersDirty || needsCombinedSave">{{ $tr(" · 尚未保存") }}</em></span><div v-if="bill.status === 'DRAFT' && canManage" class="actions"><el-button :disabled="dirty || saving || loading" @click="selectStep(1)">{{ $tr("上一步") }}</el-button><el-button v-if="ownersDirty" :disabled="saving || loading" @click="restoreOwners">{{ $tr("还原") }}</el-button><el-button :disabled="(!ownersDirty && !needsCombinedSave) || entriesDirty || loading" :loading="saving" @click="saveOwners">{{ $tr("暂存比例") }}</el-button><el-button type="primary" :disabled="entriesDirty || !allPoolsReady || loading" :loading="saving" @click="publishMonth">{{ $tr("保存并下发") }}</el-button></div></div>
+            <el-table v-if="(combinedAllocation || costPool === 'PERSONNEL') && departmentTotals.length" :data="departmentTotals" class="section-gap"><el-table-column prop="name" :label="$tr(&quot;部门分摊汇总&quot;)"/><el-table-column :label="$tr(&quot;月分摊金额&quot;)" align="right"><template #default="{ row }">{{ money(row.amount) }} {{ filters.currency }}</template></el-table-column><el-table-column v-if="costPool === 'PERSONNEL' && !departmentNet" :label="$tr(&quot;日暂估金额（÷ 21.75）&quot;)" align="right"><template #default="{ row }">{{ money(row.amount / 21.75) }} {{ filters.currency }}</template></el-table-column></el-table>
+            <p v-if="bill.status === 'DRAFT'" class="filter-note">{{ $tr("承担部门来自公司组织架构，IT部不参与。先选部门，再选负责人；无可选人员时请完善负责人所属部门。") }}</p>
           </section>
     </div>
         <el-drawer v-model="policiesDrawer" :title="$tr(&quot;常用费用&quot;)" size="min(1000px, 96vw)" append-to-body :close-on-click-modal="!saving" :close-on-press-escape="!saving" :show-close="!saving">
@@ -127,6 +128,7 @@
     </el-dialog>
 
     <el-dialog v-model="adjustmentDialog" :title="$tr(&quot;登记月结费用调整&quot;)" width="min(540px, 95vw)" append-to-body :close-on-click-modal="false" :show-close="!saving">
+      <el-alert v-if="departmentNet" :title="$tr(&quot;此处仅调整日常公共费用。IT净亏损和公共人员成本的已结算来源保持封存。&quot;)" type="info" :closable="false" show-icon />
       <el-alert :title="$tr(&quot;调整直接计入所选项目的月度公共费用；原月账和分摊比例保留。增加成本填写正数，减少成本填写负数。&quot;)" type="info" :closable="false" show-icon />
       <el-form :model="adjustmentForm" label-position="top" class="expense-form" :disabled="saving">
         <el-form-item :label="$tr(&quot;项目&quot;)" required><el-select v-model="adjustmentForm.projectId" filterable :placeholder="$tr(&quot;选择本月承担费用的项目&quot;)"><el-option v-for="project in adjustmentProjects" :key="project.projectId" :label="project.projectName" :value="project.projectId" /></el-select></el-form-item>
@@ -166,9 +168,11 @@ const attachmentTypes = ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'doc', 'docx', 'xl
 const routeCompany = Number(route.query.companyDeptId)
 const filters = reactive({ companyDeptId: Number.isSafeInteger(routeCompany) && routeCompany > 0 ? routeCompany : null, month: validMonth(route.query.month) ? route.query.month : currentMonth(), currency: currencies.includes(route.query.currency) ? route.query.currency : 'CNY' })
 const data = reactive({ companies: [], departments: [], owners: [], projects: [], policies: [], bill: null, history: [], events: [], canManage: false })
-const loading = ref(false), loaded = ref(false), saving = ref(false), error = ref('')
-const costTab = ref('EXPENSE'), costPool = ref('EXPENSE')
+const loading = ref(false), loaded = ref(false), mutating = ref(false), personnelBusy = ref(false), error = ref('')
+const costTab = ref('EXPENSE'), costPool = ref('COMBINED')
 const step = ref(1), policiesDrawer = ref(false), historyDrawer = ref(false)
+// A preview that disappears during refresh must not leave the entire page locked.
+const saving = computed(() => mutating.value || (step.value === 1 && costTab.value === 'PERSONNEL' && personnelBusy.value))
 const policyDialog = ref(false), policyForm = reactive({}), adjustmentDialog = ref(false), adjustmentForm = reactive({})
 const optionalFields = ref([])
 const snapshotDialog = ref(false), snapshotEvent = ref({}), snapshot = ref({}), snapshotError = ref('')
@@ -176,6 +180,9 @@ const entryRows = ref([]), ownerRows = ref([])
 let loadedFilters = { ...filters }, loadSequence = 0, savedEntries = '', savedOwners = '', loadedBillKey = ''
 
 const bill = computed(() => data.bill)
+const combinedAllocation = computed(() => bill.value?.status === 'DRAFT' || bill.value?.ownerAllocations?.some(row => row.costPool === 'COMBINED'))
+const needsCombinedSave = computed(() => bill.value?.status === 'DRAFT' && ownerRows.value.length > 0 && (!bill.value.ownerAllocations?.some(row => row.costPool === 'COMBINED') || bill.value.combinedOwnerDraft?.some(row => Number(row.amount) !== Number(bill.value.ownerAllocations.find(saved => Number(saved.ownerUserId) === Number(row.ownerUserId))?.amount))))
+const departmentNet = computed(() => bill.value?.personnel?.sourceMode === 'DEPARTMENT_NET_V1')
 const canManage = computed(() => loaded.value && !error.value && data.canManage === true)
 const canEditMonth = computed(() => canManage.value && bill.value?.status === 'DRAFT' && !saving.value && !loading.value)
 const visiblePolicies = computed(() => data.policies.filter(policy => policy.currency === filters.currency))
@@ -195,9 +202,9 @@ const dirty = computed(() => entriesDirty.value || ownersDirty.value)
 const entryTotal = computed(() => entryRows.value.reduce((sum, row) => sum + Number(row.amount || 0), 0))
 const percentageTotal = computed(() => ownerRows.value.reduce((sum, row) => sum + Number(row.percentage || 0), 0))
 const expenseAmount = computed(() => Number(bill.value?.totalAmount || 0) - Number(bill.value?.personnelAmount || 0))
-const selectedPoolAmount = computed(() => costPool.value === 'PERSONNEL' ? Number(bill.value?.personnelAmount || 0) : expenseAmount.value)
+const selectedPoolAmount = computed(() => costPool.value === 'COMBINED' ? Number(bill.value?.allocatableAmount ?? bill.value?.totalAmount ?? 0) : costPool.value === 'PERSONNEL' ? Number(bill.value?.personnelAmount || 0) : expenseAmount.value)
 const percentComplete = computed(() => Math.abs(percentageTotal.value - 100) < 0.000001 || (!ownerRows.value.length && selectedPoolAmount.value === 0))
-const allPoolsReady = computed(() => ['EXPENSE', 'PERSONNEL'].every(pool => {
+const allPoolsReady = computed(() => combinedAllocation.value ? percentComplete.value : ['EXPENSE', 'PERSONNEL'].every(pool => {
   const amount = pool === 'PERSONNEL' ? Number(bill.value?.personnelAmount || 0) : expenseAmount.value
   const rows = pool === costPool.value ? ownerRows.value : (bill.value?.ownerAllocations || []).filter(row => (row.costPool || 'EXPENSE') === pool)
   return (!rows.length && amount === 0) || Math.abs(rows.reduce((sum, row) => sum + Number(row.percentage || 0), 0) - 100) < 0.000001
@@ -226,7 +233,7 @@ const settleNotice = computed(() => {
 })
 const policyReadOnly = computed(() => policyForm.status === 'DISABLED' || !canManage.value)
 const adjustmentProjects = computed(() => {
-  const projectIds = new Set((bill.value?.ownerAllocations || []).flatMap(row => (row.projects || []).map(project => Number(project.projectId))))
+  const projectIds = new Set((bill.value?.ownerAllocations || []).filter(row => !departmentNet.value || row.costPool !== 'PERSONNEL').flatMap(row => (row.projects || []).map(project => Number(project.projectId))))
   return data.projects.filter(project => projectIds.has(Number(project.projectId)) && project.currency === filters.currency)
 })
 
@@ -269,7 +276,8 @@ function ownerAmountPreview(index) {
 }
 function restoreEntries() { entryRows.value = (bill.value?.entries || []).map(row => ({ ...row, amount: Number(row.amount), estimated: row.estimated === true, remark: row.remark || '' })); savedEntries = JSON.stringify(entryPayload()) }
 function restoreOwners() {
-  ownerRows.value = (bill.value?.ownerAllocations || []).filter(row => (row.costPool || 'EXPENSE') === costPool.value).map(row => {
+  const rows = bill.value?.status === 'DRAFT' && bill.value.combinedOwnerDraft ? bill.value.combinedOwnerDraft : (bill.value?.ownerAllocations || []).filter(row => (row.costPool || 'EXPENSE') === costPool.value)
+  ownerRows.value = rows.map(row => {
     const owner = data.owners.find(candidate => Number(candidate.userId) === Number(row.ownerUserId))
     const department = ownerDepartments.value.find(dept => Number(dept.deptId) === Number(owner?.deptId))
     return { ...row, deptId: row.deptId == null ? department?.deptId ?? null : Number(row.deptId), ownerUserId: Number(row.ownerUserId), percentage: Number(row.percentage) }
@@ -287,7 +295,7 @@ function selectStep(next) {
   step.value = next
 }
 async function personnelSaved() {
-  if (await load()) { costPool.value = 'PERSONNEL'; restoreOwners(); step.value = 2 }
+  if (await load()) { step.value = 2 }
 }
 async function continueToOwners() {
   if (entriesDirty.value && !await saveEntries()) return
@@ -312,7 +320,8 @@ async function load() {
     const billKey = `${filters.companyDeptId}/${filters.month}/${filters.currency}/${result.bill?.status || 'NONE'}`
     if (loadedBillKey !== billKey) step.value = ['PUBLISHED', 'SETTLED'].includes(result.bill?.status) ? 3 : 1
     loadedBillKey = billKey
-    if (!result.bill?.personnel) costPool.value = 'EXPENSE'
+    if (combinedAllocation.value || !result.bill) costPool.value = 'COMBINED'
+    else if (costPool.value === 'COMBINED' || !result.bill?.personnel) costPool.value = 'EXPENSE'
     loadedFilters = { ...filters }
     restoreEntries()
     restoreOwners()
@@ -327,10 +336,10 @@ async function refresh() { if (await discardChanges()) await load() }
 async function changeFilters() { if (await discardChanges()) await load(); else Object.assign(filters, loadedFilters) }
 async function mutate(action, success, after) {
   if (saving.value || loading.value) return false
-  saving.value = true
+  mutating.value = true
   try { await action(); after?.(); const refreshed = await load(); if (refreshed) ElMessage.success(success); return refreshed }
   catch { return false /* The shared request interceptor displays the server's actionable error. */ }
-  finally { saving.value = false }
+  finally { mutating.value = false }
 }
 function openPolicy(policy) {
   Object.assign(policyForm, { policyId: null, version: null, name: '', category: 'RENT', periodType: 'MONTHLY', amount: undefined, currency: filters.currency, startMonth: filters.month, endMonth: filters.month, estimated: false, status: 'ACTIVE', remark: '', attachmentUrls: '' }, policy || {})
@@ -376,15 +385,15 @@ async function copyOwners() {
 }
 async function publishMonth() {
   if (saving.value || loading.value) return
-  if (!allPoolsReady.value || entriesDirty.value) return ElMessage.warning(translateText("请确认费用明细已保存，两类费用的负责人比例分别合计 100%。"))
+  if (!allPoolsReady.value || entriesDirty.value) return ElMessage.warning(translateText("请确认费用明细已保存，负责人分摊比例合计 100%。"))
   const validationError = ownerValidationError()
   if (validationError) return ElMessage.warning(validationError)
-  try { await ElMessageBox.confirm(translateText("将 {0} 的 {1} {2} 统一下发给对应负责人，进入项目分摊。", [filters.month, money(bill.value.totalAmount), filters.currency]), translateText("下发月费用"), { confirmButtonText: translateText("确认下发"), cancelButtonText: translateText("取消"), type: 'info' }) } catch { return }
+  try { await ElMessageBox.confirm(translateText("将 {0} 的 {1} {2} 统一下发给对应负责人，进入项目分摊。", [filters.month, money(selectedPoolAmount.value), filters.currency]), translateText("下发月费用"), { confirmButtonText: translateText("确认下发"), cancelButtonText: translateText("取消"), type: 'info' }) } catch { return }
   // Saving proportions and publishing remain versioned backend operations. Keep
   // the page locked across both; a failed save must never continue to publish.
   await mutate(async () => {
     let version = bill.value.version
-    if (ownersDirty.value) {
+    if (ownersDirty.value || needsCombinedSave.value) {
       const response = await savePublicExpenseOwners(bill.value.billId, { version, costPool: costPool.value, allocations: ownerPayload() })
       version = response.data?.version
       if (version == null) {
@@ -393,7 +402,7 @@ async function publishMonth() {
       }
       // Keep the successful draft locally if the following publish fails.
       bill.value.version = version
-      if (response.data?.ownerAllocations) { bill.value.ownerAllocations = response.data.ownerAllocations; restoreOwners() }
+      if (response.data?.ownerAllocations) { bill.value.ownerAllocations = response.data.ownerAllocations; bill.value.combinedOwnerDraft = response.data.combinedOwnerDraft; restoreOwners() }
       else savedOwners = JSON.stringify(ownerPayload())
     }
     await publishPublicExpenseMonth(bill.value.billId, { version })
@@ -424,6 +433,9 @@ useBusinessRefreshOnReactivated(async () => { if (!dirty.value && !policyDialog.
 <style scoped lang="scss">
 .pool-tabs { margin-bottom: 18px; }
 .pool-note { margin-bottom: 18px; }
+.combined-total { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; padding: 16px 18px; margin-bottom: 12px; border-radius: 8px; background: #f1f8f6; color: #38665d; }
+.combined-total strong { font-size: 24px; color: #224f4d; font-variant-numeric: tabular-nums; }
+.combined-total small { flex-basis: 100%; color: #72818c; font-size: 12px; }
 .public-expenses-page { max-width: 1580px; margin: 0 auto; color: #243d4b; }
 .page-header, .section-header, .table-footer, .settlement-bar { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 .page-header { margin-bottom: 22px; }

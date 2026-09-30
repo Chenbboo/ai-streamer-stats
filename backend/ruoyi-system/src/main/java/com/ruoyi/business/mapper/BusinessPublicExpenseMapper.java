@@ -7,10 +7,14 @@ import org.apache.ibatis.annotations.Param;
 public interface BusinessPublicExpenseMapper
 {
     List<Map<String,Object>> selectPersonnelStaff(@Param("companyDeptId") Long companyDeptId,@Param("month") String month);
+    List<Map<String,Object>> selectItLossProjects(@Param("companyDeptId") Long companyDeptId,@Param("month") String month,@Param("currency") String currency);
+    int countProjectItLossPending(Long projectId);
+    int countItSourceProject(Long projectId);
     List<Long> selectPersonnelProjects(@Param("companyDeptId") Long companyDeptId,@Param("month") String month);
     List<Map<String,Object>> selectPersonnelBusinessFacts(@Param("companyDeptId") Long companyDeptId,@Param("month") String month,@Param("currency") String currency);
     List<Long> selectDailyBills();
     List<Map<String,Object>> selectDailyRows(Long billId);
+    List<Map<String,Object>> selectRetainedDailyCosts(Long billId);
     int upsertDailyRow(Map<String,Object> row);
     int deleteDailyRow(Map<String,Object> row);
     List<Map<String,Object>> selectUnrecognizedDailyDates(Long billId);
