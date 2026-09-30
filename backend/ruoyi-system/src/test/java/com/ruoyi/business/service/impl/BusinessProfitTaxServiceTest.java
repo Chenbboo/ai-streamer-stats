@@ -58,6 +58,15 @@ class BusinessProfitTaxServiceTest {
         Map<String,Object> allDaily=row("resultId",1,"profitAmount",1000);service.decorate(row("results",Arrays.asList(allDaily)),row());
         assertEquals(allDaily.get("taxAmount"),daily.get("taxAmount"));
     }
+    @Test void projectResultUsesTheSameCompanyOffsetTaxCalculation() {
+        BusinessProfitTaxMapper mapper=mock(BusinessProfitTaxMapper.class);BusinessProfitTaxService service=service(mapper);
+        when(mapper.selectSeries(anyMap())).thenReturn(Arrays.asList(
+            row("projectId",1,"resultId",1,"companyDeptId",110,"currency","CNY","bizDate","2026-09-15","profitAmount",1000,"taxRate",10,"taxConfigured","1"),
+            row("projectId",2,"resultId",2,"companyDeptId",110,"currency","CNY","bizDate","2026-09-15","profitAmount",-800,"taxRate",10,"taxConfigured","1")));
+        Map<String,Object> result=service.projectResult(1L);
+        assertEquals(new BigDecimal("20.00"),result.get("taxAmount"));assertEquals(new BigDecimal("980.00"),result.get("afterTaxProfit"));
+        assertEquals(true,result.get("available"));assertEquals(1,result.get("resultCount"));
+    }
     @Test void differentCurrenciesAndRatesStaySeparate() {
         BusinessProfitTaxMapper mapper=mock(BusinessProfitTaxMapper.class);BusinessProfitTaxService service=service(mapper);
         when(mapper.selectSeries(anyMap())).thenReturn(Arrays.asList(row("projectId",1,"resultId",1,"companyDeptId",110,"currency","CNY","bizDate","2026-09-15","profitAmount",1000,"taxRate",10,"taxConfigured","1"),row("projectId",2,"resultId",2,"companyDeptId",111,"currency","USD","bizDate","2026-09-15","profitAmount",1000,"taxRate",20,"taxConfigured","1")));

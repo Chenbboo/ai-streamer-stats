@@ -5,6 +5,8 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.ruoyi.common.core.domain.BaseEntity;
 
 public class BusinessIncentiveAward extends BaseEntity
@@ -40,6 +42,43 @@ public class BusinessIncentiveAward extends BaseEntity
     private Boolean canCancel;
     private Boolean canResubmitCost;
     private List<Map<String,Object>> events;
+    private BusinessBonusAllocation applicationAllocation;
+
+    public BusinessBonusAllocation getApplicationAllocation() { return applicationAllocation; }
+    public void setApplicationAllocation(BusinessBonusAllocation value) { applicationAllocation = value; }
+    @JsonIgnore
+    public String getAllocationProposalJson()
+    { return applicationAllocation == null ? null : com.alibaba.fastjson2.JSON.toJSONString(applicationAllocation); }
+    @JsonIgnore
+    public void setAllocationProposalJson(String value)
+    { applicationAllocation = value == null || value.trim().isEmpty() ? null : com.alibaba.fastjson2.JSON.parseObject(value, BusinessBonusAllocation.class); }
+    // Read-only details of the exact immutable rule version referenced by this award.
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    private BigDecimal ruleAfterTaxProfit;
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    private BigDecimal ruleMainOwnerBonusRate;
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    private BigDecimal ruleSponsorOwnerBonusRate;
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    private String ruleReason;
+
+    public BigDecimal getRuleAfterTaxProfit() { return ruleAfterTaxProfit; }
+    public void setRuleAfterTaxProfit(BigDecimal value) { ruleAfterTaxProfit = value; }
+    public BigDecimal getRuleMainOwnerBonusRate() { return ruleMainOwnerBonusRate; }
+    public void setRuleMainOwnerBonusRate(BigDecimal value) { ruleMainOwnerBonusRate = value; }
+    public BigDecimal getRuleSponsorOwnerBonusRate() { return ruleSponsorOwnerBonusRate; }
+    public void setRuleSponsorOwnerBonusRate(BigDecimal value) { ruleSponsorOwnerBonusRate = value; }
+    public String getRuleReason() { return ruleReason; }
+    public void setRuleReason(String value) { ruleReason = value; }
+    public BigDecimal getRuleMainOwnerBonusAmount() { return ruleShareAmount(ruleMainOwnerBonusRate); }
+    public BigDecimal getRuleSponsorOwnerBonusAmount() { return ruleShareAmount(ruleSponsorOwnerBonusRate); }
+    private BigDecimal ruleShareAmount(BigDecimal rate)
+    {
+        if (!"PROFIT_SHARE_V1".equals(policyVersion) || ruleAfterTaxProfit == null || rate == null
+            || rate.signum() < 0 || rate.compareTo(new BigDecimal("100")) > 0) return null;
+        return ruleAfterTaxProfit.max(BigDecimal.ZERO).multiply(rate)
+            .divide(new BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP);
+    }
 
     public Long getAwardId() { return awardId; }
     public void setAwardId(Long value) { awardId = value; }

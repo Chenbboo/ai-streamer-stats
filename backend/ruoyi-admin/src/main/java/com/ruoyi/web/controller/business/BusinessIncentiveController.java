@@ -32,6 +32,12 @@ public class BusinessIncentiveController extends BaseController
     { return success(service.workspace(projectId, SecurityUtils.getUserId(), SecurityUtils.isAdmin())); }
 
     @PreAuthorize("@ss.hasAnyPermi('business:incentive:rule,business:kpi:manage')")
+    @Log(title = "设置项目奖金占比", businessType = BusinessType.UPDATE)
+    @PostMapping("/bonus-setting")
+    public AjaxResult saveBonusSetting(@RequestBody Map<String,Object> body)
+    { return success(service.saveBonusSetting(body, SecurityUtils.getUserId(), SecurityUtils.getUsername(), SecurityUtils.isAdmin())); }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:incentive:rule,business:kpi:manage')")
     @Log(title = "发布独立奖金规则", businessType = BusinessType.INSERT)
     @PostMapping("/rule")
     public AjaxResult publishRule(@RequestBody BusinessIncentiveRule rule)
@@ -56,6 +62,12 @@ public class BusinessIncentiveController extends BaseController
     @PostMapping("/award")
     public AjaxResult create(@RequestBody BusinessIncentiveAward input)
     { return success(service.createAward(input, SecurityUtils.getUserId(), SecurityUtils.getUsername())); }
+
+    @PreAuthorize("@ss.hasPermi('business:incentive:apply')")
+    @Log(title = "编辑奖励申请草稿", businessType = BusinessType.UPDATE)
+    @PostMapping("/award/{awardId}/edit")
+    public AjaxResult edit(@PathVariable Long awardId, @RequestBody BusinessIncentiveAward input)
+    { return success(service.updateAward(awardId, input, SecurityUtils.getUserId(), SecurityUtils.getUsername())); }
 
     @PreAuthorize("@ss.hasPermi('business:incentive:apply')")
     @Log(title = "提交奖励核准", businessType = BusinessType.UPDATE)

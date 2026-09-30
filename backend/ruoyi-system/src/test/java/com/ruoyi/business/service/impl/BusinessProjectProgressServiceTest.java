@@ -79,37 +79,33 @@ class BusinessProjectProgressServiceTest {
     @Test void requiredFieldsAndProgressRangeRejectBeforeWriting() {
         BusinessProjectProgressReport input=report();input.setCompletionSummary(" ");
         assertThrows(ServiceException.class,()->service.submitProjectProgressReport(input,9L,"owner",false));
-        input.setCompletionSummary("完成第一阶段");input.setProgress(101);
+        input.setCompletionSummary("完成第一阶段");input.setProgress(301);
         assertThrows(ServiceException.class,()->service.submitProjectProgressReport(input,9L,"owner",false));
         verify(mapper,never()).insertProjectProgressReport(any());
     }
-    @Test void missingUnknownStandardAndOutOfRangeValuesRejectBeforeWriting() {
-        for(String standard:Arrays.asList(null,"","INVALID","standard")) {
-            BusinessProjectProgressReport input=report();input.setCompletionStandard(standard);
-            assertThrows(ServiceException.class,()->service.submitProjectProgressReport(input,9L,"owner",false));
-        }
-        for(String standard:Arrays.asList("STANDARD","EXCESS")) {
-            for(Integer value:Arrays.asList(null,-1,"EXCESS".equals(standard)?301:101)) {
+    @Test void outOfRangeValuesRejectBeforeWritingRegardlessOfSubmittedStandard() {
+        for(String standard:Arrays.asList(null,"STANDARD","EXCESS","INVALID")) {
+            for(Integer value:Arrays.asList(null,-1,301)) {
                 BusinessProjectProgressReport input=report();input.setCompletionStandard(standard);input.setProgress(value);
                 assertThrows(ServiceException.class,()->service.submitProjectProgressReport(input,9L,"owner",false));
             }
         }
         verify(mapper,never()).insertProjectProgressReport(any());verify(mapper,never()).insertEvent(any());
     }
-    @Test void bothCompletionLimitsAreAcceptedWithoutClosingTheProject() {
+    @Test void progressUpToThreeHundredDerivesClassificationWithoutClosingTheProject() {
         when(mapper.selectProjectByIdForUpdate(10L)).thenReturn(parent);
         when(mapper.selectActiveUserById(8L)).thenReturn(Collections.singletonMap("nickName","主项目负责人"));
         doAnswer(call->{((BusinessProjectProgressReport)call.getArgument(0)).setReportId(41L);return 1;})
             .when(mapper).insertProjectProgressReport(any());
-        for(String standard:Arrays.asList("STANDARD","EXCESS")) {
-            for(int percent:Arrays.asList(0,"EXCESS".equals(standard)?300:100)) {
-                BusinessProjectProgressReport input=report();input.setProjectId(10L);input.setCompletionStandard(standard);input.setProgress(percent);
-                BusinessProjectProgressReport saved=service.submitProjectProgressReport(input,8L,"parent",false);
-                assertEquals(standard,saved.getCompletionStandard());assertEquals(percent,saved.getProgress());
-                assertEquals("ACTIVE",parent.getStatus());
-            }
+        for(int percent:Arrays.asList(0,100,101,220,300)) {
+            BusinessProjectProgressReport input=report();input.setProjectId(10L);input.setCompletionStandard("STANDARD");input.setProgress(percent);
+            BusinessProjectProgressReport saved=service.submitProjectProgressReport(input,8L,"parent",false);
+            assertEquals(percent>100?"EXCESS":"STANDARD",saved.getCompletionStandard());assertEquals(percent,saved.getProgress());
+            assertEquals("ACTIVE",parent.getStatus());
         }
-        verify(mapper,times(4)).insertProjectProgressReport(any());
+        BusinessProjectProgressReport omitted=report();omitted.setProjectId(10L);omitted.setCompletionStandard(null);omitted.setProgress(220);
+        assertEquals("EXCESS",service.submitProjectProgressReport(omitted,8L,"parent",false).getCompletionStandard());
+        verify(mapper,times(6)).insertProjectProgressReport(any());
         verify(progressMapper,never()).notifyOwner(anyLong(),anyLong());
     }
     @Test void dailySubprojectReportAcceptsMissingOrBlankRiskAndPlan() {

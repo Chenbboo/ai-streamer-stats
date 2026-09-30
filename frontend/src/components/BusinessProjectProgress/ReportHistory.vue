@@ -22,7 +22,7 @@
         <div><span class="detail-eyebrow">{{ linkProject ? activeReport.projectNameSnapshot || $tr("子项目汇报") : $tr("项目进度汇报") }}</span><h3>{{ $tr("第 {0} 次汇报", [activeReport.version]) }}<el-tag v-if="activeId === String(orderedReports[0]?.reportId)" size="small" effect="plain">{{ $tr("最新") }}</el-tag></h3></div>
         <div class="detail-progress"><span>{{ $tr("本次汇报进度") }}</span><strong>{{ activeReport.progress }}<small>%</small></strong></div>
       </header>
-      <el-tag size="small" :type="isExcessCompletion(activeReport)?'warning':'info'">{{ $tr(isExcessCompletion(activeReport)?'超额完成':'标准完成') }}</el-tag>
+      <el-tag v-if="isExcessCompletion(activeReport)" size="small" type="warning">{{ $tr('超额完成项目') }}</el-tag>
       <BusinessMonthlyProgress :project="activeReport" :value="Number(activeReport.progress)||0" :show-text="false" :stroke-width="7" />
       <div class="detail-meta"><span>{{ $tr("汇报人 ") }}<b>{{ activeReport.submittedUserName || $tr("未记录") }}</b></span><span>{{ $tr("提交时间 ") }}<b>{{ activeReport.createTime || $tr("未记录") }}</b></span></div>
       <el-button v-if="linkProject" link type="primary" @click="$emit('open-project', { projectId: activeReport.projectId, reportId: activeReport.reportId })">{{ $tr("查看该子项目全部汇报 →") }}</el-button>

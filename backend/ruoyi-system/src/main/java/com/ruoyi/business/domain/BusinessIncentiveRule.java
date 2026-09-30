@@ -15,6 +15,9 @@ public class BusinessIncentiveRule extends BaseEntity
     private String ruleName;
     private String policyVersion;
     private BigDecimal amount;
+    private BigDecimal afterTaxProfit;
+    private BigDecimal mainOwnerBonusRate;
+    private BigDecimal sponsorOwnerBonusRate;
     private String currency;
     private BigDecimal minScore;
     private String status;
@@ -25,6 +28,12 @@ public class BusinessIncentiveRule extends BaseEntity
     private List<BusinessIncentiveTier> tiers;
 
     public Long getKpiPlanId() { return kpiPlanId; }
+    public BigDecimal getAfterTaxProfit() { return afterTaxProfit; }
+    public void setAfterTaxProfit(BigDecimal value) { afterTaxProfit = value; }
+    public BigDecimal getMainOwnerBonusRate() { return mainOwnerBonusRate; }
+    public void setMainOwnerBonusRate(BigDecimal value) { mainOwnerBonusRate = value; }
+    public BigDecimal getSponsorOwnerBonusRate() { return sponsorOwnerBonusRate; }
+    public void setSponsorOwnerBonusRate(BigDecimal value) { sponsorOwnerBonusRate = value; }
     public void setKpiPlanId(Long value) { kpiPlanId = value; }
     public List<BusinessIncentiveTier> getTiers() { return tiers; }
     public void setTiers(List<BusinessIncentiveTier> value) { tiers = value; }

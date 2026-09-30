@@ -11,10 +11,14 @@ public interface BusinessIncentiveMapper
 {
     int countDistributionReservations(Long awardId);
     List<Map<String,Object>> selectProjects(@Param("userId") Long userId, @Param("viewAll") boolean viewAll);
+    Map<String,Object> selectBonusSetting(Long projectId);
+    int saveBonusSetting(Map<String,Object> setting);
+    int insertBonusSettingEvent(Map<String,Object> event);
     List<BusinessIncentiveRule> selectRules(Long projectId);
     BusinessIncentiveRule selectRule(Long ruleId);
     Integer nextRuleVersion(Long projectId);
     int insertRule(BusinessIncentiveRule rule);
+    int retireProfitRules(@Param("projectId") Long projectId, @Param("userName") String userName);
     List<BusinessIncentiveTier> selectRuleTiers(Long ruleId);
     int insertTier(BusinessIncentiveTier tier);
     int retirePlanRules(@Param("projectId") Long projectId, @Param("kpiPlanId") Long kpiPlanId, @Param("userName") String userName);
@@ -25,6 +29,9 @@ public interface BusinessIncentiveMapper
     BusinessIncentiveAward selectAwardForUpdate(Long awardId);
     BusinessIncentiveAward selectAwardByRequest(@Param("projectId") Long projectId, @Param("requestKey") String requestKey);
     int insertAward(BusinessIncentiveAward award);
+    int updateAwardDraft(@Param("awardId") Long awardId, @Param("version") Integer version,
+        @Param("bizDate") java.util.Date bizDate, @Param("reason") String reason,
+        @Param("allocationProposalJson") String allocationProposalJson, @Param("userName") String userName);
     int transitionAward(@Param("awardId") Long awardId, @Param("fromStatus") String fromStatus,
         @Param("toStatus") String toStatus, @Param("version") Integer version, @Param("userId") Long userId,
         @Param("userName") String userName, @Param("reason") String reason, @Param("factId") Long factId);

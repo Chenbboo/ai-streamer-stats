@@ -47,9 +47,12 @@ public class BusinessBonusDistributionService
         List<BusinessIncentiveAward> awardList=awards.selectAwards(projectId);
         List<Map<String,Object>> available=new ArrayList<>();
         if(full)for(BusinessIncentiveAward a:awardList)if("APPROVED".equals(a.getStatus()))
+        {
+            BigDecimal sourceAmount=distributionSourceAmount(a),reserved=zero(mapper.reserved(a.getAwardId(),null));
             available.add(map("awardId",a.getAwardId(),"ruleName",a.getRuleName(),"score",a.getScoreSnapshot(),
-                "currency",a.getCurrency(),"amount",a.getAmount(),"reserved",zero(mapper.reserved(a.getAwardId(),null)),
-                "remaining",a.getAmount().subtract(zero(mapper.reserved(a.getAwardId(),null))),"costStatus",a.getCostStatus()));
+                "currency",a.getCurrency(),"amount",a.getAmount(),"sourceAmount",sourceAmount,"reserved",reserved,
+                "remaining",sourceAmount.subtract(reserved),"costStatus",a.getCostStatus()));
+        }
         out.put("awards",available);
         List<Map<String,Object>> batches=new ArrayList<>();
         for(BusinessBonusAllocation b:mapper.allocations(projectId))
@@ -108,14 +111,37 @@ public class BusinessBonusDistributionService
                 return duplicate;
             }
         }
-        if(zero(mapper.reserved(a.getAwardId(),input.getAllocationId())).add(input.getAmount()).compareTo(a.getAmount())>0)
-            throw error("分配总额超过核准奖金的剩余可分配金额");
+        requireCapacity(a,input);
         input.setCreatedUserId(userId);input.setCreatedUserName(userName);
         if(previous==null){mapper.insertAllocation(input);input.setVersion(0);}
         else {if(mapper.updateAllocation(input)!=1)throw error("分配已更新，请刷新");mapper.deleteLines(input.getAllocationId());}
         for(BusinessBonusAllocationLine l:input.getLines()){l.setAllocationId(input.getAllocationId());mapper.insertLine(l);}
         event(input.getProjectId(),input.getAllocationId(),"SAVE",input.getReason(),input,userId,userName);
         return batch(input.getAllocationId());
+    }
+
+    public BusinessBonusAllocation prepareApplicationAllocation(BusinessBonusAllocation input,BusinessIncentiveAward award)
+    {
+        if(input==null)return null;
+        BusinessBonusAllocation proposal=new BusinessBonusAllocation();
+        proposal.setMode(input.getMode());proposal.setReason(required(input.getReason(),"分配说明",500));
+        if(input.getLines()==null||input.getLines().isEmpty()||input.getLines().size()>200)throw error("请填写 1 至 200 位领取人");
+        List<BusinessBonusAllocationLine> lines=new ArrayList<>();
+        for(BusinessBonusAllocationLine row:input.getLines())
+        {
+            if(row==null)throw error("请完整填写个人分配明细");
+            BusinessBonusAllocationLine line=new BusinessBonusAllocationLine();
+            line.setUserId(row.getUserId());line.setAmount(row.getAmount());line.setPercentage(row.getPercentage());line.setReason(row.getReason());lines.add(line);
+        }
+        proposal.setLines(lines);validateLines(proposal,award,mapper.recipients(award.getProjectId()));
+        if(proposal.getAmount().compareTo(distributionSourceAmount(award))>0)throw error("申请分配总额超过负责人奖金来源金额");
+        return proposal;
+    }
+
+    public boolean sameApplicationAllocation(BusinessBonusAllocation input,BusinessIncentiveAward existing)
+    {
+        if(input==null||existing.getApplicationAllocation()==null)return input==null&&existing.getApplicationAllocation()==null;
+        return sameAllocation(prepareApplicationAllocation(input,existing),existing.getApplicationAllocation());
     }
 
     void validateLines(BusinessBonusAllocation b,BusinessIncentiveAward award,List<Map<String,Object>> recipients)
@@ -133,12 +159,21 @@ public class BusinessBonusDistributionService
             {
                 money(l.getPercentage(),"分配比例");
                 percent=percent.add(l.getPercentage());
-                l.setAmount(award.getAmount().multiply(l.getPercentage()).divide(new BigDecimal("100"),2,RoundingMode.HALF_UP));
             }
-            else l.setPercentage(null);
-            money(l.getAmount(),"分配金额");total=total.add(l.getAmount());
+            else {l.setPercentage(null);money(l.getAmount(),"分配金额");total=total.add(l.getAmount());}
         }
-        if(percent.compareTo(new BigDecimal("100"))>0)throw error("比例合计不能超过 100%");
+        if("PERCENT".equals(b.getMode()))
+        {
+            if(percent.compareTo(new BigDecimal("100"))!=0)throw error("成员分配比例合计须为 100%，100% 对应负责人奖金金额");
+            BigDecimal source=distributionSourceAmount(award);
+            for(int i=0;i<b.getLines().size();i++)
+            {
+                BusinessBonusAllocationLine line=b.getLines().get(i);
+                BigDecimal lineAmount=i==b.getLines().size()-1 ? source.subtract(total)
+                    : source.multiply(line.getPercentage()).divide(new BigDecimal("100"),2,RoundingMode.HALF_UP);
+                money(lineAmount,"分配金额");line.setAmount(lineAmount);total=total.add(lineAmount);
+            }
+        }
         b.setAmount(total);
     }
 
@@ -162,6 +197,11 @@ public class BusinessBonusDistributionService
             if(!Arrays.asList("SUBMITTED","CANCELED").contains(action))throw error("操作不正确");
             if("SUBMITTED".equals(action))requireApproved(award(b.getAwardId()));
             next=action;
+        }
+        if("SUBMITTED".equals(next)||"APPROVED".equals(next))
+        {
+            BusinessIncentiveAward source=awards.selectAwardForUpdate(b.getAwardId());
+            requireApproved(source);requireCapacity(source,b);
         }
         if(mapper.transition(id,version,next,userId,userName)!=1)throw error("分配已更新，请刷新");
         BusinessBonusAllocation updated=batch(id);updated.setLines(mapper.lines(id));
@@ -215,6 +255,17 @@ public class BusinessBonusDistributionService
     private BusinessIncentiveAward award(Long id){BusinessIncentiveAward a=id==null?null:awards.selectAward(id);if(a==null)throw error("奖金不存在");return a;}
     private BusinessBonusAllocation batch(Long id){BusinessBonusAllocation b=mapper.allocation(id);if(b==null)throw error("分配方案不存在");return b;}
     private void requireApproved(BusinessIncentiveAward a){if(!"APPROVED".equals(a.getStatus()))throw error("只能分配已核准奖金");}
+    private BigDecimal distributionSourceAmount(BusinessIncentiveAward a)
+    {
+        // The published rule snapshot is authoritative; the boss's share is not a personal allocation pool.
+        return "PROFIT_SHARE_V1".equals(a.getPolicyVersion())
+            ? zero(a.getRuleMainOwnerBonusAmount()).min(zero(a.getAmount())).max(ZERO) : zero(a.getAmount());
+    }
+    private void requireCapacity(BusinessIncentiveAward a,BusinessBonusAllocation b)
+    {
+        if(zero(mapper.reserved(a.getAwardId(),b.getAllocationId())).add(zero(b.getAmount())).compareTo(distributionSourceAmount(a))>0)
+            throw error("分配总额超过奖金来源的剩余可分配金额（盈利占比方案仅限负责人奖金）");
+    }
     private boolean owner(BusinessProject p,Long u){return u!=null&&u.equals(p.getMainOwnerUserId());}
     private boolean sponsor(BusinessProject p,Long u){return companyAccess.project(p,u);}
     private void requireOwner(BusinessProject p,Long u){if(!owner(p,u))throw error("仅项目主负责人可分配奖金");}

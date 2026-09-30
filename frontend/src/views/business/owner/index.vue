@@ -361,9 +361,8 @@
       <el-alert :title="`${projectProgressForm.projectName || ''} · ${accounting.bizDate || today()}`" type="info" :closable="false" show-icon />
       <el-form :model="projectProgressForm" label-width="108px" class="report-form project-progress-form">
         <el-form-item :label="$tr(&quot;项目名称&quot;)"><el-input :model-value="projectProgressForm.projectName" disabled /></el-form-item>
-        <el-form-item :label="$tr('完成标准')" required><el-select v-model="projectProgressForm.completionStandard" :placeholder="$tr('请选择完成标准')" style="width:100%"><el-option :label="$tr('标准完成')" value="STANDARD" :disabled="Number(projectProgressForm.minimumProgress || 0)>100" /><el-option :label="$tr('超额完成')" value="EXCESS" /></el-select></el-form-item>
         <el-form-item :label="$tr(&quot;实际完成情况&quot;)" required><el-input v-model="projectProgressForm.completionSummary" type="textarea" :rows="4" maxlength="2000" show-word-limit :placeholder="$tr(&quot;请说明今天推动项目完成的内容和结果&quot;)" /></el-form-item>
-        <el-form-item :label="$tr(&quot;本月项目进度&quot;)" required><el-slider v-model="projectProgressForm.progress" show-input :min="0" :max="projectProgressFormLimit" :disabled="!projectProgressForm.completionStandard || Number(projectProgressForm.minimumProgress || 0) >= projectProgressFormLimit" @input="keepProjectProgress" /><small class="progress-tip">{{ $tr("本月当前进度 {0}%，只能向上调整，与一次性任务进度无关；下月自动从0开始。", [projectProgressForm.minimumProgress || 0]) }}</small><small class="progress-tip">{{ $tr('标准完成上限100%，超额完成上限300%；本月达标不触发结项提示。') }}</small></el-form-item>
+        <el-form-item :label="$tr(&quot;本月项目进度&quot;)" required><el-slider v-model="projectProgressForm.progress" show-input :min="0" :max="projectProgressFormLimit" :disabled="Number(projectProgressForm.minimumProgress || 0) >= projectProgressFormLimit" @input="keepProjectProgress" /><small class="progress-tip">{{ $tr("本月当前进度 {0}%，只能向上调整，与一次性任务进度无关；下月自动从0开始。", [projectProgressForm.minimumProgress || 0]) }}</small><small class="progress-tip">{{ $tr('本月项目进度上限300%；本月达标不触发结项提示。') }}</small></el-form-item>
         <el-form-item :label="$tr(&quot;成果凭证（选填）&quot;)">
           <div class="progress-evidence-inputs">
             <el-input v-model="projectProgressForm.evidenceText" type="textarea" :rows="3" maxlength="2000" show-word-limit :placeholder="$tr(&quot;可填写文字成果凭证，或在下方上传文件&quot;)" />
@@ -524,7 +523,7 @@ import { getOwnerPublicExpenseWorkspace } from '@/api/business/publicExpense'
 import { canContinueProjectSettlement, isSeparatedDelivery, isDeliveryEnded, projectAccountingState } from '@/utils/businessProjectState'
 import { buildWorkReportStats } from '@/utils/workReportStats'
 import { projectSettlementCount, reportedProjectProgress } from '@/utils/ownerSettlement'
-import { monthlyProgressPercent, projectProgressLimit, progressSubmissionIssue } from '@/utils/projectProgress'
+import { monthlyProgressPercent, projectProgressLimit, progressSubmissionIssue, completionStandardForProgress } from '@/utils/projectProgress'
 import BusinessMonthlyProgress from '@/components/BusinessMonthlyProgress/index.vue'
 
 const route=useRoute(),router=useRouter()
@@ -727,7 +726,7 @@ let spendDateRequest=0
 const blankRevenue=()=>({requestId:newSubmissionId(),projectId:null,bizDate:today(),categoryId:null,amount:null,currency:'CNY',description:'',counterparty:'',attachmentUrls:'',remark:''})
 const revenueForm=ref(blankRevenue())
 const projectProgressForm=ref({})
-const projectProgressFormLimit=computed(()=>Math.max(projectProgressLimit(projectProgressForm.value), Number(projectProgressForm.value.minimumProgress||0)))
+const projectProgressFormLimit=computed(()=>projectProgressLimit())
 const routineReportForm=ref({})
 const dailyTargetForm=reactive({})
 const effortReturnForm=ref({userId:null,userName:'',bizDate:today(),reviewComment:''})
@@ -944,9 +943,9 @@ async function submitRevenue(){
     await load(selectedProjectId.value)
   }finally{saving.value=false}
 }
-function openProjectProgressReport(){const current=Number(projectProgress.value||0),todayReport=todayProjectProgress.value||{};projectProgressForm.value={reportId:todayReport.reportId||null,projectId:project.value.projectId,bizDate:accounting.value.bizDate||today(),projectName:project.value.projectName,minimumProgress:current,progress:Number(todayReport.progress??current),completionStandard:todayReport.completionStandard||(project.value.progressReportId?project.value.progressCompletionStandard:'')||'',completionSummary:todayReport.completionSummary||'',evidenceUrls:todayReport.evidenceUrls||'',evidenceText:todayReport.evidenceText||''};projectProgressDialog.value=true}
+function openProjectProgressReport(){const current=Number(projectProgress.value||0),todayReport=todayProjectProgress.value||{};projectProgressForm.value={reportId:todayReport.reportId||null,projectId:project.value.projectId,bizDate:accounting.value.bizDate||today(),projectName:project.value.projectName,minimumProgress:current,progress:Number(todayReport.progress??current),completionSummary:todayReport.completionSummary||'',evidenceUrls:todayReport.evidenceUrls||'',evidenceText:todayReport.evidenceText||''};projectProgressDialog.value=true}
 function keepProjectProgress(value){const minimum=Number(projectProgressForm.value.minimumProgress||0);if(Number(value)<minimum)projectProgressForm.value.progress=minimum}
-async function submitProjectProgress(){const form=projectProgressForm.value;const issue=progressSubmissionIssue(form,Number(form.minimumProgress||0));if(issue==='standard')return ElMessage.warning(translateText('请选择完成标准'));if(issue==='range')return ElMessage.warning(translateText('项目进度必须为0至{0}的整数',[projectProgressLimit(form)]));if(issue==='minimum')return ElMessage.warning(translateText("本月项目进度只能增加，不能低于 {0}%", [form.minimumProgress||0]));if(!form.completionSummary?.trim())return ElMessage.warning(translateText("请填写实际完成情况"));saving.value=true;try{await submitBusinessProjectProgressReport({...form,evidenceText:form.evidenceText?.trim()||''});projectProgressDialog.value=false;ElMessage.success(translateText("本月项目进度已保存并同步到老板工作台"));await load(selectedProjectId.value)}finally{saving.value=false}}
+async function submitProjectProgress(){const form=projectProgressForm.value;const issue=progressSubmissionIssue(form,Number(form.minimumProgress||0));if(issue==='range')return ElMessage.warning(translateText('项目进度必须为0至{0}的整数',[projectProgressLimit()]));if(issue==='minimum')return ElMessage.warning(translateText("本月项目进度只能增加，不能低于 {0}%", [form.minimumProgress||0]));if(!form.completionSummary?.trim())return ElMessage.warning(translateText("请填写实际完成情况"));saving.value=true;try{await submitBusinessProjectProgressReport({...form,completionStandard:completionStandardForProgress(form.progress),evidenceText:form.evidenceText?.trim()||''});projectProgressDialog.value=false;ElMessage.success(translateText("本月项目进度已保存并同步到老板工作台"));await load(selectedProjectId.value)}finally{saving.value=false}}
 async function confirmEffort(item){
   saving.value=true
   try{

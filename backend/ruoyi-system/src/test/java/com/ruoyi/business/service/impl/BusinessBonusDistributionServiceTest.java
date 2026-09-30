@@ -43,6 +43,62 @@ class BusinessBonusDistributionServiceTest
  BusinessBonusAllocationLine line(Long user,String amount){BusinessBonusAllocationLine l=new BusinessBonusAllocationLine();l.setUserId(user);l.setUserName("client spoof");l.setAmount(new BigDecimal(amount));l.setReason("contribution");return l;}
  BusinessBonusAllocation draft(){BusinessBonusAllocation b=new BusinessBonusAllocation();b.setAwardId(2L);b.setMode("AMOUNT");b.setReason("allocation");b.setRequestKey("request1");b.setLines(Arrays.asList(line(30L,"60.00")));return b;}
  BusinessBonusPayment payment(){BusinessBonusPayment p=new BusinessBonusPayment();p.setLineId(4L);p.setAmount(new BigDecimal("30.00"));p.setPaidDate(new Date());p.setMethod("BANK");p.setReferenceNo("bank1");p.setVoucher("/profile/upload/2026/09/proof.pdf");p.setReason("paid");p.setRequestKey("pay1");return p;}
+ void profitShares(){award.setPolicyVersion("PROFIT_SHARE_V1");award.setRuleAfterTaxProfit(new BigDecimal("100.00"));award.setRuleMainOwnerBonusRate(new BigDecimal("40.0000"));award.setRuleSponsorOwnerBonusRate(new BigDecimal("60.0000"));}
+ Map<?,?> sourceView(){when(mapper.projects(10L,false,false)).thenReturn(Arrays.asList(Collections.<String,Object>singletonMap("projectId",1L)));return (Map<?,?>)((List<?>)service.workspace(1L,10L,false,false).get("awards")).get(0);}
+ @Test void profitSourceUsesOnlyFrozenOwnerShareAndSubtractsReservations(){
+  profitShares();when(mapper.reserved(2L,null)).thenReturn(new BigDecimal("10.00"));
+  Map<?,?> source=sourceView();assertEquals(new BigDecimal("100.00"),source.get("amount"));
+  assertEquals(new BigDecimal("40.00"),source.get("sourceAmount"));assertEquals(new BigDecimal("30.00"),source.get("remaining"));
+ }
+ @Test void legacySourceRetainsApprovedTotal(){assertEquals(new BigDecimal("100.00"),sourceView().get("sourceAmount"));}
+ @Test void profitPercentagesUseOwnerShareInsteadOfCombinedBonus(){
+  profitShares();BusinessBonusAllocation b=draft();b.setMode("PERCENT");b.getLines().get(0).setPercentage(new BigDecimal("100"));
+  service.validateLines(b,award,mapper.recipients(1L));assertEquals(new BigDecimal("40.00"),b.getAmount());
+ }
+ @Test void profitAmountCannotUseBossShareAndCanUseExactRemainingOwnerBalance(){
+  profitShares();assertThrows(ServiceException.class,()->service.save(draft(),10L,"owner"));
+  when(mapper.reserved(2L,null)).thenReturn(new BigDecimal("10.00"));BusinessBonusAllocation b=draft();b.getLines().get(0).setAmount(new BigDecimal("30.01"));
+  assertThrows(ServiceException.class,()->service.save(b,10L,"owner"));verify(mapper,never()).insertAllocation(any());
+  b.getLines().get(0).setAmount(new BigDecimal("30.00"));when(mapper.insertAllocation(any())).thenAnswer(i->{((BusinessBonusAllocation)i.getArgument(0)).setAllocationId(3L);return 1;});
+  service.save(b,10L,"owner");verify(mapper).insertAllocation(b);
+ }
+ @Test void editingExcludesOwnReservationButNotOtherBatches(){
+  profitShares();BusinessBonusAllocation b=draft();b.setAllocationId(3L);b.setVersion(0);b.getLines().get(0).setAmount(new BigDecimal("30.00"));
+  when(mapper.reserved(2L,3L)).thenReturn(new BigDecimal("10.00"));when(mapper.updateAllocation(b)).thenReturn(1);
+  service.save(b,10L,"owner");verify(mapper).updateAllocation(b);
+ }
+ @Test void oldOverLimitDraftCannotBeSubmittedOrApprovedButCanBeReturnedOrCanceled(){
+  profitShares();assertThrows(ServiceException.class,()->service.transition(3L,0,"SUBMITTED","submit",10L,"owner"));
+  batch.setStatus("SUBMITTED");assertThrows(ServiceException.class,()->service.transition(3L,0,"APPROVED","approve",20L,"boss"));
+  service.transition(3L,0,"RETURNED","return",20L,"boss");batch.setStatus("DRAFT");service.transition(3L,0,"CANCELED","cancel",10L,"owner");
+  verify(mapper,never()).transition(3L,0,"APPROVED",20L,"boss");
+ }
+ @Test void zeroLossOrMissingProfitShareCannotFallBackToFullAward(){
+  profitShares();award.setRuleMainOwnerBonusRate(BigDecimal.ZERO);assertEquals(new BigDecimal("0.00"),sourceView().get("sourceAmount"));
+  award.setRuleMainOwnerBonusRate(new BigDecimal("40"));award.setRuleAfterTaxProfit(new BigDecimal("-100"));assertEquals(new BigDecimal("0.00"),sourceView().get("sourceAmount"));
+  award.setRuleAfterTaxProfit(null);assertEquals(new BigDecimal("0.00"),sourceView().get("sourceAmount"));assertThrows(ServiceException.class,()->service.save(draft(),10L,"owner"));
+ }
+ @Test void applicationProposalSnapshotsServerNamesAndIgnoresClientApprovalPaymentAndIdentifiers(){
+  profitShares();BusinessBonusAllocation input=draft();input.setAllocationId(999L);input.setAwardId(999L);input.setStatus("APPROVED");input.setPaidAmount(new BigDecimal("9999"));input.setCreatedUserId(999L);
+  input.getLines().get(0).setAmount(new BigDecimal("40.00"));input.getLines().get(0).setPaidAmount(new BigDecimal("40"));
+  BusinessBonusAllocation proposal=service.prepareApplicationAllocation(input,award);
+  assertEquals(new BigDecimal("40.00"),proposal.getAmount());assertEquals("Alice",proposal.getLines().get(0).getUserName());
+  assertNull(proposal.getAllocationId());assertNull(proposal.getAwardId());assertNull(proposal.getStatus());assertNull(proposal.getPaidAmount());assertNull(proposal.getCreatedUserId());assertNull(proposal.getLines().get(0).getPaidAmount());
+  verify(mapper,never()).insertAllocation(any());verify(mapper,never()).insertPayment(any());
+ }
+ @Test void applicationProposalPercentageAmountIsServerCalculatedAndCannotExceedOwnerPool(){
+  profitShares();BusinessBonusAllocation input=draft();input.setMode("PERCENT");input.getLines().get(0).setPercentage(new BigDecimal("50"));
+  assertThrows(ServiceException.class,()->service.prepareApplicationAllocation(input,award));
+  input.getLines().get(0).setPercentage(new BigDecimal("100"));
+  assertEquals(new BigDecimal("40.00"),service.prepareApplicationAllocation(input,award).getAmount());
+  input.setMode("AMOUNT");assertThrows(ServiceException.class,()->service.prepareApplicationAllocation(input,award));
+ }
+ @Test void proposalRetryComparesAllAllocationInputsButNotSpoofedNames(){
+  profitShares();BusinessBonusAllocation input=draft();input.getLines().get(0).setAmount(new BigDecimal("40.00"));
+  award.setApplicationAllocation(service.prepareApplicationAllocation(input,award));assertTrue(service.sameApplicationAllocation(input,award));
+  input.getLines().get(0).setAmount(new BigDecimal("30.00"));assertFalse(service.sameApplicationAllocation(input,award));
+  assertFalse(service.sameApplicationAllocation(null,award));
+ }
  @Test void parentOwnerSeesFullChildDistributionWithoutPaymentOrAllocationAuthority(){
   project.setParentId(2L);BusinessProject parent=new BusinessProject();parent.setProjectId(2L);parent.setMainOwnerUserId(99L);
   when(projects.selectProjectById(2L)).thenReturn(parent);
@@ -62,10 +118,19 @@ class BusinessBonusDistributionServiceTest
   b.getLines().get(0).setUserId(999L);assertThrows(ServiceException.class,()->service.validateLines(b,award,mapper.recipients(1L)));
   b.setLines(Arrays.asList(line(30L,"10"),line(30L,"10")));assertThrows(ServiceException.class,()->service.validateLines(b,award,mapper.recipients(1L)));
  }
- @Test void percentagesUseApprovedTotalAndRoundToCents(){
+ @Test void percentagesMustTotalOneHundredAndUseOwnerPool(){
   BusinessBonusAllocation b=draft();b.setMode("PERCENT");b.getLines().get(0).setPercentage(new BigDecimal("33.33"));b.getLines().get(0).setAmount(new BigDecimal("99999"));
-  service.validateLines(b,award,mapper.recipients(1L));assertEquals(new BigDecimal("33.33"),b.getAmount());
+  assertThrows(ServiceException.class,()->service.validateLines(b,award,mapper.recipients(1L)));
+  b.getLines().get(0).setPercentage(new BigDecimal("100"));service.validateLines(b,award,mapper.recipients(1L));assertEquals(new BigDecimal("100.00"),b.getAmount());
   b.getLines().get(0).setPercentage(new BigDecimal("100.01"));assertThrows(ServiceException.class,()->service.validateLines(b,award,mapper.recipients(1L)));
+ }
+ @Test void finalMemberReceivesCentRemainder(){
+  award.setAmount(new BigDecimal("0.05"));BusinessBonusAllocation b=draft();b.setMode("PERCENT");
+  BusinessBonusAllocationLine last=line(40L,"0.01");b.setLines(Arrays.asList(b.getLines().get(0),last));
+  b.getLines().get(0).setPercentage(new BigDecimal("33.33"));last.setPercentage(new BigDecimal("66.67"));
+  service.validateLines(b,award,mapper.recipients(1L));
+  assertEquals(new BigDecimal("0.02"),b.getLines().get(0).getAmount());
+  assertEquals(new BigDecimal("0.03"),last.getAmount());assertEquals(new BigDecimal("0.05"),b.getAmount());
  }
  @Test void rejectsZeroNegativeAndFractionalCents(){
   for(String value:Arrays.asList("0","-1","1.001")){BusinessBonusAllocation b=draft();b.getLines().get(0).setAmount(new BigDecimal(value));assertThrows(ServiceException.class,()->service.validateLines(b,award,mapper.recipients(1L)));}

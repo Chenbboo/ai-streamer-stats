@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
@@ -47,6 +48,8 @@ class BusinessIncentiveServiceImplTest
     @Mock BusinessProjectMapper projectMapper;
     @Mock BusinessProjectKpiMapper kpiMapper;
     @Mock BusinessAccountingMapper accountingMapper;
+    @Mock BusinessProfitTaxService profitTax;
+    @Mock BusinessBonusDistributionService distributionService;
     @InjectMocks BusinessIncentiveServiceImpl service;
     BusinessProject project;
 
@@ -62,6 +65,78 @@ class BusinessIncentiveServiceImplTest
         companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
         org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
 }
+
+    @Test void profitRuleUsesServerProfitAndHasNoKpiDependency()
+    {
+        BusinessIncentiveRule input=profitRule();
+        input.setAfterTaxProfit(new BigDecimal("999999"));input.setAmount(new BigDecimal("999999"));
+        input.setMinScore(new BigDecimal("100"));input.setKpiPlanId(77L);
+        Map<String,Object> result=new LinkedHashMap<>();result.put("available",true);result.put("afterTaxProfit",new BigDecimal("1234.56"));
+        when(profitTax.projectResult(1L)).thenReturn(result);
+        service.publishRule(input,9L,"owner",false);
+        ArgumentCaptor<BusinessIncentiveRule> captured=ArgumentCaptor.forClass(BusinessIncentiveRule.class);
+        verify(mapper).insertRule(captured.capture());BusinessIncentiveRule saved=captured.getValue();
+        assertEquals("PROFIT_SHARE_V1",saved.getPolicyVersion());assertEquals(new BigDecimal("1234.56"),saved.getAfterTaxProfit());
+        assertEquals(new BigDecimal("308.64"),saved.getAmount());assertNull(saved.getKpiPlanId());assertNull(saved.getMinScore());
+        assertEquals(new BigDecimal("10"),saved.getMainOwnerBonusRate());assertEquals(new BigDecimal("15"),saved.getSponsorOwnerBonusRate());
+        verify(kpiMapper,never()).selectPlanById(any());verify(mapper).retireProfitRules(1L,"owner");
+    }
+
+    @Test void profitRuleCanBeSavedForLossOrMissingResultWithoutNegativeBonus()
+    {
+        Map<String,Object> result=new LinkedHashMap<>();result.put("available",true);result.put("afterTaxProfit",new BigDecimal("-2130.68"));
+        when(profitTax.projectResult(1L)).thenReturn(result,null);
+        service.publishRule(profitRule(),9L,"owner",false);service.publishRule(profitRule(),9L,"owner",false);
+        ArgumentCaptor<BusinessIncentiveRule> captured=ArgumentCaptor.forClass(BusinessIncentiveRule.class);
+        verify(mapper,org.mockito.Mockito.times(2)).insertRule(captured.capture());
+        assertEquals(new BigDecimal("0.00"),captured.getAllValues().get(0).getAmount());
+        assertEquals(new BigDecimal("-2130.68"),captured.getAllValues().get(0).getAfterTaxProfit());
+        assertNull(captured.getAllValues().get(1).getAfterTaxProfit());
+    }
+
+    @Test void profitRuleRejectsMissingOverPreciseAndExcessiveShares()
+    {
+        BusinessIncentiveRule input=profitRule();input.setMainOwnerBonusRate(null);
+        assertThrows(ServiceException.class,()->service.publishRule(input,9L,"owner",false));
+        input.setMainOwnerBonusRate(new BigDecimal("0.12345"));
+        assertThrows(ServiceException.class,()->service.publishRule(input,9L,"owner",false));
+        input.setMainOwnerBonusRate(new BigDecimal("90"));
+        assertThrows(ServiceException.class,()->service.publishRule(input,9L,"owner",false));
+        verify(mapper,never()).insertRule(any());
+    }
+
+    @Test void profitRuleEstimateUsesPublishedSnapshotWithoutKpi()
+    {
+        BusinessIncentiveRule source=profitRule();source.setRuleId(11L);source.setStatus("ACTIVE");source.setAmount(new BigDecimal("308.64"));
+        when(mapper.selectRule(11L)).thenReturn(source);
+        assertEquals(new BigDecimal("308.64"),service.estimate(1L,11L,null,9L,false).get("amount"));
+        assertThrows(ServiceException.class,()->service.estimate(1L,11L,77L,9L,false));
+        verify(profitTax,never()).projectResult(any());verify(kpiMapper,never()).selectSettlementById(any());
+    }
+
+    private BusinessIncentiveRule profitRule()
+    {
+        BusinessIncentiveRule input=rule();input.setPolicyVersion("PROFIT_SHARE_V1");
+        input.setMainOwnerBonusRate(new BigDecimal("10"));input.setSponsorOwnerBonusRate(new BigDecimal("15"));return input;
+    }
+
+    @Test void sponsorSeesOriginalPlanDetailsAfterOwnerSubmitsAward()
+    {
+        BusinessIncentiveAward award=award("DRAFT");award.setPolicyVersion("PROFIT_SHARE_V1");
+        award.setRuleAfterTaxProfit(new BigDecimal("10000.00"));award.setRuleMainOwnerBonusRate(new BigDecimal("40"));
+        award.setRuleSponsorOwnerBonusRate(new BigDecimal("60"));award.setRuleReason("原方案依据");mockAward(award);
+        when(mapper.transitionAward(21L,"DRAFT","SUBMITTED",0,9L,"owner","提交",null)).thenAnswer(call->{award.setStatus("SUBMITTED");award.setVersion(1);return 1;});
+        service.submit(21L,0,"提交",9L,"owner");
+        when(mapper.selectAwards(1L)).thenReturn(Collections.singletonList(award));
+        Map<String,Object> currentProfit=new LinkedHashMap<>();currentProfit.put("available",true);currentProfit.put("afterTaxProfit",new BigDecimal("99000.00"));
+        when(profitTax.projectResult(1L)).thenReturn(currentProfit);
+        Map<String,Object> workspace=service.workspace(1L,8L,false);
+        assertEquals(true,workspace.get("canApprove"));assertEquals(true,award.getCanReview());
+        assertEquals(new BigDecimal("10000.00"),award.getRuleAfterTaxProfit());
+        assertEquals(new BigDecimal("4000.00"),award.getRuleMainOwnerBonusAmount());
+        assertEquals(new BigDecimal("6000.00"),award.getRuleSponsorOwnerBonusAmount());assertEquals("原方案依据",award.getRuleReason());
+        verify(accountingMapper,never()).insertFact(any());
+    }
 
     @Test void ordinaryMemberAndOtherCompanyCannotReadRewardAmounts()
     {
@@ -124,6 +199,30 @@ class BusinessIncentiveServiceImplTest
         for (Long userId : Arrays.asList(10L,88L))
             assertThrows(ServiceException.class,()->service.publishRule(scoreRule(),userId,"other",false));
         verify(mapper,never()).insertRule(any());
+    }
+
+    @Test void workspaceShowsAuthoritativeAfterTaxProfitAndSavedBonusShares()
+    {
+        Map<String,Object> profit=new LinkedHashMap<>();profit.put("available",true);profit.put("afterTaxProfit",new BigDecimal("9000.00"));profit.put("currency","CNY");
+        Map<String,Object> setting=new LinkedHashMap<>();setting.put("mainOwnerBonusRate",new BigDecimal("10.0000"));setting.put("sponsorOwnerBonusRate",new BigDecimal("5.0000"));setting.put("version",2);
+        when(profitTax.projectResult(1L)).thenReturn(profit);when(mapper.selectBonusSetting(1L)).thenReturn(setting);
+        Map<String,Object> result=service.workspace(1L,9L,false);
+        assertEquals(new BigDecimal("9000.00"),((Map<?,?>)result.get("profitResult")).get("afterTaxProfit"));
+        assertEquals(new BigDecimal("10.0000"),((Map<?,?>)result.get("bonusSetting")).get("mainOwnerBonusRate"));
+    }
+
+    @Test void bonusSharesAreVersionedAuditedAndCannotExceedFullProfit()
+    {
+        Map<String,Object> input=new LinkedHashMap<>();input.put("projectId",1L);input.put("mainOwnerBonusRate","60.5");input.put("sponsorOwnerBonusRate","39.5");input.put("version",0);
+        Map<String,Object> saved=new LinkedHashMap<>(input);saved.put("version",1);
+        when(mapper.selectBonusSetting(1L)).thenReturn(null,saved);
+        assertEquals(1,service.saveBonusSetting(input,9L,"owner",false).get("version"));
+        verify(mapper).saveBonusSetting(anyMap());verify(mapper).insertBonusSettingEvent(anyMap());
+
+        input.put("mainOwnerBonusRate","60.5001");
+        assertThrows(ServiceException.class,()->service.saveBonusSetting(input,9L,"owner",false));
+        input.put("mainOwnerBonusRate","10");input.put("sponsorOwnerBonusRate","5");input.put("version",0);
+        assertThrows(ServiceException.class,()->service.saveBonusSetting(input,9L,"owner",false));
     }
 
     @Test void ownerCanPublishAndRetireScoreRuleForOwnProjectOnly()
@@ -213,6 +312,54 @@ class BusinessIncentiveServiceImplTest
         assertEquals(new BigDecimal("800.00"),captured.getValue().getAmount());
         assertNull(captured.getValue().getAccountingFactId());
         assertEquals("NOT_RECORDED",captured.getValue().getPaymentStatus());
+    }
+
+    @Test void combinedApplicationSavesValidatedProposalWithoutCreatingAnAllocationYet()
+    {
+        BusinessIncentiveAward input=award("DRAFT");com.ruoyi.business.domain.BusinessBonusAllocation proposal=new com.ruoyi.business.domain.BusinessBonusAllocation();input.setApplicationAllocation(proposal);
+        when(mapper.selectRule(11L)).thenReturn(rule());when(distributionService.prepareApplicationAllocation(eq(proposal),any())).thenReturn(proposal);
+        doAnswer(call->{BusinessIncentiveAward saved=call.getArgument(0);saved.setAwardId(21L);when(mapper.selectAward(21L)).thenReturn(saved);return 1;}).when(mapper).insertAward(any());
+        BusinessIncentiveAward saved=service.createAward(input,9L,"owner");assertEquals(proposal,saved.getApplicationAllocation());assertEquals("DRAFT",saved.getStatus());
+        verify(distributionService,never()).save(any(),any(),any());
+    }
+
+    @Test void applicantCanEditDraftOrReturnedButNotSubmittedAward()
+    {
+        BusinessIncentiveAward existing=award("DRAFT");mockAward(existing);
+        BusinessIncentiveAward input=award("DRAFT");input.setBizDate(Date.valueOf("2026-07-01"));input.setReason("更新成员分配依据");
+        when(mapper.updateAwardDraft(21L,0,input.getBizDate(),input.getReason(),null,"owner")).thenReturn(1);
+        service.updateAward(21L,input,9L,"owner");
+        verify(mapper).updateAwardDraft(21L,0,input.getBizDate(),input.getReason(),null,"owner");
+        existing.setStatus("RETURNED");service.updateAward(21L,input,9L,"owner");
+        existing.setStatus("SUBMITTED");assertThrows(ServiceException.class,()->service.updateAward(21L,input,9L,"owner"));
+        existing.setStatus("DRAFT");assertThrows(ServiceException.class,()->service.updateAward(21L,input,8L,"boss"));
+        input.setRuleId(12L);assertThrows(ServiceException.class,()->service.updateAward(21L,input,9L,"owner"));
+    }
+
+    @Test void invalidCombinedProposalDoesNotInsertAnAward()
+    {
+        BusinessIncentiveAward input=award("DRAFT");com.ruoyi.business.domain.BusinessBonusAllocation proposal=new com.ruoyi.business.domain.BusinessBonusAllocation();input.setApplicationAllocation(proposal);
+        when(mapper.selectRule(11L)).thenReturn(rule());when(distributionService.prepareApplicationAllocation(eq(proposal),any())).thenThrow(new ServiceException("超额"));
+        assertThrows(ServiceException.class,()->service.createAward(input,9L,"owner"));verify(mapper,never()).insertAward(any());
+    }
+
+    @Test void combinedRetryRejectsChangedAllocationWithoutCreatingAnotherAward()
+    {
+        BusinessIncentiveAward existing=award("DRAFT");com.ruoyi.business.domain.BusinessBonusAllocation proposal=new com.ruoyi.business.domain.BusinessBonusAllocation();existing.setApplicationAllocation(proposal);
+        when(mapper.selectAwardByRequest(1L,"request-12345678")).thenReturn(existing);
+        BusinessIncentiveAward input=award("DRAFT");input.setApplicationAllocation(proposal);when(distributionService.sameApplicationAllocation(proposal,existing)).thenReturn(true);
+        service.createAward(input,9L,"owner");assertThrows(ServiceException.class,()->service.createAward(award("DRAFT"),9L,"owner"));verify(mapper,never()).insertAward(any());
+    }
+
+    @Test void reviewingCombinedAwardCreatesOnlyAnOwnerDraftOnceAndReturnCreatesNothing()
+    {
+        BusinessIncentiveAward application=award("SUBMITTED");com.ruoyi.business.domain.BusinessBonusAllocation proposal=new com.ruoyi.business.domain.BusinessBonusAllocation();application.setApplicationAllocation(proposal);mockAward(application);
+        Map<String,Object> category=new LinkedHashMap<>();category.put("categoryId",3L);category.put("categoryName","奖金成本");when(accountingMapper.selectCategoryByCode("PROJECT_BONUS_COST")).thenReturn(category);
+        when(mapper.transitionAward(eq(21L),eq("SUBMITTED"),eq("APPROVED"),eq(0),eq(8L),eq("boss"),eq("核准"),any())).thenAnswer(call->{application.setStatus("APPROVED");return 1;});
+        service.review(21L,0,"APPROVED","核准",8L,"boss");service.review(21L,0,"APPROVED","再次核准",8L,"boss");
+        verify(distributionService).save(proposal,9L,"owner");assertEquals(Long.valueOf(21L),proposal.getAwardId());assertEquals("AWARD-APPLICATION-21",proposal.getRequestKey());
+        application.setStatus("SUBMITTED");when(mapper.transitionAward(eq(21L),eq("SUBMITTED"),eq("RETURNED"),eq(0),eq(8L),eq("boss"),eq("退回"),any())).thenReturn(1);
+        service.review(21L,0,"RETURNED","退回",8L,"boss");verify(distributionService,org.mockito.Mockito.times(1)).save(any(),any(),any());
     }
 
     @Test void duplicateRequestReturnsOriginalButDifferentPayloadIsRejected()

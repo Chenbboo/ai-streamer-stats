@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { canReportProgress, taskCompletion, readProgressSnapshot, progressEventTarget, monthlyProgressPercent, projectProgressLimit, projectProgressBarPercent, progressSubmissionIssue } from './projectProgress.js'
+import { canReportProgress, taskCompletion, readProgressSnapshot, progressEventTarget, monthlyProgressPercent, projectProgressLimit, projectProgressBarPercent, progressSubmissionIssue, isExcessCompletion, completionStandardForProgress } from './projectProgress.js'
 test('only the active or paused child owner has the submit action',()=>{
  const child={parentId:1,mainOwnerUserId:9,status:'ACTIVE'}
  assert.equal(canReportProgress(child,'9'),true)
@@ -34,7 +34,7 @@ test('an unreported new month is not a reported zero percent or task completion'
 test('terminal project progress remains unchanged without a monthly report',()=>{
  assert.equal(monthlyProgressPercent({status:'CLOSED',progressPercent:0}),100)
  assert.equal(monthlyProgressPercent({status:'CANCELED',progressPercent:80}),0)
- assert.equal(monthlyProgressPercent({status:'ACTIVE',progressReportId:17,progressPercent:120}),100)
+ assert.equal(monthlyProgressPercent({status:'ACTIVE',progressReportId:17,progressPercent:120}),120)
 })
 test('detail separates whole-project time from monthly reported completion',()=>{
  const source=readFileSync(new URL('../views/business/project/index.vue',import.meta.url),'utf8')
@@ -43,30 +43,31 @@ test('detail separates whole-project time from monthly reported completion',()=>
  assert.match(source,/本月尚未汇报/)
 })
 
-test('completion standard controls the reported limit and the visual scale independently',()=>{
+test('every monthly report uses the same 300% limit and scale, including legacy reports',()=>{
  const standard={status:'ACTIVE',progressReportId:17,progressPercent:180,progressCompletionStandard:'STANDARD'}
  const excess={...standard,progressCompletionStandard:'EXCESS'}
- assert.equal(monthlyProgressPercent(standard),100)
+ assert.equal(monthlyProgressPercent(standard),180)
  assert.equal(monthlyProgressPercent(excess),180)
  assert.equal(monthlyProgressPercent({...excess,progressPercent:300}),300)
  assert.equal(monthlyProgressPercent({...excess,progressPercent:400}),300)
  assert.equal(projectProgressLimit(excess),300)
- assert.equal(projectProgressLimit({}),100)
+ assert.equal(projectProgressLimit({}),300)
  assert.equal(projectProgressBarPercent(excess,150),50)
  assert.equal(projectProgressBarPercent(excess,300),100)
- assert.equal(projectProgressBarPercent(standard,100),100)
+ assert.equal(projectProgressBarPercent(standard,100),100/3)
+ assert.equal(isExcessCompletion(standard),true)
+ assert.equal(isExcessCompletion({...excess,progressPercent:80}),false)
  assert.equal(projectProgressBarPercent(excess,NaN),0)
  assert.equal(projectProgressBarPercent(excess,-1),0)
  assert.equal(monthlyProgressPercent({...excess,progressReportId:null}),null)
 })
 
-test('completion standard is mandatory and accepts only integers within its own cap',()=>{
- assert.equal(progressSubmissionIssue({progress:50}),'standard')
- assert.equal(progressSubmissionIssue({completionStandard:'OTHER',progress:50}),'standard')
- for(const [completionStandard,max] of [['STANDARD',100],['EXCESS',300]]) {
-  for(const progress of [0,max])assert.equal(progressSubmissionIssue({completionStandard,progress}),null)
-  for(const progress of [null,undefined,-1,max+1,1.5,'100',NaN,Infinity])assert.equal(progressSubmissionIssue({completionStandard,progress}),'range')
- }
- assert.equal(progressSubmissionIssue({completionStandard:'EXCESS',progress:150},200),'minimum')
- assert.equal(progressSubmissionIssue({completionStandard:'EXCESS',progress:200},200),null)
+test('monthly progress accepts 0–300 integers without selecting a standard',()=>{
+ for(const progress of [0,100,101,220,300])assert.equal(progressSubmissionIssue({progress}),null)
+ for(const progress of [null,undefined,-1,301,1.5,'100',NaN,Infinity])assert.equal(progressSubmissionIssue({progress}),'range')
+ assert.equal(progressSubmissionIssue({progress:150},200),'minimum')
+ assert.equal(progressSubmissionIssue({progress:200},200),null)
+ assert.equal(completionStandardForProgress(100),'STANDARD')
+ assert.equal(completionStandardForProgress(101),'EXCESS')
+ assert.equal(completionStandardForProgress(300),'EXCESS')
 })

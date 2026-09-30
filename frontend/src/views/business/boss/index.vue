@@ -563,7 +563,7 @@ function openBonusPayment(row) {
 }
 
 function openIncentive(row) {
-  router.push({ path: '/hcm/incentives', query: { projectId: row.projectId, tab: 'awards', awardId: row.awardId } })
+  router.push({ path: '/hcm/incentives', query: { projectId: row.projectId, tab: 'distribution', awardId: row.awardId } })
 }
 
 function localToday() {

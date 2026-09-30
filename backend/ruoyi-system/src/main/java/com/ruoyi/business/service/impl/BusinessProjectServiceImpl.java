@@ -2549,11 +2549,10 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             throw new ServiceException("项目执行中或暂停时才能汇报进度");
         if (project.getParentId() == null && "NO_TOTAL".equals(effectiveGoalMode(project)))
             throw new ServiceException("不计入总目标的持续经营项目无需填写项目完成百分比");
-        if (!"STANDARD".equals(report.getCompletionStandard()) && !"EXCESS".equals(report.getCompletionStandard()))
-            throw new ServiceException("请选择完成标准：标准完成或超额完成");
-        int progressLimit = "EXCESS".equals(report.getCompletionStandard()) ? 300 : 100;
-        if (report.getProgress() == null || report.getProgress() < 0 || report.getProgress() > progressLimit)
-            throw new ServiceException("项目进度必须在0到" + progressLimit + "之间");
+        if (report.getProgress() == null || report.getProgress() < 0 || report.getProgress() > 300)
+            throw new ServiceException("项目进度必须在0到300之间");
+        // The classification is derived from the reported value, not selected by the client.
+        report.setCompletionStandard(report.getProgress() > 100 ? "EXCESS" : "STANDARD");
         validateProgressText(report.getCompletionSummary(), "阶段成果", true);
         // Daily completion forms do not require risks or a next-step plan, including for subprojects.
         validateProgressText(report.getIssuesRisks(), "问题风险", false);

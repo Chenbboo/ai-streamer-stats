@@ -14,9 +14,29 @@
     <if test="viewAll == false">and (p.main_owner_user_id=#{userId} or parent.main_owner_user_id=#{userId} or <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include>)</if>
     order by p.update_time desc,p.project_id desc
   </select>
+  <select id="selectBonusSetting" resultType="map">
+    select project_id projectId,main_owner_bonus_rate mainOwnerBonusRate,sponsor_owner_bonus_rate sponsorOwnerBonusRate,
+      version,updated_user_id updatedUserId,updated_user_name updatedUserName,update_time updateTime
+    from biz_project_bonus_setting where project_id=#{projectId}
+  </select>
+  <insert id="saveBonusSetting" parameterType="map">
+    insert into biz_project_bonus_setting(project_id,main_owner_bonus_rate,sponsor_owner_bonus_rate,version,
+      updated_user_id,updated_user_name,create_time,update_time)
+    values(#{projectId},#{mainOwnerBonusRate},#{sponsorOwnerBonusRate},1,#{userId},#{userName},sysdate(),sysdate())
+    on duplicate key update main_owner_bonus_rate=values(main_owner_bonus_rate),
+      sponsor_owner_bonus_rate=values(sponsor_owner_bonus_rate),version=version+1,
+      updated_user_id=values(updated_user_id),updated_user_name=values(updated_user_name),update_time=sysdate()
+  </insert>
+  <insert id="insertBonusSettingEvent" parameterType="map">
+    insert into biz_project_bonus_setting_event(project_id,old_main_owner_bonus_rate,new_main_owner_bonus_rate,
+      old_sponsor_owner_bonus_rate,new_sponsor_owner_bonus_rate,operator_user_id,operator_name,create_time)
+    values(#{projectId},#{oldMainOwnerBonusRate},#{mainOwnerBonusRate},#{oldSponsorOwnerBonusRate},
+      #{sponsorOwnerBonusRate},#{userId},#{userName},sysdate())
+  </insert>
   <sql id="ruleColumns">
     rule_id ruleId,project_id projectId,rule_version ruleVersion,rule_name ruleName,policy_version policyVersion,
-    amount,currency,min_score minScore,kpi_plan_id kpiPlanId,status,created_user_id createdUserId,created_user_name createdUserName,
+    amount,currency,after_tax_profit afterTaxProfit,main_owner_bonus_rate mainOwnerBonusRate,sponsor_owner_bonus_rate sponsorOwnerBonusRate,
+    min_score minScore,kpi_plan_id kpiPlanId,status,created_user_id createdUserId,created_user_name createdUserName,
     reason,create_by createBy,create_time createTime,update_by updateBy,update_time updateTime
   </sql>
   <select id="selectRules" resultMap="ruleWithTiers">
@@ -29,9 +49,9 @@
     select coalesce(max(rule_version),0)+1 from biz_incentive_rule where project_id=#{projectId}
   </select>
   <insert id="insertRule" parameterType="com.ruoyi.business.domain.BusinessIncentiveRule" useGeneratedKeys="true" keyProperty="ruleId">
-    insert into biz_incentive_rule(project_id,rule_version,rule_name,policy_version,amount,currency,min_score,kpi_plan_id,status,
+    insert into biz_incentive_rule(project_id,rule_version,rule_name,policy_version,amount,currency,after_tax_profit,main_owner_bonus_rate,sponsor_owner_bonus_rate,min_score,kpi_plan_id,status,
       created_user_id,created_user_name,reason,create_by,create_time)
-    values(#{projectId},#{ruleVersion},#{ruleName},#{policyVersion},#{amount},#{currency},#{minScore},#{kpiPlanId},#{status},
+    values(#{projectId},#{ruleVersion},#{ruleName},#{policyVersion},#{amount},#{currency},#{afterTaxProfit},#{mainOwnerBonusRate},#{sponsorOwnerBonusRate},#{minScore},#{kpiPlanId},#{status},
       #{createdUserId},#{createdUserName},#{reason},#{createBy},sysdate())
   </insert>
   <select id="selectRuleTiers" resultType="com.ruoyi.business.domain.BusinessIncentiveTier">
@@ -46,6 +66,10 @@
     update biz_incentive_rule set status='RETIRED',update_by=#{userName},update_time=sysdate()
     where project_id=#{projectId} and kpi_plan_id=#{kpiPlanId} and policy_version='SCORE_TIERS_V1' and status='ACTIVE'
   </update>
+  <update id="retireProfitRules">
+    update biz_incentive_rule set status='RETIRED',update_by=#{userName},update_time=sysdate()
+    where project_id=#{projectId} and policy_version='PROFIT_SHARE_V1' and status='ACTIVE'
+  </update>
   <update id="retireRule">
     update biz_incentive_rule set status='RETIRED',update_by=#{userName},update_time=sysdate()
     where rule_id=#{ruleId} and status='ACTIVE'
@@ -53,7 +77,9 @@
   <sql id="awardColumns">
     a.award_id awardId,a.project_id projectId,a.company_dept_id companyDeptId,a.rule_id ruleId,a.rule_version ruleVersion,
     a.rule_name ruleName,a.policy_version policyVersion,a.settlement_id settlementId,a.score_snapshot scoreSnapshot,
-    a.amount,a.currency,a.biz_date bizDate,a.reason,a.request_key requestKey,a.status,
+    a.amount,a.currency,a.biz_date bizDate,a.reason,a.request_key requestKey,a.status,a.allocation_proposal_json allocationProposalJson,
+    r.after_tax_profit ruleAfterTaxProfit,r.main_owner_bonus_rate ruleMainOwnerBonusRate,
+    r.sponsor_owner_bonus_rate ruleSponsorOwnerBonusRate,r.reason ruleReason,
     a.applicant_user_id applicantUserId,
     case when nullif(trim(applicant_user.nick_name),'') is not null and nullif(trim(applicant_user.user_name),'') is not null
       then concat(trim(applicant_user.nick_name),'（',trim(applicant_user.user_name),'）')
@@ -70,6 +96,8 @@
   <sql id="awardFrom">
     from biz_incentive_award a
     left join biz_operating_fact f on f.fact_id=a.accounting_fact_id
+    left join biz_incentive_rule r on r.rule_id=a.rule_id and r.project_id=a.project_id
+      and r.rule_version=a.rule_version and r.policy_version=a.policy_version and r.currency=a.currency
     left join sys_user applicant_user on applicant_user.user_id=a.applicant_user_id and applicant_user.del_flag='0'
     left join sys_user approved_user on approved_user.user_id=a.approved_user_id and approved_user.del_flag='0'
   </sql>
@@ -90,11 +118,17 @@
   <insert id="insertAward" parameterType="com.ruoyi.business.domain.BusinessIncentiveAward" useGeneratedKeys="true" keyProperty="awardId">
     insert into biz_incentive_award(project_id,company_dept_id,rule_id,rule_version,rule_name,policy_version,
       settlement_id,score_snapshot,amount,currency,biz_date,reason,request_key,status,
-      applicant_user_id,applicant_user_name,version,create_by,create_time)
+      applicant_user_id,applicant_user_name,version,create_by,create_time,allocation_proposal_json)
     values(#{projectId},#{companyDeptId},#{ruleId},#{ruleVersion},#{ruleName},#{policyVersion},
       #{settlementId},#{scoreSnapshot},#{amount},#{currency},#{bizDate},#{reason},#{requestKey},#{status},
-      #{applicantUserId},#{applicantUserName},0,#{createBy},sysdate())
+      #{applicantUserId},#{applicantUserName},0,#{createBy},sysdate(),#{allocationProposalJson})
   </insert>
+  <update id="updateAwardDraft">
+    update biz_incentive_award set biz_date=#{bizDate},reason=#{reason},
+      allocation_proposal_json=#{allocationProposalJson},version=version+1,
+      update_by=#{userName},update_time=sysdate()
+    where award_id=#{awardId} and version=#{version} and status in('DRAFT','RETURNED')
+  </update>
   <update id="transitionAward">
     update biz_incentive_award set status=#{toStatus},review_comment=#{reason},
       <if test="toStatus == 'APPROVED' and fromStatus != 'APPROVED'">

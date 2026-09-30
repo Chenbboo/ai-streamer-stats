@@ -1,13 +1,13 @@
 <template>
   <div class="monthly-progress">
     <el-progress :percentage="barPercent" :format="formatProgress" :show-text="showText" :stroke-width="strokeWidth" :status="status" />
-    <small v-if="isExcessCompletion(project)" class="progress-scale">0–300%</small>
+    <small class="progress-scale">0–300%</small>
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue'
-import { isExcessCompletion, monthlyProgressPercent, projectProgressBarPercent, projectProgressLimit } from '@/utils/projectProgress'
+import { monthlyProgressPercent, projectProgressBarPercent, projectProgressLimit } from '@/utils/projectProgress'
 const props = defineProps({
   project: { type: Object, required: true },
   value: { type: Number, default: null },

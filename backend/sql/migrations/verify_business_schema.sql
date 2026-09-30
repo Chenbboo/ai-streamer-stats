@@ -1074,6 +1074,10 @@ where table_schema=database() and table_name='biz_project_delete_notification'
   and index_name='uk_project_delete_notification_request' and column_name='request_id' and non_unique=0;
 
 -- V136 monthly completion standard.
+-- V139 reward application allocation proposal snapshot.
+select 1-count(*) as missing_award_allocation_proposal from information_schema.columns
+where table_schema=database() and table_name='biz_incentive_award'
+  and column_name='allocation_proposal_json' and is_nullable='YES';
 select 1-count(*) as missing_project_progress_completion_standard from information_schema.columns
 where table_schema=database() and table_name='biz_project_progress_report' and column_name='completion_standard';
 

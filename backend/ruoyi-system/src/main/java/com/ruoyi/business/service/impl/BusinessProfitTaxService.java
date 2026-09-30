@@ -16,6 +16,28 @@ public class BusinessProfitTaxService {
     @Autowired private BusinessProfitTaxMapper mapper;
     public List<Map<String,Object>> settings(Long userId) { return mapper.selectCompanies(userId); }
 
+    /** Current cumulative tax result for one project, using the same company-offset calculation as accounting. */
+    public Map<String,Object> projectResult(Long projectId) {
+        Map<String,Object> query=new LinkedHashMap<>();query.put("projectId",projectId);
+        List<Map<String,Object>> rows=mapper.selectSeries(query);if(rows==null)rows=Collections.emptyList();
+        calculateSeries(rows);
+        BigDecimal pretax=BigDecimal.ZERO,taxAmount=BigDecimal.ZERO,afterTax=BigDecimal.ZERO;
+        int resultCount=0;boolean available=false,taxConfigured=true,hasAdjustments=false;String currency=null;
+        for(Map<String,Object> row:rows) {
+            if(!String.valueOf(projectId).equals(String.valueOf(row.get("projectId"))))continue;
+            available=true;pretax=pretax.add(number(row.get("profitAmount")));
+            taxAmount=taxAmount.add(number(row.get("taxAmount")));afterTax=afterTax.add(number(row.get("afterTaxProfit")));
+            if(row.get("resultId")!=null)resultCount++;
+            if(number(row.get("isAdjustment")).signum()!=0)hasAdjustments=true;
+            if(!"1".equals(String.valueOf(row.get("taxConfigured")))&&!"1".equals(String.valueOf(row.get("taxFrozen"))))taxConfigured=false;
+            if(currency==null&&row.get("currency")!=null)currency=String.valueOf(row.get("currency"));
+        }
+        Map<String,Object> result=new LinkedHashMap<>();result.put("available",available);result.put("currency",currency);
+        result.put("pretaxProfit",pretax);result.put("taxAmount",taxAmount);result.put("afterTaxProfit",afterTax);
+        result.put("taxConfigured",taxConfigured);result.put("resultCount",resultCount);result.put("hasClosedAdjustments",hasAdjustments);
+        return result;
+    }
+
     @Transactional(isolation=Isolation.READ_COMMITTED)
     public List<Map<String,Object>> save(Long companyId,Map<String,Object> input,Long userId,String userName) {
         if(input==null||settings(userId).stream().noneMatch(c->String.valueOf(companyId).equals(String.valueOf(c.get("companyDeptId")))))
