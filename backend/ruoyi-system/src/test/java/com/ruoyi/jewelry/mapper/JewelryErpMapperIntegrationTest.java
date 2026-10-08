@@ -476,6 +476,90 @@ class JewelryErpMapperIntegrationTest
         assertSupplierReturnWarningCount(1);
     }
 
+    @Test
+    void sampleReturnsUseLineSupplierAndDateAndCountPendingQuota()
+    {
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification)"
+            + " values(1,'SAMPLE-RETURN','样品退货测试','SAMPLE','普通')");
+        insertStock(1L, 8, 2, 0, 0, 0, 0, "0");
+        for (long id = 1; id <= 5; id++)
+        {
+            insertDocument(id, "YP-" + id, id == 3 ? "PURCHASE_IN" : "SAMPLE_IN",
+                id == 4 ? "DRAFT" : "POSTED", null);
+            insertItem(id * 100, id, null, 1L, 3);
+        }
+        // Supplier belongs to each receipt line, not its header. Date also belongs to the line.
+        insertItem(101L, 1L, null, 1L, 5);
+        execute("update jewelry_document_item set supplier_id=9,product_type_snapshot='SAMPLE',"
+            + "unit_price=0,biz_date='2026-09-20'");
+        execute("update jewelry_document_item set supplier_id=8 where item_id=101");
+        execute("update jewelry_document_item set biz_date='2026-09-01' where item_id=200");
+        insertDocument(6L, "RED-6", "REVERSAL", "DRAFT", 5L);
+        insertDocument(7L, "YT-PENDING", "SAMPLE_RETURN", "PENDING_FIRST", 2L);
+        insertItem(700L, 7L, 200L, 1L, 2);
+        insertDocument(8L, "YT-DRAFT", "SAMPLE_RETURN", "DRAFT", 1L);
+        insertItem(800L, 8L, 100L, 1L, 3);
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            List<JewelryDocumentItem> sources = mapper.selectSampleReturnAllocationSources(9L, null);
+            assertEquals(2, sources.size());
+            assertEquals(Long.valueOf(200), sources.get(0).getItemId());
+            assertEquals(1, sources.get(0).getRemainingReturnQty());
+            assertEquals(6, sources.get(0).getAvailableReturnQty());
+            assertEquals(Long.valueOf(100), sources.get(1).getItemId());
+            assertEquals(3, sources.get(1).getRemainingReturnQty());
+            assertEquals(3, mapper.selectSampleReturnAllocationSources(9L, 7L).get(0).getRemainingReturnQty());
+            assertEquals(1, mapper.selectSampleReturnAllocationSources(8L, null).size());
+            assertEquals(Long.valueOf(101), mapper.selectSampleReturnAllocationSources(8L, null).get(0).getItemId());
+            assertEquals(Arrays.asList(2), mapper.selectSupplierReturnedQuantitiesForUpdate(200L, null));
+            assertEquals(1, mapper.countActiveSupplierReturnsBySource(2L));
+            assertEquals(0, mapper.countActiveSupplierReturnsBySource(1L));
+        }
+        execute("update jewelry_document set status='REVERSED' where document_id=7");
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            assertEquals(3, session.getMapper(JewelryErpMapper.class)
+                .selectSampleReturnAllocationSources(9L, null).get(0).getRemainingReturnQty());
+        }
+        execute("update jewelry_stock set reserved_out_qty=on_hand_qty where product_id=1");
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            assertTrue(session.getMapper(JewelryErpMapper.class).selectSampleReturnAllocationSources(9L, null).isEmpty());
+        }
+    }
+
+    @Test
+    void sampleInboundReturnConsumesLinkedBatchAndReversalRestoresWarning() throws Exception
+    {
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification)"
+            + " values(1,'SAMPLE-IN-RETURN','样品入库退货预警测试','SAMPLE','普通')");
+        insertStock(1L, 2, 0, 0, 0, 0, 0, "0");
+        insertDocument(1L, "YP-OLD", "SAMPLE_IN", "POSTED", null);
+        insertDocument(2L, "YP-NEW", "SAMPLE_IN", "POSTED", null);
+        insertItem(1L, 1L, null, 1L, 2);
+        insertItem(2L, 2L, null, 1L, 2);
+        execute("update jewelry_document_item set biz_date=timestampadd(DAY,-23,current_date) where item_id=1");
+        execute("update jewelry_document_item set biz_date=timestampadd(DAY,-10,current_date) where item_id=2");
+        insertDocument(3L, "YT-NEW", "SAMPLE_RETURN", "POSTED", 2L);
+        insertItem(3L, 3L, 2L, 1L, 2);
+        // A return of the newer batch must not consume the older batch's warning quota.
+        assertEquals("YP-OLD", deadlineValue("doc_no"));
+        assertSupplierReturnWarningCount(1);
+        execute("update jewelry_document set status='REVERSED' where document_id=3");
+        execute("update jewelry_stock set on_hand_qty=4 where product_id=1");
+        assertEquals("YP-OLD", deadlineValue("doc_no"));
+        execute("update jewelry_document set status='POSTED',source_document_id=1 where document_id=3");
+        execute("update jewelry_document_item set source_item_id=1 where item_id=3");
+        execute("update jewelry_stock set on_hand_qty=2 where product_id=1");
+        assertEquals("YP-NEW", deadlineValue("doc_no"));
+        assertSupplierReturnWarningCount(0);
+        execute("update jewelry_document set status='REVERSED' where document_id=3");
+        execute("update jewelry_stock set on_hand_qty=4 where product_id=1");
+        assertEquals("YP-OLD", deadlineValue("doc_no"));
+        assertSupplierReturnWarningCount(1);
+    }
+
     private void assertSupplierReturnWarningCount(int expected) throws Exception
     {
         Map<String, Object> query = new HashMap<String, Object>();

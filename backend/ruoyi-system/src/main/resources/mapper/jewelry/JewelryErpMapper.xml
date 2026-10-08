@@ -593,7 +593,7 @@
           left join jewelry_stock s on s.product_id=i.product_id
           left join (select ri.source_item_id,sum(ri.qty) returned_qty
             from jewelry_document_item ri join jewelry_document rd on rd.document_id=ri.document_id
-            where rd.doc_type='SUPPLIER_RETURN' and rd.status='POSTED'
+            where rd.doc_type in ('SUPPLIER_RETURN','SAMPLE_RETURN') and rd.status='POSTED'
             group by ri.source_item_id) sr on sr.source_item_id=i.item_id
           cross join return_config rc
           where d.doc_type in ('SAMPLE_IN','PURCHASE_IN') and d.status='POSTED'
@@ -625,7 +625,7 @@
           select ri.source_item_id,sum(ri.qty) returned_qty
           from jewelry_document_item ri
           join jewelry_document rd on rd.document_id=ri.document_id
-          where rd.doc_type='SUPPLIER_RETURN' and rd.status='POSTED' and ri.source_item_id is not null
+          where rd.doc_type in ('SUPPLIER_RETURN','SAMPLE_RETURN') and rd.status='POSTED' and ri.source_item_id is not null
           group by ri.source_item_id
         ),
         original_inbound as (
@@ -893,7 +893,7 @@
         ), supplier_returned as (
           select ri.source_item_id,sum(ri.qty) returned_qty
           from jewelry_document_item ri join jewelry_document rd on rd.document_id=ri.document_id
-          where ri.product_id=#{productId} and rd.doc_type='SUPPLIER_RETURN'
+          where ri.product_id=#{productId} and rd.doc_type in ('SUPPLIER_RETURN','SAMPLE_RETURN')
             and rd.status='POSTED' and ri.source_item_id is not null
           group by ri.source_item_id
         ), receipts as (
@@ -1118,7 +1118,7 @@
     </select>
     <select id="countActiveSupplierReturnsBySource" resultType="int">
         select count(*) from jewelry_document d
-        where d.doc_type='SUPPLIER_RETURN' and d.status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
+        where d.doc_type in ('SUPPLIER_RETURN','SAMPLE_RETURN') and d.status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
           and (d.source_document_id=#{sourceDocumentId} or exists (
             select 1 from jewelry_document_item ri
             join jewelry_document_item pi on pi.item_id=ri.source_item_id
@@ -1154,7 +1154,7 @@
         select coalesce(sum(i.qty),0)
         from jewelry_document_item i
         join jewelry_document d on d.document_id=i.document_id
-        where d.doc_type='SUPPLIER_RETURN'
+        where d.doc_type in ('SUPPLIER_RETURN','SAMPLE_RETURN')
           and i.source_item_id=#{sourceItemId}
           and d.status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
           <if test="excludeDocumentId != null">and d.document_id != #{excludeDocumentId}</if>
@@ -1162,7 +1162,7 @@
     <select id="selectSupplierReturnedQuantitiesForUpdate" resultType="int">
         select i.qty from jewelry_document_item i
         join jewelry_document d on d.document_id=i.document_id
-        where d.doc_type='SUPPLIER_RETURN' and i.source_item_id=#{sourceItemId}
+        where d.doc_type in ('SUPPLIER_RETURN','SAMPLE_RETURN') and i.source_item_id=#{sourceItemId}
           and d.status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
           <if test="excludeDocumentId != null">and d.document_id != #{excludeDocumentId}</if>
         order by d.document_id,i.item_id for update
@@ -1190,7 +1190,7 @@
                 select sum(return_item.qty)
                 from jewelry_document_item return_item
                 join jewelry_document return_doc on return_doc.document_id=return_item.document_id
-                where return_doc.doc_type='SUPPLIER_RETURN'
+                where return_doc.doc_type in ('SUPPLIER_RETURN','SAMPLE_RETURN')
                   and return_item.source_item_id=source_item.item_id
                   and return_doc.status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
               ),0)
@@ -1208,7 +1208,7 @@
           select return_item.source_item_id,sum(return_item.qty) returned_qty
           from jewelry_document_item return_item
           join jewelry_document return_doc on return_doc.document_id=return_item.document_id
-          where return_doc.doc_type='SUPPLIER_RETURN'
+          where return_doc.doc_type in ('SUPPLIER_RETURN','SAMPLE_RETURN')
             and return_doc.status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
             <if test="excludeDocumentId != null">and return_doc.document_id != #{excludeDocumentId}</if>
           group by return_item.source_item_id
@@ -1229,7 +1229,7 @@
           select return_item.source_item_id,sum(return_item.qty) returned_qty
           from jewelry_document_item return_item
           join jewelry_document return_doc on return_doc.document_id=return_item.document_id
-          where return_doc.doc_type='SUPPLIER_RETURN'
+          where return_doc.doc_type in ('SUPPLIER_RETURN','SAMPLE_RETURN')
             and return_doc.status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
             <if test="excludeDocumentId != null">and return_doc.document_id != #{excludeDocumentId}</if>
           group by return_item.source_item_id
@@ -1241,6 +1241,31 @@
           and not exists (select 1 from jewelry_document reversal
             where reversal.doc_type='REVERSAL' and reversal.source_document_id=d.document_id)
         order by d.biz_date,d.document_id,source_item.item_id
+    </select>
+    <select id="selectSampleReturnAllocationSources" resultMap="itemMap">
+        select source_item.*,d.document_id source_document_id,d.doc_no source_doc_no,
+          greatest(0,stock.on_hand_qty-stock.reserved_out_qty) available_return_qty,
+          source_item.qty-coalesce(returned.returned_qty,0) remaining_return_qty
+        from jewelry_document_item source_item
+        join jewelry_document d on d.document_id=source_item.document_id
+        join jewelry_product product on product.product_id=source_item.product_id
+          and product.status='0' and product.product_type='SAMPLE'
+        join jewelry_stock stock on stock.product_id=source_item.product_id
+        left join (
+          select ri.source_item_id,sum(ri.qty) returned_qty
+          from jewelry_document_item ri join jewelry_document rd on rd.document_id=ri.document_id
+          where rd.doc_type in ('SUPPLIER_RETURN','SAMPLE_RETURN')
+            and rd.status in ('PENDING_FIRST','PENDING_SECOND','POSTED')
+            <if test="excludeDocumentId != null">and rd.document_id != #{excludeDocumentId}</if>
+          group by ri.source_item_id
+        ) returned on returned.source_item_id=source_item.item_id
+        where d.doc_type='SAMPLE_IN' and d.status='POSTED'
+          and source_item.supplier_id=#{supplierId} and source_item.product_type_snapshot='SAMPLE'
+          and source_item.qty &gt; coalesce(returned.returned_qty,0)
+          and stock.on_hand_qty &gt; stock.reserved_out_qty
+          and not exists (select 1 from jewelry_document reversal
+            where reversal.doc_type='REVERSAL' and reversal.source_document_id=d.document_id)
+        order by coalesce(source_item.biz_date,d.biz_date),d.document_id,source_item.item_id
     </select>
     <select id="selectCustomerReturnSourceItems" resultMap="itemMap">
         select source_item.*,

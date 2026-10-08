@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { parse, compileScript, compileTemplate } from 'vue/compiler-sfc'
+import { translateMessage } from '../locales/text.js'
 import { supplierReturnProductRows, refreshSupplierReturnProducts, supplierReturnProductQuantitiesValid, supplierReturnMaxQty } from './jewelrySupplierReturn.js'
 
 test('purchase splits merge for editing without changing different actual prices', () => {
@@ -30,7 +31,7 @@ const vue=readFileSync(new URL('../views/jewelry/document/index.vue',import.meta
 test('quantity control works without a manual purchase source and retains quota/loading guards',()=>{
   const quantityControl=vue.match(/<el-input-number v-else v-model="row\.qty"[^>]*>/)[0]
   const disabled=new Function('form','row','supplierReturnSourceLoading','supplierReturnProductError',
-    `return Boolean(${quantityControl.match(/:disabled="([^"]*)"/)[1]})`)
+    `const isReturnToSupplier=type=>['SUPPLIER_RETURN','SAMPLE_RETURN'].includes(type); return Boolean(${quantityControl.match(/:disabled="([^"]*)"/)[1]})`)
   const form={docType:'SUPPLIER_RETURN',sourceDocumentId:null,items:[]}
   const row={productId:10,qty:1,remainingReturnQty:4,availableReturnQty:4}
   form.items=[row]
@@ -42,6 +43,10 @@ test('quantity control works without a manual purchase source and retains quota/
   assert.equal(disabled(form,row,false,true),true)
   assert.equal(disabled(form,{...row,productId:null},false,false),true)
   assert.equal(disabled(form,{...row,remainingReturnQty:0},false,false),true)
+  form.docType='SAMPLE_RETURN'
+  assert.equal(disabled(form,row,false,false),false)
+  assert.equal(disabled(form,row,true,false),true)
+  assert.equal(disabled(form,row,false,true),true)
   row.qty=1
   form.items.push({...row,qty:2})
   assert.equal(supplierReturnMaxQty(row,form.items),2)
@@ -49,18 +54,31 @@ test('quantity control works without a manual purchase source and retains quota/
   assert.equal(disabled(form,row,false,false),false)
   assert.equal(disabled(form,{...row,remainingReturnQty:0},false,false),true)
 })
-function harness(){
+function harness(docType='SUPPLIER_RETURN'){
   const start=vue.indexOf('async function loadSupplierReturnProducts('),end=vue.indexOf('async function supplierChanged(',start)
   const pending=[]
-  const factory=new Function('listSupplierReturnProducts','refreshSupplierReturnProducts','translateText','proxy',`
+  const factory=new Function('listSupplierReturnProducts','listSampleReturnProducts','refreshSupplierReturnProducts','translateText','proxy','docType',`
     const supplierReturnProducts={value:[]},supplierReturnProductError={value:false},supplierReturnSourceLoading={value:false};
     let supplierReturnSourceRequest=0;
-    const form={docType:'SUPPLIER_RETURN',influencerId:1,supplierId:9,items:[{productId:10,qty:2,unitPrice:155}]};
+    const form={docType,influencerId:docType==='SAMPLE_RETURN'?null:1,supplierId:9,items:[{productId:10,qty:2,unitPrice:docType==='SAMPLE_RETURN'?0:155}]};
     ${vue.slice(start,end)}
     return {form,supplierReturnProducts,supplierReturnProductError,supplierReturnSourceLoading,load:loadSupplierReturnProducts};
   `)
-  return {...factory(()=>new Promise((resolve,reject)=>pending.push({resolve,reject})),refreshSupplierReturnProducts,text=>text,{$modal:{msgError(){}}}),pending}
+  const load=()=>new Promise((resolve,reject)=>pending.push({resolve,reject}))
+  return {...factory(load,load,refreshSupplierReturnProducts,text=>text,{$modal:{msgError(){}}},docType),pending}
 }
+
+test('sample returns load by supplier without an influencer and discard responses from a previous supplier',async()=>{
+  const state=harness('SAMPLE_RETURN'),first=state.load(null,9)
+  assert.equal(state.pending.length,1)
+  state.form.supplierId=8;const second=state.load(null,8)
+  state.pending[0].resolve({data:[{productId:10,remainingReturnQty:9}]});await first
+  assert.equal(state.supplierReturnSourceLoading.value,true)
+  state.pending[1].resolve({data:[{productId:10,remainingReturnQty:4}]});await second
+  assert.equal(state.form.items[0].remainingReturnQty,4)
+  assert.equal(state.form.items[0].unitPrice,0)
+  assert.equal(supplierReturnProductQuantitiesValid(state.form.items),true)
+})
 test('late responses cannot restore previous influencer products or clear newer loading',async()=>{
   const state=harness(),first=state.load(1,9)
   state.form.influencerId=2; const second=state.load(2,9)
@@ -83,5 +101,20 @@ test('real form compiles, manual purchase selector is gone, and Chinese/Vietname
   assert.deepEqual(template.errors,[]); assert.ok(!vue.includes('supplierReturnSourceChanged'))
   assert.ok(vue.includes("supplierReturnAutoAllocate:form.docType==='SUPPLIER_RETURN'"))
   const translations=JSON.parse(readFileSync(new URL('../locales/vi-text.json',import.meta.url),'utf8'))
-  for(const text of ['参考采购单价','刷新可退商品','所选达人和供应商暂无可退商品','请等待可退商品加载成功后再保存'])assert.ok(translations[text])
+  for(const text of ['参考采购单价','刷新可退商品','所选达人和供应商暂无可退商品','请等待可退商品加载成功后再保存',
+    '样品退货','原样品入库单','该供应商暂无可退样品',
+    '选择供应商后选择可退样品并填写数量和原因；保存时自动关联原样品入库单，退货金额固定为0，审核通过后扣减库存。'])assert.ok(translations[text])
+  assert.match(vue,/const needsSupplier=computed\(\(\)=>\['PURCHASE_IN','SUPPLIER_RETURN','SAMPLE_RETURN'\]/)
+  assert.match(vue,/v-if="form\.docType==='SAMPLE_RETURN'">.*0\.00/)
+})
+
+test('sample return server limits translate while preserving product names and quantities',()=>{
+  for(const source of ['SAMPLE-1本次退货数量不能超过当前剩余可退数量4件（取原样品入库单剩余额度与当前可用库存的较小值）',
+    'SAMPLE-1跨样品入库单合计退货数量不能超过当前可用库存4件']){
+    assert.equal(translateMessage(source,'zh-CN'),source)
+    const translated=translateMessage(source,'vi-VN')
+    assert.ok(translated.includes('SAMPLE-1'))
+    assert.ok(translated.includes('4'))
+    assert.equal(translated.match(/[\u3400-\u9fff]/),null)
+  }
 })

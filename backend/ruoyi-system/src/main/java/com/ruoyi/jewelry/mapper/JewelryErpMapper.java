@@ -113,6 +113,8 @@ public interface JewelryErpMapper
         @Param("supplierId") Long supplierId);
     List<JewelryDocumentItem> selectSupplierReturnSourceItems(@Param("sourceDocumentId") Long sourceDocumentId,
         @Param("excludeDocumentId") Long excludeDocumentId);
+    List<JewelryDocumentItem> selectSampleReturnAllocationSources(@Param("supplierId") Long supplierId,
+        @Param("excludeDocumentId") Long excludeDocumentId);
     List<JewelryDocumentItem> selectSupplierReturnAllocationSources(@Param("influencerId") Long influencerId,
         @Param("supplierId") Long supplierId, @Param("excludeDocumentId") Long excludeDocumentId);
     List<Integer> selectSupplierReturnedQuantitiesForUpdate(@Param("sourceItemId") Long sourceItemId,

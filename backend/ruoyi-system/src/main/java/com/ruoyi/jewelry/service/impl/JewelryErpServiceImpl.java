@@ -30,7 +30,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
 {
     private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(6);
     private static final Set<String> EDITABLE_DOCUMENT_TYPES = Collections.unmodifiableSet(
-        new HashSet<String>(Arrays.asList("PURCHASE_IN", "SAMPLE_IN", "SALES_OUT", "SUPPLIER_RETURN",
+        new HashSet<String>(Arrays.asList("PURCHASE_IN", "SAMPLE_IN", "SAMPLE_RETURN", "SALES_OUT", "SUPPLIER_RETURN",
             "CUSTOMER_RETURN", "RETURN_INSPECT", "STOCK_ADJUST", "COST_ADJUST", "ASSEMBLY", "TRANSFER_OUT")));
     private static final Set<String> PRODUCT_TYPES = Collections.unmodifiableSet(
         new HashSet<String>(Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE", "SAMPLE", "GIFT")));
@@ -699,8 +699,20 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     {
         if (influencerId == null) throw new ServiceException("请选择达人/主播");
         if (supplierId == null) throw new ServiceException("请选择供应商");
+        return aggregateReturnProducts(mapper.selectSupplierReturnAllocationSources(influencerId, supplierId, null));
+    }
+
+    @Override
+    public List<Map<String, Object>> listSampleReturnProducts(Long supplierId)
+    {
+        if (supplierId == null) throw new ServiceException("请选择供应商");
+        return aggregateReturnProducts(mapper.selectSampleReturnAllocationSources(supplierId, null));
+    }
+
+    private List<Map<String, Object>> aggregateReturnProducts(List<JewelryDocumentItem> sources)
+    {
         Map<Long, Map<String, Object>> products = new LinkedHashMap<Long, Map<String, Object>>();
-        for (JewelryDocumentItem source : mapper.selectSupplierReturnAllocationSources(influencerId, supplierId, null))
+        for (JewelryDocumentItem source : sources)
         {
             Map<String, Object> product = products.get(source.getProductId());
             if (product == null)
@@ -727,7 +739,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
 
     private void allocateSupplierReturnPurchases(JewelryDocument document)
     {
-        if (!"SUPPLIER_RETURN".equals(document.getDocType()) || !document.isSupplierReturnAutoAllocate()) return;
+        boolean sampleReturn = "SAMPLE_RETURN".equals(document.getDocType());
+        if (!sampleReturn && (!"SUPPLIER_RETURN".equals(document.getDocType()) || !document.isSupplierReturnAutoAllocate())) return;
+        if (sampleReturn) clearSampleReturnHeader(document);
         prepareInfluencerReference(document);
         validateSupplierReference(document, true);
         if (document.getItems() == null || document.getItems().isEmpty())
@@ -737,24 +751,23 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         {
             if (requested.getProductId() == null) throw new ServiceException("请选择商品");
             if (requested.getQty() == null || requested.getQty() <= 0) throw new ServiceException("退货数量必须大于0");
-            if (requested.getUnitPrice() == null) throw new ServiceException("供应商退货必须填写实际退货单价");
+            if (sampleReturn) requested.setUnitPrice(ZERO);
+            else if (requested.getUnitPrice() == null) throw new ServiceException("供应商退货必须填写实际退货单价");
             products.add(requested.getProductId());
         }
-        List<JewelryDocumentItem> candidates = mapper.selectSupplierReturnAllocationSources(
-            document.getInfluencerId(), document.getSupplierId(), document.getDocumentId());
+        List<JewelryDocumentItem> candidates = returnAllocationSources(document);
         Set<Long> sourceIds = new java.util.TreeSet<Long>();
         for (JewelryDocumentItem candidate : candidates)
             if (products.contains(candidate.getProductId())) sourceIds.add(candidate.getSourceDocumentId());
         for (Long sourceId : sourceIds)
         {
             JewelryDocument source = mapper.selectDocumentByIdForUpdate(sourceId);
-            if (source == null || !"PURCHASE_IN".equals(source.getDocType()) || !"POSTED".equals(source.getStatus()))
-                throw new ServiceException("关联的原采购单已失效，请重新选择");
+            if (source == null || !(sampleReturn ? "SAMPLE_IN" : "PURCHASE_IN").equals(source.getDocType()) || !"POSTED".equals(source.getStatus()))
+                throw new ServiceException(sampleReturn ? "原样品入库单已失效，请刷新后重试" : "关联的原采购单已失效，请重新选择");
             validateSupplierReturnSource(document, source);
         }
         // Re-read quotas after acquiring purchase locks; do not use newly appeared, unlocked sources.
-        candidates = mapper.selectSupplierReturnAllocationSources(document.getInfluencerId(),
-            document.getSupplierId(), document.getDocumentId());
+        candidates = returnAllocationSources(document);
         // Lock products before stock, matching normal validation/product-deletion lock order.
         for (Long productId : new java.util.TreeSet<Long>(products))
         {
@@ -800,13 +813,36 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 remaining -= qty;
                 if (remaining == 0) break;
             }
-            if (remaining > 0) throw new ServiceException("所选达人和供应商的采购可退额度不足，请刷新商品后重试");
+            if (remaining > 0) throw new ServiceException(sampleReturn ? "该供应商的样品可退额度不足，请刷新商品后重试" : "所选达人和供应商的采购可退额度不足，请刷新商品后重试");
         }
         List<JewelryDocumentItem> items = new ArrayList<JewelryDocumentItem>(allocated.values());
         document.setItems(items);
         document.setSourceDocumentId(items.get(0).getSourceDocumentId());
         document.setSourceDocNo(items.get(0).getSourceDocNo());
         document.setSupplierReturnAutoAllocate(false);
+    }
+
+    private List<JewelryDocumentItem> returnAllocationSources(JewelryDocument document)
+    {
+        return "SAMPLE_RETURN".equals(document.getDocType())
+            ? mapper.selectSampleReturnAllocationSources(document.getSupplierId(), document.getDocumentId())
+            : mapper.selectSupplierReturnAllocationSources(document.getInfluencerId(), document.getSupplierId(), document.getDocumentId());
+    }
+
+    private void clearSampleReturnHeader(JewelryDocument document)
+    {
+        document.setInfluencerId(null);
+        document.setInfluencerName(null);
+        document.setInfluencerPriceSnapshot(null);
+        document.setInfluencerPriceVersion(null);
+        document.setSalesChannel(null);
+        document.setActualRefundAmount(null);
+        document.setPlatformRate(ZERO);
+        document.setCommissionRate(ZERO);
+        document.setTaxRate(ZERO);
+        document.setLaborFee(ZERO);
+        document.setProcessingFee(ZERO);
+        document.setOtherFee(ZERO);
     }
 
     private int currentSupplierReturnedQty(Long sourceItemId, Long excludeDocumentId)
@@ -1214,10 +1250,11 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 if (mapper.countReversalBySource(source.getDocumentId()) > 0)
                     throw new ServiceException("关联的原销售单已存在红冲单，不能再提交消费者退货");
             }
-            else if ("SUPPLIER_RETURN".equals(document.getDocType()))
+            else if (isSupplierReturn(document.getDocType()))
             {
                 if (document.getSourceDocumentId() == null)
-                    throw new ServiceException("供应商退货必须关联原采购单");
+                    throw new ServiceException("SAMPLE_RETURN".equals(document.getDocType())
+                        ? "样品退货必须关联已入账且未红冲的样品入库单" : "供应商退货必须关联原采购单");
                 // Lock every referenced purchase in deterministic order before checking quotas.
                 java.util.Set<Long> sourceIds = new java.util.TreeSet<Long>();
                 sourceIds.add(document.getSourceDocumentId());
@@ -1231,9 +1268,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 for (Long sourceId : sourceIds)
                 {
                     JewelryDocument source = mapper.selectDocumentByIdForUpdate(sourceId);
-                    if (source == null || !"PURCHASE_IN".equals(source.getDocType())
+                    if (source == null || !("SAMPLE_RETURN".equals(document.getDocType()) ? "SAMPLE_IN" : "PURCHASE_IN").equals(source.getDocType())
                         || !"POSTED".equals(source.getStatus()))
-                        throw new ServiceException("关联的原采购单已失效，请重新选择");
+                        throw new ServiceException("SAMPLE_RETURN".equals(document.getDocType())
+                            ? "原样品入库单已失效，请刷新后重试" : "关联的原采购单已失效，请重新选择");
                     validateSupplierReturnSource(document, source);
                 }
             }
@@ -1543,15 +1581,16 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         else if (!"PURCHASE_IN".equals(document.getDocType())) document.setSupplierReturnDate(null);
         if (document.getItems() == null || document.getItems().isEmpty()) throw new ServiceException("单据至少需要一行商品");
         prepareInfluencerReference(document);
-        if (("PURCHASE_IN".equals(document.getDocType()) || "SUPPLIER_RETURN".equals(document.getDocType()))
+        if ("SAMPLE_RETURN".equals(document.getDocType())) clearSampleReturnHeader(document);
+        if (("PURCHASE_IN".equals(document.getDocType()) || isSupplierReturn(document.getDocType()))
             && document.getSupplierId() == null)
             throw new ServiceException("请选择供应商");
-        if ("PURCHASE_IN".equals(document.getDocType()) || "SUPPLIER_RETURN".equals(document.getDocType()))
+        if ("PURCHASE_IN".equals(document.getDocType()) || isSupplierReturn(document.getDocType()))
             validateSupplierReference(document, true);
         if (("SALES_OUT".equals(document.getDocType()) || "CUSTOMER_RETURN".equals(document.getDocType()))
             && text(document.getSalesChannel()).trim().isEmpty())
             throw new ServiceException("请填写销售渠道");
-        if (("SUPPLIER_RETURN".equals(document.getDocType()) || "CUSTOMER_RETURN".equals(document.getDocType()))
+        if ((isSupplierReturn(document.getDocType()) || "CUSTOMER_RETURN".equals(document.getDocType()))
             && text(document.getReturnReason()).trim().isEmpty())
             throw new ServiceException("请填写退货原因");
         if ("COST_ADJUST".equals(document.getDocType()) && text(document.getReturnReason()).trim().isEmpty())
@@ -1561,13 +1600,15 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         Map<Long, Long> supplierReturnQuantities = new HashMap<Long, Long>();
         Map<Long, Long> supplierReturnSourceQuantities = new HashMap<Long, Long>();
         JewelryDocument supplierReturnSource = null;
-        if ("SUPPLIER_RETURN".equals(document.getDocType()))
+        if (isSupplierReturn(document.getDocType()))
         {
             if (document.getSourceDocumentId() == null)
-                throw new ServiceException("供应商退货必须关联原采购单");
-            supplierReturnSource = requirePostedPurchase(document.getSourceDocumentId());
+                throw new ServiceException("SAMPLE_RETURN".equals(document.getDocType())
+                    ? "样品退货必须关联已入账且未红冲的样品入库单" : "供应商退货必须关联原采购单");
+            supplierReturnSource = requirePostedReturnReceipt(document, document.getSourceDocumentId());
             validateSupplierReturnSource(document, supplierReturnSource);
-            document.setInfluencerName(supplierReturnSource.getInfluencerName());
+            if (!"SAMPLE_RETURN".equals(document.getDocType()))
+                document.setInfluencerName(supplierReturnSource.getInfluencerName());
             supplierReturnSources.put(supplierReturnSource.getDocumentId(), supplierReturnSource);
             for (JewelryDocumentItem sourceItem : mapper.selectDocumentItems(supplierReturnSource.getDocumentId()))
             {
@@ -1579,10 +1620,11 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     continue;
                 JewelryDocumentItem sourceItem = mapper.selectDocumentItemById(returnItem.getSourceItemId());
                 if (sourceItem == null || sourceItem.getDocumentId() == null)
-                    throw new ServiceException("退供明细必须来自所关联的原采购单");
+                    throw new ServiceException("SAMPLE_RETURN".equals(document.getDocType())
+                        ? "样品退货明细必须来自所选供应商的样品入库单" : "退供明细必须来自所关联的原采购单");
                 if (!supplierReturnSources.containsKey(sourceItem.getDocumentId()))
                 {
-                    JewelryDocument source = requirePostedPurchase(sourceItem.getDocumentId());
+                    JewelryDocument source = requirePostedReturnReceipt(document, sourceItem.getDocumentId());
                     validateSupplierReturnSource(document, source);
                     supplierReturnSources.put(source.getDocumentId(), source);
                 }
@@ -1711,7 +1753,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 && !"RETURN_INSPECT".equals(document.getDocType())
                 && !itemKeys.add("SAMPLE_IN".equals(document.getDocType())
                     ? item.getProductId() + ":" + sampleDayFormat.format(item.getBizDate()) + ":" + item.getSupplierId()
-                    : "SUPPLIER_RETURN".equals(document.getDocType())
+                    : isSupplierReturn(document.getDocType())
                         ? item.getProductId() + ":" + item.getSourceItemId() + ":" + fourDecimal(item.getUnitPrice())
                         : String.valueOf(item.getProductId())))
             {
@@ -1759,13 +1801,30 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     item.setAdjustmentQty(0);
                     clearNonSalesFees(item);
                 }
-                if ("SUPPLIER_RETURN".equals(document.getDocType()))
+                if (isSupplierReturn(document.getDocType()))
                 {
                     JewelryDocumentItem sourceItem = supplierReturnSourceItems.get(item.getSourceItemId());
                     if (sourceItem == null || !item.getProductId().equals(sourceItem.getProductId()))
-                        throw new ServiceException("退供明细必须来自所关联的原采购单");
+                        throw new ServiceException("SAMPLE_RETURN".equals(document.getDocType())
+                            ? "样品退货明细必须来自所选供应商的样品入库单" : "退供明细必须来自所关联的原采购单");
+                    if ("SAMPLE_RETURN".equals(document.getDocType()))
+                    {
+                        if (!"SAMPLE".equals(item.getProductTypeSnapshot()) || !"SAMPLE".equals(sourceItem.getProductTypeSnapshot())
+                            || !document.getSupplierId().equals(sourceItem.getSupplierId()))
+                            throw new ServiceException("样品退货明细必须来自所选供应商的样品入库单");
+                        item.setUnitPrice(ZERO);
+                        item.setItemRole("NORMAL");
+                        item.setSaleRole("NORMAL");
+                        item.setPricingMode("SEPARATE");
+                        item.setSupplierId(sourceItem.getSupplierId());
+                        item.setSupplierNameSnapshot(sourceItem.getSupplierNameSnapshot());
+                        item.setInfluencerPriceSnapshot(null);
+                        item.setInfluencerPriceVersion(null);
+                        clearNonSalesFees(item);
+                    }
                     if (!itemKeys.add("SOURCE:" + sourceItem.getItemId() + ":" + fourDecimal(item.getUnitPrice())))
-                        throw new ServiceException("同一采购明细不能重复退货");
+                        throw new ServiceException("SAMPLE_RETURN".equals(document.getDocType())
+                            ? "同一样品入库明细不能重复退货" : "同一采购明细不能重复退货");
                     int returnedQty = currentSupplierReturnedQty(sourceItem.getItemId(), document.getDocumentId());
                     int remainingQty = nonNegative(sourceItem.getQty()) - returnedQty;
                     int availableQty = Math.max(0, decimal(stock.get("onHandQty"))
@@ -1774,11 +1833,15 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     long sourceReturnQty = supplierReturnSourceQuantities.getOrDefault(sourceItem.getItemId(), 0L) + item.getQty();
                     if (sourceReturnQty > remainingQty)
                         throw new ServiceException(item.getProductNameSnapshot() + "本次退货数量不能超过当前剩余可退数量"
-                            + remainingQty + "件（取原采购单剩余额度与当前可用库存的较小值）");
+                            + remainingQty + ("SAMPLE_RETURN".equals(document.getDocType())
+                                ? "件（取原样品入库单剩余额度与当前可用库存的较小值）"
+                                : "件（取原采购单剩余额度与当前可用库存的较小值）"));
                     supplierReturnSourceQuantities.put(sourceItem.getItemId(), sourceReturnQty);
                     long totalReturnQty = supplierReturnQuantities.getOrDefault(item.getProductId(), 0L) + item.getQty();
                     if (totalReturnQty > availableQty)
-                        throw new ServiceException(item.getProductNameSnapshot() + "跨采购单合计退货数量不能超过当前可用库存" + availableQty + "件");
+                        throw new ServiceException(item.getProductNameSnapshot()
+                            + ("SAMPLE_RETURN".equals(document.getDocType()) ? "跨样品入库单" : "跨采购单")
+                            + "合计退货数量不能超过当前可用库存" + availableQty + "件");
                     supplierReturnQuantities.put(item.getProductId(), totalReturnQty);
                     Long sourceId = sourceItem.getDocumentId() == null ? document.getSourceDocumentId() : sourceItem.getDocumentId();
                     item.setSourceDocumentId(sourceId);
@@ -1791,9 +1854,10 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                         throw new ServiceException("供应商退货必须填写实际退货单价");
                     if (item.getUnitPrice().signum() < 0)
                         throw new ServiceException("实际退货单价不能为负数");
-                    // Only a free sample recorded on the original purchase can be returned for zero.
+                    // Sample receipts are always returned for zero; legacy purchase samples must have been free.
                     boolean freeSample = "SAMPLE".equals(sourceItem.getProductTypeSnapshot())
-                        && sourceItem.getUnitPrice() != null && sourceItem.getUnitPrice().signum() == 0;
+                        && ("SAMPLE_RETURN".equals(document.getDocType())
+                            || sourceItem.getUnitPrice() != null && sourceItem.getUnitPrice().signum() == 0);
                     if (fourDecimal(item.getUnitPrice()).signum() == 0 && !freeSample)
                         throw new ServiceException("实际退货单价必须大于0；仅原采购单价为0的样品商品支持零元退货");
                 }
@@ -2242,7 +2306,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 costAmount = productCostAmount.negate().add(feeAmount);
                 profit = amount.subtract(costAmount);
             }
-            else if ("SUPPLIER_RETURN".equals(document.getDocType()))
+            else if (isSupplierReturn(document.getDocType()))
             {
                 amount = grossAmount.negate();
                 costAmount = cost.multiply(BigDecimal.valueOf(qty)).negate();
@@ -2701,7 +2765,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 item.setProfitRate(ZERO);
                 mapper.updateDocumentItemCost(item);
             }
-            else if ("SUPPLIER_RETURN".equals(document.getDocType()))
+            else if (isSupplierReturn(document.getDocType()))
             {
                 onHand -= qty; reserved -= qty;
                 item.setUnitCost(beforeAvg);
@@ -3336,7 +3400,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         if ("SALES_OUT".equals(source.getDocType())
             && mapper.countActiveCustomerReturnsBySource(source.getDocumentId()) > 0)
             throw new ServiceException("原销售单存在待处理或已入账的消费者退货，不能整单红冲");
-        if ("PURCHASE_IN".equals(source.getDocType())
+        if (isInboundReceipt(source.getDocType())
             && mapper.countActiveSupplierReturnsBySource(source.getDocumentId()) > 0)
             throw new ServiceException("原采购单存在待处理或已入账的供应商退货，不能整单红冲");
     }
@@ -3418,13 +3482,15 @@ public class JewelryErpServiceImpl implements IJewelryErpService
 
     private void validateSupplierReturnSource(JewelryDocument document, JewelryDocument source)
     {
-        if (!document.getSupplierId().equals(source.getSupplierId()))
+        boolean sampleReturn = "SAMPLE_RETURN".equals(document.getDocType());
+        if (!sampleReturn && !document.getSupplierId().equals(source.getSupplierId()))
             throw new ServiceException("原采购单与所选供应商不一致");
-        if (source.getInfluencerId() == null || !document.getInfluencerId().equals(source.getInfluencerId()))
+        if (!sampleReturn && (source.getInfluencerId() == null || !document.getInfluencerId().equals(source.getInfluencerId())))
             throw new ServiceException("原采购单与所选达人/主播不一致");
         if (mapper.countReversalBySource(source.getDocumentId()) > 0
             || !mapper.selectReversalIdsBySourceForUpdate(source.getDocumentId()).isEmpty())
-            throw new ServiceException("关联的采购单已存在红冲单，不能继续退货");
+            throw new ServiceException(sampleReturn ? "原样品入库单已失效，请刷新后重试"
+                : "关联的采购单已存在红冲单，不能继续退货");
     }
 
     private JewelryDocument requirePostedPurchase(Long sourceDocumentId)
@@ -3435,11 +3501,21 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         return source;
     }
 
+    private JewelryDocument requirePostedReturnReceipt(JewelryDocument document, Long sourceDocumentId)
+    {
+        if (!"SAMPLE_RETURN".equals(document.getDocType())) return requirePostedPurchase(sourceDocumentId);
+        JewelryDocument source = requireDocument(sourceDocumentId);
+        if (!"SAMPLE_IN".equals(source.getDocType()) || !"POSTED".equals(source.getStatus()))
+            throw new ServiceException("样品退货必须关联已入账且未红冲的样品入库单");
+        return source;
+    }
+
     private String createDocNo(String type)
     {
         String prefix;
         if ("PURCHASE_IN".equals(type)) prefix = "RK";
         else if ("SAMPLE_IN".equals(type)) prefix = "YP";
+        else if ("SAMPLE_RETURN".equals(type)) prefix = "YT";
         else if ("SALES_OUT".equals(type)) prefix = "CK";
         else if ("TRANSFER_OUT".equals(type)) prefix = "DH";
         else if ("SUPPLIER_RETURN".equals(type)) prefix = "TG";
@@ -3530,7 +3606,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             throw new ServiceException(label + "必须在0到1之间");
     }
 
-    private boolean isOutbound(String type) { return "SALES_OUT".equals(type) || "SUPPLIER_RETURN".equals(type) || "TRANSFER_OUT".equals(type); }
+    private boolean isSupplierReturn(String type) { return "SUPPLIER_RETURN".equals(type) || "SAMPLE_RETURN".equals(type); }
+    private boolean isOutbound(String type) { return "SALES_OUT".equals(type) || isSupplierReturn(type) || "TRANSFER_OUT".equals(type); }
     private boolean isInboundReceipt(String type) { return "PURCHASE_IN".equals(type) || "SAMPLE_IN".equals(type); }
     private boolean isFourDecimalTransactionAmount(String type)
     {

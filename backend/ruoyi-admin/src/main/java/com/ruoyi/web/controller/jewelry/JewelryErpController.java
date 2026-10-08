@@ -585,6 +585,13 @@ public class JewelryErpController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
+    @GetMapping("/document/sample-return-products")
+    public AjaxResult sampleReturnProducts(@RequestParam Long supplierId)
+    {
+        return success(service.listSampleReturnProducts(supplierId));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
     @GetMapping("/document/supplier-return-source/{id}")
     public AjaxResult supplierReturnSource(@PathVariable Long id,
         @RequestParam(required = false) Long excludeDocumentId)

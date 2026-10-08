@@ -8641,5 +8641,16 @@
   "上月盈利结果暂时无法读取，请刷新重试": "Chưa tải được lợi nhuận tháng trước; vui lòng tải lại",
   "上月暂无已核算税后盈利结果": "Tháng trước chưa có kết quả lợi nhuận sau thuế đã hạch toán",
   "按上月已核算经营结果汇总，含税额冲回及已核准调整": "Tổng hợp kết quả kinh doanh đã hạch toán của tháng trước, gồm hoàn nhập thuế và điều chỉnh đã duyệt",
-  "上月成本待完善，当前仅显示已核算部分": "Chi phí tháng trước chưa đầy đủ; hiện chỉ hiển thị phần đã hạch toán"
+  "上月成本待完善，当前仅显示已核算部分": "Chi phí tháng trước chưa đầy đủ; hiện chỉ hiển thị phần đã hạch toán",
+  "样品退货": "Trả hàng mẫu",
+  "同一样品入库明细不能重复退货": "Không thể trả trùng cùng một chi tiết nhập hàng mẫu",
+  "{0}本次退货数量不能超过当前剩余可退数量{1}件（取原样品入库单剩余额度与当前可用库存的较小值）": "{0}: Số lượng trả lần này không được vượt {1} chiếc còn có thể trả (giá trị nhỏ hơn giữa hạn mức phiếu nhập hàng mẫu gốc và tồn kho khả dụng)",
+  "{0}跨样品入库单合计退货数量不能超过当前可用库存{1}件": "{0}: Tổng số lượng trả qua nhiều phiếu nhập hàng mẫu không được vượt tồn kho khả dụng hiện tại là {1} chiếc",
+  "原样品入库单": "Phiếu nhập hàng mẫu gốc",
+  "该供应商暂无可退样品": "Nhà cung cấp này hiện không có hàng mẫu có thể trả",
+  "选择供应商后选择可退样品并填写数量和原因；保存时自动关联原样品入库单，退货金额固定为0，审核通过后扣减库存。": "Chọn nhà cung cấp, chọn hàng mẫu có thể trả rồi nhập số lượng và lý do; khi lưu, hệ thống tự liên kết phiếu nhập hàng mẫu gốc. Số tiền trả hàng cố định bằng 0; tồn kho giảm sau khi được duyệt.",
+  "该供应商的样品可退额度不足，请刷新商品后重试": "Số lượng hàng mẫu có thể trả cho nhà cung cấp này không đủ; hãy làm mới danh sách và thử lại",
+  "原样品入库单已失效，请刷新后重试": "Phiếu nhập hàng mẫu gốc không còn hợp lệ; hãy làm mới và thử lại",
+  "样品退货明细必须来自所选供应商的样品入库单": "Chi tiết trả hàng mẫu phải lấy từ phiếu nhập hàng mẫu của nhà cung cấp đã chọn",
+  "样品退货必须关联已入账且未红冲的样品入库单": "Trả hàng mẫu phải liên kết phiếu nhập hàng mẫu đã hạch toán và chưa đảo bút toán"
 }

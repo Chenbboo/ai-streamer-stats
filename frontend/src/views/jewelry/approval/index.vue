@@ -86,7 +86,7 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column v-if="detail.docType==='SUPPLIER_RETURN'" prop="sourceDocNo" :label="$tr('原采购单')" width="220" show-overflow-tooltip/>
+        <el-table-column v-if="['SUPPLIER_RETURN','SAMPLE_RETURN'].includes(detail.docType)" prop="sourceDocNo" :label="detail.docType==='SAMPLE_RETURN'?$tr('原样品入库单'):$tr('原采购单')" width="220" show-overflow-tooltip/>
         <el-table-column v-if="detail.docType!=='SALES_OUT'" :label="$tr(&quot;供应商&quot;)" min-width="140" show-overflow-tooltip><template #default="{row}">{{itemSupplierNames(row,detail)}}</template></el-table-column>
         <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="systemQty" :label="$tr(&quot;系统库存&quot;)"/>
         <el-table-column v-if="detail.docType==='STOCK_ADJUST'" prop="countedQty" :label="$tr(&quot;实盘库存&quot;)"/>
@@ -197,7 +197,7 @@ const profitDialog=ref(false),profitLoading=ref(false),profitDetail=ref(null)
 const approvalStatuses=['PENDING','PENDING_FIRST','PENDING_SECOND']
 const query=reactive({pageNum:1,pageSize:10,status:'PENDING'})
 const isTransfer=row=>row?.docType==='TRANSFER_OUT'||(row?.docType==='REVERSAL'&&row?.sourceDocType==='TRANSFER_OUT')
-const typeLabels={TRANSFER_OUT:translateText("仓库调货"),PURCHASE_IN:translateText("采购入库"),SAMPLE_IN:translateText("样品入库"),SALES_OUT:translateText("销售出库"),SUPPLIER_RETURN:translateText("供应商退货"),CUSTOMER_RETURN:translateText("客户退货"),RETURN_INSPECT:translateText("退货质检"),STOCK_ADJUST:translateText("库存调整"),COST_ADJUST:translateText("库存成本调价"),ASSEMBLY:translateText("手工组装"),REVERSAL:translateText("红冲单")}
+const typeLabels={TRANSFER_OUT:translateText("仓库调货"),PURCHASE_IN:translateText("采购入库"),SAMPLE_IN:translateText("样品入库"),SAMPLE_RETURN:translateText("样品退货"),SALES_OUT:translateText("销售出库"),SUPPLIER_RETURN:translateText("供应商退货"),CUSTOMER_RETURN:translateText("客户退货"),RETURN_INSPECT:translateText("退货质检"),STOCK_ADJUST:translateText("库存调整"),COST_ADJUST:translateText("库存成本调价"),ASSEMBLY:translateText("手工组装"),REVERSAL:translateText("红冲单")}
 const typeLabel=value=>typeLabels[value]||value
 const supplierNames=document=>{
   const recorded=[document?.supplierNameSnapshot,...String(document?.itemSupplierNames||'').split('、'),

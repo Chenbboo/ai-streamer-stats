@@ -1482,6 +1482,149 @@ class JewelryErpServiceImplTest
         verify(mapper, never()).insertDocument(any(JewelryDocument.class));
     }
 
+    private JewelryDocument sampleReturn(int qty)
+    {
+        JewelryDocument returned = document(null, "SAMPLE_RETURN", null);
+        returned.setSupplierId(9L);
+        returned.setReturnReason("样品归还供应商");
+        returned.setInfluencerId(777L); // Submitted identity and amount must not affect sample returns.
+        returned.setItems(Arrays.asList(item(null, qty, "999")));
+        returned.getItems().get(0).setSourceItemId(99999L);
+        lenient().when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("SAMPLE"));
+        JewelryDocument first = document(90L, "SAMPLE_IN", "POSTED");
+        JewelryDocument second = document(91L, "SAMPLE_IN", "POSTED");
+        JewelryDocumentItem a = item(901L, 2, "0"), b = item(902L, 3, "0");
+        a.setDocumentId(90L); b.setDocumentId(91L);
+        for (JewelryDocumentItem source : Arrays.asList(a, b))
+        {
+            source.setProductTypeSnapshot("SAMPLE");
+            source.setSupplierId(9L);
+            source.setSupplierNameSnapshot("样品供应商");
+            source.setSourceDocumentId(source.getDocumentId());
+            source.setSourceDocNo("YP-" + source.getDocumentId());
+            source.setRemainingReturnQty(source.getQty());
+            source.setAvailableReturnQty(10);
+        }
+        lenient().when(mapper.selectDocumentById(90L)).thenReturn(first);
+        lenient().when(mapper.selectDocumentById(91L)).thenReturn(second);
+        lenient().when(mapper.selectDocumentByIdForUpdate(90L)).thenReturn(first);
+        lenient().when(mapper.selectDocumentByIdForUpdate(91L)).thenReturn(second);
+        lenient().when(mapper.selectDocumentItems(90L)).thenReturn(Arrays.asList(a));
+        lenient().when(mapper.selectDocumentItems(91L)).thenReturn(Arrays.asList(b));
+        lenient().when(mapper.selectDocumentItemById(901L)).thenReturn(a);
+        lenient().when(mapper.selectDocumentItemById(902L)).thenReturn(b);
+        lenient().when(mapper.selectSampleReturnAllocationSources(9L, null)).thenReturn(Arrays.asList(a, b));
+        lenient().when(mapper.insertDocument(returned)).thenAnswer(invocation -> { returned.setDocumentId(109L); return 1; });
+        lenient().when(mapper.selectDocumentById(109L)).thenReturn(returned);
+        lenient().when(mapper.selectDocumentItems(109L)).thenAnswer(invocation -> returned.getItems());
+        return returned;
+    }
+
+    @Test
+    void sampleReturnSplitsInboundSourcesAndForcesZeroAmountWithoutInfluencer()
+    {
+        JewelryDocument returned = sampleReturn(4);
+        service.saveDocument(returned, MAKER_ID, "maker");
+        assertEquals(null, returned.getInfluencerId());
+        assertTrue(returned.getDocNo().startsWith("YT"));
+        assertEquals(2, returned.getItems().size());
+        assertEquals(Long.valueOf(901), returned.getItems().get(0).getSourceItemId());
+        assertEquals(Long.valueOf(902), returned.getItems().get(1).getSourceItemId());
+        assertEquals(2, returned.getItems().get(0).getQty());
+        assertEquals(2, returned.getItems().get(1).getQty());
+        assertMoney("0", returned.getTotalAmount());
+        assertMoney("0", returned.getTotalProfit());
+        verify(mapper, never()).reserveOutbound(anyLong(), anyInt());
+        when(mapper.reserveOutbound(PRODUCT_ID, 2)).thenReturn(1);
+        service.submit(109L, MAKER_ID, "maker");
+        verify(mapper, times(2)).reserveOutbound(PRODUCT_ID, 2);
+        assertThrows(ServiceException.class, () -> service.submit(109L, REVIEWER_ONE_ID, "reviewer"));
+    }
+
+    @Test
+    void sampleReturnApprovesOnceConsumesStockAndReversalRestoresStock()
+    {
+        JewelryDocument returned = sampleReturn(1);
+        service.saveDocument(returned, MAKER_ID, "maker");
+        when(mapper.reserveOutbound(PRODUCT_ID, 1)).thenReturn(1);
+        service.submit(109L, MAKER_ID, "maker");
+        returned.setStatus("PENDING_FIRST");
+        assertThrows(ServiceException.class, () -> service.approve(109L, "", null, MAKER_ID, "maker"));
+        when(mapper.selectStockForUpdate(PRODUCT_ID)).thenReturn(stock(10, 1, 0, 0, 0, 0, "4", "0", "0"));
+        service.approve(109L, "", null, REVIEWER_ONE_ID, "reviewer");
+        verify(mapper).applyStock(eq(PRODUCT_ID), eq(9), eq(0), eq(0), eq(0), eq(0), eq(0),
+            decimalEq("4"), decimalEq("0"), decimalEq("0"));
+        assertMoney("-4", returned.getItems().get(0).getCostAmount());
+        assertMoney("0", returned.getItems().get(0).getAmount());
+        verify(mapper).updateDocumentStatus(109L, "PENDING_FIRST", "POSTED", REVIEWER_ONE_ID, "reviewer", null, 1);
+        returned.setStatus("POSTED");
+        assertThrows(ServiceException.class, () -> service.approve(109L, "", null, REVIEWER_TWO_ID, "admin", "jewelry_admin"));
+        when(mapper.selectDocumentByIdForUpdate(109L)).thenReturn(returned);
+        when(mapper.insertDocument(any(JewelryDocument.class))).thenAnswer(invocation -> {
+            JewelryDocument reversal = invocation.getArgument(0); reversal.setDocumentId(110L); return 1;
+        });
+        JewelryDocument reversed = service.createReversal(109L, MAKER_ID, "maker");
+        reversed.setStatus("PENDING_FIRST");
+        when(mapper.selectDocumentById(110L)).thenReturn(reversed);
+        when(mapper.selectDocumentItems(110L)).thenReturn(reversed.getItems());
+        when(mapper.selectStockForUpdate(PRODUCT_ID)).thenReturn(stock(9, 0, 0, 0, 0, 0, "4", "0", "0"));
+        when(mapper.markOriginalReversed(109L, "reviewer")).thenReturn(1);
+        service.approve(110L, "", null, REVIEWER_ONE_ID, "reviewer");
+        verify(mapper).applyStock(eq(PRODUCT_ID), eq(10), eq(0), eq(0), eq(0), eq(0), eq(0),
+            decimalEq("4"), decimalEq("0"), decimalEq("0"));
+    }
+
+    @Test
+    void sampleReturnRechecksOccupiedQuota()
+    {
+        JewelryDocument returned = sampleReturn(4);
+        when(mapper.selectSupplierReturnedQuantitiesForUpdate(901L, null)).thenReturn(Arrays.asList(2));
+        assertThrows(ServiceException.class, () -> service.saveDocument(returned, MAKER_ID, "maker"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void sampleReturnRejectsWrongSupplier()
+    {
+        JewelryDocument returned = sampleReturn(1);
+        mapper.selectDocumentItems(90L).get(0).setSupplierId(8L);
+        assertThrows(ServiceException.class, () -> service.saveDocument(returned, MAKER_ID, "maker"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void sampleReturnRejectsReversedInbound()
+    {
+        JewelryDocument returned = sampleReturn(1);
+        when(mapper.selectReversalIdsBySourceForUpdate(90L)).thenReturn(Arrays.asList(99L));
+        assertThrows(ServiceException.class, () -> service.saveDocument(returned, MAKER_ID, "maker"));
+        verify(mapper, never()).insertDocument(any(JewelryDocument.class));
+    }
+
+    @Test
+    void sampleReturnAvailabilityAndStockCapAndInboundReversalProtection()
+    {
+        JewelryDocument returned = sampleReturn(4);
+        assertEquals(5, service.listSampleReturnProducts(9L).get(0).get("remainingReturnQty"));
+        when(mapper.selectStockForUpdate(PRODUCT_ID)).thenReturn(stock(3, 0, 0, 0, 0, 0, "0", "0", "0"));
+        assertThrows(ServiceException.class, () -> service.saveDocument(returned, MAKER_ID, "maker"));
+        when(mapper.countActiveSupplierReturnsBySource(90L)).thenReturn(1);
+        assertThrows(ServiceException.class, () -> service.createReversal(90L, MAKER_ID, "maker"));
+        assertThrows(ServiceException.class, () -> service.listSampleReturnProducts(null));
+    }
+
+    @Test
+    void sampleReturnWithdrawalAndRejectionReleaseFrozenStock()
+    {
+        JewelryDocument returned = sampleReturn(1);
+        service.saveDocument(returned, MAKER_ID, "maker");
+        returned.setStatus("PENDING_FIRST");
+        when(mapper.releaseOutbound(PRODUCT_ID, 1)).thenReturn(1);
+        service.withdraw(109L, MAKER_ID, "maker");
+        service.reject(109L, "不退了", REVIEWER_ONE_ID, "reviewer");
+        verify(mapper, times(2)).releaseOutbound(PRODUCT_ID, 1);
+    }
+
     private JewelryDocument automaticSupplierReturn(int qty, String price)
     {
         JewelryDocument returned = multiPurchaseSupplierReturn();

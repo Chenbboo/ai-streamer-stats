@@ -80,6 +80,7 @@ class JewelryErpControllerPermissionTest
         Map<String, String> expected = new HashMap<String, String>();
         expected.put("dashboard", "@ss.hasPermi('jewelry:overview:list')");
         expected.put("supplierReturnProducts", "@ss.hasPermi('jewelry:document:list')");
+        expected.put("sampleReturnProducts", "@ss.hasPermi('jewelry:document:list')");
         expected.put("staffList", "@ss.hasPermi('jewelry:staff:list')");
         expected.put("addStaff", "@ss.hasPermi('jewelry:staff:add')");
         expected.put("editStaff", "@ss.hasPermi('jewelry:staff:edit')");
