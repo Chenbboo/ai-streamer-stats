@@ -11,7 +11,11 @@
       <details v-if="compact" class="budget-help"><summary>{{ $tr("每日预算计算说明") }}</summary><small>{{ $tr("逐日检查上限；每周支出按金额÷7、每月按金额÷30摊销，人员按工作日计入。一次性支出单独检查启动预算。") }}</small></details><small v-else>{{ $tr("逐日检查上限；每周支出按金额÷7、每月按金额÷30摊销，人员按工作日计入。一次性支出单独检查启动预算。") }}</small>
     </template>
     <el-form-item v-if="modelValue.mode === 'DAILY'" :label="$tr(&quot;一次性启动预算&quot;)" :prop="fieldProp('startupLimit')" :required="startupRequired"><el-input-number :model-value="modelValue.startupLimit" :min="0" :max="99999999999999.99" :precision="2" :aria-label="$tr(&quot;一次性启动预算&quot;)" @update:model-value="set('startupLimit',$event)"/><small>{{ compact ? $tr("须覆盖本期一次性支出") : $tr("本期有一次性支出时必填，额度需覆盖本期一次性支出。") }}</small></el-form-item>
-    <el-form-item :label="$tr(&quot;预算说明&quot;)" :prop="fieldProp('reason')" :required="modelValue.mode === 'NONE'"><el-input :model-value="modelValue.reason" type="textarea" maxlength="500" :placeholder="$tr(&quot;不设上限的原因或预算说明&quot;)" @update:model-value="set('reason',$event)"/></el-form-item>
+    <el-form-item :label="$tr(&quot;预算说明&quot;)" :prop="fieldProp('reason')" :required="modelValue.mode === 'NONE'">
+      <el-input :model-value="modelValue.reason" type="textarea" maxlength="500"
+        :placeholder="modelValue.mode === 'NONE' ? $tr('请说明不设预算上限的原因（必填）') : modelValue.mode === 'DAILY' ? $tr('每日预算的补充说明（选填）') : $tr('总额预算的补充说明（选填）')"
+        @update:model-value="set('reason',$event)"/>
+    </el-form-item>
   </div>
 </template>
 <script setup>
