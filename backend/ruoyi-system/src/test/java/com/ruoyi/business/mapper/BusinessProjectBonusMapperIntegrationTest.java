@@ -42,23 +42,23 @@ class BusinessProjectBonusMapperIntegrationTest
             Map<String,Object> usd=rows.stream().filter(r->"USD".equals(r.get("CURRENCY"))).findFirst().get();
             assertEquals(new BigDecimal("650.00"),cny.get("TOTALBONUS"));
             assertEquals(new BigDecimal("25.00"),usd.get("TOTALBONUS"));assertEquals(new BigDecimal("100.00"),usd.get("LEGACYBONUS"));
-            assertTrue(session.getMapper(BusinessProjectKpiMapper.class).selectMemberProjectBonusTotals(55L).isEmpty());
             assertEquals(1,((Number)cny.get("CANSUBMITWORKREPORT")).intValue());
-            try(Connection c=source.getConnection();Statement s=c.createStatement()){
-                s.execute("insert into biz_project_member_work_pause(project_id,user_id,paused_by) values(1,7,'owner')");
+            try(Statement sql=session.getConnection().createStatement()){
+                sql.execute("insert into biz_project_member_work_pause(project_id,user_id,paused_by) values(1,7,'owner')");
             }
             session.clearCache();
-            Map<String,Object> paused=session.getMapper(BusinessProjectKpiMapper.class).selectMemberProjectBonusTotals(7L).stream()
-                .filter(r->"CNY".equals(r.get("CURRENCY"))).findFirst().get();
+            Map<String,Object> paused=session.getMapper(BusinessProjectKpiMapper.class).selectMemberProjectBonusTotals(7L)
+                .stream().filter(r->"CNY".equals(r.get("CURRENCY"))).findFirst().get();
             assertEquals(0,((Number)paused.get("CANSUBMITWORKREPORT")).intValue());
             assertEquals(new BigDecimal("650.00"),paused.get("TOTALBONUS"));
-            try(Connection c=source.getConnection();Statement s=c.createStatement()){
-                s.execute("update biz_project_member_work_pause set started_time=current_timestamp,started_by='owner' where project_id=1 and user_id=7");
+            try(Statement sql=session.getConnection().createStatement()){
+                sql.execute("update biz_project_member_work_pause set started_time=current_timestamp,started_by='owner' where project_id=1 and user_id=7");
             }
             session.clearCache();
-            Map<String,Object> resumed=session.getMapper(BusinessProjectKpiMapper.class).selectMemberProjectBonusTotals(7L).stream()
-                .filter(r->"CNY".equals(r.get("CURRENCY"))).findFirst().get();
-            assertEquals(1,((Number)resumed.get("CANSUBMITWORKREPORT")).intValue());
+            Map<String,Object> restarted=session.getMapper(BusinessProjectKpiMapper.class).selectMemberProjectBonusTotals(7L)
+                .stream().filter(r->"CNY".equals(r.get("CURRENCY"))).findFirst().get();
+            assertEquals(1,((Number)restarted.get("CANSUBMITWORKREPORT")).intValue());
+            assertTrue(session.getMapper(BusinessProjectKpiMapper.class).selectMemberProjectBonusTotals(55L).isEmpty());
         }
     }
 }

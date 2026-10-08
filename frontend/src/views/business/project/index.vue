@@ -326,6 +326,7 @@ import { getProjectKpiWorkspace } from '@/api/business/kpi'
 import { getBusinessProjectDashboard } from '@/api/business/accounting'
 import { changeBusinessProjectOwner, enableBusinessRoutine, enableBusinessTask, getBusinessOperatingConfig, getBusinessProject, listBusinessUsers, removeBusinessMilestone, removeBusinessProjectMember, removeBusinessRisk, removeBusinessRoutine, removeBusinessStaffAllocation, removeBusinessTask, retireBusinessProjectKpi, reviewBusinessProjectAcceptance, reviewBusinessProjectStageAcceptance, saveBusinessMilestone, saveBusinessProjectKpi, saveBusinessProjectMember, saveBusinessRisk, saveBusinessRoutine, saveBusinessStaffAllocation, saveBusinessTask, submitBusinessProjectAcceptance, submitBusinessProjectStageAcceptance, transitionBusinessProject, updateBusinessProject, updateBusinessProjectBudget } from '@/api/business/project'
 import { todayLocal } from '@/utils/businessDate'
+import { workExecutionPeriods } from '@/utils/projectExecutionPeriods'
 import BusinessMemberAllocationPlan from '@/components/BusinessMemberAllocationPlan/index.vue'
 import { milestoneTasksReady } from '@/utils/ownerTodos'
 
@@ -810,8 +811,8 @@ async function enableRoutine(row){
   ElMessage.success(translateText("持续工作已启用，已开启新的执行区间"))
 }
 async function enableTask(row){await ElMessageBox.confirm(translateText("确定重新启用“{0}”吗？新的执行区间将从今天开始。", [row.taskName]),translateText("启用一次性任务"),{type:'success'});await enableBusinessTask(detail.value.projectId,row.taskId);await refreshDetail();ElMessage.success(translateText("一次性任务已启用，已开启新的执行区间"))}
-function workPeriods(row){if(row.executionPeriods?.length)return row.executionPeriods;const start=row.startDate||row.planStartDate;if(!start)return[];const inactive=row.status==='VOID'||row.activeStatus==='VOID';return[{startDate:start,endDate:inactive?(row.endDate||String(row.updateTime||'').slice(0,10)||todayText()):null,assigneeName:row.assigneeName}]}
-function executionPeriodText(period){return translateText("{0}{1} 至 {2}", [period.assigneeName?`${period.assigneeName} · `:'', period.startDate, period.endDate||todayText()])}
+function workPeriods(row){return workExecutionPeriods(row,todayText())}
+function executionPeriodText(period){const end=period.endDate||(period.longTerm?translateText('长期'):period.ongoing?translateText('持续执行'):'—');return translateText("{0}{1} 至 {2}", [period.assigneeName?`${period.assigneeName} · `:'', period.startDate, end])}
 watch(()=>route.query.create,value=>{if(value)router.replace('/business/project-proposals')},{immediate:true})
 watch(()=>route.query.id,async value=>{if(!value||Number(value)===Number(detail.value?.projectId))return;try{await openDetail({projectId:Number(value)})}catch{const nextQuery={...route.query};delete nextQuery.id;router.replace({query:nextQuery})}},{immediate:true})
 watch(()=>route.query.tab,value=>{if(['overview','operating','resources','routines','tasks','members','milestones','risks','acceptance','stageAcceptance','ownerHistory','events'].includes(value))activeTab.value=value},{immediate:true})
