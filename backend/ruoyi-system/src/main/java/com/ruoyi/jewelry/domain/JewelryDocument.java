@@ -1,0 +1,157 @@
+package com.ruoyi.jewelry.domain;
+
+import java.math.BigDecimal;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.ruoyi.common.core.domain.BaseEntity;
+
+public class JewelryDocument extends BaseEntity
+{
+    private static final long serialVersionUID = 1L;
+
+    private Long documentId;
+    private String docNo;
+    private String docType;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private Date bizDate;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private Date supplierReturnDate;
+    private String status;
+    private boolean hideDrafts;
+    private Long supplierId;
+    private String supplierNameSnapshot;
+    private String itemSupplierNames;
+    private String salesChannel;
+    private String externalNo;
+    private String sourceWarehouse;
+    private String targetWarehouse;
+
+    public String getSourceWarehouse() { return sourceWarehouse; }
+    public void setSourceWarehouse(String sourceWarehouse) { this.sourceWarehouse = sourceWarehouse; }
+    public String getTargetWarehouse() { return targetWarehouse; }
+    public void setTargetWarehouse(String targetWarehouse) { this.targetWarehouse = targetWarehouse; }
+    private Long influencerId;
+    private String influencerName;
+    private BigDecimal influencerPriceSnapshot;
+    private Integer influencerPriceVersion;
+    private BigDecimal platformRate;
+    private BigDecimal commissionRate;
+    private BigDecimal taxRate;
+    private String returnReason;
+    private Long sourceDocumentId;
+    private String sourceDocType;
+    private String sourceDocNo;
+    private String unlinkedReason;
+    private BigDecimal actualRefundAmount;
+    private Integer totalQty;
+    private BigDecimal totalAmount;
+    private BigDecimal totalCost;
+    private BigDecimal totalProfit;
+    private String riskStatus;
+    private BigDecimal laborFee;
+    private BigDecimal processingFee;
+    private BigDecimal otherFee;
+    private Long creatorUserId;
+    private String creatorName;
+    private Long firstReviewerUserId;
+    private String firstReviewerName;
+    private Long secondReviewerUserId;
+    private String secondReviewerName;
+    private String rejectReason;
+    private Integer version;
+    private List<JewelryDocumentItem> items;
+    // Request-only: resolved purchase links are persisted on the items, not this flag.
+    private boolean supplierReturnAutoAllocate;
+    public boolean isSupplierReturnAutoAllocate() { return supplierReturnAutoAllocate; }
+    public void setSupplierReturnAutoAllocate(boolean value) { this.supplierReturnAutoAllocate = value; }
+    private Map<String, Object> newOutputProduct;
+
+    public Long getDocumentId() { return documentId; }
+    public void setDocumentId(Long documentId) { this.documentId = documentId; }
+    public String getDocNo() { return docNo; }
+    public void setDocNo(String docNo) { this.docNo = docNo; }
+    public String getDocType() { return docType; }
+    public void setDocType(String docType) { this.docType = docType; }
+    public Date getBizDate() { return bizDate; }
+    public void setBizDate(Date bizDate) { this.bizDate = bizDate; }
+    public Date getSupplierReturnDate() { return supplierReturnDate; }
+    public void setSupplierReturnDate(Date supplierReturnDate) { this.supplierReturnDate = supplierReturnDate; }
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+    public boolean isHideDrafts() { return hideDrafts; }
+    public void setHideDrafts(boolean hideDrafts) { this.hideDrafts = hideDrafts; }
+    public Long getSupplierId() { return supplierId; }
+    public void setSupplierId(Long supplierId) { this.supplierId = supplierId; }
+    public String getSupplierNameSnapshot() { return supplierNameSnapshot; }
+    public void setSupplierNameSnapshot(String supplierNameSnapshot) { this.supplierNameSnapshot = supplierNameSnapshot; }
+    public String getItemSupplierNames() { return itemSupplierNames; }
+    public void setItemSupplierNames(String itemSupplierNames) { this.itemSupplierNames = itemSupplierNames; }
+    public String getSalesChannel() { return salesChannel; }
+    public void setSalesChannel(String salesChannel) { this.salesChannel = salesChannel; }
+    public String getExternalNo() { return externalNo; }
+    public void setExternalNo(String externalNo) { this.externalNo = externalNo; }
+    public Long getInfluencerId() { return influencerId; }
+    public void setInfluencerId(Long influencerId) { this.influencerId = influencerId; }
+    public String getInfluencerName() { return influencerName; }
+    public void setInfluencerName(String influencerName) { this.influencerName = influencerName; }
+    public BigDecimal getInfluencerPriceSnapshot() { return influencerPriceSnapshot; }
+    public void setInfluencerPriceSnapshot(BigDecimal influencerPriceSnapshot) { this.influencerPriceSnapshot = influencerPriceSnapshot; }
+    public Integer getInfluencerPriceVersion() { return influencerPriceVersion; }
+    public void setInfluencerPriceVersion(Integer influencerPriceVersion) { this.influencerPriceVersion = influencerPriceVersion; }
+    public BigDecimal getPlatformRate() { return platformRate; }
+    public void setPlatformRate(BigDecimal platformRate) { this.platformRate = platformRate; }
+    public BigDecimal getCommissionRate() { return commissionRate; }
+    public void setCommissionRate(BigDecimal commissionRate) { this.commissionRate = commissionRate; }
+    public BigDecimal getTaxRate() { return taxRate; }
+    public void setTaxRate(BigDecimal taxRate) { this.taxRate = taxRate; }
+    public String getReturnReason() { return returnReason; }
+    public void setReturnReason(String returnReason) { this.returnReason = returnReason; }
+    public Long getSourceDocumentId() { return sourceDocumentId; }
+    public void setSourceDocumentId(Long sourceDocumentId) { this.sourceDocumentId = sourceDocumentId; }
+    public String getSourceDocType() { return sourceDocType; }
+    public void setSourceDocType(String sourceDocType) { this.sourceDocType = sourceDocType; }
+    public String getSourceDocNo() { return sourceDocNo; }
+    public void setSourceDocNo(String sourceDocNo) { this.sourceDocNo = sourceDocNo; }
+    public String getUnlinkedReason() { return unlinkedReason; }
+    public void setUnlinkedReason(String unlinkedReason) { this.unlinkedReason = unlinkedReason; }
+    public BigDecimal getActualRefundAmount() { return actualRefundAmount; }
+    public void setActualRefundAmount(BigDecimal actualRefundAmount) { this.actualRefundAmount = actualRefundAmount; }
+    public Integer getTotalQty() { return totalQty; }
+    public void setTotalQty(Integer totalQty) { this.totalQty = totalQty; }
+    public BigDecimal getTotalAmount() { return totalAmount; }
+    public void setTotalAmount(BigDecimal totalAmount) { this.totalAmount = totalAmount; }
+    public BigDecimal getTotalCost() { return totalCost; }
+    public void setTotalCost(BigDecimal totalCost) { this.totalCost = totalCost; }
+    public BigDecimal getTotalProfit() { return totalProfit; }
+    public void setTotalProfit(BigDecimal totalProfit) { this.totalProfit = totalProfit; }
+    public String getRiskStatus() { return riskStatus; }
+    public void setRiskStatus(String riskStatus) { this.riskStatus = riskStatus; }
+    public BigDecimal getLaborFee() { return laborFee; }
+    public void setLaborFee(BigDecimal laborFee) { this.laborFee = laborFee; }
+    public BigDecimal getProcessingFee() { return processingFee; }
+    public void setProcessingFee(BigDecimal processingFee) { this.processingFee = processingFee; }
+    public BigDecimal getOtherFee() { return otherFee; }
+    public void setOtherFee(BigDecimal otherFee) { this.otherFee = otherFee; }
+    public Long getCreatorUserId() { return creatorUserId; }
+    public void setCreatorUserId(Long creatorUserId) { this.creatorUserId = creatorUserId; }
+    public String getCreatorName() { return creatorName; }
+    public void setCreatorName(String creatorName) { this.creatorName = creatorName; }
+    public Long getFirstReviewerUserId() { return firstReviewerUserId; }
+    public void setFirstReviewerUserId(Long firstReviewerUserId) { this.firstReviewerUserId = firstReviewerUserId; }
+    public String getFirstReviewerName() { return firstReviewerName; }
+    public void setFirstReviewerName(String firstReviewerName) { this.firstReviewerName = firstReviewerName; }
+    public Long getSecondReviewerUserId() { return secondReviewerUserId; }
+    public void setSecondReviewerUserId(Long secondReviewerUserId) { this.secondReviewerUserId = secondReviewerUserId; }
+    public String getSecondReviewerName() { return secondReviewerName; }
+    public void setSecondReviewerName(String secondReviewerName) { this.secondReviewerName = secondReviewerName; }
+    public String getRejectReason() { return rejectReason; }
+    public void setRejectReason(String rejectReason) { this.rejectReason = rejectReason; }
+    public Integer getVersion() { return version; }
+    public void setVersion(Integer version) { this.version = version; }
+    public List<JewelryDocumentItem> getItems() { return items; }
+    public void setItems(List<JewelryDocumentItem> items) { this.items = items; }
+    public Map<String, Object> getNewOutputProduct() { return newOutputProduct; }
+    public void setNewOutputProduct(Map<String, Object> newOutputProduct) { this.newOutputProduct = newOutputProduct; }
+}

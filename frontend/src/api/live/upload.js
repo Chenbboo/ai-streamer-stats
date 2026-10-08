@@ -23,6 +23,7 @@ export function uploadImages(data) {
   return request({
     url: '/live/upload/img',
     method: 'post',
+    timeout: 300000,
     headers: {
       'Content-Type': 'multipart/form-data',
       repeatSubmit: false

@@ -1,0 +1,128 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { buildOwnerTodos, buildPublicExpenseTodos, buildAllocationReviewTodos, buildProposalHandoffTodos, buildChildAcceptanceTodos } from './ownerTodos.js'
+
+const expense = { allocationId: 51, billStatus: 'PUBLISHED', status: 'DRAFT', companyName: '上海公司', month: '2026-09', remainingAmount: 200, amount: 500, currency: 'CNY' }
+test('published owner expense produces a todo linking the exact allocation and month', () => {
+  const [todo] = buildPublicExpenseTodos([expense])
+  assert.equal(todo.action, 'public-expense')
+  assert.equal(todo.allocationId, 51)
+  assert.equal(todo.month, '2026-09')
+  assert.equal(todo.title, '分摊公共费用')
+  assert.match(todo.detail, /上海公司.*2026-09.*200.00 CNY/)
+})
+test('fully allocated draft still needs submission; submitted, recalled and settled bills do not', () => {
+  const bills = [
+    {...expense, remainingAmount: 0},
+    {...expense, allocationId: 52, status: 'SUBMITTED'},
+    {...expense, allocationId: 53, billStatus: 'DRAFT'},
+    {...expense, allocationId: 54, billStatus: 'SETTLED'}
+  ]
+  const todos = buildPublicExpenseTodos(bills)
+  assert.equal(todos.length, 1)
+  assert.equal(todos[0].title, '提交公共费用分摊')
+  assert.match(todos[0].detail, /500.00 CNY/)
+})
+test('expense todos deduplicate allocations and preserve separate currencies', () => {
+  const todos = buildPublicExpenseTodos([expense, {...expense, allocationId: '51'}, {...expense, allocationId: 52, currency: 'VND', amount: 1000}])
+  assert.equal(todos.length, 2)
+  assert.notEqual(todos[0].key,todos[1].key)
+  assert.match(todos[1].detail,/VND/)
+  assert.deepEqual(buildPublicExpenseTodos(), [])
+})
+
+const permissions = ['business:kpi:manage']
+test('monthly target completion never creates a project-close todo',()=>{
+ for(const completionStandard of ['STANDARD','EXCESS']) for(const progressPercent of [99,100,150,300]) {
+  const rows=buildOwnerTodos({data:{project:{projectId:12,status:'ACTIVE',goalMode:'TOTAL',closeMethod:'DIRECT',progressPercent,progressCompletionStandard:completionStandard}},userId:9,today:'2026-09-29',permissions:['*:*:*']})
+  assert.equal(rows.some(row=>row.key==='close'),false)
+ }
+})
+test('whole-project total budget expiry is a project-plan todo, not a budget renewal',()=>{
+  const rows=buildOwnerTodos({data:{project:{projectId:12,status:'ACTIVE',accountingState:'CLOSED',goalMode:'NO_TOTAL',closeMethod:'DIRECT',planEndDate:'2026-09-30',budget:{mode:'TOTAL',cycle:'PROJECT',endDate:'2026-09-30'}}},userId:9,today:'2026-10-08',permissions:['business:project:edit']})
+  assert.equal(rows.some(row=>row.key==='budget'),false)
+  assert.deepEqual(rows.find(row=>row.key==='plan-expired'),{
+    key:'plan-expired',title:'项目计划已到期',detail:'计划截至 2026-09-30，请延长计划或办理结项',action:'project',tab:'plan',urgent:true
+  })
+})
+test('expired rolling total-cap budget still requires renewal',()=>{
+  const rows=buildOwnerTodos({data:{project:{projectId:12,status:'ACTIVE',accountingState:'CLOSED',goalMode:'NO_TOTAL',closeMethod:'DIRECT',budget:{mode:'TOTAL',cycle:'MONTH',endDate:'2026-09-30'}}},userId:9,today:'2026-10-08',permissions:['business:project:edit']})
+  assert.deepEqual(rows.find(row=>row.key==='budget'),{
+    key:'budget',title:'续编项目预算',detail:'上期截至 2026-09-30',action:'project',tab:'plan',urgent:true
+  })
+})
+const data = { project: { projectId: 12, status: 'ACTIVE', accountingState: 'OPEN', goalMode: 'NO_TOTAL' } }
+
+test('active owner receives KPI setup todo when no plan has been published', () => {
+  const rows = buildOwnerTodos({ data, userId: 9, today: '2026-09-11', permissions,
+    kpi: { canManage: true, plans: [] } })
+  assert.deepEqual(rows.filter(row => row.key === 'kpi-setup'), [{
+    key: 'kpi-setup', title: '设置项目 KPI', detail: '项目已启动，请设置指标并发布考核方案',
+    action: 'kpi-settings', urgent: true
+  }])
+})
+
+test('KPI setup todo disappears after a plan is published', () => {
+  const rows = buildOwnerTodos({ data, userId: 9, today: '2026-09-11', permissions,
+    kpi: { canManage: true, plans: [{ planId: 3, status: 'PUBLISHED' }] } })
+  assert.equal(rows.some(row => row.key === 'kpi-setup'), false)
+})
+
+test('voided plans still require a replacement KPI plan', () => {
+  const rows = buildOwnerTodos({ data, userId: 9, today: '2026-09-11', permissions,
+    kpi: { canManage: true, plans: [{ planId: 3, status: 'VOIDED' }] } })
+  assert.equal(rows.some(row => row.key === 'kpi-setup'), true)
+})
+
+test('KPI loading or failure does not create a false setup todo', () => {
+  const rows = buildOwnerTodos({ data, userId: 9, today: '2026-09-11', permissions, kpi: null })
+  assert.equal(rows.some(row => row.key === 'kpi-setup'), false)
+})
+
+test('allocation confirmation todo belongs to its review project even when paused', () => {
+  const request={requestId:6,projectId:12,userId:11,userName:'袁崇焕',applicantName:'张三',effectiveDate:'2026-09-11'}
+  const rows=buildOwnerTodos({data:{project:{...data.project,status:'PAUSED'},pendingAllocationRequests:[request,{...request,requestId:7,projectId:99}]},userId:9,today:'2026-09-11'})
+  assert.equal(rows.length,1)
+  assert.equal(rows[0].action,'allocation-review')
+  assert.equal(rows[0].item.userId,11)
+  assert.equal(rows[0].urgent,true)
+})
+
+test('reviewer queue includes other-project adjustments once and carries exact employee/date', () => {
+  const request={requestId:1,projectId:9,userId:132,userName:'蔡新武',applicantName:'蔡新武',effectiveDate:'2026-09-16'}
+  const projects=[{projectId:12,projectName:'3'},{projectId:9,projectName:'meimaru管理系统开发'}]
+  const todos=buildAllocationReviewTodos([request,{...request,requestId:'1'}],projects)
+  assert.equal(todos.length,1)
+  assert.equal(todos[0].projectId,9)
+  assert.equal(todos[0].projectName,'meimaru管理系统开发')
+  assert.equal(todos[0].item.userId,132)
+  assert.equal(todos[0].item.effectiveDate,'2026-09-16')
+  assert.match(todos[0].detail,/蔡新武发起/)
+  assert.deepEqual(buildAllocationReviewTodos([]),[])
+  for(const status of ['APPROVED','APPLIED','REJECTED','WITHDRAWN'])
+    assert.deepEqual(buildAllocationReviewTodos([{...request,status}],projects),[])
+})
+
+test('assigned child draft appears as an urgent owner handoff todo only for its child owner', () => {
+  const proposal={proposalId:18,parentProjectId:3,parentProjectName:'主项目',projectName:'子项目X',status:'DRAFT',assignedOwnerUserId:9,planStartDate:'2026-09-01',planEndDate:'2026-09-30',canEdit:true}
+  const todos=buildProposalHandoffTodos([proposal],9)
+  assert.equal(todos.length,1)
+  assert.equal(todos[0].action,'proposal-handoff')
+  assert.equal(todos[0].proposalId,18)
+  assert.equal(todos[0].urgent,true)
+  assert.match(todos[0].detail,/主项目已转交/)
+  assert.deepEqual(buildProposalHandoffTodos([proposal],10),[])
+  assert.deepEqual(buildProposalHandoffTodos([{...proposal,status:'APPROVED'}],9),[])
+  assert.deepEqual(buildProposalHandoffTodos([{...proposal,canEdit:false}],9),[])
+})
+
+test('parent owner receives direct links for every kind of child acceptance review', () => {
+  const todos=buildChildAcceptanceTodos([
+    {reviewType:'RESULT_ACCEPTANCE',projectId:21,projectName:'子项目A',parentProjectName:'主项目',childOwnerName:'子负责人'},
+    {reviewType:'STAGE_ACCEPTANCE',projectId:22,projectName:'子项目B',milestoneId:5,milestoneName:'交付节点',childOwnerName:'子负责人'},
+    {reviewType:'PROJECT_CLOSE',projectId:23,projectName:'子项目C',parentProjectName:'主项目',childOwnerName:'子负责人'}
+  ])
+  assert.deepEqual(todos.map(item=>item.tab),['acceptance','stageAcceptance','overview'])
+  assert.equal(todos.every(item=>item.action==='child-acceptance'&&item.urgent),true)
+  assert.match(todos[1].detail,/交付节点/)
+})

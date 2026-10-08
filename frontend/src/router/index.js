@@ -1,3 +1,4 @@
+import { translateText } from '@/locales/translate'
 import { createWebHistory, createRouter } from 'vue-router'
 /* Layout */
 import Layout from '@/layout'
@@ -26,6 +27,13 @@ import Layout from '@/layout'
 
 // 公共路由
 export const constantRoutes = [
+  ...Object.entries({
+    '/business/staff': '/hcm/staff',
+    '/business/departments': '/hcm/departments',
+    '/business/accounting': '/finance/accounting',
+    '/finance/boss': '/business/boss',
+    '/business/boss-ai': '/platform/boss-ai'
+  }).map(([path, target]) => ({ path, hidden: true, redirect: to => ({ path: target, query: to.query, hash: to.hash }) })),
   {
     path: '/redirect',
     component: Layout,
@@ -66,7 +74,7 @@ export const constantRoutes = [
         path: '/index',
         component: () => import('@/views/index'),
         name: 'Index',
-        meta: { title: '首页', icon: 'dashboard', affix: true }
+        meta: { title: translateText("首页"), icon: 'dashboard', affix: true }
       }
     ]
   },
@@ -74,7 +82,7 @@ export const constantRoutes = [
     path: '/lock',
     component: () => import('@/views/lock'),
     hidden: true,
-    meta: { title: '锁定屏幕' }
+    meta: { title: translateText("锁定屏幕") }
   },
   {
     path: '/user',
@@ -86,7 +94,7 @@ export const constantRoutes = [
         path: 'profile/:activeTab?',
         component: () => import('@/views/system/user/profile/index'),
         name: 'Profile',
-        meta: { title: '个人中心', icon: 'user' }
+        meta: { title: translateText("个人中心"), icon: 'user' }
       }
     ]
   }
@@ -94,6 +102,21 @@ export const constantRoutes = [
 
 // 动态路由，基于用户权限动态去加载
 export const dynamicRoutes = [
+  {
+    path: '/projects/kpi-results',
+    component: Layout,
+    hidden: true,
+    permissions: ['business:kpi:list'],
+    children: [
+      {
+        path: '',
+        component: () => import('@/views/business/kpi/index.vue'),
+        props: { resultsOnly: true },
+        name: 'BusinessProjectKpiResults',
+        meta: { title: translateText("项目 KPI 结果"), activeMenu: '/business/kpi-bonus', noCache: true }
+      }
+    ]
+  },
   {
     path: '/system/user-auth',
     component: Layout,
@@ -104,7 +127,7 @@ export const dynamicRoutes = [
         path: 'role/:userId(\\d+)',
         component: () => import('@/views/system/user/authRole'),
         name: 'AuthRole',
-        meta: { title: '分配角色', activeMenu: '/system/user' }
+        meta: { title: translateText("分配角色"), activeMenu: '/system/user' }
       }
     ]
   },
@@ -118,7 +141,7 @@ export const dynamicRoutes = [
         path: 'user/:roleId(\\d+)',
         component: () => import('@/views/system/role/authUser'),
         name: 'AuthUser',
-        meta: { title: '分配用户', activeMenu: '/system/role' }
+        meta: { title: translateText("分配用户"), activeMenu: '/system/role' }
       }
     ]
   },
@@ -132,7 +155,7 @@ export const dynamicRoutes = [
         path: 'index/:dictId(\\d+)',
         component: () => import('@/views/system/dict/data'),
         name: 'Data',
-        meta: { title: '字典数据', activeMenu: '/system/dict' }
+        meta: { title: translateText("字典数据"), activeMenu: '/system/dict' }
       }
     ]
   },
@@ -146,7 +169,7 @@ export const dynamicRoutes = [
         path: 'index/:jobId(\\d+)',
         component: () => import('@/views/monitor/job/log'),
         name: 'JobLog',
-        meta: { title: '调度日志', activeMenu: '/monitor/job' }
+        meta: { title: translateText("调度日志"), activeMenu: '/monitor/job' }
       }
     ]
   },
@@ -160,7 +183,7 @@ export const dynamicRoutes = [
         path: 'index/:tableId(\\d+)',
         component: () => import('@/views/tool/gen/editTable'),
         name: 'GenEdit',
-        meta: { title: '修改生成配置', activeMenu: '/tool/gen' }
+        meta: { title: translateText("修改生成配置"), activeMenu: '/tool/gen' }
       }
     ]
   }

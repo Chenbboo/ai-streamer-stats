@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.business.mapper.BusinessMemberDayCostMapper">
+  <select id="selectStaffMetadata" resultType="map">
+    select company.dept_name companyName,company.dept_id companyDeptId,coalesce(c.country_region_snapshot,profile.country_region) countryRegion,
+      c.cost_mode costMode,case when c.cost_mode='MONTHLY' then c.unit_cost end monthlyCost,c.standard_work_days standardWorkDays,
+      date_format(profile.hire_date,'%Y-%m-%d') hireDate,
+      coalesce((select source_dept.public_cost_source from sys_dept source_dept where source_dept.parent_id=company.dept_id
+        and (source_dept.dept_id=d.dept_id or find_in_set(source_dept.dept_id,d.ancestors)) limit 1),'STAFF_REMAINDER') departmentCostSource
+    from sys_user u left join sys_dept d on d.dept_id=u.dept_id
+    left join sys_dept company on company.parent_id=100 and company.del_flag='0' and (company.dept_id=d.dept_id or find_in_set(company.dept_id,d.ancestors))
+    left join biz_staff_profile profile on profile.user_id=u.user_id left join biz_staff_cost_policy c on c.policy_id=#{policyId} and c.user_id=u.user_id where u.user_id=#{userId}
+  </select>
+  <select id="selectUserMonthCosts" resultType="map">
+    select c.project_id projectId,c.user_id userId,date_format(c.biz_date,'%Y-%m-%d') bizDate,c.amount,c.currency,
+      c.pricing_status pricingStatus,c.basis_json basisJson,p.project_name projectName,p.project_no projectNo,p.del_flag projectDelFlag
+    from biz_project_member_day_cost c left join biz_project p on p.project_id=c.project_id
+    where c.user_id=#{userId} and c.biz_date between concat(#{month},'-01') and last_day(concat(#{month},'-01'))
+    order by c.project_id,c.biz_date
+  </select>
+  <select id="selectRolePeriods" resultType="map">select user_id userId,effective_from effectiveFrom,member_role memberRole from biz_project_member_role_period where project_id=#{projectId} order by effective_from</select>
+  <insert id="saveRolePeriod">insert into biz_project_member_role_period(project_id,user_id,effective_from,member_role,operator_name,created_at) values(#{projectId},#{userId},#{effectiveFrom},#{role},#{operator},now()) on duplicate key update member_role=values(member_role),operator_name=values(operator_name),created_at=now()</insert>
+  <insert id="archiveMembership">insert ignore into biz_project_member_cost_period(project_id,user_id,user_name,member_role,joined_date,left_date) select project_id,user_id,user_name_snapshot,member_role,joined_date,left_date from biz_project_member where project_id=#{projectId} and user_id=#{userId} and status='1' and joined_date is not null and left_date is not null</insert>
+  <select id="selectPastMemberships" resultType="map">select user_id userId,user_name userName,member_role memberRole,joined_date joinedDate,left_date leftDate,'1' status from biz_project_member_cost_period where project_id=#{projectId}</select>
+  <select id="selectAllocationPeriods" resultType="map">
+    select allocation_id allocationId,user_id userId,allocation_value allocationValue,
+      effective_from effectiveFrom,effective_to effectiveTo,version,confirmation_status confirmationStatus
+    from biz_project_staff_allocation
+    where project_id=#{projectId} and status='ACTIVE' and allocation_mode='PERCENTAGE'
+    order by user_id,effective_from,allocation_id
+  </select>
+  <select id="selectOpenProjects" resultType="long">select project_id from biz_project where del_flag='0' and cost_policy_version='MEMBER_DAYS_V1' and coalesce(accounting_state,'OPEN')&lt;&gt;'CLOSED' and coalesce(actual_start_date,plan_start_date)&lt;=current_date()</select>
+  <sql id="columns">project_id projectId,user_id userId,user_name userName,biz_date bizDate,amount,currency,pricing_status pricingStatus,issue,rate_policy_id ratePolicyId,calendar_id calendarId,basis_json basisJson,concat(user_name,' · 工作日成本') componentName,basis_json calculationDetail</sql>
+  <select id="selectCosts" resultType="map">select <include refid="columns"/> from biz_project_member_day_cost where project_id=#{projectId} order by biz_date,user_id</select>
+  <!-- Current approved/canceled revisions only; mapping dates continue to apply after retirement.
+       PARALLEL connections already supply the live readonly attendance page. This cost policy does
+       not change source-switching state, local leave, payroll, or confirmed actual work. -->
+  <select id="selectCostAttendance" resultType="map">
+    select distinct o.observation_id observationId,o.user_id userId,o.business_date businessDate,
+      o.kind,o.normalized_status normalizedStatus,o.quality,o.intervals_json intervalsJson
+    from biz_feishu_observation o
+    join biz_feishu_mapping m on m.mapping_id=o.mapping_id and m.connection_id=o.connection_id and m.user_id=o.user_id
+      and m.status in ('CONFIRMED','RETIRED') and m.effective_from&lt;=o.business_date
+      and (m.effective_to is null or m.effective_to&gt;=o.business_date)
+    join biz_feishu_connection c on c.connection_id=o.connection_id and c.state in ('PARALLEL','ACTIVE')
+    where o.is_current=1 and o.kind in ('LEAVE','SHIFT') and o.business_date between #{dateFrom} and #{dateTo}
+      and o.user_id in (
+        select user_id from biz_project_member where project_id=#{projectId}
+        union select user_id from biz_project_member_cost_period where project_id=#{projectId}
+        union select user_id from biz_project_member_day_cost where project_id=#{projectId}
+      )
+    order by o.business_date,o.user_id,o.observation_id
+  </select>
+  <select id="selectDayCosts" resultType="map">select <include refid="columns"/> from biz_project_member_day_cost where project_id=#{projectId} and biz_date=#{bizDate} order by user_id</select>
+  <delete id="deleteDay">delete from biz_project_member_day_cost where project_id=#{projectId} and biz_date=#{bizDate}</delete>
+  <delete id="deleteRemovalDayCost">delete from biz_project_member_day_cost where project_id=#{projectId} and user_id=#{userId} and biz_date=#{bizDate}</delete>
+  <insert id="insertCost">insert into biz_project_member_day_cost(project_id,user_id,user_name,biz_date,amount,currency,pricing_status,issue,rate_policy_id,calendar_id,basis_json,update_time) values(#{projectId},#{userId},#{userName},#{bizDate},#{amount},#{currency},#{pricingStatus},#{issue},#{ratePolicyId},#{calendarId},#{basisJson},sysdate())</insert>
+  <select id="countPending" resultType="int">select count(*) from biz_project_member_day_cost where project_id=#{projectId} and pricing_status='PENDING'</select>
+  <select id="selectLegacyResultDates" resultType="string">select date_format(r.biz_date,'%Y-%m-%d') from biz_project_daily_result r where r.project_id=#{projectId} and r.is_current='1' and not exists(select 1 from biz_project_daily_result_item i where i.result_id=r.result_id and i.component_code='PERSONNEL_COST' and i.calculation_detail like '成员参与期间有效工作日%')</select>
+</mapper>

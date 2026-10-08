@@ -42,7 +42,8 @@ export default defineConfig(({ mode, command }) => {
     },
     // vite 相关配置
     server: {
-      port: 80,
+      // 本机 IIS 占用 80 端口，开发服务固定使用 81，避免启动时报 EACCES。
+      port: 81,
       host: true,
       open: true,
       proxy: {

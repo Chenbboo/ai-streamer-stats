@@ -1,0 +1,171 @@
+<template>
+  <el-alert v-if="loadError" :title="$tr(&quot;项目列表读取失败&quot;)" type="error" :closable="false" show-icon><el-button link type="primary" @click="refresh">{{ $tr("重新加载") }}</el-button></el-alert>
+  <el-alert v-else-if="childLoadFailed" :title="$tr(&quot;部分子项目读取失败，请刷新重试&quot;)" type="warning" :closable="false" show-icon><el-button link type="primary" @click="refresh">{{ $tr("重新加载") }}</el-button></el-alert>
+  <el-table ref="tableRef" :data="visibleRows" row-key="projectId" v-loading="loading" :row-class-name="rowClass" :empty-text="$tr(&quot;暂无匹配的主项目或子项目&quot;)">
+    <el-table-column :label="$tr(&quot;项目名&quot;)" min-width="220">
+      <template #default="{ row }"><div :data-project-id="row.projectId" :style="{ paddingLeft: `${row.depth * 22}px` }"><el-tag v-if="row.parentId" size="small" effect="plain" class="child-tag">{{ $tr("子项目") }}</el-tag><b>{{ row.projectName }}</b><small>{{ row.projectNo || '—' }}</small><small v-if="row.contextOnly">{{ $tr("仅显示基本信息，详情按项目权限开放") }}</small></div></template>
+    </el-table-column>
+    <el-table-column prop="companyName" :label="$tr(&quot;归属公司&quot;)" min-width="130"><template #default="{ row }">{{ row.companyName || '—' }}</template></el-table-column>
+    <el-table-column :label="$tr(&quot;归属老板&quot;)" min-width="90"><template #default="{ row }">{{ row.sponsorOwnerName || row.initiatorName || '—' }}</template></el-table-column>
+    <el-table-column :label="$tr(&quot;负责人&quot;)" min-width="90"><template #default="{ row }">{{ row.mainOwnerName || '—' }}</template></el-table-column>
+    <el-table-column :label="$tr(&quot;治理方式&quot;)" min-width="135"><template #default="{ row }">{{ managementLabels[row.managementMode] || '—' }}<small>{{ closeLabels[row.closeMethod] }}</small></template></el-table-column>
+    <el-table-column :label="$tr(&quot;类型&quot;)" width="90"><template #default="{ row }">{{ typeLabels[row.projectType] || row.projectType || '—' }}</template></el-table-column>
+    <el-table-column :label="$tr(&quot;交付 / 核算&quot;)" min-width="160"><template #default="{ row }"><BusinessProjectState :project="row"/><small>{{ accountingLabels[row.accountingMode] }}</small></template></el-table-column>
+    <el-table-column :label="$tr(&quot;计划周期&quot;)" min-width="185"><template #default="{ row }">{{ row.planStartDate ? $tr("{0} 至 {1}", [row.planStartDate, row.planEndDate || $tr("不限期")]) : '—' }}</template></el-table-column>
+    <el-table-column :label="$tr(&quot;项目目标&quot;)" min-width="160" show-overflow-tooltip><template #default="{ row }">{{ row.objective || '—' }}</template></el-table-column>
+    <el-table-column :label="$tr(&quot;成员 / 风险&quot;)" width="130" align="center"><template #default="{ row }"><el-button v-if="!row.contextOnly" link type="primary" :aria-label="$tr(&quot;查看{0}成员和风险详情&quot;, [row.projectName])" @click.stop="showPeopleRisks(row)">{{ $tr("{0} 人 / ", [row.memberCount || 0]) }}<span :class="{ danger: row.openRiskCount }">{{ $tr("{0} 风险", [row.openRiskCount || 0]) }}</span></el-button><span v-else>—</span></template></el-table-column>
+    <el-table-column :label="$tr(&quot;本月进度 / 最新汇报&quot;)" min-width="200"><template #default="{row}"><template v-if="!row.contextOnly"><el-button link type="primary" @click.stop="$emit('progress',row)">{{ row.progressPercent ?? 0 }}%{{ row.subprojectCount ? $tr(" · 展开子项目汇总") : $tr(" · 查看汇报") }}</el-button><small>{{ row.progressSummary || $tr("本月尚无汇报") }}</small></template><span v-else>—</span></template></el-table-column>
+    <el-table-column :label="$tr(&quot;操作&quot;)" width="280" fixed="right"><template #default="{ row }"><div v-if="!row.contextOnly" class="row-actions">
+      <el-button v-if="row.manageable && !row.parentId && !ended(row)" v-hasPermi="['business:project:proposal:add']" link type="primary" @click.stop="$emit('create', row)">{{ $tr("新增子项目") }}</el-button>
+      <el-button link type="primary" @click.stop="$emit('detail', row)">{{ $tr("查看详情") }}</el-button>
+      <el-tag v-if="pendingProjects.has(row.projectId)" type="warning" size="small">{{ $tr("待管理员或老板审核删除") }}</el-tag>
+      <el-button v-else-if="row.manageable && (isAdmin || Number(row.mainOwnerUserId)===Number(userStore.id))" v-hasPermi="['business:project:edit']" link type="danger" :loading="deleting===row.projectId" @click.stop="remove(row)">{{ isAdmin ? $tr("删除") : $tr("申请删除") }}</el-button>
+    </div></template></el-table-column>
+  </el-table>
+  <pagination v-show="total" :total="total" v-model:page="page" v-model:limit="pageSize" @pagination="refresh"/>
+  <el-dialog v-model="summaryOpen" :title="$tr(&quot;{0} · 成员 / 风险&quot;, [summaryName])" width="min(760px, 94vw)" destroy-on-close>
+    <div v-loading="summaryLoading" class="summary-content">
+      <el-alert v-if="summaryError" :title="$tr(&quot;成员与风险读取失败，请关闭后重试&quot;)" type="error" :closable="false"/>
+      <template v-else><h3>{{ $tr("项目成员（{0}）", [summary.members?.length || 0]) }}</h3>
+        <el-table :data="summary.members || []" :empty-text="$tr(&quot;暂无成员&quot;)" max-height="260"><el-table-column prop="userNameSnapshot" :label="$tr(&quot;姓名&quot;)"/><el-table-column :label="$tr(&quot;角色&quot;)"><template #default="{ row }">{{ roleLabels[row.memberRole] || row.memberRole }}</template></el-table-column><el-table-column prop="responsibility" :label="$tr(&quot;职责&quot;)"/></el-table>
+        <h3>{{ $tr("风险详情（{0}）", [summary.risks?.length || 0]) }}</h3>
+        <el-table :data="summary.risks || []" :empty-text="$tr(&quot;暂无风险&quot;)" max-height="320"><el-table-column prop="riskTitle" :label="$tr(&quot;风险&quot;)" min-width="150"/><el-table-column :label="$tr(&quot;等级&quot;)" width="70"><template #default="{ row }">{{ severityLabels[row.severity] }}</template></el-table-column><el-table-column :label="$tr(&quot;状态&quot;)" width="90"><template #default="{ row }">{{ riskLabels[row.status] }}</template></el-table-column><el-table-column prop="ownerName" :label="$tr(&quot;负责人&quot;)" width="90"/><el-table-column prop="responsePlan" :label="$tr(&quot;应对措施&quot;)" min-width="160"/><el-table-column prop="dueDate" :label="$tr(&quot;截止日期&quot;)" width="110"/></el-table>
+      </template>
+    </div>
+  </el-dialog>
+</template>
+
+<script setup>
+import { translateText } from '@/locales/translate'
+
+import { computed, nextTick, ref, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import BusinessProjectState from '@/components/BusinessProjectState/index.vue'
+import { isDeliveryEnded as ended } from '@/utils/businessProjectState'
+import { getBusinessProjectHierarchy, getBusinessProjectChildren, getBusinessProject, deleteBusinessProject, requestBusinessProjectDeletion, listBusinessProjectDeletionRequests } from '@/api/business/project'
+import useUserStore from '@/store/modules/user'
+
+const props = defineProps({ query: { type: Object, required: true } })
+const emit = defineEmits(['create', 'detail', 'deleted', 'progress'])
+const userStore = useUserStore()
+const isAdmin = computed(() => userStore.roles.includes('admin') || userStore.permissions.includes('*:*:*'))
+const pendingProjects = ref(new Set())
+const records = ref([]), loading = ref(false), deleting = ref(null), loadError = ref(false)
+const page = ref(1), pageSize = ref(10), total = ref(0), tableRef = ref(null)
+const children = ref({}), childLoading = ref({}), childErrors = ref({})
+const visibleRows = computed(() => records.value.flatMap(root => [
+  { ...root, depth: 0 },
+  ...(children.value[root.projectId] || []).map(child => ({ ...child, depth: 1 }))
+]))
+const childLoadFailed = computed(() => Object.values(childErrors.value).some(Boolean))
+const managementLabels = { LIGHT: translateText("轻量模式"), STANDARD: translateText("标准模式"), KEY_CONTROL: translateText("重点监管"), SIMPLE: translateText("轻量模式"), DELIVERY: translateText("标准模式") }
+const closeLabels = { DIRECT: translateText("直接结项"), RESULT_ACCEPTANCE: translateText("成果验收"), STAGED_ACCEPTANCE: translateText("阶段验收") }
+const typeLabels = { LIVE: translateText("直播"), JEWELRY: translateText("珠宝"), ECOMMERCE: translateText("电商"), OPERATIONS: translateText("运营"), INTERNAL: translateText("内部"), GENERAL: translateText("通用"), OTHER: translateText("其他") }
+const accountingLabels = { PROFIT: translateText("利润项目"), COST: translateText("成本项目"), VALUE: translateText("价值项目"), HYBRID: translateText("混合核算") }
+const roleLabels = { OWNER: translateText("主负责人"), DEPUTY: translateText("副负责人"), MEMBER: translateText("成员"), OBSERVER: translateText("观察者") }
+const severityLabels = { LOW: translateText("低"), MEDIUM: translateText("中"), HIGH: translateText("高"), CRITICAL: translateText("严重") }
+const riskLabels = { OPEN: translateText("待处理"), MITIGATED: translateText("已缓解"), CLOSED: translateText("已关闭") }
+watch(() => props.query, () => { page.value = 1; refresh() }, { deep: true })
+function rowClass({ row }) {
+  const match = records.value.some(root => root.matchedChildId === row.projectId)
+  return [row.depth ? 'subproject-row' : 'main-project-row', match ? 'search-match-row' : ''].join(' ')
+}
+let loadSequence = 0
+const childRequests = new Map()
+async function loadChildren(parentId, force = false) {
+  if (childRequests.has(parentId)) return childRequests.get(parentId)
+  if (!force && Object.hasOwn(children.value, parentId)) return
+  const sequence = loadSequence
+  childLoading.value[parentId] = true; childErrors.value[parentId] = false
+  const request = (async () => {
+    try {
+      const result = await getBusinessProjectChildren(parentId)
+      if (sequence === loadSequence) {
+        children.value[parentId] = result.data || []
+      }
+    } catch { if (sequence === loadSequence) childErrors.value[parentId] = true }
+    finally {
+      if (sequence === loadSequence) { childLoading.value[parentId] = false; childRequests.delete(parentId) }
+    }
+  })()
+  childRequests.set(parentId, request)
+  return request
+}
+async function refresh() {
+  const sequence = ++loadSequence
+  loading.value = true; loadError.value = false
+  children.value = {}; childLoading.value = {}; childErrors.value = {}; childRequests.clear()
+  try {
+    const [result, requests] = await Promise.all([
+      getBusinessProjectHierarchy({ ...props.query, pageNum: page.value, pageSize: pageSize.value }),
+      listBusinessProjectDeletionRequests()
+    ])
+    if (sequence !== loadSequence) return
+    records.value = result.rows || []; total.value = result.total || 0
+    pendingProjects.value = new Set((requests.data || []).filter(item => item.status === 'PENDING').map(item => item.projectId))
+    if (!records.value.length && page.value > 1) { page.value--; return refresh() }
+    const matching = records.value.filter(row => row.matchedChildId != null)
+    await Promise.all(records.value.map(row => loadChildren(row.projectId)))
+    if (sequence !== loadSequence || !matching.length) return
+    await nextTick()
+    const target = tableRef.value?.$el.querySelector('[data-project-id="' + matching[0].matchedChildId + '"]')
+    target?.closest('tr')?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  } catch { if (sequence === loadSequence) loadError.value = true }
+  finally { if (sequence === loadSequence) loading.value = false }
+}
+async function updated(row) {
+  if (row.parentId) { await loadChildren(row.parentId, true) }
+  else records.value = records.value.map(existing => existing.projectId === row.projectId ? { ...existing, ...row, manageable: existing.manageable, contextOnly: existing.contextOnly } : existing)
+}
+async function refreshChildren(parentId) {
+  if (!records.value.some(row => row.projectId === parentId)) return
+  await loadChildren(parentId, true)
+}
+async function remove(row) {
+  let reason
+  try {
+    if (isAdmin.value) await ElMessageBox.confirm(translateText("确定删除{0}“{1}”吗？历史记录会保留。", [row.parentId ? translateText("子项目") : translateText("主项目"), row.projectName]), translateText("删除确认"), { type: 'warning', confirmButtonText: translateText("确认删除"), cancelButtonText: translateText("取消") })
+    else {
+      const answer = await ElMessageBox.prompt(translateText("请填写删除“{0}”的原因。提交后项目仍保留，等待管理员或老板审核。", [row.projectName]), translateText("申请删除项目"), {
+        confirmButtonText: translateText("提交申请"), cancelButtonText: translateText("取消"), inputType: 'textarea',
+        inputValidator: value => value?.trim() && value.trim().length <= 500 ? true : translateText("请填写删除原因，且不超过500字")
+      })
+      reason = answer.value.trim()
+    }
+  } catch { return }
+  deleting.value = row.projectId
+  try {
+    if (isAdmin.value) {
+      await deleteBusinessProject(row.projectId)
+      if (row.parentId) children.value[row.parentId] = (children.value[row.parentId] || []).filter(item => item.projectId !== row.projectId)
+      else { records.value = records.value.filter(item => item.projectId !== row.projectId); total.value--; await refresh() }
+      emit('deleted', row)
+      ElMessage.success(translateText("项目已删除"))
+    } else {
+      await requestBusinessProjectDeletion(row.projectId, { reason })
+      pendingProjects.value = new Set([...pendingProjects.value, row.projectId])
+      ElMessage.success(translateText("删除申请已提交，等待管理员或老板审核"))
+    }
+  } catch { /* The shared request handler displays the server's rejection reason. */ }
+  finally { deleting.value = null }
+}
+const summaryOpen = ref(false), summaryLoading = ref(false), summaryName = ref(''), summary = ref({}), summaryError = ref(false)
+let summarySequence = 0
+async function showPeopleRisks(row) {
+  const sequence = ++summarySequence
+  summaryName.value = row.projectName; summary.value = {}; summaryOpen.value = true; summaryLoading.value = true; summaryError.value = false
+  try { const result = await getBusinessProject(row.projectId); if (sequence === summarySequence) summary.value = result.data || {} }
+  catch { if (sequence === summarySequence) summaryError.value = true }
+  finally { if (sequence === summarySequence) summaryLoading.value = false }
+}
+defineExpose({ refresh, updated, refreshChildren })
+</script>
+
+<style scoped>
+small{display:block;color:var(--el-text-color-secondary);margin-top:5px;font-size:12px}
+:deep(.subproject-row.search-match-row){--el-table-tr-bg-color:#fff6d9}
+.child-tag{margin-right:8px}.danger{color:var(--el-color-danger)}
+.row-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.row-actions .el-button{margin:0}
+:deep(.subproject-row){--el-table-tr-bg-color:#f5f8fc}:deep(.main-project-row td){padding-top:17px;padding-bottom:17px}
+.summary-content{min-height:200px}.summary-content h3{margin:20px 0 12px;font-size:15px}
+</style>

@@ -1,8 +1,14 @@
 package com.ruoyi.live.service.impl;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +34,7 @@ import com.ruoyi.live.service.ILiveUploadService;
 public class LiveUploadServiceImpl implements ILiveUploadService
 {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final int MAX_CONFIRM_BATCH_SIZE = 1000;
 
     @Autowired
     private LiveUploadMapper uploadMapper;
@@ -174,20 +181,77 @@ public class LiveUploadServiceImpl implements ILiveUploadService
         {
             throw new ServiceException("上传记录不存在");
         }
+        upload.setUpdateBy(SecurityUtils.getUsername());
+        return confirmRecognize(upload, new HashMap<String, Long>(), new HashSet<String>());
+    }
+
+    @Override
+    @Transactional
+    public int confirmRecognizeBatch(Long[] uploadIds)
+    {
+        if (uploadIds == null || uploadIds.length == 0)
+        {
+            throw new ServiceException("请选择需要确认入库的图片");
+        }
+        LinkedHashSet<Long> distinctIds = new LinkedHashSet<Long>();
+        for (Long uploadId : uploadIds)
+        {
+            if (uploadId != null)
+            {
+                distinctIds.add(uploadId);
+            }
+        }
+        if (distinctIds.isEmpty())
+        {
+            throw new ServiceException("请选择需要确认入库的图片");
+        }
+        if (distinctIds.size() > MAX_CONFIRM_BATCH_SIZE)
+        {
+            throw new ServiceException("单次最多确认" + MAX_CONFIRM_BATCH_SIZE + "张图片");
+        }
+
+        List<LiveUpload> records = uploadMapper.selectLiveUploadByIds(distinctIds.toArray(new Long[0]));
+        Map<Long, LiveUpload> recordsById = new HashMap<Long, LiveUpload>();
+        for (LiveUpload record : records)
+        {
+            recordsById.put(record.getUploadId(), record);
+        }
+        List<LiveUpload> orderedRecords = new ArrayList<LiveUpload>(distinctIds.size());
+        for (Long uploadId : distinctIds)
+        {
+            LiveUpload record = recordsById.get(uploadId);
+            if (record == null)
+            {
+                throw new ServiceException("上传记录不存在:" + uploadId);
+            }
+            orderedRecords.add(record);
+        }
+
+        String username = SecurityUtils.getUsername();
+        Map<String, Long> customerIds = new HashMap<String, Long>();
+        Set<String> customerTouches = new HashSet<String>();
+        for (LiveUpload record : orderedRecords)
+        {
+            record.setUpdateBy(username);
+            confirmRecognize(record, customerIds, customerTouches);
+        }
+        return orderedRecords.size();
+    }
+
+    private int confirmRecognize(LiveUpload upload, Map<String, Long> customerIds, Set<String> customerTouches)
+    {
         if ("2".equals(upload.getAiStatus()))
         {
             return 1;
         }
-        // 记录实际确认人,入库数据的 create_by/update_by 用它
-        upload.setUpdateBy(SecurityUtils.getUsername());
         JsonNode result = readAiResult(upload.getAiResult());
         if (LiveUpload.TYPE_GIFT.equals(upload.getUploadType()))
         {
-            confirmGift(upload, result);
+            confirmGift(upload, result, customerIds, customerTouches);
         }
         else if (LiveUpload.TYPE_CHAT.equals(upload.getUploadType()))
         {
-            confirmChat(upload, result);
+            confirmChat(upload, result, customerIds, customerTouches);
         }
         else if (LiveUpload.TYPE_REPORT.equals(upload.getUploadType()))
         {
@@ -199,16 +263,17 @@ public class LiveUploadServiceImpl implements ILiveUploadService
         }
         else if (LiveUpload.TYPE_FOLLOW.equals(upload.getUploadType()))
         {
-            confirmFollow(upload, result);
+            confirmFollow(upload, result, customerIds, customerTouches);
         }
         else
         {
             throw new ServiceException("上传类型不正确");
         }
-        return uploadMapper.updateAiResult(uploadId, "2", upload.getAiResult());
+        return uploadMapper.updateAiResult(upload.getUploadId(), "2", upload.getAiResult());
     }
 
-    private void confirmGift(LiveUpload upload, JsonNode result)
+    private void confirmGift(LiveUpload upload, JsonNode result, Map<String, Long> customerIds,
+            Set<String> customerTouches)
     {
         JsonNode items = result.path("items");
         if (!items.isArray() || items.size() == 0)
@@ -227,7 +292,7 @@ public class LiveUploadServiceImpl implements ILiveUploadService
             String badge = item.path("badge").asText("");
             Integer rankNo = item.path("rankNo").asInt(index);
             Integer xu = item.path("xu").asInt(0);
-            confirmGift(upload, nickname, badge, rankNo, xu);
+            confirmGift(upload, nickname, badge, rankNo, xu, customerIds, customerTouches);
             index++;
             saved++;
         }
@@ -237,14 +302,15 @@ public class LiveUploadServiceImpl implements ILiveUploadService
         }
     }
 
-    private void confirmGift(LiveUpload upload, String nickname, String badge, Integer rankNo, Integer xu)
+    private void confirmGift(LiveUpload upload, String nickname, String badge, Integer rankNo, Integer xu,
+            Map<String, Long> customerIds, Set<String> customerTouches)
     {
-        uploadMapper.insertCustomerIfAbsent(nickname, badge, upload);
-        Long customerId = uploadMapper.selectCustomerIdByNickname(nickname, upload.getStreamerId());
+        Long customerId = resolveCustomerId(upload, nickname, badge, customerIds, customerTouches);
         uploadMapper.upsertGiftRecord(upload, customerId, rankNo, xu);
     }
 
-    private void confirmChat(LiveUpload upload, JsonNode result)
+    private void confirmChat(LiveUpload upload, JsonNode result, Map<String, Long> customerIds,
+            Set<String> customerTouches)
     {
         JsonNode items = result.path("items");
         if (!items.isArray() || items.size() == 0)
@@ -274,7 +340,7 @@ public class LiveUploadServiceImpl implements ILiveUploadService
                     }
                 }
             }
-            confirmChat(upload, nickname, badge, hasInteraction);
+            confirmChat(upload, nickname, badge, hasInteraction, customerIds, customerTouches);
             saved++;
         }
         if (saved == 0)
@@ -283,7 +349,8 @@ public class LiveUploadServiceImpl implements ILiveUploadService
         }
     }
 
-    private void confirmFollow(LiveUpload upload, JsonNode result)
+    private void confirmFollow(LiveUpload upload, JsonNode result, Map<String, Long> customerIds,
+            Set<String> customerTouches)
     {
         JsonNode items = result.path("items");
         if (!items.isArray() || items.size() == 0)
@@ -296,8 +363,8 @@ public class LiveUploadServiceImpl implements ILiveUploadService
             String nickname = item.path("nickname").asText("").trim();
             if (StringUtils.isEmpty(nickname)) continue;
             String followStatus = item.path("followStatus").asText("pending");
-            uploadMapper.insertCustomerIfAbsent(nickname, item.path("badge").asText(""), upload);
-            Long customerId = uploadMapper.selectCustomerIdByNickname(nickname, upload.getStreamerId());
+            Long customerId = resolveCustomerId(upload, nickname, item.path("badge").asText(""),
+                    customerIds, customerTouches);
             if (customerId != null)
             {
                 uploadMapper.upsertFollowRecord(upload, customerId, followStatus);
@@ -310,11 +377,33 @@ public class LiveUploadServiceImpl implements ILiveUploadService
         }
     }
 
-    private void confirmChat(LiveUpload upload, String nickname, String badge, boolean hasInteraction)
+    private void confirmChat(LiveUpload upload, String nickname, String badge, boolean hasInteraction,
+            Map<String, Long> customerIds, Set<String> customerTouches)
     {
-        uploadMapper.insertCustomerIfAbsent(nickname, badge, upload);
-        Long customerId = uploadMapper.selectCustomerIdByNickname(nickname, upload.getStreamerId());
+        Long customerId = resolveCustomerId(upload, nickname, badge, customerIds, customerTouches);
         uploadMapper.upsertChatContact(upload, customerId, hasInteraction ? 1 : 0);
+    }
+
+    private Long resolveCustomerId(LiveUpload upload, String nickname, String badge,
+            Map<String, Long> customerIds, Set<String> customerTouches)
+    {
+        String identityKey = upload.getStreamerId() + ":" + nickname.length() + ":" + nickname;
+        String touchKey = identityKey + ":" + upload.getBizDate() + ":" + badge.length() + ":" + badge;
+        if (customerTouches.add(touchKey))
+        {
+            uploadMapper.insertCustomerIfAbsent(nickname, badge, upload);
+        }
+        Long customerId = customerIds.get(identityKey);
+        if (customerId == null)
+        {
+            customerId = uploadMapper.selectCustomerIdByNickname(nickname, upload.getStreamerId());
+            if (customerId == null)
+            {
+                throw new ServiceException("客户入库失败:" + nickname);
+            }
+            customerIds.put(identityKey, customerId);
+        }
+        return customerId;
     }
 
     private String buildMockAiResult(LiveUpload upload)

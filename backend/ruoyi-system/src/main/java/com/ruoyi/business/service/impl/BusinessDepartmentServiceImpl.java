@@ -1,0 +1,265 @@
+package com.ruoyi.business.service.impl;
+
+import java.util.List;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import com.ruoyi.business.service.IBusinessDepartmentService;
+import com.ruoyi.common.core.domain.entity.SysDept;
+import com.ruoyi.common.core.domain.entity.SysUser;
+import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.common.utils.StringUtils;
+import com.ruoyi.system.service.ISysDeptService;
+import com.ruoyi.system.service.ISysUserService;
+import com.ruoyi.system.service.OnlineUserPermissionService;
+import com.ruoyi.business.mapper.BusinessStaffProfileMapper;
+import com.ruoyi.business.domain.BusinessStaffProfile;
+
+@Service
+public class BusinessDepartmentServiceImpl implements IBusinessDepartmentService
+{
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
+    @Autowired
+    private ISysDeptService deptService;
+
+    @Autowired
+    private ISysUserService userService;
+
+    @Autowired private OnlineUserPermissionService onlinePermissions;
+    @Autowired private BusinessStaffProfileMapper profileMapper;
+    @Autowired private com.ruoyi.system.mapper.SysDeptMapper companyDepartments;
+
+    @Override
+    @Transactional
+    public int assignStaff(Long deptId, List<Long> userIds, String operatorName)
+    {
+        if (userIds == null || userIds.isEmpty() || userIds.size() > 200 || userIds.contains(null))
+            throw new ServiceException("请选择1至200个员工账号");
+        companyAccess.requireDepartment(deptId);
+        SysDept target = requireActiveParent(deptId);
+        ensureNonRoot(target);
+        SysDept parent = requireDepartment(target.getParentId());
+        if (Long.valueOf(0L).equals(parent.getParentId()))
+            throw new ServiceException("请选择公司下面的具体部门");
+        List<SysUser> employees = new ArrayList<>();
+        for (Long userId : new LinkedHashSet<>(userIds))
+        {
+            companyAccess.requireStaff(userId);
+            SysUser user = userService.selectUserById(userId);
+            if (user == null || !"0".equals(user.getDelFlag())) throw new ServiceException("员工账号不存在");
+            if (user.isAdmin() || (user.getRoles() != null && user.getRoles().stream()
+                .anyMatch(role -> "company_owner".equals(role.getRoleKey()))))
+                throw new ServiceException("系统管理员和老板账号不能调整部门");
+            BusinessStaffProfile profile = profileMapper.selectByUserId(userId);
+            if (!"0".equals(user.getStatus()) || (profile != null && "LEFT".equals(profile.getEmploymentStatus())))
+                throw new ServiceException("停用或离职员工不能加入部门");
+            if (!java.util.Objects.equals(companyAccess.departmentCompany(deptId),companyAccess.staffCompany(userId))) throw new ServiceException("跨公司调动请在人员档案中办理，不能直接加入其他公司的部门");
+            if (!deptId.equals(user.getDeptId())) employees.add(user);
+        }
+        for (SysUser user : employees)
+        {
+            // Only change membership; keep contact details, credentials, roles and staff profile intact.
+            SysUser patch = new SysUser(user.getUserId());
+            patch.setDeptId(deptId);
+            patch.setUpdateBy(operatorName);
+            if (userService.updateUserProfile(patch) != 1) throw new ServiceException("员工加入部门失败");
+            onlinePermissions.forceReloginAfterCommit(user.getUserId());
+        }
+        return employees.size();
+    }
+
+    @Override
+    @Transactional
+    public void removeStaff(Long deptId, Long userId, String operatorName)
+    {
+        if (deptId == null || userId == null) throw new ServiceException("部门和员工不能为空");
+        companyAccess.requireDepartment(deptId);
+        companyAccess.requireStaff(userId);
+        SysDept current = requireDepartment(deptId);
+        ensureNonRoot(current);
+        SysDept company = current;
+        java.util.Set<Long> visited = new LinkedHashSet<>();
+        while (true)
+        {
+            if (!visited.add(company.getDeptId())) throw new ServiceException("组织层级异常");
+            SysDept parent = requireDepartment(company.getParentId());
+            if (Long.valueOf(0L).equals(parent.getParentId())) break;
+            company = parent;
+        }
+        if (deptId.equals(company.getDeptId())) throw new ServiceException("员工已直属公司，无需移出部门");
+        companyAccess.requireDepartment(company.getDeptId());
+        if (!"0".equals(company.getStatus())) throw new ServiceException("所属公司已停用");
+        SysUser user = userService.selectUserById(userId);
+        if (user == null || !"0".equals(user.getDelFlag())) throw new ServiceException("员工账号不存在");
+        if (user.isAdmin() || (user.getRoles() != null && user.getRoles().stream()
+            .anyMatch(role -> "company_owner".equals(role.getRoleKey()))))
+            throw new ServiceException("系统管理员和老板账号不能调整部门");
+        if (!deptId.equals(user.getDeptId())) throw new ServiceException("员工已不在该部门，请刷新后重试");
+        SysUser patch = new SysUser(userId);
+        patch.setDeptId(company.getDeptId());
+        patch.setUpdateBy(operatorName);
+        if (userService.updateUserProfile(patch) != 1) throw new ServiceException("员工移出部门失败");
+        onlinePermissions.forceReloginAfterCommit(userId);
+    }
+
+    @Override
+    public List<SysDept> listDepartments(SysDept query)
+    {
+        SysDept filter = query == null ? new SysDept() : query;
+        if (!com.ruoyi.common.utils.SecurityUtils.isAdmin() && !companyAccess.isCompanyBoss(com.ruoyi.common.utils.SecurityUtils.getUserId()))
+            return deptService.buildDeptTree(deptService.selectDeptList(filter));
+        filter.getParams().put("dataScope", "");
+        List<SysDept> rows = companyDepartments.selectDeptList(filter);
+        if (!com.ruoyi.common.utils.SecurityUtils.isAdmin()) rows.removeIf(dept -> !companyAccess.allowed(com.ruoyi.common.utils.SecurityUtils.getUserId(),companyAccess.departmentCompany(dept.getDeptId()),"STAFF"));
+        return deptService.buildDeptTree(rows);
+    }
+
+    @Override
+    @Transactional
+    public SysDept createDepartment(SysDept input, String operatorName)
+    {
+        bindLeader(input);
+        validateCommon(input);
+        if (input.getParentId() == null) throw new ServiceException("请选择上级部门");
+        requireActiveParent(input.getParentId());
+        if (!deptService.checkDeptNameUnique(input)) throw new ServiceException("同一上级部门下已存在同名部门");
+        input.setStatus(StringUtils.isBlank(input.getStatus()) ? "0" : input.getStatus());
+        input.setCreateBy(operatorName);
+        if (deptService.insertDept(input) != 1) throw new ServiceException("新增部门失败");
+        if (input.getDeptId() != null)
+        {
+            return deptService.selectDeptById(input.getDeptId());
+        }
+
+        // Some existing installations do not return generated keys for sys_dept.
+        // The sibling name is unique, so resolve the inserted row deterministically.
+        SysDept lookup = new SysDept();
+        lookup.setParentId(input.getParentId());
+        lookup.setDeptName(input.getDeptName());
+        for (SysDept candidate : deptService.selectDeptList(lookup))
+        {
+            if (input.getParentId().equals(candidate.getParentId())
+                && input.getDeptName().equals(candidate.getDeptName()))
+            {
+                return candidate;
+            }
+        }
+        throw new ServiceException("新增部门后未能读取部门信息");
+    }
+
+    @Override
+    @Transactional
+    public SysDept updateDepartment(SysDept input, String operatorName)
+    {
+        if (input == null || input.getDeptId() == null) throw new ServiceException("部门ID不能为空");
+        SysDept existing = requireDepartment(input.getDeptId());
+        ensureNonRoot(existing);
+        bindLeader(input);
+        validateCommon(input);
+        if (input.getParentId() == null) throw new ServiceException("请选择上级部门");
+        SysDept existingParent = requireDepartment(existing.getParentId());
+        boolean companyNode = Long.valueOf(0L).equals(existingParent.getParentId());
+        if (companyNode && !existing.getParentId().equals(input.getParentId()))
+            throw new ServiceException("公司节点不能移动到其他部门");
+        if (companyNode && "1".equals(input.getStatus()))
+            throw new ServiceException("公司节点不能停用");
+        if (input.getDeptId().equals(input.getParentId())) throw new ServiceException("上级部门不能是当前部门");
+        SysDept parent = companyNode ? requireDepartment(input.getParentId()) : requireActiveParent(input.getParentId());
+        if (!companyNode && !java.util.Objects.equals(companyAccess.departmentCompany(existing.getDeptId()),companyAccess.departmentCompany(parent.getDeptId()))) throw new ServiceException("部门不能跨公司移动，请分别维护公司组织");
+        if (containsAncestor(parent.getAncestors(), input.getDeptId())) throw new ServiceException("不能选择当前部门的下级作为上级部门");
+        if (!deptService.checkDeptNameUnique(input)) throw new ServiceException("同一上级部门下已存在同名部门");
+        if ("1".equals(input.getStatus()) && deptService.selectNormalChildrenDeptById(input.getDeptId()) > 0)
+            throw new ServiceException("请先停用下级部门");
+        input.getParams().put("syncLeaderUser", Boolean.TRUE);
+        input.setUpdateBy(operatorName);
+        if (deptService.updateDept(input) != 1) throw new ServiceException("修改部门失败");
+        return deptService.selectDeptById(input.getDeptId());
+    }
+
+    @Override
+    public void updateSort(String[] deptIds, String[] orderNums)
+    {
+        if (deptIds == null || orderNums == null || deptIds.length == 0 || deptIds.length != orderNums.length)
+            throw new ServiceException("部门排序数据不正确");
+        for (int i = 0; i < deptIds.length; i++)
+        {
+            companyAccess.requireDepartment(Long.valueOf(deptIds[i]));
+            int order = Integer.parseInt(orderNums[i]);
+            if (order < 0) throw new ServiceException("部门排序不能为负数");
+        }
+        deptService.updateDeptSort(deptIds, orderNums);
+    }
+
+    @Override
+    @Transactional
+    public void deleteDepartment(Long deptId)
+    {
+        SysDept dept = requireDepartment(deptId);
+        ensureNonRoot(dept);
+        SysDept parent = requireDepartment(dept.getParentId());
+        if (Long.valueOf(0L).equals(parent.getParentId())) throw new ServiceException("公司节点为受保护节点");
+        if (deptService.hasChildByDeptId(deptId)) throw new ServiceException("存在下级部门，不允许删除");
+        if (deptService.checkDeptExistUser(deptId)) throw new ServiceException("部门仍有人员，不允许删除");
+        if (deptService.deleteDeptById(deptId) != 1) throw new ServiceException("删除部门失败");
+    }
+
+    private void validateCommon(SysDept input)
+    {
+        if (input == null || StringUtils.isBlank(input.getDeptName())) throw new ServiceException("部门名称不能为空");
+        if (input.getDeptName().length() > 30) throw new ServiceException("部门名称不能超过30个字符");
+        if (input.getOrderNum() == null || input.getOrderNum() < 0) throw new ServiceException("显示顺序不正确");
+        if (!StringUtils.isBlank(input.getStatus()) && !"0".equals(input.getStatus()) && !"1".equals(input.getStatus()))
+            throw new ServiceException("部门状态不正确");
+    }
+
+    private void bindLeader(SysDept input)
+    {
+        if (input == null) return;
+        if (input.getLeaderUserId() == null)
+        {
+            input.setLeader("");
+            input.setPhone("");
+            input.setEmail("");
+            return;
+        }
+        SysUser leader = userService.selectUserById(input.getLeaderUserId());
+        if (leader == null || !"0".equals(leader.getDelFlag())) throw new ServiceException("所选负责人不存在");
+        if (!"0".equals(leader.getStatus())) throw new ServiceException("所选负责人账号已停用");
+        input.setLeader(StringUtils.isBlank(leader.getNickName()) ? leader.getUserName() : leader.getNickName());
+        input.setPhone(StringUtils.defaultString(leader.getPhonenumber()));
+        input.setEmail(StringUtils.defaultString(leader.getEmail()));
+    }
+
+    private SysDept requireDepartment(Long deptId)
+    {
+        if (deptId == null) throw new ServiceException("部门ID不能为空");
+        if (!Long.valueOf(100L).equals(deptId)) companyAccess.requireDepartment(deptId);
+        SysDept dept = deptService.selectDeptById(deptId);
+        if (dept == null || "2".equals(dept.getDelFlag())) throw new ServiceException("部门不存在");
+        return dept;
+    }
+
+    private SysDept requireActiveParent(Long parentId)
+    {
+        companyAccess.requireDepartment(parentId);
+        SysDept parent = requireDepartment(parentId);
+        if (!"0".equals(parent.getStatus())) throw new ServiceException("上级部门已停用");
+        return parent;
+    }
+
+    private void ensureNonRoot(SysDept dept)
+    {
+        if (Long.valueOf(0L).equals(dept.getParentId())) throw new ServiceException("公司根部门为受保护部门");
+    }
+
+    private boolean containsAncestor(String ancestors, Long deptId)
+    {
+        if (StringUtils.isBlank(ancestors)) return false;
+        for (String ancestor : ancestors.split(",")) if (String.valueOf(deptId).equals(ancestor)) return true;
+        return false;
+    }
+}

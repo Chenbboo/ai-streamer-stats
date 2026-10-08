@@ -1,0 +1,258 @@
+package com.ruoyi.business.mapper;
+
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.stream.Collectors;
+import org.junit.jupiter.api.Test;
+
+class BusinessProjectMapperXmlTest
+{
+    @Test
+    void currentMemberQueryExcludesMembersWhoAlreadyLeft()
+    {
+        InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
+        assertNotNull(input);
+        String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+        int start = xml.indexOf("<select id=\"selectMembers\"");
+        int end = xml.indexOf("</select>", start);
+        assertTrue(start >= 0 && end > start);
+        String query = xml.substring(start, end);
+
+        assertTrue(query.contains("where m.project_id=#{projectId} and m.status='0'"));
+    }
+
+    @Test
+    void oneOffTaskDashboardIncludesApprovedLeaveState()
+    {
+        InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
+        assertNotNull(input);
+        String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+        int start = xml.indexOf("<select id=\"selectMyWorkTasks\"");
+        int end = xml.indexOf("</select>", start);
+        assertTrue(start >= 0 && end > start);
+        String query = xml.substring(start, end);
+
+        assertTrue(query.contains("leave_record.leave_id todayLeaveId"));
+        assertTrue(query.contains("leave_record.status='ACTIVE'"));
+    }
+
+    @Test
+    void projectEventsExposePersonnelNameAndLoginAccountSeparately()
+    {
+        InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
+        assertNotNull(input);
+        String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+        int start = xml.indexOf("<select id=\"selectEvents\"");
+        int end = xml.indexOf("</select>", start);
+        assertTrue(start >= 0 && end > start);
+        String query = xml.substring(start, end);
+
+        assertTrue(query.contains("left join sys_user operator_user on operator_user.user_id=event.operator_user_id"));
+        assertTrue(query.contains("operator_user.nick_name"));
+        assertTrue(query.contains("nullif(trim(operator_user.user_name),'') operatorAccount"));
+        assertTrue(!query.contains("event.operator_name) operatorAccount"));
+        assertTrue(!query.contains("operator_user.del_flag='0'"));
+        assertTrue(query.contains("left join sys_user subject_user"));
+        assertTrue(query.contains("event.subject_user_id"));
+        assertTrue(query.contains("event.subject_account"));
+        assertTrue(query.contains("subjectName"));
+    }
+
+    @Test
+    void ownerPendingEffortQuerySpansAllOwnedProjects()
+    {
+        InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
+        assertNotNull(input);
+        String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+        int start = xml.indexOf("<select id=\"selectOwnerPendingEffortRequests\"");
+        int end = xml.indexOf("</select>", start);
+        assertTrue(start >= 0 && end > start);
+        String query = xml.substring(start, end);
+
+        assertTrue(query.contains("e.report_status='SUBMITTED'"));
+        assertTrue(query.contains("p.main_owner_user_id=#{userId}"));
+        assertTrue(query.contains("e.deviation_reason deviationReason"));
+    }
+
+    @Test
+    void childAcceptanceIsRoutedToParentOwnerInsteadOfBossQueue()
+    {
+        InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
+        assertNotNull(input);
+        String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+
+        int ownerStart = xml.indexOf("<select id=\"selectParentOwnerAcceptanceTodos\"");
+        int ownerEnd = xml.indexOf("</select>", ownerStart);
+        assertTrue(ownerStart >= 0 && ownerEnd > ownerStart);
+        String ownerQuery = xml.substring(ownerStart, ownerEnd);
+        assertTrue(ownerQuery.contains("parent.main_owner_user_id=#{userId}"));
+        assertTrue(ownerQuery.contains("'RESULT_ACCEPTANCE' reviewType"));
+        assertTrue(ownerQuery.contains("'STAGE_ACCEPTANCE' reviewType"));
+        assertTrue(ownerQuery.contains("'PROJECT_CLOSE' reviewType"));
+
+        int bossStageStart = xml.indexOf("<sql id=\"bossPendingStageAcceptance\"");
+        int bossStageEnd = xml.indexOf("</sql>", bossStageStart);
+        assertTrue(xml.substring(bossStageStart, bossStageEnd).contains("p.parent_id is null"));
+        int bossProjectStart = xml.indexOf("<sql id=\"bossPendingProject\"");
+        int bossProjectEnd = xml.indexOf("</sql>", bossProjectStart);
+        assertTrue(xml.substring(bossProjectStart, bossProjectEnd)
+            .contains("not (p.parent_id is not null and p.status='ACCEPTANCE')"));
+        int dashboardStart = xml.indexOf("<select id=\"selectDashboardDecisionPage\"");
+        int dashboardEnd = xml.indexOf("</select>", dashboardStart);
+        assertTrue(xml.substring(dashboardStart, dashboardEnd)
+            .contains("not (p.parent_id is not null and p.status='ACCEPTANCE')"));
+    }
+
+    @Test
+    void removingMemberUnassignsRoutineWithoutHidingItsHistory()
+    {
+        InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
+        assertNotNull(input);
+        String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+        int start = xml.indexOf("<update id=\"unassignActiveMemberRoutines\"");
+        int end = xml.indexOf("</update>", start);
+        assertTrue(start >= 0 && end > start);
+        String query = xml.substring(start, end);
+
+        assertTrue(query.contains("assignee_user_id=null"));
+        assertTrue(query.contains("assignee_name=null"));
+        assertTrue(query.contains("status='ACTIVE'"));
+        assertTrue(!query.contains("status='VOID'"));
+    }
+
+    @Test
+    void attachmentLookupNormalizesLegacyWindowsSeparators()
+    {
+        InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
+        assertNotNull(input);
+        String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+        int start = xml.indexOf("<select id=\"selectAttachmentProjectIds\"");
+        int end = xml.indexOf("</select>", start);
+        assertTrue(start >= 0 && end > start);
+        String query = xml.substring(start, end);
+
+        assertTrue(query.contains("char(92)"));
+        assertTrue(query.contains("biz_project_task_report"));
+        assertTrue(query.contains("biz_staff_leave_request"));
+    }
+
+    @Test
+    void terminalGuardReadsTheRealEffortReportTable()
+    {
+        InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
+        assertNotNull(input);
+        String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+        int start = xml.indexOf("<select id=\"countPendingProjectEfforts\"");
+        int end = xml.indexOf("</select>", start);
+        assertTrue(start >= 0 && end > start);
+        String query = xml.substring(start, end);
+
+        assertTrue(query.contains("from biz_project_effort_report"));
+        assertTrue(!query.contains("biz_project_staff_effort"));
+    }
+
+    @Test
+    void retiredLeaveWorkflowIsAbsentFromPendingQueriesAndWrites()
+    {
+        InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
+        assertNotNull(input);
+        String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+        assertTrue(!xml.contains("bossPendingLeaveRequest"));
+        assertTrue(!xml.contains("leaveRequestCount"));
+        assertTrue(!xml.contains("insert into biz_staff_leave"));
+        assertTrue(!xml.contains("update biz_staff_leave"));
+        assertTrue(!xml.contains("countPendingProjectLeaveRequests"));
+    }
+
+    @Test
+    void routineQueriesUseVersionedDailyTargetsAndReportSnapshots()
+    {
+        InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
+        assertNotNull(input);
+        String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+        int start = xml.indexOf("<select id=\"selectRoutines\"");
+        int end = xml.indexOf("</select>", start);
+        String query = xml.substring(start, end);
+
+        assertTrue(query.contains("biz_project_routine_daily_target"));
+        assertTrue(query.contains("today_report.target_snapshot"));
+        assertTrue(query.contains("when 'DAILY_DYNAMIC' then daily_target.target_value"));
+        assertTrue(xml.contains("<insert id=\"insertRoutineDailyTarget\""));
+    }
+
+    @Test
+    void staffDirectoryCombinesDataScopeAndManagedMembersBeforePagination()
+    {
+        InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
+        assertNotNull(input);
+        String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+        int start = xml.indexOf("<select id=\"selectStaffDirectory\"");
+        int end = xml.indexOf("</select>", start);
+        assertTrue(start >= 0 && end > start);
+        String query = xml.substring(start, end);
+
+        assertTrue(query.contains("select distinct u.user_id"));
+        assertTrue(query.contains("${query.params.dataScope}"));
+        assertTrue(query.contains("p.main_owner_user_id=#{managedOwnerUserId}"));
+        assertTrue(query.contains("m.user_id=u.user_id"));
+        assertTrue(query.contains("coalesce(d.order_num,999999) staff_sort_order"));
+        assertTrue(query.contains("order by staff_sort_order,u.user_id"));
+    }
+
+    @Test
+    void routineActivationPreservesChosenEndDateAndUsesOptimisticVersion()
+    {
+        InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
+        assertNotNull(input);
+        String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+        int start = xml.indexOf("<update id=\"activateRoutine\"");
+        int end = xml.indexOf("</update>", start);
+        assertTrue(start >= 0 && end > start);
+        String query = xml.substring(start, end);
+
+        assertTrue(query.contains("start_date=#{startDate},end_date=#{endDate}"));
+        assertTrue(query.contains("status='VOID' and version=#{version}"));
+        assertTrue(!query.contains("end_date=null"));
+    }
+
+    @Test
+    void bossPersonnelCostPendingAcceptsCnyAndVndMonthlyPolicies()
+    {
+        InputStream input = getClass().getResourceAsStream("/mapper/business/BusinessProjectMapper.xml");
+        assertNotNull(input);
+        String xml = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))
+            .lines().collect(Collectors.joining("\n"));
+
+        int rowsStart = xml.indexOf("<sql id=\"bossPendingPersonnelCost\"");
+        int rowsEnd = xml.indexOf("</sql>", rowsStart);
+        assertTrue(rowsStart >= 0 && rowsEnd > rowsStart);
+        String rowsQuery = xml.substring(rowsStart, rowsEnd);
+        assertTrue(rowsQuery.contains("currency in ('CNY','VND')"));
+        assertTrue(!rowsQuery.contains("currency='CNY'"));
+
+        int countsStart = xml.indexOf("<select id=\"selectBossPendingCounts\"");
+        int countsEnd = xml.indexOf("</select>", countsStart);
+        assertTrue(countsStart >= 0 && countsEnd > countsStart);
+        String countsQuery = xml.substring(countsStart, countsEnd);
+        assertTrue(countsQuery.contains("currency in ('CNY','VND')"));
+        assertTrue(!countsQuery.contains("currency='CNY'"));
+    }
+
+}

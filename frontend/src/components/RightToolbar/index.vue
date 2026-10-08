@@ -1,13 +1,13 @@
 <template>
   <div class="top-right-btn" :style="style">
     <el-row>
-      <el-tooltip class="item" effect="dark" :content="showSearch ? '隐藏搜索' : '显示搜索'" placement="top" v-if="search">
+      <el-tooltip class="item" effect="dark" :content="showSearch ? $tr(&quot;隐藏搜索&quot;) : $tr(&quot;显示搜索&quot;)" placement="top" v-if="search">
         <el-button circle icon="Search" @click="toggleSearch()" />
       </el-tooltip>
-      <el-tooltip class="item" effect="dark" content="刷新" placement="top">
+      <el-tooltip class="item" effect="dark" :content="$tr(&quot;刷新&quot;)" placement="top">
         <el-button circle icon="Refresh" @click="refresh()" />
       </el-tooltip>
-      <el-tooltip class="item" effect="dark" content="显隐列" placement="top" v-if="Object.keys(columns).length > 0">
+      <el-tooltip class="item" effect="dark" :content="$tr(&quot;显隐列&quot;)" placement="top" v-if="Object.keys(columns).length > 0">
         <el-button circle icon="Menu" @click="showColumn()" v-if="showColumnsType == 'transfer'"/>
         <el-dropdown trigger="click" :hide-on-click="false" style="padding-left: 12px" v-if="showColumnsType == 'checkbox'">
           <el-button circle icon="Menu" />
@@ -15,7 +15,7 @@
             <el-dropdown-menu>
               <!-- 全选/反选 按钮 -->
               <el-dropdown-item>
-                <el-checkbox :indeterminate="isIndeterminate" v-model="isChecked" @change="toggleCheckAll"> 列展示 </el-checkbox>
+                <el-checkbox :indeterminate="isIndeterminate" v-model="isChecked" @change="toggleCheckAll">{{ $tr(" 列展示 ") }}</el-checkbox>
               </el-dropdown-item>
               <div class="check-line"></div>
               <template v-for="(item, key) in columns" :key="item.key">
@@ -30,7 +30,7 @@
     </el-row>
     <el-dialog :title="title" v-model="open" append-to-body>
       <el-transfer
-        :titles="['显示', '隐藏']"
+        :titles="[$tr(&quot;显示&quot;), $tr(&quot;隐藏&quot;)]"
         v-model="value"
         :data="transferData"
         @change="dataChange"
@@ -40,6 +40,8 @@
 </template>
 
 <script setup>
+import { translateText } from '@/locales/translate'
+
 import cache from '@/plugins/cache'
 
 const props = defineProps({
@@ -80,7 +82,7 @@ const emits = defineEmits(['update:showSearch', 'queryTable'])
 // 显隐数据
 const value = ref([])
 // 弹出层标题
-const title = ref("显示/隐藏")
+const title = ref(translateText("显示/隐藏"))
 // 是否显示弹出层
 const open = ref(false)
 

@@ -23,19 +23,14 @@
     </el-upload>
     <!-- 上传提示 -->
     <div class="el-upload__tip" v-if="showTip && !disabled">
-      请上传
-      <template v-if="fileSize">
-        大小不超过 <b style="color: #f56c6c">{{ fileSize }}MB</b>
-      </template>
-      <template v-if="fileType">
-        格式为 <b style="color: #f56c6c">{{ fileType.join("/") }}</b>
-      </template>
-      的文件
+      <template v-if="fileSize && fileType?.length">{{ $tr("请上传 {0} 格式的文件，大小不超过 {1}MB。", [fileType.join('/'), fileSize]) }}</template>
+      <template v-else-if="fileSize">{{ $tr("请上传大小不超过 {0}MB 的文件。", [fileSize]) }}</template>
+      <template v-else-if="fileType?.length">{{ $tr("请上传 {0} 格式的文件。", [fileType.join('/')]) }}</template>
     </div>
 
     <el-dialog
       v-model="dialogVisible"
-      title="预览"
+      :title="$tr(&quot;预览&quot;)"
       width="800px"
       append-to-body
     >
@@ -48,6 +43,8 @@
 </template>
 
 <script setup>
+import { translateText } from '@/locales/translate'
+
 import { getToken } from "@/utils/auth"
 import { isExternal } from "@/utils/validate"
 import Sortable from 'sortablejs'
@@ -147,27 +144,27 @@ function handleBeforeUpload(file) {
     isImg = file.type.indexOf("image") > -1
   }
   if (!isImg) {
-    proxy.$modal.msgError(`文件格式不正确，请上传${props.fileType.join("/")}图片格式文件!`)
+    proxy.$modal.msgError(translateText("文件格式不正确，请上传{0}图片格式文件!", [props.fileType.join("/")]))
     return false
   }
   if (file.name.includes(',')) {
-    proxy.$modal.msgError('文件名不正确，不能包含英文逗号!')
+    proxy.$modal.msgError(translateText("文件名不正确，不能包含英文逗号!"))
     return false
   }
   if (props.fileSize) {
     const isLt = file.size / 1024 / 1024 < props.fileSize
     if (!isLt) {
-      proxy.$modal.msgError(`上传头像图片大小不能超过 ${props.fileSize} MB!`)
+      proxy.$modal.msgError(translateText("上传头像图片大小不能超过 {0} MB!", [props.fileSize]))
       return false
     }
   }
-  proxy.$modal.loading("正在上传图片，请稍候...")
+  proxy.$modal.loading(translateText("正在上传图片，请稍候..."))
   number.value++
 }
 
 // 文件个数超出
 function handleExceed() {
-  proxy.$modal.msgError(`上传文件数量不能超过 ${props.limit} 个!`)
+  proxy.$modal.msgError(translateText("上传文件数量不能超过 {0} 个!", [props.limit]))
 }
 
 // 上传成功回调
@@ -207,7 +204,7 @@ function uploadedSuccessfully() {
 
 // 上传失败
 function handleUploadError() {
-  proxy.$modal.msgError("上传图片失败")
+  proxy.$modal.msgError(translateText("上传图片失败"))
   proxy.$modal.closeLoading()
 }
 

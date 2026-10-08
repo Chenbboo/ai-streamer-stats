@@ -1,0 +1,741 @@
+package com.ruoyi.web.controller.business;
+
+import java.util.List;
+import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import com.ruoyi.business.domain.BusinessProject;
+import com.ruoyi.business.domain.BusinessProjectAcceptance;
+import com.ruoyi.business.domain.BusinessProjectStageAcceptance;
+import com.ruoyi.business.domain.BusinessProjectMember;
+import com.ruoyi.business.domain.BusinessProjectMilestone;
+import com.ruoyi.business.domain.BusinessProjectRisk;
+import com.ruoyi.business.domain.BusinessProjectTask;
+import com.ruoyi.business.domain.BusinessProjectTaskReport;
+import com.ruoyi.business.domain.BusinessProjectProgressReport;
+import com.ruoyi.business.domain.BusinessProjectRoutine;
+import com.ruoyi.business.domain.BusinessProjectRoutineReport;
+import com.ruoyi.business.domain.BusinessProjectWorkReport;
+import com.ruoyi.business.domain.BusinessProjectRoutineDailyTarget;
+import com.ruoyi.business.domain.BusinessProjectEffort;
+import com.ruoyi.business.domain.BusinessProjectKpi;
+import com.ruoyi.business.domain.BusinessProjectStaffAllocation;
+import com.ruoyi.business.domain.BusinessStaffCostPolicy;
+import com.ruoyi.business.service.IBusinessProjectService;
+import com.ruoyi.common.annotation.Log;
+import com.ruoyi.common.core.controller.BaseController;
+import com.ruoyi.common.core.domain.AjaxResult;
+import com.ruoyi.common.core.page.TableDataInfo;
+import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.common.utils.SecurityUtils;
+import com.ruoyi.common.utils.DateUtils;
+import com.ruoyi.common.utils.StringUtils;
+
+/**
+ * 公司经营项目中心。
+ *
+ * 项目数据的可见范围由服务层按“老板/项目成员”二次校验，不能仅依赖菜单权限。
+ */
+@RestController
+@RequestMapping("/business")
+public class BusinessProjectController extends BaseController
+{
+    @Autowired
+    private IBusinessProjectService projectService;
+    @Autowired private com.ruoyi.business.service.impl.BusinessFlowService flowService;
+    @Autowired private com.ruoyi.business.service.impl.BusinessProjectManagementFeeService managementFeeService;
+    @Autowired private com.ruoyi.business.service.impl.BusinessProjectWorkReportService workReportService;
+
+    @PreAuthorize("@ss.hasPermi('business:project:list')")
+    @GetMapping("/project/list")
+    public TableDataInfo list(@RequestParam Map<String, Object> query)
+    {
+        startPage();
+        List<BusinessProject> list = projectService.listProjects(query, currentUserId(), isAdministrator(), isBoss());
+        return getDataTable(list);
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:list')")
+    @GetMapping("/project/hierarchy")
+    public TableDataInfo hierarchy(@RequestParam Map<String, Object> query)
+    {
+        startPage();
+        return getDataTable(projectService.projectHierarchy(query, currentUserId(), isAdministrator(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:list')")
+    @GetMapping("/project/{parentId}/children")
+    public AjaxResult children(@PathVariable Long parentId)
+    {
+        return success(projectService.projectChildren(parentId, currentUserId(), isAdministrator(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:project:list,business:project:edit')")
+    @GetMapping("/project/company-options")
+    public AjaxResult projectCompanyOptions()
+    {
+        return success(projectService.projectCompanyOptions());
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:list')")
+    @GetMapping("/project/department-options")
+    public AjaxResult projectDepartmentOptions()
+    {
+        return success(projectService.projectDepartmentOptions());
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:edit')")
+    @Log(title = "删除项目", businessType = BusinessType.DELETE)
+    @DeleteMapping("/project/{projectId}")
+    public AjaxResult removeProject(@PathVariable Long projectId)
+    {
+        projectService.deleteProject(projectId, currentUserId(), currentUserName(), isBoss());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:edit')")
+    @Log(title = "申请删除项目", businessType = BusinessType.INSERT)
+    @PostMapping("/project/{projectId}/deletion-requests")
+    public AjaxResult requestProjectDeletion(@PathVariable Long projectId, @RequestBody Map<String, Object> body)
+    {
+        return success(projectService.requestProjectDeletion(projectId, text(body, "reason"), currentUserId(), currentUserName()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:list')")
+    @GetMapping("/project/deletion-requests")
+    public AjaxResult projectDeletionRequests()
+    {
+        return success(projectService.projectDeletionRequests(currentUserId(), isAdministrator(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:edit')")
+    @Log(title = "审核删除项目", businessType = BusinessType.UPDATE)
+    @PostMapping("/project/deletion-requests/{requestId}/review")
+    public AjaxResult reviewProjectDeletion(@PathVariable Long requestId, @RequestBody Map<String, Object> body)
+    {
+        projectService.reviewProjectDeletion(requestId, text(body, "decision"), text(body, "comment"),
+            currentUserId(), currentUserName(), isBoss());
+        return success();
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @GetMapping("/project/deletion-notifications")
+    public AjaxResult projectDeletionNotifications()
+    {
+        return success(projectService.projectDeletionNotifications(currentUserId()));
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @PutMapping("/project/deletion-notifications/{notificationId}/read")
+    public AjaxResult readProjectDeletionNotification(@PathVariable Long notificationId)
+    {
+        return toAjax(projectService.readProjectDeletionNotification(notificationId, currentUserId()));
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @PutMapping("/project/deletion-notifications/read-all")
+    public AjaxResult readAllProjectDeletionNotifications()
+    {
+        projectService.readAllProjectDeletionNotifications(currentUserId());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:list')")
+    @GetMapping("/project/{projectId}")
+    public AjaxResult detail(@PathVariable Long projectId)
+    {
+        return success(projectService.getProject(projectId, currentUserId(), isAdministrator(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:project:list,business:accounting:list,business:kpi:list')")
+    @GetMapping("/project/{projectId}/settlement-status")
+    public AjaxResult settlementStatus(@PathVariable Long projectId)
+    {
+        return success(projectService.settlementStatus(projectId, currentUserId(), isAdministrator(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:accounting:close')")
+    @Log(title = "项目核算关闭", businessType = BusinessType.UPDATE)
+    @PostMapping("/project/{projectId}/accounting-close")
+    public AjaxResult closeAccounting(@PathVariable Long projectId, @RequestBody Map<String, Object> body)
+    {
+        Integer version;
+        try { version = body.get("version") == null ? null : Integer.valueOf(String.valueOf(body.get("version"))); }
+        catch (NumberFormatException ex) { return error("项目版本不正确，请刷新后重试"); }
+        return success(projectService.closeAccounting(projectId, version, text(body, "reason"),
+            currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:accounting:close')")
+    @Log(title = "结束项目交付待月结", businessType = BusinessType.UPDATE)
+    @PostMapping("/project/{projectId}/delivery-end-awaiting-costs")
+    public AjaxResult endDeliveryAwaitingCosts(@PathVariable Long projectId, @RequestBody Map<String, Object> body)
+    {
+        Integer version;Long acceptanceId;
+        try {
+            version = body.get("version") == null ? null : Integer.valueOf(String.valueOf(body.get("version")));
+            acceptanceId = body.get("acceptanceId") == null ? null : Long.valueOf(String.valueOf(body.get("acceptanceId")));
+        }
+        catch (NumberFormatException ex) { return error("项目或验收版本不正确，请刷新后重试"); }
+        return success(projectService.endDeliveryAwaitingCosts(projectId, version, text(body, "reason"),
+            acceptanceId, Boolean.TRUE.equals(body.get("approveAcceptance")), Boolean.TRUE.equals(body.get("separateLegacyAccounting")), currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:project:list,business:accounting:list,business:kpi:list')")
+    @GetMapping("/project/{projectId}/management-fee")
+    public AjaxResult managementFee(@PathVariable Long projectId)
+    {
+        return success(managementFeeService.workspace(projectId, currentUserId(), isAdministrator(),
+            SecurityUtils.hasPermi("business:incentive:pay")));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:accounting:close')")
+    @Log(title = "设置项目管理费", businessType = BusinessType.UPDATE)
+    @PutMapping("/project/{projectId}/management-fee")
+    public AjaxResult saveManagementFee(@PathVariable Long projectId, @RequestBody Map<String, Object> body)
+    {
+        return success(managementFeeService.configure(projectId, body, currentUserId(), currentUserName()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:incentive:pay')")
+    @Log(title = "登记项目管理费付款", businessType = BusinessType.INSERT)
+    @PostMapping("/project/{projectId}/management-fee/payment")
+    public AjaxResult payManagementFee(@PathVariable Long projectId, @RequestBody Map<String, Object> body)
+    {
+        return success(managementFeeService.pay(projectId, body, currentUserId(), currentUserName()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:project:add,business:project:edit,business:project:member,business:project:task')")
+    @GetMapping("/project/user-options")
+    public AjaxResult userOptions(@RequestParam(required = false) String keyword)
+    {
+        return success(projectService.userOptions(keyword));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:edit')")
+    @Log(title = "经营项目", businessType = BusinessType.UPDATE)
+    @PutMapping("/project")
+    public AjaxResult edit(@RequestBody BusinessProject project)
+    {
+        return success(projectService.updateProject(project, currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:list')")
+    @GetMapping("/project/{projectId}/operating-config")
+    public AjaxResult operatingConfig(@PathVariable Long projectId)
+    {
+        return success(projectService.operatingConfig(projectId, currentUserId(), isAdministrator(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:manage')")
+    @Log(title = "项目预算", businessType = BusinessType.UPDATE)
+    @PutMapping("/project/{projectId}/budget")
+    public AjaxResult budget(@PathVariable Long projectId, @RequestBody Map<String, Object> body)
+    {
+        Object amount = body.get("budgetLimit");
+        java.math.BigDecimal budgetLimit = amount == null ? null : new java.math.BigDecimal(String.valueOf(amount));
+        return success(projectService.updateBudget(projectId, budgetLimit, text(body, "currency"),
+            text(body, "reason"), currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:project:manage,business:kpi:manage')")
+    @Log(title = "项目KPI", businessType = BusinessType.INSERT)
+    @PostMapping("/project/kpi")
+    public AjaxResult saveKpi(@RequestBody BusinessProjectKpi kpi)
+    {
+        return success(projectService.saveKpi(kpi, currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:project:manage,business:kpi:manage')")
+    @Log(title = "项目KPI", businessType = BusinessType.DELETE)
+    @DeleteMapping("/project/{projectId}/kpi/{kpiId}")
+    public AjaxResult retireKpi(@PathVariable Long projectId, @PathVariable Long kpiId)
+    {
+        projectService.retireKpi(projectId, kpiId, currentUserId(), currentUserName(), isBoss());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:staff:cost,business:staff:list')")
+    @GetMapping("/staff/cost-options")
+    public AjaxResult staffCostOptions(){return success(projectService.staffCostOptions(currentUserId(),canManageStaffCost()));}
+
+    @PreAuthorize("@ss.hasAnyPermi('business:staff:cost,business:staff:list')")
+    @GetMapping("/staff/{staffUserId}/cost-policies")
+    public AjaxResult staffCostPolicies(@PathVariable Long staffUserId)
+    {
+        return success(projectService.staffCostPolicies(staffUserId, currentUserId(), canManageStaffCost()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:staff:cost,business:staff:list')")
+    @Log(title = "人员内部核算成本", businessType = BusinessType.INSERT)
+    @PostMapping("/staff/cost-policy")
+    public AjaxResult saveStaffCostPolicy(@RequestBody BusinessStaffCostPolicy policy)
+    {
+        return success(projectService.saveStaffCostPolicy(policy, currentUserId(), currentUserName(), canManageStaffCost()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:staff:cost,business:staff:list')")
+    @Log(title = "批量人员内部核算成本", businessType = BusinessType.INSERT)
+    @PostMapping("/staff/cost-policies")
+    public AjaxResult saveStaffCostPolicies(@RequestBody List<BusinessStaffCostPolicy> policies)
+    {
+        return success(projectService.saveStaffCostPolicies(policies, currentUserId(), currentUserName(), canManageStaffCost()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:staff:cost,business:staff:list')")
+    @Log(title = "人员内部核算成本", businessType = BusinessType.DELETE)
+    @DeleteMapping("/staff/cost-policy/{policyId}")
+    public AjaxResult deleteStaffCostPolicy(@PathVariable Long policyId)
+    {
+        projectService.deleteStaffCostPolicy(policyId, currentUserId(), currentUserName(), canManageStaffCost());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:staff:cost,business:staff:list')")
+    @Log(title = "人员内部核算成本", businessType = BusinessType.UPDATE)
+    @PutMapping("/staff/cost-policy/{policyId}/void")
+    public AjaxResult voidStaffCostPolicy(@PathVariable Long policyId, @RequestBody Map<String, Object> body)
+    {
+        projectService.voidStaffCostPolicy(policyId, text(body, "reason"),
+            currentUserId(), currentUserName(), canManageStaffCost());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:allocation')")
+    @Log(title = "项目人员成本分摊", businessType = BusinessType.INSERT)
+    @PostMapping("/project/staff-allocation")
+    public AjaxResult saveStaffAllocation(@RequestBody BusinessProjectStaffAllocation allocation)
+    {
+        return success(projectService.saveStaffAllocation(allocation, currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:allocation')")
+    @GetMapping("/project/staff-allocation/workspace")
+    public AjaxResult staffAllocationWorkspace(@RequestParam Long userId,
+        @RequestParam(required = false) String effectiveDate)
+    {
+        java.util.Date date = StringUtils.isBlank(effectiveDate) ? DateUtils.getNowDate() : DateUtils.parseDate(effectiveDate);
+        if (date == null) throw new ServiceException("生效日期格式不正确");
+        return success(projectService.staffAllocationWorkspace(userId, date, currentUserId(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:member')")
+    @GetMapping("/project/{projectId}/member-allocation-preview")
+    public AjaxResult memberAllocationPreview(@PathVariable Long projectId, @RequestParam Long userId)
+    {
+        return success(projectService.memberAllocationPreview(projectId, userId, currentUserId(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:allocation')")
+    @Log(title = "项目投入权重", businessType = BusinessType.UPDATE)
+    @PostMapping("/project/staff-allocation/workspace")
+    public AjaxResult saveStaffAllocationWorkspace(@RequestBody Map<String, Object> body)
+    {
+        return success(projectService.saveStaffAllocationWorkspace(body, currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:allocation')")
+    @Log(title = "项目人员成本分摊", businessType = BusinessType.DELETE)
+    @DeleteMapping("/project/{projectId}/staff-allocation/{allocationId}")
+    public AjaxResult removeStaffAllocation(@PathVariable Long projectId, @PathVariable Long allocationId)
+    {
+        projectService.removeStaffAllocation(projectId, allocationId, currentUserId(), currentUserName(), isBoss());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:allocation')")
+    @Log(title = "人员投入调配确认", businessType = BusinessType.UPDATE)
+    @PostMapping("/project/staff-allocation/request/{requestId}/review")
+    public AjaxResult reviewStaffAllocationRequest(@PathVariable Long requestId, @RequestBody Map<String,Object> body)
+    {
+        return success(projectService.reviewStaffAllocationRequest(requestId, text(body, "decision"), text(body, "comment"), currentUserId(), currentUserName()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:manage')")
+    @Log(title = "项目负责人", businessType = BusinessType.UPDATE)
+    @PutMapping("/project/{projectId}/owner")
+    public AjaxResult changeOwner(@PathVariable Long projectId, @RequestBody Map<String, Object> body)
+    {
+        Long ownerUserId = requiredLong(body, "ownerUserId");
+        return success(flowService.changeOwner(projectId, ownerUserId, text(body, "reason"), Boolean.TRUE.equals(body.get("exitOldOwner")),
+            currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:project:submit,business:project:manage')")
+    @Log(title = "项目验收资料", businessType = BusinessType.INSERT)
+    @PostMapping("/project/{projectId}/acceptance")
+    public AjaxResult submitAcceptance(@PathVariable Long projectId, @RequestBody BusinessProjectAcceptance acceptance)
+    {
+        return success(projectService.submitAcceptance(projectId, acceptance,
+            currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:manage')")
+    @Log(title = "项目验收评审", businessType = BusinessType.UPDATE)
+    @PutMapping("/project/{projectId}/acceptance/review")
+    public AjaxResult reviewAcceptance(@PathVariable Long projectId, @RequestBody Map<String, Object> body)
+    {
+        return success(projectService.reviewAcceptance(projectId, text(body, "decision"), text(body, "comment"),
+            currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:project:submit,business:project:manage')")
+    @Log(title = "项目阶段验收资料", businessType = BusinessType.INSERT)
+    @PostMapping("/project/{projectId}/stage-acceptance")
+    public AjaxResult submitStageAcceptance(@PathVariable Long projectId,
+        @RequestBody BusinessProjectStageAcceptance acceptance)
+    {
+        return success(projectService.submitStageAcceptance(projectId, acceptance,
+            currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:manage')")
+    @Log(title = "项目阶段验收评审", businessType = BusinessType.UPDATE)
+    @PutMapping("/project/{projectId}/stage-acceptance/{milestoneId}/review")
+    public AjaxResult reviewStageAcceptance(@PathVariable Long projectId, @PathVariable Long milestoneId,
+        @RequestBody Map<String, Object> body)
+    {
+        return success(projectService.reviewStageAcceptance(projectId, milestoneId,
+            text(body, "decision"), text(body, "comment"), currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:project:submit,business:project:manage')")
+    @Log(title = "项目状态", businessType = BusinessType.UPDATE)
+    @PostMapping("/project/{projectId}/transition")
+    public AjaxResult transition(@PathVariable Long projectId, @RequestBody Map<String, Object> body)
+    {
+        return success(flowService.transition(projectId, text(body, "action"), text(body, "comment"), text(body, "pauseCostMode"),
+            currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:member')")
+    @Log(title = "项目成员", businessType = BusinessType.INSERT)
+    @PostMapping("/project/member")
+    public AjaxResult saveMember(@RequestBody BusinessProjectMember member)
+    {
+        return success(projectService.saveMember(member, currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:member')")
+    @Log(title = "项目成员", businessType = BusinessType.DELETE)
+    @DeleteMapping("/project/{projectId}/member/{memberUserId}")
+    public AjaxResult removeMember(@PathVariable Long projectId, @PathVariable Long memberUserId,
+        @RequestParam(defaultValue = "false") boolean retainTodayCost)
+    {
+        projectService.removeMember(projectId, memberUserId, retainTodayCost,
+            currentUserId(), currentUserName(), isBoss());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:member')")
+    @Log(title = "项目成员暂停/启动工作", businessType = BusinessType.UPDATE)
+    @PutMapping("/project/{projectId}/member/{memberUserId}/work-status")
+    public AjaxResult changeMemberWorkStatus(@PathVariable Long projectId, @PathVariable Long memberUserId,
+        @RequestBody Map<String,String> body)
+    {
+        projectService.changeMemberWorkStatus(projectId, memberUserId, body.get("action"),
+            currentUserId(), currentUserName(), isBoss());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:task')")
+    @Log(title = "项目里程碑", businessType = BusinessType.INSERT)
+    @PostMapping("/project/milestone")
+    public AjaxResult saveMilestone(@RequestBody BusinessProjectMilestone milestone)
+    {
+        return success(projectService.saveMilestone(milestone, currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:task')")
+    @Log(title = "项目里程碑", businessType = BusinessType.DELETE)
+    @DeleteMapping("/project/{projectId}/milestone/{milestoneId}")
+    public AjaxResult deleteMilestone(@PathVariable Long projectId, @PathVariable Long milestoneId)
+    {
+        projectService.deleteMilestone(projectId, milestoneId, currentUserId(), isBoss());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:task')")
+    @Log(title = "项目任务", businessType = BusinessType.INSERT)
+    @PostMapping("/project/task")
+    public AjaxResult saveTask(@RequestBody BusinessProjectTask task)
+    {
+        return success(projectService.saveTask(task, currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:project:report,business:work:report,business:project:work:view')")
+    @Log(title = "一次性任务完成填报", businessType = BusinessType.INSERT)
+    @PostMapping("/project/task-report")
+    public AjaxResult submitTaskReport(@RequestBody BusinessProjectTaskReport report)
+    {
+        return success(projectService.submitTaskReport(report, currentUserId(), currentUserName()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:report')")
+    @Log(title = "项目完成进度填报", businessType = BusinessType.INSERT)
+    @PostMapping("/project/progress-report")
+    public AjaxResult submitProjectProgressReport(@RequestBody BusinessProjectProgressReport report)
+    {
+        return success(projectService.submitProjectProgressReport(report, currentUserId(), currentUserName(),
+            isAdministrator()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:task')")
+    @Log(title = "项目任务", businessType = BusinessType.DELETE)
+    @DeleteMapping("/project/{projectId}/task/{taskId}")
+    public AjaxResult deleteTask(@PathVariable Long projectId, @PathVariable Long taskId)
+    {
+        projectService.deleteTask(projectId, taskId, currentUserId(), currentUserName(), isBoss());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:task')")
+    @Log(title = "启用项目任务", businessType = BusinessType.UPDATE)
+    @PostMapping("/project/{projectId}/task/{taskId}/enable")
+    public AjaxResult enableTask(@PathVariable Long projectId, @PathVariable Long taskId)
+    {
+        return success(projectService.enableTask(projectId, taskId, currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:task')")
+    @Log(title = "项目持续工作", businessType = BusinessType.INSERT)
+    @PostMapping("/project/routine")
+    public AjaxResult saveRoutine(@RequestBody BusinessProjectRoutine routine)
+    {
+        return success(projectService.saveRoutine(routine, currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:task')")
+    @Log(title = "项目持续工作", businessType = BusinessType.DELETE)
+    @DeleteMapping("/project/{projectId}/routine/{routineId}")
+    public AjaxResult removeRoutine(@PathVariable Long projectId, @PathVariable Long routineId)
+    {
+        projectService.removeRoutine(projectId, routineId, currentUserId(), currentUserName(), isBoss());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:task')")
+    @Log(title = "启用项目持续工作", businessType = BusinessType.UPDATE)
+    @PostMapping("/project/{projectId}/routine/{routineId}/enable")
+    public AjaxResult enableRoutine(@PathVariable Long projectId, @PathVariable Long routineId,
+        @RequestBody(required = false) BusinessProjectRoutine activation)
+    {
+        return success(projectService.enableRoutine(projectId, routineId,
+            activation == null ? null : activation.getEndDate(), currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:task')")
+    @Log(title = "下达持续工作今日目标", businessType = BusinessType.INSERT)
+    @PostMapping("/project/routine-daily-target")
+    public AjaxResult saveRoutineDailyTarget(@RequestBody BusinessProjectRoutineDailyTarget target)
+    {
+        return success(projectService.saveRoutineDailyTarget(target, currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:project:report,business:work:report,business:project:work:view')")
+    @Log(title = "持续工作完成填报", businessType = BusinessType.INSERT)
+    @PostMapping("/project/routine-report")
+    public AjaxResult submitRoutineReport(@RequestBody BusinessProjectRoutineReport report)
+    {
+        return success(projectService.submitRoutineReport(report, currentUserId(), currentUserName(), isAdministrator()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:project:report,business:work:report,business:project:work:view')")
+    @Log(title = "持续工作工作汇报", businessType = BusinessType.INSERT)
+    @PostMapping("/project/work-report")
+    public AjaxResult submitWorkReport(@RequestBody BusinessProjectWorkReport report)
+    {
+        return success(workReportService.submit(report, currentUserId(), currentUserName()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:owner:view')")
+    @Log(title = "验收持续工作汇报", businessType = BusinessType.UPDATE)
+    @PostMapping("/project/work-report/{reportId}/review")
+    public AjaxResult reviewWorkReport(@PathVariable Long reportId, @RequestBody Map<String, String> body)
+    {
+        return success(workReportService.review(reportId, body.get("decision"), body.get("comment"),
+            currentUserId(), currentUserName()));
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @GetMapping("/project/work-report/return-notifications")
+    public AjaxResult workReportReturnNotifications()
+    {
+        return success(workReportService.returnNotifications(currentUserId()));
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @PutMapping("/project/work-report/return-notifications/{notificationId}/read")
+    public AjaxResult readWorkReportReturnNotification(@PathVariable Long notificationId)
+    {
+        return toAjax(workReportService.readReturnNotification(notificationId, currentUserId()));
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @PutMapping("/project/work-report/return-notifications/read-all")
+    public AjaxResult readAllWorkReportReturnNotifications()
+    {
+        workReportService.readAllReturnNotifications(currentUserId());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:task')")
+    @Log(title = "项目风险", businessType = BusinessType.INSERT)
+    @PostMapping("/project/risk")
+    public AjaxResult saveRisk(@RequestBody BusinessProjectRisk risk)
+    {
+        return success(projectService.saveRisk(risk, currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:task')")
+    @Log(title = "项目风险", businessType = BusinessType.DELETE)
+    @DeleteMapping("/project/{projectId}/risk/{riskId}")
+    public AjaxResult deleteRisk(@PathVariable Long projectId, @PathVariable Long riskId)
+    {
+        projectService.deleteRisk(projectId, riskId, currentUserId(), isBoss());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:boss:view')")
+    @GetMapping("/boss/dashboard")
+    public AjaxResult bossDashboard(@RequestParam Map<String, Object> query)
+    {
+        return success(projectService.dashboard(query, currentUserId(), isAdministrator(), true));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:boss:view')")
+    @GetMapping("/boss/pending")
+    public AjaxResult bossPending(@RequestParam Map<String, Object> query)
+    {
+        return success(projectService.bossPending(query, currentUserId(), isAdministrator()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:boss:view')")
+    @GetMapping("/boss/project-directory")
+    public AjaxResult bossProjectDirectory()
+    {
+        return success(projectService.projectDirectory(currentUserId(), isAdministrator(), true));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:list')")
+    @GetMapping("/my/dashboard")
+    public AjaxResult myDashboard()
+    {
+        return success(projectService.dashboard(currentUserId(), isAdministrator(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:owner:view')")
+    @GetMapping("/owner/dashboard")
+    public AjaxResult ownerDashboard(@RequestParam(required = false) Long projectId)
+    {
+        return success(projectService.ownerWorkbench(projectId, currentUserId(), isAdministrator()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:owner:view')")
+    @GetMapping("/owner/spend-history/{projectId}")
+    public AjaxResult ownerSpendHistory(@PathVariable Long projectId,
+        @RequestParam(required = false) String month, @RequestParam(required = false) String bizDate)
+    {
+        return success(projectService.ownerSpendHistory(projectId, month, bizDate, currentUserId(), isAdministrator()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:work:view')")
+    @GetMapping("/work/dashboard")
+    public AjaxResult workDashboard(@RequestParam(required = false) String period,
+        @RequestParam(required = false) String anchorDate)
+    {
+        return success(projectService.workDashboard(period, anchorDate, currentUserId()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:report')")
+    @Log(title = "项目实际投入", businessType = BusinessType.INSERT)
+    @PostMapping("/work/effort")
+    public AjaxResult saveMyEffort(@RequestBody BusinessProjectEffort effort)
+    {
+        return success(projectService.saveMyEffort(effort, currentUserId(), currentUserName()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:allocation')")
+    @Log(title = "项目投入周确认", businessType = BusinessType.UPDATE)
+    @PostMapping("/owner/{projectId}/effort-week/confirm")
+    public AjaxResult confirmProjectEffortWeek(@PathVariable Long projectId,
+        @RequestParam(required = false) String anchorDate)
+    {
+        return success(projectService.confirmProjectEffortWeek(projectId, anchorDate,
+            currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:allocation')")
+    @Log(title = "确认成员当日投入", businessType = BusinessType.UPDATE)
+    @PostMapping("/owner/{projectId}/member/{memberUserId}/effort/confirm")
+    public AjaxResult confirmMemberEffort(@PathVariable Long projectId, @PathVariable Long memberUserId,
+        @RequestBody Map<String, Object> body)
+    {
+        return success(projectService.confirmMemberEffort(projectId, memberUserId,
+            DateUtils.parseDate(body == null ? null : body.get("bizDate")),
+            currentUserId(), currentUserName(), isBoss()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:project:allocation')")
+    @Log(title = "退回成员当日投入", businessType = BusinessType.UPDATE)
+    @PostMapping("/owner/{projectId}/member/{memberUserId}/effort/return")
+    public AjaxResult returnMemberEffort(@PathVariable Long projectId, @PathVariable Long memberUserId,
+        @RequestBody Map<String, Object> body)
+    {
+        return success(projectService.returnMemberEffort(projectId, memberUserId,
+            DateUtils.parseDate(body == null ? null : body.get("bizDate")),
+            body == null || body.get("reviewComment") == null ? null : String.valueOf(body.get("reviewComment")),
+            currentUserId(), currentUserName(), isBoss()));
+    }
+
+    private Long currentUserId()
+    {
+        return SecurityUtils.getUserId();
+    }
+
+    private String currentUserName()
+    {
+        return SecurityUtils.getUsername();
+    }
+
+    private boolean isBoss()
+    {
+        return SecurityUtils.isAdmin() || SecurityUtils.hasPermi("business:boss:view");
+    }
+
+    private boolean isAdministrator()
+    {
+        return SecurityUtils.isAdmin();
+    }
+
+    private boolean canManageStaffCost()
+    {
+        return SecurityUtils.isAdmin() || SecurityUtils.hasPermi("business:staff:cost");
+    }
+
+    private Long requiredLong(Map<String, Object> body, String key)
+    {
+        Object value = body.get(key);
+        if (value instanceof Number)
+        {
+            return ((Number) value).longValue();
+        }
+        return value == null ? null : Long.valueOf(String.valueOf(value));
+    }
+
+    private String text(Map<String, Object> body, String key)
+    {
+        Object value = body.get(key);
+        return value == null ? null : String.valueOf(value);
+    }
+}

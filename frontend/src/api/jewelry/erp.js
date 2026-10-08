@@ -1,0 +1,96 @@
+import request from '@/utils/request'
+
+export const getJewelryDashboard = () => request({ url: '/jewelry/dashboard', method: 'get' })
+export const listJewelryStaff = (params) => request({ url: '/jewelry/staff/list', method: 'get', params })
+export const addJewelryStaff = (data) => request({ url: '/jewelry/staff', method: 'post', data })
+export const updateJewelryStaff = (data) => request({ url: '/jewelry/staff', method: 'put', data })
+export const listJewelryProducts = (params) => request({ url: '/jewelry/product/list', method: 'get', params })
+export const getJewelryProductBindings = (id) => request({ url: `/jewelry/product/${id}/bindings`, method: 'get' })
+export const listJewelryProductOptions = (params) => request({ url: '/jewelry/product/options', method: 'get', params })
+export const saveJewelryProduct = (data) => request({ url: '/jewelry/product', method: 'post', data })
+export const batchUpdateJewelryProducts = (data) => request({ url: '/jewelry/product/batch', method: 'put', data })
+export const deleteJewelryProducts = (data) => request({ url: '/jewelry/product', method: 'delete', data })
+export const listJewelrySuppliers = (params) => request({ url: '/jewelry/supplier/list', method: 'get', params })
+export const saveJewelrySupplier = (data) => request({ url: '/jewelry/supplier', method: 'post', data })
+export const listJewelryInfluencers = (params) => request({ url: '/jewelry/influencer/list', method: 'get', params })
+export const listJewelryInfluencerOptions = (params) => request({ url: '/jewelry/influencer/options', method: 'get', params })
+export const listJewelryInfluencerPlatforms = () => request({ url: '/jewelry/influencer/platforms', method: 'get' })
+export const saveJewelryInfluencer = (data) => request({ url: '/jewelry/influencer', method: 'post', data })
+export const getJewelryInfluencerProductPrices = (id) => request({ url: `/jewelry/influencer/${id}/product-prices`, method: 'get' })
+export const saveJewelryInfluencerBindings = (id, data) => request({ url: `/jewelry/influencer/${id}/bindings`, method: 'post', data })
+export const previewJewelryInfluencerBindings = (id, file) => { const data = new FormData(); data.append('file', file); return request({ url: `/jewelry/influencer/${id}/bindings/preview`, method: 'post', data, headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false }, timeout: 60000 }) }
+export const confirmJewelryInfluencerBindings = (id, data) => request({ url: `/jewelry/influencer/${id}/bindings/confirm`, method: 'post', data, timeout: 60000 })
+export const importJewelryInfluencerBindings = (id, file) => { const data = new FormData(); data.append('file', file); return request({ url: `/jewelry/influencer/${id}/bindings/import`, method: 'post', data, headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false }, timeout: 60000 }) }
+export const changeJewelryInfluencerPrice = (id, productId, data) => request({ url: `/jewelry/influencer/${id}/product/${productId}/fixed-price`, method: 'put', data })
+export const getJewelryInfluencerPriceHistory = (id) => request({ url: `/jewelry/influencer/${id}/price-history`, method: 'get' })
+export const getJewelryInfluencerBundleItems = (id) => request({ url: `/jewelry/influencer/${id}/bundle-items`, method: 'get' })
+export const listJewelryStock = (params) => request({ url: '/jewelry/stock/list', method: 'get', params })
+export const listJewelryStockSupplierOptions = () => request({ url: '/jewelry/stock/supplier-options', method: 'get' })
+export const listJewelrySampleInbounds = (productId) => request({ url: `/jewelry/stock/sample-inbounds/${productId}`, method: 'get' })
+export const listJewelryStockInbounds = (productId) => request({ url: `/jewelry/stock/inbounds/${productId}`, method: 'get' })
+export const listJewelryTransactions = (params) => request({ url: '/jewelry/stock/transactions', method: 'get', params })
+export const getJewelryStockWarningDays = () => request({ url: '/jewelry/stock/warning-days', method: 'get' })
+export const getJewelrySupplierReturnDays = () => request({ url: '/jewelry/stock/supplier-return-days', method: 'get' })
+export const updateJewelrySupplierReturnDays = (days) => request({ url: '/jewelry/stock/supplier-return-days', method: 'put', data: { days } })
+export const updateJewelrySupplierReturnDate = (documentId, supplierReturnDate) => request({ url: `/jewelry/document/${documentId}/supplier-return-date`, method: 'put', data: { supplierReturnDate } })
+export const updateJewelryStockWarningDays = (days) => request({ url: '/jewelry/stock/warning-days', method: 'put', data: { days } })
+export const directAdjustJewelryCosts = (data) => request({ url: '/jewelry/stock/direct-cost-adjust', method: 'post', data })
+export const listJewelryDocuments = (params) => request({ url: '/jewelry/document/list', method: 'get', params })
+export const getJewelryDocument = (id) => request({ url: `/jewelry/document/${id}`, method: 'get' })
+export const getPurchaseInfluencerRepairOptions = (id) => request({ url: `/jewelry/document/${id}/purchase-influencer-options`, method: 'get' })
+export const repairPurchaseInfluencer = (id, data) => request({ url: `/jewelry/document/${id}/purchase-influencer`, method: 'put', data })
+export const listSupplierReturnSources = (influencerId, supplierId) => request({
+  url: '/jewelry/document/supplier-return-sources', method: 'get', params: { influencerId, supplierId }
+})
+export const listSupplierReturnProducts = (influencerId, supplierId) => request({
+  url: '/jewelry/document/supplier-return-products', method: 'get', params: { influencerId, supplierId }
+})
+export const listSampleReturnProducts = (supplierId) => request({
+  url: '/jewelry/document/sample-return-products', method: 'get', params: { supplierId }
+})
+export const getSupplierReturnSource = (id, excludeDocumentId) => request({
+  url: `/jewelry/document/supplier-return-source/${id}`,
+  method: 'get', params: excludeDocumentId ? { excludeDocumentId } : undefined
+})
+export const getCustomerReturnSource = (id, excludeDocumentId) => request({
+  url: `/jewelry/document/customer-return-source/${id}`,
+  method: 'get', params: excludeDocumentId ? { excludeDocumentId } : undefined
+})
+export const listCustomerReturnProducts = (influencerId, excludeDocumentId) => request({
+  url: `/jewelry/document/customer-return-products/${influencerId}`,
+  method: 'get', params: excludeDocumentId ? { excludeDocumentId } : undefined
+})
+export const getReturnInspectionSource = (id, excludeDocumentId) => request({
+  url: `/jewelry/document/return-inspection-source/${id}`,
+  method: 'get',
+  params: excludeDocumentId ? { excludeDocumentId } : undefined
+})
+export const saveJewelryDocument = (data) => request({ url: '/jewelry/document', method: 'post', data })
+export const deleteJewelryDraft = (id) => request({ url: `/jewelry/document/${id}`, method: 'delete' })
+export const assessJewelryDocumentRisk = (data) => request({ url: '/jewelry/document/risk-check', method: 'post', data })
+export const downloadJewelryDocumentImportTemplate = (docType) => request({
+  url: '/jewelry/document/import-template', method: 'get',
+  params: { docType, _: Date.now() }, responseType: 'blob'
+})
+export const previewJewelryDocumentImport = (docType, file) => {
+  const data = new FormData()
+  data.append('file', file)
+  return request({
+    url: '/jewelry/document/import-preview', method: 'post', params: { docType }, data,
+    headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false }, timeout: 60000
+  })
+}
+export const reviewJewelryDocumentImport = (docType, rows) => request({
+  url: '/jewelry/document/import-review', method: 'post',
+  data: { docType, rows }, headers: { repeatSubmit: false }, timeout: 60000
+})
+export const submitJewelryDocument = (id) => request({ url: `/jewelry/document/${id}/submit`, method: 'post' })
+export const withdrawJewelryDocument = (id) => request({ url: `/jewelry/document/${id}/withdraw`, method: 'post' })
+export const createJewelryReversal = (id) => request({ url: `/jewelry/document/${id}/reverse`, method: 'post' })
+export const approveJewelryDocument = (id, comment, expectedTotalCost, stockAdjustmentCosts) => request({
+  url: `/jewelry/approval/${id}/approve`,
+  method: 'post',
+  data: { comment, expectedTotalCost, stockAdjustmentCosts }
+})
+export const rejectJewelryDocument = (id, comment) => request({ url: `/jewelry/approval/${id}/reject`, method: 'post', data: { comment } })
+export const calculateJewelryProfit = (data) => request({ url: '/jewelry/calculator', method: 'post', data })

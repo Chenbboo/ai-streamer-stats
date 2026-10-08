@@ -1,50 +1,32 @@
 <template>
     <el-form>
         <el-form-item>
-            <el-radio v-model='radioValue' :value="1">
-                日，允许的通配符[, - * ? / L W]
-            </el-radio>
+            <el-radio v-model='radioValue' :value="1">{{ $tr(" 日，允许的通配符[, - * ? / L W] ") }}</el-radio>
         </el-form-item>
 
         <el-form-item>
-            <el-radio v-model='radioValue' :value="2">
-                不指定
-            </el-radio>
+            <el-radio v-model='radioValue' :value="2">{{ $tr(" 不指定 ") }}</el-radio>
         </el-form-item>
 
         <el-form-item>
-            <el-radio v-model='radioValue' :value="3">
-                周期从
-                <el-input-number v-model='cycle01' :min="1" :max="30" /> -
-                <el-input-number v-model='cycle02' :min="cycle01 + 1" :max="31" /> 日
-            </el-radio>
+            <el-radio v-model='radioValue' :value="3">{{ $tr(" 周期从 ") }}<el-input-number v-model='cycle01' :min="1" :max="30" /> -
+                <el-input-number v-model='cycle02' :min="cycle01 + 1" :max="31" />{{ $tr(" 日 ") }}</el-radio>
         </el-form-item>
 
         <el-form-item>
-            <el-radio v-model='radioValue' :value="4">
-                从
-                <el-input-number v-model='average01' :min="1" :max="30" /> 号开始，每
-                <el-input-number v-model='average02' :min="1" :max="31 - average01" /> 日执行一次
-            </el-radio>
+            <el-radio v-model='radioValue' :value="4">{{ $tr(" 从 ") }}<el-input-number v-model='average01' :min="1" :max="30" />{{ $tr(" 号开始，每 ") }}<el-input-number v-model='average02' :min="1" :max="31 - average01" />{{ $tr(" 日执行一次 ") }}</el-radio>
         </el-form-item>
 
         <el-form-item>
-            <el-radio v-model='radioValue' :value="5">
-                每月
-                <el-input-number v-model='workday' :min="1" :max="31" /> 号最近的那个工作日
-            </el-radio>
+            <el-radio v-model='radioValue' :value="5">{{ $tr(" 每月 ") }}<el-input-number v-model='workday' :min="1" :max="31" />{{ $tr(" 号最近的那个工作日 ") }}</el-radio>
         </el-form-item>
 
         <el-form-item>
-            <el-radio v-model='radioValue' :value="6">
-                本月最后一天
-            </el-radio>
+            <el-radio v-model='radioValue' :value="6">{{ $tr(" 本月最后一天 ") }}</el-radio>
         </el-form-item>
 
         <el-form-item>
-            <el-radio v-model='radioValue' :value="7">
-                指定
-                <el-select clearable v-model="checkboxList" placeholder="可多选" multiple :multiple-limit="10">
+            <el-radio v-model='radioValue' :value="7">{{ $tr(" 指定 ") }}<el-select clearable v-model="checkboxList" :placeholder="$tr(&quot;可多选&quot;)" multiple :multiple-limit="10">
                     <el-option v-for="item in 31" :key="item" :label="item" :value="item" />
                 </el-select>
             </el-radio>

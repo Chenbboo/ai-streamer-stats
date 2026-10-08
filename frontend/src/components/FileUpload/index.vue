@@ -3,6 +3,7 @@
     <el-upload
       multiple
       :action="uploadFileUrl"
+      :accept="acceptTypes"
       :before-upload="handleBeforeUpload"
       :file-list="fileList"
       :data="data"
@@ -12,37 +13,102 @@
       :on-success="handleUploadSuccess"
       :show-file-list="false"
       :headers="headers"
+      :http-request="maxConcurrency > 0 ? uploadWithConcurrency : undefined"
       class="upload-file-uploader"
       ref="fileUpload"
       v-if="!disabled"
     >
       <!-- 上传按钮 -->
-      <el-button type="primary">选取文件</el-button>
+      <el-button type="primary">{{ $tr("选取文件") }}</el-button>
     </el-upload>
     <!-- 上传提示 -->
-    <div class="el-upload__tip" v-if="showTip && !disabled">
-      请上传
-      <template v-if="fileSize"> 大小不超过 <b style="color: #f56c6c">{{ fileSize }}MB</b> </template>
-      <template v-if="fileType"> 格式为 <b style="color: #f56c6c">{{ fileType.join("/") }}</b> </template>
-      的文件
+    <div class="upload-file-tip" v-if="showTip && !disabled">
+      <div class="upload-file-tip__summary">
+        <span v-if="fileSize">{{ $tr("单个文件 ") }}<b>≤ {{ fileSize }}MB</b></span>
+        <span>{{ $tr("最多 ") }}<b>{{ $tr("{0} 个", [limit]) }}</b></span>
+        <span v-if="totalSize">{{ $tr("总大小 ") }}<b>≤ {{ totalSize }}MB</b></span>
+      </div>
+      <div v-if="fileType?.length" class="upload-file-tip__types">
+        <span class="upload-file-tip__label">{{ $tr("支持格式") }}</span>
+        <span class="upload-file-tip__extensions">{{ formattedFileTypes }}</span>
+      </div>
+      <div v-if="autoCompressImages" class="upload-file-tip__compression">
+        {{ $tr("图片上传前自动尝试压缩；其他格式保留原文件") }}
+        <span v-if="compressionResult"> · {{ compressionResult }}</span>
+      </div>
     </div>
-    <!-- 文件列表 -->
-    <transition-group ref="uploadFileList" class="upload-file-list el-upload-list el-upload-list--text" name="el-fade-in-linear" tag="ul">
-      <li :key="file.uid" class="el-upload-list__item ele-upload-list__item-content" v-for="(file, index) in fileList">
-        <el-link :href="`${baseUrl}${file.url}`" underline="never" target="_blank">
-          <span class="el-icon-document"> {{ getFileName(file.name) }} </span>
-        </el-link>
-        <div class="ele-upload-list__item-content-action">
-          <el-link underline="never" @click="handleDelete(index)" type="danger" v-if="!disabled">&nbsp;删除</el-link>
+    <!-- 文件缩略图列表 -->
+    <transition-group ref="uploadFileList" class="upload-file-list" name="el-fade-in-linear" tag="ul">
+      <li v-for="(file, index) in fileList" :key="file.uid" class="upload-file-card">
+        <div class="upload-file-card__preview">
+          <el-image
+            v-if="isImage(file)"
+            :src="imageCardUrl(file)"
+            :preview-src-list="imagePreviewUrls"
+            :initial-index="imagePreviewIndex(file)"
+            fit="cover"
+            preview-teleported
+            @error="markOptimizedPreviewFailed(file)"
+          >
+            <template #error>
+              <div class="file-type-tile">
+                <el-icon><Picture /></el-icon>
+                <strong>{{ fileExtension(file) || 'IMG' }}</strong>
+              </div>
+            </template>
+          </el-image>
+          <div v-else class="file-type-tile" :class="`is-${fileCategory(file)}`">
+            <el-icon><Document /></el-icon>
+            <strong>{{ fileExtension(file) || 'FILE' }}</strong>
+          </div>
+
+          <div v-if="!isImage(file)" class="upload-file-card__cover">
+            <button v-if="isVideo(file)" type="button" :aria-label="$tr(&quot;预览视频&quot;)" @click="previewVideo(file)">
+              <el-icon><VideoPlay /></el-icon><span>{{ $tr("预览") }}</span>
+            </button>
+            <button v-else type="button" :aria-label="$tr(&quot;打开附件&quot;)" @click="openFile(file)">
+              <el-icon><View /></el-icon><span>{{ $tr("打开") }}</span>
+            </button>
+          </div>
+
+          <button v-if="!disabled" class="upload-file-card__delete" type="button" :aria-label="$tr(&quot;删除文件&quot;)" @click="handleDelete(index)">
+            <el-icon><Close /></el-icon>
+          </button>
         </div>
+
+        <el-tooltip :content="getFileName(file.name || file.url)" placement="top" :show-after="500">
+          <button class="upload-file-card__name" type="button" @click="openFile(file)">
+            {{ getFileName(file.name || file.url) }}
+          </button>
+        </el-tooltip>
+        <span class="upload-file-card__meta">
+          {{ fileTypeLabel(file) }}<template v-if="file.size"> · {{ formatFileSize(file.size) }}</template>
+        </span>
       </li>
     </transition-group>
+
+    <el-dialog v-model="videoPreviewVisible" :title="$tr(&quot;视频预览&quot;)" width="min(840px, 94vw)" append-to-body destroy-on-close @closed="videoPreviewUrl = ''">
+      <video v-if="videoPreviewUrl" class="video-preview" :src="videoPreviewUrl" controls autoplay />
+    </el-dialog>
+    <el-dialog v-model="documentPreviewVisible" :title="documentPreviewName" width="min(960px, 96vw)" append-to-body destroy-on-close @closed="clearDocumentPreview">
+      <div v-loading="documentPreviewLoading" class="document-preview">
+        <el-alert v-if="documentPreviewError" :title="$tr(&quot;文件内容加载失败或无权查看，请关闭后重试&quot;)" type="error" :closable="false" />
+        <iframe v-else-if="documentPreviewUrl" :src="documentPreviewUrl" :title="documentPreviewName" class="document-preview__pdf" />
+        <pre v-else-if="!documentPreviewLoading" class="document-preview__text">{{ documentPreviewText }}</pre>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
+import { translateText } from '@/locales/translate'
+
+import axios from 'axios'
+import { saveAs } from 'file-saver'
 import { getToken } from "@/utils/auth"
+import { isExternal } from "@/utils/validate"
 import Sortable from 'sortablejs'
+import { compressReportImage, isCompressibleReportImage } from '@/utils/compressReportImage'
 
 const props = defineProps({
   modelValue: [String, Object, Array],
@@ -65,6 +131,21 @@ const props = defineProps({
     type: Number,
     default: 5
   },
+  // 所有文件合计大小限制(MB)，0 表示不限制
+  totalSize: {
+    type: Number,
+    default: 0
+  },
+  // 最大并发上传数，0 表示使用组件默认行为
+  maxConcurrency: {
+    type: Number,
+    default: 0
+  },
+  // 单次上传超时（毫秒），防止后端异常时全屏等待层永久不关闭
+  uploadTimeout: {
+    type: Number,
+    default: 120000
+  },
   // 文件类型, 例如['png', 'jpg', 'jpeg']
   fileType: {
     type: Array,
@@ -84,20 +165,57 @@ const props = defineProps({
   drag: {
     type: Boolean,
     default: true
+  },
+  // 公司经营图片存在同名 WebP 预览和缩略图
+  businessPreview: {
+    type: Boolean,
+    default: false
+  },
+  // Read-only report viewers can display PDF and text content inside the report.
+  inlineDocumentPreview: {
+    type: Boolean,
+    default: false
+  },
+  autoCompressImages: {
+    type: Boolean,
+    default: false
   }
 })
 
 const { proxy } = getCurrentInstance()
-const emit = defineEmits()
-const number = ref(0)
-const uploadList = ref([])
+const emit = defineEmits(['update:modelValue', 'uploading-change'])
+const pendingBytes = ref(0)
+const pendingFileSizes = new Map()
+const compressionResult = ref('')
+const completedUploads = []
 const baseUrl = import.meta.env.VITE_APP_BASE_API
 const uploadFileUrl = ref(import.meta.env.VITE_APP_BASE_API + props.action) // 上传文件服务器地址
 const headers = ref({ Authorization: "Bearer " + getToken() })
 const fileList = ref([])
+const videoPreviewVisible = ref(false)
+const videoPreviewUrl = ref("")
+const documentPreviewVisible = ref(false)
+const documentPreviewLoading = ref(false)
+const documentPreviewError = ref(false)
+const documentPreviewName = ref(translateText("文件内容"))
+const documentPreviewUrl = ref('')
+const documentPreviewText = ref('')
+let documentPreviewSequence = 0
+const failedOptimizedPreviews = ref(new Set())
+const requestQueue = []
+let activeRequests = 0
+let uploadLoadingOpen = false
 const showTip = computed(
   () => props.isShowTip && (props.fileType || props.fileSize)
 )
+const acceptTypes = computed(() => (props.fileType || []).map(type => `.${String(type).toLowerCase()}`).join(','))
+const formattedFileTypes = computed(() => (props.fileType || []).map(type => String(type).toUpperCase()).join(' / '))
+const imagePreviewUrls = computed(() => fileList.value.filter(isImage).map(imagePreviewUrl))
+
+function normalizedStoredPath(value) {
+  const path = String(value || '')
+  return props.businessPreview ? path.replace(/\\/g, '/') : path
+}
 
 watch(() => props.modelValue, val => {
   if (val) {
@@ -105,99 +223,476 @@ watch(() => props.modelValue, val => {
     // 首先将值转为数组
     const list = Array.isArray(val) ? val : props.modelValue.split(',')
     // 然后将数组转为对象数组
+    const currentFiles = new Map(fileList.value.map(item => [item.url, item]))
     fileList.value = list.map(item => {
       if (typeof item === "string") {
-        item = { name: item, url: item }
+        const normalized = normalizedStoredPath(item)
+        item = currentFiles.get(item) || currentFiles.get(normalized) || { name: normalized, url: normalized }
+      } else if (props.businessPreview) {
+        item = {
+          ...item,
+          url: normalizedStoredPath(item.url),
+          previewUrl: normalizedStoredPath(item.previewUrl),
+          thumbnailUrl: normalizedStoredPath(item.thumbnailUrl)
+        }
       }
       item.uid = item.uid || new Date().getTime() + temp++
       return item
     })
+    if (props.businessPreview) nextTick(hydrateAuthorizedFiles)
   } else {
     fileList.value = []
     return []
   }
 },{ deep: true, immediate: true })
 
-// 上传前校检格式和大小
-function handleBeforeUpload(file) {
+// Reserve every selected file before asynchronous compression so batch limits use final sizes.
+async function handleBeforeUpload(file) {
+  if (props.businessPreview && !props.data?.projectId) {
+    proxy.$modal.msgError(translateText("请先选择项目再上传附件"))
+    return false
+  }
   // 校检文件类型
   if (props.fileType.length) {
     const fileName = file.name.split('.')
-    const fileExt = fileName[fileName.length - 1]
-    const isTypeOk = props.fileType.indexOf(fileExt) >= 0
+    const fileExt = fileName[fileName.length - 1].toLowerCase()
+    const isTypeOk = props.fileType.map(type => String(type).toLowerCase()).includes(fileExt)
     if (!isTypeOk) {
-      proxy.$modal.msgError(`文件格式不正确，请上传${props.fileType.join("/")}格式文件!`)
+      proxy.$modal.msgError(translateText("文件格式不正确，请上传{0}格式文件!", [props.fileType.join("/")]))
       return false
     }
   }
   // 校检文件名是否包含特殊字符
   if (file.name.includes(',')) {
-    proxy.$modal.msgError('文件名不正确，不能包含英文逗号!')
+    proxy.$modal.msgError(translateText("文件名不正确，不能包含英文逗号!"))
     return false
   }
-  // 校检文件大小
+  if (!pendingFileSizes.has(file.uid)) {
+    if (pendingFileSizes.size === 0) {
+      proxy.$modal.loading(translateText("正在处理附件，请稍候..."))
+      uploadLoadingOpen = true
+      emit('uploading-change', true)
+    }
+    pendingFileSizes.set(file.uid, 0)
+  }
+
+  let uploadFile = file
+  if (props.autoCompressImages && isCompressibleReportImage(file)) {
+    try {
+      const result = await compressReportImage(file)
+      uploadFile = result.file
+      if (result.compressed) {
+        compressionResult.value = translateText("最近压缩：{0} → {1}", [formatFileSize(result.originalSize), formatFileSize(result.outputSize)])
+      }
+    } catch (error) {
+      console.warn('Attachment image compression failed:', error)
+      if (file.size > props.fileSize * 1024 * 1024) {
+        proxy.$modal.msgError(translateText("图片压缩失败，请更换图片后重试"))
+        finishUpload(file)
+        return false
+      }
+    }
+  }
+
+  // 校检压缩后的文件大小
   if (props.fileSize) {
-    const isLt = file.size / 1024 / 1024 < props.fileSize
+    const isLt = uploadFile.size / 1024 / 1024 <= props.fileSize
     if (!isLt) {
-      proxy.$modal.msgError(`上传文件大小不能超过 ${props.fileSize} MB!`)
+      proxy.$modal.msgError(translateText("上传文件大小不能超过 {0} MB!", [props.fileSize]))
+      finishUpload(file)
       return false
     }
   }
-  proxy.$modal.loading("正在上传文件，请稍候...")
-  number.value++
-  return true
+  if (props.totalSize) {
+    const storedBytes = fileList.value.reduce((sum, item) => sum + (Number(item.size) || 0), 0)
+    const totalBytes = storedBytes + pendingBytes.value + uploadFile.size
+    if (totalBytes > props.totalSize * 1024 * 1024) {
+      proxy.$modal.msgError(translateText("全部附件总大小不能超过 {0} MB!", [props.totalSize]))
+      finishUpload(file)
+      return false
+    }
+  }
+  pendingFileSizes.set(file.uid, uploadFile.size)
+  pendingBytes.value += uploadFile.size
+  return uploadFile
 }
 
 // 文件个数超出
 function handleExceed() {
-  proxy.$modal.msgError(`上传文件数量不能超过 ${props.limit} 个!`)
+  proxy.$modal.msgError(translateText("上传文件数量不能超过 {0} 个!", [props.limit]))
 }
 
 // 上传失败
-function handleUploadError(err) {
-  proxy.$modal.msgError("上传文件失败")
-  proxy.$modal.closeLoading()
+function handleUploadError(err, file) {
+  try {
+    const timedOut = err?.code === 'ECONNABORTED' || String(err?.message || '').toLowerCase().includes('timeout')
+    proxy.$modal.msgError(timedOut ? translateText("上传超时，请检查后端服务后重试") : translateText("上传文件失败"))
+  } finally {
+    finishUpload(file)
+  }
 }
 
 // 上传成功回调
 function handleUploadSuccess(res, file) {
-  if (res.code === 200) {
-    uploadList.value.push({ name: res.fileName, url: res.fileName })
-    uploadedSuccessfully()
-  } else {
-    number.value--
-    proxy.$modal.closeLoading()
-    proxy.$modal.msgError(res.msg)
-    proxy.$refs.fileUpload.handleRemove(file)
-    uploadedSuccessfully()
+  try {
+    if (res?.code === 200) {
+      const uploaded = {
+        name: file?.name || res.originalFilename || res.fileName,
+        url: normalizedStoredPath(res.fileName),
+        previewUrl: normalizedStoredPath(res.previewFileName),
+        thumbnailUrl: normalizedStoredPath(res.thumbnailFileName),
+        size: Number(res.size || file?.size || 0),
+        uid: file?.uid
+      }
+      completedUploads.push(uploaded)
+    } else {
+      proxy.$modal.msgError(res?.msg || translateText("上传文件失败"))
+      try {
+        Promise.resolve(proxy.$refs.fileUpload?.handleRemove(file)).catch(() => {})
+      } catch {}
+    }
+  } finally {
+    finishUpload(file)
   }
 }
 
 // 删除文件
 function handleDelete(index) {
+  revokeObjectUrls(fileList.value[index])
   fileList.value.splice(index, 1)
   emit("update:modelValue", listToString(fileList.value))
 }
 
 // 上传结束处理
-function uploadedSuccessfully() {
-  if (number.value > 0 && uploadList.value.length === number.value) {
-    fileList.value = fileList.value.filter(f => f.url !== undefined).concat(uploadList.value)
-    uploadList.value = []
-    number.value = 0
-    emit("update:modelValue", listToString(fileList.value))
-    proxy.$modal.closeLoading()
+function releasePendingFile(file) {
+  if (!pendingFileSizes.has(file?.uid)) return false
+  const size = pendingFileSizes.get(file.uid) || 0
+  pendingFileSizes.delete(file.uid)
+  pendingBytes.value = Math.max(0, pendingBytes.value - size)
+  return true
+}
+
+function finishUpload(file) {
+  if (!releasePendingFile(file) || pendingFileSizes.size > 0) return
+
+  try {
+    if (completedUploads.length) {
+      const mergedFiles = [...fileList.value]
+      const existingUrls = new Set(mergedFiles.map(item => normalizedStoredPath(item.url)))
+      completedUploads.splice(0).forEach(uploaded => {
+        if (!existingUrls.has(uploaded.url)) {
+          mergedFiles.push(uploaded)
+          existingUrls.add(uploaded.url)
+        }
+      })
+      fileList.value = mergedFiles
+      if (props.businessPreview) nextTick(hydrateAuthorizedFiles)
+      emit("update:modelValue", listToString(fileList.value))
+    }
+  } finally {
+    closeUploadLoading()
   }
+}
+
+function closeUploadLoading() {
+  if (!uploadLoadingOpen) return
+  uploadLoadingOpen = false
+  proxy.$modal.closeLoading()
+  emit('uploading-change', false)
+}
+
+function uploadWithConcurrency(options) {
+  return new Promise((resolve, reject) => {
+    requestQueue.push({ options, resolve, reject })
+    drainRequestQueue()
+  })
+}
+
+function drainRequestQueue() {
+  const concurrency = Math.max(1, Number(props.maxConcurrency) || 1)
+  while (activeRequests < concurrency && requestQueue.length) {
+    const task = requestQueue.shift()
+    activeRequests++
+    performUpload(task.options).then(task.resolve, task.reject).finally(() => {
+      activeRequests--
+      drainRequestQueue()
+    })
+  }
+}
+
+async function performUpload(options) {
+  const form = new FormData()
+  Object.entries(options.data || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) form.append(key, value)
+  })
+  form.append(options.filename || 'file', options.file)
+  const response = await axios.post(options.action, form, {
+    headers: { ...options.headers, 'Content-Type': 'multipart/form-data' },
+    timeout: Math.max(1000, Number(props.uploadTimeout) || 120000),
+    onUploadProgress: event => {
+      if (event.total && options.onProgress) {
+        options.onProgress({ percent: Math.round(event.loaded * 100 / event.total) })
+      }
+    }
+  })
+  return response.data
 }
 
 // 获取文件名称
 function getFileName(name) {
+  name = normalizedStoredPath(name).split('?')[0]
   // 如果是url那么取最后的名字 如果不是直接返回
   if (name.lastIndexOf("/") > -1) {
-    return name.slice(name.lastIndexOf("/") + 1)
-  } else {
+    name = name.slice(name.lastIndexOf("/") + 1)
+  }
+  try {
+    return decodeURIComponent(name)
+  } catch {
     return name
   }
+}
+
+function preferredFileName(file) {
+  const name = getFileName(file?.originalFilename || file?.name || file?.url)
+  if (!name) return translateText("附件")
+  // 业务附件落盘时会在扩展名前追加上传序号；历史记录只保存 URL，
+  // 因此重新打开页面时需要从存储名还原用户上传时的文件名。
+  return props.businessPreview
+    ? name.replace(/_(?:\d{12}|\d{14})A\d{3}(?=\.[^.]+$)/i, '')
+    : name
+}
+
+function fileUrl(file) {
+  if (file?.objectUrl) return file.objectUrl
+  const url = normalizedStoredPath(file?.url || file?.name)
+  if (!url || isExternal(url) || /^(data:|blob:|\/\/)/i.test(url)) return url
+  if (!baseUrl) return url
+  if (baseUrl.endsWith('/') && url.startsWith('/')) return baseUrl + url.slice(1)
+  if (!baseUrl.endsWith('/') && !url.startsWith('/')) return `${baseUrl}/${url}`
+  return baseUrl + url
+}
+
+function optimizedImagePath(file, kind) {
+  const objectUrl = kind === 'thumb' ? file?.thumbnailObjectUrl : file?.previewObjectUrl
+  if (objectUrl) return objectUrl
+  const explicit = kind === 'thumb' ? file?.thumbnailUrl : file?.previewUrl
+  if (explicit) return explicit
+  const original = normalizedStoredPath(file?.url || file?.name)
+  if (!props.businessPreview || !original || /^(data:|blob:)/i.test(original)) return original
+  const queryIndex = original.indexOf('?')
+  const path = queryIndex >= 0 ? original.slice(0, queryIndex) : original
+  const query = queryIndex >= 0 ? original.slice(queryIndex) : ''
+  const dotIndex = path.lastIndexOf('.')
+  if (dotIndex < path.lastIndexOf('/')) return original
+  return `${path.slice(0, dotIndex)}.${kind === 'thumb' ? 'thumb' : 'preview'}.webp${query}`
+}
+
+function imageCardUrl(file) {
+  const original = fileUrl(file)
+  if (failedOptimizedPreviews.value.has(normalizedStoredPath(file?.url || file?.name))) return original
+  return absoluteFileUrl(optimizedImagePath(file, 'thumb'))
+}
+
+function imagePreviewUrl(file) {
+  const original = fileUrl(file)
+  if (failedOptimizedPreviews.value.has(normalizedStoredPath(file?.url || file?.name))) return original
+  return absoluteFileUrl(optimizedImagePath(file, 'preview'))
+}
+
+function absoluteFileUrl(url) {
+  return fileUrl({ url })
+}
+
+function markOptimizedPreviewFailed(file) {
+  if (!props.businessPreview) return
+  const next = new Set(failedOptimizedPreviews.value)
+  next.add(normalizedStoredPath(file?.url || file?.name))
+  failedOptimizedPreviews.value = next
+  ensureOriginalObjectUrl(file)
+}
+
+function fileExtension(file) {
+  const name = getFileName(file?.name || file?.url)
+  const dotIndex = name.lastIndexOf('.')
+  return dotIndex > -1 ? name.slice(dotIndex + 1).toUpperCase() : ''
+}
+
+function isImage(file) {
+  return ['JPG', 'JPEG', 'PNG', 'GIF', 'WEBP', 'BMP', 'SVG', 'AVIF'].includes(fileExtension(file))
+}
+
+function isVideo(file) {
+  return ['MP4', 'MOV', 'WEBM', 'OGG', 'M4V'].includes(fileExtension(file))
+}
+
+function isPdf(file) {
+  return fileExtension(file) === 'PDF'
+}
+
+function fileCategory(file) {
+  const extension = fileExtension(file)
+  if (['DOC', 'DOCX', 'RTF'].includes(extension)) return 'word'
+  if (['XLS', 'XLSX', 'CSV'].includes(extension)) return 'excel'
+  if (['PPT', 'PPTX'].includes(extension)) return 'powerpoint'
+  if (['ZIP', 'RAR', '7Z', 'TAR', 'GZ'].includes(extension)) return 'archive'
+  return 'default'
+}
+
+function fileTypeLabel(file) {
+  if (isImage(file)) return translateText("图片")
+  if (isVideo(file)) return translateText("视频")
+  if (isPdf(file)) return translateText("PDF 文档")
+  const extension = fileExtension(file)
+  return extension ? translateText("{0} 文件", [extension]) : translateText("附件")
+}
+
+function formatFileSize(size) {
+  const bytes = Number(size)
+  if (!Number.isFinite(bytes) || bytes <= 0) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+function imagePreviewIndex(file) {
+  return fileList.value.filter(isImage).findIndex(item => item.uid === file.uid || fileUrl(item) === fileUrl(file))
+}
+
+async function previewVideo(file) {
+  const url = await ensureOriginalObjectUrl(file)
+  if (!url) return proxy.$modal.msgError(translateText("附件加载失败"))
+  videoPreviewUrl.value = url
+  videoPreviewVisible.value = true
+}
+
+async function openFile(file) {
+  if (props.inlineDocumentPreview && (isPdf(file) || fileExtension(file) === 'TXT')) {
+    await previewDocument(file)
+    return
+  }
+  if (props.businessPreview && shouldDownload(file)) {
+    try {
+      const blob = await fetchAuthorizedFile(rawFileUrl(file))
+      if (!blob) throw new Error(translateText("附件加载失败"))
+      saveAs(blob, preferredFileName(file))
+    } catch {
+      proxy.$modal.msgError(translateText("附件下载失败或无权查看"))
+    }
+    return
+  }
+
+  const tab = window.open('', '_blank')
+  try {
+    const url = await ensureOriginalObjectUrl(file)
+    if (!url) throw new Error(translateText("附件加载失败"))
+    if (tab) tab.location.href = url
+    else window.open(url, '_blank', 'noopener')
+  } catch {
+    if (tab) tab.close()
+    proxy.$modal.msgError(translateText("附件加载失败或无权查看"))
+  }
+}
+
+function shouldDownload(file) {
+  return !isImage(file) && !isVideo(file) && !isPdf(file) && fileExtension(file) !== 'TXT'
+}
+
+function clearDocumentPreview() {
+  documentPreviewSequence++
+  if (documentPreviewUrl.value) URL.revokeObjectURL(documentPreviewUrl.value)
+  documentPreviewUrl.value=''
+  documentPreviewText.value=''
+  documentPreviewLoading.value=false
+  documentPreviewError.value=false
+}
+
+async function previewDocument(file) {
+  clearDocumentPreview()
+  const sequence=documentPreviewSequence
+  documentPreviewName.value=preferredFileName(file)
+  documentPreviewVisible.value=true
+  documentPreviewLoading.value=true
+  try {
+    const blob=await fetchAuthorizedFile(rawFileUrl(file))
+    if (!blob || blob.type.includes('json')) throw new Error('File unavailable')
+    if (sequence!==documentPreviewSequence) return
+    if (isPdf(file)) documentPreviewUrl.value=URL.createObjectURL(new Blob([blob],{type:'application/pdf'}))
+    else {
+      const text=await blob.text()
+      if (sequence===documentPreviewSequence) documentPreviewText.value=text
+    }
+  } catch {
+    if (sequence===documentPreviewSequence) documentPreviewError.value=true
+  } finally {
+    if (sequence===documentPreviewSequence) documentPreviewLoading.value=false
+  }
+}
+
+function rawFileUrl(file) {
+  const url = normalizedStoredPath(file?.url || file?.name)
+  if (!url || isExternal(url) || /^(data:|blob:|\/\/)/i.test(url)) return url
+  if (!baseUrl) return url
+  if (baseUrl.endsWith('/') && url.startsWith('/')) return baseUrl + url.slice(1)
+  if (!baseUrl.endsWith('/') && !url.startsWith('/')) return `${baseUrl}/${url}`
+  return baseUrl + url
+}
+
+async function fetchAuthorizedFile(url, filename) {
+  if (!url || /^(data:|blob:)/i.test(url)) return null
+  const requestUrl = (baseUrl && String(url).startsWith(baseUrl)) || isExternal(url) ? url : absoluteFileUrl(url)
+  const response = await axios.get(requestUrl, {
+    responseType: 'blob',
+    headers: { Authorization: `Bearer ${getToken()}` }
+  })
+  const blob = response.data
+  if (!filename || typeof File === 'undefined') return blob
+  return new File([blob], filename, {
+    type: blob.type || 'application/octet-stream',
+    lastModified: Date.now()
+  })
+}
+
+async function fetchAuthorizedBlob(url, filename) {
+  const blob = await fetchAuthorizedFile(url, filename)
+  return blob ? URL.createObjectURL(blob) : null
+}
+
+async function hydrateAuthorizedFile(file) {
+  if (!props.businessPreview || !isImage(file) || file?._loadingPreview) return
+  const original = normalizedStoredPath(file?.url || file?.name)
+  if (!original.startsWith('/profile/')) return
+  file._loadingPreview = true
+  try {
+    try { file.thumbnailObjectUrl = await fetchAuthorizedBlob(absoluteFileUrl(optimizedImagePath(file, 'thumb'))) } catch {}
+    try { file.previewObjectUrl = await fetchAuthorizedBlob(absoluteFileUrl(optimizedImagePath(file, 'preview'))) } catch {}
+    if (!file.thumbnailObjectUrl && !file.previewObjectUrl) await ensureOriginalObjectUrl(file)
+  } catch {
+    file.loadFailed = true
+  } finally {
+    file._loadingPreview = false
+  }
+}
+
+async function ensureOriginalObjectUrl(file) {
+  if (file?.objectUrl) return file.objectUrl
+  if (file?._loadingOriginal) return file._loadingOriginal
+  const original = normalizedStoredPath(file?.url || file?.name)
+  if (!props.businessPreview || !original.startsWith('/profile/')) return rawFileUrl(file)
+  file._loadingOriginal = fetchAuthorizedBlob(rawFileUrl(file), preferredFileName(file)).then(url => {
+    file.objectUrl = url
+    return url
+  }).finally(() => { file._loadingOriginal = null })
+  return file._loadingOriginal
+}
+
+function hydrateAuthorizedFiles() {
+  fileList.value.forEach(hydrateAuthorizedFile)
+}
+
+function revokeObjectUrls(file) {
+  ;['objectUrl', 'thumbnailObjectUrl', 'previewObjectUrl'].forEach(key => {
+    if (String(file?.[key] || '').startsWith('blob:')) URL.revokeObjectURL(file[key])
+  })
 }
 
 // 对象转成指定字符串分隔
@@ -206,7 +701,7 @@ function listToString(list, separator) {
   separator = separator || ","
   for (let i in list) {
     if (list[i].url) {
-      strs += list[i].url + separator
+      strs += normalizedStoredPath(list[i].url) + separator
     }
   }
   return strs != '' ? strs.substr(0, strs.length - 1) : ''
@@ -228,29 +723,241 @@ onMounted(() => {
     })
   }
 })
+
+onBeforeUnmount(() => {
+  clearDocumentPreview()
+  closeUploadLoading()
+  pendingFileSizes.clear()
+  pendingBytes.value = 0
+  completedUploads.splice(0)
+  fileList.value.forEach(revokeObjectUrls)
+})
 </script>
 <style scoped lang="scss">
+.document-preview { min-height:180px; }
+.document-preview__pdf { display:block;width:100%;height:65vh;border:0; }
+.document-preview__text { margin:0;max-height:65vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.8 monospace; }
 .file-upload-darg {
   opacity: 0.5;
-  background: #c8ebfb;
+  transform: scale(0.98);
+}
+.upload-file {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 .upload-file-uploader {
   margin-bottom: 5px;
 }
-.upload-file-list .el-upload-list__item {
-  border: 1px solid #e4e7ed;
-  line-height: 2;
-  margin-bottom: 10px;
-  position: relative;
-  transition: none !important;
+.upload-file-tip {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 760px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  overflow: hidden;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  color: var(--el-text-color-regular);
+  background: var(--el-fill-color-lighter);
+  font-size: 13px;
+  line-height: 20px;
+  white-space: normal;
 }
-.upload-file-list .ele-upload-list__item-content {
+.upload-file-tip__summary {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  color: inherit;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 5px 14px;
 }
-.ele-upload-list__item-content-action .el-link {
-  margin-right: 10px;
+.upload-file-tip__summary span {
+  white-space: nowrap;
+}
+.upload-file-tip b {
+  color: var(--el-color-danger);
+  font-weight: 600;
+}
+.upload-file-tip__types {
+  display: grid;
+  min-width: 0;
+  margin-top: 6px;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0 9px;
+  align-items: start;
+}
+.upload-file-tip__label {
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
+}
+.upload-file-tip__extensions {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--el-text-color-primary);
+  word-break: break-word;
+}
+.upload-file-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
+  gap: 12px;
+  max-width: 760px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.upload-file-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+  background: var(--el-bg-color);
+  box-shadow: 0 2px 8px rgb(31 45 61 / 5%);
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+.upload-file-card:hover {
+  border-color: var(--el-color-primary-light-5);
+  box-shadow: 0 5px 16px rgb(31 45 61 / 11%);
+}
+.upload-file-card__preview {
+  position: relative;
+  height: 112px;
+  overflow: hidden;
+  background: var(--el-fill-color-light);
+}
+.upload-file-card__preview > .el-image,
+.upload-file-card__preview > video,
+.upload-file-card__preview > iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  object-fit: cover;
+}
+.upload-file-card__preview > iframe {
+  pointer-events: none;
+  background: #fff;
+}
+.file-type-tile {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 7px;
+  color: #637381;
+  background: linear-gradient(145deg, #f7f9fb, #edf1f4);
+}
+.file-type-tile .el-icon {
+  font-size: 36px;
+}
+.file-type-tile strong {
+  max-width: 88%;
+  padding: 2px 7px;
+  border-radius: 4px;
+  color: #fff;
+  background: #718096;
+  font-size: 11px;
+  line-height: 16px;
+}
+.file-type-tile.is-word strong { background: #3676c5; }
+.file-type-tile.is-excel strong { background: #23825b; }
+.file-type-tile.is-powerpoint strong { background: #cf5c36; }
+.file-type-tile.is-archive strong { background: #8a67b3; }
+.upload-file-card__cover {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 0%);
+  transition: background 0.2s;
+}
+.upload-file-card__cover > a,
+.upload-file-card__cover > button {
+  display: flex;
+  visibility: hidden;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  color: #fff;
+  background: rgb(0 0 0 / 64%);
+  cursor: pointer;
+  font: inherit;
+  opacity: 0;
+  text-decoration: none;
+  transition: opacity 0.2s;
+}
+.upload-file-card__preview:hover .upload-file-card__cover {
+  background: rgb(0 0 0 / 12%);
+}
+.upload-file-card__preview:hover .upload-file-card__cover > a,
+.upload-file-card__preview:hover .upload-file-card__cover > button,
+.upload-file-card__cover > a:focus-visible,
+.upload-file-card__cover > button:focus-visible {
+  visibility: visible;
+  opacity: 1;
+}
+.upload-file-card__delete {
+  position: absolute;
+  z-index: 2;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  width: 25px;
+  height: 25px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgb(255 255 255 / 72%);
+  border-radius: 50%;
+  color: #fff;
+  background: rgb(0 0 0 / 58%);
+  cursor: pointer;
+}
+.upload-file-card__name {
+  display: block;
+  width: calc(100% - 20px);
+  margin: 9px 10px 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  color: var(--el-text-color-primary);
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: none;
+  text-align: left;
+}
+.upload-file-card__name:hover {
+  color: var(--el-color-primary);
+}
+.upload-file-card__meta {
+  display: block;
+  margin: 1px 10px 9px;
+  overflow: hidden;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.video-preview {
+  display: block;
+  width: 100%;
+  max-height: 72vh;
+  border-radius: 8px;
+  background: #000;
+}
+
+@media (max-width: 520px) {
+  .upload-file-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>

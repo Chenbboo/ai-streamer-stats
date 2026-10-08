@@ -30,12 +30,89 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         from live_customer where nickname = #{nickname} and streamer_id = #{streamerId} and merged_into_id is null
     </select>
 
-    <update id="updateGiftCustomerId">
-        update live_gift_record set customer_id = #{newId} where customer_id = #{oldId}
+    <insert id="mergeGiftRecords">
+        insert into live_gift_record
+          (biz_date, streamer_id, customer_id, xu, rank_no, upload_id,
+           confirm_status, ai_confidence, create_time, update_by, update_time)
+        select biz_date, streamer_id, #{newId}, xu, rank_no, upload_id,
+               confirm_status, ai_confidence, create_time, update_by, update_time
+        from live_gift_record where customer_id = #{oldId}
+        on duplicate key update
+          xu = live_gift_record.xu + values(xu),
+          rank_no = case
+            when live_gift_record.rank_no is null then values(rank_no)
+            when values(rank_no) is null then live_gift_record.rank_no
+            else least(live_gift_record.rank_no, values(rank_no)) end,
+          upload_id = coalesce(live_gift_record.upload_id, values(upload_id)),
+          confirm_status = greatest(live_gift_record.confirm_status, values(confirm_status)),
+          ai_confidence = least(live_gift_record.ai_confidence, values(ai_confidence)),
+          update_time = sysdate()
+    </insert>
+
+    <delete id="deleteGiftRecords">
+        delete from live_gift_record where customer_id = #{customerId}
+    </delete>
+
+    <insert id="mergeChatContacts">
+        insert into live_chat_contact
+          (biz_date, streamer_id, customer_id, upload_id, has_interaction, create_time)
+        select biz_date, streamer_id, #{newId}, upload_id, has_interaction, create_time
+        from live_chat_contact where customer_id = #{oldId}
+        on duplicate key update
+          upload_id = coalesce(live_chat_contact.upload_id, values(upload_id)),
+          has_interaction = greatest(live_chat_contact.has_interaction, values(has_interaction)),
+          create_time = least(live_chat_contact.create_time, values(create_time))
+    </insert>
+
+    <delete id="deleteChatContacts">
+        delete from live_chat_contact where customer_id = #{customerId}
+    </delete>
+
+    <insert id="mergeFollowRecords">
+        insert into live_follow_record
+          (biz_date, streamer_id, customer_id, upload_id, follow_status, create_time, update_time)
+        select biz_date, streamer_id, #{newId}, upload_id, follow_status, create_time, update_time
+        from live_follow_record where customer_id = #{oldId}
+        on duplicate key update
+          upload_id = coalesce(live_follow_record.upload_id, values(upload_id)),
+          follow_status = case
+            when live_follow_record.follow_status = 'pending' or values(follow_status) = 'pending'
+              then 'pending'
+            else values(follow_status) end,
+          create_time = least(live_follow_record.create_time, values(create_time)),
+          update_time = sysdate()
+    </insert>
+
+    <delete id="deleteFollowRecords">
+        delete from live_follow_record where customer_id = #{customerId}
+    </delete>
+
+    <update id="updateChatMessageCustomerId">
+        update live_chat_message set customer_id = #{newId} where customer_id = #{oldId}
     </update>
 
-    <update id="updateChatCustomerId">
-        update live_chat_contact set customer_id = #{newId} where customer_id = #{oldId}
+    <update id="moveAliases">
+        update live_customer_alias
+        set customer_id = #{newId}, streamer_id = #{streamerId}
+        where customer_id = #{oldId}
+    </update>
+
+    <update id="mergeCustomerMetadata">
+        update live_customer p
+        join live_customer s on s.customer_id = #{secondaryId}
+        set p.first_seen_date = case
+              when p.first_seen_date is null then s.first_seen_date
+              when s.first_seen_date is null then p.first_seen_date
+              else least(p.first_seen_date, s.first_seen_date) end,
+            p.last_seen_date = case
+              when p.last_seen_date is null then s.last_seen_date
+              when s.last_seen_date is null then p.last_seen_date
+              else greatest(p.last_seen_date, s.last_seen_date) end,
+            p.badge = if(p.badge is null or p.badge = '', s.badge, p.badge),
+            p.profile_url = if(p.profile_url is null or p.profile_url = '', s.profile_url, p.profile_url),
+            p.avatar_path = if(p.avatar_path is null or p.avatar_path = '', s.avatar_path, p.avatar_path),
+            p.update_time = sysdate()
+        where p.customer_id = #{primaryId}
     </update>
 
     <update id="markCustomerMerged">
@@ -43,10 +120,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     </update>
 
     <insert id="insertAlias">
-        insert into live_customer_alias (customer_id, nickname, source_type, first_seen_date, last_seen_date)
-        values (#{customerId}, #{nickname}, #{sourceType},
-                (select first_seen_date from live_customer where customer_id = #{customerId}),
-                (select last_seen_date from live_customer where customer_id = #{customerId}))
+        insert into live_customer_alias
+          (customer_id, streamer_id, nickname, source_type, first_seen_date, last_seen_date, create_time)
+        select #{customerId}, #{streamerId}, #{nickname}, #{sourceType},
+               #{firstSeenDate}, #{lastSeenDate}, sysdate()
+        where not exists (
+          select 1 from live_customer_alias
+          where customer_id = #{customerId} and nickname = #{nickname}
+        )
     </insert>
 
     <delete id="deleteCustomerById">

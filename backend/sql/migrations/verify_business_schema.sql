@@ -1,0 +1,1150 @@
+-- 只读验证。missing_* 应为0，数据完整性检查也应为0。
+
+select
+  count(case when table_name='live_streamer' then 1 end)=0 as missing_live_streamer,
+  count(case when table_name='live_customer' then 1 end)=0 as missing_live_customer,
+  count(case when table_name='live_customer_alias' then 1 end)=0 as missing_live_customer_alias,
+  count(case when table_name='live_upload' then 1 end)=0 as missing_live_upload,
+  count(case when table_name='live_gift_record' then 1 end)=0 as missing_live_gift_record,
+  count(case when table_name='live_chat_contact' then 1 end)=0 as missing_live_chat_contact,
+  count(case when table_name='live_chat_message' then 1 end)=0 as missing_live_chat_message,
+  count(case when table_name='live_follow_record' then 1 end)=0 as missing_live_follow_record,
+  count(case when table_name='live_daily_report' then 1 end)=0 as missing_live_daily_report,
+  count(case when table_name='live_kpi_config' then 1 end)=0 as missing_live_kpi_config,
+  count(case when table_name='live_weiji_stats' then 1 end)=0 as missing_live_weiji_stats
+from information_schema.tables
+where table_schema=database() and table_name like 'live\_%';
+
+select
+  count(case when table_name='jewelry_staff' then 1 end)=0 as missing_jewelry_staff,
+  count(case when table_name='jewelry_product' then 1 end)=0 as missing_jewelry_product,
+  count(case when table_name='jewelry_supplier' then 1 end)=0 as missing_jewelry_supplier,
+  count(case when table_name='jewelry_stock' then 1 end)=0 as missing_jewelry_stock,
+  count(case when table_name='jewelry_document' then 1 end)=0 as missing_jewelry_document,
+  count(case when table_name='jewelry_document_item' then 1 end)=0 as missing_jewelry_document_item,
+  count(case when table_name='jewelry_approval' then 1 end)=0 as missing_jewelry_approval,
+  count(case when table_name='jewelry_document_event' then 1 end)=0 as missing_jewelry_document_event,
+  count(case when table_name='jewelry_stock_transaction' then 1 end)=0 as missing_jewelry_stock_transaction
+from information_schema.tables
+where table_schema=database() and table_name like 'jewelry\_%';
+
+select
+  count(case when table_name='biz_project' then 1 end)=0 as missing_biz_project,
+  count(case when table_name='biz_project_member' then 1 end)=0 as missing_biz_project_member,
+  count(case when table_name='biz_project_owner_history' then 1 end)=0 as missing_biz_project_owner_history,
+  count(case when table_name='biz_project_milestone' then 1 end)=0 as missing_biz_project_milestone,
+  count(case when table_name='biz_project_task' then 1 end)=0 as missing_biz_project_task,
+  count(case when table_name='biz_project_risk' then 1 end)=0 as missing_biz_project_risk,
+  count(case when table_name='biz_project_event' then 1 end)=0 as missing_biz_project_event
+  ,count(case when table_name='biz_project_acceptance' then 1 end)=0 as missing_biz_project_acceptance,
+  count(case when table_name='biz_project_stage_acceptance' then 1 end)=0 as missing_biz_project_stage_acceptance,
+  count(case when table_name='biz_project_kpi' then 1 end)=0 as missing_biz_project_kpi,
+  count(case when table_name='biz_project_budget_history' then 1 end)=0 as missing_biz_project_budget_history,
+  count(case when table_name='biz_staff_cost_policy' then 1 end)=0 as missing_biz_staff_cost_policy,
+  count(case when table_name='biz_project_staff_allocation' then 1 end)=0 as missing_biz_project_staff_allocation
+  ,count(case when table_name='biz_fact_category' then 1 end)=0 as missing_biz_fact_category,
+  count(case when table_name='biz_operating_fact' then 1 end)=0 as missing_biz_operating_fact,
+  count(case when table_name='biz_project_daily_result' then 1 end)=0 as missing_biz_project_daily_result,
+  count(case when table_name='biz_project_daily_result_item' then 1 end)=0 as missing_biz_project_daily_result_item,
+  count(case when table_name='biz_project_kpi_plan' then 1 end)=0 as missing_biz_project_kpi_plan,
+  count(case when table_name='biz_project_kpi_plan_item' then 1 end)=0 as missing_biz_project_kpi_plan_item,
+  count(case when table_name='biz_project_bonus_tier' then 1 end)=0 as missing_biz_project_bonus_tier,
+  count(case when table_name='biz_project_kpi_settlement' then 1 end)=0 as missing_biz_project_kpi_settlement,
+  count(case when table_name='biz_project_kpi_result' then 1 end)=0 as missing_biz_project_kpi_result
+from information_schema.tables
+where table_schema=database() and table_name like 'biz\_%';
+
+select
+  count(case when column_name='country_region_snapshot' then 1 end)=0 as missing_staff_cost_country_snapshot,
+  count(case when column_name='standard_work_days' then 1 end)=0 as missing_staff_cost_standard_work_days,
+  count(case when column_name='voided_user_id' then 1 end)=0 as missing_staff_cost_voided_user_id,
+  count(case when column_name='voided_user_name' then 1 end)=0 as missing_staff_cost_voided_user_name,
+  count(case when column_name='voided_time' then 1 end)=0 as missing_staff_cost_voided_time,
+  count(case when column_name='void_reason' then 1 end)=0 as missing_staff_cost_void_reason
+from information_schema.columns
+where table_schema=database() and table_name='biz_staff_cost_policy';
+
+select
+  count(case when column_name='returned_user_id' then 1 end)=0 as missing_operating_fact_returned_user_id,
+  count(case when column_name='returned_user_name' then 1 end)=0 as missing_operating_fact_returned_user_name,
+  count(case when column_name='returned_time' then 1 end)=0 as missing_operating_fact_returned_time,
+  count(case when column_name='return_reason' then 1 end)=0 as missing_operating_fact_return_reason
+from information_schema.columns
+where table_schema=database() and table_name='biz_operating_fact';
+
+select count(*)=0 as missing_project_daily_bonus_cost
+from information_schema.columns
+where table_schema=database() and table_name='biz_project_daily_result' and column_name='bonus_cost';
+
+select
+  count(case when column_name='voided_user_id' then 1 end)=0 as missing_kpi_plan_voided_user_id,
+  count(case when column_name='voided_user_name' then 1 end)=0 as missing_kpi_plan_voided_user_name,
+  count(case when column_name='voided_time' then 1 end)=0 as missing_kpi_plan_voided_time
+from information_schema.columns
+where table_schema=database() and table_name='biz_project_kpi_plan';
+
+select
+  count(case when column_name='voided_user_id' then 1 end)=0 as missing_kpi_settlement_voided_user_id,
+  count(case when column_name='voided_user_name' then 1 end)=0 as missing_kpi_settlement_voided_user_name,
+  count(case when column_name='voided_time' then 1 end)=0 as missing_kpi_settlement_voided_time
+from information_schema.columns
+where table_schema=database() and table_name='biz_project_kpi_settlement';
+
+select
+  count(case when column_name='initiator_user_id' then 1 end)=0 as missing_project_initiator_user_id,
+  count(case when column_name='initiator_name' then 1 end)=0 as missing_project_initiator_name,
+  count(case when column_name='company_dept_id' then 1 end)=0 as missing_project_company_dept_id
+from information_schema.columns
+where table_schema=database() and table_name='biz_project';
+
+select 'orphan_project_kpi',count(*) problem_rows
+from biz_project_kpi k left join biz_project p on p.project_id=k.project_id and p.del_flag='0'
+where p.project_id is null
+union all
+select 'orphan_budget_history',count(*)
+from biz_project_budget_history h left join biz_project p on p.project_id=h.project_id and p.del_flag='0'
+where p.project_id is null
+union all
+select 'orphan_staff_cost_policy',count(*)
+from biz_staff_cost_policy c left join sys_user u on u.user_id=c.user_id and u.del_flag='0'
+where u.user_id is null
+union all
+select 'orphan_project_staff_allocation',count(*)
+from biz_project_staff_allocation a
+left join biz_project p on p.project_id=a.project_id and p.del_flag='0'
+left join sys_user u on u.user_id=a.user_id and u.del_flag='0'
+left join biz_staff_cost_policy c on c.policy_id=a.cost_policy_id
+where p.project_id is null or u.user_id is null or c.policy_id is null;
+
+select 'orphan_operating_fact',count(*) problem_rows
+from biz_operating_fact f
+left join biz_project p on p.project_id=f.project_id and p.del_flag='0'
+left join biz_fact_category c on c.category_id=f.category_id
+left join sys_dept d on d.dept_id=f.company_dept_id and d.del_flag='0'
+where p.project_id is null or c.category_id is null or d.dept_id is null
+union all
+select 'orphan_daily_result',count(*)
+from biz_project_daily_result r
+left join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+left join sys_dept d on d.dept_id=r.company_dept_id and d.del_flag='0'
+where p.project_id is null or d.dept_id is null
+union all
+select 'orphan_daily_result_item',count(*)
+from biz_project_daily_result_item i left join biz_project_daily_result r on r.result_id=i.result_id
+where r.result_id is null;
+
+select count(*)=0 as missing_project_initiator_status_index
+from information_schema.statistics
+where table_schema=database() and table_name='biz_project'
+  and index_name='idx_biz_project_initiator_status';
+
+select
+  count(case when column_name='streamer_id' then 1 end)=0 as missing_customer_streamer_id
+from information_schema.columns
+where table_schema=database() and table_name='live_customer';
+
+select
+  count(case when table_name='jewelry_product' and column_name='product_type' then 1 end)=0
+    as missing_jewelry_product_type,
+  count(case when table_name='jewelry_product' and column_name='specification' then 1 end)=0
+    as missing_jewelry_specification,
+  count(case when table_name='jewelry_document' and column_name='actual_refund_amount' then 1 end)=0
+    as missing_jewelry_actual_refund_amount,
+  count(case when table_name='jewelry_document_item' and column_name='bundle_group_no' then 1 end)=0
+    as missing_jewelry_bundle_group_no,
+  count(case when table_name='jewelry_document_item' and column_name='sale_role' then 1 end)=0
+    as missing_jewelry_sale_role,
+  count(case when table_name='jewelry_document_item' and column_name='pricing_mode' then 1 end)=0
+    as missing_jewelry_pricing_mode,
+  count(case when table_name='jewelry_document_item' and column_name='product_type_snapshot' then 1 end)=0
+    as missing_jewelry_product_type_snapshot,
+  count(case when table_name='jewelry_document_item' and column_name='specification_snapshot' then 1 end)=0
+    as missing_jewelry_specification_snapshot,
+  count(case when table_name='jewelry_document_item' and column_name='other_fee1' then 1 end)=0
+    as missing_jewelry_other_fee1,
+  count(case when table_name='jewelry_document_item' and column_name='other_fee2' then 1 end)=0
+    as missing_jewelry_other_fee2,
+  count(case when table_name='jewelry_document_item' and column_name='other_fee3' then 1 end)=0
+    as missing_jewelry_other_fee3
+from information_schema.columns
+where table_schema=database()
+  and table_name in ('jewelry_product','jewelry_document','jewelry_document_item');
+
+select
+  count(*)=0 as missing_jewelry_cost_adjustment_lock_index
+from information_schema.statistics
+where table_schema=database()
+  and table_name='jewelry_document_item'
+  and index_name='idx_jewelry_item_product_document';
+
+select 'invalid_jewelry_product_type' check_name, count(*) problem_rows
+from jewelry_product
+where product_type not in ('FINISHED','PART','ACCESSORY','WELFARE','SAMPLE','GIFT')
+union all
+select 'invalid_jewelry_specification', count(*)
+from jewelry_product
+where specification not in ('精品','普通');
+
+select 'customer_missing_streamer' check_name, count(*) problem_rows
+from live_customer c left join live_streamer s on s.streamer_id=c.streamer_id
+where s.streamer_id is null
+union all
+select 'gift_orphan_customer', count(*)
+from live_gift_record g left join live_customer c on c.customer_id=g.customer_id
+where c.customer_id is null
+union all
+select 'gift_customer_streamer_mismatch', count(*)
+from live_gift_record g join live_customer c on c.customer_id=g.customer_id
+where g.streamer_id<>c.streamer_id
+union all
+select 'chat_orphan_customer', count(*)
+from live_chat_contact x left join live_customer c on c.customer_id=x.customer_id
+where c.customer_id is null
+union all
+select 'chat_customer_streamer_mismatch', count(*)
+from live_chat_contact x join live_customer c on c.customer_id=x.customer_id
+where x.streamer_id<>c.streamer_id
+union all
+select 'follow_orphan_customer', count(*)
+from live_follow_record x left join live_customer c on c.customer_id=x.customer_id
+where c.customer_id is null
+union all
+select 'follow_customer_streamer_mismatch', count(*)
+from live_follow_record x join live_customer c on c.customer_id=x.customer_id
+where x.streamer_id<>c.streamer_id
+union all
+select 'alias_orphan_customer', count(*)
+from live_customer_alias a left join live_customer c on c.customer_id=a.customer_id
+where c.customer_id is null
+union all
+select 'alias_customer_streamer_mismatch', count(*)
+from live_customer_alias a join live_customer c on c.customer_id=a.customer_id
+where a.streamer_id is null or a.streamer_id<>c.streamer_id
+union all
+select 'duplicate_active_customer_scope', count(*)
+from (
+  select nickname,streamer_id
+  from live_customer
+  where merged_into_id is null
+  group by nickname,streamer_id
+  having count(*)>1
+) duplicate_scope;
+
+select
+  count(case when role_key='streamer' then 1 end)=0 as missing_streamer_role,
+  count(case when role_key='operator' then 1 end)=0 as missing_operator_role,
+  count(case when role_key='live_admin' then 1 end)=0 as missing_live_admin_role,
+  count(case when role_key='jewelry_maker' then 1 end)=0 as missing_jewelry_maker_role,
+  count(case when role_key='jewelry_reviewer' then 1 end)=0 as missing_jewelry_reviewer_role,
+  count(case when role_key='jewelry_admin' then 1 end)=0 as missing_jewelry_admin_role
+  ,count(case when role_key='company_owner' then 1 end)=0 as missing_company_owner_role
+  ,count(case when role_key='project_user' then 1 end)=0 as missing_project_user_role
+from sys_role
+where del_flag='0' and role_key in
+  ('streamer','operator','live_admin','jewelry_maker','jewelry_reviewer','jewelry_admin',
+   'company_owner','project_user');
+
+select 'project_owner_missing_member' check_name,count(*) problem_rows
+from biz_project p
+left join biz_project_member m on m.project_id=p.project_id
+  and m.user_id=p.main_owner_user_id and m.status='0' and m.member_role='OWNER'
+where p.del_flag='0' and m.member_id is null
+union all
+select 'project_orphan_parent',count(*)
+from biz_project p left join biz_project parent on parent.project_id=p.parent_id and parent.del_flag='0'
+where p.del_flag='0' and p.parent_id is not null and parent.project_id is null
+union all
+select 'project_orphan_member_user',count(*)
+from biz_project_member m left join sys_user u on u.user_id=m.user_id and u.del_flag='0'
+where m.status='0' and u.user_id is null
+union all
+select 'project_orphan_initiator_user',count(*)
+from biz_project p left join sys_user u on u.user_id=p.initiator_user_id and u.del_flag='0'
+where p.del_flag='0' and u.user_id is null
+union all
+select 'project_orphan_acceptance',count(*)
+from biz_project_acceptance a left join biz_project p on p.project_id=a.project_id and p.del_flag='0'
+where p.project_id is null;
+
+select
+  count(case when r.role_key='jewelry_maker' and m.perms='jewelry:product:add' then 1 end)=0
+    as missing_jewelry_maker_product_add_permission,
+  count(case when r.role_key='jewelry_maker' and m.perms='jewelry:product:basic-edit' then 1 end)=0
+    as missing_jewelry_maker_product_basic_edit_permission,
+  count(case when r.role_key='jewelry_maker' and m.perms='jewelry:product:edit' then 1 end)=0
+    as jewelry_maker_product_edit_mismatch,
+  count(case when r.role_key='jewelry_maker' and m.perms='jewelry:product:remove' then 1 end)=0
+    as missing_jewelry_maker_product_remove_permission,
+  count(case when r.role_key='jewelry_maker' and m.perms='jewelry:influencer:price' then 1 end)=0
+    as missing_jewelry_maker_influencer_price_permission,
+  count(case when r.role_key='jewelry_reviewer'
+    and m.perms in ('jewelry:product:add','jewelry:product:edit','jewelry:product:basic-edit','jewelry:product:remove') then 1 end)>0
+    as jewelry_reviewer_product_write_mismatch,
+  count(case when r.role_key='jewelry_reviewer' and m.perms='jewelry:influencer:price' then 1 end)>0
+    as jewelry_reviewer_influencer_price_mismatch,
+  count(case when r.role_key='jewelry_admin' and m.perms='jewelry:product:add' then 1 end)=0
+    as missing_jewelry_admin_product_add_permission,
+  count(case when r.role_key='jewelry_admin' and m.perms='jewelry:product:edit' then 1 end)=0
+    as missing_jewelry_admin_product_edit_permission,
+  count(case when r.role_key='jewelry_admin' and m.perms='jewelry:product:remove' then 1 end)=0
+    as missing_jewelry_admin_product_remove_permission,
+  count(case when r.role_key='jewelry_admin' and m.perms='jewelry:product:basic-edit' then 1 end)=0
+    as missing_jewelry_admin_product_basic_edit_permission,
+  count(case when r.role_key='jewelry_admin' and m.perms='jewelry:influencer:price' then 1 end)=0
+    as missing_jewelry_admin_influencer_price_permission
+from sys_role r
+left join sys_role_menu rm on rm.role_id=r.role_id
+left join sys_menu m on m.menu_id=rm.menu_id
+where r.del_flag='0'
+  and r.role_key in ('jewelry_maker','jewelry_reviewer','jewelry_admin');
+
+select
+  count(case when r.role_key='company_owner' and m.perms='business:staff:list' then 1 end)=0
+    as missing_company_owner_staff_list,
+  count(case when r.role_key='company_owner' and m.perms='business:staff:manage' then 1 end)=0
+    as missing_company_owner_staff_manage,
+  count(case when r.role_key='company_owner' and m.perms='business:department:list' then 1 end)=0
+    as missing_company_owner_department_list,
+  count(case when r.role_key='company_owner' and m.perms='business:department:manage' then 1 end)=0
+    as missing_company_owner_department_manage
+from sys_role r
+left join sys_role_menu rm on rm.role_id=r.role_id
+left join sys_menu m on m.menu_id=rm.menu_id
+where r.del_flag='0' and r.role_key='company_owner';
+
+select count(*) as business_route_name_mismatch
+from sys_menu
+where menu_id between 4000 and 4005
+  and route_name<>case menu_id
+    when 4000 then 'Business'
+    when 4001 then 'BusinessBoss'
+    when 4002 then 'BusinessProjects'
+    when 4003 then 'BusinessOwnerWorkbench'
+    when 4004 then 'BusinessStaff'
+    when 4005 then 'BusinessDepartments'
+  end;
+
+select
+  count(case when column_name='leader_user_id' then 1 end)=0 as missing_department_leader_user_id
+from information_schema.columns
+where table_schema=database() and table_name='sys_dept';
+
+select count(*)=0 as missing_department_leader_user_index
+from information_schema.statistics
+where table_schema=database() and table_name='sys_dept'
+  and index_name='idx_sys_dept_leader_user';
+
+select 'department_orphan_leader_user' check_name,count(*) problem_rows
+from sys_dept d
+left join sys_user u on u.user_id=d.leader_user_id and u.del_flag='0'
+where d.del_flag='0' and d.leader_user_id is not null and u.user_id is null
+union all
+select 'department_leader_snapshot_mismatch',count(*)
+from sys_dept d
+join sys_user u on u.user_id=d.leader_user_id and u.del_flag='0'
+where d.del_flag='0' and (
+  d.leader<>coalesce(nullif(u.nick_name,''),u.user_name)
+  or coalesce(d.phone,'')<>coalesce(u.phonenumber,'')
+  or coalesce(d.email,'')<>coalesce(u.email,'')
+);
+
+select count(*)=0 as missing_staff_profile_table
+from information_schema.tables
+where table_schema=database() and table_name='biz_staff_profile';
+
+select 'missing_staff_profile' check_name,count(*) problem_rows
+from sys_user u left join biz_staff_profile p on p.user_id=u.user_id
+where u.del_flag='0' and p.user_id is null
+union all
+select 'invalid_staff_manager',count(*)
+from biz_staff_profile p left join sys_user manager on manager.user_id=p.manager_user_id and manager.del_flag='0'
+where p.manager_user_id is not null and (manager.user_id is null or p.manager_user_id=p.user_id);
+
+select
+  count(case when dept_id=100 and parent_id=0 and dept_name='美丸集团' then 1 end)=0
+    as missing_meimaru_group_root,
+  count(case when dept_id=110 and parent_id=100 and dept_name='上海美丸文化公司' then 1 end)=0
+    as missing_shanghai_meimaru_company,
+  count(case when dept_id=111 and parent_id=100 and dept_name='越南meimaru公司' then 1 end)=0
+    as missing_vietnam_meimaru_company
+from sys_dept
+where del_flag='0' and dept_id in (100,110,111);
+
+select count(*) as active_default_departments
+from sys_dept
+where dept_id between 101 and 109 and del_flag='0';
+
+select 'shanghai_company_owner_mismatch' check_name,count(*) problem_rows
+from sys_dept company
+left join sys_user owner_user on owner_user.user_id=company.leader_user_id and owner_user.del_flag='0'
+where company.dept_id=110 and company.del_flag='0'
+  and (owner_user.user_id is null or owner_user.user_name not in('jianglan','GLY-jl'))
+union all
+select 'vietnam_company_owner_mismatch',count(*)
+from sys_dept company
+left join sys_user owner_user on owner_user.user_id=company.leader_user_id and owner_user.del_flag='0'
+where company.dept_id=111 and company.del_flag='0'
+  and (owner_user.user_id is null or owner_user.user_name<>'wangfuzhang');
+
+select count(*) as system_users_in_retired_departments
+from sys_user
+where dept_id between 101 and 109 and del_flag='0';
+
+select 'jianglan_owner_binding_mismatch' check_name,
+  if(count(*)=1,0,abs(count(*)-1)) problem_rows
+from sys_user u
+join sys_user_role ur on ur.user_id=u.user_id
+join sys_role r on r.role_id=ur.role_id and r.role_key='company_owner' and r.del_flag='0'
+where u.del_flag='0' and u.user_name in ('jianglan','GLY-jl')
+union all
+select 'wangfuzhang_owner_binding_mismatch',
+  if(count(*)=1,0,abs(count(*)-1))
+from sys_user u
+join sys_user_role ur on ur.user_id=u.user_id
+join sys_role r on r.role_id=ur.role_id and r.role_key='company_owner' and r.del_flag='0'
+where u.del_flag='0' and u.user_name='wangfuzhang'
+union all
+select 'jianglan_display_name_encoding_error',count(*)
+from sys_user u
+where u.del_flag='0' and u.user_name in('jianglan','GLY-jl')
+  and hex(u.nick_name)='C3A6C2B1C29FC3A6C2BEC29C'
+union all
+select 'owner_outside_group_root',count(*)
+from sys_user u
+join sys_user_role ur on ur.user_id=u.user_id
+join sys_role r on r.role_id=ur.role_id and r.role_key='company_owner' and r.del_flag='0'
+where u.del_flag='0' and u.dept_id<>100;
+
+select
+  coalesce(sum(case when r.role_key in ('jewelry_maker','jewelry_reviewer','jewelry_admin') and u.dept_id<>110 then 1 else 0 end),0)
+    as jewelry_staff_company_mismatch,
+  coalesce(sum(case when r.role_key='streamer' and u.dept_id<>111 then 1 else 0 end),0)
+    as streamer_company_mismatch
+from sys_user u
+join sys_user_role ur on ur.user_id=u.user_id
+join sys_role r on r.role_id=ur.role_id
+where u.del_flag='0' and r.del_flag='0'
+  and r.role_key in ('jewelry_maker','jewelry_reviewer','jewelry_admin','streamer')
+  and not exists (
+    select 1
+    from sys_user_role protected_ur
+    join sys_role protected_r on protected_r.role_id=protected_ur.role_id
+      and protected_r.del_flag='0'
+      and protected_r.role_key in ('admin','company_owner')
+    where protected_ur.user_id=u.user_id
+  );
+
+select count(*) as missing_live_menu_translation
+from sys_menu
+where menu_id between 2000 and 2048
+  and (menu_name_vi is null or trim(menu_name_vi)='');
+
+select count(*)=0 as missing_project_management_mode
+from information_schema.columns
+where table_schema=database() and table_name='biz_project' and column_name='management_mode';
+
+select 'missing_project_routine_table' check_name,
+  count(*)=0 problem_rows
+from information_schema.tables
+where table_schema=database() and table_name='biz_project_routine'
+union all
+select 'missing_project_routine_report_table',
+  count(*)=0
+from information_schema.tables
+where table_schema=database() and table_name='biz_project_routine_report';
+
+select 'missing_project_owner_role' check_name,count(*)=0 problem_rows
+from sys_role where role_key='project_owner' and del_flag='0'
+union all
+select 'missing_employee_work_menu',count(*)=0
+from sys_menu where menu_id=4007 and route_name='BusinessWorkSchedule'
+  and perms='business:project:work:view' and status='0';
+
+select 'ordinary_member_has_owner_workbench' check_name,count(*) problem_rows
+from sys_role r join sys_role_menu rm on rm.role_id=r.role_id
+where r.role_key='project_user' and r.del_flag='0' and rm.menu_id in(4002,4003)
+union all
+select 'project_owner_missing_role',count(*)
+from biz_project p
+where p.del_flag='0'
+  and not exists(select 1 from sys_user_role ur join sys_role r on r.role_id=ur.role_id
+    where ur.user_id=p.main_owner_user_id and r.role_key in('admin','company_owner','project_owner') and r.del_flag='0');
+
+select 'missing_project_effort_report_table' check_name,
+  count(*)=0 problem_rows
+from information_schema.tables
+where table_schema=database() and table_name='biz_project_effort_report';
+
+select 'missing_project_effort_permission' check_name,count(*)=0 problem_rows
+from sys_menu where menu_id=4017 and perms='business:project:allocation' and status='0'
+union all
+select 'project_owner_missing_effort_permission',count(*)
+from sys_role r
+where r.role_key='project_owner' and r.del_flag='0'
+  and not exists(select 1 from sys_role_menu rm where rm.role_id=r.role_id and rm.menu_id=4017);
+
+select 'missing_staff_leave_table' check_name,
+  count(*)=0 problem_rows
+from information_schema.tables
+where table_schema=database() and table_name='biz_staff_leave';
+
+select 'missing_project_relation_table' check_name,
+  count(*)=0 problem_rows
+from information_schema.tables
+where table_schema=database() and table_name='biz_project_relation'
+union all
+select 'duplicate_active_project_execution_source',count(*)
+from (
+  select active_key from biz_project_relation
+  where status='0' and active_key is not null
+  group by active_key having count(*)>1
+) duplicate_relation;
+
+select 'missing_ai_conversation_table' check_name,count(*)=0 problem_rows
+from information_schema.tables where table_schema=database() and table_name='biz_ai_conversation'
+union all
+select 'missing_ai_message_table',count(*)=0
+from information_schema.tables where table_schema=database() and table_name='biz_ai_message'
+union all
+select 'missing_ai_run_table',count(*)=0
+from information_schema.tables where table_schema=database() and table_name='biz_ai_run'
+union all
+select 'missing_ai_tool_call_table',count(*)=0
+from information_schema.tables where table_schema=database() and table_name='biz_ai_tool_call'
+union all
+select 'missing_ai_action_request_table',count(*)=0
+from information_schema.tables where table_schema=database() and table_name='biz_ai_action_request'
+union all
+select 'missing_ai_audit_log_table',count(*)=0
+from information_schema.tables where table_schema=database() and table_name='biz_ai_audit_log'
+union all
+select 'missing_ai_workflow_instance_table',count(*)=0
+from information_schema.tables where table_schema=database() and table_name='biz_ai_workflow_instance'
+union all
+select 'missing_ai_workflow_event_table',count(*)=0
+from information_schema.tables where table_schema=database() and table_name='biz_ai_workflow_event'
+union all
+select 'missing_boss_ai_page_menu',count(*)=0
+from sys_menu where menu_id=4008 and path='boss-ai' and component='business/ai/index'
+  and route_name='BusinessBossAi' and perms='business:boss:view' and status='0';
+
+select 'missing_project_proposal_table' check_name,count(*)=0 problem_rows
+from information_schema.tables
+where table_schema=database() and table_name='biz_project_proposal'
+union all
+select 'missing_project_proposal_event_table',count(*)=0
+from information_schema.tables
+where table_schema=database() and table_name='biz_project_proposal_event';
+
+select
+  count(case when column_name='source_proposal_id' then 1 end)=0 as missing_project_source_proposal_id,
+  count(case when column_name='applicant_user_id' then 1 end)=0 as missing_project_applicant_user_id,
+  count(case when column_name='applicant_name' then 1 end)=0 as missing_project_applicant_name,
+  count(case when column_name='sponsor_owner_user_id' then 1 end)=0 as missing_project_sponsor_owner_user_id,
+  count(case when column_name='sponsor_owner_name' then 1 end)=0 as missing_project_sponsor_owner_name
+from information_schema.columns
+where table_schema=database() and table_name='biz_project';
+
+select 'missing_company_staff_role' check_name,count(*)=0 problem_rows
+from sys_role where role_key='company_staff' and del_flag='0'
+union all
+select 'missing_project_proposal_menu',count(*)=0
+from sys_menu where menu_id=4009 and path='project-proposals'
+  and component='business/proposal/index' and route_name='BusinessProjectProposals'
+  and perms='business:project:proposal:list' and status='0'
+union all
+select 'active_direct_project_create_menu',count(*)
+from sys_menu where menu_id=4011 and status='0';
+
+select 'active_staff_missing_company_staff_role' check_name,count(*) problem_rows
+from sys_user u
+left join biz_staff_profile p on p.user_id=u.user_id
+where u.del_flag='0' and u.status='0' and coalesce(p.employment_status,'ACTIVE')<>'LEFT'
+  and not exists(
+    select 1 from sys_user_role ur
+    join sys_role r on r.role_id=ur.role_id and r.role_key='company_staff' and r.del_flag='0'
+    where ur.user_id=u.user_id
+  )
+union all
+select 'company_staff_missing_proposal_permission',count(*)
+from sys_role r
+where r.role_key='company_staff' and r.del_flag='0'
+  and exists(
+    select 1 from sys_menu required_menu
+    where required_menu.menu_id in(4000,4009,4061,4062,4063,4064)
+      and not exists(
+        select 1 from sys_role_menu rm
+        where rm.role_id=r.role_id and rm.menu_id=required_menu.menu_id
+      )
+  )
+union all
+select 'company_owner_missing_proposal_review_permission',count(*)
+from sys_role r
+where r.role_key='company_owner' and r.del_flag='0'
+  and not exists(
+    select 1 from sys_role_menu rm where rm.role_id=r.role_id and rm.menu_id=4065
+  )
+union all
+select 'approved_proposal_without_project',count(*)
+from biz_project_proposal proposal
+left join biz_project project on project.project_id=proposal.created_project_id and project.del_flag='0'
+where proposal.del_flag='0' and proposal.status='APPROVED' and project.project_id is null
+union all
+select 'proposal_project_owner_mismatch',count(*)
+from biz_project_proposal proposal
+join biz_project project on project.project_id=proposal.created_project_id and project.del_flag='0'
+where proposal.del_flag='0' and proposal.status='APPROVED'
+  and ((project.main_owner_user_id<>proposal.applicant_user_id and not exists (
+      select 1 from biz_project_owner_history history
+      where history.project_id=project.project_id and history.to_user_id=project.main_owner_user_id
+    )) or project.sponsor_owner_user_id<>proposal.sponsor_owner_user_id);
+
+select 'orphan_project_kpi_plan' check_name,count(*) problem_rows
+from biz_project_kpi_plan plan
+left join biz_project project on project.project_id=plan.project_id and project.del_flag='0'
+where project.project_id is null
+union all
+select 'invalid_project_kpi_plan_weight',count(*)
+from (
+  select plan.plan_id
+  from biz_project_kpi_plan plan
+  left join biz_project_kpi_plan_item item on item.plan_id=plan.plan_id
+  group by plan.plan_id
+  having abs(coalesce(sum(item.weight),0)-100)>0.0001
+) invalid_weight
+union all
+select 'orphan_project_kpi_settlement',count(*)
+from biz_project_kpi_settlement settlement
+left join biz_project_kpi_plan plan on plan.plan_id=settlement.plan_id
+left join biz_project project on project.project_id=settlement.project_id and project.del_flag='0'
+where plan.plan_id is null or project.project_id is null
+union all
+select 'voided_kpi_plan_with_active_settlement',count(*)
+from biz_project_kpi_plan plan
+join biz_project_kpi_settlement settlement on settlement.plan_id=plan.plan_id
+where plan.status='VOIDED' and settlement.status<>'VOIDED'
+union all
+select 'voided_kpi_settlement_with_active_plan',count(*)
+from biz_project_kpi_settlement settlement
+join biz_project_kpi_plan plan on plan.plan_id=settlement.plan_id
+where settlement.status='VOIDED' and plan.status<>'VOIDED'
+union all
+select 'confirmed_bonus_missing_fact',count(*)
+from biz_project_kpi_settlement settlement
+left join biz_operating_fact fact on fact.fact_id=settlement.accounting_fact_id
+where settlement.status='CONFIRMED' and settlement.bonus_amount>0
+  and (fact.fact_id is null or fact.category_code<>'PROJECT_BONUS_COST' or fact.status<>'CONFIRMED');
+
+select 'missing_project_kpi_bonus_menu' check_name,count(*)=0 problem_rows
+from sys_menu where menu_id=4010 and path='kpi-bonus'
+  and component='business/kpi/index' and perms='business:kpi:list' and status='0'
+union all
+select 'company_owner_missing_kpi_manage_permission',count(*)
+from sys_role role
+where role.role_key='company_owner' and role.del_flag='0'
+  and not exists(select 1 from sys_role_menu rm where rm.role_id=role.role_id and rm.menu_id=4072)
+union all
+select 'project_owner_missing_kpi_settle_permission',count(*)
+from sys_role role
+where role.role_key='project_owner' and role.del_flag='0'
+  and not exists(select 1 from sys_role_menu rm where rm.role_id=role.role_id and rm.menu_id=4073);
+
+select 'missing_project_task_report_table' check_name,count(*)=0 problem_rows
+from information_schema.tables
+where table_schema=database() and table_name='biz_project_task_report'
+union all
+select 'missing_project_task_report_columns',7-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='biz_project_task_report'
+  and column_name in('task_id','project_id','biz_date','progress','completion_summary','evidence_urls','submitted_user_id');
+
+select 'missing_project_progress_report_table' check_name,count(*)=0 problem_rows
+from information_schema.tables
+where table_schema=database() and table_name='biz_project_progress_report'
+union all
+select 'missing_project_progress_report_columns',7-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='biz_project_progress_report'
+  and column_name in('project_id','biz_date','progress','completion_summary','evidence_urls','submitted_user_id','submitted_user_name');
+
+select 'proposal_plan_end_date_not_nullable' check_name,count(*) problem_rows
+from information_schema.columns
+where table_schema=database() and table_name='biz_project_proposal'
+  and column_name='plan_end_date' and is_nullable<>'YES';
+
+select 'missing_jewelry_influencer_tables' check_name,3-count(*) problem_rows
+from information_schema.tables
+where table_schema=database()
+  and table_name in('jewelry_influencer','jewelry_influencer_product_price','jewelry_influencer_price_history')
+union all
+select 'missing_jewelry_influencer_profile_columns',3-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='jewelry_influencer'
+  and column_name in('influencer_code','external_influencer_id','influencer_name')
+union all
+select 'missing_jewelry_influencer_document_columns',1-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='jewelry_document'
+  and column_name='influencer_id'
+union all
+select 'missing_jewelry_influencer_item_price_columns',2-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='jewelry_document_item'
+  and column_name in('influencer_price_snapshot','influencer_price_version')
+union all
+select 'missing_jewelry_influencer_binding_unit_cost',1-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='jewelry_influencer_product_price'
+  and column_name='unit_cost'
+union all
+select 'missing_jewelry_influencer_purchase_defaults',2-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='jewelry_influencer_product_price'
+  and column_name in ('preferred_supplier_id','reference_purchase_price')
+union all
+select 'missing_jewelry_gift_sku_scope',1-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='jewelry_product'
+  and column_name='sku_scope' and generation_expression like '%GIFT%'
+union all
+select 'missing_jewelry_influencer_menu',count(*)=0
+from sys_menu where menu_id=3011 and perms='jewelry:influencer:list' and status='0'
+union all
+select 'missing_jewelry_influencer_bundle_table',count(*)=0
+from information_schema.tables
+where table_schema=database() and table_name='jewelry_influencer_bundle_item';
+
+select 'missing_staff_leave_request_table' check_name,count(*)=0 problem_rows
+from information_schema.tables
+where table_schema=database() and table_name='biz_staff_leave_request'
+union all
+select 'missing_staff_leave_request_columns',12-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='biz_staff_leave_request'
+  and column_name in('request_id','request_no','user_id','leave_start_date','leave_end_date','leave_type',
+    'reason','attachment_urls','status','submitted_project_id','submitted_user_id','reviewed_user_id')
+union all
+select 'staff_leave_request_collation_mismatch',count(*)
+from information_schema.columns
+where table_schema=database() and table_name='biz_staff_leave_request'
+  and collation_name is not null and collation_name<>'utf8mb4_0900_ai_ci';
+
+select 'missing_staff_leave_source_request',count(*)=0 problem_rows
+from information_schema.columns
+where table_schema=database() and table_name='biz_staff_leave' and column_name='source_request_id'
+union all
+select 'missing_leave_cancel_review_columns',4-count(*)
+from information_schema.columns
+where table_schema=database() and table_name='biz_staff_leave_request'
+  and column_name in('cancel_reviewed_user_id','cancel_reviewed_user_name','cancel_reviewed_time','cancel_review_comment')
+union all
+select 'staff_leave_collation_mismatch',count(*)
+from information_schema.columns
+where table_schema=database() and table_name='biz_staff_leave'
+  and collation_name is not null and collation_name<>'utf8mb4_0900_ai_ci';
+
+select 'invalid_project_base_currency' check_name,count(*) problem_rows
+from biz_project where del_flag='0' and base_currency not regexp '^[A-Z]{3}$'
+union all
+select 'open_task_assigned_to_inactive_member',count(*)
+from biz_project_task task left join biz_project_member member on member.project_id=task.project_id
+  and member.user_id=task.assignee_user_id and member.status='0'
+where task.assignee_user_id is not null and task.status<>'DONE' and member.member_id is null
+union all
+select 'active_routine_assigned_to_inactive_member',count(*)
+from biz_project_routine routine left join biz_project_member member on member.project_id=routine.project_id
+  and member.user_id=routine.assignee_user_id and member.status='0'
+where routine.status='ACTIVE' and routine.assignee_user_id is not null and member.member_id is null
+union all
+select 'current_allocation_for_inactive_member',count(*)
+from biz_project_staff_allocation allocation left join biz_project_member member on member.project_id=allocation.project_id
+  and member.user_id=allocation.user_id and member.status='0'
+where allocation.status='ACTIVE' and (allocation.effective_to is null or allocation.effective_to>=curdate())
+  and member.member_id is null;
+
+select 'missing_project_deputy_role' check_name,count(*)=0 problem_rows
+from sys_role where role_key='project_deputy' and del_flag='0'
+union all
+select 'project_deputy_missing_permissions',count(*)
+from sys_role role
+where role.role_key='project_deputy' and role.del_flag='0'
+  and exists(
+    select 1 from (
+      select 4000 menu_id union all select 4002 union all select 4012
+      union all select 4013 union all select 4014 union all select 4017
+    ) required_menu
+    where not exists(
+      select 1 from sys_role_menu role_menu
+      where role_menu.role_id=role.role_id and role_menu.menu_id=required_menu.menu_id
+    )
+  )
+union all
+select 'active_deputy_missing_system_role',count(distinct member.user_id)
+from biz_project_member member
+join biz_project project on project.project_id=member.project_id and project.del_flag='0'
+where member.member_role='DEPUTY' and member.status='0'
+  and not exists(
+    select 1 from sys_user_role user_role
+    join sys_role role on role.role_id=user_role.role_id
+    where user_role.user_id=member.user_id
+      and role.role_key in('project_deputy','admin','company_owner') and role.del_flag='0'
+  )
+union all
+select 'orphan_project_deputy_system_role',count(*)
+from sys_user_role user_role
+join sys_role role on role.role_id=user_role.role_id and role.role_key='project_deputy' and role.del_flag='0'
+where not exists(
+  select 1 from biz_project_member member
+  join biz_project project on project.project_id=member.project_id and project.del_flag='0'
+  where member.user_id=user_role.user_id and member.member_role='DEPUTY' and member.status='0'
+  );
+
+select 'missing_proposal_business_plan_columns' check_name,17-count(*) problem_rows
+from information_schema.columns
+where table_schema=database() and table_name='biz_project_proposal'
+  and column_name in('revenue_model','estimated_revenue','estimated_external_cost','estimated_personnel_cost',
+    'estimated_bonus_cost','estimated_tax_cost','contingency_cost','estimated_total_cost','expected_profit',
+    'expected_margin','break_even_revenue','peak_cash_need','planned_headcount','funding_plan','key_assumptions',
+    'risk_summary','stop_loss_rule')
+union all
+select 'missing_proposal_revenue_table',count(*)=0
+from information_schema.tables where table_schema=database() and table_name='biz_project_proposal_revenue'
+union all
+select 'missing_proposal_expense_table',count(*)=0
+from information_schema.tables where table_schema=database() and table_name='biz_project_proposal_expense'
+union all
+select 'missing_proposal_staffing_table',count(*)=0
+from information_schema.tables where table_schema=database() and table_name='biz_project_proposal_staffing'
+union all
+select 'missing_proposal_target_table',count(*)=0
+from information_schema.tables where table_schema=database() and table_name='biz_project_proposal_target'
+union all
+select 'project_owner_missing_kpi_manage_permission',count(*)
+from sys_role role
+where role.role_key='project_owner' and role.del_flag='0'
+  and not exists(select 1 from sys_role_menu rm where rm.role_id=role.role_id and rm.menu_id=4072);
+
+select 'missing_proposal_named_staff_columns' check_name,8-count(*) problem_rows
+from information_schema.columns
+where table_schema=database() and table_name='biz_project_proposal_staffing'
+  and column_name in('user_id','user_name','cost_policy_id','cost_policy_version','monthly_cost_snapshot',
+    'standard_work_days_snapshot','daily_cost_snapshot','cost_currency');
+
+select 'missing_staff_cost_permission_menu' check_name,count(*)=0 problem_rows
+from sys_menu where menu_id=4022 and parent_id=4004 and perms='business:staff:cost' and status='0'
+union all
+select 'project_owner_missing_staff_directory',count(*)
+from sys_role role
+where role.role_key='project_owner' and role.del_flag='0'
+  and not exists(select 1 from sys_role_menu role_menu
+    where role_menu.role_id=role.role_id and role_menu.menu_id=4004)
+union all
+select 'project_owner_has_implicit_staff_cost_permission',count(*)
+from sys_role role join sys_role_menu role_menu on role_menu.role_id=role.role_id
+join sys_menu cost_menu on cost_menu.menu_id=role_menu.menu_id and cost_menu.perms='business:staff:cost'
+where role.role_key='project_owner' and role.del_flag='0'
+union all
+select 'project_owner_has_full_staff_manage_permission',count(*)
+from sys_role role join sys_role_menu role_menu on role_menu.role_id=role.role_id
+where role.role_key='project_owner' and role.del_flag='0' and role_menu.menu_id=4021;
+
+select 'missing_staff_menu_permission_table' check_name,count(*)=0 problem_rows
+from information_schema.tables
+where table_schema=database() and table_name='biz_staff_menu_permission'
+union all
+select 'invalid_staff_menu_permission_level',count(*)
+from biz_staff_menu_permission
+where access_level not in('HIDDEN','READ','MAINTAIN')
+union all
+select 'orphan_staff_menu_permission_user',count(*)
+from biz_staff_menu_permission permission
+left join sys_user user on user.user_id=permission.user_id and user.del_flag='0'
+where user.user_id is null
+union all
+select 'orphan_staff_menu_permission_menu',count(*)
+from biz_staff_menu_permission permission
+left join sys_menu menu on menu.menu_id=permission.menu_id
+where menu.menu_id is null;
+
+select 'missing_project_kpi_source_ref_columns' check_name,2-count(*) problem_rows
+from information_schema.columns
+where table_schema=database()
+  and ((table_name='biz_project_kpi' and column_name='source_ref_id')
+    or (table_name='biz_project_kpi_plan_item' and column_name='source_ref_id'));
+
+-- P1 交付/核算版本与历史兼容。
+select 4-count(*) as missing_project_lifecycle_columns
+from information_schema.columns where table_schema=database() and table_name='biz_project'
+  and column_name in ('delivery_policy_version','accounting_state','settlement_policy_version','cost_policy_version');
+select count(*) as project_lifecycle_mismatch from biz_project
+where delivery_policy_version not in ('LEGACY_V1','SEPARATED_V1')
+   or accounting_state not in ('OPEN','CLOSED')
+   or (delivery_policy_version='LEGACY_V1' and status in ('CLOSED','CANCELED') and accounting_state<>'CLOSED');
+
+-- P2-P4：以 V067 最终权限及对象版本为准，不恢复 V060 的旧自动费率授权。
+select concat('missing_',required.table_name) check_name,(actual.table_name is null) problem_rows
+from (
+  select 'biz_project_template_version' table_name union all select 'biz_work_calendar'
+  union all select 'biz_work_unit_policy' union all select 'biz_project_plan_baseline'
+  union all select 'biz_project_plan_change' union all select 'biz_project_plan_forecast'
+  union all select 'biz_project_resource_assignment' union all select 'biz_project_resource_day'
+  union all select 'biz_project_person_day_lock' union all select 'biz_project_work_entry'
+  union all select 'biz_project_work_audit' union all select 'biz_project_work_event'
+  union all select 'biz_project_work_cost' union all select 'biz_incentive_rule'
+  union all select 'biz_incentive_award' union all select 'biz_incentive_event'
+  union all select 'biz_feishu_identity_scope' union all select 'biz_feishu_connection'
+  union all select 'biz_feishu_mapping' union all select 'biz_feishu_sync_run'
+  union all select 'biz_feishu_sync_chunk' union all select 'biz_feishu_observation'
+  union all select 'biz_feishu_issue' union all select 'biz_feishu_validation'
+  union all select 'biz_feishu_audit' union all select 'biz_feishu_reader_scope'
+) required left join information_schema.tables actual
+  on actual.table_schema=database() and actual.table_name=required.table_name;
+
+select 'missing_project_template_columns' check_name,2-count(*) problem_rows
+from information_schema.columns where table_schema=database() and table_name='biz_project'
+  and column_name in('template_version','template_snapshot_json')
+union all select 'missing_proposal_template_columns',2-count(*)
+from information_schema.columns where table_schema=database() and table_name='biz_project_proposal'
+  and column_name in('template_version','template_snapshot_json')
+union all select 'missing_proposal_resource_columns',4-count(*)
+from information_schema.columns where table_schema=database() and table_name='biz_project_proposal_staffing'
+  and column_name in('input_unit','input_quantity','calendar_id','unit_policy_id')
+union all select 'missing_rate_day_minutes',count(*)=0
+from information_schema.columns where table_schema=database() and table_name='biz_staff_cost_policy'
+  and column_name='rate_minutes_per_day'
+union all select 'staff_rate_monthly_denominator_nullable_mismatch',count(*)=0
+from information_schema.columns where table_schema=database() and table_name='biz_staff_cost_policy'
+  and column_name='standard_work_days' and is_nullable='YES'
+union all select 'missing_kpi_reward_policy_version',count(*)=0
+from information_schema.columns where table_schema=database() and table_name='biz_project_kpi_plan'
+  and column_name='reward_policy_version';
+
+select 'missing_standard_project_templates' check_name,3-count(*) problem_rows
+from biz_project_template_version where template_version in('LIGHT_V1','CONTROLLED_V1','SERVICE_V1') and status='ACTIVE'
+union all select 'actual_project_baseline_mismatch',count(*)
+from biz_project p left join (select project_id,max(baseline_version) latest_version
+  from biz_project_plan_baseline group by project_id) b on b.project_id=p.project_id
+where p.cost_policy_version='ACTUAL_WORK_V1'
+  and (p.baseline_version<1 or b.latest_version is null or b.latest_version<>p.baseline_version)
+union all select 'actual_project_has_legacy_active_allocation',count(*)
+from biz_project_staff_allocation a join biz_project p on p.project_id=a.project_id
+where p.cost_policy_version='ACTUAL_WORK_V1' and a.status='ACTIVE'
+union all select 'work_cost_null_semantics_mismatch',count(*)
+from biz_project_work_cost where (pricing_status='PRICED' and amount is null)
+  or (pricing_status='PENDING' and amount is not null)
+union all select 'closed_account_has_pending_confirmed_work_cost',count(*)
+from biz_project_work_entry e join biz_project p on p.project_id=e.project_id
+left join biz_project_work_cost c on c.entry_id=e.entry_id
+where p.accounting_state='CLOSED' and e.status='CONFIRMED' and e.is_current='1'
+  and (c.entry_id is null or c.pricing_status<>'PRICED'
+    or exists(select 1 from biz_project_work_event v where v.entry_id=e.entry_id and v.status<>'DONE'));
+
+select 'orphan_project_work_cost' check_name,count(*) problem_rows
+from biz_project_work_cost c left join biz_project_work_entry e on e.entry_id=c.entry_id
+where e.entry_id is null or e.project_id<>c.project_id or e.user_id<>c.user_id or e.biz_date<>c.biz_date
+union all select 'orphan_project_work_event',count(*)
+from biz_project_work_event v left join biz_project_work_entry e on e.entry_id=v.entry_id
+where e.entry_id is null or e.project_id<>v.project_id
+union all select 'orphan_incentive_rule_or_project',count(*)
+from biz_incentive_award a left join biz_incentive_rule r on r.rule_id=a.rule_id
+left join biz_project p on p.project_id=a.project_id
+where r.rule_id is null or p.project_id is null or r.project_id<>a.project_id
+union all select 'incentive_accounting_source_mismatch',count(*)
+from biz_incentive_award a left join biz_operating_fact f on f.fact_id=a.accounting_fact_id
+where a.accounting_fact_id is not null and (f.fact_id is null or f.project_id<>a.project_id
+  or coalesce(f.source_domain,'')<>'HR_INCENTIVE' or coalesce(f.source_type,'')<>'BONUS'
+  or coalesce(f.source_id,'')<>cast(a.award_id as char)
+  or coalesce(f.idempotency_key,'')<>concat('HR-INCENTIVE-AWARD-',a.award_id));
+
+select 'orphan_feishu_mapping' check_name,count(*) problem_rows
+from biz_feishu_mapping m left join biz_feishu_connection c on c.connection_id=m.connection_id
+left join sys_user u on u.user_id=m.user_id where c.connection_id is null or u.user_id is null
+union all select 'orphan_feishu_observation',count(*)
+from biz_feishu_observation o left join biz_feishu_mapping m on m.mapping_id=o.mapping_id
+left join biz_feishu_sync_run r on r.run_id=o.sync_run_id
+where m.mapping_id is null or r.run_id is null or m.user_id<>o.user_id
+  or m.connection_id<>o.connection_id or r.connection_id<>o.connection_id
+union all select 'feishu_multiple_current_revisions',count(*)
+from (select connection_id,source_key from biz_feishu_observation where is_current=1
+  group by connection_id,source_key having count(*)>1) duplicated;
+
+select 'missing_three_system_roots' check_name,3-count(*) problem_rows
+from sys_menu where parent_id=0 and path in('business','hcm','finance') and menu_type='M' and status='0'
+union all select 'missing_platform_root',count(*)=0
+from sys_menu where parent_id=0 and path='platform' and menu_type='M' and status='0'
+union all select 'missing_p2_p4_menu_pages',6-count(*)
+from sys_menu where menu_type='C' and status='0' and component in('business/resources/index',
+  'business/incentive/index','business/attendance/index','business/cost-policies/index','business/feishu/index')
+union all select 'missing_independent_product_roles',5-count(*)
+from sys_role where del_flag='0' and role_key in('finance_cost_manager','hcm_incentive_operator',
+  'hcm_incentive_approver','attendance_reader','feishu_integrator');
+
+-- 公司公共费用页面须挂在财务模块，并与前端组件路径一致。
+select 'missing_public_expense_finance_menu' check_name, 1-count(*) problem_rows
+from sys_menu child join sys_menu parent on parent.menu_id=child.parent_id
+where parent.parent_id=0 and parent.path='finance' and child.menu_type='C'
+  and child.status='0' and child.path='public-expenses'
+  and child.component='business/public-expenses/index';
+
+-- V089 子项目立项负责人
+select 2-count(*) as missing_subproject_owner_fields from information_schema.columns
+where table_schema=database() and table_name='biz_project_proposal'
+  and column_name in('assigned_owner_user_id','assigned_owner_name');
+
+-- V090 进度汇报必须追加版本，不能恢复按日覆盖的唯一约束。
+select 7-count(*) as missing_progress_report_fields from information_schema.columns
+where table_schema=database() and table_name='biz_project_progress_report'
+  and column_name in('issues_risks','next_plan','sync_tasks','sync_routines','snapshot_json','parent_project_id','project_name_snapshot');
+select count(*) as obsolete_daily_report_unique_index from information_schema.statistics
+where table_schema=database() and table_name='biz_project_progress_report' and index_name='uk_biz_project_progress_day';
+select 1-count(*) as missing_progress_weight from information_schema.columns
+where table_schema=database() and table_name='biz_project' and column_name='progress_weight';
+select 1-count(*) as missing_progress_notifications from information_schema.tables
+where table_schema=database() and table_name='biz_project_progress_notification';
+select 1-count(*) as missing_progress_text_evidence from information_schema.columns
+where table_schema=database() and table_name='biz_project_progress_report'
+  and column_name='evidence_text' and data_type='varchar' and character_maximum_length>=2000;
+
+-- V086-V087 管理费：项目详情和负责人工作台均会读取，必须随代码同步升级。
+select 3-count(*) as missing_management_fee_tables from information_schema.tables
+where table_schema=database() and table_name in
+  ('biz_project_management_fee','biz_project_management_fee_payment','biz_project_management_fee_event');
+select 4-count(*) as missing_management_fee_eligibility_fields from information_schema.columns
+where table_schema=database() and table_name='biz_project_management_fee'
+  and column_name in('eligibility_project_count','eligibility_project_ids',
+    'eligibility_project_names','eligibility_checked_time');
+select 1-count(*) as missing_management_fee_category from biz_fact_category
+where category_code='PROJECT_MANAGEMENT_FEE' and fact_kind='COST' and status='0';
+
+-- V097-V101 公司公共费用、按日核算及税后盈利。
+select 11-count(*) as missing_public_expense_or_profit_tax_tables
+from information_schema.tables where table_schema=database() and table_name in
+  ('biz_public_expense_policy','biz_public_expense_month','biz_public_expense_entry',
+   'biz_public_expense_owner','biz_public_expense_project','biz_public_expense_adjustment',
+   'biz_public_expense_event','biz_public_expense_daily','biz_company_profit_tax',
+   'biz_company_profit_tax_event','biz_project_profit_tax_snapshot');
+select 2-count(*) as missing_public_expense_accounting_columns
+from information_schema.columns where table_schema=database()
+  and ((table_name='biz_project_daily_result' and column_name='public_cost')
+    or (table_name='biz_public_expense_month' and column_name='recognition_mode'));
+select count(*)=0 as invalid_public_expense_project_name_length
+from information_schema.columns where table_schema=database()
+  and table_name='biz_public_expense_project' and column_name='project_name'
+  and character_maximum_length>=160;
+select count(*)=0 as invalid_proposal_expected_margin_range
+from information_schema.columns where table_schema=database()
+  and table_name='biz_project_proposal' and column_name='expected_margin'
+  and numeric_precision-numeric_scale>=26;
+
+-- V102 珠宝采购单约定退货日期。
+select 1-count(*) as missing_jewelry_supplier_return_date from information_schema.columns
+where table_schema=database() and table_name='jewelry_document'
+  and column_name='supplier_return_date' and data_type='date';
+
+-- Public personnel pool (V103)
+select 5-count(*) missing_public_personnel_columns from information_schema.columns
+where table_schema=database() and ((table_name='biz_public_expense_month' and column_name in('personnel_amount','personnel_snapshot'))
+ or (table_name='biz_public_expense_owner' and column_name in('cost_pool','dept_id','dept_name')));
+
+-- Explicit company grants and audit trail (V104).
+select 2-count(*) missing_company_access_tables from information_schema.tables
+where table_schema=database() and table_name in('biz_company_access','biz_company_access_event');
+
+-- Outbound-only warehouse transfers (V105).
+select 2-count(*) as missing_jewelry_transfer_warehouses from information_schema.columns
+where table_schema=database() and table_name='jewelry_document'
+  and column_name in ('source_warehouse','target_warehouse') and data_type='varchar'
+  and character_maximum_length>=100;
+
+-- V119 KPI actual values preserve precision when monetary units are converted.
+select 1-count(*) as missing_kpi_actual_unit_precision from information_schema.columns
+where table_schema=database() and table_name='biz_project_kpi_result'
+  and column_name='actual_value' and data_type='decimal'
+  and numeric_precision>=24 and numeric_scale>=8;
+
+-- V120-V121 project deletion requests and review-result notifications.
+select 2-count(*) as missing_project_deletion_tables from information_schema.tables
+where table_schema=database()
+  and table_name in ('biz_project_delete_request','biz_project_delete_notification');
+select 1-count(*) as missing_project_deletion_pending_index from information_schema.statistics
+where table_schema=database() and table_name='biz_project_delete_request'
+  and index_name='uk_project_delete_pending' and column_name='pending_project_id' and non_unique=0;
+select 1-count(*) as missing_project_deletion_notification_index from information_schema.statistics
+where table_schema=database() and table_name='biz_project_delete_notification'
+  and index_name='uk_project_delete_notification_request' and column_name='request_id' and non_unique=0;
+
+-- V136 monthly completion standard.
+-- V140 reward application allocation proposal snapshot.
+select 1-count(*) as missing_award_allocation_proposal from information_schema.columns
+where table_schema=database() and table_name='biz_incentive_award'
+  and column_name='allocation_proposal_json' and is_nullable='YES';
+select 1-count(*) as missing_project_progress_completion_standard from information_schema.columns
+where table_schema=database() and table_name='biz_project_progress_report' and column_name='completion_standard';
+
+-- V122-V123 influencer bindings and per-item sales rate snapshots.
+select 2-count(*) as missing_influencer_binding_tables from information_schema.tables
+where table_schema=database()
+  and table_name in ('jewelry_influencer_platform','jewelry_influencer_bundle_config');
+select 9-count(*) as missing_influencer_binding_columns from information_schema.columns
+where table_schema=database()
+  and ((table_name='jewelry_influencer' and column_name='platform_code')
+    or (table_name='jewelry_influencer_product_price' and column_name in
+      ('commission_rate','platform_rate','tax_rate','pack_fee','ship_fee','cert_fee','binding_status','binding_remark')));
+select 3-count(*) as missing_sales_item_rate_snapshots from information_schema.columns
+where table_schema=database() and table_name='jewelry_document_item'
+  and column_name in ('platform_rate_snapshot','commission_rate_snapshot','tax_rate_snapshot');
+
+-- V124-V127 member work reports, review, notifications and project-level reports.
+select 2-count(*) as missing_project_work_report_tables from information_schema.tables
+where table_schema=database()
+  and table_name in ('biz_project_work_report','biz_project_work_report_notification');
+select 5-count(*) as missing_project_work_report_review_columns from information_schema.columns
+where table_schema=database() and table_name='biz_project_work_report'
+  and column_name in ('status','reviewed_user_id','reviewed_user_name','review_comment','reviewed_time');
+select 1-count(*) as missing_project_level_report_support from information_schema.columns
+where table_schema=database() and table_name='biz_project_work_report'
+  and column_name='routine_id' and is_nullable='YES';
+select 1-count(*) as missing_project_work_report_notification_index from information_schema.statistics
+where table_schema=database() and table_name='biz_project_work_report_notification'
+  and index_name='uk_work_report_notification_report' and column_name='report_id' and non_unique=0;
+
+-- V128-V129 explicit project department and Vietnam company departments.
+select 2-count(*) as missing_project_department_columns from information_schema.columns
+where table_schema=database() and table_name in ('biz_project_proposal','biz_project')
+  and column_name='department_id' and data_type='bigint' and is_nullable='YES';
+select 3-count(*) as missing_vietnam_company_departments from sys_dept
+where parent_id=111 and dept_name in ('团播部','人事部','电商部')
+  and status='0' and del_flag='0';
+
+-- V137 department source classification and separate IT transfer credits.
+select 1-count(*) as missing_department_public_cost_source from information_schema.columns
+where table_schema=database() and table_name='sys_dept' and column_name='public_cost_source';
+select 1-count(*) as missing_public_daily_it_transfer_amount from information_schema.columns
+where table_schema=database() and table_name='biz_public_expense_daily' and column_name='it_transfer_amount';
+
+-- V138-V139 project bonus settings and immutable profit-share rule snapshots.
+select 2-count(*) as missing_project_bonus_setting_tables from information_schema.tables
+where table_schema=database() and table_name in ('biz_project_bonus_setting','biz_project_bonus_setting_event');
+select 3-count(*) as missing_incentive_profit_share_columns from information_schema.columns
+where table_schema=database() and table_name='biz_incentive_rule'
+  and column_name in ('after_tax_profit','main_owner_bonus_rate','sponsor_owner_bonus_rate');
+
+-- V141 immutable monthly bonus settlement basis; historical cumulative plans stay null.
+select 1-count(*) as missing_incentive_settlement_month from information_schema.columns
+where table_schema=database() and table_name='biz_incentive_rule' and column_name='settlement_month'
+  and data_type='varchar' and character_maximum_length=7 and is_nullable='YES';
+
+-- V142 member work pause/start history.
+select 1-count(*) as missing_member_work_pause_table from information_schema.tables
+where table_schema=database() and table_name='biz_project_member_work_pause';
+select 4-count(*) as missing_member_work_pause_columns from information_schema.columns
+where table_schema=database() and table_name='biz_project_member_work_pause'
+  and column_name in ('paused_time','started_time','paused_by','started_by');
+
+-- V144 receipt item unit snapshot.
+select count(*)=0 as missing_jewelry_unit_snapshot from information_schema.columns
+where table_schema=database() and table_name='jewelry_document_item' and column_name='unit_snapshot';
+
+-- V143 immutable execution submission history, retained for at least three months.
+select 1-count(*) as missing_completion_submission_history from information_schema.tables
+where table_schema=database() and table_name='biz_project_completion_submission';

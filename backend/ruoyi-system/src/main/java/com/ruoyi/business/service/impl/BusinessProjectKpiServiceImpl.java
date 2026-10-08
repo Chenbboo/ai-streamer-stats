@@ -1,0 +1,898 @@
+package com.ruoyi.business.service.impl;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
+import com.ruoyi.business.domain.BusinessOperatingFact;
+import com.ruoyi.business.domain.BusinessProject;
+import com.ruoyi.business.domain.BusinessProjectBonusTier;
+import com.ruoyi.business.domain.BusinessProjectKpi;
+import com.ruoyi.business.domain.BusinessProjectKpiPlan;
+import com.ruoyi.business.domain.BusinessProjectKpiPlanItem;
+import com.ruoyi.business.domain.BusinessProjectKpiResult;
+import com.ruoyi.business.domain.BusinessProjectKpiSettlement;
+import com.ruoyi.business.mapper.BusinessProjectKpiMapper;
+import com.ruoyi.business.mapper.BusinessProjectMapper;
+import com.ruoyi.business.service.IBusinessAccountingService;
+import com.ruoyi.business.service.IBusinessProjectKpiService;
+import com.ruoyi.business.service.BusinessFileService;
+import com.ruoyi.business.support.BusinessProjectLifecycle;
+import com.ruoyi.business.support.BusinessProjectReadAccess;
+import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.common.utils.StringUtils;
+
+@Service
+public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
+{
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
+    private static final List<String> CYCLE_TYPES = Arrays.asList("MONTH", "QUARTER", "PROJECT");
+    private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
+    private static final BigDecimal MAX_ITEM_SCORE = new BigDecimal("120");
+    private static final List<String> AUTOMATIC_SOURCE_TYPES = Arrays.asList("REVENUE", "BUSINESS_COST",
+        "PERSONNEL_COST", "PROFIT", "ROUTINE", "TASK", "MILESTONE");
+
+    @Autowired private BusinessProjectKpiMapper mapper;
+    @Autowired private BusinessProjectMapper projectMapper;
+    @Autowired private IBusinessAccountingService accountingService;
+    @Autowired private BusinessFileService businessFileService;
+    @Autowired private com.ruoyi.business.mapper.BusinessProjectProposalMapper proposalMapper;
+
+    @Override
+    public List<Map<String, Object>> overview(Long userId, boolean viewAll, boolean boss)
+    {
+        return mapper.selectProjectOverviews(userId, viewAll, boss, null);
+    }
+
+    @Override
+    public List<Map<String, Object>> overview(List<Long> projectIds, Long userId, boolean viewAll, boolean boss)
+    {
+        if (projectIds == null || projectIds.isEmpty()) return Collections.<Map<String, Object>>emptyList();
+        return mapper.selectProjectOverviews(userId, viewAll, boss,
+            new ArrayList<Long>(new java.util.LinkedHashSet<Long>(projectIds)));
+    }
+
+    @Override
+    public Map<String, Object> workspace(Long projectId, Long planId, Long userId, boolean viewAll, boolean boss)
+    {
+        BusinessProject project = requireProject(projectId);
+        requireView(project, userId, viewAll, boss);
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put("project", project);
+        List<BusinessProjectKpi> allTargets = safe(projectMapper.selectProjectKpis(projectId));
+        List<BusinessProjectKpi> currentTargets = new ArrayList<BusinessProjectKpi>();
+        for (BusinessProjectKpi target : allTargets)
+            if ("CURRENT".equals(target.getStatus())) currentTargets.add(target);
+        result.put("currentTargets", currentTargets);
+        result.put("targetHistory", allTargets);
+        result.put("plans", mapper.selectPlanSummaries(projectId));
+        Long selectedPlanId = planId == null ? mapper.selectLatestPlanId(projectId) : planId;
+        BusinessProjectKpiPlan selectedPlan = selectedPlanId == null ? null : requirePlan(selectedPlanId, projectId);
+        if (selectedPlan != null) hydrate(selectedPlan, userId);
+        result.put("selectedPlan", selectedPlan);
+        Map<String, Object> sourceOptions = new LinkedHashMap<String, Object>();
+        sourceOptions.put("routines", safe(projectMapper.selectRoutines(projectId, today())));
+        sourceOptions.put("tasks", safe(projectMapper.selectTasks(projectId)));
+        sourceOptions.put("milestones", safe(projectMapper.selectMilestones(projectId)));
+        result.put("sourceOptions", sourceOptions);
+        result.put("proposalTargets", project.getSourceProposalId() == null ? Collections.emptyList()
+            : safe(proposalMapper.selectTargetLines(project.getSourceProposalId())));
+        if (project.getSourceProposalId() != null)
+        {
+            com.ruoyi.business.domain.BusinessProjectProposal proposal = proposalMapper.selectById(project.getSourceProposalId());
+            if (proposal != null) result.put("proposalEstimatedRevenue", proposal.getEstimatedRevenue());
+        }
+        boolean accountingOpen = !BusinessProjectLifecycle.isAccountingClosed(project);
+        result.put("canManage", canManage(project, userId, viewAll, boss) && accountingOpen
+            && "ACTIVE".equals(project.getStatus()));
+        result.put("canVoid", canManage(project, userId, viewAll, boss) && accountingOpen);
+        result.put("canReview", canReview(project, userId, viewAll, boss) && accountingOpen
+            && (selectedPlan == null || !"INDEPENDENT_V1".equals(selectedPlan.getRewardPolicyVersion())));
+        result.put("canSettle", userId != null && userId.equals(project.getMainOwnerUserId())
+            && accountingOpen && allowsSettlement(project));
+        result.put("canConfirm", Boolean.TRUE.equals(result.get("canSettle"))
+            && (selectedPlan == null || selectedPlan.getSettlement() == null
+                || !"PENDING_COST".equals(selectedPlan.getSettlement().getDataStatus())));
+        return result;
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public Map<String, Object> publishPlan(BusinessProjectKpiPlan plan, Long userId, String userName,
+        boolean viewAll, boolean boss)
+    {
+        if (plan == null || plan.getProjectId() == null) throw new ServiceException("请选择项目");
+        BusinessProject project = requireProjectForUpdate(plan.getProjectId());
+        requireManage(project, userId, viewAll, boss);
+        BusinessProjectLifecycle.requireAccountingOpen(project);
+        ensureProjectAllowsPlan(project);
+        if ("PROJECT".equals(plan.getCycleType()))
+        {
+            if (project.getPlanStartDate() == null || project.getPlanEndDate() == null)
+                throw new ServiceException("请先在项目中完善计划起止日期，再发布项目周期方案");
+            plan.setCycleStart(project.getPlanStartDate());
+            plan.setCycleEnd(project.getPlanEndDate());
+        }
+        validatePlanPeriod(plan);
+        if (mapper.countOverlappingPlans(plan.getProjectId(), plan.getCycleStart(), plan.getCycleEnd()) > 0)
+            throw new ServiceException("该项目已有日期重叠的KPI方案");
+
+        List<BusinessProjectKpi> targets = new ArrayList<BusinessProjectKpi>();
+        for (BusinessProjectKpi target : safe(projectMapper.selectProjectKpis(plan.getProjectId())))
+            if ("CURRENT".equals(target.getStatus())) targets.add(target);
+        validateTargets(targets);
+        // Existing plans keep LEGACY_LINKED. A new publication always measures project results only.
+        List<BusinessProjectBonusTier> tiers = Collections.emptyList();
+
+        plan.setPlanId(null);
+        plan.setPlanVersion(mapper.selectNextPlanVersion(plan.getProjectId()));
+        plan.setRewardPolicyVersion("INDEPENDENT_V1");
+        plan.setBonusMode("NONE");
+        plan.setCurrency(project.getBaseCurrency());
+        plan.setStatus("PUBLISHED");
+        plan.setPublishedUserId(userId);
+        plan.setPublishedUserName(userName);
+        plan.setCreateBy(userName);
+        mapper.insertPlan(plan);
+
+        int sort = 1;
+        for (BusinessProjectKpi target : targets)
+        {
+            BusinessProjectKpiPlanItem item = snapshot(plan.getPlanId(), target, sort++);
+            mapper.insertPlanItem(item);
+        }
+        sort = 1;
+        for (BusinessProjectBonusTier tier : tiers)
+        {
+            tier.setTierId(null);
+            tier.setPlanId(plan.getPlanId());
+            tier.setSortOrder(sort++);
+            mapper.insertBonusTier(tier);
+        }
+
+        BusinessProjectKpiSettlement settlement = new BusinessProjectKpiSettlement();
+        settlement.setPlanId(plan.getPlanId());
+        settlement.setProjectId(plan.getProjectId());
+        settlement.setPeriodStart(plan.getCycleStart());
+        settlement.setPeriodEnd(plan.getCycleEnd());
+        settlement.setStatus("DRAFT");
+        settlement.setCurrency(project.getBaseCurrency());
+        settlement.setCreateBy(userName);
+        mapper.insertSettlement(settlement);
+        addEvent(project, "KPI_PLAN_PUBLISHED", userId, userName,
+            "发布项目KPI方案 v" + plan.getPlanVersion() + "，周期 " + date(plan.getCycleStart()) + " 至 " + date(plan.getCycleEnd()));
+        return workspace(plan.getProjectId(), plan.getPlanId(), userId, viewAll, boss);
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public void voidPlan(Long planId, Long userId, String userName, boolean viewAll, boolean boss)
+    {
+        BusinessProjectKpiPlan plan = mapper.selectPlanById(planId);
+        if (plan == null) throw new ServiceException("KPI方案不存在");
+        BusinessProject project = requireProjectForUpdate(plan.getProjectId());
+        requireManage(project, userId, viewAll, boss);
+        BusinessProjectLifecycle.requireAccountingOpen(project);
+        BusinessProjectKpiSettlement settlement = mapper.selectSettlementByPlanId(planId);
+        if (settlement == null) throw new ServiceException("KPI方案结算不存在，不能作废");
+        settlement = requireSettlementForUpdate(settlement.getSettlementId());
+        if (!Arrays.asList("DRAFT", "RETURNED").contains(settlement.getStatus())
+            || settlement.getAccountingFactId() != null)
+            throw new ServiceException("仅可作废未提交、未入账的KPI方案");
+
+        if (mapper.voidDraftSettlement(planId, userId, userName) != 1) throw changed();
+        if (mapper.voidPublishedPlan(planId, userId, userName) != 1) throw changed();
+        addEvent(project, "KPI_PLAN_VOIDED", userId, userName,
+            "作废未提交的项目KPI方案 v" + plan.getPlanVersion() + "，周期 "
+                + date(plan.getCycleStart()) + " 至 " + date(plan.getCycleEnd()));
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public BusinessProjectKpiSettlement saveResults(Long settlementId, BusinessProjectKpiSettlement input,
+        Long userId, String userName, boolean viewAll)
+    {
+        BusinessProjectKpiSettlement settlement = requireSettlement(settlementId);
+        BusinessProject project = requireProjectForUpdate(settlement.getProjectId());
+        settlement = requireSettlementForUpdate(settlementId);
+        requireOwner(project, userId, viewAll);
+        ensureProjectAllowsSettlement(project);
+        if (!Arrays.asList("DRAFT", "RETURNED").contains(settlement.getStatus()))
+            throw new ServiceException("当前结算状态不能修改结果");
+        if (input == null || input.getResults() == null || input.getResults().isEmpty())
+            throw new ServiceException("请至少填写一项KPI结果");
+
+        List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
+        Map<Long, BusinessProjectKpiPlanItem> itemMap = itemMap(items);
+        Set<Long> submittedItems = new HashSet<Long>();
+        for (BusinessProjectKpiResult result : input.getResults())
+        {
+            if (result == null || result.getPlanItemId() == null || !itemMap.containsKey(result.getPlanItemId()))
+                throw new ServiceException("KPI结果不属于当前方案");
+            if (!submittedItems.add(result.getPlanItemId())) throw new ServiceException("同一KPI不能重复填报");
+            BusinessProjectKpiPlanItem item = itemMap.get(result.getPlanItemId());
+            if (isAutomatic(item)) throw new ServiceException("自动取数KPI不能手工覆盖");
+            validateResult(result);
+            businessFileService.validateReferences(result.getAttachmentUrls(), settlement.getProjectId(), userId, false, false);
+            result.setSettlementId(settlementId);
+            result.setCompletionRate(completionRate(item, result.getActualValue()));
+            result.setWeightedScore(weightedScore(result.getCompletionRate(), item.getWeight()));
+            result.setInputUserId(userId);
+            result.setInputUserName(userName);
+            mapper.upsertSettlementResult(result);
+        }
+
+        List<BusinessProjectKpiResult> stored = mapper.selectSettlementResults(settlementId);
+        List<BusinessProjectKpiResult> live = mergeAutomaticResults(settlement, items, stored, userId, userName);
+        BigDecimal total = totalScore(items, live);
+        BigDecimal bonus = independent(settlement) ? null
+            : live.size() == items.size() ? matchBonus(mapper.selectBonusTiers(settlement.getPlanId()), total) : null;
+        if (mapper.updateSettlementPreview(settlementId, total, bonus, userName, settlement.getVersion()) != 1)
+            throw changed();
+        BusinessProjectKpiSettlement saved = detail(settlementId);
+        if (independent(settlement))
+        {
+            saved.setResults(live); saved.setTotalScore(total); saved.setBonusAmount(null);
+            saved.setDataStatus(total == null ? "PENDING_COST" : "READY");
+        }
+        return saved;
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public BusinessProjectKpiSettlement submit(Long settlementId, Long userId, String userName, boolean viewAll)
+    {
+        BusinessProjectKpiSettlement settlement = requireSettlement(settlementId);
+        BusinessProject project = requireProjectForUpdate(settlement.getProjectId());
+        settlement = requireSettlementForUpdate(settlementId);
+        requireOwner(project, userId, viewAll);
+        ensureProjectAllowsSettlement(project);
+        if (!Arrays.asList("DRAFT", "RETURNED").contains(settlement.getStatus()))
+            throw new ServiceException("当前结算状态不能提交");
+        List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
+        persistAutomaticResults(settlement, items, userId, userName);
+        List<BusinessProjectKpiResult> results = mapper.selectSettlementResults(settlementId);
+        requireComplete(items, results);
+        Date currentDate = today();
+        boolean targetsMet = allTargetsMet(items, results);
+        boolean periodEnded = settlement.getPeriodEnd().before(currentDate);
+        if (!periodEnded && !targetsMet)
+            throw new ServiceException("KPI尚未全部达标且考核周期尚未结束；全部达标可提前确认，否则请在截止日期次日结算");
+        // The period already ends today, so there is no date to shorten. Treating this as an
+        // early close makes the guarded UPDATE affect zero rows and produces a false conflict.
+        if (targetsMet && settlement.getPeriodEnd().after(currentDate)) endPeriodEarly(settlement, userName);
+        BigDecimal total = totalScore(items, results);
+        boolean independent = independent(settlement);
+        BigDecimal bonus = independent ? null : matchBonus(mapper.selectBonusTiers(settlement.getPlanId()), total);
+        if (mapper.submitSettlement(settlementId, total, bonus, userId, userName, settlement.getVersion()) != 1)
+            throw changed();
+        // A returned legacy review retains its reviewer instead of becoming owner self-confirmation.
+        if (!independent && "RETURNED".equals(settlement.getStatus()) && settlement.getReviewedUserId() != null)
+        {
+            addEvent(project, "KPI_SETTLEMENT_SUBMITTED", userId, userName, "修正后重新提交原审核流程");
+            return detail(settlementId);
+        }
+        BusinessProjectKpiSettlement submitted = requireSettlement(settlementId);
+        BusinessOperatingFact fact = independent ? null : accountingService.recordProjectBonus(project.getProjectId(), submitted.getPeriodEnd(),
+            bonus, settlementId, userId, userName);
+        Long factId = fact == null ? null : fact.getFactId();
+        if (mapper.confirmSettlement(settlementId, total, bonus, factId,
+            independent ? "负责人确认项目指标；奖励须独立申请核准" : "负责人确认KPI及奖金",
+            userId, userName, submitted.getVersion()) != 1) throw changed();
+        if (mapper.closePlan(settlement.getPlanId()) != 1) throw changed();
+        addEvent(project, "KPI_SETTLEMENT_CONFIRMED", userId, userName,
+            "负责人完成项目指标确认，综合得分 " + total.toPlainString()
+                + (independent ? "；未生成奖励或成本" : "，历史项目奖金 ¥" + bonus.toPlainString()));
+        return detailWithAutomatic(settlementId, userId, userName);
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public BusinessProjectKpiSettlement review(Long settlementId, String decision, String comment,
+        Long userId, String userName, boolean viewAll, boolean boss)
+    {
+        BusinessProjectKpiSettlement settlement = requireSettlement(settlementId);
+        BusinessProject project = requireProjectForUpdate(settlement.getProjectId());
+        settlement = requireSettlementForUpdate(settlementId);
+        if (independent(settlement)) throw new ServiceException("独立项目指标由主负责人确认，不走历史奖金审核流程");
+        requireBoss(project, userId, viewAll, boss);
+        BusinessProjectLifecycle.requireAccountingOpen(project);
+        if (!"SUBMITTED".equals(settlement.getStatus())) throw new ServiceException("没有待确认的KPI结算");
+        if (!"CONFIRMED".equals(decision) && !"RETURNED".equals(decision))
+            throw new ServiceException("审核决定不正确");
+        if ("RETURNED".equals(decision))
+        {
+            if (StringUtils.isBlank(comment)) throw new ServiceException("请填写退回原因");
+            if (mapper.returnSettlement(settlementId, comment.trim(), userId, userName, settlement.getVersion()) != 1)
+                throw changed();
+            addEvent(project, "KPI_SETTLEMENT_RETURNED", userId, userName, "退回KPI结算：" + comment.trim());
+            return detail(settlementId);
+        }
+
+        List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
+        List<BusinessProjectKpiResult> results = mapper.selectSettlementResults(settlementId);
+        requireComplete(items, results);
+        if (!settlement.getPeriodEnd().before(today()) && !allTargetsMet(items, results))
+            throw new ServiceException("KPI尚未全部达标且考核周期尚未结束，暂不能确认结算");
+        BigDecimal total = totalScore(items, results);
+        BigDecimal bonus = matchBonus(mapper.selectBonusTiers(settlement.getPlanId()), total);
+        BusinessOperatingFact fact = accountingService.recordProjectBonus(project.getProjectId(), settlement.getPeriodEnd(),
+            bonus, settlementId, userId, userName);
+        Long factId = fact == null ? null : fact.getFactId();
+        if (mapper.confirmSettlement(settlementId, total, bonus, factId,
+            StringUtils.isBlank(comment) ? "确认项目KPI及奖金" : comment.trim(),
+            userId, userName, settlement.getVersion()) != 1) throw changed();
+        if (mapper.closePlan(settlement.getPlanId()) != 1) throw changed();
+        addEvent(project, "KPI_SETTLEMENT_CONFIRMED", userId, userName,
+            "确认KPI结算，综合得分 " + total.toPlainString() + "，项目奖金 ¥" + bonus.toPlainString());
+        return detail(settlementId);
+    }
+
+    private void hydrate(BusinessProjectKpiPlan plan, Long userId)
+    {
+        List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(plan.getPlanId());
+        List<BusinessProjectBonusTier> tiers = mapper.selectBonusTiers(plan.getPlanId());
+        plan.setItems(items);
+        plan.setTiers(tiers);
+        BusinessProjectKpiSettlement settlement = mapper.selectSettlementByPlanId(plan.getPlanId());
+        if (settlement != null)
+        {
+            List<BusinessProjectKpiResult> stored = mapper.selectSettlementResults(settlement.getSettlementId());
+            if (Arrays.asList("DRAFT", "RETURNED").contains(settlement.getStatus()))
+            {
+                List<BusinessProjectKpiResult> live = mergeAutomaticResults(settlement, items, stored, userId, "系统自动统计");
+                settlement.setResults(live);
+                BigDecimal score = totalScore(items, live);
+                settlement.setTotalScore(score);
+                settlement.setDataStatus(score == null ? "PENDING_COST" : "READY");
+                settlement.setBonusAmount("INDEPENDENT_V1".equals(plan.getRewardPolicyVersion()) ? null
+                    : live.size() == items.size() ? matchBonus(tiers, score) : null);
+            }
+            else settlement.setResults(stored);
+            settlement.setAllTargetsMet(allTargetsMet(items, settlement.getResults()));
+        }
+        plan.setSettlement(settlement);
+    }
+
+    private BusinessProjectKpiSettlement detail(Long settlementId)
+    {
+        BusinessProjectKpiSettlement settlement = requireSettlement(settlementId);
+        List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
+        settlement.setResults(mapper.selectSettlementResults(settlementId));
+        settlement.setAllTargetsMet(allTargetsMet(items, settlement.getResults()));
+        return settlement;
+    }
+
+    private BusinessProjectKpiSettlement detailWithAutomatic(Long settlementId, Long userId, String userName)
+    {
+        BusinessProjectKpiSettlement settlement = requireSettlement(settlementId);
+        List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
+        List<BusinessProjectKpiResult> stored = mapper.selectSettlementResults(settlementId);
+        if ("CONFIRMED".equals(settlement.getStatus()))
+        {
+            // A confirmed indicator is evidence. Later reward costs must not change its presented result.
+            Map<Long, BusinessProjectKpiPlanItem> itemMap = itemMap(items);
+            for (BusinessProjectKpiResult result : safe(stored))
+            {
+                BusinessProjectKpiPlanItem item = itemMap.get(result.getPlanItemId());
+                if (item != null) { result.setSourceType(item.getSourceType()); result.setAutomatic(isAutomatic(item)); }
+            }
+            settlement.setResults(stored);
+            settlement.setAllTargetsMet(allTargetsMet(items, stored));
+            return settlement;
+        }
+        settlement.setResults(mergeAutomaticResults(settlement, items, stored, userId, userName));
+        settlement.setAllTargetsMet(allTargetsMet(items, settlement.getResults()));
+        return settlement;
+    }
+
+    private BusinessProjectKpiPlanItem snapshot(Long planId, BusinessProjectKpi target, int sortOrder)
+    {
+        BusinessProjectKpiPlanItem item = new BusinessProjectKpiPlanItem();
+        item.setPlanId(planId); item.setKpiId(target.getKpiId()); item.setKpiCode(target.getKpiCode());
+        item.setKpiName(target.getKpiName()); item.setMetricType(target.getMetricType()); item.setUnit(target.getUnit());
+        item.setTargetValue(target.getTargetValue()); item.setMinimumValue(target.getMinimumValue());
+        item.setWarningValue(target.getWarningValue()); item.setChallengeValue(target.getChallengeValue());
+        item.setWeight(target.getWeight()); item.setDirection(StringUtils.isBlank(target.getDirection()) ? "HIGHER_BETTER" : target.getDirection());
+        item.setAggregateType(StringUtils.isBlank(target.getAggregateType()) ? "SUM" : target.getAggregateType());
+        item.setSourceType(StringUtils.isBlank(target.getSourceType()) ? "MANUAL" : target.getSourceType());
+        item.setSourceRefId(target.getSourceRefId());
+        item.setSortOrder(sortOrder);
+        return item;
+    }
+
+    private void validatePlanPeriod(BusinessProjectKpiPlan plan)
+    {
+        if (!CYCLE_TYPES.contains(plan.getCycleType())) throw new ServiceException("考核周期类型不正确");
+        if (plan.getCycleStart() == null || plan.getCycleEnd() == null) throw new ServiceException("请选择考核起止日期");
+        if (plan.getCycleEnd().before(plan.getCycleStart())) throw new ServiceException("考核结束日期不能早于开始日期");
+    }
+
+    private void validateTargets(List<BusinessProjectKpi> targets)
+    {
+        if (targets.isEmpty()) throw new ServiceException("请先设置至少一项项目KPI");
+        BigDecimal weight = BigDecimal.ZERO;
+        for (BusinessProjectKpi target : targets)
+        {
+            if (target.getTargetValue() == null || target.getTargetValue().compareTo(BigDecimal.ZERO) <= 0)
+                throw new ServiceException("KPI“" + target.getKpiName() + "”目标值必须大于0");
+            if (target.getWeight() == null || target.getWeight().compareTo(BigDecimal.ZERO) < 0)
+                throw new ServiceException("KPI权重不能为负数");
+            weight = weight.add(target.getWeight());
+        }
+        if (weight.compareTo(ONE_HUNDRED) != 0)
+            throw new ServiceException("当前KPI权重合计必须等于100%，当前为" + weight.stripTrailingZeros().toPlainString() + "%");
+    }
+
+    private List<BusinessProjectBonusTier> validateTiers(List<BusinessProjectBonusTier> source)
+    {
+        if (source == null || source.isEmpty()) throw new ServiceException("请设置项目综合阶梯奖金");
+        List<BusinessProjectBonusTier> tiers = new ArrayList<BusinessProjectBonusTier>(source);
+        Collections.sort(tiers, new Comparator<BusinessProjectBonusTier>()
+        {
+            @Override public int compare(BusinessProjectBonusTier left, BusinessProjectBonusTier right)
+            { return decimal(left.getMinScore()).compareTo(decimal(right.getMinScore())); }
+        });
+        BigDecimal expectedMin = BigDecimal.ZERO;
+        for (int i = 0; i < tiers.size(); i++)
+        {
+            BusinessProjectBonusTier tier = tiers.get(i);
+            if (StringUtils.isBlank(tier.getTierName())) throw new ServiceException("请填写奖金阶梯名称");
+            if (tier.getMinScore() == null || tier.getMinScore().compareTo(BigDecimal.ZERO) < 0)
+                throw new ServiceException("奖金阶梯最低分不能为负数");
+            if (tier.getMinScore().compareTo(expectedMin) != 0)
+                throw new ServiceException("奖金阶梯必须从0分开始并保持连续");
+            if (tier.getBonusAmount() == null || tier.getBonusAmount().compareTo(BigDecimal.ZERO) < 0)
+                throw new ServiceException("项目奖金不能为负数");
+            boolean last = i == tiers.size() - 1;
+            if (!last && (tier.getMaxScore() == null || tier.getMaxScore().compareTo(tier.getMinScore()) <= 0))
+                throw new ServiceException("非末级奖金阶梯必须设置有效最高分");
+            if (last && tier.getMaxScore() != null) throw new ServiceException("最后一个奖金阶梯不应设置最高分");
+            if (!last) expectedMin = tier.getMaxScore();
+        }
+        return tiers;
+    }
+
+    private void validateResult(BusinessProjectKpiResult result)
+    {
+        if (result.getActualValue() == null || result.getActualValue().compareTo(BigDecimal.ZERO) < 0)
+            throw new ServiceException("KPI实际值不能为空或为负数");
+        if (result.getActualValue().scale() > 8)
+            throw new ServiceException("KPI实际值最多保留8位小数");
+        if (StringUtils.isBlank(result.getResultNote())) throw new ServiceException("手工填报KPI结果必须填写说明");
+        result.setResultNote(result.getResultNote().trim());
+        if (result.getResultNote().length() > 1000) throw new ServiceException("KPI结果说明不能超过1000字");
+        if (result.getAttachmentUrls() != null && result.getAttachmentUrls().length() > 4000)
+            throw new ServiceException("KPI结果凭证过多");
+        businessFileService.validateReferences(result.getAttachmentUrls());
+    }
+
+    private boolean isAutomatic(BusinessProjectKpiPlanItem item)
+    { return item != null && AUTOMATIC_SOURCE_TYPES.contains(item.getSourceType()); }
+
+    private List<BusinessProjectKpiResult> mergeAutomaticResults(BusinessProjectKpiSettlement settlement,
+        List<BusinessProjectKpiPlanItem> items, List<BusinessProjectKpiResult> stored, Long userId, String userName)
+    {
+        Map<Long, BusinessProjectKpiResult> storedByItem = new HashMap<Long, BusinessProjectKpiResult>();
+        for (BusinessProjectKpiResult result : safe(stored)) storedByItem.put(result.getPlanItemId(), result);
+        Map<String, Object> financialSummary = automaticFinancialSummary(settlement, items, userId);
+        List<BusinessProjectKpiResult> merged = new ArrayList<BusinessProjectKpiResult>();
+        for (BusinessProjectKpiPlanItem item : items)
+        {
+            BusinessProjectKpiResult result = storedByItem.get(item.getItemId());
+            if (isAutomatic(item)) result = automaticResult(settlement, item, financialSummary, userId, userName);
+            if (result != null)
+            {
+                result.setSourceType(item.getSourceType());
+                result.setAutomatic(isAutomatic(item));
+                merged.add(result);
+            }
+        }
+        return merged;
+    }
+
+    private void persistAutomaticResults(BusinessProjectKpiSettlement settlement,
+        List<BusinessProjectKpiPlanItem> items, Long userId, String userName)
+    {
+        Map<String, Object> financialSummary = automaticFinancialSummary(settlement, items, userId);
+        if (Boolean.TRUE.equals(financialSummary.get("_pendingCost")))
+            for (BusinessProjectKpiPlanItem item : items)
+                if (costDependent(item)) throw new ServiceException("项目仍有投入待计价，人员成本或利润指标尚不能确认；请先完成全项目成本计价");
+        for (BusinessProjectKpiPlanItem item : items)
+            if (isAutomatic(item)) mapper.upsertSettlementResult(
+                automaticResult(settlement, item, financialSummary, userId, userName));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> automaticFinancialSummary(BusinessProjectKpiSettlement settlement,
+        List<BusinessProjectKpiPlanItem> items, Long userId)
+    {
+        boolean needed = false;
+        for (BusinessProjectKpiPlanItem item : items)
+            if (Arrays.asList("REVENUE", "BUSINESS_COST", "PERSONNEL_COST", "PROFIT").contains(item.getSourceType()))
+                needed = true;
+        if (!needed) return Collections.emptyMap();
+        Map<String, Object> query = new HashMap<String, Object>();
+        query.put("dateFrom", date(settlement.getPeriodStart()));
+        query.put("dateTo", date(statisticsEnd(settlement)));
+        Map<String, Object> dashboard = accountingService.projectDashboard(settlement.getProjectId(), query, userId, true);
+        Object summary = dashboard == null ? null : dashboard.get("summary");
+        Map<String,Object> result = summary instanceof Map ? new LinkedHashMap<String,Object>((Map<String,Object>) summary)
+            : new LinkedHashMap<String,Object>();
+        if (independent(settlement) && dashboard != null && "ACTUAL_WORK_V1".equals(dashboard.get("costPolicyVersion")))
+        {
+            Object count = dashboard.get("pendingCostCount");
+            result.put("_pendingCost", count == null || number(count).signum() > 0);
+            result.put("_pendingCostCount", count);
+        }
+        return result;
+    }
+
+    private BusinessProjectKpiResult automaticResult(BusinessProjectKpiSettlement settlement,
+        BusinessProjectKpiPlanItem item, Map<String, Object> financialSummary, Long userId, String userName)
+    {
+        Date end = statisticsEnd(settlement);
+        if (costDependent(item) && Boolean.TRUE.equals(financialSummary.get("_pendingCost")))
+        {
+            BusinessProjectKpiResult pending = new BusinessProjectKpiResult();
+            pending.setSettlementId(settlement.getSettlementId()); pending.setPlanItemId(item.getItemId());
+            pending.setSourceType(item.getSourceType()); pending.setAutomatic(true); pending.setDataStatus("PENDING_COST");
+            Object count = financialSummary.get("_pendingCostCount");
+            pending.setPendingCostCount(count == null ? null : number(count).intValue());
+            pending.setResultNote("全项目仍有投入待计价，成本或利润尚未完整；完成计价后才能确认本指标");
+            return pending;
+        }
+        BigDecimal actual = BigDecimal.ZERO;
+        if (!end.before(settlement.getPeriodStart()))
+        {
+            if ("REVENUE".equals(item.getSourceType())) actual = financialActual(item, settlement, financialSummary.get("revenueAmount"));
+            else if ("BUSINESS_COST".equals(item.getSourceType())) actual = financialActual(item, settlement, financialSummary.get("businessCost"));
+            else if ("PERSONNEL_COST".equals(item.getSourceType())) actual = financialActual(item, settlement, financialSummary.get("personnelCost"));
+            else if ("PROFIT".equals(item.getSourceType())) actual = financialActual(item, settlement, financialSummary.get("profitAmount"));
+            else if ("ROUTINE".equals(item.getSourceType())) actual = routineActual(item, settlement, end);
+            else if ("TASK".equals(item.getSourceType())) actual = number(mapper.countCompletedTasks(
+                settlement.getProjectId(), item.getSourceRefId(), settlement.getPeriodStart(), end));
+            else if ("MILESTONE".equals(item.getSourceType())) actual = number(mapper.countCompletedMilestones(
+                settlement.getProjectId(), item.getSourceRefId(), settlement.getPeriodStart(), end));
+        }
+        BusinessProjectKpiResult result = new BusinessProjectKpiResult();
+        result.setSettlementId(settlement.getSettlementId());
+        result.setPlanItemId(item.getItemId());
+        result.setActualValue(actual);
+        result.setCompletionRate(completionRate(item, actual));
+        result.setWeightedScore(weightedScore(result.getCompletionRate(), item.getWeight()));
+        result.setResultNote("系统按“" + sourceName(item.getSourceType()) + "”自动统计，统计截止 " + date(end));
+        result.setInputUserId(userId);
+        result.setInputUserName(StringUtils.isBlank(userName) ? "系统自动统计" : userName);
+        result.setSourceType(item.getSourceType());
+        result.setAutomatic(true);
+        result.setDataStatus("READY");
+        return result;
+    }
+
+    private boolean costDependent(BusinessProjectKpiPlanItem item)
+    { return item != null && Arrays.asList("PERSONNEL_COST", "PROFIT").contains(item.getSourceType()); }
+
+    private Date statisticsEnd(BusinessProjectKpiSettlement settlement)
+    { return settlement.getPeriodEnd().before(today()) ? settlement.getPeriodEnd() : today(); }
+
+    private String sourceName(String sourceType)
+    {
+        Map<String, String> names = new HashMap<String, String>();
+        names.put("REVENUE", "确认收入"); names.put("BUSINESS_COST", "业务成本");
+        names.put("PERSONNEL_COST", "人员成本"); names.put("PROFIT", "经营结果");
+        names.put("ROUTINE", "持续工作上报"); names.put("TASK", "已完成任务");
+        names.put("MILESTONE", "已完成里程碑");
+        return names.containsKey(sourceType) ? names.get(sourceType) : sourceType;
+    }
+
+    private BigDecimal number(Object value)
+    { return value == null ? BigDecimal.ZERO : new BigDecimal(String.valueOf(value)); }
+
+    private BigDecimal financialActual(BusinessProjectKpiPlanItem item, BusinessProjectKpiSettlement settlement, Object raw)
+    {
+        BigDecimal amount = number(raw);
+        String currency = StringUtils.isBlank(settlement.getCurrency()) ? "CNY" : settlement.getCurrency().trim();
+        String unit = item.getUnit() == null ? "" : item.getUnit().trim();
+        if (unit.isEmpty() || currency.equalsIgnoreCase(unit) || ("CNY".equalsIgnoreCase(currency) && "元".equals(unit)))
+            return amount;
+        if ("CNY".equalsIgnoreCase(currency) && "万元".equals(unit))
+            return amount.divide(new BigDecimal("10000"));
+        throw new ServiceException("自动财务KPI“" + item.getKpiName() + "”的单位与项目币种不匹配，请调整指标单位");
+    }
+
+    private BigDecimal routineActual(BusinessProjectKpiPlanItem item, BusinessProjectKpiSettlement settlement, Date end)
+    {
+        BigDecimal total = BigDecimal.ZERO;
+        String targetUnit = StringUtils.trimToEmpty(item.getUnit());
+        String currency = StringUtils.defaultIfBlank(settlement.getCurrency(), "CNY");
+        for (Map<String, Object> row : safe(mapper.sumRoutineActualByUnit(settlement.getProjectId(),
+            item.getSourceRefId(), settlement.getPeriodStart(), end)))
+        {
+            String sourceUnit = row.get("unit") == null ? "" : String.valueOf(row.get("unit")).trim();
+            BigDecimal value = number(row.get("actualValue"));
+            if (sourceUnit.equalsIgnoreCase(targetUnit)) total = total.add(value);
+            else if ("CNY".equalsIgnoreCase(currency)
+                && Arrays.asList("元", "万元", "CNY").contains(sourceUnit)
+                && Arrays.asList("元", "万元", "CNY").contains(targetUnit))
+            {
+                BigDecimal yuan = "万元".equals(sourceUnit) ? value.multiply(new BigDecimal("10000")) : value;
+                total = total.add("万元".equals(targetUnit) ? yuan.divide(new BigDecimal("10000")) : yuan);
+            }
+            else throw new ServiceException("持续工作KPI“" + item.getKpiName()
+                + "”的上报单位“" + sourceUnit + "”与指标单位“" + targetUnit + "”不一致");
+        }
+        return total;
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public BusinessProjectKpiSettlement correctConfirmedManualResult(Long settlementId, Long planItemId,
+        BigDecimal actualValue, String reason, Long userId, String userName)
+    {
+        BusinessProjectKpiSettlement settlement = requireSettlement(settlementId);
+        BusinessProject project = requireProjectForUpdate(settlement.getProjectId());
+        settlement = requireSettlementForUpdate(settlementId);
+        requireOwner(project, userId, false);
+        BusinessProjectLifecycle.requireAccountingOpen(project);
+        if (!independent(settlement) || !"CONFIRMED".equals(settlement.getStatus())
+            || settlement.getAccountingFactId() != null || settlement.getBonusAmount() != null)
+            throw new ServiceException("只有未关联奖金成本的已确认独立KPI可更正");
+        if (actualValue == null || actualValue.signum() < 0 || actualValue.scale() > 8)
+            throw new ServiceException("请填写非负数且不超过8位小数的正确实际值");
+        if (StringUtils.isBlank(reason) || reason.trim().length() > 500)
+            throw new ServiceException("请填写不超过500字的更正原因");
+        List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
+        BusinessProjectKpiPlanItem item = itemMap(items).get(planItemId);
+        if (item == null || !"MANUAL".equals(item.getSourceType()))
+            throw new ServiceException("只能更正本期手工填报的KPI结果");
+        List<BusinessProjectKpiResult> results = mapper.selectSettlementResults(settlementId);
+        BusinessProjectKpiResult result = null;
+        for (BusinessProjectKpiResult value : results)
+            if (planItemId.equals(value.getPlanItemId())) { result = value; break; }
+        if (result == null) throw new ServiceException("待更正的KPI结果不存在");
+        BigDecimal oldActual = result.getActualValue();
+        BigDecimal oldTotal = settlement.getTotalScore();
+        if (oldActual.compareTo(actualValue) == 0) throw new ServiceException("更正值与当前结果相同");
+        result.setActualValue(actualValue);
+        result.setCompletionRate(completionRate(item, actualValue));
+        result.setWeightedScore(weightedScore(result.getCompletionRate(), item.getWeight()));
+        result.setInputUserId(userId);
+        result.setInputUserName(userName);
+        if (mapper.upsertSettlementResult(result) < 1) throw changed();
+        BigDecimal score = totalScore(items, results);
+        if (mapper.correctConfirmedSettlementScore(settlementId, score, userName, settlement.getVersion()) != 1)
+            throw changed();
+        addEvent(project, "KPI_RESULT_CORRECTED", userId, userName,
+            "更正KPI“" + item.getKpiName() + "”：" + oldActual.toPlainString() + " → "
+                + actualValue.toPlainString() + " " + item.getUnit() + "；综合得分 "
+                + (oldTotal == null ? "—" : oldTotal.toPlainString()) + " → " + score.toPlainString()
+                + "；原因：" + reason.trim());
+        return detail(settlementId);
+    }
+
+    private BigDecimal completionRate(BusinessProjectKpiPlanItem item, BigDecimal actual)
+    {
+        BigDecimal rate;
+        if ("LOWER_BETTER".equals(item.getDirection()))
+            rate = actual.compareTo(BigDecimal.ZERO) == 0 ? MAX_ITEM_SCORE
+                : item.getTargetValue().multiply(ONE_HUNDRED).divide(actual, 8, RoundingMode.HALF_UP);
+        else
+            rate = actual.multiply(ONE_HUNDRED).divide(item.getTargetValue(), 8, RoundingMode.HALF_UP);
+        if (rate.compareTo(BigDecimal.ZERO) < 0) rate = BigDecimal.ZERO;
+        if (rate.compareTo(MAX_ITEM_SCORE) > 0) rate = MAX_ITEM_SCORE;
+        return rate.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal weightedScore(BigDecimal rate, BigDecimal weight)
+    { return rate.multiply(weight).divide(ONE_HUNDRED, 2, RoundingMode.HALF_UP); }
+
+    private BigDecimal totalScore(List<BusinessProjectKpiPlanItem> items, List<BusinessProjectKpiResult> results)
+    {
+        Map<Long, BusinessProjectKpiPlanItem> itemsById = itemMap(items);
+        BigDecimal total = BigDecimal.ZERO;
+        for (BusinessProjectKpiResult result : results)
+        {
+            BusinessProjectKpiPlanItem item = itemsById.get(result.getPlanItemId());
+            if (item == null) throw new ServiceException("KPI结果与方案快照不一致");
+            if (result.getActualValue() == null) return null;
+            BigDecimal rate = completionRate(item, result.getActualValue());
+            total = total.add(weightedScore(rate, item.getWeight()));
+        }
+        return total.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private boolean allTargetsMet(List<BusinessProjectKpiPlanItem> items, List<BusinessProjectKpiResult> results)
+    {
+        if (items == null || items.isEmpty() || results == null || results.size() != items.size()) return false;
+        Map<Long, BusinessProjectKpiResult> resultsByItem = new HashMap<Long, BusinessProjectKpiResult>();
+        for (BusinessProjectKpiResult result : results) resultsByItem.put(result.getPlanItemId(), result);
+        for (BusinessProjectKpiPlanItem item : items)
+        {
+            BusinessProjectKpiResult result = resultsByItem.get(item.getItemId());
+            if (result == null || result.getActualValue() == null
+                || completionRate(item, result.getActualValue()).compareTo(ONE_HUNDRED) < 0) return false;
+        }
+        return true;
+    }
+
+    private void endPeriodEarly(BusinessProjectKpiSettlement settlement, String userName)
+    {
+        Date endDate = today();
+        if (mapper.endPlanPeriodEarly(settlement.getPlanId(), endDate) != 1
+            || mapper.endSettlementPeriodEarly(settlement.getSettlementId(), endDate, userName, settlement.getVersion()) != 1)
+            throw changed();
+        settlement.setPeriodEnd(endDate);
+    }
+
+    private BigDecimal matchBonus(List<BusinessProjectBonusTier> tiers, BigDecimal score)
+    {
+        for (BusinessProjectBonusTier tier : tiers)
+            if (score.compareTo(tier.getMinScore()) >= 0
+                && (tier.getMaxScore() == null || score.compareTo(tier.getMaxScore()) < 0))
+                return tier.getBonusAmount().setScale(2, RoundingMode.HALF_UP);
+        throw new ServiceException("综合得分没有匹配到奖金阶梯");
+    }
+
+    private void requireComplete(List<BusinessProjectKpiPlanItem> items, List<BusinessProjectKpiResult> results)
+    {
+        if (items == null || items.isEmpty() || results == null || results.size() != items.size())
+            throw new ServiceException("请完整填写所有KPI结果后再提交");
+        Set<Long> ids = new HashSet<Long>();
+        for (BusinessProjectKpiResult result : results)
+        {
+            validateResult(result);
+            ids.add(result.getPlanItemId());
+        }
+        for (BusinessProjectKpiPlanItem item : items)
+            if (!ids.contains(item.getItemId())) throw new ServiceException("请完整填写所有KPI结果后再提交");
+    }
+
+    private Map<Long, BusinessProjectKpiPlanItem> itemMap(List<BusinessProjectKpiPlanItem> items)
+    {
+        Map<Long, BusinessProjectKpiPlanItem> result = new HashMap<Long, BusinessProjectKpiPlanItem>();
+        for (BusinessProjectKpiPlanItem item : items) result.put(item.getItemId(), item);
+        return result;
+    }
+
+    private BusinessProject requireProject(Long projectId)
+    {
+        if (projectId == null) throw new ServiceException("项目ID不能为空");
+        BusinessProject project = projectMapper.selectProjectById(projectId);
+        if (project == null) throw new ServiceException("项目不存在");
+        return project;
+    }
+
+    private BusinessProject requireProjectForUpdate(Long projectId)
+    {
+        if (projectId == null) throw new ServiceException("项目ID不能为空");
+        BusinessProject project = projectMapper.selectProjectByIdForUpdate(projectId);
+        if (project == null) throw new ServiceException("项目不存在");
+        return project;
+    }
+
+    private BusinessProjectKpiSettlement requireSettlementForUpdate(Long settlementId)
+    {
+        BusinessProjectKpiSettlement settlement = mapper.selectSettlementByIdForUpdate(settlementId);
+        if (settlement == null) throw new ServiceException("KPI结算不存在");
+        return settlement;
+    }
+
+    private BusinessProjectKpiPlan requirePlan(Long planId, Long projectId)
+    {
+        BusinessProjectKpiPlan plan = mapper.selectPlanById(planId);
+        if (plan == null || !projectId.equals(plan.getProjectId())) throw new ServiceException("KPI方案不存在");
+        return plan;
+    }
+
+    private BusinessProjectKpiSettlement requireSettlement(Long settlementId)
+    {
+        if (settlementId == null) throw new ServiceException("结算ID不能为空");
+        BusinessProjectKpiSettlement settlement = mapper.selectSettlementById(settlementId);
+        if (settlement == null) throw new ServiceException("KPI结算不存在");
+        return settlement;
+    }
+
+    private boolean independent(BusinessProjectKpiSettlement settlement)
+    {
+        String version = settlement.getRewardPolicyVersion();
+        if (version == null || "LEGACY_LINKED".equals(version)) return false;
+        if ("INDEPENDENT_V1".equals(version)) return true;
+        throw new ServiceException("项目指标奖励策略版本无法识别，请先核对迁移记录");
+    }
+
+    private void requireView(BusinessProject project, Long userId, boolean viewAll, boolean boss)
+    {
+        if (viewAll) return;
+        if (boss && companyAccess.project(project, userId)) return;
+        if (userId.equals(project.getMainOwnerUserId())) return;
+        if (BusinessProjectReadAccess.isParentOwner(project, userId, projectMapper)) return;
+        throw new ServiceException("无权查看该项目KPI奖金");
+    }
+
+    private boolean canManage(BusinessProject project, Long userId, boolean viewAll, boolean boss)
+    { return viewAll || userId != null && userId.equals(project.getMainOwnerUserId())
+        || (boss && companyAccess.project(project, userId)); }
+
+    private void requireManage(BusinessProject project, Long userId, boolean viewAll, boolean boss)
+    {
+        if (!canManage(project, userId, viewAll, boss))
+            throw new ServiceException("只有项目负责人或归属老板可以执行此操作");
+    }
+
+    private void requireBoss(BusinessProject project, Long userId, boolean viewAll, boolean boss)
+    {
+        if (!canReview(project, userId, viewAll, boss)) throw new ServiceException("只有项目归属老板可以执行此操作");
+    }
+
+    private boolean canReview(BusinessProject project, Long userId, boolean viewAll, boolean boss)
+    { return viewAll || boss && userId != null && companyAccess.project(project, userId); }
+
+    private void requireOwner(BusinessProject project, Long userId, boolean viewAll)
+    {
+        if (userId == null || !userId.equals(project.getMainOwnerUserId()))
+            throw new ServiceException("只有项目主负责人可以填报和提交KPI结算");
+    }
+
+    private Long sponsor(BusinessProject project)
+    { return project.getSponsorOwnerUserId() == null ? project.getInitiatorUserId() : project.getSponsorOwnerUserId(); }
+
+    private void ensureProjectAllowsPlan(BusinessProject project)
+    {
+        if (!"ACTIVE".equals(project.getStatus())) throw new ServiceException("只有进行中的项目可以发布KPI方案");
+    }
+
+    private void ensureProjectAllowsSettlement(BusinessProject project)
+    {
+        BusinessProjectLifecycle.requireAccountingOpen(project);
+        if (!allowsSettlement(project))
+            throw new ServiceException("当前项目状态不能进行KPI结算");
+    }
+
+    private boolean allowsSettlement(BusinessProject project)
+    {
+        return Arrays.asList("ACTIVE", "ACCEPTANCE").contains(project.getStatus())
+            || BusinessProjectLifecycle.isSeparated(project)
+                && Arrays.asList("CLOSED", "CANCELED").contains(project.getStatus());
+    }
+
+    private void addEvent(BusinessProject project, String type, Long userId, String userName, String comment)
+    {
+        Map<String, Object> event = new HashMap<String, Object>();
+        event.put("projectId", project.getProjectId()); event.put("eventType", type);
+        event.put("fromStatus", project.getStatus()); event.put("toStatus", project.getStatus());
+        event.put("operatorUserId", userId); event.put("operatorName", userName); event.put("comment", comment);
+        projectMapper.insertEvent(event);
+    }
+
+    private Date today()
+    { return java.sql.Date.valueOf(new SimpleDateFormat("yyyy-MM-dd").format(new Date())); }
+
+    private String date(Date value)
+    { return value == null ? "" : new SimpleDateFormat("yyyy-MM-dd").format(value); }
+
+    private BigDecimal decimal(BigDecimal value)
+    { return value == null ? BigDecimal.ZERO : value; }
+
+    private ServiceException changed()
+    { return new ServiceException("数据已发生变化，请刷新后重试"); }
+
+    private <T> List<T> safe(List<T> source)
+    { return source == null ? Collections.<T>emptyList() : source; }
+}

@@ -1,0 +1,245 @@
+<template>
+  <div class="app-container accounting-page">
+    <header class="hero"><div><span>DAILY BUSINESS LEDGER</span><h1>{{ $tr("项目核算与收支") }}</h1><p>{{ $tr("按公司、项目和日期记录经营事实，确认后自动生成项目盈亏快照。") }}</p></div><div v-if="canAddFact" class="hero-actions"><ProfitTaxSettings @changed="load" /><el-button type="success" icon="Plus" @click="openEntry('REVENUE')">{{ $tr("录入收入") }}</el-button><el-button type="primary" icon="Plus" @click="openEntry('COST')">{{ $tr("录入支出") }}</el-button></div></header>
+    <el-card shadow="never" class="filter-card"><el-form :inline="true" :model="query"><el-form-item><el-select v-model="query.companyDeptId" clearable :placeholder="$tr(&quot;全部授权公司&quot;)" style="width:190px"><el-option v-for="c in data.companies" :key="c.companyDeptId" :label="c.companyName" :value="c.companyDeptId" /></el-select></el-form-item><el-form-item><el-select v-model="query.projectId" clearable filterable :placeholder="$tr(&quot;全部本人项目&quot;)" style="width:220px"><el-option v-for="p in filteredProjects" :key="p.projectId" :label="`${p.projectName} · ${p.initiatorName}`" :value="p.projectId" /></el-select></el-form-item><el-form-item><el-date-picker v-if="customRange" v-model="dates" type="daterange" value-format="YYYY-MM-DD" :clearable="false" range-separator="—" /><el-date-picker v-else v-model="selectedMonth" type="month" value-format="YYYY-MM" :format="$tr(&quot;YYYY年MM月&quot;)" :clearable="false" @change="monthChanged" /></el-form-item><el-form-item><el-button type="primary" @click="load">{{ $tr("查询") }}</el-button><el-button @click="reset">{{ $tr("本月") }}</el-button></el-form-item></el-form></el-card>
+    <BusinessSettlementPanel v-if="query.projectId" :project="selectedProject" @closed="load" />
+    <el-alert v-if="data.taxUnconfiguredCount" :title="$tr(&quot;部分项目尚未设置公司税率，税额暂按0计算；请由老板设置税率。&quot;)" type="warning" :closable="false" show-icon /><section v-if="hasIncompleteCosts" class="pricing-notice">
+      <el-alert :title="pricingNotice" type="warning" :closable="false" show-icon />
+    </section>
+    <template v-for="totals in summaryGroups" :key="totals.currency || 'all'"><p v-if="totals.currency" class="currency-label">{{ $tr("{0} 所有部门汇总", [totals.currency]) }}</p>    <section class="summary-grid"><article><span>{{ $tr("确认收入") }}</span><b>{{ money(totals.revenueAmount) }}</b></article><article><span>{{ $tr("业务成本") }}</span><b>{{ money(totals.businessCost) }}</b></article><article><span>{{ hasIncompleteCosts?$tr("已核算人员成本"):$tr("人员成本") }}</span><b>{{ money(totals.personnelCost) }}</b></article><article><span>{{ $tr("项目奖金") }}</span><b>{{ money(totals.bonusCost) }}</b></article><article><span>{{ $tr("公共费用（含暂估）") }}</span><b>{{ money(totals.publicCost) }}</b></article><article :class="hasIncompleteCosts?'':Number(totals.profitAmount)<0?'loss':'profit'"><span>{{ hasIncompleteCosts?$tr("已核算税前结果"):$tr("税前经营结果") }}</span><b>{{ signed(totals.pretaxProfit ?? totals.profitAmount) }}</b></article><article><span>{{ $tr("税额") }}</span><b>{{ money(totals.taxAmount) }}</b></article><article :class="Number(totals.afterTaxProfit)<0?'loss':'profit'"><span>{{ hasIncompleteCosts?$tr("已核算税后盈利"):$tr("税后盈利结果") }}</span><b>{{ signed(totals.afterTaxProfit) }}</b></article></section></template>
+    <section v-if="data.closedAdjustmentTotals?.length" class="pricing-notice pricing-breakdown"><el-alert :title="$tr(&quot;关账后调整按审核日期计入当期，已包含在上方税前结果、税额和税后盈利中；原结算记录保留。&quot;)" type="info" :closable="false" /><p v-for="t in data.closedAdjustmentTotals" :key="t.currency">{{ $tr("当期关账后调整：{0} {1} · {2} 笔", [signed(t.amount), t.currency, t.itemCount]) }}</p></section>
+    <p class="tax-basis-note">{{ $tr("税额按同公司、同币种的累计经营结果计算并分配到项目；负数表示前期税额冲回。") }}</p>
+    <el-card shadow="never" class="section-card department-result-card">
+      <div class="section-head"><div><h2>{{ customRange ? $t("bossCharts.departmentResults", { count: departmentGroups.length }) : $tr("部门月结果 · {0} 个部门", [departmentGroups.length]) }}</h2><p>{{ $tr("{0}，点击部门可查看该部门下所有项目的营收与成本。", [selectedMonthLabel]) }}</p></div></div>
+      <el-table ref="departmentTable" :data="departmentGroups" row-key="key" class="department-table" :empty-text="$tr(&quot;本月暂无部门经营数据&quot;)" @row-click="toggleDepartment">
+        <el-table-column type="expand">
+          <template #default="{ row }">
+            <div class="department-projects">
+              <p>{{ $tr("{0}项目明细", [row.departmentName]) }}</p>
+              <el-table :data="row.projects" size="small" row-key="projectId">
+                <el-table-column :label="$tr(&quot;项目&quot;)" min-width="180"><template #default="{row:projectRow}"><b>{{ projectRow.projectName }}</b><small>{{ projectRow.projectNo }}</small></template></el-table-column>
+                <el-table-column :label="$tr(&quot;收入&quot;)" align="right"><template #default="{row:projectRow}">{{ money(projectRow.revenueAmount) }}</template></el-table-column>
+                <el-table-column :label="$tr(&quot;业务成本&quot;)" align="right"><template #default="{row:projectRow}">{{ money(projectRow.businessCost) }}</template></el-table-column>
+                <el-table-column :label="$tr(&quot;人员成本&quot;)" align="right"><template #default="{row:projectRow}">{{ money(projectRow.personnelCost) }}</template></el-table-column>
+                <el-table-column :label="$tr(&quot;项目奖金&quot;)" align="right"><template #default="{row:projectRow}">{{ money(projectRow.bonusCost) }}</template></el-table-column>
+                <el-table-column :label="$tr(&quot;公共费用&quot;)" align="right"><template #default="{row:projectRow}">{{ money(projectRow.publicCost) }}</template></el-table-column>
+                <el-table-column :label="$tr(&quot;税前结果&quot;)" align="right"><template #default="{row:projectRow}"><b :class="amountTone(projectRow.pretaxProfit)">{{ signed(projectRow.pretaxProfit) }}</b></template></el-table-column>
+              </el-table>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column :label="$tr(&quot;部门&quot;)" min-width="190"><template #default="{row}"><b>{{ row.departmentName }}</b><small>{{ $tr("{0} · {1} 个项目", [row.companyName, row.projects.length]) }}</small></template></el-table-column>
+        <el-table-column prop="currency" :label="$tr(&quot;币种&quot;)" width="75" />
+        <el-table-column :label="$tr(&quot;确认收入&quot;)" align="right"><template #default="{row}">{{ money(row.revenueAmount) }}</template></el-table-column>
+        <el-table-column :label="$tr(&quot;总成本&quot;)" align="right"><template #default="{row}">{{ money(row.totalCost) }}</template></el-table-column>
+        <el-table-column :label="$tr(&quot;税前结果&quot;)" align="right"><template #default="{row}"><b :class="amountTone(row.pretaxProfit)">{{ signed(row.pretaxProfit) }}</b></template></el-table-column>
+        <el-table-column :label="$tr(&quot;税额&quot;)" align="right"><template #default="{row}">{{ money(row.taxAmount) }}</template></el-table-column>
+        <el-table-column :label="$tr(&quot;税后结果&quot;)" align="right"><template #default="{row}"><b :class="amountTone(row.afterTaxProfit)">{{ signed(row.afterTaxProfit) }}</b></template></el-table-column>
+      </el-table>
+    </el-card>
+    <el-card shadow="never" class="section-card"><div class="section-head"><div><h2>{{ $tr("收支流水") }}</h2><p>{{ $tr("保存收支后直接入账并更新项目日结果；普通已入账流水可冲销；公共费用请在原月账登记调整。") }}</p></div></div><el-table  :data="pageRows(data.facts, 'facts')"><el-table-column prop="bizDate" :label="$tr(&quot;业务日期&quot;)" width="110"/><el-table-column prop="recordedTime" :label="$tr(&quot;录入时间&quot;)" width="180"/><el-table-column :label="$tr(&quot;操作人名称&quot;)" min-width="110"><template #default="{row}">{{ row.operatorName||'—' }}</template></el-table-column><el-table-column :label="$tr(&quot;操作人账号&quot;)" min-width="130"><template #default="{row}">{{ row.operatorAccount||row.createBy||'—' }}</template></el-table-column><el-table-column :label="$tr(&quot;项目&quot;)" min-width="170"><template #default="{row}">{{ row.projectName }}<small>{{ row.companyName }}</small></template></el-table-column><el-table-column prop="categoryName" :label="$tr(&quot;类别&quot;)" :formatter="(row, column, value) => $tr(value)"/><el-table-column prop="description" :label="$tr(&quot;说明&quot;)" min-width="180"/><el-table-column :label="$tr(&quot;金额/数值&quot;)" align="right"><template #default="{row}"><b>{{ row.factKind==='VALUE'?`${row.quantity} ${$tr(row.unit)||''}`:`${signed(row.amount)} ${row.currency||''}` }}</b></template></el-table-column><el-table-column :label="$tr(&quot;状态&quot;)" min-width="135"><template #default="{row}"><el-tag :type="statusTone[row.status]">{{ statusLabel[row.status] || row.status }}</el-tag><small v-if="row.status==='RETURNED'" class="return-reason">{{ $tr("原因：{0}", [row.returnReason]) }}</small></template></el-table-column><el-table-column :label="$tr(&quot;操作&quot;)" min-width="210" fixed="right"><template #default="{row}"><el-button v-if="isBoss||row.sourceDomain==='HR_INCENTIVE'||!['DRAFT','RETURNED'].includes(row.status)" link type="primary" @click="openFact(row,true)">{{ $tr("查看详情") }}</el-button><el-button v-else-if="row.sourceDomain!=='HR_INCENTIVE' && isFactAccountingOpen(row) && ['DRAFT','RETURNED'].includes(row.status)" link @click="openFact(row)">{{ row.status==='RETURNED'?$tr("修改并重新提交"):$tr("编辑") }}</el-button><el-button v-if="canReviewFact(row)&&isFactAccountingOpen(row)&&row.status==='DRAFT'" link type="success" @click="confirmFact(row)">{{ $tr("确认入账") }}</el-button><el-button v-if="canReviewFact(row)&&isFactAccountingOpen(row)&&row.status==='DRAFT'" link type="warning" @click="returnFact(row)">{{ $tr("退回修改") }}</el-button><el-button v-if="canReviewFact(row)&&isFactAccountingOpen(row)&&row.status==='CONFIRMED'" link type="danger" @click="reverseFact(row)">{{ $tr("冲销") }}</el-button></template></el-table-column></el-table><el-pagination class="table-pagination" v-model:current-page="tablePages.facts.page" v-model:page-size="tablePages.facts.size" :page-sizes="[5, 10, 20, 50]" :pager-count="5" :total="data.facts.length" layout="total, sizes, prev, pager, next" background /></el-card>
+
+    <el-dialog v-model="factDialog" :title="factDialogTitle" width="min(680px,94vw)" append-to-body>
+      <el-alert :title="factAlertTitle" :type="factReadOnly?'info':entryKind==='REVENUE'?'success':'info'" :closable="false" show-icon/>
+      <el-alert v-if="factForm.sourceDomain==='HR_INCENTIVE'" :title="$tr(&quot;此成本来自已核准奖励单，不能修改金额或来源；退回后请在奖金激励中续办。成本入账不代表已经发放。&quot;)" :closable="false"/>
+      <el-alert v-if="factForm.status==='RETURNED'" class="return-alert" :title="$tr(&quot;退回原因：{0}&quot;, [factForm.returnReason||$tr(&quot;未填写&quot;)])" :description="$tr(&quot;{0} 于 {1} 退回，修改保存后直接入账。&quot;, [factForm.returnedUserName||$tr(&quot;老板&quot;), factForm.returnedTime||'—'])" type="warning" :closable="false" show-icon/>
+      <el-form :model="factForm" :disabled="factReadOnly" label-width="92px" class="dialog-form">
+        <el-form-item :label="$tr(&quot;归属公司&quot;)" required>
+          <el-select v-model="factForm.companyDeptId" :disabled="factReadOnly||!!factForm.factId" filterable clearable :placeholder="$tr(&quot;输入公司名称搜索&quot;)" :no-data-text="$tr(&quot;暂无可选公司&quot;)" style="width:100%" @change="companyChanged">
+            <el-option v-for="company in data.companies" :key="company.companyDeptId" :label="company.companyName" :value="company.companyDeptId" />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="$tr(&quot;归属项目&quot;)" required>
+          <el-select v-model="factForm.projectId" :disabled="factReadOnly||!!factForm.factId||!factForm.companyDeptId" filterable clearable :placeholder="$tr(&quot;输入项目名称搜索&quot;)" :no-data-text="factForm.companyDeptId?$tr(&quot;该公司暂无可填报项目&quot;):$tr(&quot;请先选择归属公司&quot;)" style="width:100%" @change="projectChanged">
+            <el-option v-for="p in factProjectOptions" :key="p.projectId" :label="`${p.projectName} · ${p.companyName||$tr(&quot;未设置公司&quot;)}`" :value="p.projectId" />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="$tr(&quot;业务日期&quot;)" required><el-date-picker v-model="factForm.bizDate" :disabled-date="disabledFactDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
+        <el-form-item v-if="entryKind" :label="entryKind==='REVENUE'?$tr(&quot;收入类别&quot;):$tr(&quot;支出类别&quot;)" required><el-select v-model="factForm.categoryId" :placeholder="entryKind==='REVENUE'?$tr(&quot;请选择收入类别&quot;):$tr(&quot;请选择支出类别&quot;)" style="width:100%"><el-option v-for="item in entryKind==='REVENUE'?revenueCategories:expenseCategories" :key="item.categoryId" :label="$tr(item.categoryName)" :value="item.categoryId" /></el-select></el-form-item>
+        <el-form-item v-else-if="!entryKind" :label="$tr(&quot;收支类别&quot;)" required><el-select v-model="factForm.categoryId" style="width:100%"><el-option-group v-for="group in categoryGroups" :key="group.kind" :label="group.label"><el-option v-for="c in group.items" :key="c.categoryId" :label="$tr(c.categoryName)" :value="c.categoryId" /></el-option-group></el-select></el-form-item>
+        <template v-if="!entryKind&&selectedCategory?.factKind==='VALUE'"><el-form-item :label="$tr(&quot;成果数值&quot;)" required><el-input-number v-model="factForm.quantity" :precision="4" style="width:100%" /></el-form-item><el-form-item :label="$tr(&quot;单位&quot;)"><el-input v-model="factForm.unit" /></el-form-item></template>
+        <template v-else>
+          <el-form-item :label="entryKind==='REVENUE'?$tr(&quot;收入金额&quot;):entryKind==='COST'?$tr(&quot;支出金额&quot;):$tr(&quot;金额&quot;)" required><el-input-number v-model="factForm.amount" :min="entryKind==='COST'?0.01:0" :precision="entryKind?2:4" style="width:100%" /></el-form-item>
+          <el-form-item :label="$tr(&quot;币种&quot;)" :required="!!entryKind"><el-select v-if="entryKind" v-model="factForm.currency" :placeholder="$tr(&quot;请选择币种&quot;)" style="width:100%"><el-option v-for="currency in entryCurrencies" :key="currency" :label="currency" :value="currency" /></el-select><el-input v-else v-model="factForm.currency" maxlength="3" /></el-form-item>
+        </template>
+        <el-form-item :label="entryKind==='REVENUE'?$tr(&quot;收入说明&quot;):entryKind==='COST'?$tr(&quot;花费用途&quot;):$tr(&quot;收支说明&quot;)" required><el-input v-model="factForm.description" type="textarea" :rows="3" maxlength="500" show-word-limit :placeholder="entryKind==='REVENUE'?$tr(&quot;请说明收入来源或对应业务&quot;):entryKind==='COST'?$tr(&quot;例如：广告投流、采购或物流&quot;):''" /></el-form-item>
+        <el-form-item :label="entryKind==='REVENUE'?$tr(&quot;付款单位&quot;):entryKind==='COST'?$tr(&quot;收款单位&quot;):$tr(&quot;对方单位&quot;)"><el-input v-model="factForm.counterparty" maxlength="200" /></el-form-item>
+        <el-form-item :label="$tr(&quot;凭证附件&quot;)"><business-file-upload v-if="factReadOnly" :model-value="factForm.attachmentUrls" :project-id="factForm.projectId" disabled :drag="false" :is-show-tip="false"/><business-file-upload v-else v-model="factForm.attachmentUrls" :project-id="factForm.projectId" /></el-form-item>
+        <el-form-item :label="$tr(&quot;备注&quot;)"><el-input v-model="factForm.remark" type="textarea" :rows="2" maxlength="500" show-word-limit /></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="factDialog=false">{{ factReadOnly?$tr("关闭"):$tr("取消") }}</el-button><el-button v-if="!factReadOnly" :type="entryKind==='REVENUE'?'success':'primary'" :disabled="!canWriteFactProject" :loading="saving" @click="saveFact">{{ factForm.status==='RETURNED'?$tr("修改并重新提交"):entryKind==='REVENUE'?$tr("保存收入"):$tr("保存支出") }}</el-button></template>
+    </el-dialog>
+    <el-drawer v-model="resultDrawer" :title="$tr(&quot;项目日结果计算明细&quot;)" size="min(760px,96vw)" append-to-body><template v-if="resultDetail"><div class="result-title"><div><b>{{ resultDetail.projectName }}</b><span>{{ resultDetail.bizDate }} · v{{ resultDetail.resultVersion }}</span></div><strong :class="Number(resultDetail.afterTaxProfit)<0?'red':'green'">{{ $tr("税后 {0}", [signed(resultDetail.afterTaxProfit)]) }}</strong></div><p>{{ $tr("税前结果 {0} · 税率 {1}% · 当日税额 {2}", [signed(resultDetail.profitAmount), resultDetail.taxRate, signed(resultDetail.taxAmount)]) }}</p><el-alert :title="resultDetail.calculationDetail" type="info" :closable="false"/><el-table :data="resultDetail.items" class="item-table"><el-table-column prop="componentName" :label="$tr(&quot;计算分项&quot;)"/><el-table-column :label="$tr(&quot;金额&quot;)" align="right"><template #default="{row}">{{ signed(row.amount) }}</template></el-table-column><el-table-column prop="calculationDetail" :label="$tr(&quot;来源说明&quot;)" min-width="190"/></el-table><section class="personnel-detail">
+  <div class="personnel-title"><div><h3>{{ $tr("人员成本明细") }}</h3><p>{{ $tr("按成员工作日数和有效日成本计算；下表展示当时保存的核算依据。") }}</p></div><b>{{ money(resultDetail.personnelCost) }} {{ resultDetail.currency||'CNY' }}</b></div>
+  <el-table v-if="personnelDetailRows.length" :data="personnelDetailRows" size="small">
+    <el-table-column prop="componentName" :label="$tr(&quot;人员&quot;)" min-width="100" />
+    <el-table-column :label="$tr(&quot;投入与来源&quot;)" min-width="190"><template #default="{row}"><b>{{ row.workText }}</b><small>{{ row.sourceText }}</small></template></el-table-column>
+    <el-table-column v-if="resultDetail.rawCostVisible===true" prop="rateText" :label="$tr(&quot;内部费率快照&quot;)" min-width="210" />
+    <el-table-column :label="$tr(&quot;核算金额&quot;)" min-width="120" align="right"><template #default="{row}"><b>{{ money(row.amount) }}</b></template></el-table-column>
+    <el-table-column prop="explanation" :label="$tr(&quot;计算依据&quot;)" min-width="250" />
+  </el-table>
+  <el-empty v-else :description="$tr(&quot;本日没有已计价人员成本分项；请查看人员成本核算中的待完善事项。&quot;)" :image-size="70" />
+</section></template></el-drawer>
+  </div>
+</template>
+
+<script setup name="BusinessAccounting">
+import { accountingRangeFromQuery } from '@/utils/accountingRange'
+import { translateText } from '@/locales/translate'
+
+import { newSubmissionId } from '@/utils/submission'
+import {ElMessage,ElMessageBox} from 'element-plus'
+import {confirmBusinessOperatingFact,getBusinessAccountingDashboard,getBusinessDailyResult,getBusinessPersonnelCostOverview,returnBusinessOperatingFact,reverseBusinessOperatingFact,saveBusinessOperatingFact} from '@/api/business/accounting'
+import useUserStore from '@/store/modules/user'
+import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
+import BusinessSettlementPanel from '@/components/BusinessSettlementPanel/index.vue'
+import ProfitTaxSettings from '@/components/ProfitTaxSettings/index.vue'
+import { isSeparatedDelivery, isDeliveryEnded, projectAccountingState } from '@/utils/businessProjectState'
+const today=()=>{const now=new Date();const local=new Date(now.getTime()-now.getTimezoneOffset()*60000);return local.toISOString().slice(0,10)}
+const route=useRoute()
+const router=useRouter()
+const userStore=useUserStore()
+function routeId(value){if(typeof value!=='string'||!/^\d+$/.test(value))return null;const id=Number(value);return Number.isSafeInteger(id)&&id>0?id:null}
+function routeDate(value){if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value))return today();const parsed=new Date(`${value}T00:00:00Z`);return !Number.isNaN(parsed.getTime())&&parsed.toISOString().slice(0,10)===value?value:today()}
+function routeMonth(value){if(typeof value==='string'&&/^\d{4}-\d{2}$/.test(value))return value;if(typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value))return value.slice(0,7);return today().slice(0,7)}
+function monthRange(month){const [year,number]=String(month).split('-').map(Number),lastDay=new Date(Date.UTC(year,number,0)).getUTCDate(),last=`${month}-${String(lastDay).padStart(2,'0')}`;return [`${month}-01`,month===today().slice(0,7)?today():last]}
+const initialMonth=routeMonth(route.query.month||route.query.dateFrom)
+const initialRange=accountingRangeFromQuery(route.query),customRange=ref(!!initialRange)
+const query=reactive({companyDeptId:routeId(route.query.companyDeptId),projectId:routeId(route.query.projectId)}),selectedMonth=ref(initialMonth),dates=ref(initialRange||monthRange(initialMonth)),data=reactive({summary:{},results:[],facts:[],companies:[],projects:[],categories:[],departmentAdjustments:[]}),personnel=reactive({rows:[],personnelCost:0,readyCount:0,issueCount:0,overAllocatedCount:0}),issuesOnly=ref(false),saving=ref(false)
+const factDialog=ref(false),factReadOnly=ref(false),entryKind=ref(''),factForm=reactive({}),resultDrawer=ref(false),resultDetail=ref(null)
+const departmentTable=ref(null)
+const summaryGroups=computed(()=>data.summaryByCurrency?.length?data.summaryByCurrency:[data.summary||{}])
+const selectedMonthLabel=computed(()=>customRange.value?`${dates.value[0]} — ${dates.value[1]}`:translateText("{0}年{1}月", [selectedMonth.value.slice(0,4), selectedMonth.value.slice(5,7)]))
+const numberValue=value=>Number(value||0)
+const departmentGroups=computed(()=>{
+  const departments=new Map()
+  const ensureProject=source=>{
+    const companyDeptId=source.companyDeptId??'none',departmentId=source.departmentId??'none',currency=source.currency||'CNY',key=`${companyDeptId}:${departmentId}:${currency}`
+    if(!departments.has(key))departments.set(key,{key,companyDeptId,companyName:source.companyName||translateText("未设置公司"),departmentId:source.departmentId,departmentName:source.departmentName||translateText("未设置部门"),currency,projects:new Map()})
+    const department=departments.get(key),projectKey=String(source.projectId)
+    if(!department.projects.has(projectKey))department.projects.set(projectKey,{projectId:source.projectId,projectName:source.projectName||translateText("未命名项目"),projectNo:source.projectNo||'',revenueAmount:0,businessCost:0,personnelCost:0,bonusCost:0,publicCost:0,adjustmentAmount:0,pretaxProfit:0,taxAmount:0,afterTaxProfit:0})
+    return department.projects.get(projectKey)
+  }
+  for(const project of data.projects||[]){
+    if(query.companyDeptId&&Number(project.companyDeptId)!==Number(query.companyDeptId))continue
+    if(query.projectId&&Number(project.projectId)!==Number(query.projectId))continue
+    if(project.actualStartDate&&String(project.actualStartDate).slice(0,10)>dates.value[1])continue
+    if(project.actualEndDate&&String(project.actualEndDate).slice(0,10)<dates.value[0])continue
+    ensureProject(project)
+  }
+  for(const source of [...(data.results||[]),...(data.departmentAdjustments||[])]){
+    const project=ensureProject(source),isAdjustment=numberValue(source.isAdjustment)!==0
+    project.revenueAmount+=isAdjustment?0:numberValue(source.revenueAmount)
+    project.businessCost+=isAdjustment?0:numberValue(source.costAmount)
+    project.personnelCost+=isAdjustment?0:numberValue(source.personnelCost)
+    project.bonusCost+=isAdjustment?0:numberValue(source.bonusCost)
+    project.publicCost+=isAdjustment?0:numberValue(source.publicCost)
+    project.adjustmentAmount+=isAdjustment?numberValue(source.profitAmount):numberValue(source.adjustmentAmount)
+    project.pretaxProfit+=numberValue(source.profitAmount)
+    project.taxAmount+=numberValue(source.taxAmount)
+    project.afterTaxProfit+=numberValue(source.afterTaxProfit??source.profitAmount)-numberValue(source.afterTaxProfit==null?source.taxAmount:0)
+  }
+  return [...departments.values()].map(department=>{
+    const projects=[...department.projects.values()].sort((a,b)=>String(a.projectName).localeCompare(String(b.projectName),'zh-CN'))
+    const total=field=>projects.reduce((sum,project)=>sum+numberValue(project[field]),0)
+    return {...department,projects,revenueAmount:total('revenueAmount'),businessCost:total('businessCost'),personnelCost:total('personnelCost'),bonusCost:total('bonusCost'),publicCost:total('publicCost'),adjustmentAmount:total('adjustmentAmount'),totalCost:total('businessCost')+total('personnelCost')+total('bonusCost')+total('publicCost'),pretaxProfit:total('pretaxProfit'),taxAmount:total('taxAmount'),afterTaxProfit:total('afterTaxProfit')}
+  }).sort((a,b)=>String(a.companyName).localeCompare(String(b.companyName),'zh-CN')||String(a.departmentName).localeCompare(String(b.departmentName),'zh-CN')||String(a.currency).localeCompare(String(b.currency)))
+})
+const personnelTotals=computed(()=>personnel.amountsByCurrency?.length?personnel.amountsByCurrency.map(t=>money(t.amount)+' '+t.currency).join(' / '):money(personnel.personnelCost))
+const summary=computed(()=>data.summary||{}),filteredProjects=computed(()=>query.companyDeptId?data.projects.filter(p=>Number(p.companyDeptId)===Number(query.companyDeptId)):data.projects)
+const writableProjects=computed(()=>data.projects.filter(project=>projectAccountingState(project)==='OPEN'))
+const factProjectOptions=computed(()=>{const projects=factReadOnly.value?data.projects:writableProjects.value;if(!factForm.companyDeptId)return [];return projects.filter(project=>Number(project.companyDeptId)===Number(factForm.companyDeptId))})
+const selectedProject=computed(()=>data.projects.find(p=>Number(p.projectId)===Number(query.projectId))||{projectId:query.projectId})
+const repricing=ref(false),loadingData=ref(false),loadedProjectId=ref(null)
+let loadSequence=0
+const selectedActualProject=computed(()=>!!query.projectId&&selectedProject.value.costPolicyVersion==='ACTUAL_WORK_V1')
+const hasIncompleteCosts=computed(()=>Number(data.pendingCostCount)>0||personnel.hasUnpricedOrMissingWork===true)
+const pricingNotice=computed(()=>Number(data.pendingCostCount)>0
+  ? translateText("当前查询范围有 {0} 条成员工作日成本待完善；下列金额为已核算部分，不能视为完整成本或最终利润。补充有效成本或工作日历后刷新。", [data.pendingCostCount])
+  : translateText("当前核算日有成员工作日缺少有效成本或日历，人员成本和经营结果尚不完整。"))
+const canRetryPricing=computed(()=>selectedActualProject.value&&Number(loadedProjectId.value)===Number(query.projectId)&&!loadingData.value&&projectAccountingState(selectedProject.value)==='OPEN')
+const factProject=computed(()=>data.projects.find(p=>Number(p.projectId)===Number(factForm.projectId)))
+const canWriteFactProject=computed(()=>!!factProject.value&&projectAccountingState(factProject.value)==='OPEN')
+function canReviewFact(fact){if(fact.categoryCode==='COMPANY_PUBLIC_COST')return false;if(!isBoss.value)return false;if(fact.sourceDomain!=='HR_INCENTIVE')return true;const p=data.projects.find(p=>Number(p.projectId)===Number(fact.projectId));return Number(p?.sponsorOwnerUserId||p?.initiatorUserId)===Number(userStore.id)}
+function isFactAccountingOpen(fact){const project=data.projects.find(p=>Number(p.projectId)===Number(fact.projectId));return projectAccountingState(project||{...fact,status:fact.projectStatus})==='OPEN'}
+function disabledFactDate(date){const project=factProject.value,value=new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,10);if(!project||value>today())return true;if(isSeparatedDelivery(project)&&isDeliveryEnded(project)){const end=String(project.actualEndDate||'').slice(0,10);return !end||value>end}return false}
+const isBoss=computed(()=>userStore.roles.includes('admin')||userStore.permissions.includes('*:*:*')||userStore.permissions.includes('business:boss:view'))
+const canAddFact=computed(()=>isBoss.value||userStore.permissions.includes('business:accounting:add'))
+const selectedCategory=computed(()=>data.categories.find(c=>Number(c.categoryId)===Number(factForm.categoryId)))
+const revenueCategories=computed(()=>data.categories.filter(category=>category.factKind==='REVENUE'))
+const commonExpenseCodes=['PURCHASE_COST','PLATFORM_FEE','MARKETING_COST','LOGISTICS_COST','ADMIN_ALLOCATION','OTHER_EXPENSE']
+const expenseCategories=computed(()=>commonExpenseCodes.map(code=>data.categories.find(category=>category.factKind==='COST'&&category.categoryCode===code)).filter(Boolean))
+const entryCurrencies=['CNY','VND','USD']
+const categoryGroups=computed(()=>['REVENUE','COST','ADJUSTMENT','VALUE'].map(kind=>({kind,label:{REVENUE:translateText("收入"),COST:translateText("成本费用"),ADJUSTMENT:translateText("核算调整"),VALUE:translateText("非金额成果")}[kind],items:data.categories.filter(c=>c.factKind===kind&&(factReadOnly.value||!['COMPANY_PUBLIC_COST','PROJECT_MANAGEMENT_FEE'].includes(c.categoryCode)))})).filter(g=>g.items.length))
+const factDialogTitle=computed(()=>factReadOnly.value?translateText("收支流水详情"):factForm.factId?translateText("编辑收支草稿"):entryKind.value==='REVENUE'?translateText("录入收入"):translateText("录入支出"))
+const factAlertTitle=computed(()=>factReadOnly.value?translateText("当前为查看详情，所有数据均为只读状态。"):entryKind.value==='REVENUE'?translateText("填写本次收入，保存后直接入账并更新项目经营结果。"):entryKind.value==='COST'?translateText("填写本次发生的金额，保存后直接入账并计入项目成本。"):translateText("保存后直接入账并更新项目日结果。"))
+const statusLabel={DRAFT:translateText("待确认"),RETURNED:translateText("已退回"),CONFIRMED:translateText("已确认"),REVERSED:translateText("已冲销"),VOIDED:translateText("已作废")},statusTone={DRAFT:'warning',RETURNED:'danger',CONFIRMED:'success',REVERSED:'warning',VOIDED:'info'}
+const costStatusLabel={MISSING_ACTUAL:translateText("未记录实际"),PENDING_COST:translateText("待计价"),READY:translateText("核算就绪"),LEAVE:translateText("今日请假"),MISSING_REGION:translateText("未设置国家"),MISSING_COST:translateText("未设置成本"),LEGACY_COST:translateText("需更新成本"),MISSING_ALLOCATION:translateText("未设置投入"),OVER_ALLOCATED:translateText("投入超100%")}
+const costStatusTone={MISSING_ACTUAL:'info',PENDING_COST:'warning',READY:'success',LEAVE:'info',MISSING_REGION:'danger',MISSING_COST:'danger',LEGACY_COST:'warning',MISSING_ALLOCATION:'warning',OVER_ALLOCATED:'danger'}
+const inputSourceLabel={ACTUAL_WORK:translateText("已确认工作"),ACTUAL_WORK_V1:translateText("已确认工作"),PLAN:translateText("计划投入"),ACTUAL:translateText("确认实际"),LEAVE:translateText("今日请假")}
+const visiblePersonnelRows=computed(()=>issuesOnly.value?(personnel.rows||[]).filter(row=>!['READY','LEAVE'].includes(row.costStatus)):(personnel.rows||[]))
+const tablePages=reactive({
+  personnel:{page:1,size:5},
+  facts:{page:1,size:5}
+})
+function pageRows(rows,key){
+  const {page,size}=tablePages[key]
+  return rows.slice((page-1)*size,page*size)
+}
+for(const [key,rows] of Object.entries({
+  personnel:()=>visiblePersonnelRows.value,
+  facts:()=>data.facts
+})){
+  watch([rows,()=>tablePages[key].size],()=>{tablePages[key].page=1})
+}
+const personnelDetailRows=computed(()=>(resultDetail.value?.personnelItems||[]).map(item=>{
+  const rawVisible=resultDetail.value?.rawCostVisible===true
+  let basis=null
+  if(rawVisible){try{const parsed=JSON.parse(item.calculationDetail);if(['ACTUAL_WORK_V1','MEMBER_DAYS_V1'].includes(parsed?.costPolicyVersion))basis=parsed}catch{/* 历史计算依据为文本，按原快照展示。 */}}
+  if(!basis)return {...item,workText:item.workMinutes!=null?workHours(item.workMinutes):item.appliedPercent!=null?`${item.appliedPercent}%`:translateText("以保存的依据为准"),sourceText:inputSourceLabel[item.inputSource]||translateText("已保存核算快照"),rateText:translateText("见保存的计算依据"),explanation:rawVisible?(item.calculationDetail||translateText("未保存计算说明")):translateText("已保存项目成本依据；内部费率需另获成本查看权限")}
+  if(basis.costPolicyVersion==='MEMBER_DAYS_V1')return {...item,workText:translateText("{0} 工作日 · 权重 {1}%", [basis.workingDays, basis.allocationPercent ?? 100]),sourceText:translateText("{0} · 工作日历 #{1}", [basis.bizDate, basis.calendarId]),rateText:translateText("{0} {1} / 工作日 × {2}%", [money(basis.fullDailyCost ?? basis.dailyCost), basis.currency, basis.allocationPercent ?? 100]),explanation:translateText("工作日数 × 当日有效日成本 × 项目投入权重，休息日不计费")}
+  const quantity=basis.inputQuantity,unit=basis.inputUnit,rate=basis.rateSnapshot||{},currency=rate.currency||resultDetail.value.currency||''
+  let rateText=translateText("未使用内部费率")
+  if(rate.unitCost!=null){const label={HOURLY:translateText("小时"),DAILY:translateText("人天"),MONTHLY:translateText("月")}[rate.costMode]||translateText("单位");rateText=`${money(rate.unitCost)} ${currency} / ${label}`;if(rate.costMode==='MONTHLY'&&rate.standardWorkDays!=null)rateText+=translateText("；月标准 {0} 天", [rate.standardWorkDays]);if(['DAILY','MONTHLY'].includes(rate.costMode)&&rate.rateMinutesPerDay!=null)rateText+=translateText("；1 人天 = {0}", [workHours(rate.rateMinutesPerDay)])}
+  return {...item,workText:quantity!=null&&['HOUR','DAY'].includes(unit)?`${quantity} ${unit==='DAY'?translateText("人天"):translateText("小时")}`:workHours(basis.workMinutes),sourceText:translateText("工作记录 #{0} · 修订 {1}", [basis.sourceEntryId??'—', basis.sourceRevision??'—']),rateText,explanation:basis.formula==='CORRECTION_WITHDRAWAL'?translateText("撤回更正记录，已确认工作量为零"):translateText("已确认 {0}{1}；按该记录的有效费率核算，金额保留 2 位小数。", [workHours(basis.workMinutes), unit==='DAY'&&basis.minutesPerDay!=null?translateText("；工作量换算 1 人天 = {0}", [workHours(basis.minutesPerDay)]):''])}
+}))
+const money=v=>v===null||v===undefined||v===''?'—':Number(v).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:4}),signed=v=>`${v!=null&&Number(v)>0?'+':''}${money(v)}`
+const amountTone=value=>numberValue(value)<0?'red':'green'
+const regionLabel=value=>value==='VN'?translateText("越南"):value==='CN'?translateText("中国"):value||'—'
+const workHours=value=>value==null?translateText("未记录"):translateText("{0} 小时", [Number((Number(value)/60).toFixed(4))])
+async function load(){const sequence=++loadSequence,params={...query,dateFrom:dates.value?.[0],dateTo:dates.value?.[1]};loadingData.value=true;try{const [dashboardRes,personnelRes]=await Promise.all([getBusinessAccountingDashboard(params),getBusinessPersonnelCostOverview({...query,bizDate:dates.value?.[1]||today()})]);if(sequence!==loadSequence)return;Object.assign(data,{publicExpenseReference:null},{pendingCostCount:0},dashboardRes.data||{});Object.assign(personnel,{hasUnpricedOrMissingWork:false},personnelRes.data||{});loadedProjectId.value=params.projectId}finally{if(sequence===loadSequence)loadingData.value=false}}
+function monthChanged(value){if(value)dates.value=monthRange(value)}
+function reset(){customRange.value=false;Object.assign(query,{companyDeptId:null,projectId:null});selectedMonth.value=today().slice(0,7);dates.value=monthRange(selectedMonth.value);load()}
+function toggleDepartment(row,column){if(column?.type!=='expand')departmentTable.value?.toggleRowExpansion(row)}
+function openFact(row={},readOnly=false,options={}){const project=data.projects.find(value=>Number(value.projectId)===Number(row.projectId)),defaultProject=writableProjects.value.find(value=>Number(value.projectId)===Number(options.projectId??query.projectId));entryKind.value=row.factId?'':options.kind||'';factReadOnly.value=readOnly||row.categoryCode==='COMPANY_PUBLIC_COST'||row.sourceDomain==='HR_INCENTIVE'||!!row.factId&&projectAccountingState(project)!=='OPEN';Object.keys(factForm).forEach(k=>delete factForm[k]);Object.assign(factForm,{requestId:newSubmissionId(),factId:null,companyDeptId:defaultProject?.companyDeptId||null,projectId:defaultProject?.projectId||null,bizDate:today(),categoryId:entryKind.value==='REVENUE'?revenueCategories.value[0]?.categoryId:entryKind.value==='COST'?expenseCategories.value[0]?.categoryId:null,amount:null,quantity:null,currency:defaultProject?.currency||'CNY',unit:'',description:'',counterparty:'',attachmentUrls:'',remark:'',version:null,...row});if(!factForm.companyDeptId&&project?.companyDeptId)factForm.companyDeptId=project.companyDeptId;factDialog.value=true}
+function openEntry(kind,projectId=null){if(!writableProjects.value.length)return ElMessage.warning(translateText("当前没有可填报收支的项目"));if(kind==='REVENUE'&&!revenueCategories.value.length)return ElMessage.warning(translateText("收入类别尚未初始化，请联系管理员"));if(kind==='COST'&&!expenseCategories.value.length)return ElMessage.warning(translateText("支出类别尚未初始化，请联系管理员"));openFact({},false,{kind,projectId})}
+async function openRequestedFactEntry(){const kind=route.query.action==='revenue'?'REVENUE':route.query.action==='spend'?'COST':'';if(!kind)return;const projectId=routeId(route.query.projectId),project=projectId?writableProjects.value.find(value=>Number(value.projectId)===projectId):null;if(projectId&&!project)ElMessage.warning(translateText("该项目核算已关闭或不在您的管理范围内，不能填报收支"));else openEntry(kind,project?.projectId||null);const cleanQuery={...route.query};delete cleanQuery.action;delete cleanQuery.lockProject;await router.replace({path:route.path,query:cleanQuery})}
+function companyChanged(){factForm.projectId=null;factForm.currency='CNY'}
+function projectChanged(id){const p=data.projects.find(x=>Number(x.projectId)===Number(id));if(p){factForm.companyDeptId=p.companyDeptId||factForm.companyDeptId;factForm.currency=p.currency||'CNY'}const categories=entryKind.value==='REVENUE'?revenueCategories.value:entryKind.value==='COST'?expenseCategories.value:[];if(entryKind.value&&!categories.some(category=>Number(category.categoryId)===Number(factForm.categoryId)))factForm.categoryId=categories[0]?.categoryId||null}
+async function saveFact(){if(factReadOnly.value)return;if(!canWriteFactProject.value)return ElMessage.warning(translateText("该项目核算不可写，请刷新核对状态"));if(!factForm.companyDeptId||!factForm.projectId||!factForm.categoryId||!factForm.bizDate)return ElMessage.warning(translateText("请完整选择公司、项目、日期和类别"));if(entryKind.value==='REVENUE'&&(factForm.amount===null||factForm.amount===undefined||Number(factForm.amount)<0))return ElMessage.warning(translateText("请填写收入金额"));if(entryKind.value==='COST'&&!(Number(factForm.amount)>0))return ElMessage.warning(translateText("本次花费必须大于 0"));if(!factForm.description?.trim())return ElMessage.warning(entryKind.value==='REVENUE'?translateText("请填写收入说明"):entryKind.value==='COST'?translateText("请填写花费用途"):translateText("请填写收支说明"));const wasReturned=factForm.status==='RETURNED',kind=entryKind.value,savedCompanyDeptId=factForm.companyDeptId,savedProjectId=factForm.projectId,savedBizDate=factForm.bizDate;saving.value=true;try{await saveBusinessOperatingFact({...factForm,description:factForm.description.trim(),counterparty:factForm.counterparty?.trim(),currency:(factForm.currency||factProject.value?.currency||'CNY').trim().toUpperCase()});factDialog.value=false;query.companyDeptId=savedCompanyDeptId;query.projectId=savedProjectId;customRange.value=false;selectedMonth.value=savedBizDate.slice(0,7);dates.value=monthRange(selectedMonth.value);await load();ElMessage.success(wasReturned?translateText("已修改并入账"):kind==='REVENUE'?translateText("收入已入账"):kind==='COST'?translateText("支出已入账"):translateText("收支已入账"))}finally{saving.value=false}}
+async function confirmFact(row){await ElMessageBox.confirm(translateText("确认后将计入正式日报，不能直接修改，确定吗？"),translateText("确认入账"),{type:'warning'});await confirmBusinessOperatingFact(row.factId);await load();ElMessage.success(translateText("已确认入账并生成日结果"))}
+async function returnFact(row){const {value}=await ElMessageBox.prompt(translateText("请说明收支数据或凭证需要修改的内容"),translateText("退回收支修改"),{inputValidator:v=>!!v?.trim()||translateText("必须填写退回原因"),inputAttributes:{maxlength:500},type:'warning'});await returnBusinessOperatingFact(row.factId,{reason:value.trim()});await load();ElMessage.success(translateText("已退回提交人修改"))}
+async function reverseFact(row){const {value}=await ElMessageBox.prompt(translateText("请填写冲销原因"),translateText("冲销已确认流水"),{inputValidator:v=>!!v?.trim()||translateText("必须填写冲销原因"),type:'warning'});await reverseBusinessOperatingFact(row.factId,{reason:value});await load();ElMessage.success(translateText("已冲销并重新生成日结果"))}
+async function openResult(row){resultDetail.value=(await getBusinessDailyResult(row.resultId)).data;resultDrawer.value=true}
+function openStaffCost(row){router.push({path:'/finance/cost-policies',query:{userId:row.userId}})}
+function openStaffProfile(row){router.push({path:'/business/staff',query:{userId:row.userId,action:'edit'}})}
+function openAllocation(row){router.push({path:'/business/projects',query:{id:row.projectId,tab:'operating'}})}
+watch(()=>[route.path,route.query.companyDeptId,route.query.projectId,route.query.month,route.query.dateFrom,route.query.dateTo],async()=>{
+  if(!['/finance/accounting','/business/accounting'].includes(route.path))return
+  Object.assign(query,{companyDeptId:routeId(route.query.companyDeptId),projectId:routeId(route.query.projectId)})
+  selectedMonth.value=routeMonth(route.query.month||route.query.dateFrom)
+  const range=accountingRangeFromQuery(route.query)
+  customRange.value=!!range
+  dates.value=range||monthRange(selectedMonth.value)
+  Object.assign(data,{publicExpenseReference:null},{summary:{},summaryByCurrency:[],results:[],facts:[],departmentAdjustments:[],pendingCostCount:0})
+  Object.assign(personnel,{rows:[],amountsByCurrency:[],personnelCost:null,hasUnpricedOrMissingWork:false,readyCount:0,issueCount:0,overAllocatedCount:0})
+  loadedProjectId.value=null
+  try{await load();await openRequestedFactEntry()}catch{/* 请求错误由统一拦截器展示。 */}
+},{immediate:true})
+useBusinessRefreshOnReactivated(()=>loadingData.value?undefined:load())
+</script>
+
+<style scoped>
+.table-pagination{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;margin-top:16px}@media(max-width:760px){.table-pagination{justify-content:flex-start}}
+.accounting-page{min-height:calc(100vh - 84px);padding:24px;background:#f3f5f8}.hero{display:flex;align-items:flex-end;justify-content:space-between;padding:25px 30px;border-radius:16px;background:linear-gradient(120deg,#173750,#1c665f);color:#fff}.hero-actions{display:flex;align-items:center;gap:10px}.hero-actions .el-button{margin:0}.hero span{font-size:11px;letter-spacing:.17em;color:#85e1d2}.hero h1{margin:5px 0}.hero p{margin:0;color:#d0e1e3}.filter-card,.section-card{margin-top:14px;border-color:#dfe5ea}.filter-card :deep(.el-card__body){padding-bottom:2px}.summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:14px}.summary-grid article{padding:16px;border:1px solid #dfe5ea;border-radius:12px;background:#fff}.summary-grid span,.summary-grid b{display:block}.summary-grid span{color:#7f8b99;font-size:12px}.summary-grid b{margin-top:8px;font-size:22px}.summary-grid .profit{border-top:3px solid #299b7b}.summary-grid .loss{border-top:3px solid #d54f57}.section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.section-head h2{margin:0;font-size:18px}.section-head p{margin:5px 0 0;color:#8491a0;font-size:12px}.section-card small{display:block;margin-top:4px;color:#8a95a2}.return-reason{max-width:190px;color:#d96c30!important;white-space:normal}.return-alert{margin-top:12px}.personnel-tools{display:flex;align-items:center;gap:12px}.personnel-summary{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:10px;margin-bottom:12px}.personnel-summary div{padding:12px 14px;border:1px solid #e2e7ec;border-radius:9px;background:#f8fafb}.personnel-summary span,.personnel-summary b{display:block}.personnel-summary span{color:#7f8b99;font-size:12px}.personnel-summary b{margin-top:5px;font-size:20px}.personnel-summary .warn-box{border-color:#efd8a8;background:#fff9ed}.personnel-summary .danger-box{border-color:#efc6c8;background:#fff4f4}.personnel-card .el-alert{margin-bottom:12px}.click-table :deep(.el-table__row){cursor:pointer}.red{color:#cf454e}.green{color:#248465}.dialog-form{margin-top:18px}.result-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding:16px;border-radius:10px;background:#f5f8fa}.result-title b,.result-title span{display:block}.result-title span{margin-top:5px;color:#8692a0}.result-title strong{font-size:24px}.item-table{margin-top:14px}.personnel-detail{margin-top:22px;padding-top:18px;border-top:1px solid #e4e8ed}.personnel-title{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:12px}.personnel-title h3{margin:0;font-size:17px}.personnel-title p{margin:5px 0 0;color:#8491a0;font-size:12px}.personnel-title>b{color:#2c6f65}@media(max-width:1180px){.summary-grid{grid-template-columns:repeat(3,1fr)}}@media(max-width:760px){.accounting-page{padding:14px}.hero{align-items:flex-start;flex-direction:column;gap:16px;padding:22px}.hero-actions{width:100%;align-items:stretch;flex-direction:column}.hero .el-button{width:100%}.summary-grid{grid-template-columns:repeat(2,1fr)}.filter-card :deep(.el-form-item){display:flex;margin-right:0}.filter-card :deep(.el-select),.filter-card :deep(.el-date-editor){width:100%!important}.section-head{align-items:flex-start;flex-direction:column;gap:10px}.personnel-tools{width:100%;justify-content:space-between}.personnel-summary{grid-template-columns:repeat(2,1fr)}.personnel-title{align-items:flex-start;flex-direction:column;gap:8px}}
+.pricing-notice{display:flex;align-items:center;gap:12px;margin-top:14px}.pricing-notice .el-alert{flex:1}.pricing-notice>.el-button{flex-shrink:0}.pricing-breakdown{display:grid;align-items:stretch;gap:8px}.pricing-breakdown .el-alert{width:100%;min-width:0}.pricing-breakdown p{min-width:0;margin:0;padding:0 14px;color:#5f6b78;font-size:13px;line-height:1.7;overflow-wrap:anywhere}.personnel-detail :deep(.el-table .cell){white-space:normal;line-height:1.6}.department-table :deep(.el-table__row){cursor:pointer}.department-projects{padding:12px 18px 18px;background:#f7fafc}.department-projects>p{margin:0 0 10px;color:#526273;font-weight:600}.department-projects :deep(.el-table){border:1px solid #e3e9ef;border-radius:8px}.tax-basis-note{margin:12px 2px 0;color:#72818c;font-size:12px;line-height:1.7}.currency-label{margin:18px 2px 0;font-size:17px;font-weight:600;color:#24384e}@media(max-width:760px){.pricing-notice{align-items:stretch;flex-direction:column}.pricing-notice>.el-button{width:100%}.pricing-breakdown p{padding:0 4px}}</style>

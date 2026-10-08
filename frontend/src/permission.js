@@ -9,8 +9,29 @@ import useUserStore from '@/store/modules/user'
 import useLockStore from '@/store/modules/lock'
 import useSettingsStore from '@/store/modules/settings'
 import usePermissionStore from '@/store/modules/permission'
+import i18n from '@/locales'
+import { createRouteLoadErrorHandler } from '@/utils/routeLoadError'
 
 NProgress.configure({ showSpinner: false })
+
+const handleRouteLoadError = createRouteLoadErrorHandler({
+  finishProgress: () => NProgress.done(),
+  notify: key => ElMessage.error({
+    message: i18n.global.t(key),
+    duration: key === 'navigation.assetLoadFailed' ? 0 : 8000,
+    showClose: true
+  }),
+  reload: path => window.location.assign(router.resolve(path).href),
+  storage: {
+    getItem: key => window.sessionStorage.getItem(key),
+    setItem: (key, value) => window.sessionStorage.setItem(key, value)
+  }
+})
+
+router.onError((error, to) => {
+  console.error('[router] Navigation failed', error)
+  handleRouteLoadError(error, to)
+})
 
 const whiteList = ['/login', '/register']
 

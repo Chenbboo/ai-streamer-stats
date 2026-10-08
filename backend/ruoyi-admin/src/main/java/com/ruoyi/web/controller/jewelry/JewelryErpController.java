@@ -1,0 +1,893 @@
+package com.ruoyi.web.controller.jewelry;
+
+import java.net.URLEncoder;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+import javax.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import com.ruoyi.common.annotation.Log;
+import com.ruoyi.common.core.controller.BaseController;
+import com.ruoyi.common.core.domain.AjaxResult;
+import com.ruoyi.common.core.domain.entity.SysUser;
+import com.ruoyi.common.core.page.TableDataInfo;
+import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.common.utils.SecurityUtils;
+import com.ruoyi.common.utils.poi.ExcelUtil;
+import com.ruoyi.jewelry.domain.JewelryDocument;
+import com.ruoyi.jewelry.domain.JewelryProductExportRow;
+import com.ruoyi.jewelry.domain.JewelryProductBatchUpdate;
+import com.ruoyi.jewelry.mapper.JewelryErpMapper;
+import com.ruoyi.jewelry.service.JewelryDocumentExcelService;
+import com.ruoyi.jewelry.service.JewelryInfluencerBindingExcelService;
+import com.ruoyi.jewelry.service.IJewelryErpService;
+import com.ruoyi.system.service.ISysUserService;
+
+@RestController
+@RequestMapping("/jewelry")
+public class JewelryErpController extends BaseController
+{
+    @Autowired private IJewelryErpService service;
+    @Autowired private JewelryErpMapper mapper;
+    @Autowired private ISysUserService userService;
+    @Autowired private JewelryDocumentExcelService documentExcelService;
+    @Autowired private JewelryInfluencerBindingExcelService influencerExcelService;
+
+    @PreAuthorize("@ss.hasPermi('jewelry:overview:list')")
+    @GetMapping("/dashboard")
+    public AjaxResult dashboard()
+    {
+        Map<String, Object> data = service.dashboard();
+        if (isMakerOnly())
+        {
+            data.remove("stockAmount");
+            data.remove("monthPurchase");
+            data.remove("monthSales");
+            data.remove("monthProfit");
+        }
+        return success(data);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:staff:list')")
+    @GetMapping("/staff/list")
+    public TableDataInfo staffList(@RequestParam Map<String, Object> query)
+    {
+        startPage();
+        return getDataTable(mapper.selectStaffList(query));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:staff:add')")
+    @PostMapping("/staff")
+    @Transactional
+    public AjaxResult addStaff(@RequestBody Map<String, Object> body)
+    {
+        String userName = string(body.get("userName"));
+        String realName = string(body.get("realName"));
+        String password = string(body.get("password"));
+        String roleKey = string(body.get("roleKey"));
+        if (userName.isEmpty() || realName.isEmpty()) return error("登录账号和姓名不能为空");
+        if (password.length() < 6) return error("初始密码至少6位");
+        if (!validRole(roleKey)) return error("ERP角色不正确");
+        SysUser user = new SysUser();
+        user.setUserName(userName);
+        user.setNickName(realName);
+        user.setPhonenumber(string(body.get("phone")));
+        user.setPassword(SecurityUtils.encryptPassword(password));
+        user.setStatus("0");
+        user.setCreateBy(SecurityUtils.getUsername());
+        if (!userService.checkUserNameUnique(user)) return error("登录账号已存在");
+        userService.insertUser(user);
+        Long roleId = mapper.selectRoleIdByKey(roleKey);
+        if (roleId == null) return error("ERP角色尚未初始化");
+        userService.insertUserAuth(user.getUserId(), new Long[] { roleId });
+        body.put("userId", user.getUserId());
+        body.put("status", defaultString(body.get("status"), "0"));
+        body.put("createBy", SecurityUtils.getUsername());
+        mapper.insertStaff(body);
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:staff:edit')")
+    @PutMapping("/staff")
+    @Transactional
+    public AjaxResult editStaff(@RequestBody Map<String, Object> body)
+    {
+        String roleKey = string(body.get("roleKey"));
+        if (!validRole(roleKey)) return error("ERP角色不正确");
+        Long staffId = number(body.get("staffId"));
+        if (staffId == null) return error("ERP人员ID不能为空");
+        Map<String, Object> existing = mapper.selectStaffById(staffId);
+        if (existing == null) return error("ERP人员不存在");
+        Long userId = number(existing.get("userId"));
+        Long requestedUserId = number(body.get("userId"));
+        if (requestedUserId != null && !requestedUserId.equals(userId))
+            return error("ERP人员与登录账号绑定关系不一致");
+        Long roleId = mapper.selectRoleIdByKey(roleKey);
+        if (roleId == null) return error("ERP角色尚未初始化");
+        body.put("updateBy", SecurityUtils.getUsername());
+        int rows = mapper.updateStaff(body);
+        if (rows != 1) return error("ERP人员信息已变化，请刷新后重试");
+        mapper.deleteJewelryRolesByUserId(userId);
+        mapper.insertUserRole(userId, roleId);
+        SysUser user = new SysUser();
+        user.setUserId(userId);
+        user.setStatus(defaultString(body.get("status"), "0"));
+        userService.updateUserStatus(user);
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:product:list')")
+    @GetMapping("/product/list")
+    public TableDataInfo productList(@RequestParam Map<String, Object> query)
+    {
+        startPage();
+        List<Map<String, Object>> rows = service.listProducts(query);
+        if (isMakerOnly()) removeKeys(rows, "avgCost");
+        return getDataTable(rows);
+    }
+
+    @Log(title = "珠宝商品档案", businessType = BusinessType.EXPORT)
+    @PreAuthorize("@ss.hasPermi('jewelry:product:list')")
+    @PostMapping("/product/export")
+    public void exportProducts(HttpServletResponse response, @RequestParam Map<String, Object> query)
+    {
+        List<Map<String, Object>> rows = service.listProducts(query);
+        if (isMakerOnly()) removeKeys(rows, "avgCost");
+        List<JewelryProductExportRow> exportRows = rows.stream()
+            .map(JewelryProductExportRow::from)
+            .collect(Collectors.toList());
+        ExcelUtil<JewelryProductExportRow> util = new ExcelUtil<JewelryProductExportRow>(JewelryProductExportRow.class);
+        util.exportExcel(response, exportRows, "商品档案");
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:product:list')")
+    @GetMapping("/product/options")
+    public AjaxResult productOptions(@RequestParam Map<String, Object> query)
+    {
+        List<Map<String, Object>> rows = service.listProducts(query);
+        if (isMakerOnly() && !"COST_ADJUST".equals(string(query.get("purpose")))) removeKeys(rows, "avgCost");
+        return success(rows);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:product:list') and @ss.hasPermi('jewelry:influencer:list')")
+    @GetMapping("/product/{id}/bindings")
+    public AjaxResult productBindings(@PathVariable Long id)
+    {
+        Map<String, Object> detail = service.getProductBindingDetail(id);
+        if (isMakerOnly())
+        {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> product = (Map<String, Object>) detail.get("product");
+            product.remove("avgCost");
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> bindings = (List<Map<String, Object>>) detail.get("bindings");
+            removeKeys(bindings, "unitCost");
+        }
+        return success(detail);
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('jewelry:product:add,jewelry:product:edit,jewelry:product:basic-edit')")
+    @PostMapping("/product")
+    public AjaxResult saveProduct(@RequestBody Map<String, Object> body)
+    {
+        boolean editing = body.get("productId") != null;
+        boolean fullEdit = hasPermission("jewelry:product:edit");
+        boolean basicEdit = hasPermission("jewelry:product:basic-edit");
+        if (editing && !fullEdit && !basicEdit) return error("无权修改已有商品档案");
+        if (!editing && !hasPermission("jewelry:product:add")) return error("无权新增商品档案");
+        if (editing && !fullEdit)
+        {
+            Long productId = number(body.get("productId"));
+            if (productId == null || productId <= 0) return error("商品ID不能为空");
+            if (string(body.get("productName")).isEmpty()) return error("商品名称不能为空");
+            Map<String, Object> basicFields = new HashMap<String, Object>();
+            basicFields.put("productId", productId);
+            basicFields.put("productName", string(body.get("productName")));
+            basicFields.put("imageUrl", string(body.get("imageUrl")));
+            basicFields.put("imageUrls", string(body.get("imageUrls")));
+            basicFields.put("updateBy", SecurityUtils.getUsername());
+            return toAjax(service.updateProductBasic(basicFields));
+        }
+        if (string(body.get("sku")).isEmpty() || string(body.get("productName")).isEmpty())
+            return error("SKU和商品名称不能为空");
+        String productType = defaultString(body.get("productType"), "FINISHED");
+        if (!Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE", "SAMPLE", "GIFT").contains(productType))
+            return error("商品类型不正确");
+        body.put("productType", productType);
+        body.put("imageUrl", string(body.get("imageUrl")));
+        body.put("imageUrls", string(body.get("imageUrls")));
+        body.put(editing ? "updateBy" : "createBy", SecurityUtils.getUsername());
+        body.put("status", defaultString(body.get("status"), "0"));
+        return toAjax(service.saveProduct(body));
+    }
+
+    @Log(title = "珠宝商品删除", businessType = BusinessType.DELETE)
+    @PreAuthorize("@ss.hasPermi('jewelry:product:remove')")
+    @DeleteMapping("/product")
+    public AjaxResult deleteProducts(@RequestBody List<Long> productIds)
+    {
+        if (!hasPermission("jewelry:product:remove")) return error("无权删除商品");
+        return success(service.deleteProducts(productIds));
+    }
+
+    @Log(title = "珠宝商品批量编辑", businessType = BusinessType.UPDATE)
+    @PreAuthorize("@ss.hasAnyPermi('jewelry:product:edit,jewelry:product:basic-edit')")
+    @PutMapping("/product/batch")
+    public AjaxResult batchUpdateProducts(@RequestBody JewelryProductBatchUpdate body)
+    {
+        boolean fullEdit = hasPermission("jewelry:product:edit");
+        if (!fullEdit && !hasPermission("jewelry:product:basic-edit"))
+            return error("无权批量修改商品档案");
+        return success(service.batchUpdateProducts(body, fullEdit, SecurityUtils.getUsername()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:supplier:list')")
+    @GetMapping("/supplier/list")
+    public TableDataInfo supplierList(@RequestParam Map<String, Object> query)
+    {
+        startPage();
+        return getDataTable(service.listSuppliers(query));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('jewelry:supplier:add,jewelry:supplier:edit')")
+    @PostMapping("/supplier")
+    public AjaxResult saveSupplier(@RequestBody Map<String, Object> body)
+    {
+        boolean editing = body.get("supplierId") != null;
+        if (editing && !hasPermission("jewelry:supplier:edit")) return error("无权修改已有供应商档案");
+        if (!editing && !hasPermission("jewelry:supplier:add")) return error("无权新增供应商档案");
+        if (string(body.get("supplierCode")).isEmpty() || string(body.get("supplierName")).isEmpty())
+            return error("供应商编码和名称不能为空");
+        body.put(editing ? "updateBy" : "createBy", SecurityUtils.getUsername());
+        body.put("status", defaultString(body.get("status"), "0"));
+        return toAjax(service.saveSupplier(body));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:list')")
+    @GetMapping("/influencer/list")
+    public TableDataInfo influencerList(@RequestParam Map<String, Object> query)
+    {
+        startPage();
+        return getDataTable(service.listInfluencers(query));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:list')")
+    @GetMapping("/influencer/options")
+    public AjaxResult influencerOptions(@RequestParam Map<String, Object> query)
+    {
+        query.put("status", "0");
+        return success(service.listInfluencers(query));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:list')")
+    @GetMapping("/influencer/platforms")
+    public AjaxResult influencerPlatforms()
+    {
+        return success(service.listInfluencerPlatforms());
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('jewelry:influencer:add,jewelry:influencer:edit')")
+    @PostMapping("/influencer")
+    public AjaxResult saveInfluencer(@RequestBody Map<String, Object> body)
+    {
+        boolean editing = body.get("influencerId") != null;
+        if (editing && !hasPermission("jewelry:influencer:edit")) return error("无权修改达人/主播档案");
+        if (!editing && !hasPermission("jewelry:influencer:add")) return error("无权新增达人/主播档案");
+        body.put(editing ? "updateBy" : "createBy", SecurityUtils.getUsername());
+        body.put("status", defaultString(body.get("status"), "0"));
+        return toAjax(service.saveInfluencer(body));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:price')")
+    @PutMapping("/influencer/{id}/product/{productId}/fixed-price")
+    public AjaxResult changeInfluencerPrice(@PathVariable Long id, @PathVariable Long productId,
+        @RequestBody Map<String, Object> body)
+    {
+        if (!hasPermission("jewelry:influencer:price")) return error("无权修改达人商品固定价");
+        service.changeInfluencerProductPrice(id, productId, decimal(body.get("fixedUnitPrice")), string(body.get("reason")),
+            SecurityUtils.getUserId(), SecurityUtils.getUsername());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:list')")
+    @GetMapping("/influencer/{id}/product-prices")
+    public AjaxResult influencerProductPrices(@PathVariable Long id)
+    {
+        return success(service.listInfluencerProductPrices(id));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:price')")
+    @PostMapping("/influencer/{id}/bindings")
+    public AjaxResult saveInfluencerBindings(@PathVariable Long id, @RequestBody List<Map<String, Object>> bindings)
+    {
+        if (!hasPermission("jewelry:influencer:price")) return error("无权维护达人商品价格");
+        if (bindings != null && bindings.stream().anyMatch(row -> string(row.get("productId")).isEmpty())
+            && !hasPermission("jewelry:product:add")) return error("新建商品档案需要商品新增权限");
+        if (requestsExistingProductImageUpdate(bindings) && !hasProductImageEditPermission())
+            return error("修改已有商品图片需要商品修改权限");
+        if (bindings != null && bindings.stream().anyMatch(row -> row.get("newSupplier") != null)
+            && !hasPermission("jewelry:supplier:add")) return error("新增供应商档案需要供应商新增权限");
+        service.saveInfluencerBindings(id, bindings, SecurityUtils.getUserId(), SecurityUtils.getUsername());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:price')")
+    @GetMapping("/influencer/bindings/template")
+    public void influencerBindingTemplate(HttpServletResponse response) throws java.io.IOException
+    {
+        if (!hasPermission("jewelry:influencer:price")) throw new ServiceException("无权导出达人商品绑定模板");
+        influencerExcelService.writeTemplate(response);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:price')")
+    @PostMapping("/influencer/{id}/bindings/preview")
+    public AjaxResult previewInfluencerBindings(@PathVariable Long id, @RequestParam("file") MultipartFile file)
+        throws java.io.IOException
+    {
+        if (!hasPermission("jewelry:influencer:price")) return error("无权导入达人商品绑定");
+        return success(influencerExcelService.preview(file, id));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:price')")
+    @PostMapping("/influencer/{id}/bindings/confirm")
+    public AjaxResult confirmInfluencerBindings(@PathVariable Long id, @RequestBody List<Map<String, Object>> bindings)
+    {
+        if (!hasPermission("jewelry:influencer:price")) return error("无权导入达人商品绑定");
+        List<Map<String, Object>> checked = influencerExcelService.validateRows(id, bindings);
+        boolean invalid = checked.stream().anyMatch(row -> !((List<?>) row.get("errors")).isEmpty());
+        Map<String, Object> result = new HashMap<>();
+        result.put("saved", !invalid);
+        if (invalid)
+        {
+            result.put("rows", checked);
+            return success(result);
+        }
+        if (checked.stream().anyMatch(row -> string(row.get("productId")).isEmpty())
+            && !hasPermission("jewelry:product:add")) return error("新建商品档案需要商品新增权限");
+        if (requestsExistingProductImageUpdate(checked) && !hasProductImageEditPermission())
+            return error("修改已有商品图片需要商品修改权限");
+        if (checked.stream().anyMatch(row -> row.get("newSupplier") != null)
+            && !hasPermission("jewelry:supplier:add")) return error("新增供应商档案需要供应商新增权限");
+        service.saveInfluencerBindings(id, checked, SecurityUtils.getUserId(), SecurityUtils.getUsername());
+        result.put("count", checked.size());
+        return success(result);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:price')")
+    @PostMapping("/influencer/{id}/bindings/import")
+    public AjaxResult importInfluencerBindings(@PathVariable Long id, @RequestParam("file") MultipartFile file)
+        throws java.io.IOException
+    {
+        if (!hasPermission("jewelry:influencer:price")) return error("无权导入达人商品绑定");
+        List<Map<String, Object>> bindings = influencerExcelService.parse(file);
+        if (bindings.stream().anyMatch(row -> string(row.get("productId")).isEmpty())
+            && !hasPermission("jewelry:product:add")) return error("新建商品档案需要商品新增权限");
+        if (requestsExistingProductImageUpdate(bindings) && !hasProductImageEditPermission())
+            return error("修改已有商品图片需要商品修改权限");
+        service.saveInfluencerBindings(id, bindings, SecurityUtils.getUserId(), SecurityUtils.getUsername());
+        return success(bindings.size());
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:list')")
+
+    @GetMapping("/influencer/{id}/price-history")
+    public AjaxResult influencerPriceHistory(@PathVariable Long id)
+    {
+        return success(service.listInfluencerPriceHistory(id));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:influencer:list')")
+    @GetMapping("/influencer/{id}/bundle-items")
+    public AjaxResult influencerBundleItems(@PathVariable Long id)
+    {
+        return success(service.listInfluencerBundleItems(id));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:stock:list')")
+    @GetMapping("/stock/list")
+    public TableDataInfo stockList(@RequestParam Map<String, Object> query)
+    {
+        if ("true".equalsIgnoreCase(string(query.get("inStockOnly")))) query.put("inStockOnly", true);
+        else query.remove("inStockOnly");
+        String selectedSuppliers = string(query.remove("supplierIds"));
+        if (!selectedSuppliers.isEmpty())
+        {
+            if (!selectedSuppliers.matches("[1-9][0-9]*(,[1-9][0-9]*){0,99}"))
+                throw new ServiceException("供应商筛选参数无效");
+            try
+            {
+                query.put("supplierIds", Arrays.stream(selectedSuppliers.split(","))
+                    .map(Long::parseLong).distinct().collect(Collectors.toList()));
+            }
+            catch (NumberFormatException ex)
+            {
+                throw new ServiceException("供应商筛选参数无效");
+            }
+        }
+        if (!"true".equalsIgnoreCase(string(query.get("warningOnly"))))
+        {
+            query.remove("warningOnly");
+            query.remove("warningType");
+        }
+        else if (!Arrays.asList("quantity", "age", "supplierReturn").contains(string(query.get("warningType"))))
+        {
+            query.remove("warningType");
+        }
+        startPage();
+        List<Map<String, Object>> rows = service.listStock(query);
+        if (isMakerOnly()) removeKeys(rows, "avgCost", "stockAmount");
+        return getDataTable(rows);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:stock:list')")
+    @GetMapping("/stock/supplier-options")
+    public AjaxResult stockSupplierOptions()
+    {
+        return success(mapper.selectStockSupplierOptions());
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:stock:list')")
+    @GetMapping("/stock/sample-inbounds/{productId}")
+    public AjaxResult sampleInboundDetails(@PathVariable Long productId)
+    {
+        return success(service.listSampleInboundDetails(productId));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:stock:list')")
+    @GetMapping("/stock/inbounds/{productId}")
+    public AjaxResult stockInboundDetails(@PathVariable Long productId)
+    {
+        List<Map<String, Object>> rows = service.listStockInboundDetails(productId);
+        if (isMakerOnly()) removeKeys(rows, "avgCost", "stockAmount");
+        return success(rows);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:stock:list')")
+    @GetMapping("/stock/transactions")
+    public TableDataInfo transactions(@RequestParam Map<String, Object> query)
+    {
+        startPage();
+        List<Map<String, Object>> rows = service.listTransactions(query);
+        if (isMakerOnly()) removeKeys(rows, "beforeAvgCost", "afterAvgCost");
+        return getDataTable(rows);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:stock:list')")
+    @GetMapping("/stock/warning-days")
+    public AjaxResult stockWarningDays()
+    {
+        return success(service.getStockWarningDays());
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:stock:list')")
+    @GetMapping("/stock/supplier-return-days")
+    public AjaxResult supplierReturnDays()
+    {
+        return success(service.getSupplierReturnDays());
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:stock:config')")
+    @Log(title = "供应商统一退货期限", businessType = BusinessType.UPDATE)
+    @PutMapping("/stock/supplier-return-days")
+    public AjaxResult updateSupplierReturnDays(@RequestBody Map<String, Object> body)
+    {
+        String value = string(body.get("days"));
+        if (value == null || !value.matches("[0-9]{1,3}")) return error("请输入1到365之间的整数天数");
+        service.setSupplierReturnDays(Integer.parseInt(value), SecurityUtils.getUsername());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:stock:config')")
+    @Log(title = "采购单约定退货日期", businessType = BusinessType.UPDATE)
+    @PutMapping("/document/{documentId}/supplier-return-date")
+    public AjaxResult updateSupplierReturnDate(@PathVariable Long documentId, @RequestBody JewelryDocument body)
+    {
+        service.setPostedSupplierReturnDate(documentId, body.getSupplierReturnDate(), SecurityUtils.getUsername());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:stock:config')")
+    @PutMapping("/stock/warning-days")
+    public AjaxResult updateStockWarningDays(@RequestBody Map<String, Object> body)
+    {
+        Long days = number(body.get("days"));
+        if (days == null) return error("请输入库存时间预警天数");
+        service.setStockWarningDays(days.intValue(), SecurityUtils.getUsername());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
+    @GetMapping("/document/list")
+    public TableDataInfo documentList(JewelryDocument query)
+    {
+        query.setHideDrafts(hasErpRole("jewelry_reviewer") && !isErpAdministrator());
+        if (isMakerOnly())
+        {
+            query.setCreatorUserId(SecurityUtils.getUserId());
+        }
+        startPage();
+        List<JewelryDocument> rows = service.listDocuments(query);
+        if (isMakerOnly()) redactDocumentFinance(rows);
+        return getDataTable(rows);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:add')")
+    @GetMapping("/document/import-template")
+    public void documentImportTemplate(@RequestParam String docType, HttpServletResponse response) throws Exception
+    {
+        byte[] content = documentExcelService.createTemplate(docType);
+        String fileName = URLEncoder.encode("珠宝单据导入模板-" + docType + ".xlsx", "UTF-8").replace("+", "%20");
+        response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        response.setCharacterEncoding("UTF-8");
+        response.setHeader("Content-Disposition", "attachment;filename*=UTF-8''" + fileName);
+        response.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+        response.setHeader("Pragma", "no-cache");
+        response.setDateHeader("Expires", 0);
+        response.setContentLength(content.length);
+        response.getOutputStream().write(content);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:add')")
+    @PostMapping("/document/import-preview")
+    public AjaxResult documentImportPreview(@RequestParam String docType,
+        @RequestParam("file") MultipartFile file) throws Exception
+    {
+        if (file == null || file.isEmpty()) return error("请选择Excel文件");
+        if (file.getSize() > 200L * 1024 * 1024) return error("Excel文件不能超过200MB");
+        String name = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase();
+        if (!name.endsWith(".xlsx") && !name.endsWith(".xls")) return error("仅支持xls和xlsx文件");
+        if (("PURCHASE_IN".equals(docType) || "SAMPLE_IN".equals(docType)) && !name.endsWith(".xlsx"))
+            return error("含商品图片的入库模板仅支持xlsx文件");
+        return success(documentExcelService.preview(docType, file.getInputStream(),
+            hasPermission("jewelry:product:add")));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:add')")
+    @PostMapping("/document/import-review")
+    @SuppressWarnings("unchecked")
+    public AjaxResult documentImportReview(@RequestBody Map<String, Object> body)
+    {
+        Object rows = body.get("rows");
+        if (!(rows instanceof List)) return error("导入明细格式错误");
+        return success(documentExcelService.review(String.valueOf(body.get("docType")),
+            (List<Map<String, Object>>) rows, hasPermission("jewelry:product:add")));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
+    @GetMapping("/document/supplier-return-sources")
+    public AjaxResult supplierReturnSources(@RequestParam Long influencerId, @RequestParam Long supplierId)
+    {
+        List<JewelryDocument> sources = service.listSupplierReturnSources(influencerId, supplierId);
+        if (isMakerOnly()) redactDocumentFinance(sources);
+        return success(sources);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
+    @GetMapping("/document/supplier-return-products")
+    public AjaxResult supplierReturnProducts(@RequestParam Long influencerId, @RequestParam Long supplierId)
+    {
+        return success(service.listSupplierReturnProducts(influencerId, supplierId));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:edit')")
+    @GetMapping("/document/{id}/purchase-influencer-options")
+    public AjaxResult purchaseInfluencerOptions(@PathVariable Long id)
+    {
+        if (!isErpAdministrator()) return error("只有管理员可以补录历史采购达人归属");
+        return success(service.getPurchaseInfluencerRepairOptions(id));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:edit')")
+    @Log(title = "历史福利采购达人补录", businessType = BusinessType.UPDATE)
+    @PutMapping("/document/{id}/purchase-influencer")
+    public AjaxResult repairPurchaseInfluencer(@PathVariable Long id, @RequestBody Map<String, Object> body)
+    {
+        if (!isErpAdministrator()) return error("只有管理员可以补录历史采购达人归属");
+        service.repairPurchaseInfluencer(id, number(body.get("influencerId")), string(body.get("reason")),
+            SecurityUtils.getUserId(), SecurityUtils.getUsername());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
+    @GetMapping("/document/sample-return-products")
+    public AjaxResult sampleReturnProducts(@RequestParam Long supplierId)
+    {
+        return success(service.listSampleReturnProducts(supplierId));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
+    @GetMapping("/document/supplier-return-source/{id}")
+    public AjaxResult supplierReturnSource(@PathVariable Long id,
+        @RequestParam(required = false) Long excludeDocumentId)
+    {
+        JewelryDocument source = service.getSupplierReturnSource(id, excludeDocumentId);
+        if (isMakerOnly()) redactDocumentFinance(source);
+        return success(source);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
+    @GetMapping("/document/customer-return-source/{id}")
+    public AjaxResult customerReturnSource(@PathVariable Long id,
+        @RequestParam(required = false) Long excludeDocumentId)
+    {
+        JewelryDocument source = service.getCustomerReturnSource(id, excludeDocumentId);
+        if (isMakerOnly()) redactDocumentFinance(source);
+        return success(source);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
+    @GetMapping("/document/customer-return-products/{influencerId}")
+    public AjaxResult customerReturnProducts(@PathVariable Long influencerId,
+        @RequestParam(required = false) Long excludeDocumentId)
+    {
+        return success(service.listCustomerReturnProductStats(influencerId, excludeDocumentId));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
+    @GetMapping("/document/return-inspection-source/{id}")
+    public AjaxResult returnInspectionSource(@PathVariable Long id,
+        @RequestParam(required = false) Long excludeDocumentId)
+    {
+        JewelryDocument source = service.getReturnInspectionSource(id, excludeDocumentId);
+        if (isMakerOnly() && !SecurityUtils.getUserId().equals(source.getCreatorUserId()))
+        {
+            return error("无权使用其他制单员创建的客户退货单");
+        }
+        if (isMakerOnly()) redactDocumentFinance(source);
+        return success(source);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
+    @GetMapping("/document/{id}")
+    public AjaxResult document(@PathVariable Long id)
+    {
+        JewelryDocument document = service.getDocumentForDisplay(id);
+        if (isMakerOnly() && !SecurityUtils.getUserId().equals(document.getCreatorUserId()))
+        {
+            return error("无权查看其他制单员的单据");
+        }
+        if (isMakerOnly()) redactDocumentFinance(document);
+        return success(document);
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('jewelry:document:add,jewelry:document:edit')")
+    @PostMapping("/document/risk-check")
+    public AjaxResult assessDocumentRisk(@RequestBody JewelryDocument document)
+    {
+        return success(service.assessDocumentRisk(document));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('jewelry:document:add,jewelry:document:edit')")
+    @PostMapping("/document")
+    public AjaxResult saveDocument(@RequestBody JewelryDocument document)
+    {
+        boolean editing = document.getDocumentId() != null;
+        if (editing && !hasPermission("jewelry:document:edit"))
+            return error("无权修改已有单据");
+        if (!editing && !hasPermission("jewelry:document:add"))
+            return error("无权新建单据");
+        boolean assembly = "ASSEMBLY".equals(document.getDocType());
+        if (editing)
+        {
+            JewelryDocument current = service.getDocument(document.getDocumentId());
+            assembly = assembly || "ASSEMBLY".equals(current.getDocType());
+        }
+        if (assembly && !hasPermission("jewelry:assembly:add"))
+            return error("无权新建或修改组装单");
+        JewelryDocument saved = service.saveDocument(document, SecurityUtils.getUserId(), SecurityUtils.getUsername());
+        if (isMakerOnly()) redactDocumentFinance(saved);
+        return success(saved);
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:stock:config')")
+    @PostMapping("/stock/direct-cost-adjust")
+    public AjaxResult directAdjustCosts(@RequestBody JewelryDocument document)
+    {
+        if (!isErpAdministrator()) return error("只有管理员可以直接调整库存成本");
+        return success(service.directAdjustCosts(document, SecurityUtils.getUserId(), SecurityUtils.getUsername(),
+            "jewelry_admin"));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:edit')")
+    @DeleteMapping("/document/{id}")
+    public AjaxResult deleteDraft(@PathVariable Long id)
+    {
+        service.deleteDraft(id, SecurityUtils.getUserId());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:submit')")
+    @PostMapping("/document/{id}/submit")
+    public AjaxResult submit(@PathVariable Long id)
+    {
+        service.submit(id, SecurityUtils.getUserId(), SecurityUtils.getUsername());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:withdraw')")
+    @PostMapping("/document/{id}/withdraw")
+    public AjaxResult withdraw(@PathVariable Long id)
+    {
+        service.withdraw(id, SecurityUtils.getUserId(), SecurityUtils.getUsername());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:reverse')")
+    @PostMapping("/document/{id}/reverse")
+    public AjaxResult reverse(@PathVariable Long id)
+    {
+        return success(service.createReversal(id, SecurityUtils.getUserId(), SecurityUtils.getUsername()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:approval:approve')")
+    @PostMapping("/approval/{id}/approve")
+    public AjaxResult approve(@PathVariable Long id, @RequestBody(required = false) Map<String, Object> body)
+    {
+        Object expectedCost = body == null ? null : body.get("expectedTotalCost");
+        service.approve(id, body == null ? "" : string(body.get("comment")),
+            expectedCost == null ? null : decimal(expectedCost),
+            SecurityUtils.getUserId(), SecurityUtils.getUsername(), approvalRole(id),
+            stockAdjustmentCosts(body));
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:approval:reject')")
+    @PostMapping("/approval/{id}/reject")
+    public AjaxResult reject(@PathVariable Long id, @RequestBody Map<String, Object> body)
+    {
+        service.reject(id, string(body.get("comment")), SecurityUtils.getUserId(), SecurityUtils.getUsername(),
+            approvalRole(id));
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:calculator:list')")
+    @PostMapping("/calculator")
+    public AjaxResult calculate(@RequestBody Map<String, Object> body)
+    {
+        if (isMakerOnly()) return error("毛利试算仅对审核员和管理员开放");
+        return success(service.calculateProfit(body));
+    }
+
+    private boolean validRole(String key)
+    {
+        return "jewelry_maker".equals(key) || "jewelry_reviewer".equals(key) || "jewelry_admin".equals(key);
+    }
+    private boolean isMakerOnly()
+    {
+        SysUser user = SecurityUtils.getLoginUser().getUser();
+        if (user.isAdmin()) return false;
+        boolean maker = false;
+        for (com.ruoyi.common.core.domain.entity.SysRole role : user.getRoles())
+        {
+            if ("jewelry_admin".equals(role.getRoleKey()) || "jewelry_reviewer".equals(role.getRoleKey())) return false;
+            if ("jewelry_maker".equals(role.getRoleKey())) maker = true;
+        }
+        return maker;
+    }
+    private void removeKeys(List<Map<String, Object>> rows, String... keys)
+    {
+        for (Map<String, Object> row : rows)
+        {
+            for (String key : keys) row.remove(key);
+        }
+    }
+    private void redactDocumentFinance(List<JewelryDocument> documents)
+    {
+        for (JewelryDocument document : documents) redactDocumentFinance(document);
+    }
+    private void redactDocumentFinance(JewelryDocument document)
+    {
+        if ("COST_ADJUST".equals(document.getDocType()) || "COST_ADJUST".equals(document.getSourceDocType())) return;
+        document.setTotalCost(null);
+        document.setTotalProfit(null);
+        if (document.getItems() == null) return;
+        for (com.ruoyi.jewelry.domain.JewelryDocumentItem item : document.getItems())
+        {
+            item.setUnitCost(null);
+            item.setCostAmount(null);
+            item.setProfitAmount(null);
+            item.setProfitRate(null);
+        }
+    }
+    private boolean hasPermission(String permission)
+    {
+        SysUser user = SecurityUtils.getLoginUser().getUser();
+        return user.isAdmin() || SecurityUtils.getLoginUser().getPermissions().contains(permission);
+    }
+    private boolean hasProductImageEditPermission()
+    {
+        return hasPermission("jewelry:product:edit") || hasPermission("jewelry:product:basic-edit");
+    }
+    private boolean requestsExistingProductImageUpdate(List<Map<String, Object>> rows)
+    {
+        return rows != null && rows.stream().anyMatch(row -> !string(row.get("productId")).isEmpty()
+            && (Boolean.TRUE.equals(row.get("imageChanged"))
+                || "true".equalsIgnoreCase(string(row.get("imageChanged")))));
+    }
+    private String approvalRole(Long documentId)
+    {
+        JewelryDocument document = mapper.selectDocumentById(documentId);
+        boolean administrator = SecurityUtils.getLoginUser().getUser().isAdmin() || hasErpRole("jewelry_admin");
+        boolean reviewer = hasErpRole("jewelry_reviewer");
+        if (document != null && "PENDING_SECOND".equals(document.getStatus()) && administrator)
+            return "jewelry_admin";
+        if (document != null && "PENDING_FIRST".equals(document.getStatus()) && reviewer)
+            return "jewelry_reviewer";
+        if (administrator) return "jewelry_admin";
+        if (reviewer) return "jewelry_reviewer";
+        return "";
+    }
+    private boolean hasErpRole(String roleKey)
+    {
+        SysUser user = SecurityUtils.getLoginUser().getUser();
+        if (user.getRoles() == null) return false;
+        for (com.ruoyi.common.core.domain.entity.SysRole role : user.getRoles())
+            if (roleKey.equals(role.getRoleKey())) return true;
+        return false;
+    }
+    private boolean isErpAdministrator()
+    {
+        return SecurityUtils.getLoginUser().getUser().isAdmin() || hasErpRole("jewelry_admin");
+    }
+    private String string(Object value) { return value == null ? "" : String.valueOf(value).trim(); }
+    private String defaultString(Object value, String fallback)
+    {
+        String result = string(value);
+        return result.isEmpty() ? fallback : result;
+    }
+    private Long number(Object value)
+    {
+        if (value == null || string(value).isEmpty()) return null;
+        return Long.valueOf(string(value));
+    }
+    private java.math.BigDecimal decimal(Object value)
+    {
+        return value == null || string(value).isEmpty() ? java.math.BigDecimal.ZERO :
+            new java.math.BigDecimal(string(value));
+    }
+
+    private Map<Long, java.math.BigDecimal> stockAdjustmentCosts(Map<String, Object> body)
+    {
+        Map<Long, java.math.BigDecimal> costs = new HashMap<Long, java.math.BigDecimal>();
+        if (body == null || body.get("stockAdjustmentCosts") == null) return costs;
+        Object value = body.get("stockAdjustmentCosts");
+        if (!(value instanceof List<?>))
+            throw new ServiceException("盘盈核定成本数据格式不正确");
+        for (Object entry : (List<?>) value)
+        {
+            if (!(entry instanceof Map<?, ?>))
+                throw new ServiceException("盘盈核定成本数据格式不正确");
+            Map<?, ?> item = (Map<?, ?>) entry;
+            Long itemId;
+            java.math.BigDecimal unitCost;
+            try
+            {
+                itemId = number(item.get("itemId"));
+                unitCost = decimal(item.get("unitCost"));
+            }
+            catch (NumberFormatException error)
+            {
+                throw new ServiceException("盘盈核定成本明细不正确");
+            }
+            if (itemId == null || costs.containsKey(itemId))
+                throw new ServiceException("盘盈核定成本明细不正确");
+            costs.put(itemId, unitCost);
+        }
+        return costs;
+    }
+}

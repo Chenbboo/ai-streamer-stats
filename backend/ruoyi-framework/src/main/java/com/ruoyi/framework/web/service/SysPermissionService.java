@@ -58,10 +58,10 @@ public class SysPermissionService
     public Set<String> getMenuPermission(SysUser user)
     {
         Set<String> perms = new HashSet<String>();
-        // 管理员拥有所有权限
+        // 管理员默认拥有全部权限；显式个人目录设置优先。
         if (user.isAdmin())
         {
-            perms.add(Constants.ALL_PERMISSION);
+            perms.addAll(menuService.selectMenuPermsByUserId(user.getUserId()));
         }
         else
         {
@@ -75,14 +75,12 @@ public class SysPermissionService
                     {
                         Set<String> rolePerms = menuService.selectMenuPermsByRoleId(role.getRoleId());
                         role.setPermissions(rolePerms);
-                        perms.addAll(rolePerms);
                     }
                 }
             }
-            else
-            {
-                perms.addAll(menuService.selectMenuPermsByUserId(user.getUserId()));
-            }
+            // The user's final permission set may contain a personal menu snapshot.
+            // Role permissions above remain attached to each role for data-scope matching.
+            perms.addAll(menuService.selectMenuPermsByUserId(user.getUserId()));
         }
         return perms;
     }

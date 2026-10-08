@@ -1,0 +1,96 @@
+package com.ruoyi.web.controller.business;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+
+class BusinessProjectControllerPermissionTest
+{
+    @Test
+    void everyProjectEndpointDeclaresAuthorization()
+    {
+        long endpoints = 0;
+        for (Method method : BusinessProjectController.class.getDeclaredMethods())
+        {
+            if (!isEndpoint(method)) continue;
+            endpoints++;
+            assertNotNull(method.getAnnotation(PreAuthorize.class),
+                () -> method.getName() + " 缺少权限保护");
+        }
+        assertTrue(endpoints >= 17, "项目控制器端点数量异常，请同步更新权限测试");
+    }
+
+    @Test
+    void bossDecisionsAndProjectWritesKeepDedicatedPermissions()
+    {
+        Map<String, String> expected = new HashMap<String, String>();
+        expected.put("list", "@ss.hasPermi('business:project:list')");
+        expected.put("hierarchy", "@ss.hasPermi('business:project:list')");
+        expected.put("children", "@ss.hasPermi('business:project:list')");
+        expected.put("removeProject", "@ss.hasPermi('business:project:edit')");
+        expected.put("requestProjectDeletion", "@ss.hasPermi('business:project:edit')");
+        expected.put("projectDeletionRequests", "@ss.hasPermi('business:project:list')");
+        expected.put("reviewProjectDeletion", "@ss.hasPermi('business:project:edit')");
+        expected.put("projectDeletionNotifications", "isAuthenticated()");
+        expected.put("readProjectDeletionNotification", "isAuthenticated()");
+        expected.put("readAllProjectDeletionNotifications", "isAuthenticated()");
+        expected.put("projectCompanyOptions", "@ss.hasAnyPermi('business:project:list,business:project:edit')");
+        expected.put("projectDepartmentOptions", "@ss.hasPermi('business:project:list')");
+        expected.put("settlementStatus", "@ss.hasAnyPermi('business:project:list,business:accounting:list,business:kpi:list')");
+        expected.put("closeAccounting", "@ss.hasPermi('business:accounting:close')");
+        expected.put("edit", "@ss.hasPermi('business:project:edit')");
+        expected.put("changeOwner", "@ss.hasPermi('business:project:manage')");
+        expected.put("submitAcceptance", "@ss.hasAnyPermi('business:project:submit,business:project:manage')");
+        expected.put("reviewAcceptance", "@ss.hasPermi('business:project:manage')");
+        expected.put("transition", "@ss.hasAnyPermi('business:project:submit,business:project:manage')");
+        expected.put("bossDashboard", "@ss.hasPermi('business:boss:view')");
+        expected.put("bossProjectDirectory", "@ss.hasPermi('business:boss:view')");
+        expected.put("myDashboard", "@ss.hasPermi('business:project:list')");
+        expected.put("ownerDashboard", "@ss.hasPermi('business:project:owner:view')");
+        expected.put("ownerSpendHistory", "@ss.hasPermi('business:project:owner:view')");
+        expected.put("submitTaskReport", "@ss.hasAnyPermi('business:project:report,business:work:report,business:project:work:view')");
+        expected.put("submitRoutineReport", "@ss.hasAnyPermi('business:project:report,business:work:report,business:project:work:view')");
+        expected.put("saveKpi", "@ss.hasAnyPermi('business:project:manage,business:kpi:manage')");
+        expected.put("retireKpi", "@ss.hasAnyPermi('business:project:manage,business:kpi:manage')");
+        expected.put("staffCostOptions", "@ss.hasAnyPermi('business:staff:cost,business:staff:list')");
+        expected.put("staffCostPolicies", "@ss.hasAnyPermi('business:staff:cost,business:staff:list')");
+        expected.put("saveStaffCostPolicy", "@ss.hasAnyPermi('business:staff:cost,business:staff:list')");
+        expected.put("saveStaffCostPolicies", "@ss.hasAnyPermi('business:staff:cost,business:staff:list')");
+        expected.put("deleteStaffCostPolicy", "@ss.hasAnyPermi('business:staff:cost,business:staff:list')");
+        expected.put("voidStaffCostPolicy", "@ss.hasAnyPermi('business:staff:cost,business:staff:list')");
+        expected.put("saveStaffAllocation", "@ss.hasPermi('business:project:allocation')");
+        expected.put("memberAllocationPreview", "@ss.hasPermi('business:project:member')");
+        expected.put("saveMember", "@ss.hasPermi('business:project:member')");
+        expected.put("removeStaffAllocation", "@ss.hasPermi('business:project:allocation')");
+        expected.put("confirmProjectEffortWeek", "@ss.hasPermi('business:project:allocation')");
+        expected.put("confirmMemberEffort", "@ss.hasPermi('business:project:allocation')");
+        expected.put("returnMemberEffort", "@ss.hasPermi('business:project:allocation')");
+
+        for (Map.Entry<String, String> item : expected.entrySet())
+        {
+            Method method = Arrays.stream(BusinessProjectController.class.getDeclaredMethods())
+                .filter(candidate -> candidate.getName().equals(item.getKey()))
+                .findFirst().orElseThrow(() -> new AssertionError("找不到端点：" + item.getKey()));
+            assertEquals(item.getValue(), method.getAnnotation(PreAuthorize.class).value());
+        }
+    }
+
+    private boolean isEndpoint(Method method)
+    {
+        return method.getAnnotation(GetMapping.class) != null
+            || method.getAnnotation(PostMapping.class) != null
+            || method.getAnnotation(PutMapping.class) != null
+            || method.getAnnotation(DeleteMapping.class) != null;
+    }
+}

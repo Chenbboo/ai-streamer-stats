@@ -1,0 +1,2256 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.business.mapper.BusinessProjectMapper">
+
+    <resultMap id="ProjectResult" type="com.ruoyi.business.domain.BusinessProject">
+        <id property="projectId" column="project_id"/>
+        <result property="projectNo" column="project_no"/>
+        <result property="sourceProposalId" column="source_proposal_id"/>
+        <result property="parentId" column="parent_id"/>
+        <result property="parentName" column="parent_name"/>
+        <result property="contextOnly" column="context_only"/>
+        <result property="matchedChildId" column="matched_child_id"/>
+        <result property="companyDeptId" column="company_dept_id"/>
+        <result property="departmentId" column="department_id"/>
+        <result property="companyName" column="company_name"/>
+        <result property="projectName" column="project_name"/>
+        <result property="projectType" column="project_type"/>
+        <result property="accountingMode" column="accounting_mode"/>
+        <result property="managementMode" column="management_mode"/>
+        <result property="closeMethod" column="close_method"/>
+        <result property="managementReason" column="management_reason"/>
+        <result property="acceptanceCriteria" column="acceptance_criteria"/>
+        <result property="goalMode" column="goal_mode"/>
+        <result property="objective" column="objective"/>
+        <result property="status" column="status"/>
+        <result property="deliveryPolicyVersion" column="delivery_policy_version"/>
+        <result property="accountingState" column="accounting_state"/>
+        <result property="settlementPolicyVersion" column="settlement_policy_version"/>
+        <result property="costPolicyVersion" column="cost_policy_version"/>
+        <result property="templateVersion" column="template_version"/>
+        <result property="templateSnapshotJson" column="template_snapshot_json"/>
+        <result property="baselineStatus" column="baseline_status"/>
+        <result property="applicantUserId" column="applicant_user_id"/>
+        <result property="applicantName" column="applicant_name"/>
+        <result property="sponsorOwnerUserId" column="sponsor_owner_user_id"/>
+        <result property="sponsorOwnerName" column="sponsor_owner_name"/>
+        <result property="initiatorUserId" column="initiator_user_id"/>
+        <result property="initiatorName" column="initiator_name"/>
+        <result property="mainOwnerUserId" column="main_owner_user_id"/>
+        <result property="mainOwnerName" column="main_owner_name"/>
+        <result property="planStartDate" column="plan_start_date"/>
+        <result property="planEndDate" column="plan_end_date"/>
+        <result property="actualStartDate" column="actual_start_date"/>
+        <result property="actualEndDate" column="actual_end_date"/>
+        <result property="priority" column="priority"/>
+        <result property="baseCurrency" column="base_currency"/>
+        <result property="budgetLimit" column="budget_limit"/>
+        <result property="budgetMode" column="budget_mode"/>
+        <result property="dailyBudgetLimit" column="daily_budget_limit"/>
+        <result property="budgetScope" column="budget_scope"/>
+        <result property="startupBudgetLimit" column="startup_budget_limit"/>
+        <result property="budgetReason" column="budget_reason"/>
+        <result property="baselineVersion" column="baseline_version"/>
+        <result property="version" column="version"/>
+        <result property="delFlag" column="del_flag"/>
+        <result property="createBy" column="create_by"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateBy" column="update_by"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="remark" column="remark"/>
+        <result property="memberCount" column="member_count"/>
+        <result property="taskCount" column="task_count"/>
+        <result property="completedTaskCount" column="completed_task_count"/>
+        <result property="progressPercent" column="progress_percent"/>
+        <result property="progressCompletionStandard" column="progress_completion_standard"/>
+        <result property="progressWeight" column="progress_weight"/>
+        <result property="subprojectCount" column="subproject_count"/>
+        <result property="progressReportId" column="progress_report_id"/>
+        <result property="progressBizDate" column="progress_biz_date"/>
+        <result property="progressSummary" column="progress_summary"/>
+        <result property="progressEvidenceUrls" column="progress_evidence_urls"/>
+        <result property="progressEvidenceText" column="progress_evidence_text"/>
+        <result property="progressReporterName" column="progress_reporter_name"/>
+        <result property="progressReportTime" column="progress_report_time"/>
+        <result property="openRiskCount" column="open_risk_count"/>
+    </resultMap>
+
+    <resultMap id="StaffDirectoryUserResult" type="com.ruoyi.common.core.domain.entity.SysUser">
+        <id property="userId" column="user_id"/>
+        <result property="deptId" column="dept_id"/>
+        <result property="userName" column="user_name"/>
+        <result property="nickName" column="nick_name"/>
+        <result property="email" column="email"/>
+        <result property="phonenumber" column="phonenumber"/>
+        <result property="sex" column="sex"/>
+        <result property="status" column="status"/>
+        <result property="delFlag" column="del_flag"/>
+        <result property="loginDate" column="login_date"/>
+        <result property="createTime" column="create_time"/>
+        <result property="remark" column="remark"/>
+        <association property="dept" javaType="com.ruoyi.common.core.domain.entity.SysDept"
+                     resultMap="StaffDirectoryDeptResult"/>
+    </resultMap>
+
+    <resultMap id="StaffDirectoryDeptResult" type="com.ruoyi.common.core.domain.entity.SysDept">
+        <id property="deptId" column="dept_id"/>
+        <result property="parentId" column="parent_id"/>
+        <result property="ancestors" column="ancestors"/>
+        <result property="deptName" column="dept_name"/>
+        <result property="orderNum" column="order_num"/>
+        <result property="status" column="dept_status"/>
+    </resultMap>
+
+    <resultMap id="EffortResult" type="com.ruoyi.business.domain.BusinessProjectEffort">
+        <id property="effortId" column="effort_id"/>
+        <result property="projectId" column="project_id"/>
+        <result property="userId" column="user_id"/>
+        <result property="userName" column="user_name"/>
+        <result property="bizDate" column="biz_date"/>
+        <result property="plannedPercent" column="planned_percent"/>
+        <result property="actualPercent" column="actual_percent"/>
+        <result property="sourceType" column="source_type"/>
+        <result property="reportStatus" column="report_status"/>
+        <result property="deviationReason" column="deviation_reason"/>
+        <result property="confirmedUserId" column="confirmed_user_id"/>
+        <result property="confirmedUserName" column="confirmed_user_name"/>
+        <result property="confirmedTime" column="confirmed_time"/>
+        <result property="version" column="version"/>
+        <result property="createBy" column="create_by"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateBy" column="update_by"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="remark" column="remark"/>
+    </resultMap>
+
+    <sql id="projectColumns">
+        p.project_id,p.project_no,p.source_proposal_id,p.parent_id,parent.project_name parent_name,p.company_dept_id,p.department_id,company.dept_name company_name,p.project_name,p.project_type,
+        p.accounting_mode,p.management_mode,p.close_method,p.management_reason,p.acceptance_criteria,p.goal_mode,
+        p.objective,p.status,p.baseline_status,p.delivery_policy_version,p.accounting_state,p.settlement_policy_version,p.cost_policy_version,p.template_version,p.template_snapshot_json,
+        p.applicant_user_id,p.applicant_name,p.sponsor_owner_user_id,p.sponsor_owner_name,p.initiator_user_id,p.initiator_name,
+        p.main_owner_user_id,p.main_owner_name,
+        p.plan_start_date,p.plan_end_date,p.actual_start_date,p.actual_end_date,p.priority,p.base_currency,
+        p.budget_limit,p.budget_mode,p.daily_budget_limit,p.budget_scope,p.startup_budget_limit,p.budget_reason,
+        p.baseline_version,p.version,p.del_flag,p.create_by,p.create_time,p.update_by,
+        p.update_time,p.remark,p.progress_weight,
+        (select count(*) from biz_project c where c.parent_id=p.project_id and c.del_flag='0') subproject_count,
+        (select count(*) from biz_project_member m where m.project_id=p.project_id and m.status='0') member_count,
+        (select count(*) from biz_project_task t where t.project_id=p.project_id and t.active_status='ACTIVE') task_count,
+        (select count(*) from biz_project_task t where t.project_id=p.project_id and t.active_status='ACTIVE' and t.status='DONE') completed_task_count,
+        case
+          when p.status='CLOSED' then 100
+          when p.status='CANCELED' then 0
+          else coalesce(latest_progress.progress,0)
+        end progress_percent,
+        coalesce(latest_progress.completion_standard,'STANDARD') progress_completion_standard,
+        latest_progress.report_id progress_report_id,latest_progress.biz_date progress_biz_date,
+        latest_progress.completion_summary progress_summary,latest_progress.evidence_urls progress_evidence_urls,
+        latest_progress.evidence_text progress_evidence_text,
+        latest_progress.submitted_user_name progress_reporter_name,
+        coalesce(latest_progress.update_time,latest_progress.create_time) progress_report_time,
+        (select count(*) from biz_project_risk r where r.project_id=p.project_id and r.status='OPEN') open_risk_count
+    </sql>
+
+    <sql id="projectProgressJoin">
+        left join biz_project_progress_report latest_progress on latest_progress.report_id=(
+          select progress_report.report_id from biz_project_progress_report progress_report
+          where progress_report.project_id=p.project_id
+          and extract(year from progress_report.biz_date)=extract(year from current_date)
+          and extract(month from progress_report.biz_date)=extract(month from current_date)
+          order by progress_report.report_id desc limit 1)
+    </sql>
+
+    <select id="selectProjectList" resultMap="ProjectResult">
+        select <include refid="projectColumns"/>
+        from biz_project p left join biz_project parent on parent.project_id=p.parent_id and parent.del_flag='0'
+        left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+        <include refid="projectProgressJoin"/>
+        <where>
+            p.del_flag='0'
+            <choose>
+                <when test="ownerOnly == true">
+                    and p.main_owner_user_id=#{userId}
+                </when>
+                <when test="viewAll == true"/>
+                <when test="boss == true">
+                    and (<include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include> or parent.main_owner_user_id=#{userId} or (p.applicant_user_id=#{userId} and exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=parent.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY'))))
+                </when>
+                <otherwise>
+                    and (p.main_owner_user_id=#{userId} or parent.main_owner_user_id=#{userId} or (p.applicant_user_id=#{userId} and exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=parent.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY'))) or exists(
+                        select 1 from biz_project_member scope_member
+                        where scope_member.project_id=p.project_id and scope_member.user_id=#{userId}
+                          and scope_member.status='0'))
+                </otherwise>
+            </choose>
+            <if test="keyword != null and keyword != ''">
+                and (p.project_name like concat('%',#{keyword},'%')
+                  or p.project_no like concat('%',#{keyword},'%')
+                  or p.main_owner_name like concat('%',#{keyword},'%'))
+            </if>
+            <if test="status != null and status != ''">and p.status=#{status}</if>
+            <if test="projectType != null and projectType != ''">and p.project_type=#{projectType}</if>
+            <if test="accountingMode != null and accountingMode != ''">and p.accounting_mode=#{accountingMode}</if>
+            <if test="managementMode != null and managementMode != ''">and p.management_mode=#{managementMode}</if>
+            <if test="closeMethod != null and closeMethod != ''">and p.close_method=#{closeMethod}</if>
+            <include refid="projectOrganizationFilters"><property name="alias" value="p"/></include>
+            <if test="parentId != null">and p.parent_id=#{parentId}</if>
+            <if test="mainOwnerUserId != null">and p.main_owner_user_id=#{mainOwnerUserId}</if>
+        </where>
+        order by field(p.status,'PLANNING','ACTIVE','PAUSED','ACCEPTANCE','DRAFT','CLOSED','CANCELED'),
+                 p.priority='HIGH' desc,p.update_time desc,p.project_id desc
+    </select>
+
+    <!-- alias is a static include property, never supplied by request parameters. -->
+    <sql id="hierarchyAccess">
+        <choose>
+            <when test="viewAll == true">1=1</when>
+            <when test="boss == true">(<include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="${alias}.company_dept_id"/><property name="capability" value="BUSINESS"/></include> or exists(select 1 from biz_project hp where hp.project_id=${alias}.parent_id and hp.del_flag='0' and (hp.main_owner_user_id=#{userId} or (${alias}.applicant_user_id=#{userId} and exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=hp.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY'))))))</when>
+            <otherwise>(${alias}.main_owner_user_id=#{userId} or exists(select 1 from biz_project hp where hp.project_id=${alias}.parent_id and hp.del_flag='0' and (hp.main_owner_user_id=#{userId} or (${alias}.applicant_user_id=#{userId} and exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=hp.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY'))))) or exists(
+                select 1 from biz_project_member hm where hm.project_id=${alias}.project_id
+                and hm.user_id=#{userId} and hm.status='0'))</otherwise>
+        </choose>
+    </sql>
+
+    <sql id="projectOrganizationFilters">
+        <if test="companyDeptId != null and companyDeptId != ''">and ${alias}.company_dept_id=#{companyDeptId}</if>
+        <if test="mainOwnerDeptId != null and mainOwnerDeptId != ''">
+            and exists(select 1 from sys_user filter_owner
+                join sys_dept filter_dept on filter_dept.dept_id=filter_owner.dept_id
+                where filter_owner.user_id=${alias}.main_owner_user_id
+                  and (filter_dept.dept_id=#{mainOwnerDeptId}
+                    or concat(',',filter_dept.ancestors,',') like concat('%,',#{mainOwnerDeptId},',%')))
+        </if>
+    </sql>
+
+    <sql id="hierarchyFilters">
+        <if test="keyword != null and keyword != ''">
+            and (${alias}.project_name like concat('%',#{keyword},'%')
+                or ${alias}.project_no like concat('%',#{keyword},'%')
+                or ${alias}.main_owner_name like concat('%',#{keyword},'%'))
+        </if>
+        <if test="status != null and status != ''">and ${alias}.status=#{status}</if>
+        <if test="projectType != null and projectType != ''">and ${alias}.project_type=#{projectType}</if>
+        <if test="managementMode != null and managementMode != ''">and ${alias}.management_mode=#{managementMode}</if>
+        <if test="closeMethod != null and closeMethod != ''">and ${alias}.close_method=#{closeMethod}</if>
+        <include refid="projectOrganizationFilters"/>
+    </sql>
+
+    <select id="selectProjectRoots" resultMap="ProjectResult">
+        select <include refid="projectColumns"/>,
+          case when (<include refid="hierarchyAccess"><property name="alias" value="p"/></include>) then 0 else 1 end context_only,
+          <choose>
+            <when test="(keyword != null and keyword != '') or (status != null and status != '') or (projectType != null and projectType != '') or (managementMode != null and managementMode != '') or (closeMethod != null and closeMethod != '') or (companyDeptId != null and companyDeptId != '') or (mainOwnerDeptId != null and mainOwnerDeptId != '')">
+                (select min(c.project_id) from biz_project c where c.parent_id=p.project_id and c.del_flag='0'
+                  and (<include refid="hierarchyAccess"><property name="alias" value="c"/></include>)
+                  <include refid="hierarchyFilters"><property name="alias" value="c"/></include>)
+            </when>
+            <otherwise>null</otherwise>
+          </choose> matched_child_id
+        from biz_project p left join biz_project parent on parent.project_id=p.parent_id and parent.del_flag='0'
+        left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+        <include refid="projectProgressJoin"/>
+        where p.del_flag='0' and p.parent_id is null and (
+          ((<include refid="hierarchyAccess"><property name="alias" value="p"/></include>)
+            <include refid="hierarchyFilters"><property name="alias" value="p"/></include>)
+          or exists(select 1 from biz_project c where c.parent_id=p.project_id and c.del_flag='0'
+            and (<include refid="hierarchyAccess"><property name="alias" value="c"/></include>)
+            <include refid="hierarchyFilters"><property name="alias" value="c"/></include>))
+        order by field(p.status,'PLANNING','ACTIVE','PAUSED','ACCEPTANCE','DRAFT','CLOSED','CANCELED'),
+            p.priority='HIGH' desc,p.update_time desc,p.project_id desc
+    </select>
+
+    <select id="selectProjectById" resultMap="ProjectResult">
+        select <include refid="projectColumns"/>
+        from biz_project p left join biz_project parent on parent.project_id=p.parent_id and parent.del_flag='0'
+        left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+        <include refid="projectProgressJoin"/>
+        where p.project_id=#{projectId} and p.del_flag='0'
+    </select>
+
+    <select id="selectProjectByIdForUpdate" resultMap="ProjectResult" flushCache="true" useCache="false">
+        select * from biz_project where project_id=#{projectId} and del_flag='0' for update
+    </select>
+
+    <update id="closeAccounting">
+        update biz_project set accounting_state='CLOSED',version=version+1,
+          update_by=#{userName},update_time=sysdate()
+        where project_id=#{projectId} and del_flag='0' and version=#{version}
+          and delivery_policy_version='SEPARATED_V1' and accounting_state='OPEN'
+          and status in ('CLOSED','CANCELED')
+    </update>
+
+    <select id="countPendingProjectKpi" resultType="int" flushCache="true" useCache="false">
+        select count(*) from biz_project_kpi_plan p
+        where p.project_id=#{projectId} and p.status in ('DRAFT','PUBLISHED','CLOSED')
+          and not exists(select 1 from biz_project_kpi_settlement s
+            where s.plan_id=p.plan_id and s.status='CONFIRMED')
+    </select>
+
+    <insert id="insertProject" parameterType="com.ruoyi.business.domain.BusinessProject"
+            useGeneratedKeys="true" keyProperty="projectId">
+        insert into biz_project(project_no,parent_id,company_dept_id,department_id,project_name,project_type,accounting_mode,management_mode,
+          close_method,management_reason,acceptance_criteria,goal_mode,objective,status,
+          delivery_policy_version,accounting_state,settlement_policy_version,cost_policy_version,template_version,template_snapshot_json,
+          baseline_status,applicant_user_id,applicant_name,sponsor_owner_user_id,sponsor_owner_name,
+          initiator_user_id,initiator_name,main_owner_user_id,main_owner_name,source_proposal_id,
+          plan_start_date,plan_end_date,actual_start_date,priority,base_currency,
+          budget_limit,budget_mode,daily_budget_limit,budget_scope,startup_budget_limit,budget_reason,
+          baseline_version,version,del_flag,create_by,create_time,remark)
+        values(#{projectNo},#{parentId},#{companyDeptId},#{departmentId},#{projectName},#{projectType},#{accountingMode},#{managementMode},
+          #{closeMethod},#{managementReason},#{acceptanceCriteria},#{goalMode},#{objective},#{status},
+          coalesce(#{deliveryPolicyVersion},'LEGACY_V1'),coalesce(#{accountingState},'OPEN'),
+          coalesce(#{settlementPolicyVersion},'LEGACY_COMPAT'),coalesce(#{costPolicyVersion},'PERCENTAGE_V1'),coalesce(#{templateVersion},'LEGACY_V1'),#{templateSnapshotJson},
+          #{baselineStatus},#{applicantUserId},#{applicantName},#{sponsorOwnerUserId},#{sponsorOwnerName},
+          #{initiatorUserId},#{initiatorName},#{mainOwnerUserId},#{mainOwnerName},#{sourceProposalId},
+          #{planStartDate},#{planEndDate},#{actualStartDate},#{priority},
+          #{baseCurrency},#{budgetLimit},#{budgetMode},#{dailyBudgetLimit},#{budgetScope},#{startupBudgetLimit},
+          #{budgetReason},coalesce(#{baselineVersion},0),0,'0',#{createBy},sysdate(),#{remark})
+    </insert>
+
+    <update id="updateProject" parameterType="com.ruoyi.business.domain.BusinessProject">
+        update biz_project set
+          parent_id=#{parentId},company_dept_id=#{companyDeptId},project_name=#{projectName},project_type=#{projectType},
+          accounting_mode=#{accountingMode},management_mode=#{managementMode},close_method=#{closeMethod},
+          management_reason=#{managementReason},acceptance_criteria=#{acceptanceCriteria},goal_mode=#{goalMode},objective=#{objective},plan_start_date=#{planStartDate},
+          plan_end_date=#{planEndDate},priority=#{priority},base_currency=#{baseCurrency},
+          budget_limit=#{budgetLimit},remark=#{remark},update_by=#{updateBy},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and del_flag='0' and version=#{version}
+    </update>
+
+    <select id="countSubprojects" resultType="int" flushCache="true" useCache="false">
+        select count(*) from biz_project where parent_id=#{projectId} and del_flag='0'
+    </select>
+
+    <select id="selectProjectCompanyOptions" resultType="map">
+        select dept_id companyDeptId,dept_name companyName from sys_dept
+        where parent_id=100 and del_flag='0' and status='0' order by order_num,dept_id
+    </select>
+
+    <select id="selectProjectDepartmentOptions" resultType="map">
+        select department.dept_id deptId,department.dept_name deptName,
+            company.dept_id companyDeptId,company.dept_name companyName
+        from sys_dept department join sys_dept company
+          on concat(',',department.ancestors,',') like concat('%,',company.dept_id,',%')
+        where company.parent_id=100 and company.del_flag='0' and company.status='0'
+          and department.del_flag='0' and department.status='0'
+        order by company.order_num,company.dept_id,department.order_num,department.dept_id
+    </select>
+
+    <update id="softDeleteProject">
+        update biz_project set del_flag='2',version=version+1,update_by=#{userName},update_time=sysdate()
+        where project_id=#{projectId} and del_flag='0' and version=#{version}
+    </update>
+
+    <select id="selectPendingProjectDeletion" resultType="map" flushCache="true" useCache="false">
+        select request_id requestId,project_id projectId,status from biz_project_delete_request
+        where project_id=#{projectId} and status='PENDING' order by request_id desc limit 1
+    </select>
+    <select id="selectProjectDeletionById" resultType="map" flushCache="true" useCache="false">
+        select request_id requestId,project_id projectId,request_user_id requestUserId,status from biz_project_delete_request
+        where request_id=#{requestId}
+    </select>
+    <select id="selectProjectDeletionRequests" resultType="map">
+        select r.request_id requestId,r.project_id projectId,r.project_name projectName,
+            r.reason,r.status,r.request_user_id requestUserId,r.request_user_name requestUserName,
+            r.request_time requestTime,r.review_user_name reviewUserName,r.review_comment reviewComment,r.review_time reviewTime
+        from biz_project_delete_request r
+        join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+        where r.status='PENDING' and
+        <choose>
+            <when test="administrator">1=1</when>
+            <when test="boss">(r.request_user_id=#{userId} or <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include>)</when>
+            <otherwise>r.request_user_id=#{userId}</otherwise>
+        </choose>
+        order by r.request_id desc
+    </select>
+    <insert id="insertProjectDeletionRequest" parameterType="map" useGeneratedKeys="true" keyProperty="requestId">
+        insert into biz_project_delete_request(project_id,project_name,reason,status,request_user_id,request_user_name,request_time)
+        values(#{projectId},#{projectName},#{reason},'PENDING',#{requestUserId},#{requestUserName},sysdate())
+    </insert>
+    <update id="reviewProjectDeletionRequest">
+        update biz_project_delete_request set status=#{status},review_comment=#{comment},
+            review_user_id=#{userId},review_user_name=#{userName},review_time=sysdate()
+        where request_id=#{requestId} and status='PENDING'
+    </update>
+    <insert id="insertProjectDeletionNotification">
+        insert into biz_project_delete_notification(request_id,recipient_user_id,create_time)
+        values(#{requestId},#{recipientUserId},sysdate())
+    </insert>
+    <select id="selectProjectDeletionNotifications" resultType="map">
+        select n.notification_id notificationId,n.read_time readTime,n.create_time createTime,
+            r.request_id requestId,r.project_id projectId,r.project_name projectName,
+            r.reason,r.status,r.review_user_name reviewerName,r.review_comment reviewComment,
+            r.review_time reviewTime
+        from biz_project_delete_notification n
+        join biz_project_delete_request r on r.request_id=n.request_id
+        where n.recipient_user_id=#{userId}
+        order by (n.read_time is null) desc,n.notification_id desc limit 100
+    </select>
+    <update id="readProjectDeletionNotification">
+        update biz_project_delete_notification set read_time=coalesce(read_time,sysdate())
+        where notification_id=#{notificationId} and recipient_user_id=#{userId}
+    </update>
+    <update id="readAllProjectDeletionNotifications">
+        update biz_project_delete_notification set read_time=sysdate()
+        where recipient_user_id=#{userId} and read_time is null
+    </update>
+
+    <update id="updateProjectBudget">
+        update biz_project set
+          budget_limit=case when budget_mode='DAILY' then budget_limit else #{budgetLimit} end,
+          daily_budget_limit=case when budget_mode='DAILY' then #{budgetLimit} else daily_budget_limit end,
+          budget_mode=case when budget_mode='NONE' then 'TOTAL' else budget_mode end,
+          base_currency=#{baseCurrency},
+          update_by=#{userName},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and del_flag='0' and version=#{version}
+    </update>
+    <insert id="insertBudgetHistory" parameterType="map">
+        insert into biz_project_budget_history(project_id,from_amount,to_amount,currency,budget_mode,budget_version,reason,
+          operator_user_id,operator_name,effective_time)
+        values(#{projectId},#{fromAmount},#{toAmount},#{currency},#{budgetMode},#{budgetVersion},#{reason},
+          #{operatorUserId},#{operatorName},sysdate())
+    </insert>
+    <select id="selectBudgetHistory" resultType="map">
+        select history_id historyId,project_id projectId,from_amount fromAmount,to_amount toAmount,currency,budget_mode budgetMode,
+          budget_version budgetVersion,reason,operator_user_id operatorUserId,operator_name operatorName,
+          effective_time effectiveTime
+        from biz_project_budget_history where project_id=#{projectId}
+        order by budget_version desc,history_id desc
+    </select>
+
+    <select id="selectActiveExecutionRelation" resultType="map">
+        select relation_id relationId,project_id projectId,source_domain sourceDomain,
+          source_type sourceType,source_id sourceId,relation_type relationType,
+          effective_from effectiveFrom,effective_to effectiveTo,status
+        from biz_project_relation
+        where project_id=#{projectId} and relation_type='EXECUTION_SOURCE' and status='0'
+        order by relation_id desc limit 1
+    </select>
+
+    <select id="selectLiveExecutionSummary" parameterType="map" resultType="map">
+        select
+          date_sub(current_date(),interval 1 day) statDate,
+          case when date_sub(current_date(),interval 1 day) between #{effectiveFrom}
+            and coalesce(#{effectiveTo},'9999-12-31')
+            then (select count(*) from live_streamer s where s.status='0') else 0 end expectedStreamerCount,
+          (select count(distinct r.streamer_id) from live_daily_report r
+            where r.biz_date=date_sub(current_date(),interval 1 day)
+              and r.biz_date between #{effectiveFrom} and coalesce(#{effectiveTo},'9999-12-31')) submittedStreamerCount,
+          (select max(coalesce(r.update_time,r.create_time)) from live_daily_report r
+            where r.biz_date=date_sub(current_date(),interval 1 day)
+              and r.biz_date between #{effectiveFrom} and coalesce(#{effectiveTo},'9999-12-31')) sourceCutoffTime
+    </select>
+
+    <select id="selectLiveStreamerRoutines" parameterType="map"
+            resultType="com.ruoyi.business.domain.BusinessProjectRoutine">
+        select -s.streamer_id routineId,#{projectId} projectId,
+          concat(s.stage_name,' · 直播日报') routineName,'DAILY' frequency,
+          1 targetValue,'份日报' unit,s.user_id assigneeUserId,s.stage_name assigneeName,
+          #{effectiveFrom} startDate,#{effectiveTo} endDate,'0' evidenceRequired,'ACTIVE' status,0 version,
+          1 todayTarget,case when daily.report_id is null then 0 else 1 end todayActual,
+          (select count(*) from live_daily_report history
+            where history.streamer_id=s.streamer_id
+              and history.biz_date between #{effectiveFrom}
+                and least(date_sub(current_date(),interval 1 day),coalesce(#{effectiveTo},'9999-12-31'))) cumulativeActual,
+          daily.report_id todayReportId,1 sourceManaged,'LIVE' sourceDomain,s.streamer_id sourceRecordId,
+          date_sub(current_date(),interval 1 day) sourceBizDate,daily.total_xu sourceReportedAmount,
+          p.main_owner_name supervisorName
+        from live_streamer s
+        join biz_project p on p.project_id=#{projectId} and p.del_flag='0'
+        left join live_daily_report daily on daily.streamer_id=s.streamer_id
+          and daily.biz_date=date_sub(current_date(),interval 1 day)
+        where s.status='0'
+          and date_sub(current_date(),interval 1 day) between #{effectiveFrom}
+            and coalesce(#{effectiveTo},'9999-12-31')
+        order by s.stage_name,s.streamer_id
+    </select>
+
+    <insert id="insertExecutionRelation">
+        insert into biz_project_relation(project_id,source_domain,source_type,source_id,relation_type,
+          effective_from,status,active_key,create_by,create_time,remark)
+        values(#{projectId},'LIVE','BUSINESS_SCOPE',null,'EXECUTION_SOURCE',#{effectiveFrom},'0',
+          #{activeKey},#{userName},sysdate(),'直播系统作为执行层和权威数据源')
+    </insert>
+
+    <update id="retireExecutionRelation">
+        update biz_project_relation set status='1',effective_to=#{effectiveTo},active_key=null,
+          update_by=#{userName},update_time=sysdate()
+        where relation_id=#{relationId} and status='0'
+    </update>
+
+    <select id="selectProjectKpis" resultType="com.ruoyi.business.domain.BusinessProjectKpi">
+        select kpi_id kpiId,project_id projectId,kpi_code kpiCode,kpi_name kpiName,metric_type metricType,unit,
+          precision_scale precisionScale,period_type periodType,target_value targetValue,minimum_value minimumValue,
+          warning_value warningValue,challenge_value challengeValue,actual_value actualValue,weight,direction,
+          aggregate_type aggregateType,source_type sourceType,source_ref_id sourceRefId,owner_user_id ownerUserId,owner_name ownerName,
+          effective_from effectiveFrom,effective_to effectiveTo,target_version targetVersion,status,
+          create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
+        from biz_project_kpi where project_id=#{projectId}
+        order by status='CURRENT' desc,kpi_code,target_version desc
+    </select>
+    <select id="selectProjectKpiById" resultType="com.ruoyi.business.domain.BusinessProjectKpi">
+        select kpi_id kpiId,project_id projectId,kpi_code kpiCode,kpi_name kpiName,metric_type metricType,unit,
+          precision_scale precisionScale,period_type periodType,target_value targetValue,minimum_value minimumValue,
+          warning_value warningValue,challenge_value challengeValue,actual_value actualValue,weight,direction,
+          aggregate_type aggregateType,source_type sourceType,source_ref_id sourceRefId,owner_user_id ownerUserId,owner_name ownerName,
+          effective_from effectiveFrom,effective_to effectiveTo,target_version targetVersion,status,
+          create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
+        from biz_project_kpi where kpi_id=#{kpiId} limit 1
+    </select>
+    <select id="selectCurrentProjectKpi" resultType="com.ruoyi.business.domain.BusinessProjectKpi">
+        select kpi_id kpiId,project_id projectId,kpi_code kpiCode,kpi_name kpiName,target_version targetVersion,status
+        from biz_project_kpi where project_id=#{projectId} and kpi_code=#{kpiCode} and status='CURRENT' limit 1
+    </select>
+    <select id="selectNextKpiVersion" resultType="int">
+        select coalesce(max(target_version),0)+1 from biz_project_kpi
+        where project_id=#{projectId} and kpi_code=#{kpiCode}
+    </select>
+    <update id="retireProjectKpi">
+        update biz_project_kpi set status='RETIRED',effective_to=coalesce(effective_to,current_date()),
+          update_by=#{userName},update_time=sysdate() where kpi_id=#{kpiId} and status='CURRENT'
+    </update>
+    <insert id="insertProjectKpi" parameterType="com.ruoyi.business.domain.BusinessProjectKpi"
+            useGeneratedKeys="true" keyProperty="kpiId">
+        insert into biz_project_kpi(project_id,kpi_code,kpi_name,metric_type,unit,precision_scale,period_type,
+          target_value,minimum_value,warning_value,challenge_value,actual_value,weight,direction,aggregate_type,
+          source_type,source_ref_id,owner_user_id,owner_name,effective_from,effective_to,target_version,status,
+          create_by,create_time,remark)
+        values(#{projectId},#{kpiCode},#{kpiName},#{metricType},#{unit},#{precisionScale},#{periodType},
+          #{targetValue},#{minimumValue},#{warningValue},#{challengeValue},#{actualValue},#{weight},#{direction},
+          #{aggregateType},#{sourceType},#{sourceRefId},#{ownerUserId},#{ownerName},#{effectiveFrom},#{effectiveTo},
+          #{targetVersion},#{status},#{createBy},sysdate(),#{remark})
+    </insert>
+
+    <select id="selectStaffCostPolicies" resultType="com.ruoyi.business.domain.BusinessStaffCostPolicy">
+        select c.policy_id policyId,c.user_id userId,c.cost_mode costMode,c.unit_cost unitCost,c.currency,
+          c.country_region_snapshot countryRegion,c.standard_work_days standardWorkDays,c.rate_minutes_per_day rateMinutesPerDay,
+          c.effective_from effectiveFrom,c.effective_to effectiveTo,c.policy_version policyVersion,c.status,
+          c.create_by createBy,c.create_time createTime,c.remark,c.voided_user_id voidedUserId,
+          c.voided_user_name voidedUserName,c.voided_time voidedTime,c.void_reason voidReason,
+          ((select count(*) from biz_project_staff_allocation a where a.cost_policy_id=c.policy_id)+(select count(*) from biz_project_work_cost w where w.rate_policy_id=c.policy_id)) referenceCount
+        from biz_staff_cost_policy c where c.user_id=#{userId}
+        order by c.policy_version desc,c.policy_id desc
+    </select>
+    <select id="selectStaffCompanyLeaderUserId" resultType="long">
+        select company.leader_user_id
+        from sys_user staff
+        join sys_dept staff_dept on staff_dept.dept_id=staff.dept_id and staff_dept.del_flag='0'
+        join sys_dept company on company.parent_id=100 and company.del_flag='0' and company.status='0'
+          and (company.dept_id=staff_dept.dept_id or find_in_set(company.dept_id,staff_dept.ancestors))
+        where staff.user_id=#{userId} and staff.del_flag='0'
+        limit 1
+        <if test="lockForUpdate">for update</if>
+    </select>
+    <select id="selectStaffCostPolicyById" resultType="com.ruoyi.business.domain.BusinessStaffCostPolicy">
+        select c.policy_id policyId,c.user_id userId,c.cost_mode costMode,c.unit_cost unitCost,c.currency,
+          c.country_region_snapshot countryRegion,c.standard_work_days standardWorkDays,c.rate_minutes_per_day rateMinutesPerDay,
+          c.effective_from effectiveFrom,c.effective_to effectiveTo,c.policy_version policyVersion,c.status,
+          c.create_by createBy,c.create_time createTime,c.remark,c.voided_user_id voidedUserId,
+          c.voided_user_name voidedUserName,c.voided_time voidedTime,c.void_reason voidReason,
+          ((select count(*) from biz_project_staff_allocation a where a.cost_policy_id=c.policy_id)+(select count(*) from biz_project_work_cost w where w.rate_policy_id=c.policy_id)) referenceCount
+        from biz_staff_cost_policy c where c.policy_id=#{policyId} limit 1 for update
+    </select>
+    <select id="selectEffectiveStaffCostPolicy" resultType="com.ruoyi.business.domain.BusinessStaffCostPolicy">
+        select policy_id policyId,user_id userId,cost_mode costMode,unit_cost unitCost,currency,
+          country_region_snapshot countryRegion,standard_work_days standardWorkDays,rate_minutes_per_day rateMinutesPerDay,
+          effective_from effectiveFrom,effective_to effectiveTo,policy_version policyVersion,status,
+          create_by createBy,create_time createTime,remark
+        from biz_staff_cost_policy where user_id=#{userId} and status='ACTIVE'
+          and effective_from&lt;=#{effectiveDate} and (effective_to is null or effective_to&gt;=#{effectiveDate})
+        order by policy_version desc limit 1 for update
+    </select>
+    <select id="selectNextStaffCostVersion" resultType="int">
+        select coalesce(max(policy_version),0)+1 from biz_staff_cost_policy where user_id=#{userId}
+    </select>
+    <select id="countOverlappingStaffCostPolicy" resultType="int">
+        select count(*) from biz_staff_cost_policy where user_id=#{userId} and status='ACTIVE'
+          and (effective_to is null or effective_to&gt;=#{effectiveFrom})
+          and (#{effectiveTo} is null or effective_from&lt;=#{effectiveTo})
+    </select>
+    <update id="closeOpenEndedStaffCostPolicy">
+        update biz_staff_cost_policy set effective_to=date_sub(#{effectiveFrom},interval 1 day)
+        where user_id=#{userId} and status='ACTIVE' and effective_to is null and effective_from&lt;#{effectiveFrom}
+    </update>
+    <insert id="insertStaffCostPolicy" parameterType="com.ruoyi.business.domain.BusinessStaffCostPolicy"
+            useGeneratedKeys="true" keyProperty="policyId">
+        insert into biz_staff_cost_policy(user_id,cost_mode,unit_cost,currency,country_region_snapshot,
+          standard_work_days,rate_minutes_per_day,effective_from,effective_to,policy_version,status,create_by,create_time,remark)
+        values(#{userId},#{costMode},#{unitCost},#{currency},#{countryRegion},#{standardWorkDays},#{rateMinutesPerDay},
+           #{effectiveFrom},#{effectiveTo},#{policyVersion},#{status},#{createBy},sysdate(),#{remark})
+    </insert>
+    <delete id="deleteUnusedFutureStaffCostPolicy">
+        delete c from biz_staff_cost_policy c
+        where c.policy_id=#{policyId} and c.status='ACTIVE' and c.effective_from&gt;curdate()
+          and not exists(select 1 from biz_project_staff_allocation a where a.cost_policy_id=c.policy_id)
+          and not exists(select 1 from biz_project_work_cost w where w.rate_policy_id=c.policy_id)
+    </delete>
+    <update id="voidStaffCostPolicy">
+        update biz_staff_cost_policy set status='VOID',void_reason=#{reason},voided_user_id=#{voidedUserId},
+          voided_user_name=#{voidedUserName},voided_time=sysdate()
+        where policy_id=#{policyId} and status='ACTIVE'
+    </update>
+    <update id="restorePrecedingStaffCostPolicy">
+        update biz_staff_cost_policy p
+        set p.effective_to=(select date_sub(min(next_policy.effective_from),interval 1 day)
+          from (select effective_from from biz_staff_cost_policy
+            where user_id=#{userId} and status='ACTIVE' and effective_from&gt;#{deletedEffectiveFrom}) next_policy)
+        where p.user_id=#{userId} and p.status='ACTIVE'
+          and p.effective_to=date_sub(#{deletedEffectiveFrom},interval 1 day)
+        order by p.effective_from desc,p.policy_id desc limit 1
+    </update>
+
+    <select id="selectProjectStaffAllocations" resultType="map">
+        select a.allocation_id allocationId,a.project_id projectId,a.user_id userId,a.user_name userName,
+          a.allocation_mode allocationMode,a.allocation_value allocationValue,a.effective_from effectiveFrom,
+          a.effective_to effectiveTo,a.cost_policy_id costPolicyId,a.exception_allowed exceptionAllowed,
+          a.exception_reason exceptionReason,a.status,a.version,a.remark,
+          c.cost_mode costMode,c.unit_cost unitCost,c.currency,c.policy_version policyVersion,
+          c.country_region_snapshot countryRegion,c.standard_work_days standardWorkDays,c.rate_minutes_per_day rateMinutesPerDay,
+          case when a.allocation_mode='PERCENTAGE' and c.cost_mode='MONTHLY'
+                    then c.unit_cost/c.standard_work_days*a.allocation_value/100
+               when a.allocation_mode='PERCENTAGE' then c.unit_cost*a.allocation_value/100
+               when a.allocation_mode='FIXED_DAILY' then a.allocation_value
+               else c.unit_cost*a.allocation_value end allocatedCost
+        from biz_project_staff_allocation a
+        join biz_staff_cost_policy c on c.policy_id=a.cost_policy_id
+        where a.project_id=#{projectId} and a.status='ACTIVE'
+        order by a.effective_from desc,a.allocation_id desc
+    </select>
+    <select id="selectOwnerPersonnelCostReadiness" resultType="map">
+        select p.project_id projectId,p.project_no projectNo,p.project_name projectName,p.status,
+          p.main_owner_name mainOwnerName,count(*) memberCount,
+          sum(case when profile.country_region is null or profile.country_region not in ('CN','VN') then 1 else 0 end) missingRegionCount,
+          group_concat(case when profile.country_region is null or profile.country_region not in ('CN','VN') then m.user_name_snapshot end
+            order by field(m.member_role,'OWNER','DEPUTY','MEMBER'),m.member_id separator '、') missingRegionMemberNames,
+          sum(case when current_cost.user_id is null and profile.country_region in ('CN','VN') then 1 else 0 end) missingCostCount,
+          group_concat(case when current_cost.user_id is null and profile.country_region in ('CN','VN') then m.user_name_snapshot end
+            order by field(m.member_role,'OWNER','DEPUTY','MEMBER'),m.member_id separator '、') missingCostMemberNames,
+          sum(case when profile.country_region in ('CN','VN') and current_cost.user_id is not null and current_allocation.user_id is null then 1 else 0 end) missingAllocationCount,
+          group_concat(case when profile.country_region in ('CN','VN') and current_cost.user_id is not null and current_allocation.user_id is null then m.user_name_snapshot end
+            order by field(m.member_role,'OWNER','DEPUTY','MEMBER'),m.member_id separator '、') missingMemberNames
+        from biz_project p
+        join biz_project_member m on m.project_id=p.project_id and m.status='0'
+          and m.member_role in ('OWNER','DEPUTY','MEMBER')
+        left join biz_staff_profile profile on profile.user_id=m.user_id
+        left join (
+          select user_id
+          from biz_staff_cost_policy
+          where status='ACTIVE' and cost_mode='MONTHLY' and currency='CNY'
+            and standard_work_days is not null and standard_work_days&gt;0
+            and effective_from&lt;=date(#{bizDate})
+            and (effective_to is null or effective_to&gt;=date(#{bizDate}))
+          group by user_id
+        ) current_cost on current_cost.user_id=m.user_id
+        left join (
+          select project_id,user_id
+          from biz_project_staff_allocation
+          where status='ACTIVE' and allocation_mode='PERCENTAGE'
+            and effective_from&lt;=date(#{bizDate})
+            and (effective_to is null or effective_to&gt;=date(#{bizDate}))
+          group by project_id,user_id
+        ) current_allocation on current_allocation.project_id=p.project_id and current_allocation.user_id=m.user_id
+        where p.del_flag='0' and p.status in ('ACTIVE','PAUSED','ACCEPTANCE')
+          <if test="viewAll == false">and p.main_owner_user_id=#{userId}</if>
+        group by p.project_id,p.project_no,p.project_name,p.status,p.main_owner_name
+        having missingRegionCount&gt;0 or missingCostCount&gt;0 or missingAllocationCount&gt;0
+        order by field(p.status,'ACTIVE','PAUSED','ACCEPTANCE'),p.update_time desc,p.project_id desc
+    </select>
+    <select id="selectProjectStaffAllocationById" resultType="com.ruoyi.business.domain.BusinessProjectStaffAllocation">
+        select allocation_id allocationId,project_id projectId,user_id userId,user_name userName,
+          allocation_mode allocationMode,allocation_value allocationValue,effective_from effectiveFrom,
+          effective_to effectiveTo,cost_policy_id costPolicyId,exception_allowed exceptionAllowed,
+          exception_reason exceptionReason,status,version,remark
+        from biz_project_staff_allocation where allocation_id=#{allocationId} limit 1
+    </select>
+    <select id="sumOverlappingAllocationPercent" resultType="java.math.BigDecimal">
+        select coalesce(sum(a.allocation_value),0)
+        from biz_project_staff_allocation a
+        join biz_project p on p.project_id=a.project_id and p.del_flag='0'
+        where a.user_id=#{userId} and a.status='ACTIVE' and a.allocation_mode='PERCENTAGE'
+          and p.status in ('PLANNING','ACTIVE','PAUSED')
+          and (a.effective_to is null or a.effective_to&gt;=#{effectiveFrom})
+          and (#{effectiveTo} is null or a.effective_from&lt;=#{effectiveTo})
+          <if test="excludeAllocationId != null">and a.allocation_id&lt;&gt;#{excludeAllocationId}</if>
+    </select>
+    <select id="countOverlappingProjectAllocation" resultType="int">
+        select count(*) from biz_project_staff_allocation
+        where project_id=#{projectId} and user_id=#{userId} and status='ACTIVE'
+          and effective_from&lt;=coalesce(#{effectiveTo},'9999-12-31')
+          and coalesce(effective_to,'9999-12-31')&gt;=#{effectiveFrom}
+          <if test="excludeAllocationId != null">and allocation_id&lt;&gt;#{excludeAllocationId}</if>
+    </select>
+    <insert id="insertProjectStaffAllocation" parameterType="com.ruoyi.business.domain.BusinessProjectStaffAllocation"
+            useGeneratedKeys="true" keyProperty="allocationId">
+        insert into biz_project_staff_allocation(project_id,user_id,user_name,allocation_mode,allocation_value,
+          effective_from,effective_to,cost_policy_id,exception_allowed,exception_reason,status,version,
+          create_by,create_time,remark,confirmation_status)
+        values(#{projectId},#{userId},#{userName},#{allocationMode},#{allocationValue},#{effectiveFrom},#{effectiveTo},
+          #{costPolicyId},#{exceptionAllowed},#{exceptionReason},'ACTIVE',0,#{createBy},sysdate(),#{remark},coalesce(#{confirmationStatus},'CONFIRMED'))
+    </insert>
+    <update id="updateProjectStaffAllocation" parameterType="com.ruoyi.business.domain.BusinessProjectStaffAllocation">
+        update biz_project_staff_allocation set allocation_mode=#{allocationMode},allocation_value=#{allocationValue},
+          effective_from=#{effectiveFrom},effective_to=#{effectiveTo},cost_policy_id=#{costPolicyId},
+          exception_allowed=#{exceptionAllowed},exception_reason=#{exceptionReason},update_by=#{updateBy},
+          update_time=sysdate(),remark=#{remark},version=version+1
+        where allocation_id=#{allocationId} and project_id=#{projectId} and status='ACTIVE' and version=#{version}
+    </update>
+    <update id="voidProjectStaffAllocation">
+        update biz_project_staff_allocation set status='VOID',update_by=#{userName},update_time=sysdate(),version=version+1
+        where allocation_id=#{allocationId} and project_id=#{projectId} and status='ACTIVE'
+    </update>
+    <select id="selectUserAllocationTimeline" resultType="map">
+        select a.project_id projectId,a.allocation_id allocationId,a.allocation_value allocationValue,
+          p.project_name projectName,p.base_currency projectCurrency,
+          a.effective_from effectiveFrom,a.effective_to effectiveTo,a.confirmation_status confirmationStatus,
+          a.version allocationVersion,
+          greatest(coalesce(p.plan_start_date,p.actual_start_date),coalesce(p.actual_start_date,p.plan_start_date)) projectStartDate,
+          case when p.del_flag='2' then
+            least(coalesce(p.actual_end_date,p.plan_end_date,date(coalesce(deletion.deletedAt,p.update_time))),
+              date(coalesce(deletion.deletedAt,p.update_time)))
+            else coalesce(p.actual_end_date,p.plan_end_date) end projectEndDate
+        from biz_project_staff_allocation a join biz_project p on p.project_id=a.project_id
+        left join (select project_id,min(create_time) deletedAt from biz_project_event
+          where event_type='DELETE' group by project_id) deletion on deletion.project_id=p.project_id
+        where a.user_id=#{userId} and a.status='ACTIVE' and a.allocation_mode='PERCENTAGE'
+          and p.cost_policy_version='MEMBER_DAYS_V1'
+          and (p.del_flag='0' or (p.del_flag='2' and coalesce(deletion.deletedAt,p.update_time) is not null))
+        order by a.effective_from,a.project_id,a.allocation_id
+    </select>
+
+    <select id="selectUserAllocationWorkspace" resultType="map">
+        select p.project_id projectId,p.project_no projectNo,p.project_name projectName,p.main_owner_user_id ownerUserId,
+          p.main_owner_name ownerName,m.user_id userId,m.user_name_snapshot userName,m.member_role memberRole,
+          coalesce(a.allocation_value,0) allocationValue,a.allocation_id allocationId,a.version allocationVersion,
+          a.confirmation_status confirmationStatus,
+          (select concat(count(*),':',coalesce(max(h.allocation_id),0),':',coalesce(sum(h.version),0))
+             from biz_project_staff_allocation h where h.user_id=m.user_id) allocationHistoryToken,
+          a.effective_from allocationEffectiveFrom,a.effective_to allocationEffectiveTo
+        from biz_project_member m
+        join biz_project p on p.project_id=m.project_id and p.del_flag='0'
+          and p.status in ('PLANNING','ACTIVE','PAUSED','ACCEPTANCE')
+          and coalesce(p.accounting_state,'OPEN')&lt;&gt;'CLOSED'
+        left join biz_project_staff_allocation a on a.project_id=m.project_id and a.user_id=m.user_id
+          and a.status='ACTIVE' and a.allocation_mode='PERCENTAGE'
+          and a.effective_from&lt;=#{effectiveDate}
+          and (a.effective_to is null or a.effective_to&gt;=#{effectiveDate})
+        where m.user_id=#{userId} and m.status='0' and m.member_role in ('OWNER','DEPUTY','MEMBER')
+          and (m.joined_date is null or m.joined_date&lt;=#{effectiveDate})
+          and (m.left_date is null or m.left_date&gt;=#{effectiveDate})
+        order by p.project_id
+    </select>
+    <select id="sumAllocationPercentAtDate" resultType="java.math.BigDecimal">
+        select coalesce(sum(a.allocation_value),0)
+        from biz_project_staff_allocation a
+        join biz_project p on p.project_id=a.project_id and p.del_flag='0'
+          and p.status in ('PLANNING','ACTIVE','PAUSED','ACCEPTANCE')
+          and coalesce(p.accounting_state,'OPEN')&lt;&gt;'CLOSED'
+        join biz_project_member m on m.project_id=a.project_id and m.user_id=a.user_id
+          and m.status='0' and m.member_role in ('OWNER','DEPUTY','MEMBER')
+        where a.user_id=#{userId} and a.status='ACTIVE' and a.allocation_mode='PERCENTAGE'
+          and a.effective_from&lt;=#{effectiveDate}
+          and (a.effective_to is null or a.effective_to&gt;=#{effectiveDate})
+    </select>
+    <update id="closeAllocationPeriodsBefore">
+        update biz_project_staff_allocation
+        set effective_to=date_sub(#{effectiveDate},interval 1 day),update_by=#{userName},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and user_id=#{userId} and status='ACTIVE'
+          and allocation_mode='PERCENTAGE' and effective_from&lt;#{effectiveDate}
+          and (effective_to is null or effective_to&gt;=#{effectiveDate})
+    </update>
+    <update id="voidAllocationPeriodsFrom">
+        update biz_project_staff_allocation
+        set status='VOID',update_by=#{userName},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and user_id=#{userId} and status='ACTIVE'
+          and allocation_mode='PERCENTAGE' and effective_from&gt;=#{effectiveDate}
+    </update>
+
+    <update id="separateDeliveryForPublicCosts">
+        update biz_project set delivery_policy_version='SEPARATED_V1',accounting_state='OPEN',
+          version=version+1,update_by=#{userName},update_time=sysdate()
+        where project_id=#{projectId} and version=#{version} and del_flag='0'
+          and coalesce(delivery_policy_version,'LEGACY_V1')!='SEPARATED_V1'
+          and status not in('CLOSED','CANCELED') and coalesce(accounting_state,'OPEN')='OPEN'
+    </update>
+
+    <update id="updateProjectStatus">
+        update biz_project set status=#{status},
+          <if test="baselineStatus != null">baseline_status=#{baselineStatus},</if>
+          <if test="baselineIncrement">baseline_version=baseline_version+1,</if>
+          <if test="status == 'ACTIVE'">actual_start_date=coalesce(actual_start_date,current_date()),</if>
+          <if test="status == 'CLOSED' or status == 'CANCELED'">actual_end_date=coalesce(actual_end_date,current_date()),
+            accounting_state=case when delivery_policy_version='SEPARATED_V1' then accounting_state else 'CLOSED' end,</if>
+          update_by=#{userName},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and del_flag='0' and status=#{expectedStatus} and version=#{version}
+    </update>
+
+    <update id="updateProjectOwner">
+        update biz_project set main_owner_user_id=#{ownerUserId},main_owner_name=#{ownerName},
+          update_by=#{userName},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and del_flag='0' and version=#{version}
+    </update>
+
+    <select id="selectMemberRole" resultType="string">
+        select member_role from biz_project_member
+        where project_id=#{projectId} and user_id=#{userId} and status='0' limit 1
+    </select>
+
+    <select id="selectMembers" resultType="com.ruoyi.business.domain.BusinessProjectMember">
+        select m.member_id memberId,m.project_id projectId,m.user_id userId,
+          m.user_name_snapshot userNameSnapshot,u.user_name accountName,m.member_role memberRole,
+          m.status,case when exists(select 1 from biz_project_member_work_pause pause
+            where pause.project_id=m.project_id and pause.user_id=m.user_id and pause.started_time is null)
+            then 'PAUSED' else 'ACTIVE' end workStatus,
+          m.joined_date joinedDate,m.left_date leftDate,m.create_by createBy,
+          m.create_time createTime,m.update_by updateBy,m.update_time updateTime,m.remark
+        from biz_project_member m
+        left join sys_user u on u.user_id=m.user_id
+        where m.project_id=#{projectId} and m.status='0'
+        order by field(m.member_role,'OWNER','DEPUTY','MEMBER','OBSERVER'),m.member_id
+    </select>
+
+    <select id="selectMemberWorkPauses" resultType="map">
+        select pause_id pauseId,project_id projectId,user_id userId,
+          date_format(paused_time,'%Y-%m-%d %H:%i:%s') pausedTime,
+          date_format(started_time,'%Y-%m-%d %H:%i:%s') startedTime,
+          date_format(paused_time,'%Y-%m-%d') effectiveFrom,
+          date_format(started_time,'%Y-%m-%d') effectiveTo,paused_by pausedBy,started_by startedBy
+        from biz_project_member_work_pause where project_id=#{projectId} order by pause_id desc
+    </select>
+    <select id="countMemberWorkPaused" resultType="int">
+        select count(*) from biz_project_member_work_pause
+        where project_id=#{projectId} and user_id=#{userId} and started_time is null
+    </select>
+    <insert id="insertMemberWorkPause">
+        insert into biz_project_member_work_pause(project_id,user_id,paused_time,paused_by)
+        values(#{projectId},#{userId},sysdate(),#{userName})
+    </insert>
+    <update id="startMemberWork">
+        update biz_project_member_work_pause set started_time=sysdate(),started_by=#{userName}
+        where project_id=#{projectId} and user_id=#{userId} and started_time is null
+    </update>
+
+    <select id="selectStaffDirectory" resultMap="StaffDirectoryUserResult">
+        select distinct u.user_id,u.dept_id,u.user_name,u.nick_name,u.email,u.phonenumber,u.sex,u.status,
+          u.del_flag,u.login_date,u.create_time,u.remark,d.parent_id,d.ancestors,d.dept_name,d.order_num,
+          d.status dept_status,coalesce(d.order_num,999999) staff_sort_order
+        from sys_user u
+        left join sys_dept d on d.dept_id=u.dept_id
+        where u.del_flag='0'
+        <if test="query.userId != null and query.userId != 0">and u.user_id=#{query.userId}</if>
+        <if test="query.userName != null and query.userName != ''">
+            and u.user_name like concat('%',#{query.userName},'%')
+        </if>
+        <if test="query.nickName != null and query.nickName != ''">
+            and (u.nick_name like concat('%',#{query.nickName},'%')
+              or u.user_name like concat('%',#{query.nickName},'%'))
+        </if>
+        <if test="query.status != null and query.status != ''">and u.status=#{query.status}</if>
+        <if test="query.phonenumber != null and query.phonenumber != ''">
+            and u.phonenumber like concat('%',#{query.phonenumber},'%')
+        </if>
+        <if test="query.params.beginTime != null and query.params.beginTime != ''">
+            and date_format(u.create_time,'%Y%m%d') &gt;= date_format(#{query.params.beginTime},'%Y%m%d')
+        </if>
+        <if test="query.params.endTime != null and query.params.endTime != ''">
+            and date_format(u.create_time,'%Y%m%d') &lt;= date_format(#{query.params.endTime},'%Y%m%d')
+        </if>
+        <if test="query.deptId != null and query.deptId != 0">
+            and (u.dept_id=#{query.deptId} or u.dept_id in
+              (select t.dept_id from sys_dept t where find_in_set(#{query.deptId},t.ancestors)))
+        </if>
+        <choose>
+            <when test="query.params.companyScoped == true">
+                and exists(select 1 from biz_company_access staff_access
+                  join sys_dept staff_company on staff_company.dept_id=staff_access.company_dept_id and staff_company.status='0' and staff_company.del_flag='0'
+                  where staff_access.user_id=#{query.params.companyActor} and find_in_set('STAFF',staff_access.capabilities)
+                    and (d.dept_id=staff_company.dept_id or find_in_set(staff_company.dept_id,d.ancestors)))
+            </when>
+            <when test="managedOwnerUserId != null">
+                and ((1=1 ${query.params.dataScope}) or exists (
+                  select 1 from biz_project p
+                  join biz_project_member m on m.project_id=p.project_id and m.status='0'
+                  where p.main_owner_user_id=#{managedOwnerUserId} and p.del_flag='0'
+                    and p.status not in ('CLOSED','CANCELED') and m.user_id=u.user_id
+                ))
+            </when>
+            <otherwise>${query.params.dataScope}</otherwise>
+        </choose>
+        order by staff_sort_order,u.user_id
+    </select>
+
+    <select id="selectManagedProjectMemberUserIds" resultType="long">
+        select distinct m.user_id
+        from biz_project p
+        join biz_project_member m on m.project_id=p.project_id and m.status='0'
+        where p.main_owner_user_id=#{ownerUserId} and p.del_flag='0'
+          and p.status not in ('CLOSED','CANCELED')
+    </select>
+
+    <select id="countManagedProjectMember" resultType="int">
+        select count(distinct m.user_id)
+        from biz_project p
+        join biz_project_member m on m.project_id=p.project_id and m.status='0'
+        where p.main_owner_user_id=#{ownerUserId} and m.user_id=#{staffUserId}
+          and p.del_flag='0' and p.status not in ('CLOSED','CANCELED')
+    </select>
+
+    <insert id="upsertMember" parameterType="com.ruoyi.business.domain.BusinessProjectMember"
+            useGeneratedKeys="true" keyProperty="memberId">
+        insert into biz_project_member(project_id,user_id,user_name_snapshot,member_role,status,joined_date,
+          create_by,create_time,remark)
+        values(#{projectId},#{userId},#{userNameSnapshot},#{memberRole},'0',coalesce(#{joinedDate},current_date()),
+          #{createBy},sysdate(),#{remark})
+        on duplicate key update user_name_snapshot=values(user_name_snapshot),member_role=values(member_role),
+          joined_date=if(status='0',joined_date,values(joined_date)),status='0',left_date=null,update_by=values(create_by),update_time=sysdate(),
+          remark=values(remark)
+    </insert>
+
+    <update id="leaveMember">
+        update biz_project_member set status='1',
+          left_date=case when #{retainTodayCost} then current_date() else date_sub(current_date(),interval 1 day) end,
+          update_by=#{userName},update_time=sysdate()
+        where project_id=#{projectId} and user_id=#{userId} and status='0' and member_role&lt;&gt;'OWNER'
+    </update>
+    <update id="unassignOpenMemberTasks">
+        update biz_project_task set assignee_user_id=null,assignee_name=null,update_by=#{userName},
+          update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and assignee_user_id=#{userId} and active_status='ACTIVE' and status&lt;&gt;'DONE'
+    </update>
+    <update id="unassignActiveMemberRoutines">
+        update biz_project_routine set assignee_user_id=null,assignee_name=null,update_by=#{userName},
+          update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and assignee_user_id=#{userId} and status='ACTIVE'
+    </update>
+    <update id="closeMemberWorkPeriods">
+        update biz_project_work_period set end_date=greatest(start_date,current_date()),status='CLOSED',
+          update_by=#{userName},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and assignee_user_id=#{userId} and status='ACTIVE'
+    </update>
+    <update id="closeMemberAllocations">
+        update biz_project_staff_allocation
+        set status=case when effective_from&lt;current_date()
+            or (#{retainTodayCost} and effective_from&lt;=current_date()) then status else 'VOID' end,
+          effective_to=case
+            when effective_from&lt;current_date() then case when #{retainTodayCost} then current_date() else date_sub(current_date(),interval 1 day) end
+            when #{retainTodayCost} and effective_from&lt;=current_date() then current_date()
+            else effective_to end,
+          update_by=#{userName},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and user_id=#{userId} and status='ACTIVE'
+          and (effective_to is null or effective_to&gt;=current_date())
+    </update>
+
+    <select id="countPendingProjectEfforts" resultType="int">
+        select count(*) from biz_project_effort_report
+        where project_id=#{projectId} and report_status='SUBMITTED'
+    </select>
+
+
+    <update id="closeProjectRoutines">
+        update biz_project_routine set status='VOID',update_by=#{userName},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and status='ACTIVE'
+    </update>
+
+    <update id="closeProjectWorkPeriods">
+        update biz_project_work_period set end_date=greatest(start_date,current_date()),status='CLOSED',
+          update_by=#{userName},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and status='ACTIVE'
+    </update>
+
+    <update id="closeProjectAllocations">
+        update biz_project_staff_allocation
+        set status=case when effective_from&gt;#{closeDate} then 'VOID' else status end,
+          effective_to=case
+            when effective_from&gt;#{closeDate} then effective_to
+            when effective_to is null or effective_to&gt;#{closeDate} then #{closeDate}
+            else effective_to end,
+          update_by=#{userName},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and status='ACTIVE'
+          and (effective_to is null or effective_to&gt;=#{closeDate})
+    </update>
+
+    <update id="cancelOpenProjectTasks">
+        update biz_project_task set status='CANCELED',update_by=#{userName},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and active_status='ACTIVE' and status not in ('DONE','CANCELED')
+    </update>
+
+    <insert id="insertOwnerHistory" parameterType="map">
+        insert into biz_project_owner_history(project_id,from_user_id,from_user_name,to_user_id,to_user_name,
+          effective_time,reason,operator_user_id,operator_name,create_time)
+        values(#{projectId},#{fromUserId},#{fromUserName},#{toUserId},#{toUserName},sysdate(),#{reason},
+          #{operatorUserId},#{operatorName},sysdate())
+    </insert>
+    <select id="selectOwnerHistory" resultType="map">
+        select history_id historyId,project_id projectId,from_user_id fromUserId,from_user_name fromUserName,
+          to_user_id toUserId,to_user_name toUserName,effective_time effectiveTime,reason,
+          operator_user_id operatorUserId,operator_name operatorName,create_time createTime
+        from biz_project_owner_history where project_id=#{projectId}
+        order by effective_time desc,history_id desc
+    </select>
+
+    <select id="selectAcceptances" resultType="com.ruoyi.business.domain.BusinessProjectAcceptance">
+        select acceptance_id acceptanceId,project_id projectId,submission_version submissionVersion,
+          result_summary resultSummary,deliverables,attachment_urls attachmentUrls,
+          submitted_user_id submittedUserId,submitted_user_name submittedUserName,submitted_time submittedTime,
+          review_status reviewStatus,reviewed_user_id reviewedUserId,reviewed_user_name reviewedUserName,
+          review_comment reviewComment,reviewed_time reviewedTime,create_by createBy,create_time createTime,
+          update_by updateBy,update_time updateTime,remark
+        from biz_project_acceptance where project_id=#{projectId}
+        order by submission_version desc,acceptance_id desc
+    </select>
+    <select id="selectLatestPendingAcceptance" resultType="com.ruoyi.business.domain.BusinessProjectAcceptance">
+        select acceptance_id acceptanceId,project_id projectId,submission_version submissionVersion,
+          result_summary resultSummary,deliverables,attachment_urls attachmentUrls,
+          submitted_user_id submittedUserId,submitted_user_name submittedUserName,submitted_time submittedTime,
+          review_status reviewStatus,reviewed_user_id reviewedUserId,reviewed_user_name reviewedUserName,
+          review_comment reviewComment,reviewed_time reviewedTime
+        from biz_project_acceptance where project_id=#{projectId} and review_status='PENDING'
+        order by submission_version desc limit 1
+    </select>
+    <select id="selectNextAcceptanceVersion" resultType="int">
+        select coalesce(max(submission_version),0)+1 from biz_project_acceptance where project_id=#{projectId}
+    </select>
+    <insert id="insertAcceptance" parameterType="com.ruoyi.business.domain.BusinessProjectAcceptance"
+            useGeneratedKeys="true" keyProperty="acceptanceId">
+        insert into biz_project_acceptance(project_id,submission_version,result_summary,deliverables,attachment_urls,
+          submitted_user_id,submitted_user_name,submitted_time,review_status,create_by,create_time,remark)
+        values(#{projectId},#{submissionVersion},#{resultSummary},#{deliverables},#{attachmentUrls},
+          #{submittedUserId},#{submittedUserName},sysdate(),'PENDING',#{createBy},sysdate(),#{remark})
+    </insert>
+    <update id="reviewAcceptance">
+        update biz_project_acceptance set review_status=#{reviewStatus},reviewed_user_id=#{reviewedUserId},
+          reviewed_user_name=#{reviewedUserName},review_comment=#{reviewComment},reviewed_time=sysdate(),
+          update_by=#{userName},update_time=sysdate()
+        where acceptance_id=#{acceptanceId} and review_status='PENDING'
+    </update>
+
+    <select id="selectStageAcceptances" resultType="com.ruoyi.business.domain.BusinessProjectStageAcceptance">
+        select a.stage_acceptance_id stageAcceptanceId,a.project_id projectId,a.milestone_id milestoneId,
+          m.milestone_name milestoneName,a.submission_version submissionVersion,a.result_summary resultSummary,
+          a.deliverables,a.attachment_urls attachmentUrls,a.submitted_user_id submittedUserId,
+          a.submitted_user_name submittedUserName,a.submitted_time submittedTime,a.review_status reviewStatus,
+          a.reviewed_user_id reviewedUserId,a.reviewed_user_name reviewedUserName,a.review_comment reviewComment,
+          a.reviewed_time reviewedTime,a.create_by createBy,a.create_time createTime,a.update_by updateBy,
+          a.update_time updateTime,a.remark
+        from biz_project_stage_acceptance a
+        join biz_project_milestone m on m.milestone_id=a.milestone_id and m.project_id=a.project_id
+        where a.project_id=#{projectId}
+        order by m.sort_order,a.submission_version desc,a.stage_acceptance_id desc
+    </select>
+    <select id="selectLatestPendingStageAcceptance" resultType="com.ruoyi.business.domain.BusinessProjectStageAcceptance">
+        select a.stage_acceptance_id stageAcceptanceId,a.project_id projectId,a.milestone_id milestoneId,
+          m.milestone_name milestoneName,a.submission_version submissionVersion,a.result_summary resultSummary,
+          a.deliverables,a.attachment_urls attachmentUrls,a.submitted_user_id submittedUserId,
+          a.submitted_user_name submittedUserName,a.submitted_time submittedTime,a.review_status reviewStatus
+        from biz_project_stage_acceptance a
+        join biz_project_milestone m on m.milestone_id=a.milestone_id and m.project_id=a.project_id
+        where a.project_id=#{projectId} and a.milestone_id=#{milestoneId} and a.review_status='PENDING'
+        order by a.submission_version desc limit 1
+    </select>
+    <select id="selectNextStageAcceptanceVersion" resultType="int">
+        select coalesce(max(submission_version),0)+1 from biz_project_stage_acceptance
+        where project_id=#{projectId} and milestone_id=#{milestoneId}
+    </select>
+    <insert id="insertStageAcceptance" parameterType="com.ruoyi.business.domain.BusinessProjectStageAcceptance"
+            useGeneratedKeys="true" keyProperty="stageAcceptanceId">
+        insert into biz_project_stage_acceptance(project_id,milestone_id,submission_version,result_summary,
+          deliverables,attachment_urls,submitted_user_id,submitted_user_name,submitted_time,review_status,
+          create_by,create_time,remark)
+        values(#{projectId},#{milestoneId},#{submissionVersion},#{resultSummary},#{deliverables},#{attachmentUrls},
+          #{submittedUserId},#{submittedUserName},sysdate(),'PENDING',#{createBy},sysdate(),#{remark})
+    </insert>
+    <update id="reviewStageAcceptance">
+        update biz_project_stage_acceptance set review_status=#{reviewStatus},reviewed_user_id=#{reviewedUserId},
+          reviewed_user_name=#{reviewedUserName},review_comment=#{reviewComment},reviewed_time=sysdate(),
+          update_by=#{userName},update_time=sysdate()
+        where stage_acceptance_id=#{stageAcceptanceId} and review_status='PENDING'
+    </update>
+    <update id="updateMilestoneStatus">
+        update biz_project_milestone set status=#{status},actual_date=if(#{status}='DONE',current_date(),null),
+          update_by=#{userName},update_time=sysdate()
+        where project_id=#{projectId} and milestone_id=#{milestoneId}
+    </update>
+
+    <select id="selectMilestones" resultType="com.ruoyi.business.domain.BusinessProjectMilestone">
+        select milestone_id milestoneId,project_id projectId,milestone_name milestoneName,plan_date planDate,
+          actual_date actualDate,weight,status,sort_order sortOrder,create_by createBy,create_time createTime,
+          update_by updateBy,update_time updateTime,remark
+        from biz_project_milestone where project_id=#{projectId} order by sort_order,milestone_id
+    </select>
+    <select id="selectMilestoneById" resultType="com.ruoyi.business.domain.BusinessProjectMilestone">
+        select milestone_id milestoneId,project_id projectId,milestone_name milestoneName,plan_date planDate,
+          actual_date actualDate,weight,status,sort_order sortOrder,create_by createBy,create_time createTime,
+          update_by updateBy,update_time updateTime,remark
+        from biz_project_milestone where milestone_id=#{milestoneId}
+    </select>
+    <insert id="insertMilestone" parameterType="com.ruoyi.business.domain.BusinessProjectMilestone"
+            useGeneratedKeys="true" keyProperty="milestoneId">
+        insert into biz_project_milestone(project_id,milestone_name,plan_date,actual_date,weight,status,sort_order,
+          create_by,create_time,remark)
+        values(#{projectId},#{milestoneName},#{planDate},#{actualDate},#{weight},#{status},#{sortOrder},
+          #{createBy},sysdate(),#{remark})
+    </insert>
+    <update id="updateMilestone" parameterType="com.ruoyi.business.domain.BusinessProjectMilestone">
+        update biz_project_milestone set milestone_name=#{milestoneName},plan_date=#{planDate},
+          actual_date=#{actualDate},weight=#{weight},status=#{status},sort_order=#{sortOrder},
+          update_by=#{updateBy},update_time=sysdate(),remark=#{remark}
+        where milestone_id=#{milestoneId} and project_id=#{projectId}
+    </update>
+    <delete id="deleteMilestone">
+        delete from biz_project_milestone where milestone_id=#{milestoneId} and project_id=#{projectId}
+          and not exists(select 1 from biz_project_task t where t.milestone_id=#{milestoneId})
+    </delete>
+
+    <select id="selectTasks" resultType="com.ruoyi.business.domain.BusinessProjectTask">
+        select task_id taskId,project_id projectId,parent_task_id parentTaskId,milestone_id milestoneId,
+          task_name taskName,assignee_user_id assigneeUserId,assignee_name assigneeName,status,progress,priority,
+          plan_start_date planStartDate,due_date dueDate,actual_finish_time actualFinishTime,active_status activeStatus,version,
+          create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
+        from biz_project_task where project_id=#{projectId} and active_status='ACTIVE'
+        order by due_date is null,due_date,task_id
+    </select>
+    <select id="selectInactiveTasks" resultType="com.ruoyi.business.domain.BusinessProjectTask">
+        select task_id taskId,project_id projectId,parent_task_id parentTaskId,milestone_id milestoneId,
+          task_name taskName,assignee_user_id assigneeUserId,assignee_name assigneeName,status,progress,priority,
+          plan_start_date planStartDate,due_date dueDate,actual_finish_time actualFinishTime,active_status activeStatus,version,
+          create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
+        from biz_project_task where project_id=#{projectId} and active_status='VOID'
+        order by update_time desc,task_id desc
+    </select>
+    <select id="selectTaskById" resultType="com.ruoyi.business.domain.BusinessProjectTask">
+        select task_id taskId,project_id projectId,parent_task_id parentTaskId,milestone_id milestoneId,
+          task_name taskName,assignee_user_id assigneeUserId,assignee_name assigneeName,status,progress,priority,
+          plan_start_date planStartDate,due_date dueDate,actual_finish_time actualFinishTime,active_status activeStatus,version,
+          create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
+        from biz_project_task where task_id=#{taskId} limit 1
+    </select>
+    <insert id="upsertTaskReport" parameterType="com.ruoyi.business.domain.BusinessProjectTaskReport"
+            useGeneratedKeys="true" keyProperty="reportId">
+        insert into biz_project_task_report(task_id,project_id,biz_date,progress,completion_summary,evidence_urls,
+          submitted_user_id,submitted_user_name,version,create_by,create_time)
+        values(#{taskId},#{projectId},#{bizDate},#{progress},#{completionSummary},#{evidenceUrls},
+          #{submittedUserId},#{submittedUserName},0,#{createBy},sysdate())
+        on duplicate key update progress=values(progress),completion_summary=values(completion_summary),
+          evidence_urls=values(evidence_urls),submitted_user_id=values(submitted_user_id),
+          submitted_user_name=values(submitted_user_name),update_by=values(create_by),update_time=sysdate(),
+          version=version+1,report_id=last_insert_id(report_id)
+    </insert>
+    <select id="selectTaskReport" resultType="com.ruoyi.business.domain.BusinessProjectTaskReport">
+        select report_id reportId,task_id taskId,project_id projectId,biz_date bizDate,progress,
+          completion_summary completionSummary,evidence_urls evidenceUrls,submitted_user_id submittedUserId,
+          submitted_user_name submittedUserName,version,create_by createBy,create_time createTime,
+          update_by updateBy,update_time updateTime
+        from biz_project_task_report where task_id=#{taskId} and biz_date=#{bizDate} limit 1
+    </select>
+    <!-- 按实际提交人汇总两类执行填报，停用任务或退出项目不隐藏既有记录。 -->
+    <resultMap id="CompletionSubmissionMap" type="map" autoMapping="true">
+        <result property="reportDetails" column="reportDetails" javaType="java.lang.String"/>
+        <result property="issueReason" column="issueReason" javaType="java.lang.String"/>
+        <result property="evidenceUrls" column="evidenceUrls" javaType="java.lang.String"/>
+    </resultMap>
+    <select id="selectMemberCompletionReports" resultMap="CompletionSubmissionMap">
+        select submission_id submissionId,source_report_id reportId,source_version sourceVersion,
+          project_id projectId,project_name projectName,member_user_id memberUserId,member_name memberName,
+          work_type workType,work_name workName,date_format(report_date,'%Y-%m-%d') reportDate,
+          report_details reportDetails,issue_reason issueReason,evidence_urls evidenceUrls,
+          actual_value actualValue,unit,target_mode targetMode,progress,
+          date_format(submitted_time,'%Y-%m-%d %H:%i:%s') submittedTime
+        from biz_project_completion_submission where project_id=#{projectId}
+        order by report_date desc,submitted_time desc,submission_id desc
+    </select>
+    <insert id="insertRoutineCompletionSubmission">
+        insert into biz_project_completion_submission
+        (work_type,source_report_id,source_version,project_id,project_name,work_name,
+         member_user_id,member_name,report_date,report_details,issue_reason,evidence_urls,
+         actual_value,unit,target_mode,submitted_time)
+        select 'ROUTINE',rr.report_id,coalesce(rr.version,0),rr.project_id,p.project_name,
+          coalesce(r.routine_name,'持续工作'),rr.submitted_user_id,rr.submitted_user_name,rr.biz_date,
+          rr.summary,rr.issue_reason,rr.evidence_urls,rr.actual_value,rr.unit,r.target_mode,sysdate()
+        from biz_project_routine_report rr join biz_project p on p.project_id=rr.project_id
+        left join biz_project_routine r on r.routine_id=rr.routine_id and r.project_id=rr.project_id
+        where rr.project_id=#{projectId} and rr.routine_id=#{routineId} and rr.biz_date=#{bizDate}
+          and rr.status='SUBMITTED'
+    </insert>
+    <insert id="insertTaskCompletionSubmission">
+        insert into biz_project_completion_submission
+        (work_type,source_report_id,source_version,project_id,project_name,work_name,
+         member_user_id,member_name,report_date,report_details,evidence_urls,progress,submitted_time)
+        select 'TASK',tr.report_id,coalesce(tr.version,0),tr.project_id,p.project_name,
+          coalesce(t.task_name,'一次性工作'),tr.submitted_user_id,tr.submitted_user_name,tr.biz_date,
+          tr.completion_summary,tr.evidence_urls,tr.progress,sysdate()
+        from biz_project_task_report tr join biz_project p on p.project_id=tr.project_id
+        left join biz_project_task t on t.task_id=tr.task_id and t.project_id=tr.project_id
+        where tr.project_id=#{projectId} and tr.task_id=#{taskId} and tr.biz_date=#{bizDate}
+    </insert>
+    <select id="selectTaskReports" resultType="com.ruoyi.business.domain.BusinessProjectTaskReport">
+        select report_id reportId,task_id taskId,project_id projectId,biz_date bizDate,progress,
+          completion_summary completionSummary,evidence_urls evidenceUrls,submitted_user_id submittedUserId,
+          submitted_user_name submittedUserName,version,create_by createBy,create_time createTime,
+          update_by updateBy,update_time updateTime
+        from biz_project_task_report
+        where project_id=#{projectId}
+        order by biz_date desc,report_id desc
+    </select>
+    <insert id="insertProjectProgressReport" parameterType="com.ruoyi.business.domain.BusinessProjectProgressReport" useGeneratedKeys="true" keyProperty="reportId">
+        insert into biz_project_progress_report(project_id,biz_date,progress,completion_standard,completion_summary,evidence_urls,evidence_text,
+          submitted_user_id,submitted_user_name,version,create_by,create_time,issues_risks,next_plan,
+          sync_tasks,sync_routines,snapshot_json,parent_project_id,project_name_snapshot)
+        values(#{projectId},#{bizDate},#{progress},#{completionStandard},#{completionSummary},#{evidenceUrls},#{evidenceText},
+          #{submittedUserId},#{submittedUserName},#{version},#{createBy},#{createTime},#{issuesRisks},#{nextPlan},
+          #{syncTasks},#{syncRoutines},#{snapshotJson},#{parentProjectId},#{projectNameSnapshot})
+    </insert>
+    <select id="selectProjectProgressReport" resultType="com.ruoyi.business.domain.BusinessProjectProgressReport">
+        select report_id reportId,project_id projectId,biz_date bizDate,progress,completion_standard completionStandard,
+          completion_summary completionSummary,evidence_urls evidenceUrls,evidence_text evidenceText,submitted_user_id submittedUserId,
+          submitted_user_name submittedUserName,version,create_by createBy,create_time createTime,
+          update_by updateBy,update_time updateTime
+        from biz_project_progress_report where project_id=#{projectId} and biz_date=#{bizDate} order by report_id desc limit 1
+    </select>
+    <select id="selectLatestProjectProgressReport" resultType="com.ruoyi.business.domain.BusinessProjectProgressReport">
+        select report_id reportId,project_id projectId,biz_date bizDate,progress,completion_standard completionStandard,
+          completion_summary completionSummary,evidence_urls evidenceUrls,evidence_text evidenceText,submitted_user_id submittedUserId,
+          submitted_user_name submittedUserName,version,create_by createBy,create_time createTime,
+          update_by updateBy,update_time updateTime
+        from biz_project_progress_report where project_id=#{projectId}
+        order by report_id desc limit 1
+    </select>
+    <insert id="insertTask" parameterType="com.ruoyi.business.domain.BusinessProjectTask"
+            useGeneratedKeys="true" keyProperty="taskId">
+        insert into biz_project_task(project_id,parent_task_id,milestone_id,task_name,assignee_user_id,assignee_name,
+          status,progress,priority,plan_start_date,due_date,active_status,version,create_by,create_time,remark)
+        values(#{projectId},#{parentTaskId},#{milestoneId},#{taskName},#{assigneeUserId},#{assigneeName},#{status},
+          #{progress},#{priority},#{planStartDate},#{dueDate},'ACTIVE',0,#{createBy},sysdate(),#{remark})
+    </insert>
+    <update id="updateTask" parameterType="com.ruoyi.business.domain.BusinessProjectTask">
+        update biz_project_task set parent_task_id=#{parentTaskId},milestone_id=#{milestoneId},task_name=#{taskName},
+          assignee_user_id=#{assigneeUserId},assignee_name=#{assigneeName},status=#{status},progress=#{progress},
+          priority=#{priority},plan_start_date=#{planStartDate},due_date=#{dueDate},
+          actual_finish_time=case when #{status}='DONE' then coalesce(actual_finish_time,sysdate()) else null end,
+          update_by=#{updateBy},update_time=sysdate(),remark=#{remark},version=version+1
+        where task_id=#{taskId} and project_id=#{projectId} and active_status='ACTIVE' and version=#{version}
+    </update>
+    <update id="voidTask">
+        update biz_project_task set active_status='VOID',update_by=#{userName},update_time=sysdate(),version=version+1
+        where task_id=#{taskId} and project_id=#{projectId} and active_status='ACTIVE'
+    </update>
+    <update id="activateTask">
+        update biz_project_task set active_status='ACTIVE',update_by=#{userName},update_time=sysdate(),version=version+1
+        where task_id=#{taskId} and project_id=#{projectId} and active_status='VOID'
+    </update>
+    <select id="countTaskChildren" resultType="int">
+        select count(*) from biz_project_task
+        where project_id=#{projectId} and parent_task_id=#{taskId} and active_status='ACTIVE'
+    </select>
+    <select id="countTaskReports" resultType="int">
+        select count(*) from biz_project_task_report where task_id=#{taskId}
+    </select>
+
+    <select id="selectRoutines" resultType="com.ruoyi.business.domain.BusinessProjectRoutine">
+        select r.routine_id routineId,r.project_id projectId,r.routine_name routineName,r.frequency,r.target_mode targetMode,
+          r.target_value targetValue,r.unit,r.assignee_user_id assigneeUserId,r.assignee_name assigneeName,
+          r.start_date startDate,r.end_date endDate,r.evidence_required evidenceRequired,r.status,r.version,
+          r.create_by createBy,r.create_time createTime,r.update_by updateBy,r.update_time updateTime,r.remark,
+          coalesce(today_report.target_snapshot,case r.target_mode
+            when 'NONE' then null
+            when 'DAILY_DYNAMIC' then daily_target.target_value
+            when 'AUTO_TOTAL' then round(greatest(r.target_value-coalesce((select sum(prior.actual_value)
+              from biz_project_routine_report prior where prior.routine_id=r.routine_id
+                and prior.status='SUBMITTED' and prior.biz_date&lt;date(#{bizDate})),0),0)
+              / greatest(datediff(r.end_date,date(#{bizDate}))+1,1),4)
+            else r.target_value end) todayTarget,
+          daily_target.daily_target_id todayTargetId,daily_target.target_version todayTargetVersion,
+          daily_target.customer_requirement todayRequirement,coalesce(today_report.actual_value,0) todayActual,
+          coalesce((select sum(history.actual_value) from biz_project_routine_report history
+            where history.routine_id=r.routine_id and history.status='SUBMITTED'
+              and history.biz_date&lt;=date(#{bizDate})),0) cumulativeActual,
+          today_report.report_id todayReportId,today_report.summary todaySummary,
+          today_report.issue_reason todayIssueReason,today_report.evidence_urls todayEvidenceUrls
+        from biz_project_routine r
+        left join biz_project_routine_report today_report on today_report.routine_id=r.routine_id
+          and today_report.biz_date=date(#{bizDate}) and today_report.status='SUBMITTED'
+        left join biz_project_routine_daily_target daily_target on daily_target.routine_id=r.routine_id
+          and daily_target.biz_date=date(#{bizDate}) and daily_target.status='CURRENT'
+        where r.project_id=#{projectId} and r.status='ACTIVE'
+        order by r.assignee_name,r.routine_id
+    </select>
+    <select id="selectRoutineById" resultType="com.ruoyi.business.domain.BusinessProjectRoutine">
+        select routine_id routineId,project_id projectId,routine_name routineName,frequency,target_mode targetMode,target_value targetValue,
+          unit,assignee_user_id assigneeUserId,assignee_name assigneeName,start_date startDate,end_date endDate,
+          evidence_required evidenceRequired,status,version,create_by createBy,create_time createTime,
+          update_by updateBy,update_time updateTime,remark
+        from biz_project_routine where routine_id=#{routineId} limit 1
+    </select>
+    <select id="selectRoutineByIdForUpdate" resultType="com.ruoyi.business.domain.BusinessProjectRoutine">
+        select routine_id routineId,project_id projectId,routine_name routineName,frequency,target_mode targetMode,target_value targetValue,
+          unit,assignee_user_id assigneeUserId,assignee_name assigneeName,start_date startDate,end_date endDate,
+          evidence_required evidenceRequired,status,version,create_by createBy,create_time createTime,
+          update_by updateBy,update_time updateTime,remark
+        from biz_project_routine where routine_id=#{routineId} limit 1 for update
+    </select>
+    <select id="selectRetiredRoutines" resultType="com.ruoyi.business.domain.BusinessProjectRoutine">
+        select r.routine_id routineId,r.project_id projectId,r.routine_name routineName,r.frequency,r.target_mode targetMode,
+          r.target_value targetValue,r.unit,r.assignee_user_id assigneeUserId,r.assignee_name assigneeName,
+          r.start_date startDate,r.end_date endDate,r.evidence_required evidenceRequired,r.status,r.version,
+          r.create_by createBy,r.create_time createTime,r.update_by updateBy,r.update_time updateTime,r.remark,
+          null todayTarget,0 todayActual,
+          coalesce((select sum(history.actual_value) from biz_project_routine_report history
+            where history.routine_id=r.routine_id and history.status='SUBMITTED'
+              and history.biz_date&lt;=date(#{bizDate})),0) cumulativeActual
+        from biz_project_routine r
+        where r.project_id=#{projectId} and r.status='VOID'
+        order by r.update_time desc,r.routine_id desc
+    </select>
+    <insert id="insertRoutine" parameterType="com.ruoyi.business.domain.BusinessProjectRoutine"
+            useGeneratedKeys="true" keyProperty="routineId">
+        insert into biz_project_routine(project_id,routine_name,frequency,target_mode,target_value,unit,assignee_user_id,
+          assignee_name,start_date,end_date,evidence_required,status,version,create_by,create_time,remark)
+        values(#{projectId},#{routineName},#{frequency},#{targetMode},#{targetValue},#{unit},#{assigneeUserId},#{assigneeName},
+          #{startDate},#{endDate},#{evidenceRequired},'ACTIVE',0,#{createBy},sysdate(),#{remark})
+    </insert>
+    <update id="updateRoutine" parameterType="com.ruoyi.business.domain.BusinessProjectRoutine">
+        update biz_project_routine set routine_name=#{routineName},frequency=#{frequency},target_mode=#{targetMode},target_value=#{targetValue},
+          unit=#{unit},assignee_user_id=#{assigneeUserId},assignee_name=#{assigneeName},start_date=#{startDate},
+          end_date=#{endDate},evidence_required=#{evidenceRequired},update_by=#{updateBy},update_time=sysdate(),
+          remark=#{remark},version=version+1
+        where routine_id=#{routineId} and project_id=#{projectId} and status='ACTIVE' and version=#{version}
+    </update>
+    <update id="voidRoutine">
+        update biz_project_routine set status='VOID',update_by=#{userName},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and routine_id=#{routineId} and status='ACTIVE'
+    </update>
+    <update id="activateRoutine">
+        update biz_project_routine set status='ACTIVE',start_date=#{startDate},end_date=#{endDate},
+          update_by=#{userName},update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and routine_id=#{routineId} and status='VOID' and version=#{version}
+    </update>
+    <select id="selectWorkPeriods" resultType="com.ruoyi.business.domain.BusinessProjectWorkPeriod">
+        select period_id periodId,project_id projectId,work_type workType,work_id workId,
+          assignee_user_id assigneeUserId,assignee_name assigneeName,start_date startDate,end_date endDate,
+          status,version,create_by createBy,create_time createTime,update_by updateBy,update_time updateTime
+        from biz_project_work_period where project_id=#{projectId}
+        order by work_type,work_id,start_date,period_id
+    </select>
+    <insert id="insertWorkPeriod" parameterType="com.ruoyi.business.domain.BusinessProjectWorkPeriod"
+            useGeneratedKeys="true" keyProperty="periodId">
+        insert into biz_project_work_period(project_id,work_type,work_id,assignee_user_id,assignee_name,
+          start_date,end_date,status,version,create_by,create_time)
+        values(#{projectId},#{workType},#{workId},#{assigneeUserId},#{assigneeName},#{startDate},null,
+          'ACTIVE',0,#{createBy},sysdate())
+    </insert>
+    <update id="closeWorkPeriod">
+        update biz_project_work_period set end_date=greatest(start_date,current_date()),status='CLOSED',update_by=#{userName},
+          update_time=sysdate(),version=version+1
+        where project_id=#{projectId} and work_type=#{workType} and work_id=#{workId} and status='ACTIVE'
+    </update>
+    <insert id="upsertRoutineReport" parameterType="com.ruoyi.business.domain.BusinessProjectRoutineReport"
+            useGeneratedKeys="true" keyProperty="reportId">
+        insert into biz_project_routine_report(routine_id,project_id,biz_date,target_snapshot,actual_value,unit,
+          summary,issue_reason,evidence_urls,submitted_user_id,submitted_user_name,status,version,create_by,create_time)
+        values(#{routineId},#{projectId},#{bizDate},#{targetSnapshot},#{actualValue},#{unit},#{summary},#{issueReason},
+          #{evidenceUrls},#{submittedUserId},#{submittedUserName},'SUBMITTED',0,#{createBy},sysdate())
+        on duplicate key update target_snapshot=values(target_snapshot),actual_value=values(actual_value),
+          unit=values(unit),summary=values(summary),issue_reason=values(issue_reason),evidence_urls=values(evidence_urls),
+          submitted_user_id=values(submitted_user_id),submitted_user_name=values(submitted_user_name),
+          update_by=values(create_by),update_time=sysdate(),version=version+1,report_id=last_insert_id(report_id)
+    </insert>
+    <select id="selectRoutineReport" resultType="com.ruoyi.business.domain.BusinessProjectRoutineReport">
+        select report_id reportId,routine_id routineId,project_id projectId,biz_date bizDate,
+          target_snapshot targetSnapshot,actual_value actualValue,unit,summary,issue_reason issueReason,
+          evidence_urls evidenceUrls,submitted_user_id submittedUserId,submitted_user_name submittedUserName,
+          status,version,create_by createBy,create_time createTime,update_by updateBy,update_time updateTime
+        from biz_project_routine_report where routine_id=#{routineId} and biz_date=#{bizDate} limit 1
+    </select>
+    <select id="selectCurrentRoutineDailyTarget" resultType="com.ruoyi.business.domain.BusinessProjectRoutineDailyTarget">
+        select daily_target_id dailyTargetId,project_id projectId,routine_id routineId,biz_date bizDate,
+          target_value targetValue,unit,customer_requirement customerRequirement,change_reason changeReason,
+          assignee_user_id assigneeUserId,assignee_name assigneeName,target_version targetVersion,status,
+          create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
+        from biz_project_routine_daily_target
+        where routine_id=#{routineId} and biz_date=date(#{bizDate}) and status='CURRENT'
+        order by target_version desc limit 1
+    </select>
+    <update id="supersedeRoutineDailyTarget">
+        update biz_project_routine_daily_target set status='SUPERSEDED',update_by=#{userName},update_time=sysdate()
+        where daily_target_id=#{dailyTargetId} and status='CURRENT'
+    </update>
+    <insert id="insertRoutineDailyTarget" parameterType="com.ruoyi.business.domain.BusinessProjectRoutineDailyTarget"
+            useGeneratedKeys="true" keyProperty="dailyTargetId">
+        insert into biz_project_routine_daily_target(project_id,routine_id,biz_date,target_value,unit,
+          customer_requirement,change_reason,assignee_user_id,assignee_name,target_version,status,create_by,create_time,remark)
+        values(#{projectId},#{routineId},#{bizDate},#{targetValue},#{unit},#{customerRequirement},#{changeReason},
+          #{assigneeUserId},#{assigneeName},#{targetVersion},'CURRENT',#{createBy},sysdate(),#{remark})
+    </insert>
+    <select id="sumRoutineActualBefore" resultType="java.math.BigDecimal">
+        select coalesce(sum(actual_value),0) from biz_project_routine_report
+        where routine_id=#{routineId} and status='SUBMITTED' and biz_date&lt;date(#{bizDate})
+    </select>
+    <select id="countRoutineReports" resultType="int">
+        select count(*) from biz_project_routine_report where routine_id=#{routineId}
+    </select>
+
+    <select id="selectRisks" resultType="com.ruoyi.business.domain.BusinessProjectRisk">
+        select risk_id riskId,project_id projectId,risk_type riskType,risk_title riskTitle,severity,probability,
+          owner_user_id ownerUserId,owner_name ownerName,due_date dueDate,status,response_plan responsePlan,
+          create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
+        from biz_project_risk where project_id=#{projectId}
+        order by status='OPEN' desc,field(severity,'CRITICAL','HIGH','MEDIUM','LOW'),due_date,risk_id
+    </select>
+    <insert id="insertRisk" parameterType="com.ruoyi.business.domain.BusinessProjectRisk"
+            useGeneratedKeys="true" keyProperty="riskId">
+        insert into biz_project_risk(project_id,risk_type,risk_title,severity,probability,owner_user_id,owner_name,
+          due_date,status,response_plan,create_by,create_time,remark)
+        values(#{projectId},#{riskType},#{riskTitle},#{severity},#{probability},#{ownerUserId},#{ownerName},
+          #{dueDate},#{status},#{responsePlan},#{createBy},sysdate(),#{remark})
+    </insert>
+    <update id="updateRisk" parameterType="com.ruoyi.business.domain.BusinessProjectRisk">
+        update biz_project_risk set risk_type=#{riskType},risk_title=#{riskTitle},severity=#{severity},
+          probability=#{probability},owner_user_id=#{ownerUserId},owner_name=#{ownerName},due_date=#{dueDate},
+          status=#{status},response_plan=#{responsePlan},update_by=#{updateBy},update_time=sysdate(),remark=#{remark}
+        where risk_id=#{riskId} and project_id=#{projectId}
+    </update>
+    <delete id="deleteRisk">
+        delete from biz_project_risk where risk_id=#{riskId} and project_id=#{projectId}
+    </delete>
+
+    <insert id="insertEvent" parameterType="map">
+        insert into biz_project_event(project_id,event_type,from_status,to_status,operator_user_id,operator_name,
+          subject_user_id,subject_name,subject_account,event_comment,create_time)
+        values(#{projectId},#{eventType},#{fromStatus},#{toStatus},#{operatorUserId},#{operatorName},
+          #{subjectUserId},#{subjectName},#{subjectAccount},#{comment},sysdate())
+    </insert>
+    <select id="selectEvents" resultType="map">
+        select event.event_id eventId,event.project_id projectId,event.event_type eventType,
+          event.from_status fromStatus,event.to_status toStatus,event.operator_user_id operatorUserId,
+          coalesce(nullif(trim(operator_user.nick_name),''),nullif(trim(operator_user.user_name),''),event.operator_name) operatorName,
+          nullif(trim(operator_user.user_name),'') operatorAccount,
+          coalesce(nullif(trim(subject_user.nick_name),''),nullif(trim(subject_user.user_name),''),event.subject_name) subjectName,
+          coalesce(nullif(trim(subject_user.user_name),''),event.subject_account) subjectAccount,
+          event.event_comment comment,event.create_time createTime
+        from biz_project_event event
+        left join sys_user operator_user on operator_user.user_id=event.operator_user_id
+        left join sys_user subject_user on subject_user.user_id=coalesce(event.subject_user_id,
+          case when event.event_type='MEMBER_REMOVE'
+            then cast(regexp_substr(event.event_comment,'[0-9]+') as unsigned) end)
+        where event.project_id=#{projectId} order by event.event_id desc limit 100
+    </select>
+
+    <select id="selectDashboardSummary" resultType="map">
+        select count(*) totalCount,
+          sum(p.status='DRAFT') draftCount,
+          sum(p.status='PLANNING') planningCount,sum(p.status='ACTIVE') activeCount,
+          sum(p.status='PAUSED') pausedCount,sum(p.status='ACCEPTANCE') acceptanceCount,
+          sum(p.status='CLOSED') closedCount,
+          sum(p.status='PLANNING' and p.baseline_status='SUBMITTED') pendingPlanCount,
+          sum((p.status='DRAFT' or (p.status='PLANNING' and p.baseline_status='SUBMITTED')
+            or p.status in ('PAUSED','ACCEPTANCE'))
+            and not (p.parent_id is not null and p.status='ACCEPTANCE')) pendingDecisionCount,
+          sum(exists(select 1 from biz_project_task t where t.project_id=p.project_id
+            and t.active_status='ACTIVE' and t.status&lt;&gt;'DONE' and t.due_date&lt;current_date())) overdueProjectCount,
+          sum(exists(select 1 from biz_project_risk r where r.project_id=p.project_id
+            and r.status='OPEN' and r.severity in ('CRITICAL','HIGH'))) highRiskProjectCount
+        from biz_project p where p.del_flag='0'
+        <choose>
+          <when test="viewAll == true"/>
+          <when test="boss == true">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></when>
+          <otherwise>
+            and (p.main_owner_user_id=#{userId} or exists(select 1 from biz_project_member m
+              where m.project_id=p.project_id and m.user_id=#{userId} and m.status='0'))
+          </otherwise>
+        </choose>
+    </select>
+    <sql id="dashboardScope">
+      <choose>
+        <when test="viewAll == true"/>
+        <when test="boss == true">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></when>
+        <otherwise>
+          and (p.main_owner_user_id=#{userId} or exists(select 1 from biz_project_member scope_member
+            where scope_member.project_id=p.project_id and scope_member.user_id=#{userId} and scope_member.status='0'))
+        </otherwise>
+      </choose>
+    </sql>
+    <sql id="dashboardOrder">
+      order by field(p.status,'PLANNING','ACTIVE','PAUSED','ACCEPTANCE','DRAFT','CLOSED','CANCELED'),
+        p.priority='HIGH' desc,p.update_time desc,p.project_id desc
+    </sql>
+    <sql id="dashboardProjectFilter">
+      <if test="keyword != null and keyword != ''">
+        and (p.project_name like concat('%',#{keyword},'%')
+          or p.project_no like concat('%',#{keyword},'%')
+          or p.main_owner_name like concat('%',#{keyword},'%'))
+      </if>
+      <if test="status != null and status != ''">and p.status=#{status}</if>
+    </sql>
+    <select id="countDashboardProjects" resultType="long">
+      select count(*) from biz_project p where p.del_flag='0'
+      <include refid="dashboardScope"/>
+      <include refid="dashboardProjectFilter"/>
+    </select>
+    <select id="selectDashboardProjectPage" resultMap="ProjectResult">
+      select <include refid="projectColumns"/>
+      from biz_project p
+      left join biz_project parent on parent.project_id=p.parent_id and parent.del_flag='0'
+      left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+      <include refid="projectProgressJoin"/>
+      where p.del_flag='0'
+      <include refid="dashboardScope"/>
+      <include refid="dashboardProjectFilter"/>
+      <include refid="dashboardOrder"/>
+      limit #{offset},#{pageSize}
+    </select>
+    <select id="selectDashboardDecisionPage" resultMap="ProjectResult">
+      select <include refid="projectColumns"/>
+      from biz_project p
+      left join biz_project parent on parent.project_id=p.parent_id and parent.del_flag='0'
+      left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+      <include refid="projectProgressJoin"/>
+      where p.del_flag='0'
+        and (p.status='DRAFT' or (p.status='PLANNING' and p.baseline_status='SUBMITTED')
+          or p.status in ('PAUSED','ACCEPTANCE'))
+        and not (p.parent_id is not null and p.status='ACCEPTANCE')
+      <include refid="dashboardScope"/>
+      <include refid="dashboardOrder"/>
+      limit #{offset},#{pageSize}
+    </select>
+    <select id="selectBossOwnerActiveProjects" resultType="map">
+      select p.project_id projectId,p.project_no projectNo,p.project_name projectName,p.status,
+        p.main_owner_user_id ownerUserId,p.main_owner_name ownerName,p.company_dept_id companyDeptId,
+        company.dept_name companyName,coalesce(p.sponsor_owner_user_id,p.initiator_user_id) sponsorUserId
+      from biz_project p
+      left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+      where p.del_flag='0' and p.status in('PLANNING','ACTIVE','PAUSED','ACCEPTANCE')
+      <if test="ownerUserId != null">and p.main_owner_user_id=#{ownerUserId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+      order by p.main_owner_name,p.plan_start_date,p.project_id
+    </select>
+    <sql id="bossPendingProposal">
+      select 'PROPOSAL' category,1 categoryOrder,concat('proposal-',proposal.proposal_id) itemKey,
+        proposal.proposal_id proposalId,null projectId,null userId,proposal.project_name projectName,
+        null userName,proposal.objective,proposal.applicant_name applicantName,company.dept_name companyName,
+        proposal.plan_start_date planStartDate,proposal.plan_end_date planEndDate,null mainOwnerName,
+        proposal.status,null baselineStatus,null targetCount,null planId,null planVersion,null cycleEnd,
+        null totalScore,null bonusAmount,null costStatus,null countryRegion,null projectCount,null projectNameText,
+        coalesce(proposal.submitted_time,proposal.update_time,proposal.create_time) sortTime,
+        null factId,null bizDate,null categoryName,null factKind,null amount,null quantity,null currency,null unit,
+        null description,null submitterName,
+        null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
+        null attachmentUrls,null submittedTime,null awardId,null allocationId
+      from biz_project_proposal proposal
+      left join sys_dept company on company.dept_id=proposal.company_dept_id and company.del_flag='0'
+      where proposal.del_flag='0' and proposal.status='PENDING'
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="proposal.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+    </sql>
+    <sql id="bossPendingAccounting">
+      select 'ACCOUNTING' category,2 categoryOrder,concat('accounting-',fact.fact_id) itemKey,
+        null proposalId,p.project_id projectId,fact.create_user_id userId,p.project_name projectName,
+        null userName,null objective,null applicantName,company.dept_name companyName,
+        null planStartDate,null planEndDate,p.main_owner_name mainOwnerName,fact.status,null baselineStatus,
+        null targetCount,null planId,null planVersion,null cycleEnd,null totalScore,null bonusAmount,
+        null costStatus,null countryRegion,null projectCount,null projectNameText,
+        coalesce(fact.update_time,fact.create_time) sortTime,
+        fact.fact_id factId,fact.biz_date bizDate,fact.category_name categoryName,fact.fact_kind factKind,
+        fact.amount,fact.quantity,fact.currency,fact.unit,fact.description,fact.create_by submitterName,
+        null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
+        null attachmentUrls,null submittedTime,null awardId,null allocationId
+      from biz_operating_fact fact
+      join biz_project p on p.project_id=fact.project_id and p.del_flag='0'
+      left join sys_dept company on company.dept_id=fact.company_dept_id and company.del_flag='0'
+      where fact.status='DRAFT'
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+    </sql>
+    <sql id="bossPendingManagementFee">
+      select 'MANAGEMENT_FEE' category,1 categoryOrder,concat('management-fee-',p.project_id) itemKey,
+        null proposalId,p.project_id projectId,null userId,p.project_name projectName,
+        null userName,null objective,null applicantName,company.dept_name companyName,
+        p.plan_start_date planStartDate,p.plan_end_date planEndDate,p.main_owner_name mainOwnerName,
+        p.status,null baselineStatus,null targetCount,null planId,null planVersion,null cycleEnd,
+        null totalScore,null bonusAmount,null costStatus,null countryRegion,
+        (select count(*) from biz_project workload where workload.del_flag='0'
+          and workload.main_owner_user_id=p.main_owner_user_id
+          and workload.status in('PLANNING','ACTIVE','PAUSED','ACCEPTANCE')
+          and coalesce(workload.sponsor_owner_user_id,workload.initiator_user_id)=coalesce(p.sponsor_owner_user_id,p.initiator_user_id)) projectCount,
+        (select group_concat(workload.project_name order by workload.plan_start_date,workload.project_id separator '、')
+          from biz_project workload where workload.del_flag='0' and workload.main_owner_user_id=p.main_owner_user_id
+          and workload.status in('PLANNING','ACTIVE','PAUSED','ACCEPTANCE')
+          and coalesce(workload.sponsor_owner_user_id,workload.initiator_user_id)=coalesce(p.sponsor_owner_user_id,p.initiator_user_id)) projectNameText,
+        coalesce(p.update_time,p.create_time) sortTime,
+        null factId,null bizDate,'项目管理费' categoryName,null factKind,null amount,null quantity,p.base_currency currency,null unit,
+        '负责人已达到3个在管项目，可以按本项目单独设置管理费' description,null submitterName,
+        null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
+        null attachmentUrls,null submittedTime,null awardId,null allocationId
+      from biz_project p
+      left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+      left join biz_project_management_fee fee on fee.project_id=p.project_id and fee.recipient_user_id=p.main_owner_user_id
+      where p.del_flag='0' and coalesce(p.accounting_state,'OPEN')='OPEN'
+        and p.status in('ACTIVE','PAUSED','ACCEPTANCE','CLOSED','CANCELED') and fee.fee_id is null
+        and (select count(*) from biz_project workload where workload.del_flag='0'
+          and workload.main_owner_user_id=p.main_owner_user_id
+          and workload.status in('PLANNING','ACTIVE','PAUSED','ACCEPTANCE')
+          and coalesce(workload.sponsor_owner_user_id,workload.initiator_user_id)=coalesce(p.sponsor_owner_user_id,p.initiator_user_id))&gt;=3
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+    </sql>
+    <sql id="bossPendingKpiMissing">
+      select 'KPI_MISSING' category,3 categoryOrder,concat('kpi-missing-',p.project_id) itemKey,
+        null proposalId,p.project_id projectId,null userId,p.project_name projectName,null userName,
+        null objective,null applicantName,company.dept_name companyName,null planStartDate,null planEndDate,
+        p.main_owner_name mainOwnerName,p.status,p.baseline_status baselineStatus,
+        (select count(*) from biz_project_kpi target where target.project_id=p.project_id and target.status='CURRENT') targetCount,
+        plan.plan_id planId,plan.plan_version planVersion,plan.cycle_end cycleEnd,
+        null totalScore,null bonusAmount,null costStatus,null countryRegion,null projectCount,null projectNameText,p.update_time sortTime,
+        null factId,null bizDate,null categoryName,null factKind,null amount,null quantity,null currency,null unit,
+        null description,null submitterName,
+        null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
+        null attachmentUrls,null submittedTime,null awardId,null allocationId
+      from biz_project p
+      left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+      left join biz_project_kpi_plan plan on plan.plan_id=(select latest.plan_id from biz_project_kpi_plan latest
+        where latest.project_id=p.project_id and latest.status&lt;&gt;'VOIDED'
+        order by latest.cycle_end desc,latest.plan_version desc limit 1)
+      where p.del_flag='0' and p.status in ('ACTIVE','PAUSED','ACCEPTANCE')
+        and ((select count(*) from biz_project_kpi target
+          where target.project_id=p.project_id and target.status='CURRENT')=0 or plan.plan_id is null)
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+    </sql>
+    <sql id="bossPendingKpiReview">
+      select 'KPI_REVIEW' category,4 categoryOrder,concat('kpi-review-',p.project_id) itemKey,
+        null proposalId,p.project_id projectId,null userId,p.project_name projectName,null userName,
+        null objective,null applicantName,company.dept_name companyName,null planStartDate,null planEndDate,
+        p.main_owner_name mainOwnerName,p.status,p.baseline_status baselineStatus,null targetCount,
+        plan.plan_id planId,plan.plan_version planVersion,plan.cycle_end cycleEnd,
+        settlement.total_score totalScore,settlement.bonus_amount bonusAmount,null costStatus,null countryRegion,
+        null projectCount,null projectNameText,coalesce(settlement.submitted_time,settlement.update_time) sortTime,
+        null factId,null bizDate,null categoryName,null factKind,null amount,null quantity,null currency,null unit,
+        null description,null submitterName,
+        null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
+        null attachmentUrls,null submittedTime,null awardId,null allocationId
+      from biz_project p
+      left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+      join biz_project_kpi_plan plan on plan.plan_id=(select latest.plan_id from biz_project_kpi_plan latest
+        where latest.project_id=p.project_id and latest.status&lt;&gt;'VOIDED'
+        order by latest.cycle_end desc,latest.plan_version desc limit 1)
+      join biz_project_kpi_settlement settlement on settlement.plan_id=plan.plan_id and settlement.status='SUBMITTED'
+      where p.del_flag='0'
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+    </sql>
+    <sql id="bossPendingPersonnelCost">
+      select 'PERSONNEL_COST' category,5 categoryOrder,concat('personnel-',u.user_id) itemKey,
+        null proposalId,null projectId,u.user_id userId,null projectName,
+        coalesce(nullif(u.nick_name,''),u.user_name) collate utf8mb4_0900_ai_ci userName,
+        null objective,null applicantName,
+        company.dept_name companyName,null planStartDate,null planEndDate,null mainOwnerName,
+        null status,null baselineStatus,null targetCount,null planId,null planVersion,null cycleEnd,
+        null totalScore,null bonusAmount,
+        case when profile.country_region is null or profile.country_region not in ('CN','VN') then 'MISSING_REGION'
+             when valid_cost.user_id is not null then 'READY'
+             when any_cost.user_id is not null then 'LEGACY_COST' else 'MISSING_COST' end costStatus,
+        profile.country_region countryRegion,
+        count(distinct project.project_id) projectCount,
+        group_concat(distinct project.project_name order by project.project_name separator '、') projectNameText,
+        coalesce(u.update_time,u.create_time) sortTime,
+        null factId,null bizDate,null categoryName,null factKind,null amount,null quantity,null currency,null unit,
+        null description,null submitterName,
+        null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
+        null attachmentUrls,null submittedTime,null awardId,null allocationId
+      from sys_user u
+      join sys_dept staff_dept on staff_dept.dept_id=u.dept_id and staff_dept.del_flag='0'
+      join sys_dept company on company.parent_id=100 and company.del_flag='0' and company.status='0'
+        and (company.dept_id=staff_dept.dept_id or find_in_set(company.dept_id,staff_dept.ancestors))
+      left join biz_staff_profile profile on profile.user_id=u.user_id
+      left join (select user_id from biz_staff_cost_policy where status='ACTIVE' and effective_from&lt;=#{bizDate}
+        and (effective_to is null or effective_to&gt;=#{bizDate}) group by user_id) any_cost on any_cost.user_id=u.user_id
+      left join (select user_id from biz_staff_cost_policy where status='ACTIVE' and cost_mode='MONTHLY'
+        and currency in ('CNY','VND') and standard_work_days is not null and standard_work_days&gt;0
+        and effective_from&lt;=#{bizDate} and (effective_to is null or effective_to&gt;=#{bizDate})
+        group by user_id) valid_cost on valid_cost.user_id=u.user_id
+      left join biz_project_member member on member.user_id=u.user_id and member.status='0' and member.member_role&lt;&gt;'OBSERVER'
+      left join biz_project project on project.project_id=member.project_id and project.del_flag='0'
+        and project.status not in ('CLOSED','CANCELED')
+      where u.del_flag='0' and u.status='0' and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT'
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="company.dept_id"/><property name="capability" value="COST_READ"/></include></if>
+      group by u.user_id,u.nick_name,u.user_name,company.dept_id,company.dept_name,profile.country_region,
+        valid_cost.user_id,any_cost.user_id,u.update_time,u.create_time
+      having costStatus&lt;&gt;'READY'
+    </sql>
+    <sql id="bossPendingProject">
+      select 'PROJECT' category,6 categoryOrder,concat('project-',p.project_id) itemKey,
+        null proposalId,p.project_id projectId,null userId,p.project_name projectName,null userName,
+        null objective,null applicantName,company.dept_name companyName,null planStartDate,null planEndDate,
+        p.main_owner_name mainOwnerName,p.status,p.baseline_status baselineStatus,null targetCount,
+        null planId,null planVersion,null cycleEnd,null totalScore,null bonusAmount,null costStatus,null countryRegion,
+        null projectCount,null projectNameText,p.update_time sortTime,
+        null factId,null bizDate,null categoryName,null factKind,null amount,null quantity,null currency,null unit,
+        p.close_method description,null submitterName,
+        null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
+        null attachmentUrls,null submittedTime,null awardId,null allocationId
+      from biz_project p
+      left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+      where p.del_flag='0' and (p.status='DRAFT'
+        or (p.status='PLANNING' and p.baseline_status='SUBMITTED') or p.status in ('PAUSED','ACCEPTANCE'))
+        and not (p.parent_id is not null and p.status='ACCEPTANCE')
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+    </sql>
+    <sql id="bossPendingStageAcceptance">
+      select 'STAGE_ACCEPTANCE' category,3 categoryOrder,
+        concat('stage-acceptance-',acceptance.stage_acceptance_id) itemKey,
+        null proposalId,p.project_id projectId,acceptance.submitted_user_id userId,p.project_name projectName,
+        null userName,null objective,null applicantName,company.dept_name companyName,
+        p.plan_start_date planStartDate,p.plan_end_date planEndDate,p.main_owner_name mainOwnerName,
+        p.status,p.baseline_status baselineStatus,null targetCount,null planId,null planVersion,null cycleEnd,
+        null totalScore,null bonusAmount,null costStatus,null countryRegion,null projectCount,null projectNameText,
+        acceptance.submitted_time sortTime,
+        null factId,null bizDate,null categoryName,null factKind,null amount,null quantity,null currency,null unit,
+        null description,acceptance.submitted_user_name submitterName,
+        acceptance.stage_acceptance_id stageAcceptanceId,acceptance.milestone_id milestoneId,
+        milestone.milestone_name milestoneName,acceptance.result_summary resultSummary,
+        acceptance.deliverables,acceptance.attachment_urls attachmentUrls,acceptance.submitted_time submittedTime,null awardId,null allocationId
+      from biz_project_stage_acceptance acceptance
+      join biz_project p on p.project_id=acceptance.project_id and p.del_flag='0'
+      join biz_project_milestone milestone on milestone.milestone_id=acceptance.milestone_id
+        and milestone.project_id=acceptance.project_id
+      left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+      where acceptance.review_status='PENDING'
+        and p.parent_id is null
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+    </sql>
+    <!-- Match incentive canReview: actual sponsor, no self-approval, accounting open. -->
+    <sql id="bossPendingIncentiveScope">
+      from biz_incentive_award award
+      join biz_project p on p.project_id=award.project_id and p.del_flag='0'
+      where award.status='SUBMITTED'
+        and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include>
+        and award.applicant_user_id&lt;&gt;#{userId}
+        and ((p.delivery_policy_version='SEPARATED_V1' and p.accounting_state='OPEN')
+          or ((p.delivery_policy_version is null or p.delivery_policy_version='LEGACY_V1')
+            and p.status not in ('CLOSED','CANCELED') and coalesce(p.accounting_state,'OPEN')='OPEN'))
+    </sql>
+    <sql id="bossPendingIncentiveReview">
+      select 'INCENTIVE_REVIEW' category,2 categoryOrder,concat('incentive-',award.award_id) itemKey,
+        null proposalId,p.project_id projectId,award.applicant_user_id userId,p.project_name projectName,
+        null userName,null objective,award.applicant_user_name applicantName,
+        (select dept.dept_name from sys_dept dept where dept.dept_id=award.company_dept_id and dept.del_flag='0') companyName,
+        null planStartDate,null planEndDate,p.main_owner_name mainOwnerName,award.status,null baselineStatus,
+        null targetCount,null planId,null planVersion,null cycleEnd,null totalScore,null bonusAmount,
+        null costStatus,null countryRegion,null projectCount,null projectNameText,
+        coalesce(award.update_time,award.create_time) sortTime,
+        null factId,award.biz_date bizDate,award.rule_name categoryName,null factKind,
+        award.amount,null quantity,award.currency,null unit,award.reason description,award.applicant_user_name submitterName,
+        null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
+        null attachmentUrls,null submittedTime,award.award_id awardId,null allocationId
+      <include refid="bossPendingIncentiveScope"/>
+    </sql>
+    <sql id="bossPendingBonusPaymentScope">
+      from biz_bonus_allocation allocation
+      join biz_project p on p.project_id=allocation.project_id and p.del_flag='0'
+      join biz_incentive_award award on award.award_id=allocation.award_id and award.status='APPROVED'
+      join biz_operating_fact cost on cost.fact_id=award.accounting_fact_id and cost.status='CONFIRMED'
+      join (select line.allocation_id,
+          sum(line.amount-coalesce(paid.amount,0)) unpaidAmount,count(*) unpaidPeople
+        from biz_bonus_allocation_line line
+        left join (select line_id,sum(amount) amount from biz_bonus_payment
+          where status='RECORDED' group by line_id) paid on paid.line_id=line.line_id
+        where line.amount&gt;coalesce(paid.amount,0)
+        group by line.allocation_id) unpaid on unpaid.allocation_id=allocation.allocation_id
+      where allocation.status='APPROVED'
+        and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include>
+    </sql>
+    <sql id="bossPendingBonusPayment">
+      select 'BONUS_PAYMENT' category,2 categoryOrder,concat('bonus-payment-',allocation.allocation_id) itemKey,
+        null proposalId,p.project_id projectId,null userId,p.project_name projectName,
+        null userName,null objective,null applicantName,
+        (select dept.dept_name from sys_dept dept where dept.dept_id=p.company_dept_id and dept.del_flag='0') companyName,
+        null planStartDate,null planEndDate,p.main_owner_name mainOwnerName,allocation.status,null baselineStatus,
+        null targetCount,null planId,null planVersion,null cycleEnd,null totalScore,null bonusAmount,
+        null costStatus,null countryRegion,null projectCount,null projectNameText,
+        coalesce(allocation.approved_time,allocation.create_time) sortTime,
+        null factId,null bizDate,award.rule_name categoryName,null factKind,
+        unpaid.unpaidAmount amount,unpaid.unpaidPeople quantity,award.currency,null unit,
+        null description,allocation.created_user_name submitterName,
+        null stageAcceptanceId,null milestoneId,null milestoneName,null resultSummary,null deliverables,
+        null attachmentUrls,null submittedTime,award.award_id awardId,allocation.allocation_id allocationId
+      <include refid="bossPendingBonusPaymentScope"/>
+    </sql>
+    <select id="selectBossPendingCounts" resultType="map">
+      select
+        (select count(*) <include refid="bossPendingIncentiveScope"/>) incentiveReviewCount,
+        (select count(*) <include refid="bossPendingBonusPaymentScope"/>) bonusPaymentCount,
+        (select count(*) from biz_project_proposal proposal where proposal.del_flag='0' and proposal.status='PENDING'
+          <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="proposal.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>) proposalCount,
+        (select count(*) from biz_project p left join biz_project_management_fee fee
+          on fee.project_id=p.project_id and fee.recipient_user_id=p.main_owner_user_id
+          where p.del_flag='0' and coalesce(p.accounting_state,'OPEN')='OPEN'
+            and p.status in('ACTIVE','PAUSED','ACCEPTANCE','CLOSED','CANCELED') and fee.fee_id is null
+            and (select count(*) from biz_project workload where workload.del_flag='0'
+              and workload.main_owner_user_id=p.main_owner_user_id
+              and workload.status in('PLANNING','ACTIVE','PAUSED','ACCEPTANCE')
+              and coalesce(workload.sponsor_owner_user_id,workload.initiator_user_id)=coalesce(p.sponsor_owner_user_id,p.initiator_user_id))&gt;=3
+          <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>) managementFeeCount,
+        (select count(*) from biz_operating_fact fact
+          join biz_project p on p.project_id=fact.project_id and p.del_flag='0'
+          where fact.status='DRAFT'
+          <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>) accountingCount,
+        (select count(*) from biz_project_stage_acceptance acceptance
+          join biz_project p on p.project_id=acceptance.project_id and p.del_flag='0'
+          where acceptance.review_status='PENDING' and p.parent_id is null
+          <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>) stageAcceptanceCount,
+        (select count(*) from biz_project p
+          left join biz_project_kpi_plan plan on plan.plan_id=(select latest.plan_id from biz_project_kpi_plan latest
+            where latest.project_id=p.project_id and latest.status&lt;&gt;'VOIDED'
+            order by latest.cycle_end desc,latest.plan_version desc limit 1)
+          where p.del_flag='0' and p.status in ('ACTIVE','PAUSED','ACCEPTANCE')
+            and ((select count(*) from biz_project_kpi target
+              where target.project_id=p.project_id and target.status='CURRENT')=0 or plan.plan_id is null)
+          <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>) kpiMissingCount,
+        (select count(*) from biz_project p
+          join biz_project_kpi_plan plan on plan.plan_id=(select latest.plan_id from biz_project_kpi_plan latest
+            where latest.project_id=p.project_id and latest.status&lt;&gt;'VOIDED'
+            order by latest.cycle_end desc,latest.plan_version desc limit 1)
+          join biz_project_kpi_settlement settlement on settlement.plan_id=plan.plan_id and settlement.status='SUBMITTED'
+          where p.del_flag='0'
+          <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>) kpiReviewCount,
+        (select count(*) from (select u.user_id,
+            case when profile.country_region is null or profile.country_region not in ('CN','VN') then 'MISSING_REGION'
+                 when valid_cost.user_id is not null then 'READY'
+                 when any_cost.user_id is not null then 'LEGACY_COST' else 'MISSING_COST' end costStatus
+          from sys_user u
+          join sys_dept staff_dept on staff_dept.dept_id=u.dept_id and staff_dept.del_flag='0'
+          join sys_dept company on company.parent_id=100 and company.del_flag='0' and company.status='0'
+            and (company.dept_id=staff_dept.dept_id or find_in_set(company.dept_id,staff_dept.ancestors))
+          left join biz_staff_profile profile on profile.user_id=u.user_id
+          left join (select user_id from biz_staff_cost_policy where status='ACTIVE' and effective_from&lt;=#{bizDate}
+            and (effective_to is null or effective_to&gt;=#{bizDate}) group by user_id) any_cost on any_cost.user_id=u.user_id
+          left join (select user_id from biz_staff_cost_policy where status='ACTIVE' and cost_mode='MONTHLY'
+            and currency in ('CNY','VND') and standard_work_days is not null and standard_work_days&gt;0
+            and effective_from&lt;=#{bizDate} and (effective_to is null or effective_to&gt;=#{bizDate})
+            group by user_id) valid_cost on valid_cost.user_id=u.user_id
+          where u.del_flag='0' and u.status='0' and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT'
+          <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="company.dept_id"/><property name="capability" value="COST_READ"/></include></if>
+          having costStatus&lt;&gt;'READY') personnel_issue) personnelCostCount,
+        (select count(*) from biz_project p where p.del_flag='0' and (p.status='DRAFT'
+          or (p.status='PLANNING' and p.baseline_status='SUBMITTED') or p.status in ('PAUSED','ACCEPTANCE'))
+          and not (p.parent_id is not null and p.status='ACCEPTANCE')
+          <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>) projectCount
+    </select>
+    <select id="selectBossPendingPage" resultType="map">
+      select pending.* from (
+        <choose>
+          <when test="category == 'PROPOSAL'"><include refid="bossPendingProposal"/></when>
+          <when test="category == 'MANAGEMENT_FEE'"><include refid="bossPendingManagementFee"/></when>
+          <when test="category == 'BONUS_PAYMENT'"><include refid="bossPendingBonusPayment"/></when>
+          <when test="category == 'INCENTIVE_REVIEW'"><include refid="bossPendingIncentiveReview"/></when>
+          <when test="category == 'ACCOUNTING'"><include refid="bossPendingAccounting"/></when>
+          <when test="category == 'STAGE_ACCEPTANCE'"><include refid="bossPendingStageAcceptance"/></when>
+          <when test="category == 'KPI_MISSING'"><include refid="bossPendingKpiMissing"/></when>
+          <when test="category == 'KPI_REVIEW'"><include refid="bossPendingKpiReview"/></when>
+          <when test="category == 'PERSONNEL_COST'"><include refid="bossPendingPersonnelCost"/></when>
+          <when test="category == 'PROJECT'"><include refid="bossPendingProject"/></when>
+          <otherwise>
+            <include refid="bossPendingProposal"/> union all
+            <include refid="bossPendingManagementFee"/> union all
+            <include refid="bossPendingIncentiveReview"/> union all
+            <include refid="bossPendingBonusPayment"/> union all
+            <include refid="bossPendingAccounting"/> union all
+            <include refid="bossPendingStageAcceptance"/> union all
+            <include refid="bossPendingKpiMissing"/> union all
+            <include refid="bossPendingKpiReview"/> union all
+            <include refid="bossPendingPersonnelCost"/> union all
+            <include refid="bossPendingProject"/>
+          </otherwise>
+        </choose>
+      ) pending order by pending.categoryOrder,pending.sortTime,pending.itemKey
+      limit #{offset},#{pageSize}
+    </select>
+    <select id="selectMyDueTasks" resultType="map">
+        select t.task_id taskId,t.task_name taskName,t.status,t.progress,t.priority,t.due_date dueDate,
+          p.project_id projectId,p.project_no projectNo,p.project_name projectName
+        from biz_project_task t join biz_project p on p.project_id=t.project_id and p.del_flag='0'
+        where t.assignee_user_id=#{userId} and t.active_status='ACTIVE' and t.status&lt;&gt;'DONE'
+        <if test="boss == true and viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+        order by t.due_date is null,t.due_date,t.priority='HIGH' desc limit 20
+    </select>
+    <select id="selectMyWorkTasks" resultType="map">
+        select t.task_id taskId,t.project_id projectId,t.parent_task_id parentTaskId,t.milestone_id milestoneId,
+          t.assignee_user_id assigneeUserId,p.project_name projectName,p.project_no projectNo,
+          p.initiator_name initiatorName,p.main_owner_name mainOwnerName,p.status projectStatus,
+          exists(select 1 from biz_project_member_work_pause pause where pause.project_id=p.project_id
+            and pause.user_id=#{userId} and pause.started_time is null) memberWorkPaused,
+          t.task_name taskName,t.status,t.progress,t.priority,t.plan_start_date planStartDate,
+          t.due_date dueDate,t.version,t.remark,today_report.report_id todayTaskReportId,
+          today_report.progress todayProgress,today_report.completion_summary todayCompletionSummary,
+          today_report.evidence_urls todayEvidenceUrls,
+          leave_record.leave_id todayLeaveId,leave_record.reason todayLeaveReason
+        from biz_project_task t join biz_project p on p.project_id=t.project_id and p.del_flag='0'
+        join biz_project_member active_member on active_member.project_id=t.project_id
+          and active_member.user_id=t.assignee_user_id and active_member.status='0'
+          and active_member.member_role&lt;&gt;'OBSERVER'
+        left join biz_project_task_report today_report on today_report.task_id=t.task_id
+          and today_report.biz_date=current_date()
+        left join biz_staff_leave leave_record on leave_record.user_id=t.assignee_user_id
+          and leave_record.leave_date=current_date() and leave_record.status='ACTIVE'
+        where t.assignee_user_id=#{userId} and t.active_status='ACTIVE'
+          and (t.status&lt;&gt;'DONE' or exists(select 1 from biz_project_task_report period_report
+            where period_report.task_id=t.task_id and period_report.biz_date between #{dateFrom} and #{dateTo}))
+          and p.status in ('PLANNING','ACTIVE','PAUSED')
+          and (
+            (t.plan_start_date is not null and t.plan_start_date&lt;=#{dateTo}
+              and (t.due_date is null or t.due_date&gt;=#{dateFrom}))
+            or (t.plan_start_date is null and date(t.create_time)&lt;=#{dateTo}
+              and (t.due_date is null or t.due_date&gt;=#{dateFrom}))
+            or t.due_date&lt;#{dateFrom}
+          )
+        order by t.due_date is null,t.due_date,p.project_id,t.task_id
+    </select>
+    <select id="selectMyWorkRoutines" resultType="map">
+        select r.routine_id routineId,r.project_id projectId,p.project_name projectName,p.project_no projectNo,
+          p.initiator_name initiatorName,p.main_owner_name mainOwnerName,p.status projectStatus,
+          exists(select 1 from biz_project_member_work_pause pause where pause.project_id=p.project_id
+            and pause.user_id=#{userId} and pause.started_time is null) memberWorkPaused,p.goal_mode goalMode,
+          r.routine_name routineName,r.frequency,r.target_mode targetMode,r.target_value targetValue,r.unit,
+          r.start_date startDate,r.end_date endDate,r.evidence_required evidenceRequired,r.version,r.remark,
+          coalesce(sum(case when rr.biz_date between #{dateFrom} and #{dateTo} then rr.actual_value else 0 end),0) periodActual,
+          count(distinct case when rr.biz_date between #{dateFrom} and #{dateTo} then rr.biz_date end) reportedDays,
+          coalesce(max(case when rr.biz_date=#{today} then rr.target_snapshot end),case r.target_mode
+            when 'NONE' then null when 'DAILY_DYNAMIC' then daily_target.target_value
+            when 'AUTO_TOTAL' then round(greatest(r.target_value-coalesce((select sum(prior.actual_value)
+              from biz_project_routine_report prior where prior.routine_id=r.routine_id
+                and prior.status='SUBMITTED' and prior.biz_date&lt;#{today}),0),0)
+              / greatest(datediff(r.end_date,#{today})+1,1),4)
+            else r.target_value end) todayTarget,
+          daily_target.daily_target_id todayTargetId,daily_target.target_version todayTargetVersion,
+          daily_target.customer_requirement todayRequirement,
+          max(case when rr.biz_date=#{today} then rr.report_id end) todayReportId,
+           max(case when rr.biz_date=#{today} then rr.actual_value end) todayActual,
+           max(case when rr.biz_date=#{today} then rr.summary end) todaySummary,
+           max(case when rr.biz_date=#{today} then rr.issue_reason end) todayIssueReason,
+           max(case when rr.biz_date=#{today} then rr.evidence_urls end) todayEvidenceUrls,
+           max(leave_record.leave_id) todayLeaveId,max(leave_record.reason) todayLeaveReason
+         from biz_project_routine r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+         join biz_project_member active_member on active_member.project_id=r.project_id
+           and active_member.user_id=r.assignee_user_id and active_member.status='0'
+           and active_member.member_role&lt;&gt;'OBSERVER'
+         left join biz_project_routine_report rr on rr.routine_id=r.routine_id and rr.status='SUBMITTED'
+           and rr.biz_date between #{dateFrom} and #{dateTo}
+         left join biz_project_routine_daily_target daily_target on daily_target.routine_id=r.routine_id
+           and daily_target.biz_date=#{today} and daily_target.status='CURRENT'
+         left join biz_staff_leave leave_record on leave_record.user_id=r.assignee_user_id
+           and leave_record.leave_date=#{today} and leave_record.status='ACTIVE'
+        where r.assignee_user_id=#{userId} and r.status='ACTIVE' and p.status='ACTIVE'
+          and r.start_date&lt;=#{dateTo} and (r.end_date is null or r.end_date&gt;=#{dateFrom})
+        group by r.routine_id,r.project_id,p.project_name,p.project_no,p.initiator_name,p.main_owner_name,p.status,p.goal_mode,
+          r.routine_name,r.frequency,r.target_mode,r.target_value,r.unit,r.start_date,r.end_date,r.evidence_required,r.version,r.remark,
+          daily_target.daily_target_id,daily_target.target_version,daily_target.target_value,daily_target.customer_requirement
+        order by p.project_id,r.routine_id
+    </select>
+    <select id="selectMyEfforts" resultType="map">
+        select a.allocation_id allocationId,a.project_id projectId,p.project_name projectName,
+          p.initiator_name initiatorName,a.allocation_value plannedPercent,p.cost_policy_version costPolicyVersion,
+          a.confirmation_status confirmationStatus,p.main_owner_name ownerName,
+          case when leave_record.leave_id is not null then 0 else coalesce(e.actual_percent,a.allocation_value) end actualPercent,
+          e.effort_id effortId,
+          case when leave_record.leave_id is not null then 'LEAVE' else coalesce(e.report_status,'UNSUBMITTED') end reportStatus,
+          case when leave_record.leave_id is not null then 'LEAVE' else e.source_type end sourceType,
+          e.deviation_reason deviationReason,e.remark reviewComment,e.version,leave_record.reason leaveReason
+        from biz_project_staff_allocation a
+        join biz_project p on p.project_id=a.project_id and p.del_flag='0'
+        left join biz_project_effort_report e on e.project_id=a.project_id and e.user_id=a.user_id
+          and e.biz_date=#{bizDate}
+        left join biz_staff_leave leave_record on leave_record.user_id=a.user_id
+          and leave_record.leave_date=#{bizDate} and leave_record.status='ACTIVE'
+        where a.user_id=#{userId} and a.status='ACTIVE' and a.allocation_mode='PERCENTAGE'
+          and a.effective_from&lt;=#{bizDate} and (a.effective_to is null or a.effective_to&gt;=#{bizDate})
+          and p.status in ('PLANNING','ACTIVE','PAUSED')
+        order by p.project_id,a.allocation_id
+    </select>
+    <select id="selectOwnerPendingEffortRequests" resultType="map">
+        select e.effort_id effortId,e.project_id projectId,p.project_no projectNo,p.project_name projectName,
+          e.user_id userId,e.user_name userName,e.biz_date bizDate,e.planned_percent plannedPercent,
+          e.actual_percent actualPercent,e.deviation_reason deviationReason,e.create_time submittedTime
+        from biz_project_effort_report e
+        join biz_project p on p.project_id=e.project_id and p.del_flag='0'
+        where e.report_status='SUBMITTED' and p.status not in ('CLOSED','CANCELED')
+        <if test="viewAll == false">and p.main_owner_user_id=#{userId}</if>
+        order by e.biz_date desc,e.create_time desc,e.effort_id desc
+        limit 100
+    </select>
+    <select id="selectParentOwnerAcceptanceTodos" resultType="map">
+        select 'RESULT_ACCEPTANCE' reviewType,child.project_id projectId,child.project_name projectName,
+          parent.project_id parentProjectId,parent.project_name parentProjectName,
+          child.main_owner_name childOwnerName,null milestoneId,null milestoneName,
+          acceptance.submitted_time submittedTime
+        from biz_project child
+        join biz_project parent on parent.project_id=child.parent_id and parent.del_flag='0'
+        join biz_project_acceptance acceptance on acceptance.project_id=child.project_id
+          and acceptance.review_status='PENDING'
+        where child.del_flag='0' and child.status='ACCEPTANCE' and child.close_method='RESULT_ACCEPTANCE'
+          and parent.main_owner_user_id=#{userId}
+        union all
+        select 'STAGE_ACCEPTANCE' reviewType,child.project_id projectId,child.project_name projectName,
+          parent.project_id parentProjectId,parent.project_name parentProjectName,
+          child.main_owner_name childOwnerName,acceptance.milestone_id milestoneId,
+          milestone.milestone_name milestoneName,acceptance.submitted_time submittedTime
+        from biz_project child
+        join biz_project parent on parent.project_id=child.parent_id and parent.del_flag='0'
+        join biz_project_stage_acceptance acceptance on acceptance.project_id=child.project_id
+          and acceptance.review_status='PENDING'
+        join biz_project_milestone milestone on milestone.milestone_id=acceptance.milestone_id
+          and milestone.project_id=child.project_id
+        where child.del_flag='0' and child.status='ACTIVE' and parent.main_owner_user_id=#{userId}
+        union all
+        select 'PROJECT_CLOSE' reviewType,child.project_id projectId,child.project_name projectName,
+          parent.project_id parentProjectId,parent.project_name parentProjectName,
+          child.main_owner_name childOwnerName,null milestoneId,null milestoneName,child.update_time submittedTime
+        from biz_project child
+        join biz_project parent on parent.project_id=child.parent_id and parent.del_flag='0'
+        where child.del_flag='0' and child.status='ACCEPTANCE'
+          and child.close_method in ('DIRECT','STAGED_ACCEPTANCE')
+          and parent.main_owner_user_id=#{userId}
+        order by submittedTime desc,projectId desc
+    </select>
+    <select id="selectEffortReport" resultMap="EffortResult">
+        select * from biz_project_effort_report
+        where project_id=#{projectId} and user_id=#{userId} and biz_date=#{bizDate} limit 1
+    </select>
+    <select id="sumUserEffectiveEffortExcludingProject" resultType="java.math.BigDecimal">
+        select coalesce(sum(coalesce(e.actual_percent,a.allocation_value)),0)
+        from biz_project_staff_allocation a
+        join biz_project p on p.project_id=a.project_id and p.del_flag='0'
+        join biz_project_member active_member on active_member.project_id=a.project_id
+          and active_member.user_id=a.user_id and active_member.status='0'
+          and active_member.member_role&lt;&gt;'OBSERVER'
+        left join biz_project_effort_report e on e.project_id=a.project_id and e.user_id=a.user_id
+          and e.biz_date=#{bizDate}
+        left join biz_staff_leave leave_record on leave_record.user_id=a.user_id
+          and leave_record.leave_date=#{bizDate} and leave_record.status='ACTIVE'
+        where a.user_id=#{userId} and a.project_id&lt;&gt;#{excludeProjectId} and a.status='ACTIVE'
+          and a.allocation_mode='PERCENTAGE' and a.effective_from&lt;=#{bizDate}
+          and (a.effective_to is null or a.effective_to&gt;=#{bizDate})
+          and p.status in ('PLANNING','ACTIVE','PAUSED')
+          and leave_record.leave_id is null
+    </select>
+    <insert id="upsertEffortReport" parameterType="com.ruoyi.business.domain.BusinessProjectEffort"
+            useGeneratedKeys="true" keyProperty="effortId">
+        insert into biz_project_effort_report(project_id,user_id,user_name,biz_date,planned_percent,actual_percent,
+          source_type,report_status,deviation_reason,version,create_by,create_time)
+        values(#{projectId},#{userId},#{userName},#{bizDate},#{plannedPercent},#{actualPercent},
+          #{sourceType},'SUBMITTED',#{deviationReason},0,#{createBy},sysdate())
+        on duplicate key update planned_percent=values(planned_percent),actual_percent=values(actual_percent),
+          source_type='EMPLOYEE',report_status='SUBMITTED',deviation_reason=values(deviation_reason),
+          confirmed_user_id=null,confirmed_user_name=null,confirmed_time=null,version=version+1,
+          remark=null,update_by=values(create_by),update_time=sysdate()
+    </insert>
+    <select id="selectProjectEffortWeek" resultType="map">
+        with recursive days as (
+          select str_to_date(#{dateFrom},'%Y-%m-%d') biz_date
+          union all select date_add(biz_date,interval 1 day) from days where biz_date&lt;str_to_date(#{dateTo},'%Y-%m-%d')
+        )
+        select a.allocation_id allocationId,a.user_id userId,a.user_name userName,d.biz_date bizDate,
+          a.allocation_value plannedPercent,
+          case when leave_record.leave_id is not null then 0 else coalesce(e.actual_percent,a.allocation_value) end actualPercent,
+          case when leave_record.leave_id is not null then 'LEAVE' else coalesce(e.report_status,'UNSUBMITTED') end reportStatus,
+          case when leave_record.leave_id is not null then 'LEAVE' else e.source_type end sourceType,
+          e.deviation_reason deviationReason,e.remark reviewComment,
+          e.confirmed_user_name confirmedUserName,e.confirmed_time confirmedTime,
+          leave_record.reason leaveReason
+        from days d join biz_project_staff_allocation a
+          on a.project_id=#{projectId} and a.status='ACTIVE' and a.allocation_mode='PERCENTAGE'
+          and a.effective_from&lt;=d.biz_date and (a.effective_to is null or a.effective_to&gt;=d.biz_date)
+        left join biz_project_effort_report e on e.project_id=a.project_id and e.user_id=a.user_id
+          and e.biz_date=d.biz_date
+        left join biz_staff_leave leave_record on leave_record.user_id=a.user_id
+          and leave_record.leave_date=d.biz_date and leave_record.status='ACTIVE'
+        order by d.biz_date,a.user_name,a.user_id
+    </select>
+    <insert id="confirmProjectEffortDay">
+        insert into biz_project_effort_report(project_id,user_id,user_name,biz_date,planned_percent,actual_percent,
+          source_type,report_status,confirmed_user_id,confirmed_user_name,confirmed_time,version,
+          create_by,create_time,update_by,update_time)
+        select a.project_id,a.user_id,a.user_name,#{bizDate},a.allocation_value,a.allocation_value,
+          'PLAN_DEFAULT','CONFIRMED',#{userId},#{userName},sysdate(),0,#{userName},sysdate(),#{userName},sysdate()
+        from biz_project_staff_allocation a
+        where a.project_id=#{projectId} and a.status='ACTIVE' and a.allocation_mode='PERCENTAGE'
+          and a.effective_from&lt;=#{bizDate} and (a.effective_to is null or a.effective_to&gt;=#{bizDate})
+          and not exists(select 1 from biz_staff_leave leave_record where leave_record.user_id=a.user_id
+            and leave_record.leave_date=#{bizDate} and leave_record.status='ACTIVE')
+        on duplicate key update effort_id=effort_id
+    </insert>
+    <update id="confirmProjectMemberEffort">
+        update biz_project_effort_report
+        set report_status='CONFIRMED',confirmed_user_id=#{userId},confirmed_user_name=#{userName},
+          confirmed_time=sysdate(),remark=null,version=version+1,update_by=#{userName},update_time=sysdate()
+        where project_id=#{projectId} and user_id=#{memberUserId} and biz_date=#{bizDate}
+          and report_status='SUBMITTED'
+    </update>
+    <update id="returnProjectMemberEffort">
+        update biz_project_effort_report
+        set report_status='RETURNED',confirmed_user_id=null,confirmed_user_name=null,confirmed_time=null,
+          remark=#{reviewComment},version=version+1,update_by=#{userName},update_time=sysdate()
+        where project_id=#{projectId} and user_id=#{memberUserId} and biz_date=#{bizDate}
+          and report_status='SUBMITTED'
+    </update>
+    <select id="countEffectiveProjectAllocation" resultType="int">
+        select count(*) from biz_project_staff_allocation
+        where project_id=#{projectId} and user_id=#{userId} and status='ACTIVE'
+          and effective_from&lt;=#{bizDate} and (effective_to is null or effective_to&gt;=#{bizDate})
+    </select>
+    <select id="selectStaffLeave" resultType="map">
+        select leave_id leaveId,user_id userId,user_name userName,leave_date leaveDate,leave_type leaveType,
+          reason,status,recorded_project_id recordedProjectId,source_request_id sourceRequestId,recorded_user_id recordedUserId,
+          recorded_user_name recordedUserName,version,create_time createTime,update_time updateTime
+        from biz_staff_leave where user_id=#{userId} and leave_date=#{leaveDate} limit 1
+    </select>
+    <select id="lockUserForLeave" resultType="long">
+        select user_id from sys_user where user_id=#{userId} and del_flag='0' for update
+    </select>
+    <select id="selectProjectMemberLeaves" resultType="map">
+        select distinct leave_record.leave_id leaveId,leave_record.user_id userId,
+          leave_record.user_name userName,leave_record.leave_date leaveDate,
+          leave_record.reason,leave_record.status,leave_record.recorded_project_id recordedProjectId,
+          leave_record.recorded_user_name recordedUserName
+        from biz_staff_leave leave_record
+        join biz_project_member member on member.user_id=leave_record.user_id
+          and member.project_id=#{projectId} and member.status='0'
+        where leave_record.leave_date=#{leaveDate} and leave_record.status='ACTIVE'
+        order by leave_record.user_name
+    </select>
+    <select id="selectAllocatedProjectIdsForUserDate" resultType="long">
+        select distinct a.project_id from biz_project_staff_allocation a
+        join biz_project p on p.project_id=a.project_id and p.del_flag='0' and p.company_dept_id is not null
+          and p.status in ('PLANNING','ACTIVE','PAUSED','ACCEPTANCE')
+        where a.user_id=#{userId} and a.status='ACTIVE' and a.effective_from&lt;=#{bizDate}
+          and (a.effective_to is null or a.effective_to&gt;=#{bizDate})
+    </select>
+    <select id="selectProjectDirectory" resultType="map">
+        select project_id projectId,project_name projectName,
+          coalesce(sponsor_owner_user_id,initiator_user_id) initiatorUserId,
+          coalesce(sponsor_owner_name,initiator_name) initiatorName
+        from biz_project where del_flag='0'
+        order by initiator_name,project_name,project_id desc
+    </select>
+    <select id="selectUserOptions" resultType="map">
+        select u.user_id userId,u.user_name userName,u.nick_name nickName,u.dept_id deptId,
+          d.dept_name deptName,company.dept_id companyDeptId,company.dept_name companyName
+        from sys_user u
+        left join sys_dept d on d.dept_id=u.dept_id and d.del_flag='0'
+        left join sys_dept company on company.parent_id=100 and company.del_flag='0'
+          and (company.dept_id=d.dept_id or find_in_set(company.dept_id,d.ancestors))
+        left join biz_staff_profile profile on profile.user_id=u.user_id
+        where u.del_flag='0' and u.status='0' and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT'
+        <if test="keyword != null and keyword != ''">
+          and (u.user_name like concat('%',#{keyword},'%') or u.nick_name like concat('%',#{keyword},'%'))
+        </if>
+        order by company.order_num,d.order_num,u.user_id limit 1000
+    </select>
+
+    <select id="selectStaffResponsibilities" resultType="map">
+        select p.project_id projectId,p.project_no projectNo,p.project_name projectName,p.project_type projectType,
+          p.status,p.priority,p.plan_start_date planStartDate,p.plan_end_date planEndDate,
+          coalesce(p.sponsor_owner_user_id,p.initiator_user_id) initiatorUserId,
+          coalesce(p.sponsor_owner_name,p.initiator_name) initiatorName,
+          p.main_owner_user_id mainOwnerUserId,p.main_owner_name mainOwnerName,
+          case when p.main_owner_user_id=#{staffUserId} then 'OWNER' else member.member_role end responsibilityRole,
+          case when p.main_owner_user_id=#{staffUserId} then '0' else member.status end responsibilityStatus,
+          member.joined_date joinedDate,member.left_date leftDate,
+          exists(select 1 from biz_project_owner_history h where h.project_id=p.project_id
+            and (h.from_user_id=#{staffUserId} or h.to_user_id=#{staffUserId})) everOwner,
+          (select count(*) from biz_project_task t where t.project_id=p.project_id
+            and t.assignee_user_id=#{staffUserId}) assignedTaskCount,
+          (select count(*) from biz_project_task t where t.project_id=p.project_id
+            and t.assignee_user_id=#{staffUserId} and t.status='DONE') completedTaskCount
+        from biz_project p
+        left join biz_project_member member on member.project_id=p.project_id and member.user_id=#{staffUserId}
+        where p.del_flag='0' and (p.main_owner_user_id=#{staffUserId} or member.user_id is not null)
+        <choose>
+          <when test="viewAll == true"/>
+          <when test="boss == true"/>
+          <otherwise>
+            and (p.main_owner_user_id=#{viewerUserId} or exists(select 1 from biz_project_member viewer_member
+              where viewer_member.project_id=p.project_id and viewer_member.user_id=#{viewerUserId}
+                and viewer_member.status='0'))
+          </otherwise>
+        </choose>
+        order by (case when p.main_owner_user_id=#{staffUserId} then 0 else 1 end),
+          field(p.status,'PLANNING','ACTIVE','PAUSED','ACCEPTANCE','DRAFT','CLOSED','CANCELED'),p.update_time desc
+    </select>
+    <select id="selectActiveUserById" resultType="map">
+        select u.user_id userId,u.user_name userName,u.nick_name nickName
+        from sys_user u left join biz_staff_profile profile on profile.user_id=u.user_id
+        where u.user_id=#{userId} and u.del_flag='0' and u.status='0'
+          and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT'
+        limit 1
+    </select>
+    <select id="selectUserAuditSnapshotById" resultType="map">
+        select u.user_id userId,u.user_name userName,u.nick_name nickName
+        from sys_user u where u.user_id=#{userId} limit 1
+    </select>
+    <select id="selectCostEligibleUserById" resultType="map">
+        select u.user_id userId,u.user_name userName,u.nick_name nickName
+        from sys_user u left join biz_staff_profile profile on profile.user_id=u.user_id
+        where u.user_id=#{userId} and u.del_flag='0'
+          and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT'
+        limit 1
+    </select>
+    <select id="selectStaffCountryRegion" resultType="string">
+        select coalesce(p.country_region,
+          case when vietnam.dept_id is not null then 'VN' else 'CN' end)
+        from sys_user u
+        left join biz_staff_profile p on p.user_id=u.user_id
+        left join sys_dept staff_dept on staff_dept.dept_id=u.dept_id and staff_dept.del_flag='0'
+        left join sys_dept vietnam on vietnam.dept_name='越南meimaru公司' and vietnam.del_flag='0'
+          and (vietnam.dept_id=staff_dept.dept_id or find_in_set(vietnam.dept_id,staff_dept.ancestors))
+        where u.user_id=#{userId} and u.del_flag='0' and u.status='0' limit 1
+    </select>
+    <select id="selectCompanyById" resultType="map">
+        select dept_id deptId,dept_name deptName from sys_dept
+        where dept_id=#{deptId} and parent_id=100 and del_flag='0' and status='0' limit 1
+    </select>
+    <select id="selectRoleIdByKey" resultType="long">
+        select role_id from sys_role where role_key=#{roleKey} and del_flag='0' limit 1
+    </select>
+    <select id="countUserRoleByKey" resultType="int">
+        select count(*) from sys_user_role ur join sys_role r on r.role_id=ur.role_id
+        where ur.user_id=#{userId} and r.role_key=#{roleKey} and r.del_flag='0' and r.status='0'
+    </select>
+    <select id="countActiveProjectMembershipByRole" resultType="int">
+        select count(*)
+        from biz_project_member member
+        join biz_project project on project.project_id=member.project_id and project.del_flag='0'
+        where member.user_id=#{userId} and member.member_role=#{memberRole} and member.status='0'
+    </select>
+    <select id="selectUserRoleNames" resultType="string">
+        select group_concat(distinct r.role_name order by r.role_sort separator '、')
+        from sys_user_role ur join sys_role r on r.role_id=ur.role_id
+        where ur.user_id=#{userId} and r.del_flag='0' and r.status='0'
+    </select>
+    <insert id="insertUserRole">
+        insert ignore into sys_user_role(user_id,role_id) values(#{userId},#{roleId})
+    </insert>
+    <delete id="deleteUserRole">
+        delete from sys_user_role where user_id=#{userId} and role_id=#{roleId}
+    </delete>
+    <select id="selectAttachmentProjectIds" resultType="long">
+        select distinct attachment_project.project_id from (
+          select project_id from biz_operating_fact where find_in_set(#{attachmentUrl},replace(replace(coalesce(attachment_urls,''),' ',''),char(92),'/'))&gt;0
+          union all select project_id from biz_project_acceptance where find_in_set(#{attachmentUrl},replace(replace(coalesce(attachment_urls,''),' ',''),char(92),'/'))&gt;0
+          union all select project_id from biz_project_stage_acceptance where find_in_set(#{attachmentUrl},replace(replace(coalesce(attachment_urls,''),' ',''),char(92),'/'))&gt;0
+          union all select project_id from biz_project_task_report where find_in_set(#{attachmentUrl},replace(replace(coalesce(evidence_urls,''),' ',''),char(92),'/'))&gt;0
+          union all select project_id from biz_project_progress_report where instr(coalesce(snapshot_json,''),#{attachmentUrl})&gt;0 or find_in_set(#{attachmentUrl},replace(replace(coalesce(evidence_urls,''),' ',''),char(92),'/'))&gt;0
+          union all select project_id from biz_project_routine_report where find_in_set(#{attachmentUrl},replace(replace(coalesce(evidence_urls,''),' ',''),char(92),'/'))&gt;0
+          union all select project_id from biz_project_completion_submission where find_in_set(#{attachmentUrl},replace(replace(coalesce(evidence_urls,''),' ',''),char(92),'/'))&gt;0
+          union all select project_id from biz_project_work_report where find_in_set(#{attachmentUrl},replace(replace(coalesce(attachment_urls,''),' ',''),char(92),'/'))&gt;0
+          union all select settlement.project_id from biz_project_kpi_result result
+            join biz_project_kpi_settlement settlement on settlement.settlement_id=result.settlement_id
+            where find_in_set(#{attachmentUrl},replace(replace(coalesce(result.attachment_urls,''),' ',''),char(92),'/'))&gt;0
+          union all select submitted_project_id from biz_staff_leave_request
+            where find_in_set(#{attachmentUrl},replace(replace(coalesce(attachment_urls,''),' ',''),char(92),'/'))&gt;0
+        ) attachment_project
+    </select>
+    <select id="selectStaffCompanyId" resultType="long">select c.dept_id from sys_user u join sys_dept d on d.dept_id=u.dept_id and d.del_flag='0' join sys_dept c on c.parent_id=100 and c.del_flag='0' and c.status='0' and (c.dept_id=d.dept_id or find_in_set(c.dept_id,d.ancestors)) where u.user_id=#{userId} and u.del_flag='0' limit 1</select>
+    <select id="lockStaffCostPerson" resultType="long" flushCache="true" useCache="false">select user_id from sys_user where user_id=#{userId} and del_flag='0' for update</select>
+    <select id="selectStaffCostOptions" resultType="map">
+      select u.user_id userId,u.nick_name nickName,u.user_name userName,c.dept_id companyDeptId,c.dept_name companyName,p.country_region countryRegion
+      from sys_user u join sys_dept d on d.dept_id=u.dept_id and d.del_flag='0'
+      join sys_dept c on c.parent_id=100 and c.del_flag='0' and c.status='0' and (c.dept_id=d.dept_id or find_in_set(c.dept_id,d.ancestors))
+      left join biz_staff_profile p on p.user_id=u.user_id
+      where u.del_flag='0' and u.status='0' and coalesce(p.employment_status,'ACTIVE')&lt;&gt;'LEFT'
+      and ((#{companyOwner}=false and exists(select 1 from biz_project_member m join biz_project pr on pr.project_id=m.project_id and pr.main_owner_user_id=#{userId} and pr.del_flag='0' and pr.status not in('CLOSED','CANCELED') where m.user_id=u.user_id and m.status='0'))
+        or <choose><when test="administrator == true">1=1</when><when test="companyOwner == true"><include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="c.dept_id"/><property name="capability" value="COST_READ"/></include></when><when test="financeManager == true">c.dept_id=#{companyDeptId}</when><otherwise>1=0</otherwise></choose>)
+      order by c.order_num,u.nick_name,u.user_id
+    </select>
+</mapper>

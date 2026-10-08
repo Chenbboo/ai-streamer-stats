@@ -1,0 +1,3708 @@
+package com.ruoyi.jewelry.service.impl;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.jewelry.domain.JewelryDocument;
+import com.ruoyi.jewelry.domain.JewelryDocumentItem;
+import com.ruoyi.jewelry.mapper.JewelryErpMapper;
+import com.ruoyi.jewelry.service.IJewelryErpService;
+
+@Service
+public class JewelryErpServiceImpl implements IJewelryErpService
+{
+    private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(6);
+    private static final Set<String> EDITABLE_DOCUMENT_TYPES = Collections.unmodifiableSet(
+        new HashSet<String>(Arrays.asList("PURCHASE_IN", "SAMPLE_IN", "SAMPLE_RETURN", "SALES_OUT", "SUPPLIER_RETURN",
+            "CUSTOMER_RETURN", "RETURN_INSPECT", "STOCK_ADJUST", "COST_ADJUST", "ASSEMBLY", "TRANSFER_OUT")));
+    private static final Set<String> PRODUCT_TYPES = Collections.unmodifiableSet(
+        new HashSet<String>(Arrays.asList("FINISHED", "PART", "ACCESSORY", "WELFARE", "SAMPLE", "GIFT")));
+    private static final Set<String> SALES_ROLES = Collections.unmodifiableSet(
+        new HashSet<String>(Arrays.asList("NORMAL", "MAIN", "ADDON")));
+    private static final Set<String> SALES_PRICING_MODES = Collections.unmodifiableSet(
+        new HashSet<String>(Arrays.asList("SEPARATE", "INCLUDED")));
+    @Autowired
+    private JewelryErpMapper mapper;
+
+    @Override
+    public List<Map<String, Object>> listProducts(Map<String, Object> query) { return mapper.selectProductList(query); }
+
+    @Override
+    public Map<String, Object> getProductBindingDetail(Long productId)
+    {
+        if (productId == null || productId <= 0) throw new ServiceException("商品ID不正确");
+        Map<String, Object> product = mapper.selectProductById(productId);
+        if (product == null) throw new ServiceException("商品不存在");
+        String type = textValue(product.get("productType"));
+        if (!"FINISHED".equals(type) && !"GIFT".equals(type) && !"WELFARE".equals(type))
+            throw new ServiceException("仅支持查看成品、赠品和福利商品的达人绑定详情");
+        Map<String, Object> detail = new HashMap<String, Object>();
+        detail.put("product", product);
+        detail.put("bindings", mapper.selectInfluencerBindingsByProductId(productId));
+        return detail;
+    }
+
+    @Override
+    @Transactional
+    public int saveProduct(Map<String, Object> product)
+    {
+        String productType = textValue(product.get("productType")).trim();
+        if (!PRODUCT_TYPES.contains(productType))
+            throw new ServiceException("商品类型只能选择成品商品、散件商品、配件商品、福利商品、样品商品或赠品商品");
+        product.put("productType", productType);
+        product.put("defaultPackFee", nonNegativeDecimalValue(product.get("defaultPackFee"), "默认包装费"));
+        product.put("defaultShipFee", nonNegativeDecimalValue(product.get("defaultShipFee"), "默认物流费"));
+        product.put("defaultCertFee", nonNegativeDecimalValue(product.get("defaultCertFee"), "默认鉴定费"));
+        product.put("warningQty", nonNegativeValue(product.get("warningQty"), 5));
+        String status = textValue(product.get("status"));
+        if (!"0".equals(status) && !"1".equals(status)) throw new ServiceException("商品状态不正确");
+        String productImage = singleImage(product.get("imageUrls"));
+        if (productImage.isEmpty()) productImage = singleImage(product.get("imageUrl"));
+        product.put("imageUrls", productImage);
+        product.put("imageUrl", productImage);
+        int rows;
+        if (product.get("productId") == null)
+        {
+            rows = mapper.insertProduct(product);
+            mapper.ensureStock(longValue(product.get("productId")));
+        }
+        else
+        {
+            rows = mapper.updateProduct(product);
+        }
+        return rows;
+    }
+
+    @Override
+    public int updateProductBasic(Map<String, Object> product)
+    {
+        String productName = textValue(product.get("productName")).trim();
+        if (productName.isEmpty()) throw new ServiceException("商品名称不能为空");
+        String productImage = singleImage(product.get("imageUrls"));
+        if (productImage.isEmpty()) productImage = singleImage(product.get("imageUrl"));
+        product.put("productName", productName);
+        product.put("imageUrls", productImage);
+        product.put("imageUrl", productImage);
+        return mapper.updateProductBasic(product);
+    }
+
+    @Override
+    @Transactional
+    public int batchUpdateProducts(com.ruoyi.jewelry.domain.JewelryProductBatchUpdate request,
+        boolean fullEdit, String userName)
+    {
+        if (request == null || request.getProductIds() == null || request.getProductIds().isEmpty()
+            || request.getProductIds().size() > 200)
+            throw new ServiceException("请选择1到200件商品进行批量编辑");
+        Set<Long> uniqueIds = new java.util.TreeSet<Long>();
+        for (Long id : request.getProductIds())
+            if (id == null || id <= 0 || !uniqueIds.add(id))
+                throw new ServiceException("商品ID无效或重复，请重新选择");
+        Map<String, Object> input = request.getChanges();
+        if (input == null || input.isEmpty()) throw new ServiceException("请勾选需要修改的字段");
+        Set<String> allowed = new HashSet<String>(Arrays.asList("productName", "imageUrls"));
+        if (fullEdit) allowed.addAll(Arrays.asList("productType", "unit",
+            "warningQty", "status", "defaultPackFee", "defaultShipFee", "defaultCertFee"));
+        Map<String, Object> changes = new HashMap<String, Object>();
+        for (Map.Entry<String, Object> entry : input.entrySet())
+        {
+            String key = entry.getKey();
+            if (!allowed.contains(key)) throw new ServiceException("无权批量修改该字段或字段不支持：" + key);
+            Object value = entry.getValue();
+            if (value == null) throw new ServiceException("已勾选的修改字段不能为null");
+            if ("warningQty".equals(key))
+            {
+                try
+                {
+                    int quantity = new BigDecimal(String.valueOf(value)).intValueExact();
+                    if (quantity < 0) throw new ArithmeticException();
+                    changes.put(key, quantity);
+                }
+                catch (NumberFormatException | ArithmeticException ex)
+                {
+                    throw new ServiceException("库存预警值必须是0到2147483647之间的整数");
+                }
+            }
+            else if (key.startsWith("default"))
+            {
+                BigDecimal fee = decimalValue(value, "默认费用");
+                if (fee.signum() < 0 || fee.compareTo(new BigDecimal("999999999999.99")) > 0
+                    || fee.stripTrailingZeros().scale() > 2)
+                    throw new ServiceException("默认费用必须为非负数、最多保留2位小数，且不能超过999999999999.99");
+                changes.put(key, fee);
+            }
+            else
+            {
+                if (!(value instanceof String)) throw new ServiceException("字段格式不正确：" + key);
+                String text = ((String) value).trim();
+                if ("productType".equals(key) && !PRODUCT_TYPES.contains(text))
+                    throw new ServiceException("商品类型不正确");
+                if ("status".equals(key) && !Arrays.asList("0", "1").contains(text))
+                    throw new ServiceException("商品状态不正确");
+                int maxLength = "productName".equals(key) ? 128 : "imageUrls".equals(key) ? 500 : 16;
+                if (text.length() > maxLength) throw new ServiceException("字段内容过长：" + key);
+                if (("productName".equals(key) || "unit".equals(key)) && text.isEmpty())
+                    throw new ServiceException("商品名称和单位不能为空");
+                if ("imageUrls".equals(key) && text.contains(","))
+                    throw new ServiceException("每个商品只支持一张实物图片");
+                changes.put(key, text);
+            }
+        }
+        List<Long> ids = new java.util.ArrayList<Long>(uniqueIds);
+        if (mapper.lockProductIds(ids).size() != ids.size())
+            throw new ServiceException("部分商品已不存在，请刷新后重新选择；本次未修改任何商品");
+        mapper.batchUpdateProducts(ids, changes, userName);
+        return ids.size();
+    }
+
+    @Override
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+    public int deleteProducts(List<Long> productIds)
+    {
+        if (productIds == null || productIds.isEmpty() || productIds.size() > 200)
+            throw new ServiceException("请选择1到200件商品删除");
+        java.util.SortedSet<Long> uniqueIds = new java.util.TreeSet<Long>();
+        for (Long id : productIds)
+            if (id == null || id <= 0 || !uniqueIds.add(id))
+                throw new ServiceException("商品ID无效或重复，请重新选择");
+        List<Long> ids = new java.util.ArrayList<Long>(uniqueIds);
+        if (mapper.lockProductIds(ids).size() != ids.size())
+            throw new ServiceException("部分商品已不存在，请刷新后重新选择；本次未删除任何商品");
+        for (Long id : ids)
+        {
+            Map<String, Object> product = mapper.selectProductByIdForUpdate(id);
+            String name = textValue(product.get("sku"));
+            Map<String, Object> stock = mapper.selectStockForUpdate(id);
+            if (stock != null)
+                for (String key : Arrays.asList("onHandQty", "reservedOutQty", "inspectionQty",
+                    "inspectionReservedQty", "defectQty", "defectReservedQty", "inspectionCostAmount", "defectCostAmount"))
+                    if (decimal(stock.get(key)).signum() != 0)
+                        throw new ServiceException(name + "仍有库存、冻结或待检/次品余额，不能删除，请使用停用；本次未删除任何商品");
+            if (mapper.countProductReferences(id) > 0)
+                throw new ServiceException(name + "已有关联单据、库存流水或达人关系，不能删除，请使用停用；本次未删除任何商品");
+        }
+        mapper.deleteProductStock(ids);
+        if (mapper.deleteProducts(ids) != ids.size())
+            throw new ServiceException("商品数据已变化，请刷新后重试");
+        return ids.size();
+    }
+
+    @Override
+    public List<Map<String, Object>> listSuppliers(Map<String, Object> query) { return mapper.selectSupplierList(query); }
+
+    @Override
+    public int saveSupplier(Map<String, Object> supplier)
+    {
+        return supplier.get("supplierId") == null ? mapper.insertSupplier(supplier) : mapper.updateSupplier(supplier);
+    }
+
+    @Override
+    public List<Map<String, Object>> listInfluencers(Map<String, Object> query)
+    {
+        return mapper.selectInfluencerList(query);
+    }
+
+    @Override
+    public List<Map<String, Object>> listInfluencerPlatforms()
+    {
+        return mapper.selectInfluencerPlatforms();
+    }
+
+    @Override
+    @Transactional
+    public int saveInfluencer(Map<String, Object> influencer)
+    {
+        String name = textValue(influencer.get("influencerName")).trim();
+        if (name.isEmpty()) throw new ServiceException("达人/主播名称不能为空");
+        String status = textValue(influencer.get("status"));
+        if (!"0".equals(status) && !"1".equals(status)) throw new ServiceException("达人状态不正确");
+        influencer.put("externalInfluencerId", textValue(influencer.get("externalInfluencerId")).trim());
+        influencer.put("influencerName", name);
+        if (influencer.get("influencerId") != null)
+        {
+            Map<String, Object> existing = mapper.selectInfluencerById(longValue(influencer.get("influencerId")));
+            if (existing == null) throw new ServiceException("达人/主播不存在");
+            influencer.put("platform", existing.get("platform"));
+            influencer.put("platformCode", existing.get("platformCode"));
+            return mapper.updateInfluencer(influencer);
+        }
+
+        String platformCode = textValue(influencer.get("platformCode")).trim().toUpperCase(Locale.ROOT);
+        Map<String, Object> platform = mapper.selectInfluencerPlatformForUpdate(platformCode);
+        if (platform == null || !"0".equals(textValue(platform.get("status"))))
+            throw new ServiceException("请选择有效的平台");
+        long nextNo = longValue(platform.get("nextNo"));
+        influencer.put("platformCode", platformCode);
+        influencer.put("platform", platform.get("platformName"));
+
+        // The unique temporary value only bridges the generated-key insert. It is never exposed to users.
+        influencer.put("influencerCode", "TMP-" + UUID.randomUUID().toString().replace("-", "").substring(0, 28));
+        try
+        {
+            int rows = mapper.insertInfluencer(influencer);
+            long influencerId = longValue(influencer.get("influencerId"));
+            if (rows != 1 || influencerId <= 0L)
+                throw new ServiceException("达人编码生成失败，请重试");
+            String code = String.format(Locale.ROOT, "%s%04d", platformCode, nextNo);
+            if (mapper.updateInfluencerCode(influencerId, code, textValue(influencer.get("createBy"))) != 1)
+                throw new ServiceException("达人编码生成失败，请重试");
+            if (mapper.advanceInfluencerPlatformSequence(platformCode) != 1)
+                throw new ServiceException("平台序号更新失败，请重试");
+            influencer.put("influencerCode", code);
+            return rows;
+        }
+        catch (DuplicateKeyException ex)
+        {
+            throw new ServiceException("达人编码生成冲突，请重试");
+        }
+    }
+
+    @Override
+    @Transactional
+    public List<Map<String, Object>> listInfluencerProductPrices(Long influencerId)
+    {
+        if (influencerId == null) throw new ServiceException("达人ID不能为空");
+        return mapper.selectInfluencerProductPrices(influencerId);
+    }
+
+    @Override
+    @Transactional
+    public void saveInfluencerBindings(Long influencerId, List<Map<String, Object>> bindings,
+        Long userId, String userName)
+    {
+        if (influencerId == null || mapper.selectInfluencerByIdForUpdate(influencerId) == null)
+            throw new ServiceException("达人/主播不存在");
+        if (bindings == null || bindings.isEmpty()) throw new ServiceException("请选择要绑定的商品");
+        Set<Long> seen = new HashSet<Long>();
+        Set<String> seenSkus = new HashSet<String>();
+        Map<String, Long> newSupplierIds = new HashMap<String, Long>();
+        Map<String, String> newSupplierSignatures = new HashMap<String, String>();
+        for (Map<String, Object> row : bindings)
+        {
+            Long productId = nullableLong(row.get("productId"));
+            boolean existingProduct = productId != null;
+            if (productId == null)
+            {
+                String sku = textValue(row.get("sku")).trim();
+                String name = textValue(row.get("productName")).trim();
+                String unit = textValue(row.get("unit")).trim();
+                String productType = textValue(row.get("productType")).trim();
+                if (productType.isEmpty()) productType = "FINISHED";
+                if (!"FINISHED".equals(productType) && !"GIFT".equals(productType) && !"WELFARE".equals(productType))
+                    throw new ServiceException("达人只能绑定成品商品、赠品商品或福利商品");
+                if (sku.isEmpty() || name.isEmpty() || unit.isEmpty())
+                    throw new ServiceException("新商品须填写SKU、名称和单位");
+                if (sku.length() > 64 || name.length() > 128 || unit.length() > 16
+                    || textValue(row.get("imageUrls")).trim().length() > 500)
+                    throw new ServiceException("新商品档案字段超过允许长度");
+                if (!seenSkus.add(productType + ":" + sku.toUpperCase(Locale.ROOT)))
+                    throw new ServiceException("本次导入存在重复的商品SKU和类型");
+                if (mapper.selectProductBySkuAndType(sku, productType) != null)
+                    throw new ServiceException("该类型商品SKU已存在，请选择已有商品档案：" + sku);
+                Map<String, Object> productInput = new HashMap<String, Object>();
+                productInput.put("sku", sku);
+                productInput.put("productName", name);
+                productInput.put("productType", productType);
+                productInput.put("unit", unit);
+                productInput.put("imageUrls", textValue(row.get("imageUrls")).trim());
+                productInput.put("warningQty", 5);
+                productInput.put("status", "0");
+                productInput.put("remark", "达人绑定录入");
+                productInput.put("defaultPackFee", ZERO);
+                productInput.put("defaultShipFee", ZERO);
+                productInput.put("defaultCertFee", ZERO);
+                productInput.put("createBy", userName);
+                try { saveProduct(productInput); }
+                catch (DuplicateKeyException ex) { throw new ServiceException("SKU已被同类型商品或其他常规商品占用：" + sku); }
+                productId = longValue(productInput.get("productId"));
+                row.put("productId", productId);
+            }
+            if (!seen.add(productId)) throw new ServiceException("商品未选择或重复");
+            Map<String, Object> product = mapper.selectProductById(productId);
+            if (product == null || !"0".equals(textValue(product.get("status"))))
+                throw new ServiceException("商品不存在或已停用");
+            if (!"FINISHED".equals(textValue(product.get("productType")))
+                && !"GIFT".equals(textValue(product.get("productType")))
+                && !"WELFARE".equals(textValue(product.get("productType"))))
+                throw new ServiceException("达人只能绑定成品商品、赠品商品或福利商品");
+            BigDecimal price = fourDecimal(decimalValue(row.get("fixedUnitPrice"), "直播成交价"));
+            if (price.signum() < 0 || ("FINISHED".equals(textValue(product.get("productType"))) && price.signum() == 0))
+                throw new ServiceException("成品直播成交价必须大于0，赠品和福利商品不能小于0");
+            BigDecimal unitCost = fourDecimal(decimalValue(row.get("unitCost"), "商品成本价"));
+            if (unitCost.signum() < 0) throw new ServiceException("商品成本价不能小于0");
+            BigDecimal commission = percentageValue(row.get("commissionPercent"), "达人佣金率");
+            BigDecimal platform = percentageValue(row.get("platformPercent"), "平台扣点率");
+            BigDecimal tax = percentageValue(row.get("taxPercent"), "税率");
+            validateCombinedRate(commission.add(platform).add(tax));
+            String status = textValue(row.get("bindingStatus"));
+            if (!"0".equals(status) && !"1".equals(status)) throw new ServiceException("商品绑定状态不正确");
+            String remark = textValue(row.get("bindingRemark")).trim();
+            if (remark.length() > 500) throw new ServiceException("备注不能超过500字");
+            Map<String, Object> existing = mapper.selectInfluencerProductPriceForUpdate(influencerId, productId);
+            if (existing != null && "PENDING".equals(textValue(existing.get("priceStatus"))))
+                throw new ServiceException("商品价格正在销售草稿中待生效，请先处理该草稿");
+            BigDecimal purchasePrice = nonNegativeDecimalValue(row.get("referencePurchasePrice"), "采购单价");
+            Long preferredSupplierId = nullableLong(row.get("preferredSupplierId"));
+            if (row.get("newSupplier") != null)
+            {
+                if (preferredSupplierId != null) throw new ServiceException("请选择已有供应商或新增供应商，不能同时填写");
+                if (!(row.get("newSupplier") instanceof Map)) throw new ServiceException("新增供应商信息不正确");
+                Map<?, ?> draft = (Map<?, ?>) row.get("newSupplier");
+                String codeKey = textValue(draft.get("supplierCode")).trim().toUpperCase(Locale.ROOT);
+                String signature = String.join("\u0000", textValue(draft.get("supplierName")).trim(),
+                    textValue(draft.get("contactName")).trim(), textValue(draft.get("contactPhone")).trim(),
+                    textValue(draft.get("settlementType")).trim(), textValue(draft.get("address")).trim());
+                String previous = newSupplierSignatures.putIfAbsent(codeKey, signature);
+                if (previous != null && !previous.equals(signature))
+                    throw new ServiceException("同一供应商编码在本次导入中的信息不一致：" + codeKey);
+                preferredSupplierId = newSupplierIds.get(codeKey);
+                if (preferredSupplierId == null)
+                {
+                    preferredSupplierId = createBindingSupplier(draft, userName);
+                    newSupplierIds.put(codeKey, preferredSupplierId);
+                }
+                row.put("preferredSupplierId", preferredSupplierId);
+            }
+            else if (preferredSupplierId != null)
+            {
+                Map<String, Object> supplier = mapper.selectSupplierById(preferredSupplierId);
+                if (supplier == null || !"0".equals(textValue(supplier.get("status"))))
+                    throw new ServiceException("供应商不存在或已停用");
+            }
+            boolean imageChanged = Boolean.TRUE.equals(row.get("imageChanged"))
+                || "true".equalsIgnoreCase(textValue(row.get("imageChanged")));
+            if (existingProduct && imageChanged)
+            {
+                String image = textValue(row.get("imageUrls")).trim();
+                if (image.length() > 500) throw new ServiceException("商品图片信息过长");
+                if (image.contains(",")) throw new ServiceException("每个商品只支持一张实物图片");
+                Map<String, Object> lockedProduct = mapper.selectProductByIdForUpdate(productId);
+                if (lockedProduct == null || !"0".equals(textValue(lockedProduct.get("status"))))
+                    throw new ServiceException("商品不存在或已停用");
+                Map<String, Object> changes = new HashMap<String, Object>();
+                changes.put("imageUrls", image);
+                mapper.batchUpdateProducts(Collections.singletonList(productId), changes, userName);
+            }
+            Map<String, Object> binding = new HashMap<String, Object>();
+            binding.put("influencerId", influencerId);
+            binding.put("productId", productId);
+            binding.put("fixedUnitPrice", price);
+            binding.put("unitCost", unitCost);
+            binding.put("commissionRate", commission);
+            binding.put("platformRate", platform);
+            binding.put("taxRate", tax);
+            binding.put("packFee", nonNegativeDecimalValue(row.get("packFee"), "包装费"));
+            binding.put("shipFee", nonNegativeDecimalValue(row.get("shipFee"), "物流费"));
+            binding.put("certFee", nonNegativeDecimalValue(row.get("certFee"), "鉴定费"));
+            binding.put("preferredSupplierId", preferredSupplierId);
+            binding.put("referencePurchasePrice", purchasePrice);
+            binding.put("bindingStatus", status);
+            binding.put("bindingRemark", remark);
+            binding.put("userName", userName);
+            int version = existing == null ? 1 : intValue(existing.get("priceVersion")) + 1;
+            if (existing == null)
+            {
+                if (mapper.insertInfluencerBinding(binding) != 1) throw new ServiceException("商品绑定保存失败");
+            }
+            else
+            {
+                binding.put("priceVersion", version - 1);
+                if (mapper.updateInfluencerBinding(binding) != 1)
+                    throw new ServiceException("商品绑定已被修改，请刷新后重试");
+            }
+            Map<String, Object> history = new HashMap<String, Object>();
+            history.put("influencerId", influencerId);
+            history.put("productId", productId);
+            history.put("oldPrice", existing == null ? null : existing.get("fixedUnitPrice"));
+            history.put("newPrice", price);
+            history.put("sourceType", existing == null ? "PROFILE_BINDING" : "PROFILE_UPDATE");
+            history.put("sourceDocumentId", null);
+            history.put("priceVersion", version);
+            history.put("changeReason", remark.isEmpty() ? (existing == null ? "达人档案绑定商品" : "达人档案更新商品配置") : remark);
+            history.put("operatorUserId", userId);
+            history.put("operatorName", userName);
+            mapper.insertInfluencerPriceHistory(history);
+        }
+    }
+
+    private Long createBindingSupplier(Object value, String userName)
+    {
+        if (!(value instanceof Map)) throw new ServiceException("新增供应商信息不正确");
+        Map<?, ?> draft = (Map<?, ?>) value;
+        String code = textValue(draft.get("supplierCode")).trim();
+        String name = textValue(draft.get("supplierName")).trim();
+        String contactName = textValue(draft.get("contactName")).trim();
+        String contactPhone = textValue(draft.get("contactPhone")).trim();
+        String settlementType = textValue(draft.get("settlementType")).trim();
+        String address = textValue(draft.get("address")).trim();
+        if (code.isEmpty() || name.isEmpty()) throw new ServiceException("新增供应商须填写编码和名称");
+        if (code.length() > 32 || name.length() > 128 || contactName.length() > 64
+            || contactPhone.length() > 32 || settlementType.length() > 64 || address.length() > 255)
+            throw new ServiceException("新增供应商字段超过允许长度");
+        if (mapper.selectSupplierByCode(code) != null)
+            throw new ServiceException("供应商编码已存在，请选择已有供应商");
+        Map<String, Object> supplier = new HashMap<String, Object>();
+        supplier.put("supplierCode", code);
+        supplier.put("supplierName", name);
+        supplier.put("contactName", contactName);
+        supplier.put("contactPhone", contactPhone);
+        supplier.put("settlementType", settlementType);
+        supplier.put("address", address);
+        supplier.put("status", "0");
+        supplier.put("createBy", userName);
+        supplier.put("remark", "达人商品绑定录入");
+        try
+        {
+            if (mapper.insertSupplier(supplier) != 1 || nullableLong(supplier.get("supplierId")) == null)
+                throw new ServiceException("新增供应商档案失败");
+        }
+        catch (DuplicateKeyException ex)
+        {
+            throw new ServiceException("供应商编码已存在，请选择已有供应商");
+        }
+        return nullableLong(supplier.get("supplierId"));
+    }
+
+    @Override
+    @Transactional
+    public void changeInfluencerProductPrice(Long influencerId, Long productId, BigDecimal newPrice, String reason,
+        Long userId, String userName)
+    {
+        if (influencerId == null) throw new ServiceException("达人ID不能为空");
+        if (productId == null) throw new ServiceException("商品不能为空");
+        BigDecimal price = fourDecimal(newPrice);
+        if (price.signum() <= 0) throw new ServiceException("商品固定成交单价必须大于0");
+        if (text(reason).isEmpty()) throw new ServiceException("修改商品固定价必须填写原因");
+        Map<String, Object> influencer = mapper.selectInfluencerByIdForUpdate(influencerId);
+        if (influencer == null || !"0".equals(textValue(influencer.get("status"))))
+            throw new ServiceException("达人不存在或已停用");
+        Map<String, Object> currentPrice = mapper.selectInfluencerProductPriceForUpdate(influencerId, productId);
+        if (currentPrice == null || !"PRICED".equals(textValue(currentPrice.get("priceStatus"))))
+            throw new ServiceException("该商品尚未通过销售入账建立固定价，不能直接改价");
+        BigDecimal oldPrice = nullableDecimal(currentPrice.get("fixedUnitPrice"));
+        if (oldPrice == null || oldPrice.signum() <= 0) throw new ServiceException("当前商品固定价不正确");
+        oldPrice = fourDecimal(oldPrice);
+        if (oldPrice.compareTo(price) == 0) throw new ServiceException("新固定价与当前固定价相同");
+        int currentVersion = intValue(currentPrice.get("priceVersion"));
+        if (mapper.updateInfluencerProductPrice(influencerId, productId, price, currentVersion, userName) != 1)
+            throw new ServiceException("达人商品固定价已变化，请刷新后重试");
+        Map<String, Object> history = new HashMap<String, Object>();
+        history.put("influencerId", influencerId);
+        history.put("productId", productId);
+        history.put("oldPrice", oldPrice);
+        history.put("newPrice", price);
+        history.put("sourceType", "ADMIN_CHANGE");
+        history.put("sourceDocumentId", null);
+        history.put("priceVersion", currentVersion + 1);
+        history.put("changeReason", text(reason));
+        history.put("operatorUserId", userId);
+        history.put("operatorName", userName);
+        mapper.insertInfluencerPriceHistory(history);
+    }
+
+    @Override
+    public List<Map<String, Object>> listInfluencerPriceHistory(Long influencerId)
+    {
+        return mapper.selectInfluencerPriceHistory(influencerId);
+    }
+
+    @Override
+    public List<Map<String, Object>> listInfluencerBundleItems(Long influencerId)
+    {
+        return mapper.selectInfluencerBundleItems(influencerId);
+    }
+
+    @Override
+    public List<Map<String, Object>> listInfluencerBundleConfigs(Long influencerId)
+    {
+        if (influencerId == null) throw new ServiceException("达人ID不能为空");
+        return mapper.selectInfluencerBundleConfigs(influencerId);
+    }
+
+    @Override
+    @Transactional
+    public void saveInfluencerBundleConfig(Long influencerId, Map<String, Object> config, String userName)
+    {
+        if (influencerId == null || mapper.selectInfluencerByIdForUpdate(influencerId) == null)
+            throw new ServiceException("达人/主播不存在");
+        Long mainId = nullableLong(config.get("mainProductId"));
+        Long addonId = nullableLong(config.get("addonProductId"));
+        if (mainId == null || addonId == null || mainId.equals(addonId))
+            throw new ServiceException("请选择不同的主商品和搭售商品");
+        Map<String, Object> main = mapper.selectProductById(mainId);
+        Map<String, Object> addon = mapper.selectProductById(addonId);
+        if (main == null || addon == null || !"0".equals(textValue(main.get("status")))
+            || !"0".equals(textValue(addon.get("status"))))
+            throw new ServiceException("主商品或搭售商品不存在或已停用");
+        if (!"FINISHED".equals(textValue(main.get("productType")))
+            || !"ACCESSORY".equals(textValue(addon.get("productType"))))
+            throw new ServiceException("主商品必须是成品，搭售商品必须是配件商品");
+        if (decimal(addon.get("totalStockQty")).signum() <= 0)
+            throw new ServiceException("搭售商品必须是当前已在库的配件商品");
+        int mainQty = integerValue(config.get("mainQty"), "主商品数量");
+        int addonQty = integerValue(config.get("addonQty"), "搭售数量");
+        if (mainQty <= 0 || addonQty <= 0) throw new ServiceException("搭售比例必须大于0");
+        String mode = textValue(config.get("pricingMode"));
+        if (!"INCLUDED".equals(mode) && !"SEPARATE".equals(mode))
+            throw new ServiceException("搭售计价方式不正确");
+        if ("ACCESSORY".equals(textValue(addon.get("productType"))) && !"INCLUDED".equals(mode))
+            throw new ServiceException("配件商品必须包含在组合价中");
+        Map<String, Object> mainBinding = mapper.selectInfluencerProductPrice(influencerId, mainId);
+        if (!isConfiguredSalesBinding(mainBinding))
+            throw new ServiceException("请先为主商品配置并启用直播价和各项费率");
+        if ("SEPARATE".equals(mode))
+        {
+            Map<String, Object> addonBinding = mapper.selectInfluencerProductPrice(influencerId, addonId);
+            if (!isConfiguredSalesBinding(addonBinding))
+                throw new ServiceException("单独计价的搭售商品需先配置并启用直播价和各项费率");
+        }
+        config.put("influencerId", influencerId);
+        config.put("mainQty", mainQty);
+        config.put("addonQty", addonQty);
+        config.put("userName", userName);
+        mapper.upsertInfluencerBundleConfig(config);
+    }
+
+    @Override
+    @Transactional
+    public void deleteInfluencerBundleConfig(Long influencerId, Long configId)
+    {
+        if (influencerId == null || configId == null
+            || mapper.deleteInfluencerBundleConfig(influencerId, configId) != 1)
+            throw new ServiceException("搭售配置不存在或已删除");
+    }
+
+    @Override
+    public List<Map<String, Object>> listStock(Map<String, Object> query) { return mapper.selectStockList(query); }
+    @Override
+    public List<Map<String, Object>> listSampleInboundDetails(Long productId) { return mapper.selectSampleInboundDetails(productId); }
+    @Override
+    public List<Map<String, Object>> listStockInboundDetails(Long productId) { return mapper.selectStockInboundDetails(productId); }
+    @Override
+    public List<Map<String, Object>> listTransactions(Map<String, Object> query) { return mapper.selectStockTransactions(query); }
+    @Override
+    public int getStockWarningDays()
+    {
+        Integer days = mapper.selectStockWarningDays();
+        return days == null || days <= 0 ? 25 : days;
+    }
+    @Override
+    public int getSupplierReturnDays()
+    {
+        Integer days = mapper.selectSupplierReturnDays();
+        return days == null || days < 1 || days > 365 ? 25 : days;
+    }
+
+    @Override
+    public void setSupplierReturnDays(int days, String userName)
+    {
+        if (days < 1 || days > 365) throw new ServiceException("供应商退货期限必须在1到365天之间");
+        mapper.upsertSupplierReturnDays(days, userName);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void setPostedSupplierReturnDate(Long documentId, Date date, String userName)
+    {
+        JewelryDocument document = mapper.selectDocumentByIdForUpdate(documentId);
+        if (document == null || !"PURCHASE_IN".equals(document.getDocType()) || !"POSTED".equals(document.getStatus()))
+            throw new ServiceException("仅已入账的采购入库单可以单独设置退货日期");
+        if (date != null && document.getBizDate() != null)
+        {
+            java.text.SimpleDateFormat format = new java.text.SimpleDateFormat("yyyy-MM-dd");
+            format.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Shanghai"));
+            if (format.format(date).compareTo(format.format(document.getBizDate())) < 0)
+                throw new ServiceException("约定退货日期不能早于采购入库业务日期");
+        }
+        document.setSupplierReturnDate(date);
+        document.setUpdateBy(userName);
+        if (mapper.updatePostedSupplierReturnDate(document) != 1)
+            throw new ServiceException("采购单状态已变化，请刷新后重试");
+    }
+    @Override
+    public void setStockWarningDays(int days, String userName)
+    {
+        if (days < 1 || days > 365) throw new ServiceException("库存时间预警必须在1到365天之间");
+        mapper.upsertStockWarningDays(days, userName);
+    }
+    @Override
+    public Map<String, Object> dashboard() { return mapper.selectDashboard(); }
+    @Override
+    public List<JewelryDocument> listDocuments(JewelryDocument query) { return mapper.selectDocumentList(query); }
+
+    @Override
+    public JewelryDocument getDocument(Long documentId)
+    {
+        JewelryDocument document = requireDocument(documentId);
+        document.setItems(mapper.selectDocumentItems(documentId));
+        return document;
+    }
+
+    @Override
+    public JewelryDocument getDocumentForDisplay(Long documentId)
+    {
+        JewelryDocument document = getDocument(documentId);
+        if ("ASSEMBLY".equals(document.getDocType())
+            && ("PENDING_FIRST".equals(document.getStatus()) || "PENDING_SECOND".equals(document.getStatus())))
+        {
+            refreshAssemblyCosts(document, false, false);
+        }
+        return document;
+    }
+
+    @Override
+    public JewelryDocument getReturnInspectionSource(Long sourceDocumentId, Long excludeDocumentId)
+    {
+        JewelryDocument source = requirePostedCustomerReturn(sourceDocumentId);
+        source.setItems(mapper.selectReturnInspectionSourceItems(sourceDocumentId, excludeDocumentId));
+        return source;
+    }
+
+    @Override
+    public List<JewelryDocument> listSupplierReturnSources(Long influencerId, Long supplierId)
+    {
+        if (influencerId == null) throw new ServiceException("请选择达人/主播");
+        if (supplierId == null) throw new ServiceException("请选择供应商");
+        return mapper.selectSupplierReturnSourceList(influencerId, supplierId);
+    }
+
+    @Override
+    public JewelryDocument getSupplierReturnSource(Long sourceDocumentId, Long excludeDocumentId)
+    {
+        JewelryDocument source = requirePostedPurchase(sourceDocumentId);
+        if (mapper.countReversalBySource(sourceDocumentId) > 0)
+            throw new ServiceException("关联的采购单已存在红冲单，不能继续退货");
+        source.setItems(mapper.selectSupplierReturnSourceItems(sourceDocumentId, excludeDocumentId));
+        if (source.getItems() == null || source.getItems().isEmpty())
+            throw new ServiceException("该采购单已没有可退商品");
+        return source;
+    }
+
+    @Override
+    public List<Map<String, Object>> listSupplierReturnProducts(Long influencerId, Long supplierId)
+    {
+        if (influencerId == null) throw new ServiceException("请选择达人/主播");
+        if (supplierId == null) throw new ServiceException("请选择供应商");
+        return aggregateReturnProducts(mapper.selectSupplierReturnAllocationSources(influencerId, supplierId, null));
+    }
+
+    @Override
+    public List<Map<String, Object>> getPurchaseInfluencerRepairOptions(Long documentId)
+    {
+        validatePurchaseInfluencerRepair(mapper.selectDocumentById(documentId));
+        return mapper.selectPurchaseInfluencerRepairOptions(documentId);
+    }
+
+    private void validatePurchaseInfluencerRepair(JewelryDocument document)
+    {
+        if (document == null || !"PURCHASE_IN".equals(document.getDocType()) || !"POSTED".equals(document.getStatus())
+            || document.getInfluencerId() != null)
+            throw new ServiceException("仅可补录已入账且缺少达人的福利采购单");
+        if (mapper.countReversalBySource(document.getDocumentId()) > 0
+            || mapper.countActiveSupplierReturnsBySource(document.getDocumentId()) > 0)
+            throw new ServiceException("采购单已存在红冲或有效退货，不能补录达人归属");
+        boolean welfare = false;
+        for (JewelryDocumentItem item : mapper.selectDocumentItems(document.getDocumentId()))
+            if ("WELFARE".equals(item.getProductTypeSnapshot())) welfare = true;
+        if (!welfare) throw new ServiceException("该采购单不含福利商品，无需补录福利采购达人");
+    }
+
+    @Override
+    @Transactional
+    public void repairPurchaseInfluencer(Long documentId, Long influencerId, String reason, Long userId, String userName)
+    {
+        String explanation = text(reason).trim();
+        if (influencerId == null) throw new ServiceException("请选择核实后的达人/主播");
+        if (explanation.isEmpty() || explanation.length() > 300)
+            throw new ServiceException("请填写补录原因，最多300字");
+        JewelryDocument document = mapper.selectDocumentByIdForUpdate(documentId);
+        validatePurchaseInfluencerRepair(document);
+        Map<String, Object> influencer = mapper.selectInfluencerByIdForUpdate(influencerId);
+        if (influencer == null || !"0".equals(textValue(influencer.get("status"))))
+            throw new ServiceException("达人/主播不存在或已停用");
+        boolean allowed = false;
+        for (Map<String, Object> option : mapper.selectPurchaseInfluencerRepairOptions(documentId))
+            if (influencerId.equals(nullableLong(option.get("influencerId")))) allowed = true;
+        if (!allowed) throw new ServiceException("所选达人未有效绑定该采购单的全部成品、赠品或福利商品及供应商");
+        String name = textValue(influencer.get("influencerName"));
+        if (mapper.repairPurchaseInfluencer(documentId, influencerId, name, userName) != 1)
+            throw new ServiceException("采购单状态或达人归属已变化，请刷新后重试");
+        mapper.insertEvent(documentId, "INFLUENCER_REPAIR", "POSTED", "POSTED", userId, userName,
+            "达人归属由未记录补录为" + name + "（ID：" + influencerId + "）；原因：" + explanation);
+    }
+
+    @Override
+    public List<Map<String, Object>> listSampleReturnProducts(Long supplierId)
+    {
+        if (supplierId == null) throw new ServiceException("请选择供应商");
+        return aggregateReturnProducts(mapper.selectSampleReturnAllocationSources(supplierId, null));
+    }
+
+    private List<Map<String, Object>> aggregateReturnProducts(List<JewelryDocumentItem> sources)
+    {
+        Map<Long, Map<String, Object>> products = new LinkedHashMap<Long, Map<String, Object>>();
+        for (JewelryDocumentItem source : sources)
+        {
+            Map<String, Object> product = products.get(source.getProductId());
+            if (product == null)
+            {
+                product = new HashMap<String, Object>();
+                product.put("productId", source.getProductId());
+                product.put("sku", source.getSkuSnapshot());
+                product.put("productName", source.getProductNameSnapshot());
+                product.put("productType", source.getProductTypeSnapshot());
+                product.put("referencePurchasePrice", source.getUnitPrice());
+                product.put("availableReturnQty", source.getAvailableReturnQty());
+                product.put("purchaseQuota", 0L);
+                products.put(source.getProductId(), product);
+            }
+            long quota = ((Number) product.get("purchaseQuota")).longValue() + nonNegative(source.getRemainingReturnQty());
+            product.put("purchaseQuota", quota);
+            int available = Math.min(((Number) product.get("availableReturnQty")).intValue(),
+                nonNegative(source.getAvailableReturnQty()));
+            product.put("availableReturnQty", available);
+            product.put("remainingReturnQty", (int) Math.min(quota, available));
+        }
+        return new ArrayList<Map<String, Object>>(products.values());
+    }
+
+    private void allocateSupplierReturnPurchases(JewelryDocument document)
+    {
+        boolean sampleReturn = "SAMPLE_RETURN".equals(document.getDocType());
+        if (!sampleReturn && (!"SUPPLIER_RETURN".equals(document.getDocType()) || !document.isSupplierReturnAutoAllocate())) return;
+        if (sampleReturn) clearSampleReturnHeader(document);
+        prepareInfluencerReference(document);
+        validateSupplierReference(document, true);
+        if (document.getItems() == null || document.getItems().isEmpty())
+            throw new ServiceException("单据至少需要一行商品");
+        Set<Long> products = new HashSet<Long>();
+        for (JewelryDocumentItem requested : document.getItems())
+        {
+            if (requested.getProductId() == null) throw new ServiceException("请选择商品");
+            if (requested.getQty() == null || requested.getQty() <= 0) throw new ServiceException("退货数量必须大于0");
+            if (sampleReturn) requested.setUnitPrice(ZERO);
+            else if (requested.getUnitPrice() == null) throw new ServiceException("供应商退货必须填写实际退货单价");
+            products.add(requested.getProductId());
+        }
+        List<JewelryDocumentItem> candidates = returnAllocationSources(document);
+        Set<Long> sourceIds = new java.util.TreeSet<Long>();
+        for (JewelryDocumentItem candidate : candidates)
+            if (products.contains(candidate.getProductId())) sourceIds.add(candidate.getSourceDocumentId());
+        for (Long sourceId : sourceIds)
+        {
+            JewelryDocument source = mapper.selectDocumentByIdForUpdate(sourceId);
+            if (source == null || !(sampleReturn ? "SAMPLE_IN" : "PURCHASE_IN").equals(source.getDocType()) || !"POSTED".equals(source.getStatus()))
+                throw new ServiceException(sampleReturn ? "原样品入库单已失效，请刷新后重试" : "关联的原采购单已失效，请重新选择");
+            validateSupplierReturnSource(document, source);
+        }
+        // Re-read quotas after acquiring purchase locks; do not use newly appeared, unlocked sources.
+        candidates = returnAllocationSources(document);
+        // Lock products before stock, matching normal validation/product-deletion lock order.
+        for (Long productId : new java.util.TreeSet<Long>(products))
+        {
+            Map<String, Object> product = mapper.selectProductByIdForUpdate(productId);
+            if (product == null || !"0".equals(String.valueOf(product.get("status"))))
+                throw new ServiceException("商品不存在或已停用");
+            mapper.selectStockForUpdate(productId);
+        }
+        for (JewelryDocumentItem candidate : candidates)
+        {
+            if (sourceIds.contains(candidate.getSourceDocumentId()) && products.contains(candidate.getProductId()))
+                candidate.setRemainingReturnQty(Math.max(0, nonNegative(candidate.getQty())
+                    - currentSupplierReturnedQty(candidate.getItemId(), document.getDocumentId())));
+        }
+        Map<Long, Integer> consumed = new HashMap<Long, Integer>();
+        Map<String, JewelryDocumentItem> allocated = new LinkedHashMap<String, JewelryDocumentItem>();
+        for (JewelryDocumentItem requested : document.getItems())
+        {
+            int remaining = requested.getQty();
+            for (JewelryDocumentItem source : candidates)
+            {
+                if (!sourceIds.contains(source.getSourceDocumentId())
+                    || !requested.getProductId().equals(source.getProductId())) continue;
+                int used = consumed.getOrDefault(source.getItemId(), 0);
+                int qty = Math.min(remaining, Math.max(0, nonNegative(source.getRemainingReturnQty()) - used));
+                if (qty == 0) continue;
+                String key = source.getItemId() + ":" + fourDecimal(requested.getUnitPrice()).toPlainString();
+                JewelryDocumentItem item = allocated.get(key);
+                if (item == null)
+                {
+                    item = new JewelryDocumentItem();
+                    item.setProductId(source.getProductId());
+                    item.setSourceItemId(source.getItemId());
+                    item.setSourceDocumentId(source.getSourceDocumentId());
+                    item.setSourceDocNo(source.getSourceDocNo());
+                    item.setUnitPrice(fourDecimal(requested.getUnitPrice()));
+                    item.setQty(0);
+                    item.setImageUrls(source.getImageUrls());
+                    allocated.put(key, item);
+                }
+                item.setQty(item.getQty() + qty);
+                consumed.put(source.getItemId(), used + qty);
+                remaining -= qty;
+                if (remaining == 0) break;
+            }
+            if (remaining > 0) throw new ServiceException(sampleReturn ? "该供应商的样品可退额度不足，请刷新商品后重试" : "所选达人和供应商的采购可退额度不足，请刷新商品后重试");
+        }
+        List<JewelryDocumentItem> items = new ArrayList<JewelryDocumentItem>(allocated.values());
+        document.setItems(items);
+        document.setSourceDocumentId(items.get(0).getSourceDocumentId());
+        document.setSourceDocNo(items.get(0).getSourceDocNo());
+        document.setSupplierReturnAutoAllocate(false);
+    }
+
+    private List<JewelryDocumentItem> returnAllocationSources(JewelryDocument document)
+    {
+        return "SAMPLE_RETURN".equals(document.getDocType())
+            ? mapper.selectSampleReturnAllocationSources(document.getSupplierId(), document.getDocumentId())
+            : mapper.selectSupplierReturnAllocationSources(document.getInfluencerId(), document.getSupplierId(), document.getDocumentId());
+    }
+
+    private void clearSampleReturnHeader(JewelryDocument document)
+    {
+        document.setInfluencerId(null);
+        document.setInfluencerName(null);
+        document.setInfluencerPriceSnapshot(null);
+        document.setInfluencerPriceVersion(null);
+        document.setSalesChannel(null);
+        document.setActualRefundAmount(null);
+        document.setPlatformRate(ZERO);
+        document.setCommissionRate(ZERO);
+        document.setTaxRate(ZERO);
+        document.setLaborFee(ZERO);
+        document.setProcessingFee(ZERO);
+        document.setOtherFee(ZERO);
+    }
+
+    private int currentSupplierReturnedQty(Long sourceItemId, Long excludeDocumentId)
+    {
+        // Locking reads see the latest committed state even with MySQL REPEATABLE READ.
+        long qty = 0;
+        for (Integer returned : mapper.selectSupplierReturnedQuantitiesForUpdate(sourceItemId, excludeDocumentId))
+            qty += nonNegative(returned);
+        return (int) Math.min(Integer.MAX_VALUE, qty);
+    }
+
+    @Override
+    public JewelryDocument getCustomerReturnSource(Long sourceDocumentId, Long excludeDocumentId)
+    {
+        JewelryDocument source = requireDocument(sourceDocumentId);
+        if (!"SALES_OUT".equals(source.getDocType()) || !"POSTED".equals(source.getStatus()))
+            throw new ServiceException("关联的原单必须是已入账且未红冲的销售出库单");
+        if (mapper.countReversalBySource(sourceDocumentId) > 0)
+            throw new ServiceException("关联的销售单已存在红冲单，不能继续退货");
+        source.setItems(mapper.selectCustomerReturnSourceItems(sourceDocumentId, excludeDocumentId));
+        if (source.getItems() == null || source.getItems().isEmpty())
+            throw new ServiceException("该销售单已没有可退商品");
+        return source;
+    }
+
+    @Override
+    public List<Map<String, Object>> listCustomerReturnProductStats(Long influencerId, Long excludeDocumentId)
+    {
+        if (influencerId == null) throw new ServiceException("请先选择达人/主播");
+        Map<String, Object> influencer = mapper.selectInfluencerById(influencerId);
+        if (influencer == null || !"0".equals(textValue(influencer.get("status"))))
+            throw new ServiceException("达人/主播不存在或已停用");
+        return mapper.selectCustomerReturnProductStats(influencerId, excludeDocumentId, null, null, null);
+    }
+
+    @Override
+    public Map<String, Object> assessDocumentRisk(JewelryDocument document)
+    {
+        if (!"SALES_OUT".equals(document.getDocType()))
+            throw new ServiceException("当前仅支持销售出库单风险试算");
+        validateDocument(document);
+        calculateDocument(document);
+        Map<String, Object> result = new HashMap<String, Object>();
+        result.put("riskStatus", document.getRiskStatus());
+        result.put("loss", "LOSS".equals(document.getRiskStatus()));
+        return result;
+    }
+
+    @Override
+    public Map<String, Object> calculateProfit(Map<String, Object> input)
+    {
+        Long productId = nullableLong(input.get("productId"));
+        if (productId == null) throw new ServiceException("请选择需要试算的商品");
+        Map<String, Object> product = mapper.selectProductById(productId);
+        if (product == null || !"0".equals(textValue(product.get("status"))))
+            throw new ServiceException("商品不存在或已停用");
+
+        BigDecimal price = decimalValue(input.get("price"), "成交价");
+        if (price.signum() <= 0) throw new ServiceException("成交价必须大于0");
+        int quantity = input.get("quantity") == null ? 1 : integerValue(input.get("quantity"), "试算数量");
+        int availableQty = decimal(product.get("onHandQty")).subtract(decimal(product.get("reservedOutQty"))).intValue();
+        if (quantity <= 0) throw new ServiceException("试算数量必须大于0");
+        if (quantity > availableQty) throw new ServiceException("试算数量不能超过当前可用库存" + availableQty + "件");
+
+        BigDecimal cost = decimal(product.get("avgCost"));
+        BigDecimal packFee = nonNegativeDecimalValue(input.get("packFee"), "包装费");
+        BigDecimal shipFee = nonNegativeDecimalValue(input.get("shipFee"), "物流费");
+        BigDecimal certFee = nonNegativeDecimalValue(input.get("certFee"), "鉴定费");
+        BigDecimal otherFee1 = nonNegativeDecimalValue(input.get("otherFee1"), "其他1");
+        BigDecimal otherFee2 = nonNegativeDecimalValue(input.get("otherFee2"), "其他2");
+        BigDecimal otherFee3 = nonNegativeDecimalValue(input.get("otherFee3"), "其他3");
+        BigDecimal fees = packFee.add(shipFee).add(certFee)
+            .add(otherFee1).add(otherFee2).add(otherFee3);
+        BigDecimal platformRate = percentageValue(input.get("platformRate"), "平台扣点率");
+        BigDecimal commissionRate = percentageValue(input.get("commissionRate"), "达人佣金率");
+        BigDecimal taxRate = percentageValue(input.get("taxRate"), "税率");
+        BigDecimal rate = platformRate.add(commissionRate).add(taxRate);
+        validateCombinedRate(rate);
+
+        Map<String, BigDecimal> line = calculateSalesLine(price, cost, fees, rate);
+        BigDecimal deductions = line.get("deductions");
+        BigDecimal profit = line.get("profit");
+        BigDecimal breakEvenPrice = cost.add(fees).divide(BigDecimal.ONE.subtract(rate), 2, RoundingMode.HALF_UP);
+        BigDecimal maxCommissionRate = BigDecimal.ONE.subtract(platformRate).subtract(taxRate)
+            .subtract(cost.add(fees).divide(price, 8, RoundingMode.HALF_UP));
+        if (maxCommissionRate.signum() < 0) maxCommissionRate = BigDecimal.ZERO;
+
+        Map<String, Object> result = new HashMap<String, Object>();
+        result.put("profit", profit.setScale(2, RoundingMode.HALF_UP));
+        result.put("profitRate", profit.divide(price, 6, RoundingMode.HALF_UP));
+        result.put("cost", cost.setScale(2, RoundingMode.HALF_UP));
+        result.put("deductions", deductions.setScale(2, RoundingMode.HALF_UP));
+        result.put("fixedFees", fees.setScale(2, RoundingMode.HALF_UP));
+        result.put("breakEvenPrice", breakEvenPrice);
+        result.put("maxCommissionRate", maxCommissionRate.setScale(6, RoundingMode.HALF_UP));
+        result.put("quantity", quantity);
+        result.put("availableQty", availableQty);
+        result.put("remainingQty", availableQty - quantity);
+        result.put("totalRevenue", price.multiply(BigDecimal.valueOf(quantity)).setScale(2, RoundingMode.HALF_UP));
+        result.put("totalProfit", profit.multiply(BigDecimal.valueOf(quantity)).setScale(2, RoundingMode.HALF_UP));
+        result.put("totalDeductions", deductions.multiply(BigDecimal.valueOf(quantity)).setScale(2, RoundingMode.HALF_UP));
+        result.put("totalFixedFees", fees.multiply(BigDecimal.valueOf(quantity)).setScale(2, RoundingMode.HALF_UP));
+        return result;
+    }
+
+    @Override
+    @Transactional
+    public JewelryDocument saveDocument(JewelryDocument document, Long userId, String userName)
+    {
+        if ("REVERSAL".equals(document.getDocType()))
+        {
+            throw new ServiceException("红冲单只能从已入账原单发起，不能手工创建或修改");
+        }
+        JewelryDocument current = document.getDocumentId() == null ? null : requireDocument(document.getDocumentId());
+        if (current != null && !text(current.getDocType()).equals(text(document.getDocType())))
+            throw new ServiceException("单据类型创建后不允许修改");
+        if (current != null && (!userId.equals(current.getCreatorUserId())
+            || !("DRAFT".equals(current.getStatus()) || "REJECTED".equals(current.getStatus()))))
+            throw new ServiceException("只能修改自己创建的草稿或已驳回单据");
+        if ("STOCK_ADJUST".equals(document.getDocType()))
+        {
+            prepareStockAdjustment(document);
+        }
+        if ("COST_ADJUST".equals(document.getDocType()))
+        {
+            prepareCostAdjustment(document);
+        }
+        prepareInlineAssemblyOutput(document, userName);
+        validateSalesBindingsForWrite(document);
+        if ("SALES_OUT".equals(document.getDocType()) && document.getDocumentId() == null)
+        {
+            document.setPlatformRate(ZERO);
+            document.setCommissionRate(ZERO);
+            document.setTaxRate(ZERO);
+        }
+        allocateSupplierReturnPurchases(document);
+        validateDocument(document);
+        calculateDocument(document);
+        document.setUpdateBy(userName);
+        if (document.getDocumentId() == null)
+        {
+            document.setDocNo(createDocNo(document.getDocType()));
+            document.setStatus("DRAFT");
+            document.setCreatorUserId(userId);
+            document.setCreatorName(userName);
+            document.setCreateBy(userName);
+            mapper.insertDocument(document);
+            mapper.insertEvent(document.getDocumentId(), "CREATE", "", "DRAFT", userId, userName, "");
+        }
+        else
+        {
+            if ("REVERSAL".equals(current.getDocType()))
+            {
+                throw new ServiceException("红冲单明细不允许修改");
+            }
+            if (!"DRAFT".equals(current.getStatus()) && !"REJECTED".equals(current.getStatus()))
+            {
+                throw new ServiceException("只有草稿或已驳回单据可以修改");
+            }
+            if (!userId.equals(current.getCreatorUserId()))
+            {
+                throw new ServiceException("只能修改自己创建的单据");
+            }
+            if (mapper.updateDocument(document) != 1)
+            {
+                throw new ServiceException("单据状态已变化，请刷新后重试");
+            }
+            mapper.deleteDocumentItems(document.getDocumentId());
+            mapper.insertEvent(document.getDocumentId(), "EDIT", current.getStatus(), "DRAFT", userId, userName, "");
+        }
+        syncPendingInfluencerProductPrices(document, userName);
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            if ("PURCHASE_IN".equals(document.getDocType()) || "SAMPLE_IN".equals(document.getDocType()))
+            {
+                item.setImageUrls(singleImage(item.getImageUrls()));
+            }
+            item.setDocumentId(document.getDocumentId());
+            mapper.insertDocumentItem(item);
+            if ("PURCHASE_IN".equals(document.getDocType()) && !text(item.getImageUrls()).isEmpty())
+            {
+                String firstImage = item.getImageUrls().split(",")[0].trim();
+                mapper.updateProductImagesIfEmpty(item.getProductId(), firstImage, item.getImageUrls(), userName);
+            }
+        }
+        return getDocument(document.getDocumentId());
+    }
+
+    @Override
+    @Transactional
+    public JewelryDocument directAdjustCosts(JewelryDocument document, Long userId, String userName,
+        String operatorRole)
+    {
+        if (!"jewelry_admin".equals(operatorRole))
+            throw new ServiceException("只有管理员可以直接调整库存成本");
+        if (document == null || !"COST_ADJUST".equals(document.getDocType()))
+            throw new ServiceException("直接调价只能用于库存成本调整");
+        if (document.getDocumentId() != null)
+            throw new ServiceException("直接调价必须新建，不能修改已有单据");
+
+        JewelryDocument saved = saveDocument(document, userId, userName);
+        validateCostChangeConflicts(saved);
+        validateCostAdjustmentSnapshot(saved);
+        post(saved, userId, userName);
+        changeStatus(saved, "DRAFT", "POSTED", userId, userName, null, null);
+        saved.setStatus("POSTED");
+        mapper.insertEvent(saved.getDocumentId(), "ADMIN_DIRECT_COST_ADJUST", "DRAFT", "POSTED",
+            userId, userName, text(saved.getReturnReason()));
+        return getDocument(saved.getDocumentId());
+    }
+
+    @Override
+    @Transactional
+    public void deleteDraft(Long documentId, Long userId)
+    {
+        JewelryDocument document = mapper.selectDocumentByIdForUpdate(documentId);
+        if (document == null)
+        {
+            throw new ServiceException("单据不存在或已被删除");
+        }
+        if (!"DRAFT".equals(document.getStatus()))
+        {
+            throw new ServiceException("只有草稿单据可以删除");
+        }
+        if (!userId.equals(document.getCreatorUserId()))
+        {
+            throw new ServiceException("只能删除自己创建的草稿");
+        }
+        mapper.deletePendingInfluencerProductPricesByDocument(documentId);
+        mapper.deleteDocumentApprovals(documentId);
+        mapper.deleteDocumentEvents(documentId);
+        mapper.deleteDocumentItems(documentId);
+        if (mapper.deleteDraftDocument(documentId, userId) != 1)
+        {
+            throw new ServiceException("草稿状态已变化，请刷新后重试");
+        }
+    }
+
+    private void prepareInlineAssemblyOutput(JewelryDocument document, String userName)
+    {
+        Map<String, Object> product = document.getNewOutputProduct();
+        if (product == null || product.isEmpty()) return;
+        if (!"ASSEMBLY".equals(document.getDocType()))
+            throw new ServiceException("只有组装单可以同时新建成品档案");
+        if (document.getItems() == null || document.getItems().isEmpty())
+            throw new ServiceException("组装单明细不能为空");
+
+        JewelryDocumentItem output = null;
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            if (!"OUTPUT".equals(item.getItemRole())) continue;
+            if (output != null) throw new ServiceException("组装单必须且只能有一个成品产出");
+            output = item;
+        }
+        if (output == null) throw new ServiceException("请填写组装成品信息");
+        if (output.getProductId() != null) throw new ServiceException("新建成品不能同时选择已有成品");
+
+        String sku = text(product.get("sku") == null ? null : String.valueOf(product.get("sku"))).trim();
+        String name = text(product.get("productName") == null ? null : String.valueOf(product.get("productName"))).trim();
+        if (sku.isEmpty() || name.isEmpty()) throw new ServiceException("新成品的SKU和商品名称不能为空");
+
+        String productImage = singleImage(product.get("imageUrls"));
+        if (productImage.isEmpty()) productImage = singleImage(output.getImageUrls());
+        product.remove("productId");
+        product.put("sku", sku);
+        product.put("productName", name);
+        product.put("productType", "FINISHED");
+        product.put("imageUrl", productImage);
+        product.put("imageUrls", productImage);
+        product.put("unit", textValue(product.get("unit")).isEmpty() ? "件" : textValue(product.get("unit")));
+        product.put("defaultPackFee", ZERO);
+        product.put("defaultShipFee", ZERO);
+        product.put("defaultCertFee", ZERO);
+        product.put("warningQty", nonNegativeValue(product.get("warningQty"), 5));
+        product.put("status", "0");
+        product.put("createBy", userName);
+        product.put("remark", textValue(product.get("remark")));
+        try
+        {
+            mapper.insertProduct(product);
+        }
+        catch (DuplicateKeyException ex)
+        {
+            throw new ServiceException("SKU已存在，请更换SKU或选择已有成品");
+        }
+        Long productId = longValue(product.get("productId"));
+        if (productId <= 0) throw new ServiceException("新成品档案创建失败");
+        mapper.ensureStock(productId);
+        output.setProductId(productId);
+        if (text(output.getImageUrls()).isEmpty()) output.setImageUrls(productImage);
+        document.setNewOutputProduct(null);
+    }
+
+    private String singleImage(Object value)
+    {
+        String images = value == null ? "" : text(String.valueOf(value));
+        if (images.isEmpty()) return "";
+        return images.split(",")[0].trim();
+    }
+
+    @Override
+    @Transactional
+    public JewelryDocument createReversal(Long sourceDocumentId, Long userId, String userName)
+    {
+        JewelryDocument source = mapper.selectDocumentByIdForUpdate(sourceDocumentId);
+        if (source == null)
+        {
+            throw new ServiceException("原单不存在");
+        }
+        if (!"POSTED".equals(source.getStatus()))
+        {
+            throw new ServiceException("只有已入账且未红冲的单据可以发起红冲");
+        }
+        if ("REVERSAL".equals(source.getDocType()))
+        {
+            throw new ServiceException("红冲单不能再次红冲");
+        }
+        if ("ASSEMBLY".equals(source.getDocType()))
+        {
+            throw new ServiceException("组装单暂不支持整单红冲，请通过库存调整处理差异");
+        }
+        ensureSourceHasNoActiveReturns(source);
+        if (mapper.countReversalBySource(sourceDocumentId) > 0)
+        {
+            throw new ServiceException("该原单已经存在红冲单，请勿重复发起");
+        }
+        List<JewelryDocumentItem> sourceItems = mapper.selectDocumentItems(sourceDocumentId);
+        if (sourceItems == null || sourceItems.isEmpty())
+        {
+            throw new ServiceException("原单没有商品明细，不能红冲");
+        }
+
+        JewelryDocument reversal = new JewelryDocument();
+        reversal.setDocNo(createDocNo("REVERSAL"));
+        reversal.setDocType("REVERSAL");
+        reversal.setBizDate(new Date());
+        reversal.setStatus("DRAFT");
+        reversal.setSupplierId(source.getSupplierId());
+        reversal.setSupplierNameSnapshot(source.getSupplierNameSnapshot());
+        reversal.setSalesChannel(source.getSalesChannel());
+        reversal.setExternalNo(source.getExternalNo());
+        reversal.setSourceWarehouse(source.getSourceWarehouse());
+        reversal.setTargetWarehouse(source.getTargetWarehouse());
+        reversal.setInfluencerName(source.getInfluencerName());
+        reversal.setPlatformRate(source.getPlatformRate());
+        reversal.setCommissionRate(source.getCommissionRate());
+        reversal.setTaxRate(source.getTaxRate());
+        reversal.setReturnReason("红冲原单 " + source.getDocNo());
+        reversal.setSourceDocumentId(sourceDocumentId);
+        reversal.setTotalQty(-nonNegative(source.getTotalQty()));
+        int reversalAmountScale = isFourDecimalTransactionAmount(source.getDocType()) ? 4 : 2;
+        int reversalCostScale = isInboundReceipt(source.getDocType()) ? 4 : 2;
+        reversal.setTotalAmount(money(source.getTotalAmount()).negate()
+            .setScale(reversalAmountScale, RoundingMode.HALF_UP));
+        reversal.setTotalCost(money(source.getTotalCost()).negate()
+            .setScale(reversalCostScale, RoundingMode.HALF_UP));
+        reversal.setTotalProfit(money(source.getTotalProfit()).negate().setScale(2, RoundingMode.HALF_UP));
+        reversal.setRiskStatus("NORMAL");
+        reversal.setLaborFee(ZERO);
+        reversal.setProcessingFee(ZERO);
+        reversal.setOtherFee(ZERO);
+        reversal.setCreatorUserId(userId);
+        reversal.setCreatorName(userName);
+        reversal.setCreateBy(userName);
+        reversal.setRemark("系统生成，关联原单：" + source.getDocNo());
+        mapper.insertDocument(reversal);
+
+        List<JewelryDocumentItem> reversalItems = new ArrayList<JewelryDocumentItem>();
+        for (JewelryDocumentItem sourceItem : sourceItems)
+        {
+            JewelryDocumentItem item = copyReversalItem(sourceItem, reversal.getDocumentId(), source.getDocType());
+            mapper.insertDocumentItem(item);
+            reversalItems.add(item);
+        }
+        reversal.setItems(reversalItems);
+        mapper.insertEvent(reversal.getDocumentId(), "CREATE_REVERSAL", "", "DRAFT", userId, userName,
+            "原单：" + source.getDocNo());
+        mapper.insertEvent(sourceDocumentId, "REVERSAL_CREATED", "POSTED", "POSTED", userId, userName,
+            "红冲单：" + reversal.getDocNo());
+        return reversal;
+    }
+
+    @Override
+    @Transactional
+    public void submit(Long documentId, Long userId, String userName)
+    {
+        JewelryDocument document = getDocument(documentId);
+        String fromStatus = document.getStatus();
+        boolean rejectedReversal = "REVERSAL".equals(document.getDocType()) && "REJECTED".equals(fromStatus);
+        if (!"DRAFT".equals(fromStatus) && !rejectedReversal)
+        {
+            throw new ServiceException("只有草稿单据或已驳回红冲单可以提交");
+        }
+        if (!userId.equals(document.getCreatorUserId()))
+        {
+            throw new ServiceException("只能提交自己创建的单据");
+        }
+        if (!"REVERSAL".equals(document.getDocType()))
+        {
+            if ("CUSTOMER_RETURN".equals(document.getDocType()) && document.getSourceDocumentId() != null)
+            {
+                JewelryDocument source = mapper.selectDocumentByIdForUpdate(document.getSourceDocumentId());
+                if (source == null || !"SALES_OUT".equals(source.getDocType()) || !"POSTED".equals(source.getStatus()))
+                    throw new ServiceException("关联的原销售单已失效，请重新选择");
+                if (mapper.countReversalBySource(source.getDocumentId()) > 0)
+                    throw new ServiceException("关联的原销售单已存在红冲单，不能再提交消费者退货");
+            }
+            else if (isSupplierReturn(document.getDocType()))
+            {
+                if (document.getSourceDocumentId() == null)
+                    throw new ServiceException("SAMPLE_RETURN".equals(document.getDocType())
+                        ? "样品退货必须关联已入账且未红冲的样品入库单" : "供应商退货必须关联原采购单");
+                // Lock every referenced purchase in deterministic order before checking quotas.
+                java.util.Set<Long> sourceIds = new java.util.TreeSet<Long>();
+                sourceIds.add(document.getSourceDocumentId());
+                for (JewelryDocumentItem item : document.getItems())
+                {
+                    JewelryDocumentItem sourceItem = item.getSourceItemId() == null ? null
+                        : mapper.selectDocumentItemById(item.getSourceItemId());
+                    if (sourceItem != null && sourceItem.getDocumentId() != null)
+                        sourceIds.add(sourceItem.getDocumentId());
+                }
+                for (Long sourceId : sourceIds)
+                {
+                    JewelryDocument source = mapper.selectDocumentByIdForUpdate(sourceId);
+                    if (source == null || !("SAMPLE_RETURN".equals(document.getDocType()) ? "SAMPLE_IN" : "PURCHASE_IN").equals(source.getDocType())
+                        || !"POSTED".equals(source.getStatus()))
+                        throw new ServiceException("SAMPLE_RETURN".equals(document.getDocType())
+                            ? "原样品入库单已失效，请刷新后重试" : "关联的原采购单已失效，请重新选择");
+                    validateSupplierReturnSource(document, source);
+                }
+            }
+            else if ("RETURN_INSPECT".equals(document.getDocType()))
+            {
+                if (document.getSourceDocumentId() == null)
+                    throw new ServiceException("退货质检必须关联原客户退货单");
+                JewelryDocument source = mapper.selectDocumentByIdForUpdate(document.getSourceDocumentId());
+                if (source == null || !"CUSTOMER_RETURN".equals(source.getDocType())
+                    || !"POSTED".equals(source.getStatus()))
+                    throw new ServiceException("关联的客户退货单已失效，请重新选择");
+            }
+            validateSalesBindingsForWrite(document);
+            validateDocument(document);
+            calculateDocument(document);
+            if ("SALES_OUT".equals(document.getDocType()))
+                validateAccessoryPackagingCoverage(document);
+            mapper.updateDocumentFinancials(document);
+            for (JewelryDocumentItem item : document.getItems()) mapper.updateDocumentItemCost(item);
+        }
+        if ("STOCK_ADJUST".equals(document.getDocType()))
+        {
+            validateStockAdjustmentSnapshot(document);
+        }
+        if ("COST_ADJUST".equals(document.getDocType()))
+        {
+            validateCostAdjustmentSnapshot(document);
+        }
+        if (isInboundReceipt(document.getDocType()) || isCostChangeDocument(document))
+        {
+            validateCostChangeConflicts(document);
+        }
+        if ("ASSEMBLY".equals(document.getDocType()))
+        {
+            refreshAssemblyCosts(document, true, false);
+        }
+        reserve(document);
+        changeStatus(document, fromStatus, "PENDING_FIRST", userId, userName, null, null);
+        mapper.insertEvent(documentId, rejectedReversal ? "RESUBMIT" : "SUBMIT", fromStatus,
+            "PENDING_FIRST", userId, userName, "");
+    }
+
+    @Override
+    @Transactional
+    public void withdraw(Long documentId, Long userId, String userName)
+    {
+        JewelryDocument document = getDocument(documentId);
+        if (!"PENDING_FIRST".equals(document.getStatus()))
+        {
+            throw new ServiceException("只有待审核单据可以撤回");
+        }
+        if (!userId.equals(document.getCreatorUserId()))
+        {
+            throw new ServiceException("只能撤回自己创建的单据");
+        }
+        release(document);
+        changeStatus(document, document.getStatus(), "DRAFT", userId, userName, null, null);
+        mapper.insertEvent(documentId, "WITHDRAW", document.getStatus(), "DRAFT", userId, userName, "");
+    }
+
+    @Override
+    @Transactional
+    public void approve(Long documentId, String comment, BigDecimal expectedTotalCost, Long userId, String userName,
+        String approvalRole, Map<Long, BigDecimal> stockAdjustmentCosts)
+    {
+        JewelryDocument document = getDocument(documentId);
+        ensureReviewer(document, userId);
+        String pendingStatus = document.getStatus();
+        if (!"PENDING_FIRST".equals(pendingStatus) && !"PENDING_SECOND".equals(pendingStatus))
+        {
+            throw new ServiceException("当前单据不在待审核状态");
+        }
+        boolean dualApproval = isDualApprovalDocument(document);
+        if (dualApproval)
+        {
+            ensureDualApprovalRole(document, pendingStatus, userId, approvalRole);
+            if (stockAdjustmentCosts != null && !stockAdjustmentCosts.isEmpty()
+                && (!"STOCK_ADJUST".equals(document.getDocType()) || !"PENDING_SECOND".equals(pendingStatus)
+                    || !"jewelry_admin".equals(approvalRole)))
+                throw new ServiceException("只有管理员终审盘点单时可以修改盘盈核定成本");
+            if ("STOCK_ADJUST".equals(document.getDocType())) validateStockAdjustmentSnapshot(document);
+            if ("COST_ADJUST".equals(document.getDocType())) validateCostAdjustmentSnapshot(document);
+            if (isCostChangeDocument(document)) validateCostChangeConflicts(document);
+            if ("PENDING_FIRST".equals(pendingStatus))
+            {
+                changeStatus(document, pendingStatus, "PENDING_SECOND", userId, userName, null, 1);
+                mapper.insertApproval(documentId, 1, "PASS", userId, userName, text(comment));
+                mapper.insertEvent(documentId, "APPROVE_FIRST", pendingStatus, "PENDING_SECOND",
+                    userId, userName, text(comment));
+                return;
+            }
+            if ("STOCK_ADJUST".equals(document.getDocType()))
+                applyStockAdjustmentCostOverrides(document, stockAdjustmentCosts, userId, userName);
+        }
+        else if (isInboundReceipt(document.getDocType()))
+        {
+            validateCostChangeConflicts(document);
+        }
+        if ("ASSEMBLY".equals(document.getDocType()))
+        {
+            refreshAssemblyCosts(document, true, true);
+            if (expectedTotalCost == null)
+            {
+                throw new ServiceException("请先刷新并确认最新组装成本");
+            }
+            if (money(expectedTotalCost).compareTo(money(document.getTotalCost())) != 0)
+            {
+                throw new ServiceException("组装成本已变化，请刷新单据后重新确认");
+            }
+        }
+        if ("REVERSAL".equals(document.getDocType()))
+        {
+            postReversal(document, userId, userName);
+            if (mapper.markOriginalReversed(document.getSourceDocumentId(), userName) != 1)
+                throw new ServiceException("原单状态已变化或已经红冲，请刷新后重试");
+        }
+        else
+        {
+            post(document, userId, userName);
+        }
+        int stage = "PENDING_FIRST".equals(pendingStatus) ? 1 : 2;
+        changeStatus(document, pendingStatus, "POSTED", userId, userName, null, stage);
+        mapper.insertApproval(documentId, stage, "PASS", userId, userName, text(comment));
+        mapper.insertEvent(documentId, "APPROVE", pendingStatus, "POSTED", userId, userName, text(comment));
+    }
+
+    private void applyStockAdjustmentCostOverrides(JewelryDocument document,
+        Map<Long, BigDecimal> stockAdjustmentCosts, Long userId, String userName)
+    {
+        if (stockAdjustmentCosts == null || stockAdjustmentCosts.isEmpty()) return;
+        Map<Long, JewelryDocumentItem> itemsById = new HashMap<Long, JewelryDocumentItem>();
+        for (JewelryDocumentItem item : document.getItems())
+            if (item.getItemId() != null) itemsById.put(item.getItemId(), item);
+
+        List<JewelryDocumentItem> changedItems = new ArrayList<JewelryDocumentItem>();
+        List<String> changes = new ArrayList<String>();
+        for (Map.Entry<Long, BigDecimal> entry : stockAdjustmentCosts.entrySet())
+        {
+            JewelryDocumentItem item = itemsById.get(entry.getKey());
+            if (item == null)
+                throw new ServiceException("盘盈核定成本明细不存在，请刷新后重试");
+            if (item.getAdjustmentQty() == null || item.getAdjustmentQty() <= 0)
+                throw new ServiceException(item.getProductNameSnapshot() + " 不是盘盈明细，不能修改核定成本");
+            BigDecimal revisedCost = money(entry.getValue());
+            if (revisedCost.signum() <= 0)
+                throw new ServiceException(item.getProductNameSnapshot() + " 的盘盈核定成本必须大于0");
+            BigDecimal originalCost = money(item.getUnitCost());
+            if (originalCost.compareTo(revisedCost) == 0) continue;
+            item.setUnitCost(revisedCost);
+            changedItems.add(item);
+            changes.add(text(item.getSkuSnapshot()) + "：" + costText(originalCost) + "→" + costText(revisedCost));
+        }
+        if (changedItems.isEmpty()) return;
+
+        calculateDocument(document);
+        for (JewelryDocumentItem item : changedItems) mapper.updateDocumentItemCost(item);
+        String auditComment = "管理员调整盘盈核定成本：" + String.join("；", changes);
+        if (auditComment.length() > 480) auditComment = auditComment.substring(0, 477) + "...";
+        mapper.insertEvent(document.getDocumentId(), "ADMIN_COST_EDIT", "PENDING_SECOND", "PENDING_SECOND",
+            userId, userName, auditComment);
+    }
+
+    private String costText(BigDecimal value)
+    {
+        return money(value).stripTrailingZeros().toPlainString();
+    }
+
+    @Override
+    @Transactional
+    public void reject(Long documentId, String comment, Long userId, String userName, String approvalRole)
+    {
+        JewelryDocument document = getDocument(documentId);
+        ensureReviewer(document, userId);
+        if (!"PENDING_FIRST".equals(document.getStatus()) && !"PENDING_SECOND".equals(document.getStatus()))
+        {
+            throw new ServiceException("当前单据不在待审批状态");
+        }
+        if (comment == null || comment.trim().isEmpty())
+        {
+            throw new ServiceException("驳回原因不能为空");
+        }
+        if (isDualApprovalDocument(document))
+            ensureDualApprovalRole(document, document.getStatus(), userId, approvalRole);
+        int stage = "PENDING_FIRST".equals(document.getStatus()) ? 1 : 2;
+        release(document);
+        if ("SALES_OUT".equals(document.getDocType()))
+            mapper.deletePendingInfluencerProductPricesByDocument(documentId);
+        changeStatus(document, document.getStatus(), "REJECTED", userId, userName, comment, null);
+        mapper.insertApproval(documentId, stage, "REJECT", userId, userName, comment);
+        mapper.insertEvent(documentId, "REJECT", document.getStatus(), "REJECTED", userId, userName, comment);
+    }
+
+    private boolean isConfiguredSalesBinding(Map<String, Object> price)
+    {
+        return price != null && "PRICED".equals(textValue(price.get("priceStatus")))
+            && "0".equals(textValue(price.get("bindingStatus")))
+            && price.get("fixedUnitPrice") != null && price.get("commissionRate") != null
+            && price.get("platformRate") != null && price.get("taxRate") != null;
+    }
+
+    private boolean requiresInfluencerPurchase(String productType)
+    {
+        return "FINISHED".equals(productType) || "GIFT".equals(productType) || "WELFARE".equals(productType);
+    }
+
+    private void validateSalesBindingsForWrite(JewelryDocument document)
+    {
+        if (!"SALES_OUT".equals(document.getDocType()) || document.getInfluencerId() == null
+            || document.getItems() == null) return;
+        Map<Long, Map<String, Object>> prices = new HashMap<Long, Map<String, Object>>();
+        List<Map<String, Object>> rows = mapper.selectInfluencerProductPrices(document.getInfluencerId());
+        if (rows != null)
+            for (Map<String, Object> row : rows) prices.put(longValue(row.get("productId")), row);
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            if (item.getProductId() == null) continue;
+            Map<String, Object> price = prices.get(item.getProductId());
+            boolean ownLegacyPending = document.getDocumentId() != null && price != null
+                && "PENDING".equals(textValue(price.get("priceStatus")))
+                && document.getDocumentId().equals(nullableLong(price.get("pendingSourceDocumentId")));
+            if (ownLegacyPending) continue;
+            if ("ADDON".equals(normalizedSaleRole(item.getSaleRole()))
+                && "INCLUDED".equals(normalizedPricingMode(item.getPricingMode()))
+                && !isConfiguredSalesBinding(price))
+            {
+                // Included accessories may be selected without an influencer binding.
+                Map<String, Object> addonProduct = mapper.selectProductById(item.getProductId());
+                if (addonProduct != null && "ACCESSORY".equals(textValue(addonProduct.get("productType"))))
+                    continue;
+                if (addonProduct != null && "GIFT".equals(textValue(addonProduct.get("productType"))))
+                    throw new ServiceException("赠品商品未在当前达人档案中完成有效绑定，请先配置直播价和各项费率");
+                throw new ServiceException("包含价搭售只支持配件商品或当前达人绑定的赠品商品");
+            }
+            if (!isConfiguredSalesBinding(price))
+                throw new ServiceException("商品" + item.getProductId() + "未在当前达人档案中完成有效绑定，请先配置直播价和各项费率");
+            if (item.getInfluencerPriceVersion() != null && item.getInfluencerPriceVersion() > 0
+                && item.getInfluencerPriceVersion() != intValue(price.get("priceVersion")))
+                throw new ServiceException("商品" + item.getProductId() + "的达人配置已更新，请重新打开单据确认价格和费率");
+        }
+    }
+
+    private void validateDocument(JewelryDocument document)
+    {
+        if (document.getDocType() == null || document.getDocType().trim().isEmpty()) throw new ServiceException("请选择单据类型");
+        if (!EDITABLE_DOCUMENT_TYPES.contains(document.getDocType()))
+            throw new ServiceException("单据类型不正确");
+        if (document.getBizDate() == null) document.setBizDate(new Date());
+        if ("TRANSFER_OUT".equals(document.getDocType()))
+        {
+            String sourceWarehouse = text(document.getSourceWarehouse()).trim();
+            String targetWarehouse = text(document.getTargetWarehouse()).trim();
+            if (sourceWarehouse.isEmpty() || targetWarehouse.isEmpty())
+                throw new ServiceException("请填写出库仓库和入库仓库");
+            if (sourceWarehouse.length() > 100 || targetWarehouse.length() > 100)
+                throw new ServiceException("仓库名称不能超过100个字符");
+            if (sourceWarehouse.equalsIgnoreCase(targetWarehouse))
+                throw new ServiceException("出库仓库与入库仓库不能相同");
+            document.setSourceWarehouse(sourceWarehouse);
+            document.setTargetWarehouse(targetWarehouse);
+            document.setSupplierId(null);
+            document.setSupplierNameSnapshot(null);
+            document.setSourceDocumentId(null);
+            document.setSalesChannel(null);
+            document.setInfluencerId(null);
+            document.setInfluencerName(null);
+            document.setInfluencerPriceSnapshot(null);
+            document.setInfluencerPriceVersion(null);
+            document.setExternalNo(null);
+            document.setReturnReason(null);
+            document.setActualRefundAmount(null);
+            document.setRemark(null);
+            document.setPlatformRate(ZERO);
+            document.setCommissionRate(ZERO);
+            document.setTaxRate(ZERO);
+            document.setLaborFee(ZERO);
+            document.setProcessingFee(ZERO);
+            document.setOtherFee(ZERO);
+        }
+        else
+        {
+            document.setSourceWarehouse(null);
+            document.setTargetWarehouse(null);
+        }
+        if ("SAMPLE_IN".equals(document.getDocType()))
+        {
+            document.setSupplierId(null);
+            document.setSupplierNameSnapshot(null);
+            document.setSourceDocumentId(null);
+            document.setExternalNo(null);
+            document.setRemark(null);
+            document.setReturnReason(null);
+            document.setSalesChannel(null);
+            document.setInfluencerId(null);
+            document.setInfluencerName(null);
+            document.setInfluencerPriceSnapshot(null);
+            document.setInfluencerPriceVersion(null);
+            document.setActualRefundAmount(null);
+            document.setPlatformRate(ZERO);
+            document.setCommissionRate(ZERO);
+            document.setTaxRate(ZERO);
+            document.setLaborFee(ZERO);
+            document.setProcessingFee(ZERO);
+            document.setOtherFee(ZERO);
+        }
+        if ("PURCHASE_IN".equals(document.getDocType()) && document.getSupplierReturnDate() != null)
+        {
+            SimpleDateFormat dayFormat = new SimpleDateFormat("yyyy-MM-dd");
+            dayFormat.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Shanghai"));
+            if (dayFormat.format(document.getSupplierReturnDate()).compareTo(dayFormat.format(document.getBizDate())) < 0)
+                throw new ServiceException("约定退货日期不能早于采购入库业务日期");
+        }
+        else if (!"PURCHASE_IN".equals(document.getDocType())) document.setSupplierReturnDate(null);
+        if (document.getItems() == null || document.getItems().isEmpty()) throw new ServiceException("单据至少需要一行商品");
+        prepareInfluencerReference(document);
+        if ("SAMPLE_RETURN".equals(document.getDocType())) clearSampleReturnHeader(document);
+        if (("PURCHASE_IN".equals(document.getDocType()) || isSupplierReturn(document.getDocType()))
+            && document.getSupplierId() == null)
+            throw new ServiceException("请选择供应商");
+        if ("PURCHASE_IN".equals(document.getDocType()) || isSupplierReturn(document.getDocType()))
+            validateSupplierReference(document, true);
+        if (("SALES_OUT".equals(document.getDocType()) || "CUSTOMER_RETURN".equals(document.getDocType()))
+            && text(document.getSalesChannel()).trim().isEmpty())
+            throw new ServiceException("请填写销售渠道");
+        if ((isSupplierReturn(document.getDocType()) || "CUSTOMER_RETURN".equals(document.getDocType()))
+            && text(document.getReturnReason()).trim().isEmpty())
+            throw new ServiceException("请填写退货原因");
+        if ("COST_ADJUST".equals(document.getDocType()) && text(document.getReturnReason()).trim().isEmpty())
+            throw new ServiceException("请填写调价原因");
+        Map<Long, JewelryDocumentItem> supplierReturnSourceItems = new HashMap<Long, JewelryDocumentItem>();
+        Map<Long, JewelryDocument> supplierReturnSources = new HashMap<Long, JewelryDocument>();
+        Map<Long, Long> supplierReturnQuantities = new HashMap<Long, Long>();
+        Map<Long, Long> supplierReturnSourceQuantities = new HashMap<Long, Long>();
+        JewelryDocument supplierReturnSource = null;
+        if (isSupplierReturn(document.getDocType()))
+        {
+            if (document.getSourceDocumentId() == null)
+                throw new ServiceException("SAMPLE_RETURN".equals(document.getDocType())
+                    ? "样品退货必须关联已入账且未红冲的样品入库单" : "供应商退货必须关联原采购单");
+            supplierReturnSource = requirePostedReturnReceipt(document, document.getSourceDocumentId());
+            validateSupplierReturnSource(document, supplierReturnSource);
+            if (!"SAMPLE_RETURN".equals(document.getDocType()))
+                document.setInfluencerName(supplierReturnSource.getInfluencerName());
+            supplierReturnSources.put(supplierReturnSource.getDocumentId(), supplierReturnSource);
+            for (JewelryDocumentItem sourceItem : mapper.selectDocumentItems(supplierReturnSource.getDocumentId()))
+            {
+                supplierReturnSourceItems.put(sourceItem.getItemId(), sourceItem);
+            }
+            for (JewelryDocumentItem returnItem : document.getItems())
+            {
+                if (returnItem.getSourceItemId() == null || supplierReturnSourceItems.containsKey(returnItem.getSourceItemId()))
+                    continue;
+                JewelryDocumentItem sourceItem = mapper.selectDocumentItemById(returnItem.getSourceItemId());
+                if (sourceItem == null || sourceItem.getDocumentId() == null)
+                    throw new ServiceException("SAMPLE_RETURN".equals(document.getDocType())
+                        ? "样品退货明细必须来自所选供应商的样品入库单" : "退供明细必须来自所关联的原采购单");
+                if (!supplierReturnSources.containsKey(sourceItem.getDocumentId()))
+                {
+                    JewelryDocument source = requirePostedReturnReceipt(document, sourceItem.getDocumentId());
+                    validateSupplierReturnSource(document, source);
+                    supplierReturnSources.put(source.getDocumentId(), source);
+                }
+                supplierReturnSourceItems.put(sourceItem.getItemId(), sourceItem);
+            }
+        }
+        Map<Long, JewelryDocumentItem> returnInspectionSourceItems = new HashMap<Long, JewelryDocumentItem>();
+        if ("RETURN_INSPECT".equals(document.getDocType()))
+        {
+            if (document.getInfluencerId() == null)
+                throw new ServiceException("退货质检必须选择达人/主播");
+            if (document.getSourceDocumentId() == null)
+                throw new ServiceException("退货质检必须关联原客户退货单");
+            JewelryDocument source = requirePostedCustomerReturn(document.getSourceDocumentId());
+            if (source.getInfluencerId() == null || !source.getInfluencerId().equals(document.getInfluencerId()))
+                throw new ServiceException("原客户退货单与所选达人/主播不一致");
+            document.setInfluencerName(source.getInfluencerName());
+            for (JewelryDocumentItem sourceItem : mapper.selectDocumentItems(source.getDocumentId()))
+            {
+                returnInspectionSourceItems.put(sourceItem.getItemId(), sourceItem);
+            }
+        }
+        validateRate(document.getPlatformRate(), "平台扣点率");
+        validateRate(document.getCommissionRate(), "达人佣金率");
+        validateRate(document.getTaxRate(), "税率");
+        if ("SALES_OUT".equals(document.getDocType()))
+            validateCombinedRate(money(document.getPlatformRate()).add(money(document.getCommissionRate()))
+                .add(money(document.getTaxRate())));
+        Set<String> itemKeys = new HashSet<String>();
+        Map<Integer, Integer> salesMainCounts = new HashMap<Integer, Integer>();
+        Map<Integer, Integer> salesAddonCounts = new HashMap<Integer, Integer>();
+        Map<Integer, Integer> returnMainCounts = new HashMap<Integer, Integer>();
+        Map<Integer, Integer> returnAddonCounts = new HashMap<Integer, Integer>();
+        Map<Long, Map<String, Object>> purchaseBindings = new HashMap<Long, Map<String, Object>>();
+        if ("PURCHASE_IN".equals(document.getDocType()) && document.getInfluencerId() != null)
+        {
+            List<Map<String, Object>> bindings = mapper.selectInfluencerProductPrices(document.getInfluencerId());
+            if (bindings != null)
+                for (Map<String, Object> binding : bindings)
+                    purchaseBindings.put(longValue(binding.get("productId")), binding);
+        }
+        Date earliestSampleDate = null;
+        SimpleDateFormat sampleDayFormat = new SimpleDateFormat("yyyy-MM-dd");
+        sampleDayFormat.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Shanghai"));
+        int assemblyOutputs = 0;
+        int assemblyComponents = 0;
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            if (item.getProductId() == null) throw new ServiceException("请选择商品");
+            // Serialize new document references with product deletion.
+            Map<String, Object> product = mapper.selectProductByIdForUpdate(item.getProductId());
+            if (product == null) throw new ServiceException("商品不存在或已删除");
+            if (!"0".equals(String.valueOf(product.get("status"))))
+                throw new ServiceException("商品已停用，不能继续使用");
+            String submittedSku = text(item.getSkuSnapshot()).trim();
+            if ("SAMPLE_IN".equals(document.getDocType()) && !submittedSku.isEmpty()
+                && !submittedSku.equalsIgnoreCase(textValue(product.get("sku"))))
+                throw new ServiceException("样品入库SKU与所选商品不一致");
+            item.setSkuSnapshot(String.valueOf(product.get("sku")));
+            item.setProductNameSnapshot(String.valueOf(product.get("productName")));
+            item.setProductTypeSnapshot(textValue(product.get("productType")));
+            item.setSpecificationSnapshot(textValue(product.get("specification")));
+            String unit = text(item.getUnitSnapshot()).trim();
+            if (unit.isEmpty()) unit = textValue(product.get("unit"));
+            if (unit.isEmpty()) unit = "件";
+            if (unit.length() > 16) throw new ServiceException("商品单位不能超过16个字符");
+            item.setUnitSnapshot(unit);
+            if ("PURCHASE_IN".equals(document.getDocType()) && "SAMPLE".equals(item.getProductTypeSnapshot()))
+                throw new ServiceException("样品商品请使用样品入库单据");
+            if ("PURCHASE_IN".equals(document.getDocType())
+                && requiresInfluencerPurchase(item.getProductTypeSnapshot()))
+            {
+                if (document.getInfluencerId() == null)
+                    throw new ServiceException("成品、赠品或福利商品采购入库必须先选择达人/主播");
+                Map<String, Object> binding = purchaseBindings.get(item.getProductId());
+                if (!isConfiguredSalesBinding(binding) || binding.get("unitCost") == null
+                    || nullableLong(binding.get("preferredSupplierId")) == null
+                    || !document.getSupplierId().equals(nullableLong(binding.get("preferredSupplierId"))))
+                    throw new ServiceException("成品、赠品或福利商品采购入库必须选择当前达人和供应商已绑定的商品");
+            }
+            if ("SAMPLE_IN".equals(document.getDocType()))
+            {
+                if (!"SAMPLE".equals(item.getProductTypeSnapshot()))
+                    throw new ServiceException("样品入库只能选择样品商品");
+                if (item.getBizDate() == null)
+                    throw new ServiceException("请填写每行样品商品的业务日期");
+                if (item.getSupplierId() == null)
+                    throw new ServiceException("请填写每行样品商品的供应商");
+                // Keep legacy goods numbers on existing rows, but new sample receipts use the product SKU.
+                String sampleGoodsNo = text(item.getSampleGoodsNo()).trim();
+                item.setSampleGoodsNo(sampleGoodsNo.isEmpty() ? null : sampleGoodsNo);
+                Map<String, Object> sampleSupplier = mapper.selectSupplierById(item.getSupplierId());
+                if (sampleSupplier == null || !"0".equals(textValue(sampleSupplier.get("status"))))
+                    throw new ServiceException("样品入库供应商不存在或已停用");
+                item.setSupplierNameSnapshot(textValue(sampleSupplier.get("supplierName")));
+                if (earliestSampleDate == null || item.getBizDate().before(earliestSampleDate))
+                    earliestSampleDate = item.getBizDate();
+                item.setItemRole("NORMAL");
+                item.setSourceItemId(null);
+                item.setInfluencerPriceSnapshot(null);
+                item.setInfluencerPriceVersion(null);
+                item.setUnitPrice(ZERO);
+                item.setUnitCost(ZERO);
+                item.setSourceUnitPrice(ZERO);
+                item.setGoodQty(0);
+                item.setDefectQty(0);
+                item.setAdjustmentQty(0);
+                item.setLineReason(null);
+                clearNonSalesFees(item);
+            }
+            else
+            {
+                item.setBizDate(null);
+                item.setSupplierId(null);
+                item.setSupplierNameSnapshot(null);
+                item.setSampleGoodsNo(null);
+            }
+            if (item.getItemRole() == null || item.getItemRole().trim().isEmpty()) item.setItemRole("NORMAL");
+            if (!"SALES_OUT".equals(document.getDocType()) && !"CUSTOMER_RETURN".equals(document.getDocType()))
+            {
+                item.setBundleGroupNo(null);
+                item.setSaleRole("NORMAL");
+                item.setPricingMode("SEPARATE");
+            }
+            item.setQty(nonNegative(item.getQty()));
+            if ("SALES_OUT".equals(document.getDocType()))
+            {
+                String itemKey = normalizeSalesBundleItem(item, product, salesMainCounts, salesAddonCounts);
+                if (!itemKeys.add(itemKey))
+                    throw new ServiceException("同一销售组合中不能重复选择同一商品");
+            }
+            else if (!"CUSTOMER_RETURN".equals(document.getDocType())
+                && !"RETURN_INSPECT".equals(document.getDocType())
+                && !itemKeys.add("SAMPLE_IN".equals(document.getDocType())
+                    ? item.getProductId() + ":" + sampleDayFormat.format(item.getBizDate()) + ":" + item.getSupplierId()
+                    : isSupplierReturn(document.getDocType())
+                        ? item.getProductId() + ":" + item.getSourceItemId() + ":" + fourDecimal(item.getUnitPrice())
+                        : String.valueOf(item.getProductId())))
+            {
+                throw new ServiceException("SAMPLE_IN".equals(document.getDocType())
+                    ? "同一SKU、业务日期和供应商不能在样品入库单中重复出现"
+                    : "同一商品不能在一张单据中重复出现");
+            }
+            if ("ASSEMBLY".equals(document.getDocType()))
+            {
+                Map<String, Object> stock = mapper.selectStockForUpdate(item.getProductId());
+                if (stock == null) throw new ServiceException("商品库存记录不存在");
+                if ("OUTPUT".equals(item.getItemRole()))
+                {
+                    assemblyOutputs++;
+                    if (!"FINISHED".equals(String.valueOf(product.get("productType"))))
+                        throw new ServiceException("组装产出必须选择成品商品");
+                }
+                else if ("COMPONENT".equals(item.getItemRole()))
+                {
+                    assemblyComponents++;
+                    if (!"PART".equals(String.valueOf(product.get("productType"))))
+                        throw new ServiceException("组装投入只能选择散件商品");
+                    item.setUnitCost(decimal(stock.get("avgCost")));
+                }
+                else
+                {
+                    throw new ServiceException("组装明细角色不正确");
+                }
+            }
+            if (isOutbound(document.getDocType()))
+            {
+                Map<String, Object> stock = mapper.selectStockForUpdate(item.getProductId());
+                if (stock == null) throw new ServiceException("商品库存记录不存在");
+                item.setUnitCost(decimal(stock.get("avgCost")));
+                if ("TRANSFER_OUT".equals(document.getDocType()))
+                {
+                    item.setItemRole("NORMAL");
+                    item.setSourceItemId(null);
+                    item.setImageUrls(null);
+                    item.setUnitPrice(ZERO);
+                    item.setInfluencerPriceSnapshot(null);
+                    item.setInfluencerPriceVersion(null);
+                    item.setGoodQty(0);
+                    item.setDefectQty(0);
+                    item.setAdjustmentQty(0);
+                    clearNonSalesFees(item);
+                }
+                if (isSupplierReturn(document.getDocType()))
+                {
+                    JewelryDocumentItem sourceItem = supplierReturnSourceItems.get(item.getSourceItemId());
+                    if (sourceItem == null || !item.getProductId().equals(sourceItem.getProductId()))
+                        throw new ServiceException("SAMPLE_RETURN".equals(document.getDocType())
+                            ? "样品退货明细必须来自所选供应商的样品入库单" : "退供明细必须来自所关联的原采购单");
+                    if ("SAMPLE_RETURN".equals(document.getDocType()))
+                    {
+                        if (!"SAMPLE".equals(item.getProductTypeSnapshot()) || !"SAMPLE".equals(sourceItem.getProductTypeSnapshot())
+                            || !document.getSupplierId().equals(sourceItem.getSupplierId()))
+                            throw new ServiceException("样品退货明细必须来自所选供应商的样品入库单");
+                        item.setUnitPrice(ZERO);
+                        item.setItemRole("NORMAL");
+                        item.setSaleRole("NORMAL");
+                        item.setPricingMode("SEPARATE");
+                        item.setSupplierId(sourceItem.getSupplierId());
+                        item.setSupplierNameSnapshot(sourceItem.getSupplierNameSnapshot());
+                        item.setInfluencerPriceSnapshot(null);
+                        item.setInfluencerPriceVersion(null);
+                        clearNonSalesFees(item);
+                    }
+                    if (!itemKeys.add("SOURCE:" + sourceItem.getItemId() + ":" + fourDecimal(item.getUnitPrice())))
+                        throw new ServiceException("SAMPLE_RETURN".equals(document.getDocType())
+                            ? "同一样品入库明细不能重复退货" : "同一采购明细不能重复退货");
+                    int returnedQty = currentSupplierReturnedQty(sourceItem.getItemId(), document.getDocumentId());
+                    int remainingQty = nonNegative(sourceItem.getQty()) - returnedQty;
+                    int availableQty = Math.max(0, decimal(stock.get("onHandQty"))
+                        .subtract(decimal(stock.get("reservedOutQty"))).intValue());
+                    remainingQty = Math.max(0, Math.min(remainingQty, availableQty));
+                    long sourceReturnQty = supplierReturnSourceQuantities.getOrDefault(sourceItem.getItemId(), 0L) + item.getQty();
+                    if (sourceReturnQty > remainingQty)
+                        throw new ServiceException(item.getProductNameSnapshot() + "本次退货数量不能超过当前剩余可退数量"
+                            + remainingQty + ("SAMPLE_RETURN".equals(document.getDocType())
+                                ? "件（取原样品入库单剩余额度与当前可用库存的较小值）"
+                                : "件（取原采购单剩余额度与当前可用库存的较小值）"));
+                    supplierReturnSourceQuantities.put(sourceItem.getItemId(), sourceReturnQty);
+                    long totalReturnQty = supplierReturnQuantities.getOrDefault(item.getProductId(), 0L) + item.getQty();
+                    if (totalReturnQty > availableQty)
+                        throw new ServiceException(item.getProductNameSnapshot()
+                            + ("SAMPLE_RETURN".equals(document.getDocType()) ? "跨样品入库单" : "跨采购单")
+                            + "合计退货数量不能超过当前可用库存" + availableQty + "件");
+                    supplierReturnQuantities.put(item.getProductId(), totalReturnQty);
+                    Long sourceId = sourceItem.getDocumentId() == null ? document.getSourceDocumentId() : sourceItem.getDocumentId();
+                    item.setSourceDocumentId(sourceId);
+                    item.setSourceDocNo(supplierReturnSources.get(sourceId).getDocNo());
+                    item.setAvailableReturnQty(availableQty);
+                    item.setRemainingReturnQty(remainingQty);
+                    item.setSourceItemId(sourceItem.getItemId());
+                    item.setSourceUnitPrice(money(sourceItem.getUnitPrice()));
+                    item.setUnitSnapshot(sourceItem.getUnitSnapshot());
+                    if (item.getUnitPrice() == null)
+                        throw new ServiceException("供应商退货必须填写实际退货单价");
+                    if (item.getUnitPrice().signum() < 0)
+                        throw new ServiceException("实际退货单价不能为负数");
+                    // Sample receipts are always returned for zero; legacy purchase samples must have been free.
+                    boolean freeSample = "SAMPLE".equals(sourceItem.getProductTypeSnapshot())
+                        && ("SAMPLE_RETURN".equals(document.getDocType())
+                            || sourceItem.getUnitPrice() != null && sourceItem.getUnitPrice().signum() == 0);
+                    if (fourDecimal(item.getUnitPrice()).signum() == 0 && !freeSample)
+                        throw new ServiceException("实际退货单价必须大于0；仅原采购单价为0的样品商品支持零元退货");
+                }
+            }
+            else if ("CUSTOMER_RETURN".equals(document.getDocType()))
+            {
+                Map<String, Object> stock = mapper.selectStockForUpdate(item.getProductId());
+                if (stock == null) throw new ServiceException("商品库存记录不存在");
+                item.setUnitCost(decimal(stock.get("avgCost")));
+                if (document.getSourceDocumentId() != null)
+                {
+                    JewelryDocument source = requireDocument(document.getSourceDocumentId());
+                    if (!"SALES_OUT".equals(source.getDocType()) || !"POSTED".equals(source.getStatus()))
+                        throw new ServiceException("关联的原单必须是已入账销售出库单");
+                    List<JewelryDocumentItem> sourceItems = mapper.selectDocumentItems(source.getDocumentId());
+                    JewelryDocumentItem sourceItem = null;
+                    for (JewelryDocumentItem candidate : sourceItems)
+                    {
+                        if (item.getSourceItemId() != null && item.getSourceItemId().equals(candidate.getItemId()))
+                        {
+                            sourceItem = candidate;
+                            break;
+                        }
+                        if (item.getSourceItemId() == null && item.getProductId().equals(candidate.getProductId()))
+                        {
+                            sourceItem = candidate;
+                            break;
+                        }
+                    }
+                    if (sourceItem == null || !item.getProductId().equals(sourceItem.getProductId()))
+                        throw new ServiceException("原销售单中不存在对应的商品明细");
+                    if (!itemKeys.add("SOURCE:" + sourceItem.getItemId()))
+                        throw new ServiceException("同一原销售明细不能重复退货");
+                    int returnedQty = mapper.selectReturnedQtyBySourceItem(sourceItem.getItemId(),
+                        document.getDocumentId());
+                    if (returnedQty + item.getQty() > nonNegative(sourceItem.getQty()))
+                        throw new ServiceException(item.getProductNameSnapshot() + "累计退货数量不能超过原销售数量"
+                            + nonNegative(sourceItem.getQty()) + "件");
+                    item.setSourceItemId(sourceItem.getItemId());
+                    item.setUnitPrice(money(sourceItem.getUnitPrice()));
+                    item.setUnitCost(money(sourceItem.getUnitCost()));
+                    item.setPackFee(money(sourceItem.getPackFee()));
+                    item.setShipFee(money(sourceItem.getShipFee()));
+                    item.setCertFee(money(sourceItem.getCertFee()));
+                    item.setBundleGroupNo(sourceItem.getBundleGroupNo());
+                    item.setSaleRole(normalizedSaleRole(sourceItem.getSaleRole()));
+                    item.setPricingMode(normalizedPricingMode(sourceItem.getPricingMode()));
+                    item.setProductTypeSnapshot(sourceItem.getProductTypeSnapshot());
+                    item.setSpecificationSnapshot(sourceItem.getSpecificationSnapshot());
+                    item.setUnitSnapshot(sourceItem.getUnitSnapshot());
+                    document.setSalesChannel(source.getSalesChannel());
+                    document.setInfluencerId(source.getInfluencerId());
+                    document.setInfluencerName(source.getInfluencerName());
+                    document.setInfluencerPriceSnapshot(source.getInfluencerPriceSnapshot());
+                    document.setInfluencerPriceVersion(source.getInfluencerPriceVersion());
+                    document.setPlatformRate(money(source.getPlatformRate()));
+                    document.setCommissionRate(money(source.getCommissionRate()));
+                    document.setTaxRate(money(source.getTaxRate()));
+                }
+                else
+                {
+                    String returnRole = normalizedSaleRole(item.getSaleRole());
+                    Integer groupNo = item.getBundleGroupNo();
+                    Long mainProductId = null;
+                    String productType = textValue(product.get("productType"));
+                    if ("ADDON".equals(returnRole))
+                    {
+                        if (groupNo == null || groupNo <= 0)
+                            throw new ServiceException("搭售退货商品缺少组合编号");
+                        if (!"ACCESSORY".equals(productType) && !"GIFT".equals(productType))
+                            throw new ServiceException("搭售退货只能选择随成品售出的配件或赠品");
+                        mainProductId = customerReturnMainProductId(document.getItems(), groupNo);
+                        returnAddonCounts.put(groupNo, returnAddonCounts.getOrDefault(groupNo, 0) + 1);
+                    }
+                    else if ("MAIN".equals(returnRole))
+                    {
+                        if (groupNo == null || groupNo <= 0)
+                            throw new ServiceException("退货组合主商品缺少组合编号");
+                        if (!"FINISHED".equals(productType))
+                            throw new ServiceException("退货组合主商品必须是成品商品");
+                        returnMainCounts.put(groupNo, returnMainCounts.getOrDefault(groupNo, 0) + 1);
+                    }
+                    else
+                    {
+                        if (!"FINISHED".equals(productType) && !"WELFARE".equals(productType))
+                            throw new ServiceException("客户退货独立商品必须是当前达人已绑定的成品或福利商品");
+                        returnRole = "NORMAL";
+                        groupNo = null;
+                    }
+                    String itemKey = item.getProductId() + ":" + (groupNo == null ? "NORMAL" : groupNo);
+                    if (!itemKeys.add(itemKey))
+                        throw new ServiceException("同一退货组合中不能重复选择同一商品");
+                    List<Map<String, Object>> returnStats = mapper.selectCustomerReturnProductStats(
+                        document.getInfluencerId(), document.getDocumentId(), item.getProductId(), mainProductId,
+                        "ADDON".equals(returnRole) ? "ADDON" : "MAIN");
+                    if (returnStats == null || returnStats.isEmpty())
+                        throw new ServiceException("ADDON".equals(returnRole)
+                            ? "该商品不是所选成品历史销售组合中的可退搭售商品"
+                            : "客户退货只能选择当前达人已绑定的成品或福利商品");
+                    Map<String, Object> returnStat = returnStats.get(0);
+                    int soldQty = intValue(returnStat.get("soldQty"));
+                    int remainingReturnQty = Math.max(0, intValue(returnStat.get("remainingReturnQty")));
+                    if (soldQty <= 0)
+                        throw new ServiceException(item.getProductNameSnapshot() + "暂无已入账销售数量，不能退货");
+                    if (item.getQty() > remainingReturnQty)
+                        throw new ServiceException(item.getProductNameSnapshot() + "退货数量不能超过剩余可退数量"
+                            + remainingReturnQty + "件（已售" + soldQty + "件）");
+                    String pricingMode = "ADDON".equals(returnRole)
+                        ? normalizedPricingMode(textValue(returnStat.get("pricingMode"))) : "SEPARATE";
+                    if (money(item.getUnitPrice()).signum() < 0
+                        || (money(item.getUnitPrice()).signum() == 0 && !"WELFARE".equals(productType)))
+                        throw new ServiceException("未关联原销售单时必须填写实际退款单价");
+                    item.setSourceItemId(null);
+                    item.setBundleGroupNo(groupNo);
+                    item.setSaleRole(returnRole);
+                    item.setPricingMode(pricingMode);
+                }
+            }
+            else if ("RETURN_INSPECT".equals(document.getDocType()))
+            {
+                JewelryDocumentItem sourceItem = returnInspectionSourceItems.get(item.getSourceItemId());
+                if (sourceItem == null || !item.getProductId().equals(sourceItem.getProductId()))
+                    throw new ServiceException("质检明细必须来自所关联的客户退货单");
+                if (!itemKeys.add("SOURCE:" + sourceItem.getItemId()))
+                    throw new ServiceException("同一退货明细不能重复质检");
+                int handledQty = nonNegative(item.getGoodQty()) + nonNegative(item.getDefectQty());
+                int inspectedQty = mapper.selectInspectedQtyBySourceItem(sourceItem.getItemId(),
+                    document.getDocumentId());
+                int remainingQty = nonNegative(sourceItem.getQty()) - inspectedQty;
+                if (handledQty <= 0)
+                    throw new ServiceException("退货质检的良品数和次品数不能同时为0");
+                if (handledQty > remainingQty)
+                    throw new ServiceException(item.getProductNameSnapshot() + "本次质检数量不能超过原退货单剩余待检数量"
+                        + Math.max(remainingQty, 0) + "件");
+                item.setQty(handledQty);
+                item.setUnitCost(money(sourceItem.getUnitCost()));
+                item.setProductTypeSnapshot(sourceItem.getProductTypeSnapshot());
+                item.setSpecificationSnapshot(sourceItem.getSpecificationSnapshot());
+                item.setUnitSnapshot(sourceItem.getUnitSnapshot());
+            }
+            validateNonNegative(item.getUnitPrice(), "商品单价");
+            validateNonNegative(item.getUnitCost(), "商品成本");
+            validateNonNegative(item.getPackFee(), "包装费");
+            validateNonNegative(item.getShipFee(), "物流费");
+            validateNonNegative(item.getCertFee(), "鉴定费");
+            validateNonNegative(item.getOtherFee1(), "其他1");
+            validateNonNegative(item.getOtherFee2(), "其他2");
+            validateNonNegative(item.getOtherFee3(), "其他3");
+            item.setGoodQty(nonNegative(item.getGoodQty()));
+            item.setDefectQty(nonNegative(item.getDefectQty()));
+            item.setAdjustmentQty(item.getAdjustmentQty() == null ? 0 : item.getAdjustmentQty());
+            if ("STOCK_ADJUST".equals(document.getDocType()))
+            {
+                if (item.getCountedQty() == null || item.getCountedQty() < 0)
+                    throw new ServiceException(item.getProductNameSnapshot() + " 的实盘库存不能小于0");
+                if (item.getAdjustmentQty() == 0)
+                    throw new ServiceException(item.getProductNameSnapshot() + " 没有盘点差异，无需提交");
+                if (item.getAdjustmentQty() > 0 && money(item.getUnitCost()).signum() <= 0)
+                    throw new ServiceException(item.getProductNameSnapshot() + " 盘盈时必须填写核定单位成本");
+                if (text(item.getLineReason()).isEmpty())
+                    throw new ServiceException(item.getProductNameSnapshot() + " 必须填写调整原因");
+            }
+            if ("COST_ADJUST".equals(document.getDocType()))
+            {
+                if (item.getSystemQty() == null || item.getSystemQty() <= 0)
+                    throw new ServiceException(item.getProductNameSnapshot() + " 当前库存为0，不能调整库存成本");
+                if (money(item.getUnitPrice()).compareTo(money(item.getUnitCost())) == 0)
+                    throw new ServiceException(item.getProductNameSnapshot() + " 调整后平均成本与当前平均成本相同");
+            }
+            if (!"RETURN_INSPECT".equals(document.getDocType()) && !"STOCK_ADJUST".equals(document.getDocType())
+                && item.getQty() <= 0) throw new ServiceException("商品数量必须大于0");
+        }
+        if ("SAMPLE_IN".equals(document.getDocType())) document.setBizDate(earliestSampleDate);
+        if ("SALES_OUT".equals(document.getDocType()))
+        {
+            validateSalesBundleGroups(salesMainCounts, salesAddonCounts);
+            applyInfluencerProductPrices(document, true, false);
+            for (JewelryDocumentItem item : document.getItems())
+            {
+                validateRate(item.getPlatformRateSnapshot(), "商品平台扣点率");
+                validateRate(item.getCommissionRateSnapshot(), "商品达人佣金率");
+                validateRate(item.getTaxRateSnapshot(), "商品税率");
+                validateCombinedRate(itemRate(item.getPlatformRateSnapshot(), document.getPlatformRate())
+                    .add(itemRate(item.getCommissionRateSnapshot(), document.getCommissionRate()))
+                    .add(itemRate(item.getTaxRateSnapshot(), document.getTaxRate())));
+            }
+        }
+        else if ("CUSTOMER_RETURN".equals(document.getDocType()) && document.getSourceDocumentId() == null)
+        {
+            validateCustomerReturnBundleGroups(returnMainCounts, returnAddonCounts);
+            applyInfluencerProductPrices(document, false, true);
+        }
+        if ("CUSTOMER_RETURN".equals(document.getDocType()) && document.getActualRefundAmount() != null)
+            validateNonNegative(document.getActualRefundAmount(), "实际退款总额");
+        if ("ASSEMBLY".equals(document.getDocType()))
+        {
+            if (assemblyOutputs != 1) throw new ServiceException("组装单必须且只能有一个成品产出");
+            if (assemblyComponents < 1) throw new ServiceException("组装单至少需要一个散件投入");
+            if (money(document.getLaborFee()).signum() < 0 || money(document.getProcessingFee()).signum() < 0
+                || money(document.getOtherFee()).signum() < 0)
+                throw new ServiceException("组装费用不能小于0");
+        }
+    }
+
+    private String normalizeSalesBundleItem(JewelryDocumentItem item, Map<String, Object> product,
+        Map<Integer, Integer> mainCounts, Map<Integer, Integer> addonCounts)
+    {
+        String role = normalizedSaleRole(item.getSaleRole());
+        String pricingMode = normalizedPricingMode(item.getPricingMode());
+        Integer groupNo = item.getBundleGroupNo();
+        String productType = textValue(product.get("productType"));
+        if (!SALES_ROLES.contains(role)) throw new ServiceException("销售商品角色不正确");
+        if (!SALES_PRICING_MODES.contains(pricingMode)) throw new ServiceException("搭售计价方式不正确");
+        if ("WELFARE".equals(productType)
+            && (!"NORMAL".equals(role) || groupNo != null || !"SEPARATE".equals(pricingMode)))
+            throw new ServiceException("福利商品只允许独立销售，不能参与搭售组合");
+        if ("MAIN".equals(role))
+        {
+            if (groupNo == null || groupNo <= 0) throw new ServiceException("销售组合主商品缺少组合编号");
+            if (!"FINISHED".equals(productType)) throw new ServiceException("销售组合主商品必须是成品商品");
+            pricingMode = "SEPARATE";
+            mainCounts.put(groupNo, mainCounts.getOrDefault(groupNo, 0) + 1);
+        }
+        else if ("ADDON".equals(role))
+        {
+            if (groupNo == null || groupNo <= 0) throw new ServiceException("搭售商品缺少销售组合编号");
+            if (!"ACCESSORY".equals(productType) && !"GIFT".equals(productType))
+                throw new ServiceException("搭售商品只能选择配件商品或当前达人绑定的赠品商品");
+            addonCounts.put(groupNo, addonCounts.getOrDefault(groupNo, 0) + 1);
+            if ("ACCESSORY".equals(productType) || "INCLUDED".equals(pricingMode))
+            {
+                pricingMode = "INCLUDED";
+                item.setUnitPrice(ZERO);
+                item.setPackFee(ZERO);
+                item.setShipFee(ZERO);
+                item.setCertFee(ZERO);
+                item.setOtherFee1(ZERO);
+                item.setOtherFee2(ZERO);
+                item.setOtherFee3(ZERO);
+            }
+        }
+        else
+        {
+            if (!productType.isEmpty() && !"FINISHED".equals(productType) && !"WELFARE".equals(productType))
+                throw new ServiceException("独立销售商品必须是成品商品或福利商品");
+            role = "NORMAL";
+            pricingMode = "SEPARATE";
+            groupNo = null;
+        }
+        item.setSaleRole(role);
+        item.setPricingMode(pricingMode);
+        item.setBundleGroupNo(groupNo);
+        return item.getProductId() + ":" + (groupNo == null ? "NORMAL" : groupNo);
+    }
+
+    private void validateSalesBundleGroups(Map<Integer, Integer> mainCounts, Map<Integer, Integer> addonCounts)
+    {
+        Set<Integer> groupNumbers = new HashSet<Integer>();
+        groupNumbers.addAll(mainCounts.keySet());
+        groupNumbers.addAll(addonCounts.keySet());
+        for (Integer groupNo : groupNumbers)
+        {
+            if (mainCounts.getOrDefault(groupNo, 0) != 1)
+                throw new ServiceException("销售组合" + groupNo + "必须且只能有一个成品主商品");
+            if (addonCounts.getOrDefault(groupNo, 0) < 1)
+                throw new ServiceException("销售组合" + groupNo + "至少需要一个搭售商品");
+        }
+    }
+
+    private Long customerReturnMainProductId(List<JewelryDocumentItem> items, Integer groupNo)
+    {
+        Long mainProductId = null;
+        for (JewelryDocumentItem candidate : items)
+        {
+            if (!groupNo.equals(candidate.getBundleGroupNo())
+                || !"MAIN".equals(normalizedSaleRole(candidate.getSaleRole()))) continue;
+            if (mainProductId != null)
+                throw new ServiceException("退货组合" + groupNo + "必须且只能有一个成品主商品");
+            mainProductId = candidate.getProductId();
+        }
+        if (mainProductId == null)
+            throw new ServiceException("搭售退货商品必须跟随对应的成品主商品一起退货");
+        return mainProductId;
+    }
+
+    private void validateCustomerReturnBundleGroups(Map<Integer, Integer> mainCounts,
+        Map<Integer, Integer> addonCounts)
+    {
+        Set<Integer> groupNumbers = new HashSet<Integer>();
+        groupNumbers.addAll(mainCounts.keySet());
+        groupNumbers.addAll(addonCounts.keySet());
+        for (Integer groupNo : groupNumbers)
+        {
+            if (mainCounts.getOrDefault(groupNo, 0) != 1)
+                throw new ServiceException("退货组合" + groupNo + "必须且只能有一个成品主商品");
+            if (addonCounts.getOrDefault(groupNo, 0) < 1)
+                throw new ServiceException("退货组合" + groupNo + "至少需要一个搭售商品");
+        }
+    }
+
+    private String normalizedSaleRole(String value)
+    {
+        String role = text(value).trim().toUpperCase();
+        return role.isEmpty() ? "NORMAL" : role;
+    }
+
+    private String normalizedPricingMode(String value)
+    {
+        String mode = text(value).trim().toUpperCase();
+        return mode.isEmpty() ? "SEPARATE" : mode;
+    }
+
+    private void refreshAssemblyCosts(JewelryDocument document, boolean validateState, boolean lockStock)
+    {
+        int outputs = 0;
+        int components = 0;
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            Map<String, Object> product = mapper.selectProductById(item.getProductId());
+            if (product == null)
+            {
+                if (validateState) throw new ServiceException("组装商品不存在或已删除");
+                continue;
+            }
+            String role = text(item.getItemRole());
+            if ("OUTPUT".equals(role))
+            {
+                outputs++;
+                if (validateState && !"FINISHED".equals(String.valueOf(product.get("productType"))))
+                    throw new ServiceException(item.getProductNameSnapshot() + " 已不再是成品，不能完成组装");
+            }
+            else if ("COMPONENT".equals(role))
+            {
+                components++;
+                if (validateState && !"PART".equals(String.valueOf(product.get("productType"))))
+                    throw new ServiceException(item.getProductNameSnapshot() + " 已不再是散件，不能完成组装");
+                Map<String, Object> costSource = lockStock ? mapper.selectStockForUpdate(item.getProductId()) : product;
+                if (costSource == null)
+                    throw new ServiceException(item.getProductNameSnapshot() + " 的库存记录不存在");
+                item.setUnitCost(decimal(costSource.get("avgCost")));
+            }
+            else if (validateState)
+            {
+                throw new ServiceException("组装明细角色不正确");
+            }
+            if (validateState && !"0".equals(String.valueOf(product.get("status"))))
+                throw new ServiceException(item.getProductNameSnapshot() + " 已停用，不能完成组装");
+        }
+        if (validateState && (outputs != 1 || components < 1))
+            throw new ServiceException("组装单必须有一个成品产出和至少一个散件投入");
+        calculateAssembly(document);
+    }
+
+    private void calculateDocument(JewelryDocument document)
+    {
+        document.setLaborFee(money(document.getLaborFee()));
+        document.setProcessingFee(money(document.getProcessingFee()));
+        document.setOtherFee(money(document.getOtherFee()));
+        if ("ASSEMBLY".equals(document.getDocType()))
+        {
+            calculateAssembly(document);
+            return;
+        }
+        if ("COST_ADJUST".equals(document.getDocType()))
+        {
+            calculateCostAdjustment(document);
+            return;
+        }
+        int totalQty = 0;
+        BigDecimal totalAmount = ZERO;
+        BigDecimal totalCost = ZERO;
+        BigDecimal totalProfit = ZERO;
+        BigDecimal platformRate = money(document.getPlatformRate());
+        BigDecimal commissionRate = money(document.getCommissionRate());
+        BigDecimal taxRate = money(document.getTaxRate());
+        boolean customerReturn = "CUSTOMER_RETURN".equals(document.getDocType());
+        Map<Integer, BigDecimal> accessoryPackagingCosts = "SALES_OUT".equals(document.getDocType())
+            ? accessoryPackagingCosts(document.getItems()) : Collections.<Integer, BigDecimal>emptyMap();
+        if (customerReturn)
+        {
+            platformRate = ZERO;
+            commissionRate = ZERO;
+            taxRate = ZERO;
+        }
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            BigDecimal lineRate = customerReturn ? ZERO
+                : itemRate(item.getPlatformRateSnapshot(), platformRate)
+                    .add(itemRate(item.getCommissionRateSnapshot(), commissionRate))
+                    .add(itemRate(item.getTaxRateSnapshot(), taxRate));
+            int qty = effectiveQty(document.getDocType(), item);
+            boolean purchase = isInboundReceipt(document.getDocType());
+            boolean fourDecimalUnitPrice = isFourDecimalTransactionAmount(document.getDocType());
+            BigDecimal price = fourDecimalUnitPrice
+                ? money(item.getUnitPrice()).setScale(4, RoundingMode.HALF_UP)
+                : money(item.getUnitPrice());
+            BigDecimal cost = money(item.getUnitCost());
+            BigDecimal packFee = money(item.getPackFee());
+            BigDecimal financialPackFee = packFee;
+            BigDecimal shipFee = money(item.getShipFee());
+            BigDecimal certFee = money(item.getCertFee());
+            BigDecimal otherFee1 = money(item.getOtherFee1());
+            BigDecimal otherFee2 = money(item.getOtherFee2());
+            BigDecimal otherFee3 = money(item.getOtherFee3());
+            if ("SALES_OUT".equals(document.getDocType()) && "MAIN".equals(normalizedSaleRole(item.getSaleRole())))
+            {
+                BigDecimal accessoryCost = accessoryPackagingCosts.getOrDefault(item.getBundleGroupNo(), ZERO);
+                BigDecimal manualTotal = packFee.multiply(BigDecimal.valueOf(qty));
+                BigDecimal additionalTotal = manualTotal.subtract(accessoryCost).max(ZERO);
+                financialPackFee = qty <= 0 ? ZERO
+                    : additionalTotal.divide(BigDecimal.valueOf(qty), 6, RoundingMode.HALF_UP);
+            }
+            else if ("SALES_OUT".equals(document.getDocType()) && isAccessoryPackagingItem(item))
+            {
+                financialPackFee = ZERO;
+            }
+            if (customerReturn)
+            {
+                packFee = ZERO;
+                financialPackFee = ZERO;
+            }
+            BigDecimal fees = "SALES_OUT".equals(document.getDocType())
+                ? financialPackFee.add(shipFee).add(certFee).add(otherFee1).add(otherFee2).add(otherFee3)
+                : customerReturn ? shipFee.multiply(BigDecimal.valueOf(2)).add(certFee) : ZERO;
+            if (!"SALES_OUT".equals(document.getDocType()))
+            {
+                otherFee1 = ZERO;
+                otherFee2 = ZERO;
+                otherFee3 = ZERO;
+            }
+            if (purchase)
+            {
+                cost = price;
+            }
+            BigDecimal grossAmount = price.multiply(BigDecimal.valueOf(qty));
+            BigDecimal productCostAmount = cost.multiply(BigDecimal.valueOf(qty));
+            BigDecimal feeAmount = fees.multiply(BigDecimal.valueOf(qty));
+            BigDecimal grossCost = productCostAmount.add(feeAmount);
+            BigDecimal deductions = grossAmount.multiply(lineRate);
+            BigDecimal amount = grossAmount;
+            BigDecimal costAmount = grossCost;
+            BigDecimal profit = grossAmount.subtract(grossCost).subtract(deductions);
+            if ("SALES_OUT".equals(document.getDocType()))
+            {
+                Map<String, BigDecimal> line = calculateSalesLine(price, cost, fees, lineRate);
+                deductions = line.get("deductions").multiply(BigDecimal.valueOf(qty));
+                profit = line.get("profit").multiply(BigDecimal.valueOf(qty));
+            }
+            if (customerReturn)
+            {
+                amount = grossAmount.negate();
+                costAmount = productCostAmount.negate().add(feeAmount);
+                profit = amount.subtract(costAmount);
+            }
+            else if (isSupplierReturn(document.getDocType()))
+            {
+                amount = grossAmount.negate();
+                costAmount = cost.multiply(BigDecimal.valueOf(qty)).negate();
+                profit = ZERO;
+            }
+            else if ("TRANSFER_OUT".equals(document.getDocType()))
+            {
+                price = ZERO;
+                amount = ZERO;
+                costAmount = productCostAmount;
+                profit = ZERO;
+            }
+            item.setUnitPrice(price); item.setUnitCost(cost); item.setPackFee(packFee);
+            item.setShipFee(shipFee); item.setCertFee(certFee);
+            item.setOtherFee1(otherFee1); item.setOtherFee2(otherFee2); item.setOtherFee3(otherFee3);
+            int lineAmountScale = isFourDecimalTransactionAmount(document.getDocType()) ? 4 : 2;
+            int lineCostScale = purchase ? 4 : 2;
+            item.setAmount(amount.setScale(lineAmountScale, RoundingMode.HALF_UP));
+            item.setCostAmount(costAmount.setScale(lineCostScale, RoundingMode.HALF_UP));
+            item.setProfitAmount(profit.setScale(2, RoundingMode.HALF_UP));
+            item.setProfitRate(grossAmount.signum() == 0 ? ZERO :
+                profit.divide(grossAmount, 6, RoundingMode.HALF_UP));
+            totalQty += qty;
+            totalAmount = totalAmount.add(amount);
+            totalCost = totalCost.add(costAmount);
+            totalProfit = totalProfit.add(profit);
+        }
+        boolean refundNeedsReview = false;
+        if (customerReturn)
+        {
+            BigDecimal expectedRefund = totalAmount.negate().setScale(2, RoundingMode.HALF_UP);
+            if (document.getSourceDocumentId() == null)
+            {
+                expectedRefund = ZERO;
+                for (JewelryDocumentItem item : document.getItems())
+                    expectedRefund = expectedRefund.add(fourDecimal(item.getInfluencerPriceSnapshot())
+                        .multiply(BigDecimal.valueOf(nonNegative(item.getQty()))));
+                expectedRefund = expectedRefund.setScale(2, RoundingMode.HALF_UP);
+            }
+            BigDecimal actualRefund = document.getActualRefundAmount() == null
+                ? expectedRefund : money(document.getActualRefundAmount()).setScale(2, RoundingMode.HALF_UP);
+            document.setActualRefundAmount(actualRefund);
+            allocateCustomerReturnRefund(document.getItems(), actualRefund);
+            totalAmount = ZERO;
+            totalCost = ZERO;
+            totalProfit = ZERO;
+            for (JewelryDocumentItem item : document.getItems())
+            {
+                totalAmount = totalAmount.add(money(item.getAmount()));
+                totalCost = totalCost.add(money(item.getCostAmount()));
+                totalProfit = totalProfit.add(money(item.getProfitAmount()));
+            }
+            refundNeedsReview = actualRefund.compareTo(expectedRefund) != 0;
+        }
+        document.setPlatformRate(platformRate); document.setCommissionRate(commissionRate); document.setTaxRate(taxRate);
+        int totalAmountScale = isFourDecimalTransactionAmount(document.getDocType()) ? 4 : 2;
+        int totalCostScale = isInboundReceipt(document.getDocType()) ? 4 : 2;
+        document.setTotalQty(totalQty);
+        document.setTotalAmount(totalAmount.setScale(totalAmountScale, RoundingMode.HALF_UP));
+        document.setTotalCost(totalCost.setScale(totalCostScale, RoundingMode.HALF_UP));
+        document.setTotalProfit(totalProfit.setScale(2, RoundingMode.HALF_UP));
+        if ("SALES_OUT".equals(document.getDocType()) && totalProfit.signum() < 0)
+            document.setRiskStatus("LOSS");
+        else if ("CUSTOMER_RETURN".equals(document.getDocType())
+            && (document.getSourceDocumentId() == null || refundNeedsReview))
+            document.setRiskStatus("REVIEW");
+        else
+            document.setRiskStatus("NORMAL");
+    }
+
+    private void prepareInfluencerReference(JewelryDocument document)
+    {
+        boolean sales = "SALES_OUT".equals(document.getDocType());
+        boolean unlinkedReturn = "CUSTOMER_RETURN".equals(document.getDocType())
+            && document.getSourceDocumentId() == null;
+        boolean purchase = "PURCHASE_IN".equals(document.getDocType());
+        boolean supplierReturn = "SUPPLIER_RETURN".equals(document.getDocType());
+        if (!sales && !unlinkedReturn && !purchase && !supplierReturn) return;
+        if (document.getInfluencerId() == null)
+        {
+            if (sales || supplierReturn || unlinkedReturn)
+                throw new ServiceException(supplierReturn ? "供应商退货必须选择达人/主播"
+                    : unlinkedReturn ? "客户退货必须选择达人/主播" : "销售出库必须选择达人/主播");
+            document.setInfluencerName("");
+            document.setInfluencerPriceSnapshot(null);
+            document.setInfluencerPriceVersion(null);
+            return;
+        }
+        Map<String, Object> influencer = mapper.selectInfluencerById(document.getInfluencerId());
+        if (influencer == null || !"0".equals(textValue(influencer.get("status"))))
+            throw new ServiceException("达人/主播不存在或已停用");
+        document.setInfluencerName(textValue(influencer.get("influencerName")));
+        if (!purchase && !supplierReturn && text(document.getSalesChannel()).trim().isEmpty())
+            document.setSalesChannel(textValue(influencer.get("salesChannel")));
+        // 固定价按“达人 + 商品”保存在单据明细；单据头旧字段不再参与定价。
+        document.setInfluencerPriceSnapshot(null);
+        document.setInfluencerPriceVersion(null);
+    }
+
+    private void applyInfluencerProductPrices(JewelryDocument document, boolean sales, boolean unlinkedReturn)
+    {
+        Map<Long, Map<String, Object>> prices = new HashMap<Long, Map<String, Object>>();
+        for (Map<String, Object> price : mapper.selectInfluencerProductPrices(document.getInfluencerId()))
+            prices.put(longValue(price.get("productId")), price);
+        Map<Long, BigDecimal> enteredPrices = new HashMap<Long, BigDecimal>();
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            Map<String, Object> current = prices.get(item.getProductId());
+            if (sales && "INCLUDED".equals(normalizedPricingMode(item.getPricingMode())))
+            {
+                item.setUnitPrice(ZERO);
+                item.setInfluencerPriceSnapshot(null);
+                item.setInfluencerPriceVersion(null);
+                item.setPlatformRateSnapshot(ZERO);
+                item.setCommissionRateSnapshot(ZERO);
+                item.setTaxRateSnapshot(ZERO);
+                continue;
+            }
+            if (sales && current != null && "1".equals(textValue(current.get("bindingStatus"))))
+                throw new ServiceException(text(item.getProductNameSnapshot()) + " 的达人商品绑定已停用");
+            if (sales)
+            {
+                item.setPlatformRateSnapshot(null);
+                item.setCommissionRateSnapshot(null);
+                item.setTaxRateSnapshot(null);
+            }
+            if (unlinkedReturn)
+            {
+                if (current != null && "PRICED".equals(textValue(current.get("priceStatus"))))
+                {
+                    BigDecimal fixed = fourDecimal(nullableDecimal(current.get("fixedUnitPrice")));
+                    item.setInfluencerPriceSnapshot(fixed);
+                    item.setInfluencerPriceVersion(intValue(current.get("priceVersion")));
+                    if (fourDecimal(item.getUnitPrice()).signum() <= 0) item.setUnitPrice(fixed);
+                    continue;
+                }
+                BigDecimal entered = fourDecimal(item.getUnitPrice());
+                if (entered.signum() <= 0)
+                    throw new ServiceException(text(item.getProductNameSnapshot()) + " 未建立达人固定价，请填写实际退款单价");
+                item.setUnitPrice(entered);
+                item.setInfluencerPriceSnapshot(null);
+                item.setInfluencerPriceVersion(null);
+                continue;
+            }
+
+            if (current != null && "PRICED".equals(textValue(current.get("priceStatus"))))
+            {
+                BigDecimal fixed = fourDecimal(nullableDecimal(current.get("fixedUnitPrice")));
+                item.setUnitPrice(fixed);
+                if (current.get("unitCost") != null)
+                    item.setUnitCost(fourDecimal(nullableDecimal(current.get("unitCost"))));
+                item.setInfluencerPriceSnapshot(fixed);
+                item.setInfluencerPriceVersion(intValue(current.get("priceVersion")));
+                if (current.get("commissionRate") != null)
+                {
+                    item.setCommissionRateSnapshot(decimal(current.get("commissionRate")));
+                    item.setPlatformRateSnapshot(decimal(current.get("platformRate")));
+                    item.setTaxRateSnapshot(decimal(current.get("taxRate")));
+                    item.setPackFee(decimal(current.get("packFee")));
+                    item.setShipFee(decimal(current.get("shipFee")));
+                    item.setCertFee(decimal(current.get("certFee")));
+                }
+                continue;
+            }
+            if (current != null && "PENDING".equals(textValue(current.get("priceStatus"))))
+            {
+                Long ownerDocumentId = nullableLong(current.get("pendingSourceDocumentId"));
+                if (document.getDocumentId() == null || !document.getDocumentId().equals(ownerDocumentId))
+                    throw new ServiceException(text(item.getProductNameSnapshot()) + " 已由其他销售单建立待生效价格，请等待该单审批完成");
+            }
+            BigDecimal entered = fourDecimal(item.getUnitPrice());
+            if (entered.signum() <= 0)
+                throw new ServiceException(text(item.getProductNameSnapshot()) + " 尚未定价，请填写该商品首次固定成交单价");
+            BigDecimal repeated = enteredPrices.putIfAbsent(item.getProductId(), entered);
+            if (repeated != null && repeated.compareTo(entered) != 0)
+                throw new ServiceException(text(item.getProductNameSnapshot()) + " 在同一销售单中必须使用相同成交单价");
+            item.setUnitPrice(entered);
+            item.setInfluencerPriceSnapshot(entered);
+            item.setInfluencerPriceVersion(0);
+        }
+    }
+
+    private void syncPendingInfluencerProductPrices(JewelryDocument document, String userName)
+    {
+        if (!"SALES_OUT".equals(document.getDocType()) || document.getDocumentId() == null) return;
+        mapper.deletePendingInfluencerProductPricesByDocument(document.getDocumentId());
+        Set<Long> insertedProducts = new HashSet<Long>();
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            if ("INCLUDED".equals(normalizedPricingMode(item.getPricingMode()))
+                || item.getInfluencerPriceVersion() == null || item.getInfluencerPriceVersion() > 0
+                || !insertedProducts.add(item.getProductId())) continue;
+            Map<String, Object> pending = new HashMap<String, Object>();
+            pending.put("influencerId", document.getInfluencerId());
+            pending.put("productId", item.getProductId());
+            pending.put("fixedUnitPrice", fourDecimal(item.getInfluencerPriceSnapshot()));
+            pending.put("sourceDocumentId", document.getDocumentId());
+            pending.put("userName", userName);
+            try
+            {
+                mapper.insertPendingInfluencerProductPrice(pending);
+            }
+            catch (DuplicateKeyException ex)
+            {
+                throw new ServiceException(text(item.getProductNameSnapshot()) + " 的达人价格已被其他单据占用，请刷新后重试");
+            }
+        }
+    }
+
+    private Map<Integer, BigDecimal> accessoryPackagingCosts(List<JewelryDocumentItem> items)
+    {
+        Map<Integer, BigDecimal> costs = new HashMap<Integer, BigDecimal>();
+        for (JewelryDocumentItem item : items)
+        {
+            if (!isAccessoryPackagingItem(item) || item.getBundleGroupNo() == null) continue;
+            BigDecimal amount = money(item.getUnitCost())
+                .multiply(BigDecimal.valueOf(nonNegative(item.getQty())));
+            costs.put(item.getBundleGroupNo(), costs.getOrDefault(item.getBundleGroupNo(), ZERO).add(amount));
+        }
+        return costs;
+    }
+
+    private boolean isAccessoryPackagingItem(JewelryDocumentItem item)
+    {
+        return "ADDON".equals(normalizedSaleRole(item.getSaleRole()))
+            && "ACCESSORY".equals(text(item.getProductTypeSnapshot()).trim().toUpperCase());
+    }
+
+    private void validateAccessoryPackagingCoverage(JewelryDocument document)
+    {
+        Map<Integer, BigDecimal> accessoryCosts = accessoryPackagingCosts(document.getItems());
+        if (accessoryCosts.isEmpty()) return;
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            if (!"MAIN".equals(normalizedSaleRole(item.getSaleRole())) || item.getBundleGroupNo() == null) continue;
+            BigDecimal accessoryCost = accessoryCosts.getOrDefault(item.getBundleGroupNo(), ZERO);
+            BigDecimal manualTotal = money(item.getPackFee())
+                .multiply(BigDecimal.valueOf(nonNegative(item.getQty())));
+            if (accessoryCost.compareTo(manualTotal) > 0)
+            {
+                BigDecimal shortage = accessoryCost.subtract(manualTotal);
+                throw new ServiceException("销售组合" + item.getBundleGroupNo() + "配件耗材成本￥"
+                    + accessoryCost.setScale(2, RoundingMode.HALF_UP) + "，高于手填包装费￥"
+                    + manualTotal.setScale(2, RoundingMode.HALF_UP) + "，还差￥"
+                    + shortage.setScale(2, RoundingMode.HALF_UP) + "，请调整包装费后再提交");
+            }
+        }
+    }
+
+    private void allocateCustomerReturnRefund(List<JewelryDocumentItem> items, BigDecimal refund)
+    {
+        BigDecimal totalWeight = ZERO;
+        int lastWeightedIndex = -1;
+        for (int i = 0; i < items.size(); i++)
+        {
+            JewelryDocumentItem item = items.get(i);
+            BigDecimal weight = money(item.getUnitPrice()).multiply(BigDecimal.valueOf(nonNegative(item.getQty())));
+            if (weight.signum() > 0)
+            {
+                totalWeight = totalWeight.add(weight);
+                lastWeightedIndex = i;
+            }
+        }
+        BigDecimal remaining = refund.setScale(2, RoundingMode.HALF_UP);
+        for (int i = 0; i < items.size(); i++)
+        {
+            JewelryDocumentItem item = items.get(i);
+            BigDecimal weight = money(item.getUnitPrice()).multiply(BigDecimal.valueOf(nonNegative(item.getQty())));
+            BigDecimal allocated = ZERO.setScale(2);
+            if (totalWeight.signum() == 0)
+            {
+                if (i == 0) allocated = remaining;
+            }
+            else if (weight.signum() > 0)
+            {
+                allocated = i == lastWeightedIndex ? remaining
+                    : refund.multiply(weight).divide(totalWeight, 2, RoundingMode.HALF_UP);
+            }
+            if (allocated.signum() > 0) remaining = remaining.subtract(allocated);
+            BigDecimal amount = allocated.negate().setScale(2, RoundingMode.HALF_UP);
+            BigDecimal profit = amount.subtract(money(item.getCostAmount())).setScale(2, RoundingMode.HALF_UP);
+            item.setAmount(amount);
+            item.setProfitAmount(profit);
+            item.setProfitRate(allocated.signum() == 0 ? ZERO
+                : profit.divide(allocated, 6, RoundingMode.HALF_UP));
+        }
+    }
+
+    private void reserve(JewelryDocument document)
+    {
+        if ("REVERSAL".equals(document.getDocType()))
+        {
+            reserveReversal(document);
+            return;
+        }
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            int rows = 1;
+            if (isOutbound(document.getDocType()))
+                rows = mapper.reserveOutbound(item.getProductId(), item.getQty());
+            else if ("ASSEMBLY".equals(document.getDocType()) && "COMPONENT".equals(item.getItemRole()))
+                rows = mapper.reserveOutbound(item.getProductId(), item.getQty());
+            else if ("STOCK_ADJUST".equals(document.getDocType()) && item.getAdjustmentQty() < 0)
+                rows = mapper.reserveOutbound(item.getProductId(), -item.getAdjustmentQty());
+            else if ("RETURN_INSPECT".equals(document.getDocType()))
+                rows = mapper.reserveInspection(item.getProductId(), item.getGoodQty() + item.getDefectQty());
+            if (rows != 1) throw new ServiceException(item.getProductNameSnapshot() + " 可用库存不足");
+        }
+    }
+
+    private void release(JewelryDocument document)
+    {
+        if ("REVERSAL".equals(document.getDocType()))
+        {
+            releaseReversal(document);
+            return;
+        }
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            int rows = 1;
+            if (isOutbound(document.getDocType()))
+                rows = mapper.releaseOutbound(item.getProductId(), item.getQty());
+            else if ("ASSEMBLY".equals(document.getDocType()) && "COMPONENT".equals(item.getItemRole()))
+                rows = mapper.releaseOutbound(item.getProductId(), item.getQty());
+            else if ("STOCK_ADJUST".equals(document.getDocType()) && item.getAdjustmentQty() < 0)
+                rows = mapper.releaseOutbound(item.getProductId(), -item.getAdjustmentQty());
+            else if ("RETURN_INSPECT".equals(document.getDocType()))
+                rows = mapper.releaseInspection(item.getProductId(), item.getGoodQty() + item.getDefectQty());
+            if (rows != 1) throw new ServiceException("库存冻结数据异常，请联系管理员");
+        }
+    }
+
+    private void reserveReversal(JewelryDocument reversal)
+    {
+        JewelryDocument source = requireReversalSource(reversal);
+        for (JewelryDocumentItem item : reversal.getItems())
+        {
+            int rows = 1;
+            if (isInboundReceipt(source.getDocType()))
+                rows = mapper.reserveOutbound(item.getProductId(), item.getQty());
+            else if ("CUSTOMER_RETURN".equals(source.getDocType()))
+                rows = mapper.reserveInspection(item.getProductId(), item.getQty());
+            else if ("RETURN_INSPECT".equals(source.getDocType()))
+            {
+                if (item.getGoodQty() > 0 && mapper.reserveOutbound(item.getProductId(), item.getGoodQty()) != 1)
+                    throw new ServiceException(item.getProductNameSnapshot() + " 可售库存不足，不能红冲质检单");
+                if (item.getDefectQty() > 0 && mapper.reserveDefect(item.getProductId(), item.getDefectQty()) != 1)
+                    throw new ServiceException(item.getProductNameSnapshot() + " 次品库存不足，不能红冲质检单");
+            }
+            else if ("STOCK_ADJUST".equals(source.getDocType()) && item.getAdjustmentQty() > 0)
+                rows = mapper.reserveOutbound(item.getProductId(), item.getAdjustmentQty());
+            if (rows != 1)
+                throw new ServiceException(item.getProductNameSnapshot() + " 当前库存不足，不能红冲");
+        }
+    }
+
+    private void releaseReversal(JewelryDocument reversal)
+    {
+        JewelryDocument source = requireReversalSource(reversal);
+        for (JewelryDocumentItem item : reversal.getItems())
+        {
+            int rows = 1;
+            if (isInboundReceipt(source.getDocType()))
+                rows = mapper.releaseOutbound(item.getProductId(), item.getQty());
+            else if ("CUSTOMER_RETURN".equals(source.getDocType()))
+                rows = mapper.releaseInspection(item.getProductId(), item.getQty());
+            else if ("RETURN_INSPECT".equals(source.getDocType()))
+            {
+                if (item.getGoodQty() > 0 && mapper.releaseOutbound(item.getProductId(), item.getGoodQty()) != 1)
+                    throw new ServiceException("可售库存红冲冻结数据异常");
+                if (item.getDefectQty() > 0 && mapper.releaseDefect(item.getProductId(), item.getDefectQty()) != 1)
+                    throw new ServiceException("次品库存红冲冻结数据异常");
+            }
+            else if ("STOCK_ADJUST".equals(source.getDocType()) && item.getAdjustmentQty() > 0)
+                rows = mapper.releaseOutbound(item.getProductId(), item.getAdjustmentQty());
+            if (rows != 1) throw new ServiceException("红冲冻结数据异常，请联系管理员");
+        }
+    }
+
+    private void post(JewelryDocument document, Long userId, String userName)
+    {
+        if ("SALES_OUT".equals(document.getDocType()) && document.getInfluencerId() != null)
+        {
+            finalizeInfluencerPrice(document, userId, userName);
+            syncInfluencerBundleItems(document, userName);
+        }
+        if ("ASSEMBLY".equals(document.getDocType()))
+        {
+            for (JewelryDocumentItem item : document.getItems())
+            {
+                if ("COMPONENT".equals(item.getItemRole()))
+                {
+                    Map<String, Object> stock = mapper.selectStockForUpdate(item.getProductId());
+                    if (stock == null) throw new ServiceException("商品库存记录不存在");
+                    item.setUnitCost(decimal(stock.get("avgCost")));
+                }
+            }
+            calculateAssembly(document);
+        }
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            Map<String, Object> stock = mapper.selectStockForUpdate(item.getProductId());
+            if (stock == null) throw new ServiceException("商品库存记录不存在");
+            int before = intValue(stock.get("onHandQty"));
+            int onHand = before, reserved = intValue(stock.get("reservedOutQty"));
+            int inspection = intValue(stock.get("inspectionQty"));
+            int inspectionReserved = intValue(stock.get("inspectionReservedQty"));
+            int defect = intValue(stock.get("defectQty"));
+            int defectReserved = intValue(stock.get("defectReservedQty"));
+            BigDecimal beforeAvg = decimal(stock.get("avgCost"));
+            BigDecimal avg = beforeAvg;
+            BigDecimal inspectionCost = decimal(stock.get("inspectionCostAmount"));
+            BigDecimal defectCost = decimal(stock.get("defectCostAmount"));
+            int qty = item.getQty();
+            if (isInboundReceipt(document.getDocType()))
+            {
+                BigDecimal purchaseCost = money(item.getUnitPrice());
+                BigDecimal incomingCost = purchaseCost.multiply(BigDecimal.valueOf(qty));
+                BigDecimal existingCost = beforeAvg.multiply(BigDecimal.valueOf(before));
+                onHand += qty;
+                avg = onHand == 0 ? ZERO : existingCost.add(incomingCost).divide(BigDecimal.valueOf(onHand), 6, RoundingMode.HALF_UP);
+                item.setUnitCost(purchaseCost);
+                item.setCostAmount(incomingCost.setScale(4, RoundingMode.HALF_UP));
+                mapper.updateDocumentItemCost(item);
+            }
+            else if ("SALES_OUT".equals(document.getDocType()))
+            {
+                onHand -= qty; reserved -= qty;
+                item.setUnitCost(beforeAvg);
+                item.setCostAmount(beforeAvg.multiply(BigDecimal.valueOf(qty)).setScale(2, RoundingMode.HALF_UP));
+                BigDecimal fees = money(item.getPackFee()).add(money(item.getShipFee()))
+                    .add(money(item.getCertFee())).add(money(item.getOtherFee1()))
+                    .add(money(item.getOtherFee2())).add(money(item.getOtherFee3()))
+                    .multiply(BigDecimal.valueOf(qty));
+                BigDecimal deductions = item.getAmount().multiply(
+                    itemRate(item.getPlatformRateSnapshot(), document.getPlatformRate())
+                        .add(itemRate(item.getCommissionRateSnapshot(), document.getCommissionRate()))
+                        .add(itemRate(item.getTaxRateSnapshot(), document.getTaxRate())));
+                item.setCostAmount(item.getCostAmount().add(fees).setScale(2, RoundingMode.HALF_UP));
+                item.setProfitAmount(item.getAmount().subtract(item.getCostAmount()).subtract(deductions)
+                    .setScale(2, RoundingMode.HALF_UP));
+                item.setProfitRate(item.getAmount().signum() == 0 ? ZERO :
+                    item.getProfitAmount().divide(item.getAmount(), 6, RoundingMode.HALF_UP));
+                mapper.updateDocumentItemCost(item);
+            }
+            else if ("TRANSFER_OUT".equals(document.getDocType()))
+            {
+                if (before < qty || reserved < qty)
+                    throw new ServiceException(item.getProductNameSnapshot() + " 调货库存或冻结数量不足");
+                onHand -= qty; reserved -= qty;
+                item.setUnitCost(beforeAvg);
+                item.setUnitPrice(ZERO);
+                item.setAmount(ZERO);
+                item.setCostAmount(beforeAvg.multiply(BigDecimal.valueOf(qty)).setScale(2, RoundingMode.HALF_UP));
+                item.setProfitAmount(ZERO);
+                item.setProfitRate(ZERO);
+                mapper.updateDocumentItemCost(item);
+            }
+            else if (isSupplierReturn(document.getDocType()))
+            {
+                onHand -= qty; reserved -= qty;
+                item.setUnitCost(beforeAvg);
+                item.setCostAmount(beforeAvg.multiply(BigDecimal.valueOf(qty)).negate()
+                    .setScale(2, RoundingMode.HALF_UP));
+                item.setProfitAmount(ZERO.setScale(2));
+                item.setProfitRate(ZERO);
+                mapper.updateDocumentItemCost(item);
+            }
+            else if ("CUSTOMER_RETURN".equals(document.getDocType()))
+            {
+                inspection += qty;
+                inspectionCost = inspectionCost.add(money(item.getUnitCost()).multiply(BigDecimal.valueOf(qty)));
+            }
+            else if ("RETURN_INSPECT".equals(document.getDocType()))
+            {
+                int processed = item.getGoodQty() + item.getDefectQty();
+                if (inspection < processed || inspectionReserved < processed) throw new ServiceException("待检库存不足");
+                BigDecimal inspectUnitCost = inspection == 0 ? ZERO :
+                    inspectionCost.divide(BigDecimal.valueOf(inspection), 6, RoundingMode.HALF_UP);
+                inspection -= processed; inspectionReserved -= processed;
+                inspectionCost = inspectionCost.subtract(inspectUnitCost.multiply(BigDecimal.valueOf(processed))).max(ZERO);
+                if (item.getGoodQty() > 0)
+                {
+                    BigDecimal existingCost = avg.multiply(BigDecimal.valueOf(onHand));
+                    onHand += item.getGoodQty();
+                    avg = existingCost.add(inspectUnitCost.multiply(BigDecimal.valueOf(item.getGoodQty())))
+                        .divide(BigDecimal.valueOf(onHand), 6, RoundingMode.HALF_UP);
+                }
+                defect += item.getDefectQty();
+                defectCost = defectCost.add(inspectUnitCost.multiply(BigDecimal.valueOf(item.getDefectQty())));
+                item.setUnitCost(inspectUnitCost);
+                item.setCostAmount(inspectUnitCost.multiply(BigDecimal.valueOf(processed)).setScale(2, RoundingMode.HALF_UP));
+                item.setProfitAmount(ZERO.setScale(2));
+                item.setProfitRate(ZERO);
+                mapper.updateDocumentItemCost(item);
+            }
+            else if ("STOCK_ADJUST".equals(document.getDocType()))
+            {
+                int adjustment = item.getAdjustmentQty();
+                if (item.getSystemQty() == null || before != item.getSystemQty())
+                    throw new ServiceException(item.getProductNameSnapshot()
+                        + " 的可售库存已变化，请撤回或驳回后重新盘点");
+                onHand += adjustment;
+                if (adjustment < 0) reserved -= -adjustment;
+                if (onHand < 0) throw new ServiceException("调整后库存不能为负数");
+                if (adjustment < 0)
+                {
+                    item.setUnitCost(beforeAvg);
+                    item.setCostAmount(beforeAvg.multiply(BigDecimal.valueOf(-adjustment)).setScale(2, RoundingMode.HALF_UP));
+                    mapper.updateDocumentItemCost(item);
+                }
+                if (adjustment > 0 && money(item.getUnitCost()).signum() > 0)
+                {
+                    BigDecimal existingCost = avg.multiply(BigDecimal.valueOf(before));
+                    avg = existingCost.add(money(item.getUnitCost()).multiply(BigDecimal.valueOf(adjustment)))
+                        .divide(BigDecimal.valueOf(onHand), 6, RoundingMode.HALF_UP);
+                }
+            }
+            else if ("COST_ADJUST".equals(document.getDocType()))
+            {
+                if (before <= 0)
+                    throw new ServiceException(item.getProductNameSnapshot() + " 当前库存为0，不能调整库存成本");
+                if (beforeAvg.compareTo(money(item.getUnitCost())) != 0)
+                    throw new ServiceException(item.getProductNameSnapshot()
+                        + " 的平均成本已变化，请驳回后由制单员重新编辑调价单");
+                avg = money(item.getUnitPrice());
+                item.setQty(before);
+                calculateCostAdjustmentItem(item, before);
+                mapper.updateCostAdjustmentPostedItem(item);
+            }
+            else if ("ASSEMBLY".equals(document.getDocType()))
+            {
+                if ("COMPONENT".equals(item.getItemRole()))
+                {
+                    if (before < qty || reserved < qty)
+                        throw new ServiceException(item.getProductNameSnapshot() + " 散件库存不足");
+                    onHand -= qty;
+                    reserved -= qty;
+                    item.setUnitCost(beforeAvg);
+                    item.setCostAmount(beforeAvg.multiply(BigDecimal.valueOf(qty)).setScale(2, RoundingMode.HALF_UP));
+                }
+                else if ("OUTPUT".equals(item.getItemRole()))
+                {
+                    BigDecimal incomingCost = money(item.getUnitCost()).multiply(BigDecimal.valueOf(qty));
+                    avg = weightedAverage(before, beforeAvg, qty, incomingCost);
+                    onHand += qty;
+                    item.setCostAmount(incomingCost.setScale(2, RoundingMode.HALF_UP));
+                }
+                mapper.updateDocumentItemCost(item);
+            }
+            persistStockChange(document, item, stock, onHand, reserved, inspection, inspectionReserved,
+                defect, defectReserved, avg, inspectionCost, defectCost,
+                "ASSEMBLY".equals(document.getDocType())
+                    ? ("OUTPUT".equals(item.getItemRole()) ? "ASSEMBLY_OUTPUT" : "ASSEMBLY_CONSUME")
+                    : document.getDocType(),
+                userId, userName);
+        }
+        if ("SALES_OUT".equals(document.getDocType()))
+        {
+            calculateDocument(document);
+            validateAccessoryPackagingCoverage(document);
+            for (JewelryDocumentItem item : document.getItems()) mapper.updateDocumentItemCost(item);
+            mapper.updateDocumentFinancials(document);
+        }
+        else
+        {
+            refreshDocumentFinancials(document);
+        }
+    }
+
+    private void refreshDocumentFinancials(JewelryDocument document)
+    {
+        if ("ASSEMBLY".equals(document.getDocType()))
+        {
+            calculateAssembly(document);
+            mapper.updateDocumentFinancials(document);
+            for (JewelryDocumentItem item : document.getItems()) mapper.updateDocumentItemCost(item);
+            return;
+        }
+        int totalQty = 0;
+        BigDecimal totalAmount = ZERO;
+        BigDecimal totalCost = ZERO;
+        BigDecimal totalProfit = ZERO;
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            totalQty += effectiveQty(document.getDocType(), item);
+            totalAmount = totalAmount.add(money(item.getAmount()));
+            totalCost = totalCost.add(money(item.getCostAmount()));
+            totalProfit = totalProfit.add(money(item.getProfitAmount()));
+        }
+        document.setTotalQty(totalQty);
+        int amountScale = isFourDecimalTransactionAmount(document.getDocType()) ? 4 : 2;
+        int costScale = isInboundReceipt(document.getDocType()) ? 4 : 2;
+        document.setTotalAmount(totalAmount.setScale(amountScale, RoundingMode.HALF_UP));
+        document.setTotalCost(totalCost.setScale(costScale, RoundingMode.HALF_UP));
+        document.setTotalProfit(totalProfit.setScale(2, RoundingMode.HALF_UP));
+        if ("SALES_OUT".equals(document.getDocType()) && totalProfit.signum() < 0)
+            document.setRiskStatus("LOSS");
+        else if ("CUSTOMER_RETURN".equals(document.getDocType()) && document.getSourceDocumentId() == null)
+            document.setRiskStatus("REVIEW");
+        else
+            document.setRiskStatus("NORMAL");
+        mapper.updateDocumentFinancials(document);
+    }
+
+    private void finalizeInfluencerPrice(JewelryDocument document, Long userId, String userName)
+    {
+        if (document.getInfluencerId() == null) throw new ServiceException("销售单缺少达人/主播，不能入账");
+        Map<String, Object> influencer = mapper.selectInfluencerByIdForUpdate(document.getInfluencerId());
+        if (influencer == null || !"0".equals(textValue(influencer.get("status"))))
+            throw new ServiceException("达人/主播不存在或已停用");
+        Set<Long> processedProducts = new HashSet<Long>();
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            if ("INCLUDED".equals(normalizedPricingMode(item.getPricingMode()))
+                || !processedProducts.add(item.getProductId())) continue;
+            BigDecimal snapshot = fourDecimal(item.getInfluencerPriceSnapshot());
+            if (item.getInfluencerPriceSnapshot() == null || snapshot.signum() < 0
+                || (snapshot.signum() == 0 && !"WELFARE".equals(item.getProductTypeSnapshot())))
+                throw new ServiceException(text(item.getProductNameSnapshot()) + " 缺少达人商品固定价快照，不能入账");
+            Map<String, Object> current = mapper.selectInfluencerProductPriceForUpdate(
+                document.getInfluencerId(), item.getProductId());
+            if (current == null) throw new ServiceException(text(item.getProductNameSnapshot()) + " 的达人商品价格记录不存在");
+            String status = textValue(current.get("priceStatus"));
+            if ("PENDING".equals(status))
+            {
+                Long sourceDocumentId = nullableLong(current.get("pendingSourceDocumentId"));
+                if (!document.getDocumentId().equals(sourceDocumentId)
+                    || fourDecimal(nullableDecimal(current.get("fixedUnitPrice"))).compareTo(snapshot) != 0)
+                    throw new ServiceException(text(item.getProductNameSnapshot()) + " 的待生效价格已变化，请撤回后重试");
+                if (mapper.promoteInfluencerProductPrice(document.getInfluencerId(), item.getProductId(),
+                    document.getDocumentId(), userName) != 1)
+                    throw new ServiceException(text(item.getProductNameSnapshot()) + " 的固定价刚刚发生变化，请刷新后重试");
+                Map<String, Object> history = new HashMap<String, Object>();
+                history.put("influencerId", document.getInfluencerId());
+                history.put("productId", item.getProductId());
+                history.put("oldPrice", null);
+                history.put("newPrice", snapshot);
+                history.put("sourceType", "FIRST_SALE");
+                history.put("sourceDocumentId", document.getDocumentId());
+                history.put("priceVersion", 1);
+                history.put("changeReason", "首笔销售入账自动建立商品固定价");
+                history.put("operatorUserId", userId);
+                history.put("operatorName", userName);
+                mapper.insertInfluencerPriceHistory(history);
+                continue;
+            }
+            BigDecimal activePrice = fourDecimal(nullableDecimal(current.get("fixedUnitPrice")));
+            int activeVersion = intValue(current.get("priceVersion"));
+            if (!"PRICED".equals(status) || activePrice.compareTo(snapshot) != 0
+                || item.getInfluencerPriceVersion() == null || activeVersion != item.getInfluencerPriceVersion())
+                throw new ServiceException(text(item.getProductNameSnapshot()) + " 的达人固定价已变化，请撤回后按最新价格重新提交");
+        }
+        mapper.touchInfluencerLastSale(document.getInfluencerId(), userName);
+    }
+
+    private void syncInfluencerBundleItems(JewelryDocument document, String userName)
+    {
+        Map<Integer, JewelryDocumentItem> mains = new HashMap<Integer, JewelryDocumentItem>();
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            if ("MAIN".equals(normalizedSaleRole(item.getSaleRole())) && item.getBundleGroupNo() != null)
+                mains.put(item.getBundleGroupNo(), item);
+        }
+        for (JewelryDocumentItem addon : document.getItems())
+        {
+            if (!"ADDON".equals(normalizedSaleRole(addon.getSaleRole())) || addon.getBundleGroupNo() == null)
+                continue;
+            JewelryDocumentItem main = mains.get(addon.getBundleGroupNo());
+            if (main == null || nonNegative(main.getQty()) <= 0 || nonNegative(addon.getQty()) <= 0)
+                continue;
+            Map<String, Object> binding = new HashMap<String, Object>();
+            binding.put("influencerId", document.getInfluencerId());
+            binding.put("mainProductId", main.getProductId());
+            binding.put("addonProductId", addon.getProductId());
+            binding.put("mainQty", main.getQty());
+            binding.put("addonQty", addon.getQty());
+            binding.put("pricingMode", normalizedPricingMode(addon.getPricingMode()));
+            binding.put("sourceDocumentId", document.getDocumentId());
+            binding.put("userName", userName);
+            mapper.upsertInfluencerBundleItem(binding);
+        }
+    }
+
+    private void calculateAssembly(JewelryDocument document)
+    {
+        BigDecimal componentCost = ZERO;
+        JewelryDocumentItem output = null;
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            if ("OUTPUT".equals(item.getItemRole()))
+            {
+                output = item;
+                continue;
+            }
+            BigDecimal cost = money(item.getUnitCost());
+            item.setUnitPrice(ZERO);
+            clearNonSalesFees(item);
+            item.setAmount(ZERO.setScale(2));
+            item.setCostAmount(cost.multiply(BigDecimal.valueOf(nonNegative(item.getQty())))
+                .setScale(2, RoundingMode.HALF_UP));
+            item.setProfitAmount(ZERO.setScale(2));
+            item.setProfitRate(ZERO);
+            componentCost = componentCost.add(item.getCostAmount());
+        }
+        if (output == null || nonNegative(output.getQty()) <= 0)
+            throw new ServiceException("组装单缺少有效成品产出");
+        BigDecimal fees = money(document.getLaborFee()).add(money(document.getProcessingFee()))
+            .add(money(document.getOtherFee()));
+        BigDecimal total = componentCost.add(fees).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal unitCost = total.divide(BigDecimal.valueOf(output.getQty()), 6, RoundingMode.HALF_UP);
+        output.setUnitPrice(ZERO);
+        output.setUnitCost(unitCost);
+        clearNonSalesFees(output);
+        output.setAmount(ZERO.setScale(2));
+        output.setCostAmount(total);
+        output.setProfitAmount(ZERO.setScale(2));
+        output.setProfitRate(ZERO);
+        document.setTotalQty(output.getQty());
+        document.setTotalAmount(ZERO.setScale(2));
+        document.setTotalCost(total);
+        document.setTotalProfit(ZERO.setScale(2));
+        document.setRiskStatus("NORMAL");
+    }
+
+    private void clearNonSalesFees(JewelryDocumentItem item)
+    {
+        item.setPackFee(ZERO);
+        item.setShipFee(ZERO);
+        item.setCertFee(ZERO);
+        item.setOtherFee1(ZERO);
+        item.setOtherFee2(ZERO);
+        item.setOtherFee3(ZERO);
+    }
+
+    private void postReversal(JewelryDocument reversal, Long userId, String userName)
+    {
+        JewelryDocument source = requireReversalSource(reversal);
+        for (JewelryDocumentItem item : reversal.getItems())
+        {
+            Map<String, Object> stock = mapper.selectStockForUpdate(item.getProductId());
+            if (stock == null) throw new ServiceException("商品库存记录不存在");
+            int before = intValue(stock.get("onHandQty"));
+            int onHand = before, reserved = intValue(stock.get("reservedOutQty"));
+            int inspection = intValue(stock.get("inspectionQty"));
+            int inspectionReserved = intValue(stock.get("inspectionReservedQty"));
+            int defect = intValue(stock.get("defectQty"));
+            int defectReserved = intValue(stock.get("defectReservedQty"));
+            BigDecimal beforeAvg = decimal(stock.get("avgCost"));
+            BigDecimal avg = beforeAvg;
+            BigDecimal inspectionCost = decimal(stock.get("inspectionCostAmount"));
+            BigDecimal defectCost = decimal(stock.get("defectCostAmount"));
+            BigDecimal originalUnitCost = money(item.getUnitCost());
+            String sourceType = source.getDocType();
+
+            if (isInboundReceipt(sourceType))
+            {
+                int qty = item.getQty();
+                onHand -= qty;
+                reserved -= qty;
+                avg = averageAfterCostRemoval(before, beforeAvg, qty, originalUnitCost,
+                    item.getProductNameSnapshot());
+            }
+            else if (isOutbound(sourceType))
+            {
+                int qty = item.getQty();
+                BigDecimal restoredCost = originalUnitCost.multiply(BigDecimal.valueOf(qty));
+                onHand += qty;
+                avg = weightedAverage(before, beforeAvg, qty, restoredCost);
+            }
+            else if ("CUSTOMER_RETURN".equals(sourceType))
+            {
+                int qty = item.getQty();
+                BigDecimal removeCost = originalUnitCost.multiply(BigDecimal.valueOf(qty));
+                if (inspection < qty || inspectionReserved < qty || inspectionCost.compareTo(removeCost) < 0)
+                    throw new ServiceException(item.getProductNameSnapshot() + " 待检库存已被处理，不能红冲");
+                inspection -= qty;
+                inspectionReserved -= qty;
+                inspectionCost = inspectionCost.subtract(removeCost).max(ZERO);
+            }
+            else if ("RETURN_INSPECT".equals(sourceType))
+            {
+                int good = item.getGoodQty();
+                int bad = item.getDefectQty();
+                int processed = good + bad;
+                BigDecimal goodCost = originalUnitCost.multiply(BigDecimal.valueOf(good));
+                BigDecimal badCost = originalUnitCost.multiply(BigDecimal.valueOf(bad));
+                if (onHand < good || reserved < good || defect < bad || defectReserved < bad
+                    || defectCost.compareTo(badCost) < 0)
+                    throw new ServiceException(item.getProductNameSnapshot() + " 质检后库存已不足，不能红冲");
+                onHand -= good;
+                reserved -= good;
+                avg = averageAfterCostRemoval(before, beforeAvg, good, originalUnitCost,
+                    item.getProductNameSnapshot());
+                defect -= bad;
+                defectReserved -= bad;
+                defectCost = defectCost.subtract(badCost).max(ZERO);
+                inspection += processed;
+                inspectionCost = inspectionCost.add(goodCost).add(badCost);
+            }
+            else if ("STOCK_ADJUST".equals(sourceType))
+            {
+                int adjustment = item.getAdjustmentQty();
+                if (adjustment > 0)
+                {
+                    onHand -= adjustment;
+                    reserved -= adjustment;
+                    avg = averageAfterCostRemoval(before, beforeAvg, adjustment, originalUnitCost,
+                        item.getProductNameSnapshot());
+                }
+                else
+                {
+                    int restore = -adjustment;
+                    BigDecimal restoredCost = originalUnitCost.multiply(BigDecimal.valueOf(restore));
+                    onHand += restore;
+                    avg = weightedAverage(before, beforeAvg, restore, restoredCost);
+                }
+            }
+            else if ("COST_ADJUST".equals(sourceType))
+            {
+                BigDecimal adjustedCost = money(item.getUnitPrice());
+                BigDecimal originalCost = money(item.getUnitCost());
+                if (before <= 0)
+                    throw new ServiceException(item.getProductNameSnapshot() + " 当前库存为0，不能红冲调价单");
+                if (beforeAvg.compareTo(adjustedCost) != 0)
+                    throw new ServiceException(item.getProductNameSnapshot()
+                        + " 的平均成本已再次变化，不能直接红冲原调价单");
+                avg = originalCost;
+                item.setQty(before);
+                item.setAmount(originalCost.subtract(adjustedCost).multiply(BigDecimal.valueOf(before))
+                    .setScale(2, RoundingMode.HALF_UP));
+                item.setCostAmount(originalCost.multiply(BigDecimal.valueOf(before))
+                    .setScale(2, RoundingMode.HALF_UP));
+                item.setProfitAmount(ZERO.setScale(2));
+                item.setProfitRate(ZERO);
+                mapper.updateCostAdjustmentPostedItem(item);
+            }
+            else
+            {
+                throw new ServiceException("暂不支持该原单类型的红冲");
+            }
+            if (onHand < 0 || reserved < 0 || inspection < 0 || inspectionReserved < 0
+                || defect < 0 || defectReserved < 0)
+                throw new ServiceException(item.getProductNameSnapshot() + " 红冲后库存不能为负数");
+            persistStockChange(reversal, item, stock, onHand, reserved, inspection, inspectionReserved,
+                defect, defectReserved, avg, inspectionCost, defectCost, "REVERSAL_" + sourceType, userId, userName);
+        }
+        if ("COST_ADJUST".equals(source.getDocType())) refreshDocumentFinancials(reversal);
+    }
+
+    private void persistStockChange(JewelryDocument document, JewelryDocumentItem item, Map<String, Object> stock,
+        int onHand, int reserved, int inspection, int inspectionReserved, int defect, int defectReserved,
+        BigDecimal avg, BigDecimal inspectionCost, BigDecimal defectCost, String transactionType,
+        Long userId, String userName)
+    {
+        int beforeOnHand = intValue(stock.get("onHandQty"));
+        BigDecimal beforeAvg = decimal(stock.get("avgCost"));
+        BigDecimal beforeAsset = beforeAvg.multiply(BigDecimal.valueOf(beforeOnHand))
+            .add(decimal(stock.get("inspectionCostAmount"))).add(decimal(stock.get("defectCostAmount")));
+        BigDecimal afterAsset = avg.multiply(BigDecimal.valueOf(onHand)).add(inspectionCost).add(defectCost);
+        mapper.applyStock(item.getProductId(), onHand, reserved, inspection, inspectionReserved, defect,
+            defectReserved, avg, inspectionCost, defectCost);
+        Map<String, Object> tx = new HashMap<String, Object>();
+        tx.put("documentId", document.getDocumentId()); tx.put("itemId", item.getItemId());
+        tx.put("productId", item.getProductId()); tx.put("transactionType", transactionType);
+        tx.put("onHandChange", onHand - beforeOnHand);
+        tx.put("reservedChange", reserved - intValue(stock.get("reservedOutQty")));
+        tx.put("inspectionChange", inspection - intValue(stock.get("inspectionQty")));
+        tx.put("inspectionReservedChange", inspectionReserved - intValue(stock.get("inspectionReservedQty")));
+        tx.put("defectChange", defect - intValue(stock.get("defectQty")));
+        tx.put("defectReservedChange", defectReserved - intValue(stock.get("defectReservedQty")));
+        tx.put("costAmountChange", afterAsset.subtract(beforeAsset));
+        tx.put("beforeOnHand", beforeOnHand); tx.put("afterOnHand", onHand);
+        tx.put("beforeAvgCost", beforeAvg); tx.put("afterAvgCost", avg);
+        tx.put("operatorUserId", userId); tx.put("operatorName", userName);
+        mapper.insertStockTransaction(tx);
+    }
+
+    private void prepareStockAdjustment(JewelryDocument document)
+    {
+        if (document.getItems() == null || document.getItems().isEmpty()) return;
+        Set<Long> productIds = new HashSet<Long>();
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            if (item.getProductId() == null) continue;
+            if (!productIds.add(item.getProductId()))
+                throw new ServiceException("同一商品不能在一张盘点单中重复出现");
+            Map<String, Object> stock = mapper.selectStockForUpdate(item.getProductId());
+            if (stock == null) throw new ServiceException("商品库存记录不存在");
+            if (item.getCountedQty() == null)
+                throw new ServiceException("请填写实盘库存");
+            int systemQty = intValue(stock.get("onHandQty"));
+            item.setSystemQty(systemQty);
+            item.setAdjustmentQty(item.getCountedQty() - systemQty);
+            item.setQty(Math.abs(item.getAdjustmentQty()));
+            if (item.getAdjustmentQty() < 0)
+                item.setUnitCost(decimal(stock.get("avgCost")));
+        }
+    }
+
+    private void validateStockAdjustmentSnapshot(JewelryDocument document)
+    {
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            Map<String, Object> stock = mapper.selectStockForUpdate(item.getProductId());
+            if (stock == null) throw new ServiceException("商品库存记录不存在");
+            int currentQty = intValue(stock.get("onHandQty"));
+            if (item.getSystemQty() == null || currentQty != item.getSystemQty())
+                throw new ServiceException(item.getProductNameSnapshot()
+                    + " 的可售库存已变化，请编辑盘点单刷新数据后再提交");
+            int expected = item.getCountedQty() - item.getSystemQty();
+            if (expected == 0 || expected != item.getAdjustmentQty())
+                throw new ServiceException(item.getProductNameSnapshot() + " 的盘点差异数据不一致");
+        }
+    }
+
+    private void prepareCostAdjustment(JewelryDocument document)
+    {
+        if (document.getItems() == null || document.getItems().isEmpty()) return;
+        Set<Long> productIds = new HashSet<Long>();
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            if (item.getProductId() == null) continue;
+            if (!productIds.add(item.getProductId()))
+                throw new ServiceException("同一商品不能在一张调价单中重复出现");
+            Map<String, Object> stock = mapper.selectStockForUpdate(item.getProductId());
+            if (stock == null) throw new ServiceException("商品库存记录不存在");
+            int currentQty = intValue(stock.get("onHandQty"));
+            if (currentQty <= 0) throw new ServiceException("当前库存为0，不能调整库存成本");
+            item.setSystemQty(currentQty);
+            item.setQty(currentQty);
+            item.setUnitCost(decimal(stock.get("avgCost")));
+            clearNonSalesFees(item);
+        }
+    }
+
+    private void validateCostAdjustmentSnapshot(JewelryDocument document)
+    {
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            Map<String, Object> stock = mapper.selectStockForUpdate(item.getProductId());
+            if (stock == null) throw new ServiceException("商品库存记录不存在");
+            if (intValue(stock.get("onHandQty")) <= 0)
+                throw new ServiceException(item.getProductNameSnapshot() + " 当前库存为0，不能调整库存成本");
+            if (decimal(stock.get("avgCost")).compareTo(money(item.getUnitCost())) != 0)
+                throw new ServiceException(item.getProductNameSnapshot()
+                    + " 的平均成本已变化，请编辑调价单刷新数据后再提交");
+        }
+    }
+
+    private void calculateCostAdjustment(JewelryDocument document)
+    {
+        int totalQty = 0;
+        BigDecimal totalChange = ZERO;
+        BigDecimal adjustedAsset = ZERO;
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            int qty = nonNegative(item.getQty());
+            calculateCostAdjustmentItem(item, qty);
+            totalQty += qty;
+            totalChange = totalChange.add(money(item.getAmount()));
+            adjustedAsset = adjustedAsset.add(money(item.getCostAmount()));
+        }
+        document.setTotalQty(totalQty);
+        document.setTotalAmount(totalChange.setScale(2, RoundingMode.HALF_UP));
+        document.setTotalCost(adjustedAsset.setScale(2, RoundingMode.HALF_UP));
+        document.setTotalProfit(ZERO.setScale(2));
+        document.setRiskStatus("NORMAL");
+    }
+
+    private void calculateCostAdjustmentItem(JewelryDocumentItem item, int qty)
+    {
+        BigDecimal beforeCost = money(item.getUnitCost());
+        BigDecimal afterCost = money(item.getUnitPrice());
+        clearNonSalesFees(item);
+        item.setAmount(afterCost.subtract(beforeCost).multiply(BigDecimal.valueOf(qty))
+            .setScale(2, RoundingMode.HALF_UP));
+        item.setCostAmount(afterCost.multiply(BigDecimal.valueOf(qty)).setScale(2, RoundingMode.HALF_UP));
+        item.setProfitAmount(ZERO.setScale(2));
+        item.setProfitRate(ZERO);
+    }
+
+    private void validateCostChangeConflicts(JewelryDocument document)
+    {
+        List<Long> productIds = new ArrayList<Long>();
+        for (JewelryDocumentItem item : document.getItems())
+        {
+            if (item.getProductId() != null && !productIds.contains(item.getProductId()))
+                productIds.add(item.getProductId());
+        }
+        Collections.sort(productIds);
+        for (Long productId : productIds)
+        {
+            Map<String, Object> stock = mapper.selectStockForUpdate(productId);
+            if (stock == null) throw new ServiceException("商品库存记录不存在");
+            JewelryDocumentItem item = null;
+            for (JewelryDocumentItem candidate : document.getItems())
+                if (productId.equals(candidate.getProductId())) { item = candidate; break; }
+            String productName = item == null ? "该商品" : item.getProductNameSnapshot();
+            if (isInboundReceipt(document.getDocType()))
+            {
+                if (mapper.countPendingCostChangesByProduct(productId) > 0)
+                    throw new ServiceException(productName + " 正在进行库存成本调价，入库暂不能提交或入账");
+            }
+            else if (isCostChangeDocument(document)
+                && mapper.countPendingPurchasesByProduct(productId) > 0)
+            {
+                throw new ServiceException(productName + " 存在待审核入库单，请先完成或撤回入库单");
+            }
+        }
+    }
+
+    private boolean isCostChangeDocument(JewelryDocument document)
+    {
+        if ("COST_ADJUST".equals(document.getDocType())) return true;
+        if (!"REVERSAL".equals(document.getDocType()) || document.getSourceDocumentId() == null) return false;
+        if ("COST_ADJUST".equals(document.getSourceDocType())) return true;
+        JewelryDocument source = mapper.selectDocumentById(document.getSourceDocumentId());
+        return source != null && "COST_ADJUST".equals(source.getDocType());
+    }
+
+    private boolean isDualApprovalDocument(JewelryDocument document)
+    {
+        if ("STOCK_ADJUST".equals(document.getDocType()) || "COST_ADJUST".equals(document.getDocType()))
+            return true;
+        if (!"REVERSAL".equals(document.getDocType()) || document.getSourceDocumentId() == null) return false;
+        if ("STOCK_ADJUST".equals(document.getSourceDocType())
+            || "COST_ADJUST".equals(document.getSourceDocType())) return true;
+        JewelryDocument source = mapper.selectDocumentById(document.getSourceDocumentId());
+        return source != null && ("STOCK_ADJUST".equals(source.getDocType())
+            || "COST_ADJUST".equals(source.getDocType()));
+    }
+
+    private void ensureDualApprovalRole(JewelryDocument document, String status, Long userId, String approvalRole)
+    {
+        String documentName = isCostChangeDocument(document) ? "库存成本调价单" : "库存调整单";
+        if ("PENDING_FIRST".equals(status))
+        {
+            if (!"jewelry_reviewer".equals(approvalRole))
+                throw new ServiceException(documentName + "必须先由审核员审核");
+        }
+        else
+        {
+            if (!"jewelry_admin".equals(approvalRole))
+                throw new ServiceException(documentName + "必须由管理员完成复核");
+            if (userId.equals(document.getFirstReviewerUserId()))
+                throw new ServiceException("审核员和管理员复核不能由同一人完成");
+        }
+    }
+
+    private BigDecimal averageAfterCostRemoval(int beforeQty, BigDecimal beforeAvg, int removeQty,
+        BigDecimal removeUnitCost, String productName)
+    {
+        if (removeQty < 0 || beforeQty < removeQty)
+            throw new ServiceException(productName + " 当前库存不足，不能红冲");
+        int afterQty = beforeQty - removeQty;
+        BigDecimal afterAsset = beforeAvg.multiply(BigDecimal.valueOf(beforeQty))
+            .subtract(removeUnitCost.multiply(BigDecimal.valueOf(removeQty)));
+        if (afterAsset.compareTo(ZERO) < 0)
+            throw new ServiceException(productName + " 当前库存资产不足，不能红冲");
+        if (afterQty == 0)
+        {
+            if (afterAsset.abs().compareTo(new BigDecimal("0.01")) > 0)
+                throw new ServiceException(productName + " 红冲后库存资产无法归零，请检查后续库存变动");
+            return ZERO;
+        }
+        return afterAsset.divide(BigDecimal.valueOf(afterQty), 6, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal weightedAverage(int beforeQty, BigDecimal beforeAvg, int incomingQty, BigDecimal incomingCost)
+    {
+        int afterQty = beforeQty + incomingQty;
+        if (afterQty <= 0) return ZERO;
+        return beforeAvg.multiply(BigDecimal.valueOf(beforeQty)).add(incomingCost)
+            .divide(BigDecimal.valueOf(afterQty), 6, RoundingMode.HALF_UP);
+    }
+
+    private JewelryDocument requireReversalSource(JewelryDocument reversal)
+    {
+        if (reversal.getSourceDocumentId() == null)
+            throw new ServiceException("红冲单未关联原单");
+        JewelryDocument source = mapper.selectDocumentByIdForUpdate(reversal.getSourceDocumentId());
+        if (source == null) throw new ServiceException("红冲原单不存在");
+        if (!"POSTED".equals(source.getStatus()))
+            throw new ServiceException("原单已不是可红冲状态");
+        ensureSourceHasNoActiveReturns(source);
+        return source;
+    }
+
+    private void ensureSourceHasNoActiveReturns(JewelryDocument source)
+    {
+        if ("SALES_OUT".equals(source.getDocType())
+            && mapper.countActiveCustomerReturnsBySource(source.getDocumentId()) > 0)
+            throw new ServiceException("原销售单存在待处理或已入账的消费者退货，不能整单红冲");
+        if (isInboundReceipt(source.getDocType())
+            && mapper.countActiveSupplierReturnsBySource(source.getDocumentId()) > 0)
+            throw new ServiceException("原采购单存在待处理或已入账的供应商退货，不能整单红冲");
+    }
+
+    private JewelryDocumentItem copyReversalItem(JewelryDocumentItem source, Long reversalId, String sourceDocType)
+    {
+        JewelryDocumentItem item = new JewelryDocumentItem();
+        item.setDocumentId(reversalId);
+        item.setProductId(source.getProductId());
+        item.setItemRole(text(source.getItemRole()).isEmpty() ? "NORMAL" : source.getItemRole());
+        item.setSourceItemId(source.getItemId());
+        item.setBundleGroupNo(source.getBundleGroupNo());
+        item.setSaleRole(normalizedSaleRole(source.getSaleRole()));
+        item.setPricingMode(normalizedPricingMode(source.getPricingMode()));
+        item.setSkuSnapshot(source.getSkuSnapshot());
+        item.setProductNameSnapshot(source.getProductNameSnapshot());
+        item.setProductTypeSnapshot(source.getProductTypeSnapshot());
+        item.setSpecificationSnapshot(source.getSpecificationSnapshot());
+        item.setUnitSnapshot(source.getUnitSnapshot());
+        item.setImageUrls(source.getImageUrls());
+        item.setBizDate(source.getBizDate());
+        item.setSupplierId(source.getSupplierId());
+        item.setSupplierNameSnapshot(source.getSupplierNameSnapshot());
+        item.setSampleGoodsNo(source.getSampleGoodsNo());
+        item.setQty(source.getQty());
+        item.setGoodQty(source.getGoodQty());
+        item.setDefectQty(source.getDefectQty());
+        item.setSystemQty(source.getSystemQty());
+        item.setCountedQty(source.getCountedQty());
+        item.setAdjustmentQty(source.getAdjustmentQty());
+        item.setUnitPrice(source.getUnitPrice());
+        item.setInfluencerPriceSnapshot(source.getInfluencerPriceSnapshot());
+        item.setInfluencerPriceVersion(source.getInfluencerPriceVersion());
+        item.setPlatformRateSnapshot(source.getPlatformRateSnapshot());
+        item.setCommissionRateSnapshot(source.getCommissionRateSnapshot());
+        item.setTaxRateSnapshot(source.getTaxRateSnapshot());
+        item.setUnitCost(source.getUnitCost());
+        item.setPackFee(source.getPackFee());
+        item.setShipFee(source.getShipFee());
+        item.setCertFee(source.getCertFee());
+        item.setOtherFee1(source.getOtherFee1());
+        item.setOtherFee2(source.getOtherFee2());
+        item.setOtherFee3(source.getOtherFee3());
+        int amountScale = isFourDecimalTransactionAmount(sourceDocType) ? 4 : 2;
+        int costScale = isInboundReceipt(sourceDocType) ? 4 : 2;
+        item.setAmount(money(source.getAmount()).negate().setScale(amountScale, RoundingMode.HALF_UP));
+        item.setCostAmount(money(source.getCostAmount()).negate().setScale(costScale, RoundingMode.HALF_UP));
+        item.setProfitAmount(money(source.getProfitAmount()).negate().setScale(2, RoundingMode.HALF_UP));
+        item.setProfitRate(source.getProfitRate());
+        item.setLineReason("红冲原明细 " + source.getItemId());
+        return item;
+    }
+
+    private void ensureReviewer(JewelryDocument document, Long userId)
+    {
+        if (userId.equals(document.getCreatorUserId())) throw new ServiceException("制单人不能审核自己的单据");
+    }
+
+    private void changeStatus(JewelryDocument document, String from, String to, Long userId, String userName,
+        String reason, Integer stage)
+    {
+        if (mapper.updateDocumentStatus(document.getDocumentId(), from, to, userId, userName, reason, stage) != 1)
+            throw new ServiceException("单据状态已变化，请刷新后重试");
+    }
+
+    private JewelryDocument requireDocument(Long id)
+    {
+        JewelryDocument document = mapper.selectDocumentById(id);
+        if (document == null) throw new ServiceException("单据不存在");
+        return document;
+    }
+
+    private JewelryDocument requirePostedCustomerReturn(Long sourceDocumentId)
+    {
+        JewelryDocument source = requireDocument(sourceDocumentId);
+        if (!"CUSTOMER_RETURN".equals(source.getDocType()) || !"POSTED".equals(source.getStatus()))
+            throw new ServiceException("关联的原单必须是已入账且未红冲的客户退货单");
+        return source;
+    }
+
+    private void validateSupplierReturnSource(JewelryDocument document, JewelryDocument source)
+    {
+        boolean sampleReturn = "SAMPLE_RETURN".equals(document.getDocType());
+        if (!sampleReturn && !document.getSupplierId().equals(source.getSupplierId()))
+            throw new ServiceException("原采购单与所选供应商不一致");
+        if (!sampleReturn && (source.getInfluencerId() == null || !document.getInfluencerId().equals(source.getInfluencerId())))
+            throw new ServiceException("原采购单与所选达人/主播不一致");
+        if (mapper.countReversalBySource(source.getDocumentId()) > 0
+            || !mapper.selectReversalIdsBySourceForUpdate(source.getDocumentId()).isEmpty())
+            throw new ServiceException(sampleReturn ? "原样品入库单已失效，请刷新后重试"
+                : "关联的采购单已存在红冲单，不能继续退货");
+    }
+
+    private JewelryDocument requirePostedPurchase(Long sourceDocumentId)
+    {
+        JewelryDocument source = requireDocument(sourceDocumentId);
+        if (!"PURCHASE_IN".equals(source.getDocType()) || !"POSTED".equals(source.getStatus()))
+            throw new ServiceException("关联的原单必须是已入账且未红冲的采购入库单");
+        return source;
+    }
+
+    private JewelryDocument requirePostedReturnReceipt(JewelryDocument document, Long sourceDocumentId)
+    {
+        if (!"SAMPLE_RETURN".equals(document.getDocType())) return requirePostedPurchase(sourceDocumentId);
+        JewelryDocument source = requireDocument(sourceDocumentId);
+        if (!"SAMPLE_IN".equals(source.getDocType()) || !"POSTED".equals(source.getStatus()))
+            throw new ServiceException("样品退货必须关联已入账且未红冲的样品入库单");
+        return source;
+    }
+
+    private String createDocNo(String type)
+    {
+        String prefix;
+        if ("PURCHASE_IN".equals(type)) prefix = "RK";
+        else if ("SAMPLE_IN".equals(type)) prefix = "YP";
+        else if ("SAMPLE_RETURN".equals(type)) prefix = "YT";
+        else if ("SALES_OUT".equals(type)) prefix = "CK";
+        else if ("TRANSFER_OUT".equals(type)) prefix = "DH";
+        else if ("SUPPLIER_RETURN".equals(type)) prefix = "TG";
+        else if ("CUSTOMER_RETURN".equals(type)) prefix = "SH";
+        else if ("RETURN_INSPECT".equals(type)) prefix = "ZJ";
+        else if ("STOCK_ADJUST".equals(type)) prefix = "PD";
+        else if ("COST_ADJUST".equals(type)) prefix = "TJ";
+        else if ("ASSEMBLY".equals(type)) prefix = "ZZ";
+        else if ("REVERSAL".equals(type)) prefix = "HC";
+        else prefix = "JE";
+        return prefix + new SimpleDateFormat("yyyyMMddHHmmssSSS").format(new Date());
+    }
+
+    private void validateSupplierReference(JewelryDocument document, boolean updateSnapshot)
+    {
+        Map<String, Object> supplier = mapper.selectSupplierById(document.getSupplierId());
+        if (supplier == null) throw new ServiceException("供应商不存在");
+        if (!"0".equals(textValue(supplier.get("status"))))
+            throw new ServiceException("供应商已停用，不能用于新单据");
+        if (updateSnapshot) document.setSupplierNameSnapshot(textValue(supplier.get("supplierName")));
+    }
+
+    private Map<String, BigDecimal> calculateSalesLine(BigDecimal price, BigDecimal cost,
+        BigDecimal fees, BigDecimal rate)
+    {
+        BigDecimal deductions = price.multiply(rate);
+        BigDecimal profit = price.subtract(cost).subtract(fees).subtract(deductions);
+        Map<String, BigDecimal> result = new HashMap<String, BigDecimal>();
+        result.put("deductions", deductions);
+        result.put("profit", profit);
+        return result;
+    }
+
+    private void validateCombinedRate(BigDecimal rate)
+    {
+        if (rate.compareTo(BigDecimal.ONE) >= 0)
+            throw new ServiceException("平台、佣金和税率合计必须小于100%");
+    }
+
+    private BigDecimal itemRate(BigDecimal snapshot, BigDecimal fallback)
+    {
+        return money(snapshot == null ? fallback : snapshot);
+    }
+
+    private void validateNonNegative(BigDecimal value, String label)
+    {
+        if (money(value).signum() < 0) throw new ServiceException(label + "不能小于0");
+    }
+
+    private BigDecimal nonNegativeDecimalValue(Object value, String label)
+    {
+        BigDecimal result = value == null || textValue(value).isEmpty() ? ZERO : decimalValue(value, label);
+        if (result.signum() < 0) throw new ServiceException(label + "不能小于0");
+        return result.setScale(6, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal percentageValue(Object value, String label)
+    {
+        BigDecimal percent = value == null || textValue(value).isEmpty() ? ZERO : decimalValue(value, label);
+        if (percent.signum() < 0 || percent.compareTo(new BigDecimal("100")) > 0)
+            throw new ServiceException(label + "必须在0%到100%之间");
+        return percent.divide(new BigDecimal("100"), 8, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal decimalValue(Object value, String label)
+    {
+        try { return new BigDecimal(textValue(value)); }
+        catch (RuntimeException ex) { throw new ServiceException(label + "格式不正确"); }
+    }
+
+    private int integerValue(Object value, String label)
+    {
+        try { return Integer.parseInt(textValue(value)); }
+        catch (RuntimeException ex) { throw new ServiceException(label + "必须是整数"); }
+    }
+
+    private Long nullableLong(Object value)
+    {
+        if (value == null || textValue(value).isEmpty()) return null;
+        try { return Long.valueOf(textValue(value)); }
+        catch (RuntimeException ex) { throw new ServiceException("商品ID格式不正确"); }
+    }
+
+    private void validateRate(BigDecimal value, String label)
+    {
+        BigDecimal rate = money(value);
+        if (rate.signum() < 0 || rate.compareTo(BigDecimal.ONE) > 0)
+            throw new ServiceException(label + "必须在0到1之间");
+    }
+
+    private boolean isSupplierReturn(String type) { return "SUPPLIER_RETURN".equals(type) || "SAMPLE_RETURN".equals(type); }
+    private boolean isOutbound(String type) { return "SALES_OUT".equals(type) || isSupplierReturn(type) || "TRANSFER_OUT".equals(type); }
+    private boolean isInboundReceipt(String type) { return "PURCHASE_IN".equals(type) || "SAMPLE_IN".equals(type); }
+    private boolean isFourDecimalTransactionAmount(String type)
+    {
+        return "PURCHASE_IN".equals(type) || "SUPPLIER_RETURN".equals(type)
+            || "CUSTOMER_RETURN".equals(type);
+    }
+    private int effectiveQty(String type, JewelryDocumentItem item)
+    {
+        if ("RETURN_INSPECT".equals(type)) return item.getGoodQty() + item.getDefectQty();
+        if ("STOCK_ADJUST".equals(type)) return Math.abs(item.getAdjustmentQty());
+        return item.getQty();
+    }
+    private int nonNegative(Integer value) { return value == null ? 0 : Math.max(0, value); }
+    private int nonNegativeValue(Object value, int defaultValue)
+    {
+        if (value == null || String.valueOf(value).trim().isEmpty()) return defaultValue;
+        try { return Math.max(0, Integer.parseInt(String.valueOf(value))); }
+        catch (NumberFormatException ex) { throw new ServiceException("库存预警值必须是整数"); }
+    }
+    private String textValue(Object value) { return value == null ? "" : String.valueOf(value).trim(); }
+    private String text(String value) { return value == null ? "" : value; }
+    private BigDecimal money(BigDecimal value) { return value == null ? ZERO : value.setScale(6, RoundingMode.HALF_UP); }
+    private BigDecimal fourDecimal(BigDecimal value) { return money(value).setScale(4, RoundingMode.HALF_UP); }
+    private BigDecimal nullableDecimal(Object value)
+    {
+        return value == null || textValue(value).isEmpty() ? null : new BigDecimal(textValue(value));
+    }
+    private BigDecimal decimal(Object value) { return value == null ? ZERO : new BigDecimal(String.valueOf(value)); }
+    private int intValue(Object value) { return value == null ? 0 : ((Number) value).intValue(); }
+    private long longValue(Object value) { return value == null ? 0L : ((Number) value).longValue(); }
+}

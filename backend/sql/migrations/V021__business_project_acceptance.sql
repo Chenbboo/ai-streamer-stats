@@ -1,0 +1,25 @@
+-- 项目验收资料和老板评审历史。只新增项目域表，不修改直播、珠宝和现有账号。
+create table if not exists biz_project_acceptance (
+  acceptance_id bigint not null auto_increment comment '验收记录ID',
+  project_id bigint not null comment '项目ID',
+  submission_version int not null comment '第几次提交',
+  result_summary varchar(2000) not null comment '项目结果摘要',
+  deliverables varchar(4000) not null comment '交付成果说明',
+  attachment_urls varchar(4000) null comment '附件URL，英文逗号分隔',
+  submitted_user_id bigint not null comment '提交人账号ID',
+  submitted_user_name varchar(64) not null comment '提交人姓名快照',
+  submitted_time datetime not null comment '提交时间',
+  review_status varchar(16) not null default 'PENDING' comment 'PENDING/APPROVED/RETURNED',
+  reviewed_user_id bigint null comment '评审老板账号ID',
+  reviewed_user_name varchar(64) null comment '评审老板姓名快照',
+  review_comment varchar(2000) null comment '老板验收意见',
+  reviewed_time datetime null comment '评审时间',
+  create_by varchar(64) null,
+  create_time datetime not null default current_timestamp,
+  update_by varchar(64) null,
+  update_time datetime null,
+  remark varchar(500) null,
+  primary key (acceptance_id),
+  unique key uk_biz_acceptance_version (project_id,submission_version),
+  key idx_biz_acceptance_review (project_id,review_status,submitted_time)
+) engine=InnoDB default charset=utf8mb4 comment='项目验收提交与老板评审历史';

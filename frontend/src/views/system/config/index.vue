@@ -1,26 +1,26 @@
 <template>
    <div class="app-container">
       <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch" label-width="68px">
-         <el-form-item label="参数名称" prop="configName">
+         <el-form-item :label="$tr(&quot;参数名称&quot;)" prop="configName">
             <el-input
                v-model="queryParams.configName"
-               placeholder="请输入参数名称"
+               :placeholder="$tr(&quot;请输入参数名称&quot;)"
                clearable
                style="width: 240px"
                @keyup.enter="handleQuery"
             />
          </el-form-item>
-         <el-form-item label="参数键名" prop="configKey">
+         <el-form-item :label="$tr(&quot;参数键名&quot;)" prop="configKey">
             <el-input
                v-model="queryParams.configKey"
-               placeholder="请输入参数键名"
+               :placeholder="$tr(&quot;请输入参数键名&quot;)"
                clearable
                style="width: 240px"
                @keyup.enter="handleQuery"
             />
          </el-form-item>
-         <el-form-item label="系统内置" prop="configType">
-            <el-select v-model="queryParams.configType" placeholder="系统内置" clearable style="width: 240px">
+         <el-form-item :label="$tr(&quot;系统内置&quot;)" prop="configType">
+            <el-select v-model="queryParams.configType" :placeholder="$tr(&quot;系统内置&quot;)" clearable style="width: 240px">
                <el-option
                   v-for="dict in sys_yes_no"
                   :key="dict.value"
@@ -29,19 +29,19 @@
                />
             </el-select>
          </el-form-item>
-         <el-form-item label="创建时间" style="width: 308px;">
+         <el-form-item :label="$tr(&quot;创建时间&quot;)" style="width: 308px;">
             <el-date-picker
                v-model="dateRange"
                value-format="YYYY-MM-DD"
                type="daterange"
                range-separator="-"
-               start-placeholder="开始日期"
-               end-placeholder="结束日期"
+               :start-placeholder="$tr(&quot;开始日期&quot;)"
+               :end-placeholder="$tr(&quot;结束日期&quot;)"
             ></el-date-picker>
          </el-form-item>
          <el-form-item>
-            <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
-            <el-button icon="Refresh" @click="resetQuery">重置</el-button>
+            <el-button type="primary" icon="Search" @click="handleQuery">{{ $tr("搜索") }}</el-button>
+            <el-button icon="Refresh" @click="resetQuery">{{ $tr("重置") }}</el-button>
          </el-form-item>
       </el-form>
 
@@ -53,7 +53,7 @@
                icon="Plus"
                @click="handleAdd"
                v-hasPermi="['system:config:add']"
-            >新增</el-button>
+            >{{ $tr("新增") }}</el-button>
          </el-col>
          <el-col :span="1.5">
             <el-button
@@ -63,7 +63,7 @@
                :disabled="single"
                @click="handleUpdate"
                v-hasPermi="['system:config:edit']"
-            >修改</el-button>
+            >{{ $tr("修改") }}</el-button>
          </el-col>
          <el-col :span="1.5">
             <el-button
@@ -73,7 +73,7 @@
                :disabled="multiple"
                @click="handleDelete"
                v-hasPermi="['system:config:remove']"
-            >删除</el-button>
+            >{{ $tr("删除") }}</el-button>
          </el-col>
          <el-col :span="1.5">
             <el-button
@@ -82,7 +82,7 @@
                icon="Download"
                @click="handleExport"
                v-hasPermi="['system:config:export']"
-            >导出</el-button>
+            >{{ $tr("导出") }}</el-button>
          </el-col>
          <el-col :span="1.5">
             <el-button
@@ -91,32 +91,32 @@
                icon="Refresh"
                @click="handleRefreshCache"
                v-hasPermi="['system:config:remove']"
-            >刷新缓存</el-button>
+            >{{ $tr("刷新缓存") }}</el-button>
          </el-col>
          <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
       </el-row>
 
       <el-table v-loading="loading" :data="configList" @selection-change="handleSelectionChange">
          <el-table-column type="selection" width="55" align="center" />
-         <el-table-column label="参数主键" align="center" prop="configId" />
-         <el-table-column label="参数名称" align="center" prop="configName" :show-overflow-tooltip="true" />
-         <el-table-column label="参数键名" align="center" prop="configKey" :show-overflow-tooltip="true" />
-         <el-table-column label="参数键值" align="center" prop="configValue" :show-overflow-tooltip="true" />
-         <el-table-column label="系统内置" align="center" prop="configType">
+         <el-table-column :label="$tr(&quot;参数主键&quot;)" align="center" prop="configId" />
+         <el-table-column :label="$tr(&quot;参数名称&quot;)" align="center" prop="configName" :show-overflow-tooltip="true" />
+         <el-table-column :label="$tr(&quot;参数键名&quot;)" align="center" prop="configKey" :show-overflow-tooltip="true" />
+         <el-table-column :label="$tr(&quot;参数键值&quot;)" align="center" prop="configValue" :show-overflow-tooltip="true" />
+         <el-table-column :label="$tr(&quot;系统内置&quot;)" align="center" prop="configType">
             <template #default="scope">
                <dict-tag :options="sys_yes_no" :value="scope.row.configType" />
             </template>
          </el-table-column>
-         <el-table-column label="备注" align="center" prop="remark" :show-overflow-tooltip="true" />
-         <el-table-column label="创建时间" align="center" prop="createTime" width="180">
+         <el-table-column :label="$tr(&quot;备注&quot;)" align="center" prop="remark" :show-overflow-tooltip="true" />
+         <el-table-column :label="$tr(&quot;创建时间&quot;)" align="center" prop="createTime" width="180">
             <template #default="scope">
                <span>{{ parseTime(scope.row.createTime) }}</span>
             </template>
          </el-table-column>
-         <el-table-column label="操作" align="center" width="150" class-name="small-padding fixed-width">
+         <el-table-column :label="$tr(&quot;操作&quot;)" align="center" width="150" class-name="small-padding fixed-width">
             <template #default="scope">
-               <el-button link type="primary" icon="Edit" @click="handleUpdate(scope.row)" v-hasPermi="['system:config:edit']" >修改</el-button>
-               <el-button link type="primary" icon="Delete" @click="handleDelete(scope.row)" v-hasPermi="['system:config:remove']">删除</el-button>
+               <el-button link type="primary" icon="Edit" @click="handleUpdate(scope.row)" v-hasPermi="['system:config:edit']" >{{ $tr("修改") }}</el-button>
+               <el-button link type="primary" icon="Delete" @click="handleDelete(scope.row)" v-hasPermi="['system:config:remove']">{{ $tr("删除") }}</el-button>
             </template>
          </el-table-column>
       </el-table>
@@ -132,16 +132,16 @@
       <!-- 添加或修改参数配置对话框 -->
       <el-dialog :title="title" v-model="open" width="500px" append-to-body>
          <el-form ref="configRef" :model="form" :rules="rules" label-width="80px">
-            <el-form-item label="参数名称" prop="configName">
-               <el-input v-model="form.configName" placeholder="请输入参数名称" />
+            <el-form-item :label="$tr(&quot;参数名称&quot;)" prop="configName">
+               <el-input v-model="form.configName" :placeholder="$tr(&quot;请输入参数名称&quot;)" />
             </el-form-item>
-            <el-form-item label="参数键名" prop="configKey">
-               <el-input v-model="form.configKey" placeholder="请输入参数键名" />
+            <el-form-item :label="$tr(&quot;参数键名&quot;)" prop="configKey">
+               <el-input v-model="form.configKey" :placeholder="$tr(&quot;请输入参数键名&quot;)" />
             </el-form-item>
-            <el-form-item label="参数键值" prop="configValue">
-               <el-input v-model="form.configValue" type="textarea" placeholder="请输入参数键值" />
+            <el-form-item :label="$tr(&quot;参数键值&quot;)" prop="configValue">
+               <el-input v-model="form.configValue" type="textarea" :placeholder="$tr(&quot;请输入参数键值&quot;)" />
             </el-form-item>
-            <el-form-item label="系统内置" prop="configType">
+            <el-form-item :label="$tr(&quot;系统内置&quot;)" prop="configType">
                <el-radio-group v-model="form.configType">
                   <el-radio
                      v-for="dict in sys_yes_no"
@@ -150,14 +150,14 @@
                   >{{ dict.label }}</el-radio>
                </el-radio-group>
             </el-form-item>
-            <el-form-item label="备注" prop="remark">
-               <el-input v-model="form.remark" type="textarea" placeholder="请输入内容" />
+            <el-form-item :label="$tr(&quot;备注&quot;)" prop="remark">
+               <el-input v-model="form.remark" type="textarea" :placeholder="$tr(&quot;请输入内容&quot;)" />
             </el-form-item>
          </el-form>
          <template #footer>
             <div class="dialog-footer">
-               <el-button type="primary" @click="submitForm">确 定</el-button>
-               <el-button @click="cancel">取 消</el-button>
+               <el-button type="primary" @click="submitForm">{{ $tr("确 定") }}</el-button>
+               <el-button @click="cancel">{{ $tr("取 消") }}</el-button>
             </div>
          </template>
       </el-dialog>
@@ -165,6 +165,8 @@
 </template>
 
 <script setup name="Config">
+import { translateText } from '@/locales/translate'
+
 import { listConfig, getConfig, delConfig, addConfig, updateConfig, refreshCache } from "@/api/system/config"
 
 const { proxy } = getCurrentInstance()
@@ -191,9 +193,9 @@ const data = reactive({
     configType: undefined
   },
   rules: {
-    configName: [{ required: true, message: "参数名称不能为空", trigger: "blur" }],
-    configKey: [{ required: true, message: "参数键名不能为空", trigger: "blur" }],
-    configValue: [{ required: true, message: "参数键值不能为空", trigger: "blur" }]
+    configName: [{ required: true, message: translateText("参数名称不能为空"), trigger: "blur" }],
+    configKey: [{ required: true, message: translateText("参数键名不能为空"), trigger: "blur" }],
+    configValue: [{ required: true, message: translateText("参数键值不能为空"), trigger: "blur" }]
   }
 })
 
@@ -252,7 +254,7 @@ function handleSelectionChange(selection) {
 function handleAdd() {
   reset()
   open.value = true
-  title.value = "添加参数"
+  title.value = translateText("添加参数")
 }
 
 /** 修改按钮操作 */
@@ -262,7 +264,7 @@ function handleUpdate(row) {
   getConfig(configId).then(response => {
     form.value = response.data
     open.value = true
-    title.value = "修改参数"
+    title.value = translateText("修改参数")
   })
 }
 
@@ -272,13 +274,13 @@ function submitForm() {
     if (valid) {
       if (form.value.configId != undefined) {
         updateConfig(form.value).then(response => {
-          proxy.$modal.msgSuccess("修改成功")
+          proxy.$modal.msgSuccess(translateText("修改成功"))
           open.value = false
           getList()
         })
       } else {
         addConfig(form.value).then(response => {
-          proxy.$modal.msgSuccess("新增成功")
+          proxy.$modal.msgSuccess(translateText("新增成功"))
           open.value = false
           getList()
         })
@@ -290,11 +292,11 @@ function submitForm() {
 /** 删除按钮操作 */
 function handleDelete(row) {
   const configIds = row.configId || ids.value
-  proxy.$modal.confirm('是否确认删除参数编号为"' + configIds + '"的数据项？').then(function () {
+  proxy.$modal.confirm(translateText("是否确认删除参数编号为\"") + configIds + translateText("\"的数据项？")).then(function () {
     return delConfig(configIds)
   }).then(() => {
     getList()
-    proxy.$modal.msgSuccess("删除成功")
+    proxy.$modal.msgSuccess(translateText("删除成功"))
   }).catch(() => {})
 }
 
@@ -308,7 +310,7 @@ function handleExport() {
 /** 刷新缓存按钮操作 */
 function handleRefreshCache() {
   refreshCache().then(() => {
-    proxy.$modal.msgSuccess("刷新缓存成功")
+    proxy.$modal.msgSuccess(translateText("刷新缓存成功"))
   })
 }
 

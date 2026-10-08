@@ -74,6 +74,27 @@
 		</if>
 		order by m.parent_id, m.order_num
 	</select>
+
+    <select id="selectActiveMenuList" resultMap="SysMenuResult">
+        select distinct m.menu_id, m.parent_id, m.menu_name, m.menu_name_vi, m.path, m.component,
+            m.`query`, m.route_name, m.visible, m.status, ifnull(m.perms,'') as perms,
+            m.is_frame, m.is_cache, m.menu_type, m.icon, m.order_num, m.create_time
+        from sys_menu m
+        where m.status = '0'
+        order by m.parent_id, m.order_num
+    </select>
+
+    <select id="selectActiveMenuListByUserId" parameterType="Long" resultMap="SysMenuResult">
+        select distinct m.menu_id, m.parent_id, m.menu_name, m.menu_name_vi, m.path, m.component,
+            m.`query`, m.route_name, m.visible, m.status, ifnull(m.perms,'') as perms,
+            m.is_frame, m.is_cache, m.menu_type, m.icon, m.order_num, m.create_time
+        from sys_menu m
+        join sys_role_menu rm on rm.menu_id = m.menu_id
+        join sys_user_role ur on ur.role_id = rm.role_id
+        join sys_role r on r.role_id = ur.role_id
+        where ur.user_id = #{userId} and m.status = '0' and r.status = '0' and r.del_flag = '0'
+        order by m.parent_id, m.order_num
+    </select>
     
     <select id="selectMenuTreeByUserId" parameterType="Long" resultMap="SysMenuResult">
 		select distinct m.menu_id, m.parent_id, m.menu_name, m.menu_name_vi, m.path, m.component, m.`query`, m.route_name, m.visible, m.status, ifnull(m.perms,'') as perms, m.is_frame, m.is_cache, m.menu_type, m.icon, m.order_num, m.create_time
@@ -213,4 +234,4 @@
 	    delete from sys_menu where menu_id = #{menuId}
 	</delete>
 
-</mapper> 
+</mapper>

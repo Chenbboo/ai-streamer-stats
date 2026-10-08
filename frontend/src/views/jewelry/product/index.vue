@@ -1,0 +1,245 @@
+<template>
+  <div class="app-container">
+    <el-form inline>
+      <el-form-item><el-input v-model="query.keyword" :placeholder="$tr(&quot;SKU或商品名称&quot;)" clearable @keyup.enter="handleQuery"/></el-form-item>
+      <el-form-item>
+        <el-segmented v-model="query.productType" :options="typeFilters" @change="handleQuery"/>
+      </el-form-item>
+      <el-form-item><el-button type="primary" icon="Search" @click="handleQuery">{{ $tr("查询") }}</el-button></el-form-item>
+      <el-form-item><el-button icon="Download" v-hasPermi="['jewelry:product:list']" @click="handleExport">{{ $tr("导出 Excel") }}</el-button></el-form-item>
+    </el-form>
+    <el-button type="primary" plain icon="Plus" class="mb8" v-hasPermi="['jewelry:product:add']" @click="open()">{{ $tr("新增商品") }}</el-button>
+    <el-button v-if="canBatchEdit" type="success" plain icon="Edit" class="mb8" :disabled="loading || !selectedRows.length" @click="openBatch">{{ $tr("批量编辑") }}</el-button>
+    <el-button v-if="canDelete" type="danger" plain icon="Delete" class="mb8" :disabled="loading || !selectedRows.length" :loading="deleteSaving" @click="removeProducts(selectedRows)">{{ $tr("批量删除") }}</el-button>
+    <span v-if="canBatchEdit || canDelete" class="selection-tip">{{ $tr("已选 {0} 件（仅当前页）", [selectedRows.length]) }}</span>
+    <el-table ref="productTable" v-loading="loading || deleteSaving" :data="rows" row-key="productId" border @selection-change="selectionChanged">
+      <el-table-column v-if="canBatchEdit || canDelete" type="selection" width="48" :selectable="()=>!loading && !deleteSaving"/>
+      <el-table-column :label="$tr(&quot;图片&quot;)" width="76">
+        <template #default="{row}">
+          <el-image v-if="firstImage(row)" :src="imageSrc(firstImage(row))" fit="cover" class="product-thumb"
+            :preview-src-list="allImages(row).map(imageSrc)" preview-teleported/>
+          <div v-else class="empty-thumb"><el-icon><Picture/></el-icon></div>
+        </template>
+      </el-table-column>
+      <el-table-column prop="sku" label="SKU" min-width="160" show-overflow-tooltip/>
+      <el-table-column prop="productName" :label="$tr(&quot;商品名称&quot;)" min-width="240" show-overflow-tooltip/>
+      <el-table-column :label="$tr(&quot;商品类型&quot;)" width="170">
+        <template #default="{row}">
+          <el-tag :type="typeTag(row.productType)" effect="plain">{{typeLabel(row.productType)}}</el-tag>
+          <el-button v-if="canViewBindings && ['FINISHED','GIFT','WELFARE'].includes(row.productType)" link type="primary" class="view-binding" @click="openDetail(row)">查看</el-button>
+        </template>
+      </el-table-column>
+      <el-table-column prop="unit" :label="$tr(&quot;单位&quot;)" width="70" :formatter="(row, column, value) => $tr(value)"/>
+      <el-table-column prop="onHandQty" :label="$tr(&quot;可售库存&quot;)" width="100" align="right"/>
+      <el-table-column v-if="canViewFinance" prop="avgCost" :label="$tr(&quot;库存平均成本&quot;)" width="125" align="right"/>
+      <el-table-column prop="warningQty" :label="$tr(&quot;库存预警值&quot;)" width="110" align="right"/>
+      <el-table-column :label="$tr(&quot;状态&quot;)" width="80"><template #default="{row}">{{row.status==='0'?$tr("启用"):$tr("停用")}}</template></el-table-column>
+      <el-table-column :label="$tr(&quot;操作&quot;)" width="160" fixed="right">
+        <template #default="{row}">
+          <el-button link type="primary" icon="Edit" v-hasPermi="['jewelry:product:edit','jewelry:product:basic-edit']" @click="open(row)">{{ $tr("编辑") }}</el-button>
+          <el-button v-if="canDelete" link type="danger" icon="Delete" :disabled="deleteSaving" @click="removeProducts([row])">{{ $tr("删除") }}</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+    <pagination v-show="total>0" v-model:page="query.pageNum" v-model:limit="query.pageSize" :total="total" @pagination="load"/>
+
+    <el-dialog v-model="detailDialog" title="商品及达人绑定详情" width="90%" destroy-on-close>
+      <div v-loading="detailLoading">
+        <el-descriptions title="商品基本信息" :column="3" border class="mb16">
+          <el-descriptions-item label="商品SKU">{{ detailProduct.sku || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="商品名称">{{ detailProduct.productName || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="商品类型">{{ typeLabel(detailProduct.productType) }}</el-descriptions-item>
+          <el-descriptions-item label="单位">{{ detailProduct.unit || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="可售库存">{{ detailProduct.onHandQty ?? '—' }}</el-descriptions-item>
+          <el-descriptions-item label="库存预警值">{{ detailProduct.warningQty ?? '—' }}</el-descriptions-item>
+          <el-descriptions-item label="状态">{{ detailProduct.status === '0' ? '启用' : '停用' }}</el-descriptions-item>
+          <el-descriptions-item v-if="canViewFinance" label="库存平均成本">{{ formatAmount(detailProduct.avgCost) }}</el-descriptions-item>
+          <el-descriptions-item label="图片" :span="3">
+            <el-image v-if="firstImage(detailProduct)" :src="imageSrc(firstImage(detailProduct))"
+              :preview-src-list="allImages(detailProduct).map(imageSrc)" preview-teleported fit="contain" class="detail-image"/>
+            <span v-else>—</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="备注" :span="3">{{ detailProduct.remark || '—' }}</el-descriptions-item>
+        </el-descriptions>
+        <h4>绑定达人及对应配置（{{ detailBindings.length }}）</h4>
+        <el-table :data="detailBindings" border max-height="420" empty-text="暂无绑定达人">
+          <el-table-column prop="influencerCode" label="达人编码" width="125" fixed="left"/>
+          <el-table-column prop="influencerName" label="达人/主播" min-width="150" fixed="left" show-overflow-tooltip/>
+          <el-table-column prop="platform" label="平台" width="100"/>
+          <el-table-column prop="salesChannel" label="销售渠道" width="120" show-overflow-tooltip/>
+          <el-table-column prop="preferredSupplierName" label="供应商名称" min-width="145" show-overflow-tooltip/>
+          <el-table-column label="直播成交价" width="120" align="right"><template #default="{row}">{{ formatAmount(row.fixedUnitPrice) }}</template></el-table-column>
+          <el-table-column v-if="canViewFinance" label="商品成本价" width="120" align="right"><template #default="{row}">{{ formatAmount(row.unitCost) }}</template></el-table-column>
+          <el-table-column label="采购单价" width="110" align="right"><template #default="{row}">{{ formatAmount(row.referencePurchasePrice) }}</template></el-table-column>
+          <el-table-column label="达人佣金率(%)" width="140" align="right"><template #default="{row}">{{ formatRate(row.commissionRate) }}</template></el-table-column>
+          <el-table-column label="平台扣点率(%)" width="140" align="right"><template #default="{row}">{{ formatRate(row.platformRate) }}</template></el-table-column>
+          <el-table-column label="税率(%)" width="95" align="right"><template #default="{row}">{{ formatRate(row.taxRate) }}</template></el-table-column>
+          <el-table-column label="包装费" width="100" align="right"><template #default="{row}">{{ formatAmount(row.packFee) }}</template></el-table-column>
+          <el-table-column label="物流费" width="100" align="right"><template #default="{row}">{{ formatAmount(row.shipFee) }}</template></el-table-column>
+          <el-table-column label="鉴定费" width="100" align="right"><template #default="{row}">{{ formatAmount(row.certFee) }}</template></el-table-column>
+          <el-table-column prop="bindingRemark" label="备注" min-width="150" show-overflow-tooltip/>
+          <el-table-column label="达人状态" width="90"><template #default="{row}">{{ row.influencerStatus === '0' ? '启用' : '停用' }}</template></el-table-column>
+          <el-table-column label="绑定状态" width="90"><template #default="{row}">{{ row.bindingStatus === '0' ? '启用' : '停用' }}</template></el-table-column>
+          <el-table-column label="价格状态" width="95"><template #default="{row}"><el-tag :type="row.priceStatus === 'PENDING' ? 'warning' : 'success'">{{ row.priceStatus === 'PENDING' ? '待生效' : '已定价' }}</el-tag></template></el-table-column>
+          <el-table-column prop="priceVersion" label="价格版本" width="95" align="right"/>
+          <el-table-column prop="priceEffectiveTime" label="价格生效时间" width="165"/>
+        </el-table>
+      </div>
+      <template #footer><el-button @click="detailDialog=false">关闭</el-button></template>
+    </el-dialog>
+
+    <el-dialog v-model="batchDialog" :title="$tr(&quot;批量编辑商品&quot;)" width="760px" destroy-on-close
+      :close-on-click-modal="false" :close-on-press-escape="!batchSaving" :show-close="!batchSaving">
+      <el-alert :title="$tr(&quot;将统一修改选中的 {0} 件商品。只修改勾选字段，未勾选的资料保持不变。&quot;, [batchRows.length])"
+        type="warning" :closable="false" show-icon class="mb16"/>
+      <el-table :data="batchRows" border max-height="160" class="mb16">
+        <el-table-column prop="sku" :label="$tr(&quot;已选SKU&quot;)" min-width="160"/>
+        <el-table-column prop="productName" :label="$tr(&quot;商品名称&quot;)" min-width="240"/>
+        <el-table-column :label="$tr(&quot;商品类型&quot;)" width="110"><template #default="{row}">{{typeLabel(row.productType)}}</template></el-table-column>
+      </el-table>
+      <div v-if="!canFullProductEdit" class="field-tip mb16">{{ $tr("当前账号仅可统一修改商品名称和实物图片，无需审批。") }}</div>
+      <el-form label-width="140px" :disabled="batchSaving">
+        <el-form-item v-for="field in batchFields" :key="field.key">
+          <template #label><el-checkbox :model-value="batchSelectedFields.includes(field.key)" @change="checked=>toggleBatchField(field.key,checked)">{{field.label}}</el-checkbox></template>
+          <el-select v-if="field.kind==='select'" v-model="batchValues[field.key]" :disabled="!batchSelectedFields.includes(field.key)" :placeholder="$tr(&quot;请选择统一值&quot;)" style="width:100%">
+            <el-option v-for="option in field.options" :key="option.value" :label="option.label" :value="option.value"/>
+          </el-select>
+          <el-input-number v-else-if="field.kind==='number'" v-model="batchValues[field.key]" :disabled="!batchSelectedFields.includes(field.key)" :min="0" :max="field.max" :precision="field.precision" style="width:100%"/>
+          <template v-else-if="field.kind==='image'">
+            <image-upload v-if="batchSelectedFields.includes(field.key) && !batchSaving" v-model="batchValues.imageUrls" :limit="1" :file-size="8"/>
+            <div class="field-tip">{{ $tr("勾选后所有选中商品将使用同一图片；不上传图片表示清空原图片。") }}</div>
+          </template>
+          <el-input v-else v-model="batchValues[field.key]" :maxlength="field.max" :disabled="!batchSelectedFields.includes(field.key)" :placeholder="$tr(&quot;填写统一值&quot;)"/>
+          <div v-if="field.key==='productName'" class="field-tip">{{ $tr("勾选后所有选中商品将使用同一名称，SKU保持不变。") }}</div>
+        </el-form-item>
+      </el-form>
+      <template #footer><el-button :disabled="batchSaving" @click="batchDialog=false">{{ $tr("取消") }}</el-button><el-button type="primary" :loading="batchSaving" :disabled="!batchSelectedFields.length" @click="saveBatch">{{ $tr("保存 {0} 件商品", [batchRows.length]) }}</el-button></template>
+    </el-dialog>
+
+    <el-dialog v-model="dialog" :title="form.productId?(limitedProductEdit?$tr(&quot;修改商品名称和图片&quot;):$tr(&quot;编辑商品&quot;)):$tr(&quot;新增商品&quot;)" width="720px" destroy-on-close>
+      <el-alert v-if="limitedProductEdit" :title="$tr(&quot;当前账号仅可直接修改商品名称和实物图片。&quot;)"
+        type="info" :closable="false" show-icon class="mb16"/>
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="96px">
+        <el-row :gutter="14">
+          <el-col :span="12"><el-form-item label="SKU" prop="sku"><el-input v-model="form.sku" :disabled="!!form.productId" :placeholder="$tr(&quot;成品、样品、赠品可共用SKU&quot;)"/></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;商品名称&quot;)" prop="productName"><el-input v-model="form.productName"/></el-form-item></el-col>
+          <el-col :span="12"><el-form-item :label="$tr(&quot;商品类型&quot;)" prop="productType"><el-select v-model="form.productType" :disabled="limitedProductEdit" style="width:100%"><el-option v-for="item in jewelryProductTypes" :key="item.value" :label="item.label" :value="item.value"/></el-select></el-form-item></el-col>
+          <el-col :span="8"><el-form-item :label="$tr(&quot;单位&quot;)"><el-input v-model="form.unit" :disabled="limitedProductEdit"/></el-form-item></el-col>
+          <el-col :span="8"><el-form-item :label="$tr(&quot;库存预警值&quot;)"><el-input-number v-model="form.warningQty" :disabled="limitedProductEdit" :min="0" style="width:100%"/></el-form-item></el-col>
+          <el-col :span="8"><el-form-item :label="$tr(&quot;状态&quot;)"><el-select v-model="form.status" :disabled="limitedProductEdit"><el-option :label="$tr(&quot;启用&quot;)" value="0"/><el-option :label="$tr(&quot;停用&quot;)" value="1"/></el-select></el-form-item></el-col>
+          <el-col :span="24">
+            <el-form-item :label="$tr(&quot;实物图片&quot;)">
+              <image-upload v-model="form.imageUrls" :limit="1" :file-size="8"/>
+              <div class="field-tip">{{ $tr("每个商品仅保留一张实物图，散件建议上传清晰图片，便于组装时核对。") }}</div>
+            </el-form-item>
+          </el-col>
+        </el-row>
+      </el-form>
+      <template #footer><el-button @click="dialog=false">{{ $tr("取消") }}</el-button><el-button type="primary" @click="save">{{ $tr("确定") }}</el-button></template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup name="JewelryProduct">
+import { translateText } from '@/locales/translate'
+
+import { listJewelryProducts, getJewelryProductBindings, saveJewelryProduct, batchUpdateJewelryProducts, deleteJewelryProducts } from '@/api/jewelry/erp'
+import useUserStore from '@/store/modules/user'
+import { jewelryProductTypes, jewelryProductType } from '@/utils/jewelryProduct'
+import { productBatchFields, buildProductBatchRequest } from '@/utils/jewelryProductBatch'
+const userStore=useUserStore()
+const canViewFinance=computed(()=>userStore.roles.some(role=>['admin','jewelry_admin','jewelry_reviewer'].includes(role)))
+const canViewBindings=computed(()=>userStore.permissions.some(permission=>['*:*:*','jewelry:influencer:list'].includes(permission)))
+const canFullProductEdit=computed(()=>userStore.permissions.some(permission=>['*:*:*','jewelry:product:edit'].includes(permission)))
+const canBatchEdit=computed(()=>canFullProductEdit.value||userStore.permissions.includes('jewelry:product:basic-edit'))
+const canDelete=computed(()=>userStore.permissions.some(permission=>['*:*:*','jewelry:product:remove'].includes(permission)))
+const deleteSaving=ref(false)
+async function removeProducts(selection){
+  if(deleteSaving.value || !selection.length)return
+  if(selection.length>200){proxy.$modal.msgError(translateText("单次最多删除200件商品"));return}
+  const targets=selection.map(row=>({productId:row.productId,sku:row.sku,productType:row.productType}))
+  deleteSaving.value=true
+  try{
+    const names=targets.slice(0,5).map(row=>`${row.sku}（${typeLabel(row.productType)}）`).join('、')+(targets.length>5?translateText("等"):'')
+    await proxy.$modal.confirm(translateText("确定永久删除 {0} 件商品（{1}）？此操作不可恢复。仅允许删除从未使用、所有库存均为零且没有达人关联的商品；任一商品不符合条件，整批不删除，请改用停用。", [targets.length, names]))
+    await deleteJewelryProducts(targets.map(row=>row.productId))
+    proxy.$modal.msgSuccess(translateText("已删除 {0} 件商品", [targets.length]))
+    await load()
+  }catch(error){/* Cancel keeps selection; the shared client displays API errors. */}
+  finally{deleteSaving.value=false}
+}
+const productTable=ref(),selectedRows=ref([]),batchDialog=ref(false),batchSaving=ref(false),batchRows=ref([]),batchSelectedFields=ref([])
+const batchValues=reactive({})
+const batchFields=computed(()=>productBatchFields.filter(field=>canFullProductEdit.value||field.basic))
+function selectionChanged(selection){selectedRows.value=selection}
+function toggleBatchField(key,checked){batchSelectedFields.value=checked?[...batchSelectedFields.value,key]:batchSelectedFields.value.filter(value=>value!==key)}
+function openBatch(){
+  if(!selectedRows.value.length)return
+  batchRows.value=selectedRows.value.map(row=>({...row}))
+  batchSelectedFields.value=[]
+  for(const field of productBatchFields)batchValues[field.key]=field.kind==='number'?undefined:''
+  batchDialog.value=true
+}
+async function saveBatch(){
+  if(batchSaving.value)return
+  let payload
+  try{payload=buildProductBatchRequest(batchRows.value,batchSelectedFields.value,batchValues,canFullProductEdit.value)}
+  catch(error){proxy.$modal.msgError(error.message);return}
+  const summary=Object.entries(payload.changes).map(([key,value])=>{
+    const field=productBatchFields.find(field=>field.key===key)
+    const display=field.options?.find(option=>option.value===value)?.label??(key==='imageUrls'?(value?translateText("统一替换图片"):translateText("清空图片")):(value===''?translateText("清空"):String(value)))
+    return `${field.label}：${display}`
+  }).join('；')
+  batchSaving.value=true
+  try{
+    await proxy.$modal.confirm(translateText("确定修改这 {0} 件商品？{1}。未勾选字段保持不变。", [payload.productIds.length, summary]))
+    await batchUpdateJewelryProducts(payload)
+    proxy.$modal.msgSuccess(translateText("已更新 {0} 件商品", [payload.productIds.length]))
+    batchDialog.value=false
+    await load()
+  }catch(error){/* Cancellation keeps the form; request errors are displayed by the shared client. */}
+  finally{batchSaving.value=false}
+}
+const {proxy}=getCurrentInstance()
+const loading=ref(false),rows=ref([]),total=ref(0),dialog=ref(false),formRef=ref()
+const detailDialog=ref(false),detailLoading=ref(false),detailProduct=ref({}),detailBindings=ref([])
+const typeFilters=[{label:translateText("全部"),value:''},...jewelryProductTypes.map(({label,value})=>({label,value}))]
+const query=reactive({pageNum:1,pageSize:10,keyword:'',productType:''})
+const blank=()=>({productId:null,sku:'',productName:'',productType:'FINISHED',imageUrl:'',imageUrls:'',unit:'件',warningQty:5,status:'0',defaultPackFee:0,defaultShipFee:0,defaultCertFee:0})
+const form=reactive(blank())
+const limitedProductEdit=computed(()=>Boolean(form.productId)&&!canFullProductEdit.value)
+const rules={sku:[{required:true,message:translateText("请输入SKU")}],productName:[{required:true,message:translateText("请输入商品名称")}],productType:[{required:true,type:'enum',enum:jewelryProductTypes.map(item=>item.value),message:translateText("请选择商品类型")}]}
+const baseUrl=import.meta.env.VITE_APP_BASE_API
+const allImages=row=>String(row.imageUrls||row.imageUrl||'').split(',').map(v=>v.trim()).filter(Boolean)
+const firstImage=row=>allImages(row)[0]||''
+const imageSrc=url=>/^https?:/i.test(url)?url:baseUrl+url
+const typeLabel=value=>jewelryProductType(value)?.label||value||'—'
+const typeTag=value=>jewelryProductType(value)?.tagType||'info'
+const formatAmount=value=>value==null?'—':Number(value).toFixed(4)
+const formatRate=value=>value==null?'—':Number(Number(value)*100).toFixed(4)
+async function openDetail(row){
+  detailProduct.value={...row}
+  detailBindings.value=[]
+  detailDialog.value=true
+  detailLoading.value=true
+  try{
+    const result=await getJewelryProductBindings(row.productId)
+    detailProduct.value=result.data?.product||{}
+    detailBindings.value=result.data?.bindings||[]
+  }catch(error){detailDialog.value=false
+  }finally{detailLoading.value=false}
+}
+function handleQuery(){query.pageNum=1;load()}
+let loadSequence=0
+async function load(){const sequence=++loadSequence;loading.value=true;selectedRows.value=[];productTable.value?.clearSelection();try{const params={...query};if(!params.productType)delete params.productType;const r=await listJewelryProducts(params);if(sequence===loadSequence){rows.value=r.rows||[];total.value=r.total||0}}finally{if(sequence===loadSequence)loading.value=false}}
+function handleExport(){const params={keyword:query.keyword,productType:query.productType};if(!params.productType)delete params.productType;proxy.download('/jewelry/product/export',params,translateText("商品档案_{0}.xlsx", [new Date().getTime()]))}
+function open(row){Object.assign(form,blank(),row||{});form.imageUrls=form.imageUrls||form.imageUrl||'';dialog.value=true}
+async function save(){await formRef.value.validate();form.imageUrl=String(form.imageUrls||'').split(',')[0]||'';await saveJewelryProduct(form);proxy.$modal.msgSuccess(translateText("保存成功"));dialog.value=false;load()}
+load()
+</script>
+
+<style scoped>
+.selection-tip{margin-left:12px;color:#8490a0;font-size:13px}
+.product-thumb{width:48px;height:48px;border:1px solid #dfe4ea;border-radius:4px}.empty-thumb{display:grid;width:48px;height:48px;place-items:center;border:1px dashed #c8d0da;color:#a7b0bd}.field-tip{margin-top:6px;color:#8490a0;font-size:12px}
+.view-binding{margin-left:6px}.detail-image{width:96px;height:96px;border:1px solid #dfe4ea;border-radius:4px}
+</style>

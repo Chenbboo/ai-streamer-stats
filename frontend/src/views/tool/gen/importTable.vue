@@ -1,37 +1,37 @@
 <template>
   <!-- 导入表 -->
-  <el-dialog title="导入表" v-model="visible" width="800px" top="5vh" append-to-body>
+  <el-dialog :title="$tr(&quot;导入表&quot;)" v-model="visible" width="800px" top="5vh" append-to-body>
     <el-form :model="queryParams" ref="queryRef" :inline="true">
-      <el-form-item label="表名称" prop="tableName">
+      <el-form-item :label="$tr(&quot;表名称&quot;)" prop="tableName">
         <el-input
           v-model="queryParams.tableName"
-          placeholder="请输入表名称"
+          :placeholder="$tr(&quot;请输入表名称&quot;)"
           clearable
           style="width: 180px"
           @keyup.enter="handleQuery"
         />
       </el-form-item>
-      <el-form-item label="表描述" prop="tableComment">
+      <el-form-item :label="$tr(&quot;表描述&quot;)" prop="tableComment">
         <el-input
           v-model="queryParams.tableComment"
-          placeholder="请输入表描述"
+          :placeholder="$tr(&quot;请输入表描述&quot;)"
           clearable
           style="width: 180px"
           @keyup.enter="handleQuery"
         />
       </el-form-item>
       <el-form-item>
-        <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
-        <el-button icon="Refresh" @click="resetQuery">重置</el-button>
+        <el-button type="primary" icon="Search" @click="handleQuery">{{ $tr("搜索") }}</el-button>
+        <el-button icon="Refresh" @click="resetQuery">{{ $tr("重置") }}</el-button>
       </el-form-item>
     </el-form>
     <el-row>
       <el-table @row-click="clickRow" ref="table" :data="dbTableList" @selection-change="handleSelectionChange" height="260px">
         <el-table-column type="selection" width="55"></el-table-column>
-        <el-table-column prop="tableName" label="表名称" :show-overflow-tooltip="true"></el-table-column>
-        <el-table-column prop="tableComment" label="表描述" :show-overflow-tooltip="true"></el-table-column>
-        <el-table-column prop="createTime" label="创建时间"></el-table-column>
-        <el-table-column prop="updateTime" label="更新时间"></el-table-column>
+        <el-table-column prop="tableName" :label="$tr(&quot;表名称&quot;)" :show-overflow-tooltip="true"></el-table-column>
+        <el-table-column prop="tableComment" :label="$tr(&quot;表描述&quot;)" :show-overflow-tooltip="true"></el-table-column>
+        <el-table-column prop="createTime" :label="$tr(&quot;创建时间&quot;)"></el-table-column>
+        <el-table-column prop="updateTime" :label="$tr(&quot;更新时间&quot;)"></el-table-column>
       </el-table>
       <pagination
         v-show="total>0"
@@ -43,14 +43,16 @@
     </el-row>
     <template #footer>
       <div class="dialog-footer">
-        <el-button type="primary" @click="handleImportTable">确 定</el-button>
-        <el-button @click="visible = false">取 消</el-button>
+        <el-button type="primary" @click="handleImportTable">{{ $tr("确 定") }}</el-button>
+        <el-button @click="visible = false">{{ $tr("取 消") }}</el-button>
       </div>
     </template>
   </el-dialog>
 </template>
 
 <script setup>
+import { translateText } from '@/locales/translate'
+
 import { listDbTable, importTable } from "@/api/tool/gen"
 
 const total = ref(0)
@@ -108,7 +110,7 @@ function resetQuery() {
 function handleImportTable() {
   const tableNames = tables.value.join(",")
   if (tableNames == "") {
-    proxy.$modal.msgError("请选择要导入的表")
+    proxy.$modal.msgError(translateText("请选择要导入的表"))
     return
   }
   importTable({ tables: tableNames, tplWebType: 'element-plus' }).then(res => {

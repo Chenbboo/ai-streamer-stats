@@ -1,0 +1,124 @@
+package com.ruoyi.web.controller.business;
+
+import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+import com.ruoyi.business.domain.BusinessOperatingFact;
+import com.ruoyi.business.service.IBusinessAccountingService;
+import com.ruoyi.common.annotation.Log;
+import com.ruoyi.common.core.controller.BaseController;
+import com.ruoyi.common.core.domain.AjaxResult;
+import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.utils.DateUtils;
+import com.ruoyi.common.utils.SecurityUtils;
+
+@RestController
+@RequestMapping("/business/accounting")
+public class BusinessAccountingController extends BaseController
+{
+    @Autowired private IBusinessAccountingService service;
+
+    @PreAuthorize("@ss.hasPermi('business:project:report')")
+    @GetMapping("/internal-transfer-projects/{projectId}")
+    public AjaxResult internalTransferProjects(@PathVariable Long projectId)
+    {return success(service.internalTransferProjects(projectId,SecurityUtils.getUserId(),SecurityUtils.isAdmin()));}
+
+    @PreAuthorize("@ss.hasPermi('business:accounting:list')")
+    @GetMapping("/dashboard")
+    public AjaxResult dashboard(@RequestParam Map<String,Object> query)
+    {return success(service.dashboard(query,SecurityUtils.getUserId(),SecurityUtils.isAdmin()));}
+
+    /**
+     * Project-scoped operating figures for the project cockpit.  Project members can
+     * read the aggregate without being granted access to the company accounting page;
+     * the accounting service still applies its project visibility boundary.
+     */
+    @PreAuthorize("@ss.hasPermi('business:project:list')")
+    @GetMapping("/project-dashboard/{projectId}")
+    public AjaxResult projectDashboard(@PathVariable Long projectId,
+        @RequestParam(required=false) String dateFrom,@RequestParam(required=false) String dateTo)
+    {
+        Map<String,Object> query=new java.util.HashMap<String,Object>();
+        query.put("projectId",projectId);query.put("dateFrom",dateFrom);query.put("dateTo",dateTo);
+        return success(service.projectDashboard(projectId,query,SecurityUtils.getUserId(),SecurityUtils.isAdmin()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:boss:view')")
+    @GetMapping("/boss-overview")
+    public AjaxResult bossOverview(@RequestParam(required=false) String bizDate,
+        @RequestParam(required=false) Long companyDeptId)
+    {return success(service.bossOverview(bizDate,companyDeptId,SecurityUtils.getUserId(),SecurityUtils.isAdmin()));}
+
+    @PreAuthorize("@ss.hasPermi('business:boss:view')")
+    @GetMapping("/boss-charts")
+    public AjaxResult bossCharts(@RequestParam(required=false) String month,
+        @RequestParam(required=false) String monthFrom,@RequestParam(required=false) String monthTo,
+        @RequestParam Long companyDeptId)
+    {
+        if(monthFrom!=null||monthTo!=null)
+            return success(service.bossCharts(monthFrom,monthTo,companyDeptId,SecurityUtils.getUserId(),SecurityUtils.isAdmin()));
+        return success(service.bossCharts(month,companyDeptId,SecurityUtils.getUserId(),SecurityUtils.isAdmin()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('business:boss:view')")
+    @GetMapping("/personnel-cost-overview")
+    public AjaxResult personnelCostOverview(@RequestParam Map<String,Object> query)
+    {return success(service.personnelCostOverview(query,SecurityUtils.getUserId(),SecurityUtils.isAdmin()));}
+
+    @PreAuthorize("@ss.hasAnyPermi('business:accounting:add,business:boss:view')")
+    @Log(title="录入收支并入账",businessType=BusinessType.INSERT)
+    @PostMapping("/fact")
+    public AjaxResult save(@RequestBody BusinessOperatingFact fact)
+    {return success(service.saveFact(fact,SecurityUtils.getUserId(),getUsername(),SecurityUtils.isAdmin()));}
+
+    @PreAuthorize("@ss.hasPermi('business:project:report')")
+    @Log(title="项目今日填报",businessType=BusinessType.INSERT)
+    @PostMapping("/project-fact")
+    public AjaxResult saveProjectFact(@RequestBody BusinessOperatingFact fact)
+    {return success(service.saveProjectFact(fact,SecurityUtils.getUserId(),getUsername(),SecurityUtils.isAdmin()));}
+
+    @PreAuthorize("@ss.hasPermi('business:project:report')")
+    @Log(title="新增项目花费",businessType=BusinessType.INSERT)
+    @PostMapping("/project-daily-spend")
+    public AjaxResult saveProjectDailySpend(@RequestBody BusinessOperatingFact fact)
+    {return success(service.saveProjectDailySpend(fact,SecurityUtils.getUserId(),getUsername(),SecurityUtils.isAdmin()));}
+
+    @PreAuthorize("@ss.hasPermi('business:project:report')")
+    @Log(title="冲销项目花费",businessType=BusinessType.UPDATE)
+    @PostMapping("/project-daily-spend/{factId}/reverse")
+    public AjaxResult reverseProjectDailySpend(@PathVariable Long factId,@RequestBody Map<String,Object> body)
+    {return success(service.reverseProjectDailySpend(factId,text(body.get("reason")),SecurityUtils.getUserId(),getUsername(),SecurityUtils.isAdmin()));}
+
+    @PreAuthorize("@ss.hasPermi('business:accounting:confirm')")
+    @Log(title="确认经营事实",businessType=BusinessType.UPDATE)
+    @PutMapping("/fact/{factId}/confirm")
+    public AjaxResult confirm(@PathVariable Long factId)
+    {return success(service.confirmFact(factId,SecurityUtils.getUserId(),getUsername(),SecurityUtils.isAdmin()));}
+
+    @PreAuthorize("@ss.hasPermi('business:accounting:confirm')")
+    @Log(title="退回收支草稿",businessType=BusinessType.UPDATE)
+    @PutMapping("/fact/{factId}/return")
+    public AjaxResult returnFact(@PathVariable Long factId,@RequestBody Map<String,Object> body)
+    {return success(service.returnFact(factId,text(body.get("reason")),SecurityUtils.getUserId(),getUsername(),SecurityUtils.isAdmin()));}
+
+    @PreAuthorize("@ss.hasPermi('business:accounting:confirm')")
+    @Log(title="冲销经营事实",businessType=BusinessType.UPDATE)
+    @PostMapping("/fact/{factId}/reverse")
+    public AjaxResult reverse(@PathVariable Long factId,@RequestBody Map<String,Object> body)
+    {return success(service.reverseFact(factId,text(body.get("reason")),SecurityUtils.getUserId(),getUsername(),SecurityUtils.isAdmin()));}
+
+    @PreAuthorize("@ss.hasPermi('business:accounting:recalculate')")
+    @Log(title="重算项目日结果",businessType=BusinessType.UPDATE)
+    @PostMapping("/recalculate")
+    public AjaxResult recalculate(@RequestBody Map<String,Object> body)
+    {return success(service.recalculate(longValue(body.get("projectId")),DateUtils.parseDate(body.get("bizDate")),SecurityUtils.getUserId(),getUsername(),SecurityUtils.isAdmin()));}
+
+    @PreAuthorize("@ss.hasPermi('business:accounting:list')")
+    @GetMapping("/result/{resultId}")
+    public AjaxResult result(@PathVariable Long resultId)
+    {return success(service.resultDetail(resultId,SecurityUtils.getUserId(),SecurityUtils.isAdmin()));}
+
+    private Long longValue(Object v){return v==null?null:Long.valueOf(String.valueOf(v));}
+    private String text(Object v){return v==null?null:String.valueOf(v);}
+}

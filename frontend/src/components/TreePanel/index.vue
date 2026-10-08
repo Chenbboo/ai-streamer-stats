@@ -7,13 +7,13 @@
         <el-icon><component :is="titleIcon" /></el-icon> {{ title }}
       </span>
       <div class="tree-actions" v-show="!collapsed">
-        <el-tooltip :content="isExpandedAll ? '收起全部' : '展开全部'" placement="right">
+        <el-tooltip :content="isExpandedAll ? $tr(&quot;收起全部&quot;) : $tr(&quot;展开全部&quot;)" placement="right">
           <el-icon class="tree-action-icon" @click="toggleExpandAll">
             <ArrowDown v-if="isExpandedAll" />
             <ArrowUp v-else />
           </el-icon>
         </el-tooltip>
-        <el-tooltip content="刷新" placement="right">
+        <el-tooltip :content="$tr(&quot;刷新&quot;)" placement="right">
           <el-icon class="tree-action-icon" @click="handleRefresh"><Refresh /></el-icon>
         </el-tooltip>
         <slot name="actions"></slot>
@@ -22,7 +22,7 @@
     
     <!-- 侧边栏展开/收起按钮 -->
     <div class="collapse-button-container">
-      <el-tooltip :content="collapsed ? '展开' : '收起'" placement="right">
+      <el-tooltip :content="collapsed ? $tr(&quot;展开&quot;) : $tr(&quot;收起&quot;)" placement="right">
         <el-icon class="collapse-button" @click="toggleCollapsed">
           <DArrowRight v-if="collapsed" />
           <DArrowLeft v-else />
@@ -72,6 +72,8 @@
 </template>
 
 <script setup>
+import { translateText } from '@/locales/translate'
+
 const props = defineProps({
   // 树形数据
   treeData: {
@@ -81,7 +83,7 @@ const props = defineProps({
   // 标题
   title: {
     type: String,
-    default: '树形结构'
+    default: translateText("树形结构")
   },
   // 标题图标
   titleIcon: {
@@ -96,7 +98,7 @@ const props = defineProps({
   // 搜索框占位符
   searchPlaceholder: {
     type: String,
-    default: '请输入名称'
+    default: translateText("请输入名称")
   },
   // 是否默认收起侧边栏
   defaultCollapsed: {

@@ -1,0 +1,22 @@
+html[lang='vi-VN'] {
+  .el-form-item__label {
+    height: auto;
+    min-height: var(--el-component-size);
+    line-height: 1.45;
+    align-items: center;
+    white-space: normal;
+    word-break: normal;
+  }
+
+  .el-table .cell {
+    word-break: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .el-dialog__footer .el-button {
+    white-space: normal;
+    height: auto;
+    min-height: var(--el-component-size);
+    line-height: 1.4;
+  }
+}

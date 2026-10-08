@@ -189,17 +189,17 @@ public class LiveStatsController extends BaseController
         userMsg.put("content", message);
         messages.add(userMsg);
 
-        // 瀹氫箟宸ュ叿
+        // 定义可供模型调用的查询工具。
         List<Map<String, Object>> tools = buildTools(streamerId);
 
-        // 璋冪敤 AI API锛堜娇鐢ㄨ亰澶╀笓鐢ㄩ厤缃級
+        // 调用 AI API（使用统计聊天专用配置）。
         String apiKey = configService.selectConfigByKey("live.ai.chat.apiKey");
         String baseUrl = configService.selectConfigByKey("live.ai.chat.baseUrl");
         String model = configService.selectConfigByKey("live.ai.chat.model");
 
         if (StringUtils.isEmpty(apiKey) || StringUtils.isEmpty(baseUrl))
         {
-            response.getWriter().write("data: AI鏈厤缃甛n\n");
+            response.getWriter().write("data: AI未配置\n\n");
             response.getWriter().flush();
             return;
         }
@@ -214,12 +214,12 @@ public class LiveStatsController extends BaseController
         String firstResponse = callAI(baseUrl, apiKey, requestBody);
         if (firstResponse == null)
         {
-            response.getWriter().write("data: AI璇锋眰澶辫触\n\n");
+            response.getWriter().write("data: AI请求失败\n\n");
             response.getWriter().flush();
             return;
         }
 
-        // 瑙ｆ瀽鍝嶅簲锛屾鏌ユ槸鍚︽湁宸ュ叿璋冪敤
+        // 解析响应，检查是否有工具调用。
         com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
         com.fasterxml.jackson.databind.JsonNode responseNode = mapper.readTree(firstResponse);
         com.fasterxml.jackson.databind.JsonNode choices = responseNode.path("choices");
@@ -269,13 +269,13 @@ public class LiveStatsController extends BaseController
         if (!details.isEmpty())
         {
             Map<String, Object> d = details.get(0);
-            sb.append("涓绘挱: ").append(d.get("stageName")).append("\n");
-            sb.append("鏈湀娴佹按: ").append(d.get("monthlyXu")).append("\n");
-            sb.append("鏈懆娴佹按: ").append(d.get("weeklyXu")).append("\n");
-            sb.append("鏄ㄦ棩娴佹按: ").append(d.get("dailyXu")).append("\n");
-            sb.append("鏈湀鎵撹祻瀹㈡埛鏁? ").append(d.get("monthlyCustomers")).append("\n");
-            sb.append("鏈湀鑱婂ぉ瀹㈡埛鏁? ").append(d.get("chatMonthly")).append("\n");
-            sb.append("涓珮绾х敤鎴锋暟: ").append(d.get("highValueCustomers")).append("\n");
+            sb.append("主播: ").append(d.get("stageName")).append("\n");
+            sb.append("本月流水: ").append(d.get("monthlyXu")).append("\n");
+            sb.append("本周流水: ").append(d.get("weeklyXu")).append("\n");
+            sb.append("昨日流水: ").append(d.get("dailyXu")).append("\n");
+            sb.append("本月打赏客户数: ").append(d.get("monthlyCustomers")).append("\n");
+            sb.append("本月聊天客户数: ").append(d.get("chatMonthly")).append("\n");
+            sb.append("中高价值用户数: ").append(d.get("highValueCustomers")).append("\n");
         }
         return sb.toString();
     }
@@ -284,7 +284,7 @@ public class LiveStatsController extends BaseController
     {
         List<Map<String, Object>> tools = new java.util.ArrayList<>();
 
-        // 鏌ヨ鎵撹祻瀹㈡埛宸ュ叿
+        // 查询打赏客户工具。
         Map<String, Object> tipTool = new HashMap<>();
         tipTool.put("type", "function");
         Map<String, Object> tipFunc = new HashMap<>();
@@ -297,12 +297,12 @@ public class LiveStatsController extends BaseController
         tipTool.put("function", tipFunc);
         tools.add(tipTool);
 
-        // 鏌ヨ鑱婂ぉ浜掑姩绮変笣宸ュ叿
+        // 查询聊天互动客户工具。
         Map<String, Object> chatTool = new HashMap<>();
         chatTool.put("type", "function");
         Map<String, Object> chatFunc = new HashMap<>();
         chatFunc.put("name", "query_chat_fans");
-        chatFunc.put("description", "鏌ヨ涓绘挱鏈€杩戣亰澶╀簰鍔ㄧ殑绮変笣鍒楄〃");
+        chatFunc.put("description", "查询主播最近聊天互动的客户列表");
         Map<String, Object> chatParams = new HashMap<>();
         chatParams.put("type", "object");
         chatParams.put("properties", new HashMap<>());
@@ -310,12 +310,12 @@ public class LiveStatsController extends BaseController
         chatTool.put("function", chatFunc);
         tools.add(chatTool);
 
-        // 鏌ヨ鑱婂ぉ鍐呭宸ュ叿
+        // 查询聊天内容工具。
         Map<String, Object> chatContentTool = new HashMap<>();
         chatContentTool.put("type", "function");
         Map<String, Object> chatContentFunc = new HashMap<>();
         chatContentFunc.put("name", "query_chat_content");
-        chatContentFunc.put("description", "鏌ヨ涓绘挱涓庣矇涓濈殑鍏蜂綋鑱婂ぉ鍐呭锛屽寘鎷彂閫佹柟銆佹秷鎭被鍨嬪拰娑堟伅鍐呭");
+        chatContentFunc.put("description", "查询主播与客户的聊天内容，包括发送方、消息类型和消息正文");
         Map<String, Object> chatContentParams = new HashMap<>();
         chatContentParams.put("type", "object");
         chatContentParams.put("properties", new HashMap<>());
@@ -323,12 +323,12 @@ public class LiveStatsController extends BaseController
         chatContentTool.put("function", chatContentFunc);
         tools.add(chatContentTool);
 
-        // 鏌ヨ姣忔棩娴佹按宸ュ叿
+        // 查询每日流水工具。
         Map<String, Object> trendTool = new HashMap<>();
         trendTool.put("type", "function");
         Map<String, Object> trendFunc = new HashMap<>();
         trendFunc.put("name", "query_daily_trend");
-        trendFunc.put("description", "鏌ヨ涓绘挱鏈€杩戠殑姣忔棩娴佹按璧板娍鏁版嵁");
+        trendFunc.put("description", "查询主播最近的每日流水趋势数据");
         Map<String, Object> trendParams = new HashMap<>();
         trendParams.put("type", "object");
         trendParams.put("properties", new HashMap<>());
@@ -346,7 +346,7 @@ public class LiveStatsController extends BaseController
             if ("query_tip_customers".equals(functionName))
             {
                 List<Map<String, Object>> data = statsService.getRecentTipRecords(streamerId, 20);
-                StringBuilder sb = new StringBuilder("鎵撹祻瀹㈡埛鍒楄〃锛歕n");
+                StringBuilder sb = new StringBuilder("打赏客户列表：\n");
                 for (Map<String, Object> row : data)
                 {
                     sb.append("- ").append(row.get("nickname")).append(": ").append(row.get("xu")).append("xu\n");
@@ -356,7 +356,7 @@ public class LiveStatsController extends BaseController
             else if ("query_chat_fans".equals(functionName))
             {
                 List<Map<String, Object>> data = statsService.getRecentChatRecords(streamerId, 20);
-                StringBuilder sb = new StringBuilder("鑱婂ぉ浜掑姩绮変笣锛歕n");
+                StringBuilder sb = new StringBuilder("聊天互动客户：\n");
                 java.util.Set<String> names = new java.util.LinkedHashSet<>();
                 for (Map<String, Object> row : data)
                 {
@@ -368,7 +368,7 @@ public class LiveStatsController extends BaseController
             else if ("query_chat_content".equals(functionName))
             {
                 List<Map<String, Object>> data = statsService.getChatContent(streamerId, 20);
-                StringBuilder sb = new StringBuilder("鑱婂ぉ璁板綍璇︽儏锛歕n");
+                StringBuilder sb = new StringBuilder("聊天记录详情：\n");
                 for (Map<String, Object> row : data)
                 {
                     String aiResult = String.valueOf(row.get("aiResult"));
@@ -386,7 +386,7 @@ public class LiveStatsController extends BaseController
                                     com.fasterxml.jackson.databind.JsonNode messages = item.path("messages");
                                     if (messages.isArray())
                                     {
-                                        sb.append("\n绮変笣 ").append(nickname).append(" 鐨勮亰澶╋細\n");
+                                        sb.append("\n客户 ").append(nickname).append(" 的聊天：\n");
                                         for (com.fasterxml.jackson.databind.JsonNode msg : messages)
                                         {
                                             String sender = msg.path("sender").asText("");
@@ -415,15 +415,15 @@ public class LiveStatsController extends BaseController
                 if (!data.isEmpty())
                 {
                     Map<String, Object> d = data.get(0);
-                    return "鏈湀娴佹按: " + d.get("monthlyXu") + ", 鏈懆: " + d.get("weeklyXu") + ", 鏄ㄦ棩: " + d.get("dailyXu");
+                    return "本月流水: " + d.get("monthlyXu") + ", 本周: " + d.get("weeklyXu") + ", 昨日: " + d.get("dailyXu");
                 }
                 return "无数据";
             }
-            return "鏈煡宸ュ叿: " + functionName;
+            return "未知工具: " + functionName;
         }
         catch (Exception e)
         {
-            return "宸ュ叿鎵ц澶辫触: " + e.getMessage();
+            return "工具执行失败: " + e.getMessage();
         }
     }
 
@@ -518,7 +518,7 @@ public class LiveStatsController extends BaseController
         }
         else
         {
-            response.getWriter().write("data: AI璇锋眰澶辫触\n\n");
+            response.getWriter().write("data: AI请求失败\n\n");
             response.getWriter().flush();
         }
     }
@@ -551,7 +551,7 @@ public class LiveStatsController extends BaseController
         LiveStreamer own = streamerService.selectLiveStreamerByUserId(user.getUserId());
         if (own == null)
         {
-            throw new ServiceException("褰撳墠璐﹀彿鏈粦瀹氫富鎾俊鎭紝璇疯仈绯荤鐞嗗憳");
+            throw new ServiceException("当前账号未绑定主播信息，请联系管理员");
         }
         return own;
     }

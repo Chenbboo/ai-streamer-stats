@@ -1,0 +1,381 @@
+<template>
+  <el-result
+    v-if="!canViewFinance"
+    icon="warning"
+    :title="$tr(&quot;无权查看&quot;)"
+    :sub-title="$tr(&quot;毛利试算仅对审核员和管理员开放&quot;)"
+  />
+  <div v-else class="app-container calculator">
+    <header class="page-title">
+      <h2>{{ $tr("前端定价与达人谈判试算台") }}</h2>
+      <p>{{ $tr("独立测算工具，不生成出库单。自动读取 SKU 平均采购成本与默认履约费用，反推保本底线与佣金上限。") }}</p>
+    </header>
+
+    <div class="calculator-layout">
+      <section class="input-panel">
+        <el-form :model="form" label-position="top">
+          <el-form-item :label="$tr(&quot;达人/主播（可选）&quot;)">
+            <el-select v-model="form.influencerId" filterable clearable :placeholder="$tr(&quot;选择达人后自动带入已绑定商品价格与费率&quot;)"
+              class="full-width" @change="influencerChanged">
+              <el-option v-for="item in influencers" :key="item.influencerId"
+                :label="`${item.influencerCode} · ${item.influencerName} · ${item.platform||$tr('未填平台')}`" :value="item.influencerId" />
+            </el-select>
+          </el-form-item>
+          <el-form-item :label="$tr(&quot;选择 SKU&quot;)">
+            <el-select v-model="form.productId" filterable :placeholder="$tr(&quot;请选择需要试算的商品&quot;)"
+              class="full-width" @change="productChanged">
+              <el-option v-for="item in products" :key="item.productId"
+                :label="productLabel(item)" :value="item.productId" />
+            </el-select>
+          </el-form-item>
+          <el-alert v-if="selectedBinding" :title="$tr(&quot;已带入达人商品档案中的直播价、费率和履约费用；可在此调整数值进行谈判试算，试算不会改动档案。&quot;)" type="success" :closable="false" class="binding-hint" />
+
+          <el-row :gutter="20">
+            <el-col :xs="24" :sm="12" :md="8">
+              <el-form-item :label="$tr(&quot;拟定成交价（¥）&quot;)">
+                <el-input-number v-model="form.price" :min="0" :precision="2" :controls="false" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12" :md="8">
+              <el-form-item :label="$tr(&quot;试算数量（可用库存 {0}）&quot;, [availableQty])">
+                <el-input-number v-model="form.quantity" :min="1" :max="Math.max(1, availableQty)"
+                  :precision="0" :disabled="!form.productId || availableQty <= 0" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12" :md="8">
+              <el-form-item :label="$tr(&quot;达人佣金率（%）&quot;)">
+                <el-input-number v-model="form.commissionRate" :min="0" :max="100" :precision="2" :controls="false" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12" :md="8">
+              <el-form-item :label="$tr(&quot;平台扣点率（%）&quot;)">
+                <el-input-number v-model="form.platformRate" :min="0" :max="100" :precision="2" :controls="false" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12" :md="8">
+              <el-form-item :label="$tr(&quot;税率（%）&quot;)">
+                <el-input-number v-model="form.taxRate" :min="0" :max="100" :precision="2" :controls="false" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          <el-row :gutter="20">
+            <el-col :xs="24" :sm="8">
+              <el-form-item :label="$tr(&quot;包装费（¥）&quot;)">
+                <el-input-number v-model="form.packFee" :min="0" :precision="2" :controls="false" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="8">
+              <el-form-item :label="$tr(&quot;物流履约费（¥）&quot;)">
+                <el-input-number v-model="form.shipFee" :min="0" :precision="2" :controls="false" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="8">
+              <el-form-item :label="$tr(&quot;鉴定检测费（¥）&quot;)">
+                <el-input-number v-model="form.certFee" :min="0" :precision="2" :controls="false" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </el-form>
+
+        <div class="formula">{{ $tr(" 毛利 = 成交价 ×（1 - 平台扣点 - 达人佣金 - 税率）- 履约固定支出 - SKU 采购成本 ") }}</div>
+      </section>
+
+      <aside class="result-panel" v-loading="calculating">
+        <div class="result-title">{{ $tr("本单试算结果") }}</div>
+        <template v-if="result">
+          <div class="profit-caption">{{ $tr("预计总毛利") }}</div>
+          <div class="profit" :class="{ loss: Number(result.totalProfit) < 0 }">¥ {{ money(result.totalProfit) }}</div>
+          <div class="result-row strong">
+            <span>{{ $tr("终端毛利率") }}</span>
+            <b :class="{ loss: Number(result.profitRate) < 0 }">{{ percent(result.profitRate) }}</b>
+          </div>
+          <div class="result-row"><span>{{ $tr("试算数量") }}</span><b>{{ $tr("{0} 件", [result.quantity]) }}</b></div>
+          <div class="result-row"><span>{{ $tr("单件毛利") }}</span><b>¥ {{ money(result.profit) }}</b></div>
+          <div class="result-row"><span>{{ $tr("预计成交总额") }}</span><b>¥ {{ money(result.totalRevenue) }}</b></div>
+          <div class="result-row"><span>{{ $tr("SKU 单件采购价") }}</span><b>¥ {{ money(result.cost) }}</b></div>
+          <div class="result-row"><span>{{ $tr("平台 + 佣金 + 税 总扣减") }}</span><b>¥ {{ money(result.totalDeductions) }}</b></div>
+          <div class="result-row"><span>{{ $tr("履约固定总支出") }}</span><b>¥ {{ money(result.totalFixedFees) }}</b></div>
+          <div class="result-row stock-row">
+            <span>{{ $tr("模拟库存") }}</span>
+            <b>{{ $tr("{0} → {1} 件", [result.availableQty, result.remainingQty]) }}</b>
+          </div>
+          <div class="result-row emphasis"><span>{{ $tr("保本底线售价") }}</span><b>¥ {{ money(result.breakEvenPrice) }}</b></div>
+          <div class="result-row emphasis"><span>{{ $tr("当前价下佣金上限") }}</span><b>{{ percent(result.maxCommissionRate) }}</b></div>
+          <el-alert v-if="Number(result.totalProfit) < 0" class="risk-alert"
+            :title="$tr(&quot;当前方案预计亏损，请调整价格、佣金或费用&quot;)"
+            type="error" :closable="false" show-icon />
+        </template>
+        <el-empty v-else :description="$tr(&quot;请选择 SKU 并填写成交价&quot;)" :image-size="56" />
+      </aside>
+    </div>
+  </div>
+</template>
+
+<script setup name="JewelryCalculator">
+import { translateText } from '@/locales/translate'
+
+import { calculateJewelryProfit, listJewelryProducts, listJewelryInfluencerOptions, getJewelryInfluencerProductPrices } from '@/api/jewelry/erp'
+import { jewelryProductType } from '@/utils/jewelryProduct'
+import useUserStore from '@/store/modules/user'
+
+const userStore = useUserStore()
+const canViewFinance = computed(() =>
+  userStore.roles.some(role => ['admin', 'jewelry_admin', 'jewelry_reviewer'].includes(role))
+)
+const products = ref([])
+const influencers = ref([])
+const influencerBindings = ref([])
+const result = ref(null)
+const calculating = ref(false)
+const form = reactive({
+  influencerId: null,
+  productId: null,
+  price: 0,
+  quantity: 1,
+  commissionRate: 20,
+  platformRate: 5,
+  taxRate: 1,
+  packFee: 0,
+  shipFee: 0,
+  certFee: 0
+})
+let calculateTimer
+
+const money = value =>
+  Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const percent = value => `${(Number(value || 0) * 100).toFixed(2)}%`
+const productLabel = item =>
+translateText("{0} · {1}（可用 {2}，成本 ¥ {3}）", [item.sku, `${item.productName} · ${translateText(jewelryProductType(item.productType)?.label||item.productType)}`, productAvailable(item), money(item.avgCost)])
+const productAvailable = item =>
+  Math.max(0, Number(item?.onHandQty || 0) - Number(item?.reservedOutQty || 0))
+const selectedProduct = computed(() => products.value.find(item => item.productId === form.productId))
+const selectedBinding = computed(() => influencerBindings.value.find(item => Number(item.productId)===Number(form.productId) && item.priceStatus==='PRICED' && item.bindingStatus!=='1'))
+const availableQty = computed(() => productAvailable(selectedProduct.value))
+
+async function loadProducts() {
+  const [productResponse,influencerResponse] = await Promise.all([
+    listJewelryProducts({ pageNum: 1, pageSize: 500, status: '0' }),listJewelryInfluencerOptions({})])
+  products.value = productResponse.rows || []
+  influencers.value = influencerResponse.data || []
+}
+
+let influencerLoadSeq=0
+async function influencerChanged(id) {
+  const sequence=++influencerLoadSeq
+  const bindings=id ? (await getJewelryInfluencerProductPrices(id)).data || [] : []
+  if(sequence!==influencerLoadSeq)return
+  influencerBindings.value=bindings
+  if(form.productId)productChanged(form.productId)
+}
+
+function productChanged(productId) {
+  const product = products.value.find(item => item.productId === productId)
+  if (!product) return
+  form.packFee = Number(product.defaultPackFee || 0)
+  form.shipFee = Number(product.defaultShipFee || 0)
+  form.certFee = Number(product.defaultCertFee || 0)
+  form.quantity = productAvailable(product) > 0 ? 1 : 0
+  const binding = selectedBinding.value
+  form.price = binding ? Number(binding.fixedUnitPrice||0) : 0
+  form.commissionRate = 20
+  form.platformRate = 5
+  form.taxRate = 1
+  if(binding?.commissionRate!=null){
+    form.commissionRate = Number(binding.commissionRate)*100
+    form.platformRate = Number(binding.platformRate||0)*100
+    form.taxRate = Number(binding.taxRate||0)*100
+    form.packFee = Number(binding.packFee||0)
+    form.shipFee = Number(binding.shipFee||0)
+    form.certFee = Number(binding.certFee||0)
+  }
+}
+
+function scheduleCalculate() {
+  clearTimeout(calculateTimer)
+  if (!form.productId || Number(form.price) <= 0 || Number(form.quantity) <= 0 ||
+      Number(form.quantity) > availableQty.value) {
+    result.value = null
+    return
+  }
+  calculateTimer = setTimeout(calculate, 300)
+}
+
+async function calculate() {
+  calculating.value = true
+  try {
+    result.value = (await calculateJewelryProfit(form)).data
+  } finally {
+    calculating.value = false
+  }
+}
+
+watch(form, scheduleCalculate, { deep: true })
+onBeforeUnmount(() => clearTimeout(calculateTimer))
+if (canViewFinance.value) loadProducts()
+</script>
+
+<style scoped>
+.calculator {
+  width: calc(100% - 24px);
+  max-width: 1240px;
+  margin: 0 auto;
+  padding-top: 14px;
+}
+.binding-hint { margin-bottom: 16px; }
+
+.page-title {
+  margin-bottom: 16px;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 0 2px 14px;
+}
+
+.page-title h2 {
+  margin: 0 0 5px;
+  color: #1f2937;
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.page-title p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.calculator-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 16px;
+  align-items: start;
+}
+
+.input-panel,
+.result-panel {
+  border: 1px solid #dfe4ea;
+  border-radius: 8px;
+  background: #fff;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 4%);
+}
+
+.input-panel :deep(.el-form-item) {
+  margin-bottom: 14px;
+}
+
+.input-panel :deep(.el-form-item__label) {
+  padding-bottom: 6px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.full-width,
+.input-panel :deep(.el-input-number) {
+  width: 100%;
+}
+
+.formula {
+  margin-top: 2px;
+  border-top: 1px solid #edf0f3;
+  padding-top: 14px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.result-title {
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 2px;
+}
+
+.result-panel :deep(.el-empty) {
+  padding: 38px 0 22px;
+}
+
+.result-panel :deep(.el-empty__description) {
+  margin-top: 12px;
+}
+
+.result-panel :deep(.el-empty__description p) {
+  font-size: 13px;
+}
+
+.profit-caption {
+  margin-top: 12px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.profit {
+  margin: 3px 0 8px;
+  color: #24936e;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.loss {
+  color: #dc2626 !important;
+}
+
+.result-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px dashed #e5e7eb;
+  padding: 9px 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.result-row b {
+  color: #334155;
+  text-align: right;
+}
+
+.result-row.strong b {
+  font-size: 16px;
+}
+
+.result-row.stock-row b {
+  color: #2563eb;
+}
+
+.result-row.emphasis b {
+  color: #b7791f;
+}
+
+.risk-alert {
+  margin-top: 14px;
+}
+
+@media (max-width: 1100px) {
+  .calculator {
+    width: 100%;
+  }
+
+  .calculator-layout {
+    grid-template-columns: minmax(0, 1fr) 310px;
+  }
+}
+
+@media (max-width: 900px) {
+  .calculator-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .input-panel,
+  .result-panel {
+    padding: 16px;
+  }
+
+  .profit {
+    font-size: 28px;
+  }
+}
+</style>

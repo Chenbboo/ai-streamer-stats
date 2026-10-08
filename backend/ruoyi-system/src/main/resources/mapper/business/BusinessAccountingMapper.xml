@@ -1,0 +1,750 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.business.mapper.BusinessAccountingMapper">
+  <select id="selectCompanies" resultType="map">
+    select dept_id companyDeptId,dept_name companyName from sys_dept
+    where parent_id=100 and del_flag='0' and status='0' order by order_num,dept_id
+  </select>
+  <select id="selectCategories" resultType="map">
+    select category_id categoryId,category_code categoryCode,category_name categoryName,fact_kind factKind,
+      default_sign defaultSign,unit_type unitType from biz_fact_category
+    where status='0' and category_code not in ('SUBPROJECT_FUNDING_COST','SUBPROJECT_FUNDING_REVENUE','INTERNAL_PROJECT_REVENUE')
+    order by sort_order,category_id
+  </select>
+  <select id="selectInternalTransferProjects" resultType="map">
+    select project_id projectId,project_name projectName,base_currency currency,company_dept_id companyDeptId,
+      status,actual_start_date actualStartDate,actual_end_date actualEndDate,
+      case when (delivery_policy_version='SEPARATED_V1' and accounting_state='OPEN')
+        or (coalesce(delivery_policy_version,'LEGACY_V1')='LEGACY_V1'
+          and status not in ('CLOSED','CANCELED') and (accounting_state is null or accounting_state='OPEN'))
+        then 0 else 1 end accountingClosed
+    from biz_project where del_flag='0' order by project_name,project_id
+  </select>
+  <select id="selectProjectOptions" resultType="map">
+    select p.project_id projectId,p.project_no projectNo,p.project_name projectName,p.company_dept_id companyDeptId,
+      d.dept_name companyName,coalesce(selected_department.dept_id,owner_department.dept_id) departmentId,
+      case when coalesce(selected_department.dept_id,owner_department.dept_id) is null then '未设置部门'
+        when coalesce(selected_department.dept_id,owner_department.dept_id)=p.company_dept_id then '公司直属'
+        else coalesce(selected_department.dept_name,owner_department.dept_name) end departmentName,
+      p.accounting_mode accountingMode,p.base_currency currency,p.initiator_name initiatorName,
+      p.status,p.delivery_policy_version deliveryPolicyVersion,p.accounting_state accountingState,
+      p.actual_start_date actualStartDate,p.actual_end_date actualEndDate,p.cost_policy_version costPolicyVersion,
+      coalesce(p.sponsor_owner_user_id,p.initiator_user_id) sponsorOwnerUserId,p.initiator_user_id initiatorUserId
+    from biz_project p left join sys_dept d on d.dept_id=p.company_dept_id and d.del_flag='0'
+    left join sys_user project_owner on project_owner.user_id=coalesce(p.main_owner_user_id,p.initiator_user_id) and project_owner.del_flag='0'
+    left join sys_dept owner_department on owner_department.dept_id=project_owner.dept_id and owner_department.del_flag='0'
+    left join sys_dept selected_department on selected_department.dept_id=p.department_id and selected_department.del_flag='0'
+    where p.del_flag='0'
+    <if test="includeClosed != true">and (
+      (p.delivery_policy_version='SEPARATED_V1' and p.accounting_state='OPEN')
+      or (coalesce(p.delivery_policy_version,'LEGACY_V1')&lt;&gt;'SEPARATED_V1' and p.status not in('CLOSED','CANCELED')))
+    </if>
+    <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+    order by d.order_num,p.project_name
+  </select>
+  <select id="countProjectsMissingDailyResult" resultType="int">
+    select count(distinct p.project_id)
+    from biz_project p
+    where p.del_flag='0'
+      <if test="companyDeptId != null">and p.company_dept_id=#{companyDeptId}</if>
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+      and (
+        exists(select 1 from biz_operating_fact f where f.project_id=p.project_id
+          and f.biz_date=#{bizDate} and f.status in('DRAFT','RETURNED','CONFIRMED','REVERSED'))
+        or (coalesce(p.cost_policy_version,'PERCENTAGE_V1') not in('MEMBER_DAYS_V1','ACTUAL_WORK_V1')
+          and exists(select 1 from biz_project_staff_allocation a where a.project_id=p.project_id
+          and a.status='ACTIVE' and a.effective_from&lt;=#{bizDate}
+          and (a.effective_to is null or a.effective_to&gt;=#{bizDate})
+          and (p.actual_end_date is null or p.actual_end_date&gt;=#{bizDate})))
+        or (p.cost_policy_version='MEMBER_DAYS_V1' and exists(
+          select 1 from biz_project_member_day_cost c where c.project_id=p.project_id and c.biz_date=#{bizDate}))
+        or (p.cost_policy_version='ACTUAL_WORK_V1' and (exists(
+          select 1 from biz_project_work_entry e where e.project_id=p.project_id and e.biz_date=#{bizDate}
+            and e.is_current='1' and e.status&lt;&gt;'SUPERSEDED') or exists(
+          select 1 from biz_project_resource_day d where d.project_id=p.project_id and d.biz_date=#{bizDate} and d.planned_minutes&gt;0
+            and (p.actual_end_date is null or p.actual_end_date&gt;=#{bizDate}))))
+      )
+      and not exists(select 1 from biz_project_daily_result r where r.project_id=p.project_id
+        and r.biz_date=#{bizDate} and r.is_current='1')
+  </select>
+  <select id="selectFacts" resultType="map">
+    select f.fact_id factId,f.project_id projectId,p.project_name projectName,p.project_no projectNo,
+      f.company_dept_id companyDeptId,d.dept_name companyName,f.biz_date bizDate,f.category_id categoryId,f.target_project_id targetProjectId,
+      f.category_code categoryCode,f.category_name categoryName,f.fact_kind factKind,f.amount,f.quantity,
+      f.currency,f.unit,f.description,f.counterparty,f.attachment_urls attachmentUrls,f.source_domain sourceDomain,
+      f.source_type sourceType,f.status,f.reversal_fact_id reversalFactId,f.version,
+      f.confirmed_user_name confirmedUserName,f.confirmed_time confirmedTime,f.create_user_id createUserId,
+      f.returned_user_name returnedUserName,f.returned_time returnedTime,f.return_reason returnReason,
+      f.create_by createBy,f.create_time createTime,
+      coalesce(nullif(operator.nick_name,''),nullif(f.create_by,''),'未知人员') operatorName,
+      coalesce(nullif(f.create_by,''),operator.user_name) operatorAccount,
+      date_format(f.create_time,'%Y-%m-%d %H:%i:%s') recordedTime,
+      p.initiator_name initiatorName,p.status projectStatus,
+      p.delivery_policy_version deliveryPolicyVersion,p.accounting_state accountingState,p.actual_end_date actualEndDate
+    from biz_operating_fact f join biz_project p on p.project_id=f.project_id and p.del_flag='0'
+    left join sys_dept d on d.dept_id=f.company_dept_id
+    left join sys_user operator on operator.user_id=f.create_user_id
+    <where>
+      <if test="viewAll == false"><include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+      <if test="projectId != null">and f.project_id=#{projectId}</if>
+      <if test="factId != null">and f.fact_id=#{factId}</if>
+      <if test="companyDeptId != null">and f.company_dept_id=#{companyDeptId}</if>
+      <if test="status != null and status != ''">and f.status=#{status}</if>
+      <if test="dateFrom != null and dateFrom != ''">and f.biz_date&gt;=#{dateFrom}</if>
+      <if test="dateTo != null and dateTo != ''">and f.biz_date&lt;=#{dateTo}</if>
+    </where>
+    order by f.biz_date desc,f.fact_id desc
+  </select>
+  <sql id="factByIdSql">
+    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,target_project_id targetProjectId,
+      category_code categoryCode,category_name categoryName,fact_kind factKind,amount,quantity,currency,unit,
+      description,counterparty,attachment_urls attachmentUrls,source_domain sourceDomain,source_type sourceType,
+      source_id sourceId,source_line_key sourceLineKey,status,reversal_fact_id reversalFactId,idempotency_key idempotencyKey,
+      version,confirmed_user_id confirmedUserId,confirmed_user_name confirmedUserName,confirmed_time confirmedTime,
+      returned_user_id returnedUserId,returned_user_name returnedUserName,returned_time returnedTime,return_reason returnReason,
+      create_user_id createUserId,create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
+    from biz_operating_fact where fact_id=#{factId} limit 1
+  </sql>
+  <select id="selectFactById" resultType="com.ruoyi.business.domain.BusinessOperatingFact">
+    <include refid="factByIdSql"/>
+  </select>
+  <select id="selectFactByIdForUpdate" resultType="com.ruoyi.business.domain.BusinessOperatingFact" flushCache="true" useCache="false">
+    <include refid="factByIdSql"/> for update
+  </select>
+  <select id="selectFactByIdempotencyKey" resultType="com.ruoyi.business.domain.BusinessOperatingFact">
+    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,target_project_id targetProjectId,
+      category_code categoryCode,category_name categoryName,fact_kind factKind,amount,quantity,currency,unit,
+      description,counterparty,attachment_urls attachmentUrls,source_domain sourceDomain,source_type sourceType,
+      source_id sourceId,source_line_key sourceLineKey,status,reversal_fact_id reversalFactId,idempotency_key idempotencyKey,
+      version,confirmed_user_id confirmedUserId,confirmed_user_name confirmedUserName,confirmed_time confirmedTime,
+      returned_user_id returnedUserId,returned_user_name returnedUserName,returned_time returnedTime,return_reason returnReason,
+      create_user_id createUserId,create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
+    from biz_operating_fact where idempotency_key=#{idempotencyKey} limit 1
+  </select>
+  <select id="selectCategoryById" resultType="map">
+    select category_id categoryId,category_code categoryCode,category_name categoryName,fact_kind factKind,
+      default_sign defaultSign,unit_type unitType from biz_fact_category where category_id=#{categoryId} and status='0' limit 1
+  </select>
+  <select id="selectCategoryByCode" resultType="map">
+    select category_id categoryId,category_code categoryCode,category_name categoryName,fact_kind factKind,
+      default_sign defaultSign,unit_type unitType from biz_fact_category
+    where category_code=#{categoryCode} and status='0' limit 1
+  </select>
+  <select id="selectCurrentProjectDailySpend" resultType="com.ruoyi.business.domain.BusinessOperatingFact">
+    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,target_project_id targetProjectId,
+      category_code categoryCode,category_name categoryName,fact_kind factKind,amount,quantity,currency,unit,
+      description,counterparty,attachment_urls attachmentUrls,source_domain sourceDomain,source_type sourceType,
+      source_id sourceId,source_line_key sourceLineKey,status,reversal_fact_id reversalFactId,idempotency_key idempotencyKey,
+      version,confirmed_user_id confirmedUserId,confirmed_user_name confirmedUserName,confirmed_time confirmedTime,
+      returned_user_id returnedUserId,returned_user_name returnedUserName,returned_time returnedTime,return_reason returnReason,
+      create_user_id createUserId,create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
+    from biz_operating_fact where project_id=#{projectId} and biz_date=#{bizDate}
+      and source_type='DAILY_TOTAL' and status in('DRAFT','RETURNED','CONFIRMED')
+    order by field(status,'DRAFT','RETURNED','CONFIRMED'),fact_id desc limit 1
+  </select>
+  <select id="selectConfirmedProjectDailySpend" resultType="com.ruoyi.business.domain.BusinessOperatingFact">
+    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,target_project_id targetProjectId,
+      category_code categoryCode,category_name categoryName,fact_kind factKind,amount,quantity,currency,unit,
+      description,counterparty,attachment_urls attachmentUrls,source_domain sourceDomain,source_type sourceType,
+      source_id sourceId,source_line_key sourceLineKey,status,reversal_fact_id reversalFactId,idempotency_key idempotencyKey,
+      version,confirmed_user_id confirmedUserId,confirmed_user_name confirmedUserName,confirmed_time confirmedTime,
+      returned_user_id returnedUserId,returned_user_name returnedUserName,returned_time returnedTime,return_reason returnReason,
+      create_user_id createUserId,create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
+    from biz_operating_fact where project_id=#{projectId} and biz_date=#{bizDate}
+      and source_type='DAILY_TOTAL' and status='CONFIRMED' order by fact_id desc limit 1
+  </select>
+  <select id="selectProjectDailySpendItems" resultType="com.ruoyi.business.domain.BusinessOperatingFact">
+    select fact_id factId,project_id projectId,company_dept_id companyDeptId,biz_date bizDate,category_id categoryId,target_project_id targetProjectId,
+      category_code categoryCode,category_name categoryName,fact_kind factKind,amount,quantity,currency,unit,
+      description,counterparty,attachment_urls attachmentUrls,source_domain sourceDomain,source_type sourceType,
+      source_id sourceId,source_line_key sourceLineKey,status,reversal_fact_id reversalFactId,idempotency_key idempotencyKey,
+      version,confirmed_user_id confirmedUserId,confirmed_user_name confirmedUserName,confirmed_time confirmedTime,
+      returned_user_id returnedUserId,returned_user_name returnedUserName,returned_time returnedTime,return_reason returnReason,
+      create_user_id createUserId,create_by createBy,create_time createTime,update_by updateBy,update_time updateTime,remark
+    from biz_operating_fact where project_id=#{projectId} and biz_date=#{bizDate}
+      and source_domain='PROJECT_DAILY' and source_type in('DAILY_TOTAL','DAILY_ITEM')
+      and status='CONFIRMED'
+    order by fact_id desc
+  </select>
+  <select id="selectProjectRevenueSummary" resultType="map">
+    select coalesce(sum(case when status in('CONFIRMED','REVERSED') then amount else 0 end),0) confirmedAmount,
+      coalesce(sum(case when status='DRAFT' then amount else 0 end),0) draftAmount,
+      sum(case when status in('CONFIRMED','REVERSED') then 1 else 0 end) confirmedCount,
+      sum(case when status='DRAFT' then 1 else 0 end) draftCount
+    from biz_operating_fact
+    where project_id=#{projectId} and biz_date=#{bizDate} and fact_kind='REVENUE'
+  </select>
+  <select id="selectProjectInternalRevenueItems" resultType="map">
+    select income.fact_id factId,income.project_id projectId,income.biz_date bizDate,
+      expense.fact_id sourceFactId,expense.project_id sourceProjectId,
+      coalesce(nullif(income.counterparty,''),source.project_name,'来源项目') sourceProjectName,
+      expense.description,income.amount,income.currency
+    from biz_operating_fact income
+    join biz_operating_fact expense on expense.fact_id=income.source_id
+      and expense.category_code='INTERNAL_PROJECT_COST' and expense.status='CONFIRMED'
+      and expense.target_project_id=income.project_id and expense.biz_date=income.biz_date
+    left join biz_project source on source.project_id=expense.project_id
+    where income.project_id=#{projectId} and income.biz_date=#{bizDate}
+      and income.category_code='INTERNAL_PROJECT_REVENUE' and income.fact_kind='REVENUE'
+      and income.source_domain='INTERNAL_PROJECT' and income.source_type='TRANSFER_REVENUE'
+      and income.status='CONFIRMED'
+    order by income.fact_id desc
+  </select>
+  <sql id="projectAccountingColumns">
+    select project_id projectId,parent_id parentId,
+      (select parent.main_owner_user_id from biz_project parent where parent.project_id=biz_project.parent_id and parent.del_flag='0') parentMainOwnerUserId,
+      project_name projectName,company_dept_id companyDeptId,accounting_mode accountingMode,
+      base_currency currency,budget_limit budgetLimit,
+      coalesce(sponsor_owner_user_id,initiator_user_id) initiatorUserId,
+      coalesce(sponsor_owner_name,initiator_name) initiatorName,
+      main_owner_user_id mainOwnerUserId,main_owner_name mainOwnerName,status,
+      delivery_policy_version deliveryPolicyVersion,accounting_state accountingState,
+      settlement_policy_version settlementPolicyVersion,cost_policy_version costPolicyVersion,
+      actual_start_date actualStartDate,actual_end_date actualEndDate
+    from biz_project where project_id=#{projectId} and del_flag='0' limit 1
+  </sql>
+  <select id="selectProjectForAccounting" resultType="map">
+    <include refid="projectAccountingColumns"/>
+  </select>
+  <select id="selectProjectForAccountingForUpdate" resultType="map" flushCache="true" useCache="false">
+    <include refid="projectAccountingColumns"/> for update
+  </select>
+  <select id="selectProjectBonusSettlement" resultType="map">
+    select settlement_id settlementId,project_id projectId,period_end periodEnd,status
+    from biz_project_kpi_settlement where settlement_id=#{settlementId}
+  </select>
+  <select id="countProjectSettlementDate" resultType="int">
+    select count(*) from biz_project_kpi_settlement
+    where project_id=#{projectId} and period_end=#{bizDate} and status in('SUBMITTED','CONFIRMED')
+  </select>
+  <select id="lockProjectAccounting" resultType="long">
+    select project_id from biz_project where project_id=#{projectId} and del_flag='0' for update
+  </select>
+  <select id="selectAccountingMemberRole" resultType="string">
+    select member_role from biz_project_member
+    where project_id=#{projectId} and user_id=#{userId} and status='0' limit 1
+  </select>
+  <insert id="insertFact" parameterType="com.ruoyi.business.domain.BusinessOperatingFact" useGeneratedKeys="true" keyProperty="factId">
+    insert into biz_operating_fact(project_id,target_project_id,company_dept_id,biz_date,category_id,category_code,category_name,fact_kind,
+      amount,quantity,currency,unit,description,counterparty,attachment_urls,source_domain,source_type,source_id,
+      source_line_key,status,reversal_fact_id,idempotency_key,version,confirmed_user_id,confirmed_user_name,confirmed_time,
+      create_user_id,create_by,create_time,remark)
+    values(#{projectId},#{targetProjectId},#{companyDeptId},#{bizDate},#{categoryId},#{categoryCode},#{categoryName},#{factKind},
+      #{amount},#{quantity},#{currency},#{unit},#{description},#{counterparty},#{attachmentUrls},#{sourceDomain},
+      #{sourceType},#{sourceId},#{sourceLineKey},#{status},#{reversalFactId},#{idempotencyKey},0,
+      #{confirmedUserId},#{confirmedUserName},#{confirmedTime},#{createUserId},#{createBy},sysdate(),#{remark})
+  </insert>
+  <update id="updateDraftFact" parameterType="com.ruoyi.business.domain.BusinessOperatingFact">
+    update biz_operating_fact set status='DRAFT',biz_date=#{bizDate},category_id=#{categoryId},category_code=#{categoryCode},
+      category_name=#{categoryName},fact_kind=#{factKind},amount=#{amount},quantity=#{quantity},currency=#{currency},
+      unit=#{unit},description=#{description},counterparty=#{counterparty},attachment_urls=#{attachmentUrls},
+      returned_user_id=null,returned_user_name=null,returned_time=null,return_reason=null,
+      update_by=#{updateBy},update_time=sysdate(),remark=#{remark},version=version+1
+    where fact_id=#{factId} and project_id=#{projectId} and status in('DRAFT','RETURNED') and version=#{version}
+  </update>
+  <update id="confirmFact">
+    update biz_operating_fact set status='CONFIRMED',confirmed_user_id=#{userId},confirmed_user_name=#{userName},
+      confirmed_time=sysdate(),returned_user_id=null,returned_user_name=null,returned_time=null,return_reason=null,
+      update_by=#{userName},update_time=sysdate(),version=version+1
+    where fact_id=#{factId} and status='DRAFT' and version=#{version}
+  </update>
+  <update id="returnFact">
+    update biz_operating_fact set status='RETURNED',returned_user_id=#{userId},returned_user_name=#{userName},
+      returned_time=sysdate(),return_reason=#{reason},update_by=#{userName},update_time=sysdate(),version=version+1
+    where fact_id=#{factId} and status='DRAFT' and version=#{version}
+  </update>
+  <update id="markFactReversed">
+    update biz_operating_fact set status='REVERSED',update_by=#{userName},update_time=sysdate(),version=version+1
+    where fact_id=#{factId} and status='CONFIRMED' and version=#{version}
+  </update>
+  <select id="sumProjectFacts" resultType="map">
+    select coalesce(sum(case when fact_kind='REVENUE' then amount else 0 end),0) revenueAmount,
+      coalesce(sum(case when fact_kind='COST' and category_code not in ('PROJECT_BONUS_COST','COMPANY_PUBLIC_COST') then amount else 0 end),0) costAmount,
+      coalesce(sum(case when fact_kind='COST' and category_code='INTERNAL_PROJECT_COST' then amount else 0 end),0) internalProjectCost,
+      coalesce(sum(case when fact_kind='COST' and category_code='PROJECT_BONUS_COST' then amount else 0 end),0) bonusCost,
+      coalesce(sum(case when fact_kind='COST' and category_code='COMPANY_PUBLIC_COST' then amount else 0 end),0) publicCost,
+      coalesce(sum(case when fact_kind='ADJUSTMENT' then amount else 0 end),0) adjustmentAmount,
+      coalesce(sum(case when fact_kind='VALUE' then coalesce(quantity,amount,0) else 0 end),0) valueScore
+    from biz_operating_fact where project_id=#{projectId} and biz_date=#{bizDate} and status in('CONFIRMED','REVERSED')
+  </select>
+  <select id="sumProjectPersonnelCost" resultType="java.math.BigDecimal">
+    select coalesce(sum(case
+      when leave_record.leave_id is not null then 0
+      when a.allocation_mode='PERCENTAGE' and c.cost_mode='DAILY' then c.unit_cost*coalesce(e.actual_percent,a.allocation_value)/100
+      when a.allocation_mode='PERCENTAGE' and c.cost_mode='MONTHLY' then c.unit_cost/c.standard_work_days*coalesce(e.actual_percent,a.allocation_value)/100
+      when a.allocation_mode='PERCENTAGE' and c.cost_mode='HOURLY' then c.unit_cost*8*coalesce(e.actual_percent,a.allocation_value)/100
+      when a.allocation_mode='FIXED_DAILY' then a.allocation_value
+      when a.allocation_mode='HOURS' and c.cost_mode='HOURLY' then c.unit_cost*a.allocation_value
+      when a.allocation_mode='ATTENDANCE' and c.cost_mode='DAILY' then c.unit_cost*a.allocation_value
+      when a.allocation_mode='PER_TASK' and c.cost_mode='FIXED_TASK' then c.unit_cost*a.allocation_value
+      else 0 end),0)
+    from biz_project_staff_allocation a join biz_staff_cost_policy c on c.user_id=a.user_id and c.status='ACTIVE'
+      and c.effective_from&lt;=#{bizDate} and (c.effective_to is null or c.effective_to&gt;=#{bizDate})
+    left join biz_project_effort_report e on e.project_id=a.project_id and e.user_id=a.user_id
+      and e.biz_date=#{bizDate} and e.report_status='CONFIRMED'
+    left join biz_staff_leave leave_record on leave_record.user_id=a.user_id
+      and leave_record.leave_date=#{bizDate} and leave_record.status='ACTIVE'
+    where a.project_id=#{projectId} and a.status='ACTIVE' and a.effective_from&lt;=#{bizDate}
+      and (a.effective_to is null or a.effective_to&gt;=#{bizDate})
+  </select>
+  <select id="selectProjectPersonnelCostDetails" resultType="map">
+    select a.user_id userId,a.user_name componentName,c.country_region_snapshot countryRegion,
+      c.unit_cost monthlyCost,c.currency,c.standard_work_days standardWorkDays,
+      round(c.unit_cost/nullif(c.standard_work_days,0),4) dailyCost,
+      a.allocation_value plannedPercent,e.actual_percent actualPercent,
+      coalesce(e.actual_percent,a.allocation_value) appliedPercent,
+      case when leave_record.leave_id is not null then 'LEAVE'
+           when e.effort_id is not null then 'ACTUAL' else 'PLAN' end inputSource,
+      leave_record.leave_type leaveType,
+      case
+        when leave_record.leave_id is not null then 0
+        when a.allocation_mode='PERCENTAGE' and c.cost_mode='DAILY' then c.unit_cost*coalesce(e.actual_percent,a.allocation_value)/100
+        when a.allocation_mode='PERCENTAGE' and c.cost_mode='MONTHLY' then c.unit_cost/c.standard_work_days*coalesce(e.actual_percent,a.allocation_value)/100
+        when a.allocation_mode='PERCENTAGE' and c.cost_mode='HOURLY' then c.unit_cost*8*coalesce(e.actual_percent,a.allocation_value)/100
+        when a.allocation_mode='FIXED_DAILY' then a.allocation_value
+        when a.allocation_mode='HOURS' and c.cost_mode='HOURLY' then c.unit_cost*a.allocation_value
+        when a.allocation_mode='ATTENDANCE' and c.cost_mode='DAILY' then c.unit_cost*a.allocation_value
+        when a.allocation_mode='PER_TASK' and c.cost_mode='FIXED_TASK' then c.unit_cost*a.allocation_value
+        else 0 end amount,
+      case
+        when leave_record.leave_id is not null then concat('今日请假（',leave_record.leave_type,'），不计人员成本')
+        when a.allocation_mode='PERCENTAGE' then concat(
+          case when e.effort_id is not null then '已确认实际投入 ' else '计划投入 ' end,
+          cast(coalesce(e.actual_percent,a.allocation_value) as char),'%；',
+          case c.cost_mode
+            when 'MONTHLY' then concat('月度用人成本 ',cast(c.unit_cost as char),' / ',cast(c.standard_work_days as char),' 天（',
+              case c.country_region_snapshot when 'VN' then '越南' when 'CN' then '中国' else c.country_region_snapshot end,'）')
+            when 'DAILY' then concat('日成本 ',cast(c.unit_cost as char))
+            when 'HOURLY' then concat('时成本 ',cast(c.unit_cost as char),' × 8 小时')
+            else concat('成本单价 ',cast(c.unit_cost as char)) end)
+        when a.allocation_mode='FIXED_DAILY' then concat('项目固定日成本 ',cast(a.allocation_value as char))
+        when a.allocation_mode='HOURS' then concat(cast(a.allocation_value as char),' 小时 × 时成本 ',cast(c.unit_cost as char))
+        when a.allocation_mode='ATTENDANCE' then concat(cast(a.allocation_value as char),' 人天 × 日成本 ',cast(c.unit_cost as char))
+        when a.allocation_mode='PER_TASK' then concat(cast(a.allocation_value as char),' 项任务 × 单项成本 ',cast(c.unit_cost as char))
+        else '当前投入方式未产生人员成本' end calculationDetail
+    from biz_project_staff_allocation a join biz_staff_cost_policy c on c.user_id=a.user_id and c.status='ACTIVE'
+      and c.effective_from&lt;=#{bizDate} and (c.effective_to is null or c.effective_to&gt;=#{bizDate})
+    left join biz_project_effort_report e on e.project_id=a.project_id and e.user_id=a.user_id
+      and e.biz_date=#{bizDate} and e.report_status='CONFIRMED'
+    left join biz_staff_leave leave_record on leave_record.user_id=a.user_id
+      and leave_record.leave_date=#{bizDate} and leave_record.status='ACTIVE'
+    where a.project_id=#{projectId} and a.status='ACTIVE' and a.effective_from&lt;=#{bizDate}
+      and (a.effective_to is null or a.effective_to&gt;=#{bizDate})
+    order by a.user_name,a.user_id
+  </select>
+  <select id="sumProjectCostToDate" resultType="java.math.BigDecimal">
+    select coalesce((select sum(amount) from biz_operating_fact where project_id=#{projectId}
+      and biz_date&lt;=#{bizDate} and fact_kind='COST' and coalesce(category_code,'')!='COMPANY_PUBLIC_COST' and status in('CONFIRMED','REVERSED')),0)
+      +coalesce((select sum(personnel_cost+coalesce(public_cost,0)) from biz_project_daily_result where project_id=#{projectId}
+      and biz_date&lt;=#{bizDate} and is_current='1'),0)
+  </select>
+  <select id="selectProjectBudgetSnapshot" resultType="string">select template_snapshot_json from biz_project where project_id=#{projectId} and del_flag='0'</select>
+  <select id="sumProjectCostInPeriod" resultType="java.math.BigDecimal">
+    select coalesce((select sum(amount) from biz_operating_fact where project_id=#{projectId}
+      and biz_date between #{from} and #{to} and fact_kind='COST' and coalesce(category_code,'')!='COMPANY_PUBLIC_COST' and status in('CONFIRMED','REVERSED')),0)
+      +coalesce((select sum(personnel_cost+coalesce(public_cost,0)) from biz_project_daily_result where project_id=#{projectId}
+      and biz_date between #{from} and #{to} and is_current='1'),0)
+  </select>
+  <select id="selectCurrentResultsAfter" resultType="map">
+    select result_id resultId,biz_date bizDate
+    from biz_project_daily_result
+    where project_id=#{projectId} and biz_date&gt;#{bizDate} and is_current='1'
+    order by biz_date,result_id
+  </select>
+  <update id="updateDailyResultBudgetSpent">
+    update biz_project_daily_result set budget_spent=#{budgetSpent} where result_id=#{resultId} and is_current='1'
+  </update>
+  <select id="selectNextResultVersion" resultType="int">
+    select coalesce(max(result_version),0)+1 from biz_project_daily_result where project_id=#{projectId} and biz_date=#{bizDate}
+  </select>
+  <update id="retireCurrentResult">update biz_project_daily_result set is_current='0' where project_id=#{projectId} and biz_date=#{bizDate} and is_current='1'</update>
+  <insert id="insertDailyResult" parameterType="map" useGeneratedKeys="true" keyProperty="resultId">
+    insert into biz_project_daily_result(project_id,company_dept_id,biz_date,accounting_mode,revenue_amount,cost_amount,
+      personnel_cost,bonus_cost,public_cost,adjustment_amount,profit_amount,budget_spent,value_score,data_cutoff_time,close_status,
+      result_version,is_current,calculation_detail,create_by,create_time)
+    values(#{projectId},#{companyDeptId},#{bizDate},#{accountingMode},#{revenueAmount},#{costAmount},#{personnelCost},#{bonusCost},#{publicCost},
+      #{adjustmentAmount},#{profitAmount},#{budgetSpent},#{valueScore},sysdate(),'OPEN',#{resultVersion},'1',
+      #{calculationDetail},#{createBy},sysdate())
+  </insert>
+  <insert id="insertDailyResultItem" parameterType="map">
+    insert into biz_project_daily_result_item(result_id,component_code,component_name,amount,quantity,calculation_detail)
+    values(#{resultId},#{componentCode},#{componentName},#{amount},#{quantity},#{calculationDetail})
+  </insert>
+  <select id="selectDailyResults" resultType="map">
+    select r.result_id resultId,r.project_id projectId,p.project_name projectName,p.project_no projectNo,
+      r.company_dept_id companyDeptId,d.dept_name companyName,r.biz_date bizDate,r.accounting_mode accountingMode,
+      coalesce(selected_department.dept_id,owner_department.dept_id) departmentId,
+      case when coalesce(selected_department.dept_id,owner_department.dept_id) is null then '未设置部门'
+        when coalesce(selected_department.dept_id,owner_department.dept_id)=p.company_dept_id then '公司直属'
+        else coalesce(selected_department.dept_name,owner_department.dept_name) end departmentName,
+      r.revenue_amount revenueAmount,r.cost_amount costAmount,r.personnel_cost personnelCost,r.bonus_cost bonusCost,r.public_cost publicCost,
+      r.adjustment_amount adjustmentAmount,r.profit_amount profitAmount,r.budget_spent budgetSpent,
+      r.value_score valueScore,r.data_cutoff_time dataCutoffTime,r.close_status closeStatus,r.result_version resultVersion,
+      r.calculation_detail calculationDetail,p.budget_limit budgetLimit,p.initiator_name initiatorName,p.base_currency currency
+    from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+    left join sys_dept d on d.dept_id=r.company_dept_id
+    left join sys_user project_owner on project_owner.user_id=coalesce(p.main_owner_user_id,p.initiator_user_id) and project_owner.del_flag='0'
+    left join sys_dept owner_department on owner_department.dept_id=project_owner.dept_id and owner_department.del_flag='0'
+    left join sys_dept selected_department on selected_department.dept_id=p.department_id and selected_department.del_flag='0'
+    <where>r.is_current='1'
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+      <if test="projectId != null">and r.project_id=#{projectId}</if>
+      <if test="companyDeptId != null">and r.company_dept_id=#{companyDeptId}</if>
+      <if test="dateFrom != null and dateFrom != ''">and r.biz_date&gt;=#{dateFrom}</if>
+      <if test="dateTo != null and dateTo != ''">and r.biz_date&lt;=#{dateTo}</if>
+    </where> order by r.biz_date desc,r.profit_amount,r.project_id
+  </select>
+  <select id="selectDailyResultItems" resultType="map">
+    select item_id itemId,result_id resultId,component_code componentCode,component_name componentName,amount,quantity,
+      calculation_detail calculationDetail from biz_project_daily_result_item where result_id=#{resultId} order by item_id
+  </select>
+  <!-- Display-only workday reference. Monthly settlement is already included in public_cost;
+       add that day's recognized amount back before applying the daily reference. -->
+  <select id="selectPublicExpenseReferences" resultType="map">
+    select p.project_id projectId,p.project_name projectName,p.company_dept_id companyDeptId,p.base_currency currency,
+      coalesce(sum(a.amount),0)+coalesce((select sum(adj.amount) from biz_public_expense_adjustment adj
+        where adj.bill_id=b.bill_id and adj.project_id=p.project_id),0) monthAmount,
+      round((coalesce(sum(a.amount),0)+coalesce((select sum(adj.amount) from biz_public_expense_adjustment adj
+        where adj.bill_id=b.bill_id and adj.project_id=p.project_id),0))/21.75,2) dailyReference,
+      r.profit_amount profitAmount,coalesce(r.public_cost,0) recognizedPublicCost,
+      case when b.bill_id is null or (b.status='DRAFT' and b.total_amount&gt;0) then 1
+        when b.status='PUBLISHED' and exists(select 1 from biz_public_expense_owner pending_owner where pending_owner.bill_id=b.bill_id
+          and pending_owner.owner_user_id=p.main_owner_user_id and pending_owner.amount&gt;0
+          and pending_owner.status&lt;&gt;'SUBMITTED') then 1 else 0 end pendingCount
+    from biz_project p
+    left join biz_public_expense_month b on b.company_dept_id=p.company_dept_id and b.currency=p.base_currency
+      and b.bill_month=substring(#{dateFrom},1,7)
+    left join biz_public_expense_owner o on o.bill_id=b.bill_id and b.status in('PUBLISHED','SETTLED')
+    left join biz_public_expense_project a on a.allocation_id=o.allocation_id and a.project_id=p.project_id
+    left join biz_project_daily_result r on r.project_id=p.project_id and r.biz_date=#{dateFrom} and r.is_current='1'
+    where p.del_flag='0'
+      and coalesce(p.actual_start_date,p.plan_start_date,'1900-01-01')&lt;=#{dateFrom}
+      and (p.actual_end_date is null or p.actual_end_date&gt;=#{dateFrom})
+      and (b.bill_id is not null or exists(select 1 from biz_public_expense_policy policy
+        where policy.company_dept_id=p.company_dept_id and policy.currency=p.base_currency and policy.status='ACTIVE' and policy.amount&gt;0
+        and substring(#{dateFrom},1,7) between policy.start_month and policy.end_month))
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+      <if test="projectId != null">and p.project_id=#{projectId}</if>
+      <if test="companyDeptId != null">and p.company_dept_id=#{companyDeptId}</if>
+    group by p.project_id,p.project_name,p.company_dept_id,p.base_currency,p.main_owner_user_id,b.bill_id,b.status,b.total_amount,
+      r.profit_amount,r.public_cost
+    order by p.base_currency,p.project_id
+  </select>
+  <select id="selectDailySummary" resultType="map">
+    select count(distinct p.base_currency) currencyCount,case when count(distinct p.base_currency)=1 then min(p.base_currency) end currency,case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.revenue_amount),0) end revenueAmount,
+      case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.cost_amount),0) end businessCost,
+      case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.personnel_cost),0) end personnelCost,
+      case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.bonus_cost),0) end bonusCost,
+      case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.public_cost),0) end publicCost,
+      case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.cost_amount+r.personnel_cost+r.bonus_cost+r.public_cost),0) end costAmount,
+      case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.adjustment_amount),0) end adjustmentAmount,case when count(distinct p.base_currency)&lt;=1 then coalesce(sum(r.profit_amount),0) end profitAmount,
+      count(distinct r.project_id) projectCount,count(*) resultCount
+    from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+    where r.is_current='1'
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+      <if test="projectId != null">and r.project_id=#{projectId}</if>
+      <if test="companyDeptId != null">and r.company_dept_id=#{companyDeptId}</if>
+      <if test="dateFrom != null and dateFrom != ''">and r.biz_date&gt;=#{dateFrom}</if>
+      <if test="dateTo != null and dateTo != ''">and r.biz_date&lt;=#{dateTo}</if>
+  </select>
+  <select id="selectDailySummaryByCurrency" resultType="map">
+    select p.base_currency currency,coalesce(sum(r.revenue_amount),0) revenueAmount,
+      coalesce(sum(r.cost_amount),0) businessCost,
+      coalesce(sum(r.personnel_cost),0) personnelCost,
+      coalesce(sum(r.bonus_cost),0) bonusCost,coalesce(sum(r.public_cost),0) publicCost,
+      coalesce(sum(r.cost_amount+r.personnel_cost+r.bonus_cost+r.public_cost),0) costAmount,
+      coalesce(sum(r.adjustment_amount),0) adjustmentAmount,coalesce(sum(r.profit_amount),0) profitAmount,
+      count(distinct r.project_id) projectCount,count(*) resultCount
+    from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+    where r.is_current='1'
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+      <if test="projectId != null">and r.project_id=#{projectId}</if>
+      <if test="companyDeptId != null">and r.company_dept_id=#{companyDeptId}</if>
+      <if test="dateFrom != null and dateFrom != ''">and r.biz_date&gt;=#{dateFrom}</if>
+      <if test="dateTo != null and dateTo != ''">and r.biz_date&lt;=#{dateTo}</if>
+    group by p.base_currency order by p.base_currency
+  </select>
+  <select id="countDraftFacts" resultType="int">
+    select count(*) from biz_operating_fact f join biz_project p on p.project_id=f.project_id and p.del_flag='0'
+    where f.status='DRAFT'<if test="viewAll == false"> and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+    <if test="companyDeptId != null">and p.company_dept_id=#{companyDeptId}</if>
+  </select>
+  <sql id="overviewScopedProjects">
+    with scoped_projects as (
+      select p.project_id,p.cost_policy_version,p.actual_end_date from biz_project p where p.del_flag='0'
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+      <if test="projectId != null">and p.project_id=#{projectId}</if>
+      <if test="companyDeptId != null">and p.company_dept_id=#{companyDeptId}</if>
+    )
+  </sql>
+  <sql id="overviewPendingCosts">
+      (select count(*) from biz_project_member_day_cost c join scoped_projects p on p.project_id=c.project_id
+        where p.cost_policy_version='MEMBER_DAYS_V1' <if test="dateFrom != null and dateFrom != ''">and c.biz_date&gt;=#{dateFrom}</if><if test="dateTo != null and dateTo != ''">and c.biz_date&lt;=#{dateTo}</if> and (c.pricing_status&lt;&gt;'PRICED' or c.amount is null))
+      + (select count(*) from biz_project_work_entry e join scoped_projects p on p.project_id=e.project_id
+        left join biz_project_work_cost c on c.entry_id=e.entry_id
+        where p.cost_policy_version='ACTUAL_WORK_V1' <if test="dateFrom != null and dateFrom != ''">and e.biz_date&gt;=#{dateFrom}</if><if test="dateTo != null and dateTo != ''">and e.biz_date&lt;=#{dateTo}</if> and e.status='CONFIRMED' and e.is_current='1'
+          and (c.entry_id is null or c.pricing_status&lt;&gt;'PRICED' or c.amount is null or exists(
+            select 1 from biz_project_work_event v where v.entry_id=e.entry_id and v.status&lt;&gt;'DONE')))
+  </sql>
+  <select id="countPendingCostsInRange" resultType="int">
+    <include refid="overviewScopedProjects"/>
+    select <include refid="overviewPendingCosts"/>
+  </select>
+  <!-- Read stored facts only. Missing scheduled costs must never be manufactured as zero. -->
+  <select id="selectOverviewReadiness" resultType="map">
+    <include refid="overviewScopedProjects"/>
+    select
+      (select count(*) from biz_project_daily_result r join scoped_projects p on p.project_id=r.project_id
+        where r.biz_date=#{dateFrom} and r.is_current='1') resultCount,
+      (select date_format(min(r.data_cutoff_time),'%Y-%m-%d %H:%i:%s') from biz_project_daily_result r
+        join scoped_projects p on p.project_id=r.project_id where r.biz_date=#{dateFrom} and r.is_current='1') dataCutoffFrom,
+      (select date_format(max(r.data_cutoff_time),'%Y-%m-%d %H:%i:%s') from biz_project_daily_result r
+        join scoped_projects p on p.project_id=r.project_id where r.biz_date=#{dateFrom} and r.is_current='1') dataCutoffTo,
+      (select count(*) from biz_operating_fact f join scoped_projects p on p.project_id=f.project_id
+        where f.biz_date=#{dateFrom} and f.status in('DRAFT','RETURNED')) unfinishedFactCount,
+      <include refid="overviewPendingCosts"/> pendingCostCount,
+      (select count(*) from biz_project_work_entry e join scoped_projects p on p.project_id=e.project_id
+        where p.cost_policy_version='ACTUAL_WORK_V1' and e.biz_date=#{dateFrom} and e.is_current='1'
+          and e.status in('DRAFT','SUBMITTED','RETURNED','WITHDRAWN'))
+      + (select count(*) from (select distinct d.project_id,d.user_id from biz_project_resource_day d
+          join scoped_projects p on p.project_id=d.project_id
+          where p.cost_policy_version='ACTUAL_WORK_V1' and d.biz_date=#{dateFrom} and d.planned_minutes&gt;0
+            and (p.actual_end_date is null or p.actual_end_date&gt;=#{dateFrom})
+            and not exists(select 1 from biz_project_work_entry e where e.project_id=d.project_id and e.user_id=d.user_id
+              and e.biz_date=d.biz_date and e.is_current='1' and e.status&lt;&gt;'SUPERSEDED')) missing_work) unfinishedWorkCount
+  </select>
+  <select id="countProjectUnsettledFacts" resultType="int">
+    select count(*) from biz_operating_fact where project_id=#{projectId} and status in('DRAFT','RETURNED')
+  </select>
+  <update id="closeProjectDailyResults">
+    update biz_project_daily_result set close_status='CLOSED'
+    where project_id=#{projectId} and is_current='1' and close_status&lt;&gt;'CLOSED'
+  </update>
+  <select id="selectAccountingAlerts" resultType="map">
+    select * from (
+      select 'LOSS' alertType,r.project_id projectId,p.project_name projectName,p.company_dept_id companyDeptId,
+        d.dept_name companyName,r.biz_date bizDate,r.profit_amount amount,
+        concat('当日经营结果为 ',round(r.profit_amount,2)) alertMessage,1 sortOrder,'PERIOD' alertPeriod
+      from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+      left join sys_dept d on d.dept_id=p.company_dept_id
+      where r.is_current='1' and r.biz_date=#{bizDate} and r.profit_amount&lt;0
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+      union all
+      select 'BUDGET_WARNING',r.project_id,p.project_name,p.company_dept_id,d.dept_name,r.biz_date,
+        r.budget_spent,concat(
+          case when p.management_mode='KEY_CONTROL' and r.budget_spent&gt;=p.budget_limit*0.9 then '重点监管项目预算已达高警戒线：' else '预算预警：' end,
+          round(r.budget_spent/p.budget_limit*100,1),'%，累计成本 ',round(r.budget_spent,2),' / ',round(p.budget_limit,2)),2,'CURRENT'
+      from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+      left join sys_dept d on d.dept_id=p.company_dept_id
+      where r.is_current='1' and <include refid="overviewBudgetDate"/> and p.budget_mode='TOTAL' and p.budget_limit&gt;0
+        and r.budget_spent&gt;=p.budget_limit*(case p.management_mode when 'KEY_CONTROL' then 0.7 when 'STANDARD' then 0.8 else 1 end)
+        and r.budget_spent&lt;=p.budget_limit
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+      union all
+      select 'OVER_BUDGET',r.project_id,p.project_name,p.company_dept_id,d.dept_name,r.biz_date,
+        r.budget_spent,concat('累计成本 ',round(r.budget_spent,2),' 已超过预算 ',round(p.budget_limit,2)),2,'CURRENT'
+      from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+      left join sys_dept d on d.dept_id=p.company_dept_id
+      where r.is_current='1' and <include refid="overviewBudgetDate"/> and p.budget_mode='TOTAL'
+        and p.budget_limit is not null and r.budget_spent&gt;p.budget_limit
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+      union all
+      select 'BUDGET_WARNING',r.project_id,p.project_name,p.company_dept_id,d.dept_name,r.biz_date,
+        (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end),concat(
+          case when p.management_mode='KEY_CONTROL' and
+            (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end)&gt;=p.daily_budget_limit*0.9
+            then '重点监管项目当日预算已达高警戒线：' else '当日预算预警：' end,
+          round((r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end)
+            /p.daily_budget_limit*100,1),'%，当日成本 ',
+          round(r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end,2),
+          ' / ',round(p.daily_budget_limit,2)),2,'PERIOD'
+      from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+      left join sys_dept d on d.dept_id=p.company_dept_id
+      where r.is_current='1' and r.biz_date=#{bizDate} and p.budget_mode='DAILY' and p.daily_budget_limit&gt;0
+        and (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end)
+          &gt;=p.daily_budget_limit*(case p.management_mode when 'KEY_CONTROL' then 0.7 when 'STANDARD' then 0.8 else 1 end)
+        and (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end)
+          &lt;=p.daily_budget_limit
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+      union all
+      select 'OVER_BUDGET',r.project_id,p.project_name,p.company_dept_id,d.dept_name,r.biz_date,
+        (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end),
+        concat('当日成本 ',
+          round(r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end,2),
+          ' 已超过每日预算 ',round(p.daily_budget_limit,2)),2,'PERIOD'
+      from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+      left join sys_dept d on d.dept_id=p.company_dept_id
+      where r.is_current='1' and r.biz_date=#{bizDate} and p.budget_mode='DAILY' and p.daily_budget_limit is not null
+        and (r.cost_amount+case when p.budget_scope='FULL_COST' then r.personnel_cost+r.bonus_cost+r.public_cost else 0 end)&gt;p.daily_budget_limit
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+      union all
+      select 'MISSING_COMPANY',p.project_id,p.project_name,null,null,#{bizDate},null,'项目尚未设置归属公司，无法录入收支',3,'CURRENT'
+      from biz_project p where p.del_flag='0' and p.company_dept_id is null and p.status not in('CLOSED','CANCELED')
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+    ) alerts
+    <where>
+      <if test="alertScope != null">and alertPeriod=#{alertScope}</if>
+      <if test="companyDeptId != null">and companyDeptId=#{companyDeptId}</if>
+    </where>
+    order by sortOrder,projectName limit 20
+  </select>
+  <sql id="overviewBudgetDate">
+    <choose>
+      <when test="alertScope == 'CURRENT'">
+        r.biz_date=(select max(latest.biz_date) from biz_project_daily_result latest
+          where latest.project_id=r.project_id and latest.is_current='1' and latest.biz_date&lt;=#{bizDate})
+        and p.status not in('CLOSED','CANCELED')
+      </when>
+      <otherwise>r.biz_date=#{bizDate}</otherwise>
+    </choose>
+  </sql>
+  <sql id="bossChartSource">
+    from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+    where r.is_current='1' and r.biz_date between #{dateFrom} and #{dateTo}
+      and r.company_dept_id=#{companyDeptId}
+    <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+  </sql>
+  <select id="selectBossChartTrend" resultType="map">
+    select p.base_currency currency,
+      <choose><when test="monthly">date_format(r.biz_date,'%Y-%m')</when><otherwise>date_format(r.biz_date,'%Y-%m-%d')</otherwise></choose> bucket,
+      sum(r.revenue_amount) revenueAmount,
+      sum(r.cost_amount+r.personnel_cost+r.bonus_cost+r.public_cost) costAmount,
+      sum(r.profit_amount) profitAmount,count(*) resultCount,count(distinct r.biz_date) availableDays
+    <include refid="bossChartSource"/>
+    group by p.base_currency,bucket order by p.base_currency,bucket
+  </select>
+  <select id="selectBossChartProjects" resultType="map">
+    select p.base_currency currency,r.project_id projectId,p.project_name projectName,
+      sum(r.revenue_amount) revenueAmount,
+      sum(r.cost_amount+r.personnel_cost+r.bonus_cost+r.public_cost) costAmount
+    <include refid="bossChartSource"/>
+    group by p.base_currency,r.project_id,p.project_name order by p.base_currency,costAmount desc,r.project_id
+  </select>
+  <select id="selectProjectProfitRanking" resultType="map">
+    select p.base_currency currency,r.project_id projectId,p.project_name projectName,p.company_dept_id companyDeptId,d.dept_name companyName,
+      sum(r.revenue_amount) revenueAmount,sum(r.cost_amount) businessCost,sum(r.personnel_cost) personnelCost,
+      sum(r.bonus_cost) bonusCost,sum(r.public_cost) publicCost,sum(r.cost_amount+r.personnel_cost+r.bonus_cost+r.public_cost) costAmount,
+      sum(r.adjustment_amount) adjustmentAmount,sum(r.profit_amount) profitAmount,max(r.data_cutoff_time) dataCutoffTime
+    from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+    left join sys_dept d on d.dept_id=p.company_dept_id
+    where r.is_current='1' and r.biz_date between #{dateFrom} and #{dateTo}
+    <if test="companyDeptId != null">and p.company_dept_id=#{companyDeptId}</if>
+    <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+    group by r.project_id,p.project_name,p.company_dept_id,d.dept_name,p.base_currency
+    order by p.base_currency,profitAmount desc,r.project_id
+  </select>
+  <select id="selectCompanyAccountingSummary" resultType="map">
+    select p.base_currency currency,r.company_dept_id companyDeptId,d.dept_name companyName,sum(r.revenue_amount) revenueAmount,
+      sum(r.cost_amount) businessCost,sum(r.personnel_cost) personnelCost,sum(r.bonus_cost) bonusCost,sum(r.public_cost) publicCost,
+      sum(r.cost_amount+r.personnel_cost+r.bonus_cost+r.public_cost) costAmount,sum(r.adjustment_amount) adjustmentAmount,
+      sum(r.profit_amount) profitAmount,count(distinct r.project_id) projectCount,max(r.data_cutoff_time) dataCutoffTime
+    from biz_project_daily_result r join biz_project p on p.project_id=r.project_id and p.del_flag='0'
+    left join sys_dept d on d.dept_id=r.company_dept_id
+    where r.is_current='1' and r.biz_date between #{dateFrom} and #{dateTo}
+    <if test="companyDeptId != null">and r.company_dept_id=#{companyDeptId}</if>
+    <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+    group by r.company_dept_id,d.dept_name,p.base_currency order by r.company_dept_id,p.base_currency
+  </select>
+  <select id="selectPersonnelCostOverview" resultType="map">
+    select p.project_id projectId,p.project_name projectName,'PERCENTAGE_V1' costPolicyVersion,p.company_dept_id companyDeptId,
+      company.dept_name companyName,m.user_id userId,m.user_name_snapshot userName,m.member_role memberRole,
+      profile.country_region profileCountryRegion,
+      coalesce(c.country_region_snapshot,profile.country_region,
+        case when vietnam.dept_id is not null then 'VN' else 'CN' end) countryRegion,
+      c.policy_id policyId,c.unit_cost monthlyCost,c.currency,c.standard_work_days standardWorkDays,
+      round(c.unit_cost/nullif(c.standard_work_days,0),4) dailyCost,
+      a.allocation_id allocationId,a.allocation_value plannedPercent,e.actual_percent actualPercent,
+      coalesce(e.actual_percent,a.allocation_value) appliedPercent,
+      coalesce(total_plan.total_planned_percent,0) totalPlannedPercent,
+      case when leave_record.leave_id is not null then 'LEAVE'
+           when e.effort_id is not null then 'ACTUAL' else 'PLAN' end inputSource,
+      leave_record.leave_type leaveType,
+      case when leave_record.leave_id is not null then 0
+           when c.cost_mode='MONTHLY' and c.currency='CNY' and a.allocation_mode='PERCENTAGE'
+             then round(c.unit_cost/nullif(c.standard_work_days,0)*coalesce(e.actual_percent,a.allocation_value)/100,4)
+           else 0 end personnelCost,
+      case when profile.country_region is null or profile.country_region not in ('CN','VN') then 'MISSING_REGION'
+           when c.policy_id is null then 'MISSING_COST'
+           when c.cost_mode&lt;&gt;'MONTHLY' or c.currency&lt;&gt;'CNY' or c.standard_work_days is null then 'LEGACY_COST'
+           when a.allocation_id is null then 'MISSING_ALLOCATION'
+           when coalesce(total_plan.total_planned_percent,0)&gt;100 then 'OVER_ALLOCATED'
+           when leave_record.leave_id is not null then 'LEAVE'
+           else 'READY' end costStatus
+    from biz_project p
+    join biz_project_member m on m.project_id=p.project_id and m.status='0' and m.member_role&lt;&gt;'OBSERVER'
+    left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
+    left join sys_user staff_user on staff_user.user_id=m.user_id and staff_user.del_flag='0'
+    left join biz_staff_profile profile on profile.user_id=m.user_id
+    left join sys_dept staff_dept on staff_dept.dept_id=staff_user.dept_id and staff_dept.del_flag='0'
+    left join sys_dept vietnam on vietnam.dept_name='越南meimaru公司' and vietnam.del_flag='0'
+      and (vietnam.dept_id=staff_dept.dept_id or find_in_set(vietnam.dept_id,staff_dept.ancestors))
+    left join biz_project_staff_allocation a on a.project_id=p.project_id and a.user_id=m.user_id
+      and a.status='ACTIVE' and a.allocation_mode='PERCENTAGE' and a.effective_from&lt;=#{bizDate}
+      and (a.effective_to is null or a.effective_to&gt;=#{bizDate})
+    left join biz_staff_cost_policy c on c.user_id=m.user_id and c.status='ACTIVE'
+      and c.effective_from&lt;=#{bizDate} and (c.effective_to is null or c.effective_to&gt;=#{bizDate})
+    left join biz_project_effort_report e on e.project_id=p.project_id and e.user_id=m.user_id
+      and e.biz_date=#{bizDate} and e.report_status='CONFIRMED'
+    left join biz_staff_leave leave_record on leave_record.user_id=m.user_id
+      and leave_record.leave_date=#{bizDate} and leave_record.status='ACTIVE'
+    left join (
+      select a2.user_id,sum(a2.allocation_value) total_planned_percent
+      from biz_project_staff_allocation a2
+      join biz_project p2 on p2.project_id=a2.project_id and p2.del_flag='0'
+        and p2.status not in('CLOSED','CANCELED')
+      where a2.status='ACTIVE' and a2.allocation_mode='PERCENTAGE' and a2.effective_from&lt;=#{bizDate}
+        and (a2.effective_to is null or a2.effective_to&gt;=#{bizDate})
+        <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p2.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+      group by a2.user_id
+    ) total_plan on total_plan.user_id=m.user_id
+    where p.del_flag='0' and coalesce(p.cost_policy_version,'PERCENTAGE_V1')='PERCENTAGE_V1' and p.status&lt;&gt;'CANCELED'
+      and (p.status&lt;&gt;'CLOSED' or exists (
+        select 1 from biz_project_daily_result closed_result
+        where closed_result.project_id=p.project_id and closed_result.biz_date=#{bizDate}
+          and closed_result.is_current='1'
+      ))
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>
+      <if test="projectId != null">and p.project_id=#{projectId}</if>
+      <if test="companyDeptId != null">and p.company_dept_id=#{companyDeptId}</if>
+    order by field(costStatus,'MISSING_COST','LEGACY_COST','MISSING_ALLOCATION','OVER_ALLOCATED','READY','LEAVE'),
+      p.project_name,m.user_name_snapshot,m.user_id
+  </select>
+  <select id="selectCompanyPersonnelCostReadiness" resultType="map">
+    select u.user_id userId,coalesce(nullif(u.nick_name,''),u.user_name) userName,
+      company.dept_id companyDeptId,company.dept_name companyName,profile.country_region profileCountryRegion,
+      case when profile.country_region is null or profile.country_region not in ('CN','VN') then 'MISSING_REGION'
+           when valid_cost.user_id is not null then 'READY'
+           when any_cost.user_id is not null then 'LEGACY_COST'
+           else 'MISSING_COST' end costStatus,
+      count(distinct project.project_id) projectCount,
+      group_concat(distinct project.project_name order by project.project_name separator '、') projectNameText
+    from sys_user u
+    join sys_dept staff_dept on staff_dept.dept_id=u.dept_id and staff_dept.del_flag='0'
+    join sys_dept company on company.parent_id=100 and company.del_flag='0' and company.status='0'
+      and (company.dept_id=staff_dept.dept_id or find_in_set(company.dept_id,staff_dept.ancestors))
+    left join biz_staff_profile profile on profile.user_id=u.user_id
+    left join (
+      select user_id from biz_staff_cost_policy
+      where status='ACTIVE' and effective_from&lt;=#{bizDate}
+        and (effective_to is null or effective_to&gt;=#{bizDate})
+      group by user_id
+    ) any_cost on any_cost.user_id=u.user_id
+    left join (
+      select user_id from biz_staff_cost_policy
+      where status='ACTIVE' and cost_mode='MONTHLY' and currency='CNY'
+        and standard_work_days is not null and standard_work_days&gt;0
+        and effective_from&lt;=#{bizDate} and (effective_to is null or effective_to&gt;=#{bizDate})
+      group by user_id
+    ) valid_cost on valid_cost.user_id=u.user_id
+    left join biz_project_member member on member.user_id=u.user_id and member.status='0'
+      and member.member_role&lt;&gt;'OBSERVER'
+    left join biz_project project on project.project_id=member.project_id and project.del_flag='0'
+      and project.status not in('CLOSED','CANCELED')
+    where u.del_flag='0' and u.status='0' and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT'
+      <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="company.dept_id"/><property name="capability" value="COST_READ"/></include></if>
+    group by u.user_id,u.nick_name,u.user_name,company.dept_id,company.dept_name,profile.country_region,
+      valid_cost.user_id,any_cost.user_id
+    having costStatus&lt;&gt;'READY'
+    order by company.order_num,field(costStatus,'MISSING_REGION','MISSING_COST','LEGACY_COST'),userName,u.user_id
+  </select>
+</mapper>

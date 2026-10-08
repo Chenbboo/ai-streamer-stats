@@ -1,0 +1,315 @@
+package com.ruoyi.business.mapper;
+
+import java.util.List;
+import java.util.Map;
+import org.apache.ibatis.annotations.Param;
+import com.ruoyi.business.domain.BusinessProject;
+import com.ruoyi.business.domain.BusinessProjectAcceptance;
+import com.ruoyi.business.domain.BusinessProjectStageAcceptance;
+import com.ruoyi.business.domain.BusinessProjectMember;
+import com.ruoyi.business.domain.BusinessProjectMilestone;
+import com.ruoyi.business.domain.BusinessProjectRisk;
+import com.ruoyi.business.domain.BusinessProjectTask;
+import com.ruoyi.business.domain.BusinessProjectTaskReport;
+import com.ruoyi.business.domain.BusinessProjectWorkPeriod;
+import com.ruoyi.business.domain.BusinessProjectProgressReport;
+import com.ruoyi.business.domain.BusinessProjectRoutine;
+import com.ruoyi.business.domain.BusinessProjectRoutineReport;
+import com.ruoyi.business.domain.BusinessProjectRoutineDailyTarget;
+import com.ruoyi.business.domain.BusinessProjectEffort;
+import com.ruoyi.business.domain.BusinessProjectKpi;
+import com.ruoyi.business.domain.BusinessProjectStaffAllocation;
+import com.ruoyi.business.domain.BusinessStaffCostPolicy;
+
+public interface BusinessProjectMapper
+{
+    List<Map<String,Object>> selectMemberCompletionReports(Long projectId);
+    int insertRoutineCompletionSubmission(BusinessProjectRoutineReport report);
+    int insertTaskCompletionSubmission(BusinessProjectTaskReport report);
+    List<Map<String,Object>> selectMemberWorkPauses(Long projectId);
+    int countMemberWorkPaused(@Param("projectId") Long projectId, @Param("userId") Long userId);
+    int insertMemberWorkPause(@Param("projectId") Long projectId, @Param("userId") Long userId,
+        @Param("userName") String userName);
+    int startMemberWork(@Param("projectId") Long projectId, @Param("userId") Long userId,
+        @Param("userName") String userName);
+    int separateDeliveryForPublicCosts(@org.apache.ibatis.annotations.Param("projectId") Long projectId,
+        @org.apache.ibatis.annotations.Param("version") Integer version,@org.apache.ibatis.annotations.Param("userName") String userName);
+    Long selectStaffCompanyId(Long userId);
+    Long lockStaffCostPerson(Long userId);
+    List<Map<String,Object>> selectStaffCostOptions(Map<String,Object> query);
+    List<BusinessProject> selectProjectList(Map<String, Object> query);
+    List<BusinessProject> selectProjectRoots(Map<String, Object> query);
+    BusinessProject selectProjectById(Long projectId);
+    BusinessProject selectProjectByIdForUpdate(Long projectId);
+    int closeAccounting(@Param("projectId") Long projectId, @Param("version") Integer version,
+        @Param("userName") String userName);
+    int countPendingProjectKpi(@Param("projectId") Long projectId);
+    int insertProject(BusinessProject project);
+    int updateProject(BusinessProject project);
+    int countSubprojects(Long projectId);
+    List<Map<String, Object>> selectProjectCompanyOptions();
+    List<Map<String, Object>> selectProjectDepartmentOptions();
+    int softDeleteProject(@Param("projectId") Long projectId, @Param("version") Integer version,
+        @Param("userName") String userName);
+    Map<String, Object> selectPendingProjectDeletion(Long projectId);
+    Map<String, Object> selectProjectDeletionById(Long requestId);
+    List<Map<String, Object>> selectProjectDeletionRequests(@Param("userId") Long userId,
+        @Param("administrator") boolean administrator, @Param("boss") boolean boss);
+    int insertProjectDeletionRequest(Map<String, Object> request);
+    int reviewProjectDeletionRequest(@Param("requestId") Long requestId, @Param("status") String status,
+        @Param("comment") String comment, @Param("userId") Long userId, @Param("userName") String userName);
+    int insertProjectDeletionNotification(@Param("requestId") Long requestId, @Param("recipientUserId") Long recipientUserId);
+    List<Map<String, Object>> selectProjectDeletionNotifications(Long userId);
+    int readProjectDeletionNotification(@Param("notificationId") Long notificationId, @Param("userId") Long userId);
+    int readAllProjectDeletionNotifications(Long userId);
+    int updateProjectBudget(@Param("projectId") Long projectId, @Param("budgetLimit") java.math.BigDecimal budgetLimit,
+        @Param("baseCurrency") String baseCurrency, @Param("userName") String userName,
+        @Param("version") Integer version);
+    int insertBudgetHistory(Map<String, Object> history);
+    List<Map<String, Object>> selectBudgetHistory(Long projectId);
+    Map<String, Object> selectActiveExecutionRelation(Long projectId);
+    Map<String, Object> selectLiveExecutionSummary(Map<String, Object> relation);
+    List<BusinessProjectRoutine> selectLiveStreamerRoutines(Map<String, Object> relation);
+    int insertExecutionRelation(@Param("projectId") Long projectId, @Param("effectiveFrom") java.util.Date effectiveFrom,
+        @Param("activeKey") String activeKey, @Param("userName") String userName);
+    int retireExecutionRelation(@Param("relationId") Long relationId, @Param("effectiveTo") java.util.Date effectiveTo,
+        @Param("userName") String userName);
+
+    List<BusinessProjectKpi> selectProjectKpis(Long projectId);
+    BusinessProjectKpi selectProjectKpiById(Long kpiId);
+    BusinessProjectKpi selectCurrentProjectKpi(@Param("projectId") Long projectId, @Param("kpiCode") String kpiCode);
+    Integer selectNextKpiVersion(@Param("projectId") Long projectId, @Param("kpiCode") String kpiCode);
+    int retireProjectKpi(@Param("kpiId") Long kpiId, @Param("userName") String userName);
+    int insertProjectKpi(BusinessProjectKpi kpi);
+
+    List<BusinessStaffCostPolicy> selectStaffCostPolicies(Long userId);
+    Long selectStaffCompanyLeaderUserId(@Param("userId") Long userId,
+        @Param("lockForUpdate") boolean lockForUpdate);
+    BusinessStaffCostPolicy selectStaffCostPolicyById(Long policyId);
+    BusinessStaffCostPolicy selectEffectiveStaffCostPolicy(@Param("userId") Long userId,
+        @Param("effectiveDate") java.util.Date effectiveDate);
+    Integer selectNextStaffCostVersion(Long userId);
+    int countOverlappingStaffCostPolicy(@Param("userId") Long userId,
+        @Param("effectiveFrom") java.util.Date effectiveFrom, @Param("effectiveTo") java.util.Date effectiveTo);
+    int closeOpenEndedStaffCostPolicy(@Param("userId") Long userId,
+        @Param("effectiveFrom") java.util.Date effectiveFrom);
+    int insertStaffCostPolicy(BusinessStaffCostPolicy policy);
+    int deleteUnusedFutureStaffCostPolicy(Long policyId);
+    int voidStaffCostPolicy(@Param("policyId") Long policyId, @Param("reason") String reason,
+        @Param("voidedUserId") Long voidedUserId, @Param("voidedUserName") String voidedUserName);
+    int restorePrecedingStaffCostPolicy(@Param("userId") Long userId,
+        @Param("deletedEffectiveFrom") java.util.Date deletedEffectiveFrom);
+
+    List<Map<String, Object>> selectProjectStaffAllocations(Long projectId);
+    List<Map<String, Object>> selectOwnerPersonnelCostReadiness(@Param("userId") Long userId,
+        @Param("bizDate") java.util.Date bizDate, @Param("viewAll") boolean viewAll);
+    BusinessProjectStaffAllocation selectProjectStaffAllocationById(Long allocationId);
+    java.math.BigDecimal sumOverlappingAllocationPercent(@Param("userId") Long userId,
+        @Param("effectiveFrom") java.util.Date effectiveFrom, @Param("effectiveTo") java.util.Date effectiveTo,
+        @Param("excludeAllocationId") Long excludeAllocationId);
+    int insertProjectStaffAllocation(BusinessProjectStaffAllocation allocation);
+    int updateProjectStaffAllocation(BusinessProjectStaffAllocation allocation);
+    int voidProjectStaffAllocation(@Param("projectId") Long projectId, @Param("allocationId") Long allocationId,
+        @Param("userName") String userName);
+    int countOverlappingProjectAllocation(@Param("projectId") Long projectId, @Param("userId") Long userId,
+        @Param("effectiveFrom") java.util.Date effectiveFrom, @Param("effectiveTo") java.util.Date effectiveTo,
+        @Param("excludeAllocationId") Long excludeAllocationId);
+    List<Map<String, Object>> selectUserAllocationTimeline(@Param("userId") Long userId);
+
+    List<Map<String, Object>> selectUserAllocationWorkspace(@Param("userId") Long userId,
+        @Param("effectiveDate") java.util.Date effectiveDate);
+    java.math.BigDecimal sumAllocationPercentAtDate(@Param("userId") Long userId,
+        @Param("effectiveDate") java.util.Date effectiveDate);
+    int closeAllocationPeriodsBefore(@Param("projectId") Long projectId, @Param("userId") Long userId,
+        @Param("effectiveDate") java.util.Date effectiveDate, @Param("userName") String userName);
+    int voidAllocationPeriodsFrom(@Param("projectId") Long projectId, @Param("userId") Long userId,
+        @Param("effectiveDate") java.util.Date effectiveDate, @Param("userName") String userName);
+    int updateProjectStatus(@Param("projectId") Long projectId, @Param("expectedStatus") String expectedStatus,
+        @Param("status") String status, @Param("baselineStatus") String baselineStatus,
+        @Param("baselineIncrement") boolean baselineIncrement, @Param("userName") String userName,
+        @Param("version") Integer version);
+    int updateProjectOwner(@Param("projectId") Long projectId, @Param("ownerUserId") Long ownerUserId,
+        @Param("ownerName") String ownerName, @Param("userName") String userName,
+        @Param("version") Integer version);
+    String selectMemberRole(@Param("projectId") Long projectId, @Param("userId") Long userId);
+    List<BusinessProjectMember> selectMembers(Long projectId);
+    List<com.ruoyi.common.core.domain.entity.SysUser> selectStaffDirectory(
+        @Param("query") com.ruoyi.common.core.domain.entity.SysUser query,
+        @Param("managedOwnerUserId") Long managedOwnerUserId);
+    List<Long> selectManagedProjectMemberUserIds(@Param("ownerUserId") Long ownerUserId);
+    int countManagedProjectMember(@Param("ownerUserId") Long ownerUserId, @Param("staffUserId") Long staffUserId);
+    int upsertMember(BusinessProjectMember member);
+    int leaveMember(@Param("projectId") Long projectId, @Param("userId") Long userId,
+        @Param("retainTodayCost") boolean retainTodayCost, @Param("userName") String userName);
+    int unassignOpenMemberTasks(@Param("projectId") Long projectId, @Param("userId") Long userId,
+        @Param("userName") String userName);
+    int unassignActiveMemberRoutines(@Param("projectId") Long projectId, @Param("userId") Long userId,
+        @Param("userName") String userName);
+    int closeMemberWorkPeriods(@Param("projectId") Long projectId, @Param("userId") Long userId,
+        @Param("userName") String userName);
+    int closeMemberAllocations(@Param("projectId") Long projectId, @Param("userId") Long userId,
+        @Param("retainTodayCost") boolean retainTodayCost, @Param("userName") String userName);
+    int countPendingProjectEfforts(@Param("projectId") Long projectId);
+    int closeProjectRoutines(@Param("projectId") Long projectId, @Param("userName") String userName);
+    int closeProjectWorkPeriods(@Param("projectId") Long projectId, @Param("userName") String userName);
+    int closeProjectAllocations(@Param("projectId") Long projectId, @Param("closeDate") java.util.Date closeDate,
+        @Param("userName") String userName);
+    int cancelOpenProjectTasks(@Param("projectId") Long projectId, @Param("userName") String userName);
+    int insertOwnerHistory(Map<String, Object> history);
+    List<Map<String, Object>> selectOwnerHistory(Long projectId);
+
+    List<BusinessProjectAcceptance> selectAcceptances(Long projectId);
+    BusinessProjectAcceptance selectLatestPendingAcceptance(Long projectId);
+    Integer selectNextAcceptanceVersion(Long projectId);
+    int insertAcceptance(BusinessProjectAcceptance acceptance);
+    int reviewAcceptance(@Param("acceptanceId") Long acceptanceId, @Param("reviewStatus") String reviewStatus,
+        @Param("reviewedUserId") Long reviewedUserId, @Param("reviewedUserName") String reviewedUserName,
+        @Param("reviewComment") String reviewComment, @Param("userName") String userName);
+
+    List<BusinessProjectStageAcceptance> selectStageAcceptances(Long projectId);
+    BusinessProjectStageAcceptance selectLatestPendingStageAcceptance(@Param("projectId") Long projectId,
+        @Param("milestoneId") Long milestoneId);
+    Integer selectNextStageAcceptanceVersion(@Param("projectId") Long projectId,
+        @Param("milestoneId") Long milestoneId);
+    int insertStageAcceptance(BusinessProjectStageAcceptance acceptance);
+    int reviewStageAcceptance(@Param("stageAcceptanceId") Long stageAcceptanceId,
+        @Param("reviewStatus") String reviewStatus, @Param("reviewedUserId") Long reviewedUserId,
+        @Param("reviewedUserName") String reviewedUserName, @Param("reviewComment") String reviewComment,
+        @Param("userName") String userName);
+    int updateMilestoneStatus(@Param("projectId") Long projectId, @Param("milestoneId") Long milestoneId,
+        @Param("status") String status, @Param("userName") String userName);
+
+    List<BusinessProjectMilestone> selectMilestones(Long projectId);
+    BusinessProjectMilestone selectMilestoneById(Long milestoneId);
+    int insertMilestone(BusinessProjectMilestone milestone);
+    int updateMilestone(BusinessProjectMilestone milestone);
+    int deleteMilestone(@Param("projectId") Long projectId, @Param("milestoneId") Long milestoneId);
+
+    List<BusinessProjectTask> selectTasks(Long projectId);
+    List<BusinessProjectTask> selectInactiveTasks(Long projectId);
+    BusinessProjectTask selectTaskById(Long taskId);
+    int insertTask(BusinessProjectTask task);
+    int updateTask(BusinessProjectTask task);
+    int voidTask(@Param("projectId") Long projectId, @Param("taskId") Long taskId,
+        @Param("userName") String userName);
+    int activateTask(@Param("projectId") Long projectId, @Param("taskId") Long taskId,
+        @Param("userName") String userName);
+    int countTaskChildren(@Param("projectId") Long projectId, @Param("taskId") Long taskId);
+    int countTaskReports(@Param("taskId") Long taskId);
+    int upsertTaskReport(BusinessProjectTaskReport report);
+    BusinessProjectTaskReport selectTaskReport(@Param("taskId") Long taskId,
+        @Param("bizDate") java.util.Date bizDate);
+    List<BusinessProjectTaskReport> selectTaskReports(Long projectId);
+    int insertProjectProgressReport(BusinessProjectProgressReport report);
+    BusinessProjectProgressReport selectProjectProgressReport(@Param("projectId") Long projectId,
+        @Param("bizDate") java.util.Date bizDate);
+    BusinessProjectProgressReport selectLatestProjectProgressReport(@Param("projectId") Long projectId);
+
+    List<BusinessProjectRoutine> selectRoutines(@Param("projectId") Long projectId,
+        @Param("bizDate") java.util.Date bizDate);
+    List<BusinessProjectRoutine> selectRetiredRoutines(@Param("projectId") Long projectId,
+        @Param("bizDate") java.util.Date bizDate);
+    BusinessProjectRoutine selectRoutineByIdForUpdate(@Param("routineId") Long routineId);
+    BusinessProjectRoutine selectRoutineById(Long routineId);
+    int insertRoutine(BusinessProjectRoutine routine);
+    int updateRoutine(BusinessProjectRoutine routine);
+    int voidRoutine(@Param("projectId") Long projectId,@Param("routineId") Long routineId,
+        @Param("userName") String userName);
+    int activateRoutine(@Param("projectId") Long projectId, @Param("routineId") Long routineId,
+        @Param("startDate") java.util.Date startDate, @Param("endDate") java.util.Date endDate,
+        @Param("version") Integer version, @Param("userName") String userName);
+    List<BusinessProjectWorkPeriod> selectWorkPeriods(Long projectId);
+    int insertWorkPeriod(BusinessProjectWorkPeriod period);
+    int closeWorkPeriod(@Param("projectId") Long projectId, @Param("workType") String workType,
+        @Param("workId") Long workId, @Param("userName") String userName);
+    int upsertRoutineReport(BusinessProjectRoutineReport report);
+    BusinessProjectRoutineReport selectRoutineReport(@Param("routineId") Long routineId,
+        @Param("bizDate") java.util.Date bizDate);
+    BusinessProjectRoutineDailyTarget selectCurrentRoutineDailyTarget(@Param("routineId") Long routineId,
+        @Param("bizDate") java.util.Date bizDate);
+    int supersedeRoutineDailyTarget(@Param("dailyTargetId") Long dailyTargetId,
+        @Param("userName") String userName);
+    int insertRoutineDailyTarget(BusinessProjectRoutineDailyTarget target);
+    java.math.BigDecimal sumRoutineActualBefore(@Param("routineId") Long routineId,
+        @Param("bizDate") java.util.Date bizDate);
+    int countRoutineReports(@Param("routineId") Long routineId);
+
+    List<BusinessProjectRisk> selectRisks(Long projectId);
+    int insertRisk(BusinessProjectRisk risk);
+    int updateRisk(BusinessProjectRisk risk);
+    int deleteRisk(@Param("projectId") Long projectId, @Param("riskId") Long riskId);
+
+    int insertEvent(Map<String, Object> event);
+    List<Map<String, Object>> selectEvents(Long projectId);
+    Map<String, Object> selectDashboardSummary(@Param("userId") Long userId, @Param("viewAll") boolean viewAll,
+        @Param("boss") boolean boss);
+    List<BusinessProject> selectDashboardProjectPage(@Param("userId") Long userId,
+        @Param("viewAll") boolean viewAll, @Param("boss") boolean boss,
+        @Param("offset") int offset, @Param("pageSize") int pageSize,
+        @Param("keyword") String keyword, @Param("status") String status);
+    long countDashboardProjects(@Param("userId") Long userId,
+        @Param("viewAll") boolean viewAll, @Param("boss") boolean boss,
+        @Param("keyword") String keyword, @Param("status") String status);
+    List<BusinessProject> selectDashboardDecisionPage(@Param("userId") Long userId,
+        @Param("viewAll") boolean viewAll, @Param("boss") boolean boss,
+        @Param("offset") int offset, @Param("pageSize") int pageSize);
+    List<Map<String, Object>> selectBossOwnerActiveProjects(@Param("userId") Long userId,
+        @Param("viewAll") boolean viewAll, @Param("ownerUserId") Long ownerUserId);
+    Map<String, Object> selectBossPendingCounts(@Param("userId") Long userId,
+        @Param("viewAll") boolean viewAll, @Param("bizDate") java.util.Date bizDate);
+    List<Map<String, Object>> selectBossPendingPage(@Param("userId") Long userId,
+        @Param("viewAll") boolean viewAll, @Param("bizDate") java.util.Date bizDate,
+        @Param("category") String category, @Param("offset") int offset, @Param("pageSize") int pageSize);
+    List<Map<String, Object>> selectMyDueTasks(@Param("userId") Long userId,
+        @Param("viewAll") boolean viewAll, @Param("boss") boolean boss);
+    List<Map<String, Object>> selectMyWorkTasks(@Param("userId") Long userId,
+        @Param("dateFrom") String dateFrom, @Param("dateTo") String dateTo);
+    List<Map<String, Object>> selectMyWorkRoutines(@Param("userId") Long userId,
+        @Param("dateFrom") String dateFrom, @Param("dateTo") String dateTo,
+        @Param("today") String today);
+    List<Map<String, Object>> selectMyEfforts(@Param("userId") Long userId, @Param("bizDate") String bizDate);
+    List<Map<String, Object>> selectOwnerPendingEffortRequests(@Param("userId") Long userId,
+        @Param("viewAll") boolean viewAll);
+    List<Map<String, Object>> selectParentOwnerAcceptanceTodos(@Param("userId") Long userId);
+    BusinessProjectEffort selectEffortReport(@Param("projectId") Long projectId,
+        @Param("userId") Long userId, @Param("bizDate") java.util.Date bizDate);
+    java.math.BigDecimal sumUserEffectiveEffortExcludingProject(@Param("userId") Long userId,
+        @Param("bizDate") java.util.Date bizDate, @Param("excludeProjectId") Long excludeProjectId);
+    int upsertEffortReport(BusinessProjectEffort effort);
+    List<Map<String, Object>> selectProjectEffortWeek(@Param("projectId") Long projectId,
+        @Param("dateFrom") String dateFrom, @Param("dateTo") String dateTo);
+    int confirmProjectEffortDay(@Param("projectId") Long projectId, @Param("bizDate") java.util.Date bizDate,
+        @Param("userId") Long userId, @Param("userName") String userName);
+    int confirmProjectMemberEffort(@Param("projectId") Long projectId, @Param("memberUserId") Long memberUserId,
+        @Param("bizDate") java.util.Date bizDate, @Param("userId") Long userId,
+        @Param("userName") String userName);
+    int returnProjectMemberEffort(@Param("projectId") Long projectId, @Param("memberUserId") Long memberUserId,
+        @Param("bizDate") java.util.Date bizDate, @Param("reviewComment") String reviewComment,
+        @Param("userName") String userName);
+    int countEffectiveProjectAllocation(@Param("projectId") Long projectId, @Param("userId") Long userId,
+        @Param("bizDate") java.util.Date bizDate);
+    Map<String, Object> selectStaffLeave(@Param("userId") Long userId,
+        @Param("leaveDate") java.util.Date leaveDate);
+    Long lockUserForLeave(@Param("userId") Long userId);
+    List<Map<String, Object>> selectProjectMemberLeaves(@Param("projectId") Long projectId,
+        @Param("leaveDate") java.util.Date leaveDate);
+    List<Long> selectAttachmentProjectIds(@Param("attachmentUrl") String attachmentUrl);
+    List<Long> selectAllocatedProjectIdsForUserDate(@Param("userId") Long userId,
+        @Param("bizDate") java.util.Date bizDate);
+    List<Map<String, Object>> selectProjectDirectory();
+    List<Map<String, Object>> selectUserOptions(@Param("keyword") String keyword);
+    List<Map<String, Object>> selectStaffResponsibilities(@Param("staffUserId") Long staffUserId,
+        @Param("viewerUserId") Long viewerUserId, @Param("viewAll") boolean viewAll,
+        @Param("boss") boolean boss);
+    Map<String, Object> selectActiveUserById(Long userId);
+    Map<String, Object> selectUserAuditSnapshotById(Long userId);
+    Map<String, Object> selectCostEligibleUserById(Long userId);
+    String selectStaffCountryRegion(Long userId);
+    Map<String, Object> selectCompanyById(Long deptId);
+    Long selectRoleIdByKey(String roleKey);
+    int countUserRoleByKey(@Param("userId") Long userId, @Param("roleKey") String roleKey);
+    int countActiveProjectMembershipByRole(@Param("userId") Long userId, @Param("memberRole") String memberRole);
+    String selectUserRoleNames(Long userId);
+    int insertUserRole(@Param("userId") Long userId, @Param("roleId") Long roleId);
+    int deleteUserRole(@Param("userId") Long userId, @Param("roleId") Long roleId);
+}

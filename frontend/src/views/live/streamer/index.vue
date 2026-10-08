@@ -70,6 +70,8 @@
 </template>
 
 <script setup name="LiveStreamer">
+import { translateText } from '@/locales/translate'
+
 import { listStreamers, addStreamer, updateStreamer, delStreamer } from '@/api/live/streamer'
 
 const { proxy } = getCurrentInstance()
@@ -99,8 +101,8 @@ const form = reactive({
 })
 
 const rules = {
-  stageName: [{ required: true, message: '请输入主播名称', trigger: 'blur' }],
-  password: [{ required: true, message: '请输入登录密码', trigger: 'blur' }, { min: 6, message: '密码至少6位', trigger: 'blur' }]
+  stageName: [{ required: true, message: translateText("请输入主播名称"), trigger: 'blur' }],
+  password: [{ required: true, message: translateText("请输入登录密码"), trigger: 'blur' }, { min: 6, message: translateText("密码至少6位"), trigger: 'blur' }]
 }
 
 async function loadList() {
@@ -126,7 +128,7 @@ function resetQuery() {
 }
 
 function handleAdd() {
-  dialog.title = '新增主播'
+  dialog.title = translateText("新增主播")
   dialog.open = true
   form.streamerId = undefined
   form.stageName = ''
@@ -136,7 +138,7 @@ function handleAdd() {
 }
 
 function handleUpdate(row) {
-  dialog.title = '修改主播'
+  dialog.title = translateText("修改主播")
   dialog.open = true
   form.streamerId = row.streamerId
   form.stageName = row.stageName
@@ -149,10 +151,10 @@ async function submitForm() {
   try {
     if (form.streamerId) {
       await updateStreamer(form)
-      proxy.$modal.msgSuccess('修改成功')
+      proxy.$modal.msgSuccess(translateText("修改成功"))
     } else {
       await addStreamer(form)
-      proxy.$modal.msgSuccess('新增成功')
+      proxy.$modal.msgSuccess(translateText("新增成功"))
     }
     dialog.open = false
     loadList()
@@ -160,17 +162,17 @@ async function submitForm() {
 }
 
 function handleDelete(row) {
-  proxy.$modal.confirm('确认将主播"' + row.stageName + '"设为离职吗？').then(() => {
+  proxy.$modal.confirm(translateText("确认将主播\"") + row.stageName + translateText("\"设为离职吗？")).then(() => {
     return delStreamer(row.streamerId)
   }).then(() => {
-    proxy.$modal.msgSuccess('操作成功')
+    proxy.$modal.msgSuccess(translateText("操作成功"))
     loadList()
   }).catch(() => {})
 }
 
 function handleEnable(row) {
   updateStreamer({ streamerId: row.streamerId, status: '0' }).then(() => {
-    proxy.$modal.msgSuccess('启用成功')
+    proxy.$modal.msgSuccess(translateText("启用成功"))
     loadList()
   })
 }

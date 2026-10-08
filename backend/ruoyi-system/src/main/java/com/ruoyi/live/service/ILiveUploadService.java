@@ -39,4 +39,9 @@ public interface ILiveUploadService
      * 确认模拟识别结果入库
      */
     public int confirmRecognize(Long uploadId);
+
+    /**
+     * 批量确认识别结果入库。
+     */
+    public int confirmRecognizeBatch(Long[] uploadIds);
 }

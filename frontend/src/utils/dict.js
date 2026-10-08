@@ -1,5 +1,6 @@
 import useDictStore from '@/store/modules/dict'
 import { getDicts } from '@/api/system/dict/data'
+import { translateText } from '../locales/translate.js'
 
 /**
  * 获取字典数据
@@ -11,11 +12,12 @@ export function useDict(...args) {
       res.value[dictType] = []
       const dicts = useDictStore().getDict(dictType)
       if (dicts) {
-        res.value[dictType] = dicts
+        res.value[dictType] = dicts.map(item => ({ ...item, label: translateText(item.label) }))
       } else {
         getDicts(dictType).then(resp => {
-          res.value[dictType] = resp.data.map(p => ({ label: p.dictLabel, value: p.dictValue, elTagType: p.listClass, elTagClass: p.cssClass }))
-          useDictStore().setDict(dictType, res.value[dictType])
+          const raw = resp.data.map(p => ({ label: p.dictLabel, value: p.dictValue, elTagType: p.listClass, elTagClass: p.cssClass }))
+          useDictStore().setDict(dictType, raw)
+          res.value[dictType] = raw.map(item => ({ ...item, label: translateText(item.label) }))
         })
       }
     })

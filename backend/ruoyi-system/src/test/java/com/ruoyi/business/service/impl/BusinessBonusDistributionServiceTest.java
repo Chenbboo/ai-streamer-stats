@@ -1,0 +1,250 @@
+package com.ruoyi.business.service.impl;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+import java.math.BigDecimal;
+import java.util.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
+import com.ruoyi.business.domain.*;
+import com.ruoyi.business.mapper.*;
+import com.ruoyi.common.exception.ServiceException;
+
+class BusinessBonusDistributionServiceTest
+{
+    private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
+
+ BusinessBonusDistributionMapper mapper=mock(BusinessBonusDistributionMapper.class);
+ BusinessIncentiveMapper awards=mock(BusinessIncentiveMapper.class);
+ BusinessProjectMapper projects=mock(BusinessProjectMapper.class);
+ BusinessProfitTaxService profitTax=mock(BusinessProfitTaxService.class);
+ BusinessBonusDistributionService service=new BusinessBonusDistributionService();
+ BusinessProject project;BusinessIncentiveAward award;BusinessBonusAllocation batch;BusinessBonusAllocationLine line;
+ @BeforeEach void setup(){
+  ReflectionTestUtils.setField(service,"mapper",mapper);ReflectionTestUtils.setField(service,"awards",awards);ReflectionTestUtils.setField(service,"projects",projects);
+  ReflectionTestUtils.setField(service,"profitTax",profitTax);
+  when(profitTax.projectResult(1L)).thenReturn(currentProfit("10000.00"));
+  when(profitTax.previousMonthResult(1L)).thenAnswer(call->profitTax.projectResult(1L));
+  project=new BusinessProject();project.setProjectId(1L);project.setMainOwnerUserId(10L);project.setSponsorOwnerUserId(20L);project.setCompanyDeptId(100L);project.setBaseCurrency("CNY");project.setDelFlag("0");
+  when(projects.selectProjectById(1L)).thenReturn(project);when(projects.selectProjectByIdForUpdate(1L)).thenReturn(project);
+  award=new BusinessIncentiveAward();award.setAwardId(2L);award.setProjectId(1L);award.setAmount(new BigDecimal("100.00"));award.setStatus("APPROVED");award.setCostStatus("CONFIRMED");award.setCurrency("CNY");award.setRuleName("KPI bonus");
+  when(awards.selectAward(2L)).thenReturn(award);when(awards.selectAwardForUpdate(2L)).thenReturn(award);when(awards.selectAwards(1L)).thenReturn(Arrays.asList(award));
+  when(mapper.recipients(1L)).thenReturn(Arrays.asList(person(30L,"Alice"),person(40L,"Bob")));
+  when(mapper.reserved(eq(2L),any())).thenReturn(BigDecimal.ZERO);
+  batch=new BusinessBonusAllocation();batch.setAllocationId(3L);batch.setProjectId(1L);batch.setAwardId(2L);batch.setCreatedUserId(10L);batch.setStatus("DRAFT");batch.setMode("AMOUNT");batch.setReason("allocation");batch.setVersion(0);batch.setAmount(new BigDecimal("60.00"));batch.setApprovedTime(new Date());
+  when(mapper.allocation(3L)).thenReturn(batch);when(mapper.transition(anyLong(),anyInt(),anyString(),anyLong(),anyString())).thenReturn(1);
+  line=line(30L,"60.00");line.setLineId(4L);line.setAllocationId(3L);line.setPaidAmount(new BigDecimal("20.00"));
+  when(mapper.line(4L)).thenReturn(line);when(mapper.lines(3L)).thenReturn(Arrays.asList(line));
+  when(mapper.companyAccess(1L,50L)).thenReturn(1);
+
+        companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
+
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
+}
+ Map<String,Object> person(Long id,String name){Map<String,Object> m=new HashMap<>();m.put("userId",id);m.put("userName",name);return m;}
+ BusinessBonusAllocationLine line(Long user,String amount){BusinessBonusAllocationLine l=new BusinessBonusAllocationLine();l.setUserId(user);l.setUserName("client spoof");l.setAmount(new BigDecimal(amount));l.setReason("contribution");return l;}
+ BusinessBonusAllocation draft(){BusinessBonusAllocation b=new BusinessBonusAllocation();b.setAwardId(2L);b.setMode("AMOUNT");b.setReason("allocation");b.setRequestKey("request1");b.setLines(Arrays.asList(line(30L,"60.00")));return b;}
+ BusinessBonusPayment payment(){BusinessBonusPayment p=new BusinessBonusPayment();p.setLineId(4L);p.setAmount(new BigDecimal("30.00"));p.setPaidDate(new Date());p.setMethod("BANK");p.setReferenceNo("bank1");p.setVoucher("/profile/upload/2026/09/proof.pdf");p.setReason("paid");p.setRequestKey("pay1");return p;}
+ Map<String,Object> currentProfit(String amount){Map<String,Object> result=new HashMap<>();result.put("available",amount!=null);result.put("afterTaxProfit",amount==null?null:new BigDecimal(amount));return result;}
+ @Test void nonPositiveOrMissingCurrentProfitBlocksAllocationApprovalAndPaymentDespitePositiveSnapshot(){
+  profitShares();
+  for(String amount:Arrays.asList("0.00","-0.01",null)){
+   when(profitTax.projectResult(1L)).thenReturn(currentProfit(amount));batch.setStatus("DRAFT");
+   assertTrue(assertThrows(ServiceException.class,()->service.save(draft(),10L,"owner")).getMessage().contains("税后盈利"));
+   assertTrue(assertThrows(ServiceException.class,()->service.transition(3L,0,"SUBMITTED","提交",10L,"owner")).getMessage().contains("税后盈利"));
+   batch.setStatus("SUBMITTED");
+   assertTrue(assertThrows(ServiceException.class,()->service.transition(3L,0,"APPROVED","核准",20L,"boss")).getMessage().contains("税后盈利"));
+   batch.setStatus("APPROVED");
+   assertTrue(assertThrows(ServiceException.class,()->service.pay(payment(),20L,"boss",false)).getMessage().contains("税后盈利"));
+  }
+  verify(mapper,never()).insertAllocation(any());verify(mapper,never()).insertPayment(any());
+  verify(mapper,never()).transition(anyLong(),anyInt(),anyString(),anyLong(),anyString());
+ }
+ @Test void nonPositiveProfitStillAllowsReturningAndCancelingAllocation(){
+  when(profitTax.projectResult(1L)).thenReturn(currentProfit("-100.00"));batch.setStatus("SUBMITTED");
+  service.transition(3L,0,"RETURNED","退回",20L,"boss");batch.setStatus("DRAFT");
+  service.transition(3L,0,"CANCELED","撤销",10L,"owner");
+  verify(mapper).transition(3L,0,"RETURNED",20L,"boss");verify(mapper).transition(3L,0,"CANCELED",10L,"owner");
+ }
+ void profitShares(){award.setPolicyVersion("PROFIT_SHARE_V1");award.setRuleAfterTaxProfit(new BigDecimal("100.00"));award.setRuleMainOwnerBonusRate(new BigDecimal("40.0000"));award.setRuleSponsorOwnerBonusRate(new BigDecimal("60.0000"));}
+ Map<?,?> sourceView(){when(mapper.projects(10L,false,false)).thenReturn(Arrays.asList(Collections.<String,Object>singletonMap("projectId",1L)));return (Map<?,?>)((List<?>)service.workspace(1L,10L,false,false).get("awards")).get(0);}
+ @Test void profitSourceUsesOnlyFrozenOwnerShareAndSubtractsReservations(){
+  profitShares();when(mapper.reserved(2L,null)).thenReturn(new BigDecimal("10.00"));
+  Map<?,?> source=sourceView();assertEquals(new BigDecimal("100.00"),source.get("amount"));
+  assertEquals(new BigDecimal("40.00"),source.get("sourceAmount"));assertEquals(new BigDecimal("30.00"),source.get("remaining"));
+ }
+ @Test void legacySourceRetainsApprovedTotal(){assertEquals(new BigDecimal("100.00"),sourceView().get("sourceAmount"));}
+ @Test void monthlyPaymentUsesItsFrozenMonthEvenWhenNewMonthOrCumulativeProfitIsNegative(){
+  profitShares();award.setSettlementMonth("2026-09");batch.setStatus("APPROVED");
+  when(profitTax.projectResult(1L)).thenReturn(currentProfit("-100.00"));
+  when(profitTax.monthlyBonusResult(1L,"2026-09")).thenReturn(currentProfit("100.00"));
+  assertDoesNotThrow(()->service.pay(payment(),20L,"boss",false));verify(mapper).insertPayment(any());
+  Map<?,?> source=sourceView();assertEquals("2026-09",source.get("settlementMonth"));assertEquals("",source.get("bonusBlockReason"));
+  assertEquals(new BigDecimal("40.00"),source.get("sourceAmount"));
+ }
+ @Test void monthlyAllocationAndPaymentRejectChangedOrNonPositiveProfitInThatMonth(){
+  profitShares();award.setSettlementMonth("2026-09");
+  for(String value:Arrays.asList("0.00","-1.00","50.00")){
+   when(profitTax.monthlyBonusResult(1L,"2026-09")).thenReturn(currentProfit(value));batch.setStatus("DRAFT");
+   assertThrows(ServiceException.class,()->service.save(draft(),10L,"owner"));
+   assertThrows(ServiceException.class,()->service.transition(3L,0,"SUBMITTED","提交",10L,"owner"));batch.setStatus("APPROVED");
+   assertThrows(ServiceException.class,()->service.pay(payment(),20L,"boss",false));
+  }
+  verify(mapper,never()).insertPayment(any());verify(mapper,never()).insertAllocation(any());
+ }
+ @Test void profitPercentagesUseOwnerShareInsteadOfCombinedBonus(){
+  profitShares();BusinessBonusAllocation b=draft();b.setMode("PERCENT");b.getLines().get(0).setPercentage(new BigDecimal("100"));
+  service.validateLines(b,award,mapper.recipients(1L));assertEquals(new BigDecimal("40.00"),b.getAmount());
+ }
+ @Test void profitAmountCannotUseBossShareAndCanUseExactRemainingOwnerBalance(){
+  profitShares();assertThrows(ServiceException.class,()->service.save(draft(),10L,"owner"));
+  when(mapper.reserved(2L,null)).thenReturn(new BigDecimal("10.00"));BusinessBonusAllocation b=draft();b.getLines().get(0).setAmount(new BigDecimal("30.01"));
+  assertThrows(ServiceException.class,()->service.save(b,10L,"owner"));verify(mapper,never()).insertAllocation(any());
+  b.getLines().get(0).setAmount(new BigDecimal("30.00"));when(mapper.insertAllocation(any())).thenAnswer(i->{((BusinessBonusAllocation)i.getArgument(0)).setAllocationId(3L);return 1;});
+  service.save(b,10L,"owner");verify(mapper).insertAllocation(b);
+ }
+ @Test void editingExcludesOwnReservationButNotOtherBatches(){
+  profitShares();BusinessBonusAllocation b=draft();b.setAllocationId(3L);b.setVersion(0);b.getLines().get(0).setAmount(new BigDecimal("30.00"));
+  when(mapper.reserved(2L,3L)).thenReturn(new BigDecimal("10.00"));when(mapper.updateAllocation(b)).thenReturn(1);
+  service.save(b,10L,"owner");verify(mapper).updateAllocation(b);
+ }
+ @Test void oldOverLimitDraftCannotBeSubmittedOrApprovedButCanBeReturnedOrCanceled(){
+  profitShares();assertThrows(ServiceException.class,()->service.transition(3L,0,"SUBMITTED","submit",10L,"owner"));
+  batch.setStatus("SUBMITTED");assertThrows(ServiceException.class,()->service.transition(3L,0,"APPROVED","approve",20L,"boss"));
+  service.transition(3L,0,"RETURNED","return",20L,"boss");batch.setStatus("DRAFT");service.transition(3L,0,"CANCELED","cancel",10L,"owner");
+  verify(mapper,never()).transition(3L,0,"APPROVED",20L,"boss");
+ }
+ @Test void zeroLossOrMissingProfitShareCannotFallBackToFullAward(){
+  profitShares();award.setRuleMainOwnerBonusRate(BigDecimal.ZERO);assertEquals(new BigDecimal("0.00"),sourceView().get("sourceAmount"));
+  award.setRuleMainOwnerBonusRate(new BigDecimal("40"));award.setRuleAfterTaxProfit(new BigDecimal("-100"));assertEquals(new BigDecimal("0.00"),sourceView().get("sourceAmount"));
+  award.setRuleAfterTaxProfit(null);assertEquals(new BigDecimal("0.00"),sourceView().get("sourceAmount"));assertThrows(ServiceException.class,()->service.save(draft(),10L,"owner"));
+ }
+ @Test void applicationProposalSnapshotsServerNamesAndIgnoresClientApprovalPaymentAndIdentifiers(){
+  profitShares();BusinessBonusAllocation input=draft();input.setAllocationId(999L);input.setAwardId(999L);input.setStatus("APPROVED");input.setPaidAmount(new BigDecimal("9999"));input.setCreatedUserId(999L);
+  input.getLines().get(0).setAmount(new BigDecimal("40.00"));input.getLines().get(0).setPaidAmount(new BigDecimal("40"));
+  BusinessBonusAllocation proposal=service.prepareApplicationAllocation(input,award);
+  assertEquals(new BigDecimal("40.00"),proposal.getAmount());assertEquals("Alice",proposal.getLines().get(0).getUserName());
+  assertNull(proposal.getAllocationId());assertNull(proposal.getAwardId());assertNull(proposal.getStatus());assertNull(proposal.getPaidAmount());assertNull(proposal.getCreatedUserId());assertNull(proposal.getLines().get(0).getPaidAmount());
+  verify(mapper,never()).insertAllocation(any());verify(mapper,never()).insertPayment(any());
+ }
+ @Test void applicationProposalPercentageAmountIsServerCalculatedAndCannotExceedOwnerPool(){
+  profitShares();BusinessBonusAllocation input=draft();input.setMode("PERCENT");input.getLines().get(0).setPercentage(new BigDecimal("50"));
+  assertThrows(ServiceException.class,()->service.prepareApplicationAllocation(input,award));
+  input.getLines().get(0).setPercentage(new BigDecimal("100"));
+  assertEquals(new BigDecimal("40.00"),service.prepareApplicationAllocation(input,award).getAmount());
+  input.setMode("AMOUNT");assertThrows(ServiceException.class,()->service.prepareApplicationAllocation(input,award));
+ }
+ @Test void proposalRetryComparesAllAllocationInputsButNotSpoofedNames(){
+  profitShares();BusinessBonusAllocation input=draft();input.getLines().get(0).setAmount(new BigDecimal("40.00"));
+  award.setApplicationAllocation(service.prepareApplicationAllocation(input,award));assertTrue(service.sameApplicationAllocation(input,award));
+  input.getLines().get(0).setAmount(new BigDecimal("30.00"));assertFalse(service.sameApplicationAllocation(input,award));
+  assertFalse(service.sameApplicationAllocation(null,award));
+ }
+ @Test void parentOwnerSeesFullChildDistributionWithoutPaymentOrAllocationAuthority(){
+  project.setParentId(2L);BusinessProject parent=new BusinessProject();parent.setProjectId(2L);parent.setMainOwnerUserId(99L);
+  when(projects.selectProjectById(2L)).thenReturn(parent);
+  when(mapper.projects(99L,false,false)).thenReturn(Arrays.asList(Collections.<String,Object>singletonMap("projectId",1L)));
+  when(mapper.allocations(1L)).thenReturn(Arrays.asList(batch));
+  Map<String,Object> result=service.workspace(1L,99L,false,false);
+  assertEquals(false,result.get("manager"));assertEquals(false,result.get("personal"));
+  assertEquals(false,result.get("canAllocate"));assertEquals(false,result.get("canPay"));
+  assertEquals(1,((List<?>)result.get("allocations")).size());
+ }
+ @Test void onlyActualOwnerCanAllocateIncludingAdministrator(){
+  for(Long actor:Arrays.asList(20L,30L,50L,1L,999L))assertThrows(ServiceException.class,()->service.save(draft(),actor,"user"));
+  verify(mapper,never()).insertAllocation(any());
+ }
+ @Test void validatesRecipientsAndSnapshotsNames(){
+  BusinessBonusAllocation b=draft();service.validateLines(b,award,mapper.recipients(1L));assertEquals("Alice",b.getLines().get(0).getUserName());
+  b.getLines().get(0).setUserId(999L);assertThrows(ServiceException.class,()->service.validateLines(b,award,mapper.recipients(1L)));
+  b.setLines(Arrays.asList(line(30L,"10"),line(30L,"10")));assertThrows(ServiceException.class,()->service.validateLines(b,award,mapper.recipients(1L)));
+ }
+ @Test void percentagesMustTotalOneHundredAndUseOwnerPool(){
+  BusinessBonusAllocation b=draft();b.setMode("PERCENT");b.getLines().get(0).setPercentage(new BigDecimal("33.33"));b.getLines().get(0).setAmount(new BigDecimal("99999"));
+  assertThrows(ServiceException.class,()->service.validateLines(b,award,mapper.recipients(1L)));
+  b.getLines().get(0).setPercentage(new BigDecimal("100"));service.validateLines(b,award,mapper.recipients(1L));assertEquals(new BigDecimal("100.00"),b.getAmount());
+  b.getLines().get(0).setPercentage(new BigDecimal("100.01"));assertThrows(ServiceException.class,()->service.validateLines(b,award,mapper.recipients(1L)));
+ }
+ @Test void finalMemberReceivesCentRemainder(){
+  award.setAmount(new BigDecimal("0.05"));BusinessBonusAllocation b=draft();b.setMode("PERCENT");
+  BusinessBonusAllocationLine last=line(40L,"0.01");b.setLines(Arrays.asList(b.getLines().get(0),last));
+  b.getLines().get(0).setPercentage(new BigDecimal("33.33"));last.setPercentage(new BigDecimal("66.67"));
+  service.validateLines(b,award,mapper.recipients(1L));
+  assertEquals(new BigDecimal("0.02"),b.getLines().get(0).getAmount());
+  assertEquals(new BigDecimal("0.03"),last.getAmount());assertEquals(new BigDecimal("0.05"),b.getAmount());
+ }
+ @Test void rejectsZeroNegativeAndFractionalCents(){
+  for(String value:Arrays.asList("0","-1","1.001")){BusinessBonusAllocation b=draft();b.getLines().get(0).setAmount(new BigDecimal(value));assertThrows(ServiceException.class,()->service.validateLines(b,award,mapper.recipients(1L)));}
+ }
+ @Test void reservesDraftAndOtherBatchAmounts(){
+  when(mapper.reserved(2L,null)).thenReturn(new BigDecimal("50.00"));
+  assertThrows(ServiceException.class,()->service.save(draft(),10L,"owner"));verify(mapper,never()).insertAllocation(any());
+ }
+ @Test void cannotEditSubmittedApprovedOrStaleAllocation(){
+  BusinessBonusAllocation b=draft();b.setAllocationId(3L);b.setVersion(0);
+  for(String status:Arrays.asList("SUBMITTED","APPROVED","CANCELED")){batch.setStatus(status);assertThrows(ServiceException.class,()->service.save(b,10L,"owner"));}
+  batch.setStatus("DRAFT");b.setVersion(99);assertThrows(ServiceException.class,()->service.save(b,10L,"owner"));
+ }
+ @Test void draftSaveStoresRowsAndAuditWithoutTouchingCost(){
+  when(mapper.insertAllocation(any())).thenAnswer(i->{((BusinessBonusAllocation)i.getArgument(0)).setAllocationId(3L);return 1;});
+  assertEquals(batch,service.save(draft(),10L,"owner"));verify(mapper).insertLine(any());verify(mapper).event(argThat(e->"SAVE".equals(e.get("eventType"))));
+  verify(awards,never()).transitionAward(anyLong(),anyString(),anyString(),anyInt(),anyLong(),anyString(),anyString(),any());
+ }
+ @Test void onlyIndependentSponsorCanReview(){
+  batch.setStatus("SUBMITTED");
+  for(Long actor:Arrays.asList(10L,1L,30L,50L,999L))assertThrows(ServiceException.class,()->service.transition(3L,0,"APPROVED","review",actor,"user"));
+  service.transition(3L,0,"APPROVED","review",20L,"sponsor");verify(mapper).transition(3L,0,"APPROVED",20L,"sponsor");
+  project.setSponsorOwnerUserId(10L);assertThrows(ServiceException.class,()->service.transition(3L,0,"APPROVED","review",10L,"owner"));
+ }
+ @Test void returnedBatchCanBeResubmittedOrCanceledByOriginalOwner(){
+  batch.setStatus("RETURNED");service.transition(3L,0,"SUBMITTED","fixed",10L,"owner");service.transition(3L,0,"CANCELED","withdraw",10L,"owner");
+  assertThrows(ServiceException.class,()->service.transition(3L,0,"CANCELED","withdraw",20L,"sponsor"));
+ }
+ @Test void paymentRequiresApprovedAllocationConfirmedCostAndCompany(){
+  assertThrows(ServiceException.class,()->service.pay(payment(),50L,"finance",true));batch.setStatus("APPROVED");
+  assertThrows(ServiceException.class,()->service.pay(payment(),999L,"outsider",false));
+  award.setCostStatus("DRAFT");assertThrows(ServiceException.class,()->service.pay(payment(),50L,"finance",true));
+  award.setCostStatus("REVERSED");assertThrows(ServiceException.class,()->service.pay(payment(),50L,"finance",true));
+  verify(mapper,never()).insertPayment(any());
+ }
+ @Test void projectSponsorCanRecordPaymentWithoutCompanyFinanceRole(){
+  batch.setStatus("APPROVED");service.pay(payment(),20L,"sponsor",false);verify(mapper).insertPayment(any());
+  assertThrows(ServiceException.class,()->service.pay(payment(),10L,"owner",false));
+ }
+ @Test void partialPaymentsCannotExceedPersonalBalance(){
+  batch.setStatus("APPROVED");BusinessBonusPayment p=payment();p.setAmount(new BigDecimal("40.01"));assertThrows(ServiceException.class,()->service.pay(p,50L,"finance",true));
+  p.setAmount(new BigDecimal("40.00"));service.pay(p,50L,"finance",true);verify(mapper).insertPayment(p);verify(mapper).event(argThat(e->"PAYMENT".equals(e.get("eventType"))));
+ }
+ @Test void paymentRetryIsIdempotentAndPayloadChangesRejected(){
+  batch.setStatus("APPROVED");BusinessBonusPayment existing=payment();when(mapper.paymentRequest(1L,"pay1")).thenReturn(existing);
+  assertSame(existing,service.pay(payment(),50L,"finance",true));verify(mapper,never()).insertPayment(any());
+  BusinessBonusPayment changed=payment();changed.setAmount(new BigDecimal("20.00"));assertThrows(ServiceException.class,()->service.pay(changed,50L,"finance",true));
+ }
+ @Test void rejectsDuplicateReceiptAndUnsafeEvidenceAndFutureDate(){
+  batch.setStatus("APPROVED");when(mapper.paymentReference(4L,"bank1")).thenReturn(payment());assertThrows(ServiceException.class,()->service.pay(payment(),50L,"finance",true));
+  when(mapper.paymentReference(4L,"bank1")).thenReturn(null);
+  BusinessBonusPayment p=payment();p.setVoucher("javascript:alert(1)");assertThrows(ServiceException.class,()->service.pay(p,50L,"finance",true));
+  BusinessBonusPayment future=payment();future.setPaidDate(new Date(System.currentTimeMillis()+86400000L));assertThrows(ServiceException.class,()->service.pay(future,50L,"finance",true));
+ }
+ @Test void existingAllocationBlocksCancelingSourceAward(){
+  BusinessIncentiveServiceImpl original=new BusinessIncentiveServiceImpl();ReflectionTestUtils.setField(original,"companyAccess",companyAccess);
+  ReflectionTestUtils.setField(original,"mapper",awards);ReflectionTestUtils.setField(original,"projectMapper",projects);
+  project.setStatus("ACTIVE");award.setVersion(0);when(awards.countDistributionReservations(2L)).thenReturn(1);
+  assertThrows(ServiceException.class,()->original.cancel(2L,0,"cancel",20L,"sponsor"));
+  verify(awards,never()).transitionAward(anyLong(),anyString(),anyString(),anyInt(),anyLong(),anyString(),anyString(),any());
+ }
+ @Test void memberReadModelContainsOnlyOwnApprovedMoney(){
+  Map<String,Object> directory=new HashMap<>();directory.put("projectId",1L);
+  when(mapper.projects(30L,false,false)).thenReturn(Arrays.asList(directory));batch.setStatus("APPROVED");
+  BusinessBonusAllocationLine other=line(40L,"40.00");other.setLineId(5L);
+  when(mapper.lines(3L)).thenReturn(Arrays.asList(line,other));when(mapper.allocations(1L)).thenReturn(Arrays.asList(batch));
+  Map<String,Object> out=service.workspace(1L,30L,false,false);
+  assertEquals(true,out.get("personal"));assertTrue(((List<?>)out.get("awards")).isEmpty());assertTrue(((List<?>)out.get("recipients")).isEmpty());
+  assertEquals("",out.get("bonusBlockReason"));assertFalse(out.containsKey("profitResult"));
+  Map<?,?> view=(Map<?,?>)((List<?>)out.get("allocations")).get(0);assertEquals(new BigDecimal("60.00"),view.get("amount"));assertEquals(1,((List<?>)view.get("lines")).size());assertNull(view.get("reason"));assertTrue(((List<?>)view.get("events")).isEmpty());
+  batch.setStatus("DRAFT");assertTrue(((List<?>)service.workspace(1L,30L,false,false).get("allocations")).isEmpty());
+  assertThrows(ServiceException.class,()->service.workspace(2L,30L,false,false));
+ }
+}

@@ -1,0 +1,171 @@
+package com.ruoyi.jewelry.mapper;
+
+import java.util.List;
+import java.util.Map;
+import org.apache.ibatis.annotations.Param;
+import com.ruoyi.jewelry.domain.JewelryDocument;
+import com.ruoyi.jewelry.domain.JewelryDocumentItem;
+
+public interface JewelryErpMapper
+{
+    List<Map<String, Object>> selectStaffList(Map<String, Object> query);
+    Map<String, Object> selectStaffById(Long staffId);
+    int insertStaff(Map<String, Object> staff);
+    int updateStaff(Map<String, Object> staff);
+    Long selectRoleIdByKey(String roleKey);
+    int deleteJewelryRolesByUserId(Long userId);
+    int insertUserRole(@Param("userId") Long userId, @Param("roleId") Long roleId);
+
+    List<Map<String, Object>> selectProductList(Map<String, Object> query);
+    Map<String, Object> selectProductById(Long productId);
+    Map<String, Object> selectProductByIdForUpdate(Long productId);
+    int countProductReferences(Long productId);
+    int deleteProductStock(@Param("ids") List<Long> ids);
+    int deleteProducts(@Param("ids") List<Long> ids);
+    int insertProduct(Map<String, Object> product);
+    int updateProduct(Map<String, Object> product);
+    int updateProductBasic(Map<String, Object> product);
+    List<Long> lockProductIds(@Param("ids") List<Long> ids);
+    int batchUpdateProducts(@Param("ids") List<Long> ids, @Param("changes") Map<String, Object> changes,
+        @Param("userName") String userName);
+    int updateProductImagesIfEmpty(@Param("productId") Long productId, @Param("imageUrl") String imageUrl,
+        @Param("imageUrls") String imageUrls, @Param("userName") String userName);
+    int ensureStock(Long productId);
+
+
+    List<Map<String, Object>> selectSupplierList(Map<String, Object> query);
+    Map<String, Object> selectSupplierById(Long supplierId);
+    Map<String, Object> selectSupplierByCode(String supplierCode);
+    List<Map<String, Object>> selectSuppliersByName(String supplierName);
+    int insertSupplier(Map<String, Object> supplier);
+    int updateSupplier(Map<String, Object> supplier);
+
+    List<Map<String, Object>> selectInfluencerList(Map<String, Object> query);
+    List<Map<String, Object>> selectInfluencerPlatforms();
+    Map<String, Object> selectInfluencerPlatformForUpdate(String platformCode);
+    int advanceInfluencerPlatformSequence(String platformCode);
+    Map<String, Object> selectInfluencerById(Long influencerId);
+    Map<String, Object> selectInfluencerByIdForUpdate(Long influencerId);
+    int insertInfluencer(Map<String, Object> influencer);
+    int updateInfluencerCode(@Param("influencerId") Long influencerId,
+        @Param("influencerCode") String influencerCode, @Param("updateBy") String updateBy);
+    int updateInfluencer(Map<String, Object> influencer);
+    List<Map<String, Object>> selectInfluencerProductPrices(Long influencerId);
+    List<Map<String, Object>> selectInfluencerBindingsByProductId(Long productId);
+    int insertInfluencerBinding(Map<String, Object> binding);
+    int updateInfluencerBinding(Map<String, Object> binding);
+    Map<String, Object> selectProductBySkuAndType(@Param("sku") String sku,
+        @Param("productType") String productType);
+    Map<String, Object> selectInfluencerProductPrice(@Param("influencerId") Long influencerId,
+        @Param("productId") Long productId);
+    Map<String, Object> selectInfluencerProductPriceForUpdate(@Param("influencerId") Long influencerId,
+        @Param("productId") Long productId);
+    int insertPendingInfluencerProductPrice(Map<String, Object> price);
+    int promoteInfluencerProductPrice(@Param("influencerId") Long influencerId,
+        @Param("productId") Long productId, @Param("sourceDocumentId") Long sourceDocumentId,
+        @Param("userName") String userName);
+    int updateInfluencerProductPrice(@Param("influencerId") Long influencerId,
+        @Param("productId") Long productId, @Param("fixedUnitPrice") java.math.BigDecimal fixedUnitPrice,
+        @Param("priceVersion") Integer priceVersion, @Param("userName") String userName);
+    int deletePendingInfluencerProductPricesByDocument(Long documentId);
+    int touchInfluencerLastSale(@Param("influencerId") Long influencerId,
+        @Param("userName") String userName);
+    int insertInfluencerPriceHistory(Map<String, Object> history);
+    List<Map<String, Object>> selectInfluencerPriceHistory(Long influencerId);
+    int upsertInfluencerBundleItem(Map<String, Object> binding);
+    List<Map<String, Object>> selectInfluencerBundleItems(Long influencerId);
+    List<Map<String, Object>> selectInfluencerBundleConfigs(Long influencerId);
+    int upsertInfluencerBundleConfig(Map<String, Object> config);
+    int deleteInfluencerBundleConfig(@Param("influencerId") Long influencerId,
+        @Param("configId") Long configId);
+
+    List<Map<String, Object>> selectStockList(Map<String, Object> query);
+    List<Map<String, Object>> selectStockSupplierOptions();
+    List<Map<String, Object>> selectSampleInboundDetails(Long productId);
+    List<Map<String, Object>> selectStockInboundDetails(Long productId);
+    int claimSupplierReturnMail(@Param("alertDate") java.time.LocalDate alertDate,
+        @Param("recipients") String recipients, @Param("warningCount") int warningCount);
+    int markSupplierReturnMailSent(@Param("alertDate") java.time.LocalDate alertDate);
+    int markSupplierReturnMailFailed(@Param("alertDate") java.time.LocalDate alertDate,
+        @Param("errorMessage") String errorMessage);
+    Map<String, Object> selectStockForUpdate(Long productId);
+    List<Map<String, Object>> selectStockTransactions(Map<String, Object> query);
+    Integer selectStockWarningDays();
+    Integer selectSupplierReturnDays();
+    int upsertSupplierReturnDays(@Param("days") Integer days, @Param("userName") String userName);
+    int updatePostedSupplierReturnDate(JewelryDocument document);
+    int upsertStockWarningDays(@Param("days") Integer days, @Param("userName") String userName);
+    Map<String, Object> selectDashboard();
+
+    List<JewelryDocument> selectDocumentList(JewelryDocument query);
+    JewelryDocument selectDocumentById(Long documentId);
+    JewelryDocument selectDocumentByIdForUpdate(Long documentId);
+    List<Map<String, Object>> selectPurchaseInfluencerRepairOptions(Long documentId);
+    int repairPurchaseInfluencer(@Param("documentId") Long documentId, @Param("influencerId") Long influencerId,
+        @Param("influencerName") String influencerName, @Param("userName") String userName);
+    int countReversalBySource(Long sourceDocumentId);
+    int countActiveCustomerReturnsBySource(Long sourceDocumentId);
+    int countActiveSupplierReturnsBySource(Long sourceDocumentId);
+    int countPendingCostChangesByProduct(Long productId);
+    int countPendingPurchasesByProduct(Long productId);
+    int selectReturnedQtyBySourceItem(@Param("sourceItemId") Long sourceItemId,
+        @Param("excludeDocumentId") Long excludeDocumentId);
+    int selectSupplierReturnedQtyBySourceItem(@Param("sourceItemId") Long sourceItemId,
+        @Param("excludeDocumentId") Long excludeDocumentId);
+    List<JewelryDocument> selectSupplierReturnSourceList(@Param("influencerId") Long influencerId,
+        @Param("supplierId") Long supplierId);
+    List<JewelryDocumentItem> selectSupplierReturnSourceItems(@Param("sourceDocumentId") Long sourceDocumentId,
+        @Param("excludeDocumentId") Long excludeDocumentId);
+    List<JewelryDocumentItem> selectSampleReturnAllocationSources(@Param("supplierId") Long supplierId,
+        @Param("excludeDocumentId") Long excludeDocumentId);
+    List<JewelryDocumentItem> selectSupplierReturnAllocationSources(@Param("influencerId") Long influencerId,
+        @Param("supplierId") Long supplierId, @Param("excludeDocumentId") Long excludeDocumentId);
+    List<Integer> selectSupplierReturnedQuantitiesForUpdate(@Param("sourceItemId") Long sourceItemId,
+        @Param("excludeDocumentId") Long excludeDocumentId);
+    List<Long> selectReversalIdsBySourceForUpdate(Long sourceDocumentId);
+    List<JewelryDocumentItem> selectCustomerReturnSourceItems(@Param("sourceDocumentId") Long sourceDocumentId,
+        @Param("excludeDocumentId") Long excludeDocumentId);
+    List<Map<String, Object>> selectCustomerReturnProductStats(@Param("influencerId") Long influencerId,
+        @Param("excludeDocumentId") Long excludeDocumentId, @Param("productId") Long productId,
+        @Param("mainProductId") Long mainProductId, @Param("saleRole") String saleRole);
+    int selectInspectedQtyBySourceItem(@Param("sourceItemId") Long sourceItemId,
+        @Param("excludeDocumentId") Long excludeDocumentId);
+    List<JewelryDocumentItem> selectReturnInspectionSourceItems(@Param("sourceDocumentId") Long sourceDocumentId,
+        @Param("excludeDocumentId") Long excludeDocumentId);
+    List<JewelryDocumentItem> selectDocumentItems(Long documentId);
+    JewelryDocumentItem selectDocumentItemById(Long itemId);
+    int insertDocument(JewelryDocument document);
+    int updateDocument(JewelryDocument document);
+    int updateDocumentFinancials(JewelryDocument document);
+    int deleteDocumentApprovals(Long documentId);
+    int deleteDocumentEvents(Long documentId);
+    int deleteDocumentItems(Long documentId);
+    int deleteDraftDocument(@Param("documentId") Long documentId, @Param("creatorUserId") Long creatorUserId);
+    int insertDocumentItem(JewelryDocumentItem item);
+    int updateDocumentItemCost(JewelryDocumentItem item);
+    int updateCostAdjustmentPostedItem(JewelryDocumentItem item);
+    int updateDocumentStatus(@Param("documentId") Long documentId, @Param("fromStatus") String fromStatus,
+        @Param("toStatus") String toStatus, @Param("userId") Long userId, @Param("userName") String userName,
+        @Param("reason") String reason, @Param("stage") Integer stage);
+    int insertApproval(@Param("documentId") Long documentId, @Param("stage") Integer stage,
+        @Param("action") String action, @Param("userId") Long userId, @Param("userName") String userName,
+        @Param("comment") String comment);
+    int insertEvent(@Param("documentId") Long documentId, @Param("eventType") String eventType,
+        @Param("fromStatus") String fromStatus, @Param("toStatus") String toStatus,
+        @Param("userId") Long userId, @Param("userName") String userName, @Param("comment") String comment);
+
+    int reserveOutbound(@Param("productId") Long productId, @Param("qty") Integer qty);
+    int releaseOutbound(@Param("productId") Long productId, @Param("qty") Integer qty);
+    int reserveInspection(@Param("productId") Long productId, @Param("qty") Integer qty);
+    int releaseInspection(@Param("productId") Long productId, @Param("qty") Integer qty);
+    int reserveDefect(@Param("productId") Long productId, @Param("qty") Integer qty);
+    int releaseDefect(@Param("productId") Long productId, @Param("qty") Integer qty);
+    int markOriginalReversed(@Param("documentId") Long documentId, @Param("userName") String userName);
+    int applyStock(@Param("productId") Long productId, @Param("onHand") Integer onHand,
+        @Param("reserved") Integer reserved, @Param("inspection") Integer inspection,
+        @Param("inspectionReserved") Integer inspectionReserved, @Param("defect") Integer defect,
+        @Param("defectReserved") Integer defectReserved, @Param("avgCost") java.math.BigDecimal avgCost,
+        @Param("inspectionCost") java.math.BigDecimal inspectionCost,
+        @Param("defectCost") java.math.BigDecimal defectCost);
+    int insertStockTransaction(Map<String, Object> transaction);
+}

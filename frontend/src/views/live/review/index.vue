@@ -28,32 +28,46 @@
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" icon="Search" @click="handleQuery">{{ $t('common.search') }}</el-button>
-          <el-button icon="Refresh" @click="resetQuery">{{ $t('common.reset') }}</el-button>
-          <el-button type="warning" icon="Connection" @click="openMergeDialog">{{ $t('review.mergeCustomer') }}</el-button>
+          <el-button type="primary" icon="Search" :disabled="allBatch.running" @click="handleQuery">{{ $t('common.search') }}</el-button>
+          <el-button icon="Refresh" :disabled="allBatch.running" @click="resetQuery">{{ $t('common.reset') }}</el-button>
+          <el-button v-hasPermi="['live:review:edit']" type="primary" plain icon="MagicStick"
+            :loading="allBatch.running" :disabled="allPendingCount === 0 || groupDialog.batchRecognizing"
+            @click="recognizeAllPending">
+            {{ $t('review.recognizeAllPending') }} {{ allPendingCount }}
+          </el-button>
+          <el-button type="warning" icon="Connection" :disabled="allBatch.running" @click="openMergeDialog">{{ $t('review.mergeCustomer') }}</el-button>
         </el-form-item>
       </el-form>
 
+      <div v-if="allBatch.running" class="page-batch-progress">
+        <div>
+          <b>{{ $t('review.recognizeAllRunning') }}</b>
+          <span>{{ $t('review.recognizeAllProgress', allBatch) }}</span>
+        </div>
+        <el-progress :percentage="allBatch.progress" :status="allBatch.failed ? 'exception' : undefined" />
+      </div>
+
       <el-table v-loading="loading" :data="groupRows">
-        <el-table-column label="日期" prop="bizDate" width="120" />
-        <el-table-column label="主播" prop="stageName" min-width="150" />
-        <el-table-column label="内容类型" width="140">
+        <el-table-column :label="$tr(&quot;日期&quot;)" prop="bizDate" width="120" />
+        <el-table-column :label="$tr(&quot;主播&quot;)" prop="stageName" min-width="150" />
+        <el-table-column :label="$tr(&quot;内容类型&quot;)" width="140">
           <template #default="{ row }">{{ typeLabel(row.uploadType) }}</template>
         </el-table-column>
-        <el-table-column label="图片/汇报数" width="130" align="center">
+        <el-table-column :label="$tr(&quot;图片/汇报数&quot;)" width="130" align="center">
           <template #default="{ row }">{{ row.count }}</template>
         </el-table-column>
-        <el-table-column label="处理进度" min-width="280">
+        <el-table-column :label="$tr(&quot;处理进度&quot;)" min-width="280">
           <template #default="{ row }">
-            <el-tag v-if="row.pendingCount" type="info" effect="plain">待识别 {{ row.pendingCount }}</el-tag>
-            <el-tag v-if="row.recognizedCount" type="warning" effect="plain" class="status-gap">待确认 {{ row.recognizedCount }}</el-tag>
-            <el-tag v-if="row.confirmedCount" type="success" effect="plain" class="status-gap">已入库 {{ row.confirmedCount }}</el-tag>
-            <el-tag v-if="row.failedCount" type="danger" effect="plain" class="status-gap">失败 {{ row.failedCount }}</el-tag>
+            <el-tag v-if="row.pendingCount" type="info" effect="plain">{{ $tr("待识别 {0}", [row.pendingCount]) }}</el-tag>
+            <el-tag v-if="row.recognizingCount" type="primary" effect="plain" class="status-gap">{{ $tr("识别中 {0}", [row.recognizingCount]) }}</el-tag>
+            <el-tag v-if="row.recognizedCount" type="warning" effect="plain" class="status-gap">{{ $tr("待确认 {0}", [row.recognizedCount]) }}</el-tag>
+            <el-tag v-if="row.confirmedCount" type="success" effect="plain" class="status-gap">{{ $tr("已入库 {0}", [row.confirmedCount]) }}</el-tag>
+            <el-tag v-if="row.failedCount" type="danger" effect="plain" class="status-gap">{{ $tr("失败 {0}", [row.failedCount]) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column :label="$t('common.action')" width="130" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" icon="View" @click="openGroup(row)">进入任务组</el-button>
+            <el-button link type="primary" icon="View" @click="openGroup(row)">{{ $tr("进入任务组") }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -62,30 +76,32 @@
     <el-dialog v-model="groupDialog.open" :title="groupDialog.title" width="1180px" append-to-body destroy-on-close>
       <div class="group-toolbar">
         <el-radio-group v-model="groupDialog.filter" size="small">
-          <el-radio-button label="all">全部 {{ groupItems.length }}</el-radio-button>
-          <el-radio-button label="pending">待识别 {{ groupPendingCount }}</el-radio-button>
-          <el-radio-button label="failed">失败 {{ groupFailedCount }}</el-radio-button>
-          <el-radio-button label="recognized">待确认 {{ groupRecognizedCount }}</el-radio-button>
+          <el-radio-button label="all">{{ $tr("全部 {0}", [groupItems.length]) }}</el-radio-button>
+          <el-radio-button label="pending">{{ $tr("待识别 {0}", [groupPendingCount]) }}</el-radio-button>
+          <el-radio-button label="failed">{{ $tr("失败 {0}", [groupFailedCount]) }}</el-radio-button>
+          <el-radio-button label="recognized">{{ $tr("待确认 {0}", [groupRecognizedCount]) }}</el-radio-button>
         </el-radio-group>
         <div class="group-toolbar-actions">
-          <el-button v-hasPermi="['live:review:edit']" type="primary" icon="MagicStick" :loading="groupDialog.batchRecognizing" :disabled="groupPendingCount + groupFailedCount === 0" @click="batchRecognize">
-            批量识别 {{ groupPendingCount + groupFailedCount }} 张
+          <el-button v-hasPermi="['live:review:edit']" type="primary" icon="MagicStick" :loading="groupDialog.batchRecognizing" :disabled="groupPendingCount + groupFailedCount === 0 || allBatch.running" @click="batchRecognize">{{ $tr(" 批量识别 {0} 张 ", [groupPendingCount + groupFailedCount]) }}</el-button>
+          <el-button v-hasPermi="['live:review:confirm']" type="success" icon="Check"
+            :loading="groupDialog.confirming" :disabled="selectedGroupItems.length === 0 || groupDialog.confirming"
+            @click="confirmSelected">
+            {{ groupDialog.confirming ? $t('review.confirmingBatch') : $tr("确认选中 {0} 张", [selectedGroupItems.length]) }}
           </el-button>
-          <el-button v-hasPermi="['live:review:confirm']" type="success" icon="Check" :disabled="selectedGroupItems.length === 0" @click="confirmSelected">确认选中 {{ selectedGroupItems.length }} 张</el-button>
         </div>
       </div>
       <el-progress v-if="groupDialog.batchRecognizing" :percentage="groupDialog.progress" :status="groupDialog.failed ? 'exception' : undefined" style="margin-bottom: 14px" />
       <el-table :data="filteredGroupItems" max-height="560" @selection-change="selectedGroupItems = $event">
         <el-table-column type="selection" width="48" :selectable="row => row.aiStatus === '1'" />
-        <el-table-column label="图片" width="96" align="center">
+        <el-table-column :label="$tr(&quot;图片&quot;)" width="96" align="center">
           <template #default="{ row }">
             <el-image v-if="row.filePath" :src="baseApi + row.filePath" :preview-src-list="[baseApi + row.filePath]" preview-teleported fit="cover" class="thumb" />
             <span v-else class="report-text">{{ row.rawText }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="110" align="center">
+        <el-table-column :label="$tr(&quot;状态&quot;)" width="110" align="center">
           <template #default="{ row }">
-            <el-tag v-if="row._recognizing" type="primary" effect="plain"><el-icon class="is-loading"><Loading /></el-icon> 识别中</el-tag>
+            <el-tag v-if="row._recognizing" type="primary" effect="plain"><el-icon class="is-loading"><Loading /></el-icon>{{ $tr(" 识别中") }}</el-tag>
             <el-tag v-else :type="statusTag(row.aiStatus)">{{ statusLabel(row.aiStatus) }}</el-tag>
           </template>
         </el-table-column>
@@ -94,7 +110,7 @@
         </el-table-column>
         <el-table-column :label="$t('common.action')" width="220" fixed="right">
           <template #default="{ row }">
-            <el-button v-hasPermi="['live:review:edit']" link type="primary" :loading="row._recognizing" :disabled="row.aiStatus === '2' || row._recognizing" @click="handleMock(row)">{{ row._recognizing ? '识别中' : $t('review.aiRecognize') }}</el-button>
+            <el-button v-hasPermi="['live:review:edit']" link type="primary" :loading="row._recognizing" :disabled="row.aiStatus === '2' || row._recognizing || allBatch.running" @click="handleMock(row)">{{ row._recognizing ? $tr("识别中") : $t('review.aiRecognize') }}</el-button>
             <el-button v-hasPermi="['live:review:edit']" link type="primary" icon="Edit" :disabled="!row.aiResult || row.aiStatus === '2'" @click="openEditor(row)">{{ $t('review.correct') }}</el-button>
             <el-button v-hasPermi="['live:review:confirm']" link type="success" icon="Check" :disabled="row.aiStatus !== '1'" @click="handleConfirm(row)">{{ $t('review.confirm入库') }}</el-button>
           </template>
@@ -187,9 +203,9 @@
           <el-table-column :label="$t('review.nickname')" min-width="180"><template #default="{ row }"><el-input v-model="row.nickname" :placeholder="$t('review.nicknamePlaceholder')" /></template></el-table-column>
           <el-table-column :label="$t('review.followAccount')" min-width="180"><template #default="{ row }"><el-input v-model="row.account" :placeholder="$t('review.followAccountPlaceholder')" /></template></el-table-column>
           <el-table-column :label="$t('review.followStatus')" width="180"><template #default="{ row }"><el-select v-model="row.followStatus" style="width: 150px"><el-option :label="$t('review.followPending')" value="pending" /><el-option :label="$t('review.followMutual')" value="mutual" /><el-option :label="$t('review.followNone')" value="none" /></el-select></template></el-table-column>
-          <el-table-column label="操作" width="80" align="center"><template #default="{ $index }"><el-button link type="danger" icon="Delete" @click="removeItem($index)" /></template></el-table-column>
+          <el-table-column :label="$tr(&quot;操作&quot;)" width="80" align="center"><template #default="{ $index }"><el-button link type="danger" icon="Delete" @click="removeItem($index)" /></template></el-table-column>
         </el-table>
-        <el-button class="add-row-btn" icon="Plus" @click="addItem">增加客户</el-button>
+        <el-button class="add-row-btn" icon="Plus" @click="addItem">{{ $tr("增加客户") }}</el-button>
       </template>
 
       <template v-else>
@@ -204,42 +220,44 @@
       </template>
 
       <template #footer>
-        <el-button @click="editor.open = false">取消</el-button>
-        <el-button type="primary" @click="handleSave(false)">保存校正</el-button>
-        <el-button type="success" @click="handleSave(true)">保存并入库</el-button>
+        <el-button @click="editor.open = false">{{ $tr("取消") }}</el-button>
+        <el-button type="primary" @click="handleSave(false)">{{ $tr("保存校正") }}</el-button>
+        <el-button type="success" @click="handleSave(true)">{{ $tr("保存并入库") }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="merge.open" title="合并客户" width="500px" append-to-body>
+    <el-dialog v-model="merge.open" :title="$tr(&quot;合并客户&quot;)" width="500px" append-to-body>
       <el-form label-width="100px">
-        <el-form-item label="主播">
-          <el-select v-model="merge.streamerId" filterable placeholder="选择主播" style="width: 100%" @change="loadCustomersForMerge">
+        <el-form-item :label="$tr(&quot;主播&quot;)">
+          <el-select v-model="merge.streamerId" filterable :placeholder="$tr(&quot;选择主播&quot;)" style="width: 100%" @change="loadCustomersForMerge">
             <el-option v-for="s in streamers" :key="s.streamerId" :label="s.stageName" :value="s.streamerId" />
           </el-select>
         </el-form-item>
-        <el-form-item label="主客户">
-          <el-select v-model="merge.primaryId" filterable placeholder="选择保留的客户" style="width: 100%">
+        <el-form-item :label="$tr(&quot;主客户&quot;)">
+          <el-select v-model="merge.primaryId" filterable :placeholder="$tr(&quot;选择保留的客户&quot;)" style="width: 100%">
             <el-option v-for="c in mergeCustomers" :key="c.customerId" :label="c.nickname" :value="c.customerId" />
           </el-select>
         </el-form-item>
-        <el-form-item label="副客户">
-          <el-select v-model="merge.secondaryId" filterable placeholder="选择被合并的客户" style="width: 100%">
+        <el-form-item :label="$tr(&quot;副客户&quot;)">
+          <el-select v-model="merge.secondaryId" filterable :placeholder="$tr(&quot;选择被合并的客户&quot;)" style="width: 100%">
             <el-option v-for="c in mergeCustomers" :key="c.customerId" :label="c.nickname" :value="c.customerId" />
           </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="merge.open = false">取消</el-button>
-        <el-button type="primary" @click="handleMerge">确认合并</el-button>
+        <el-button @click="merge.open = false">{{ $tr("取消") }}</el-button>
+        <el-button type="primary" @click="handleMerge">{{ $tr("确认合并") }}</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup name="LiveReview">
+import { translateText } from '@/locales/translate'
+
 import { Loading } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
-import { listReview, recognizeUpload, saveReviewResult, confirmReview } from '@/api/live/review'
+import { listReview, recognizeUpload, saveReviewResult, confirmReview, confirmReviews } from '@/api/live/review'
 import { listStreamers } from '@/api/live/upload'
 import { listCustomers, mergeCustomers as mergeCustomersApi } from '@/api/live/customer'
 
@@ -268,10 +286,18 @@ const groupDialog = reactive({
   title: '',
   filter: 'all',
   batchRecognizing: false,
+  confirming: false,
   progress: 0,
   failed: false
 })
 const selectedGroupItems = ref([])
+const allBatch = reactive({
+  running: false,
+  progress: 0,
+  completed: 0,
+  total: 0,
+  failed: 0
+})
 
 const editor = reactive({
   open: false,
@@ -347,22 +373,22 @@ function defaultResult(row) {
 function resultSummary(row) {
   const result = parseResult(row)
   if (row.uploadType === '3') {
-    return `总流水 ${Number(result.totalXu || 0).toLocaleString()}，可校正汇报文本`
+    return translateText("总流水 {0}，可校正汇报文本", [Number(result.totalXu || 0).toLocaleString()])
   }
   if (row.uploadType === '4') {
-    return (Array.isArray(result.items) ? result.items : []).map(item => `${item.nickname || '未命名'}：${item.followStatus || 'pending'}`).join('、') || '暂无关注关系'
+    return (Array.isArray(result.items) ? result.items : []).map(item => `${item.nickname || translateText("未命名")}：${item.followStatus || 'pending'}`).join('、') || translateText("暂无关注关系")
   }
   const items = Array.isArray(result.items) ? result.items : []
   if (!items.length) {
-    return '暂无明细'
+    return translateText("暂无明细")
   }
   return items.map(item => {
     if (row.uploadType === '1') {
-      return `${item.nickname || '未命名'} ${Number(item.xu || 0).toLocaleString()}虚拟币`
+      return translateText("{0} {1}虚拟币", [item.nickname || translateText("未命名"), Number(item.xu || 0).toLocaleString()])
     }
     const msgs = Array.isArray(item.messages) ? item.messages : []
     const preview = msgs.slice(0, 2).map(m => m.content || '').filter(Boolean).join('; ')
-    return `${item.nickname || '未命名'}(${msgs.length}条)${preview ? ': ' + preview : ''}`
+    return translateText("{0}({1}条){2}", [item.nickname || translateText("未命名"), msgs.length, preview ? ': ' + preview : ''])
   }).join('、')
 }
 
@@ -392,6 +418,7 @@ const groupRows = computed(() => {
         uploadType: row.uploadType,
         count: 0,
         pendingCount: 0,
+        recognizingCount: 0,
         recognizedCount: 0,
         confirmedCount: 0,
         failedCount: 0
@@ -402,12 +429,14 @@ const groupRows = computed(() => {
     if (row.aiStatus === '2') group.confirmedCount += 1
     else if (row.aiStatus === '1') group.recognizedCount += 1
     else if (row.aiStatus === '3') group.failedCount += 1
-    else group.pendingCount += 1
+    else if (row.aiStatus === '4') group.recognizingCount += 1
+    else if (row.aiStatus === '0') group.pendingCount += 1
   })
   return Array.from(groups.values()).sort((a, b) => (b.bizDate + b.stageName).localeCompare(a.bizDate + a.stageName))
 })
 
 const groupItems = computed(() => rows.value.filter(row => groupKey(row) === groupDialog.key))
+const allPendingCount = computed(() => rows.value.filter(row => row.aiStatus === '0').length)
 const groupPendingCount = computed(() => groupItems.value.filter(row => row.aiStatus === '0').length)
 const groupFailedCount = computed(() => groupItems.value.filter(row => row.aiStatus === '3').length)
 const groupRecognizedCount = computed(() => groupItems.value.filter(row => row.aiStatus === '1').length)
@@ -456,7 +485,7 @@ function handleMock(row) {
   recognizingId.value = row.uploadId
   row._recognizing = true
   recognizeUpload(row.uploadId).then(() => {
-    proxy.$modal.msgSuccess('AI识别完成')
+    proxy.$modal.msgSuccess(translateText("AI识别完成"))
     loadList()
   }).catch(() => {}).finally(() => {
     recognizingId.value = null
@@ -474,6 +503,46 @@ async function runWithConcurrency(items, limit, handler) {
     }
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+}
+
+async function recognizeAllPending() {
+  const targets = rows.value.filter(row => row.aiStatus === '0')
+  if (!targets.length) return
+  try {
+    await proxy.$modal.confirm(t('review.recognizeAllConfirm', { count: targets.length }))
+  } catch (e) {
+    return
+  }
+  Object.assign(allBatch, {
+    running: true,
+    progress: 0,
+    completed: 0,
+    total: targets.length,
+    failed: 0
+  })
+  try {
+    await runWithConcurrency(targets, 2, async row => {
+      row._recognizing = true
+      row.aiStatus = '4'
+      try {
+        await recognizeUpload(row.uploadId)
+        row.aiStatus = '1'
+      } catch (e) {
+        row.aiStatus = '3'
+        allBatch.failed += 1
+      } finally {
+        row._recognizing = false
+        allBatch.completed += 1
+        allBatch.progress = Math.round(allBatch.completed * 100 / allBatch.total)
+      }
+    })
+    await loadList()
+    proxy.$modal.msgSuccess(allBatch.failed
+      ? t('review.recognizeAllPartial', { total: allBatch.total, failed: allBatch.failed })
+      : t('review.recognizeAllSuccess', { total: allBatch.total }))
+  } finally {
+    allBatch.running = false
+  }
 }
 
 async function batchRecognize() {
@@ -497,7 +566,7 @@ async function batchRecognize() {
       }
     })
     await loadList()
-    proxy.$modal.msgSuccess(groupDialog.failed ? '批量识别完成，部分图片失败' : '批量识别完成')
+    proxy.$modal.msgSuccess(groupDialog.failed ? translateText("批量识别完成，部分图片失败") : translateText("批量识别完成"))
   } finally {
     groupDialog.batchRecognizing = false
   }
@@ -507,12 +576,16 @@ async function confirmSelected() {
   const targets = selectedGroupItems.value.filter(row => row.aiStatus === '1')
   if (!targets.length) return
   try {
-    await proxy.$modal.confirm(`确认将选中的 ${targets.length} 张图片写入统计表吗？`)
-    await runWithConcurrency(targets, 3, row => confirmReview(row.uploadId))
-    proxy.$modal.msgSuccess('选中图片已确认入库')
+    await proxy.$modal.confirm(translateText("确认将选中的 {0} 张图片写入统计表吗？", [targets.length]))
+    groupDialog.confirming = true
+    await confirmReviews(targets.map(row => row.uploadId))
+    targets.forEach(row => { row.aiStatus = '2' })
+    proxy.$modal.msgSuccess(translateText("选中图片已确认入库"))
     selectedGroupItems.value = []
-    await loadList()
-  } catch (e) {}
+  } catch (e) {
+  } finally {
+    groupDialog.confirming = false
+  }
 }
 
 function openEditor(row) {
@@ -597,18 +670,18 @@ function handleSave(confirmAfter) {
     return
   }
   if (editor.form.type !== 'report' && !editor.form.items.some(item => item.nickname && item.nickname.trim())) {
-    proxy.$modal.msgWarning('请至少填写一个客户昵称')
+    proxy.$modal.msgWarning(translateText("请至少填写一个客户昵称"))
     return
   }
   saveReviewResult(row.uploadId, buildAiResult()).then(() => {
     if (!confirmAfter) {
-      proxy.$modal.msgSuccess('校正结果已保存')
+      proxy.$modal.msgSuccess(translateText("校正结果已保存"))
       editor.open = false
       loadList()
       return
     }
     confirmReview(row.uploadId).then(() => {
-      proxy.$modal.msgSuccess('已确认入库')
+      proxy.$modal.msgSuccess(translateText("已确认入库"))
       editor.open = false
       loadList()
     })
@@ -616,8 +689,8 @@ function handleSave(confirmAfter) {
 }
 
 function handleConfirm(row) {
-  proxy.$modal.confirm('确认将当前识别结果写入统计表吗？').then(() => confirmReview(row.uploadId)).then(() => {
-    proxy.$modal.msgSuccess('已确认入库')
+  proxy.$modal.confirm(translateText("确认将当前识别结果写入统计表吗？")).then(() => confirmReview(row.uploadId)).then(() => {
+    proxy.$modal.msgSuccess(translateText("已确认入库"))
     loadList()
   }).catch(() => {})
 }
@@ -654,18 +727,18 @@ function loadCustomersForMerge() {
 
 function handleMerge() {
   if (!merge.primaryId || !merge.secondaryId) {
-    proxy.$modal.msgWarning('请选择主客户和副客户')
+    proxy.$modal.msgWarning(translateText("请选择主客户和副客户"))
     return
   }
   if (merge.primaryId === merge.secondaryId) {
-    proxy.$modal.msgWarning('不能合并同一个客户')
+    proxy.$modal.msgWarning(translateText("不能合并同一个客户"))
     return
   }
   const primary = customers.value.find(c => c.customerId === merge.primaryId)
   const secondary = customers.value.find(c => c.customerId === merge.secondaryId)
-  proxy.$modal.confirm(`确认将 ${secondary.nickname} 合并到 ${primary.nickname} 吗？合并后不可撤销。`).then(() => {
+  proxy.$modal.confirm(translateText("确认将 {0} 合并到 {1} 吗？合并后不可撤销。", [secondary.nickname, primary.nickname])).then(() => {
     mergeCustomersApi(merge.primaryId, merge.secondaryId).then(() => {
-      proxy.$modal.msgSuccess('合并成功')
+      proxy.$modal.msgSuccess(translateText("合并成功"))
       merge.open = false
       loadCustomers()
       loadList()
@@ -701,6 +774,27 @@ function handleMerge() {
 
 .status-gap {
   margin-left: 6px;
+}
+
+.page-batch-progress {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border: 1px solid #d9ecff;
+  background: #f4f9ff;
+}
+
+.page-batch-progress > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+  color: #606266;
+  font-size: 13px;
+}
+
+.page-batch-progress b {
+  color: #303133;
 }
 
 .group-toolbar {

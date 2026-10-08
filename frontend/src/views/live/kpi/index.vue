@@ -119,6 +119,8 @@
 </template>
 
 <script setup name="LiveKpi">
+import { translateText } from '@/locales/translate'
+
 import { useI18n } from 'vue-i18n'
 import { listKpiConfig, getKpiConfig, addKpiConfig, updateKpiConfig, delKpiConfig } from '@/api/live/kpi'
 import { listStreamers } from '@/api/live/upload'
@@ -149,8 +151,8 @@ const STREAMER_COLORS = {
 const data = reactive({
   form: {},
   rules: {
-    kpiYear: [{ required: true, message: '年份不能为空', trigger: 'blur' }],
-    kpiMonth: [{ required: true, message: '月份不能为空', trigger: 'change' }]
+    kpiYear: [{ required: true, message: translateText("年份不能为空"), trigger: 'blur' }],
+    kpiMonth: [{ required: true, message: translateText("月份不能为空"), trigger: 'change' }]
   }
 })
 
@@ -195,7 +197,7 @@ function handleAddAll() {
   form.value.kpiYear = selectedYear.value
   form.value.kpiMonth = selectedMonth.value
   open.value = true
-  title.value = '添加 KPI 配置'
+  title.value = translateText("添加 KPI 配置")
 }
 
 /** 编辑主播配置 */
@@ -209,7 +211,7 @@ function handleUpdateStreamer(streamer) {
     form.value.kpiYear = selectedYear.value
     form.value.kpiMonth = selectedMonth.value
     open.value = true
-    title.value = `为 ${streamer.stageName} 添加 KPI 配置`
+    title.value = translateText("为 {0} 添加 KPI 配置", [streamer.stageName])
   }
 }
 
@@ -219,7 +221,7 @@ function handleUpdate(row) {
   getKpiConfig(row.kpiId).then(response => {
     form.value = response.data
     open.value = true
-    title.value = '修改 KPI 配置'
+    title.value = translateText("修改 KPI 配置")
   })
 }
 
@@ -229,13 +231,13 @@ function submitForm() {
     if (valid) {
       if (form.value.kpiId) {
         updateKpiConfig(form.value).then(response => {
-          proxy.$modal.msgSuccess('修改成功')
+          proxy.$modal.msgSuccess(translateText("修改成功"))
           open.value = false
           loadKpiData()
         })
       } else {
         addKpiConfig(form.value).then(response => {
-          proxy.$modal.msgSuccess('新增成功')
+          proxy.$modal.msgSuccess(translateText("新增成功"))
           open.value = false
           loadKpiData()
         })
@@ -246,11 +248,11 @@ function submitForm() {
 
 /** 删除配置 */
 function handleDelete(row) {
-  proxy.$modal.confirm('是否确认删除该 KPI 配置？').then(function () {
+  proxy.$modal.confirm(translateText("是否确认删除该 KPI 配置？")).then(function () {
     return delKpiConfig(row.kpiId)
   }).then(() => {
     loadKpiData()
-    proxy.$modal.msgSuccess('删除成功')
+    proxy.$modal.msgSuccess(translateText("删除成功"))
   }).catch(() => {})
 }
 
