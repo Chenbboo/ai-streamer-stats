@@ -437,6 +437,17 @@ public class BusinessProjectController extends BaseController
         return success();
     }
 
+    @PreAuthorize("@ss.hasPermi('business:project:member')")
+    @Log(title = "项目成员暂停/启动工作", businessType = BusinessType.UPDATE)
+    @PutMapping("/project/{projectId}/member/{memberUserId}/work-status")
+    public AjaxResult changeMemberWorkStatus(@PathVariable Long projectId, @PathVariable Long memberUserId,
+        @RequestBody Map<String,String> body)
+    {
+        projectService.changeMemberWorkStatus(projectId, memberUserId, body.get("action"),
+            currentUserId(), currentUserName(), isBoss());
+        return success();
+    }
+
     @PreAuthorize("@ss.hasPermi('business:project:task')")
     @Log(title = "项目里程碑", businessType = BusinessType.INSERT)
     @PostMapping("/project/milestone")

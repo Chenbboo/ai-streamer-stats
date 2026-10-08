@@ -1133,3 +1133,14 @@ where table_schema=database() and table_name='biz_incentive_rule'
 select 1-count(*) as missing_incentive_settlement_month from information_schema.columns
 where table_schema=database() and table_name='biz_incentive_rule' and column_name='settlement_month'
   and data_type='varchar' and character_maximum_length=7 and is_nullable='YES';
+
+-- V142 member work pause/start history.
+select 1-count(*) as missing_member_work_pause_table from information_schema.tables
+where table_schema=database() and table_name='biz_project_member_work_pause';
+select 4-count(*) as missing_member_work_pause_columns from information_schema.columns
+where table_schema=database() and table_name='biz_project_member_work_pause'
+  and column_name in ('paused_time','started_time','paused_by','started_by');
+
+-- V143 immutable execution submission history, retained for at least three months.
+select 1-count(*) as missing_completion_submission_history from information_schema.tables
+where table_schema=database() and table_name='biz_project_completion_submission';

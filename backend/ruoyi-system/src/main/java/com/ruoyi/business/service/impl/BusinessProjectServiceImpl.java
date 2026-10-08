@@ -142,6 +142,14 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (inactiveTasks == null) inactiveTasks = new ArrayList<BusinessProjectTask>();
         attachWorkPeriods(projectId, tasks, inactiveTasks, routines, retiredRoutines);
         project.setMembers(mapper.selectMembers(projectId));
+        List<Map<String,Object>> memberWorkPauses = mapper.selectMemberWorkPauses(projectId);
+        for (BusinessProjectMember member : project.getMembers())
+        {
+            List<Map<String,Object>> history = new ArrayList<>();
+            for (Map<String,Object> pause : memberWorkPauses)
+                if (member.getUserId().equals(Long.valueOf(String.valueOf(pause.get("userId"))))) history.add(pause);
+            member.setWorkPauseHistory(history);
+        }
         project.setMilestones(mapper.selectMilestones(projectId));
         project.setTasks(tasks);
         project.setInactiveTasks(inactiveTasks);
@@ -2297,6 +2305,44 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     }
 
     @Override
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+    public void changeMemberWorkStatus(Long projectId, Long memberUserId, String action,
+        Long userId, String userName, boolean boss)
+    {
+        BusinessProject project = requireProjectForUpdate(projectId);
+        requireManage(project, userId, boss);
+        ensureMutable(project);
+        BusinessProjectLifecycle.requireAccountingOpen(project);
+        if (memberUserId == null || memberUserId.equals(project.getMainOwnerUserId()))
+            throw new ServiceException("请在成员列表选择非主负责人成员");
+        String role = mapper.selectMemberRole(projectId, memberUserId);
+        if (role == null) throw new ServiceException("项目成员不存在或已退出");
+        requireDeputyAssignmentAuthority(project, userId, boss, role, role);
+        if (!"PAUSE".equals(action) && !"START".equals(action))
+            throw new ServiceException("请选择暂停项目工作或启动项目工作");
+        boolean paused = mapper.countMemberWorkPaused(projectId, memberUserId) > 0;
+        if ("PAUSE".equals(action))
+        {
+            if (paused) throw new ServiceException("该成员已暂停项目工作，请刷新后查看");
+            mapper.insertMemberWorkPause(projectId, memberUserId, userName);
+        }
+        else
+        {
+            if (!paused) throw new ServiceException("该成员项目工作已启动，请刷新后查看");
+            if (mapper.startMemberWork(projectId, memberUserId, userName) != 1)
+                throw new ServiceException("成员工作状态已变化，请刷新后重试");
+        }
+        Date effectiveDate = DateUtils.parseDate(DateUtils.getDate());
+        memberDays.synchronizeAllocationChange(projectId, effectiveDate, userName);
+        // 月薪跨项目分配需要同时刷新该成员参与的其他项目，从操作当天起生效。
+        for (Long affectedId : mapper.selectAllocatedProjectIdsForUserDate(memberUserId, effectiveDate))
+            if (!projectId.equals(affectedId)) memberDays.synchronizeAllocationChange(affectedId, effectiveDate, userName);
+        addEvent(projectId, "PAUSE".equals(action) ? "MEMBER_WORK_PAUSE" : "MEMBER_WORK_START",
+            project.getStatus(), project.getStatus(), userId, userName,
+            "账号ID " + memberUserId + "：" + ("PAUSE".equals(action) ? "暂停项目工作" : "启动项目工作"));
+    }
+
+    @Override
     @Transactional
     public void removeMember(Long projectId, Long memberUserId, Long userId, String userName, boolean boss)
     {
@@ -2531,6 +2577,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         report.setSubmittedUserName(displayName(requireActiveUser(userId)));
         report.setCreateBy(userName);
         mapper.upsertTaskReport(report);
+        mapper.insertTaskCompletionSubmission(report);
         addEvent(project.getProjectId(), "TASK_PROGRESS", project.getStatus(), project.getStatus(), userId, userName,
             task.getTaskName() + " / " + task.getProgress() + "%");
         return mapper.selectTaskReport(task.getTaskId(), report.getBizDate());
@@ -2945,6 +2992,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         report.setUnit(routine.getUnit()); report.setSubmittedUserId(userId);
         report.setSubmittedUserName(displayName(requireActiveUser(userId))); report.setStatus("SUBMITTED");
         report.setCreateBy(userName); mapper.upsertRoutineReport(report);
+        mapper.insertRoutineCompletionSubmission(report);
         addEvent(project.getProjectId(), "ROUTINE_REPORT", project.getStatus(), project.getStatus(), userId, userName,
             routine.getRoutineName() + "：" + report.getActualValue() + routine.getUnit());
         return mapper.selectRoutineReport(routine.getRoutineId(), report.getBizDate());
@@ -3428,6 +3476,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         result.put("taskReports", taskReports == null
             ? Collections.<BusinessProjectTaskReport>emptyList() : taskReports);
         result.put("workReports", workReportService.listForProject(selectedId));
+        result.put("memberCompletionReports", mapper.selectMemberCompletionReports(selectedId));
         result.put("todayRoutines", detail.getRoutines());
         result.put("accounting", accounting);
         result.put("todayProjectProgress", mapper.selectProjectProgressReport(selectedId,
@@ -3504,6 +3553,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         result.put("projectBonuses", projectBonuses);
         result.put("tasks", tasks); result.put("routines", routines); result.put("efforts", efforts);
         result.put("latestWorkReports", workReportService.latestForSubmitter(userId));
+        result.put("workReportHistory", workReportService.historyForSubmitter(userId));
         return result;
     }
 
@@ -3828,6 +3878,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
 
     private void requireActiveExecutor(Long projectId, Long userId)
     {
+        if (mapper.countMemberWorkPaused(projectId, userId) > 0)
+            throw new ServiceException("你在本项目的工作已暂停，请联系负责人启动后再填报");
         BusinessProject project = mapper.selectProjectById(projectId);
         if (project != null && userId.equals(project.getMainOwnerUserId())) return;
         String role = mapper.selectMemberRole(projectId, userId);

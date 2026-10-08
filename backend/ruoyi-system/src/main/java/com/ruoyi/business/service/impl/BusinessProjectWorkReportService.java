@@ -49,6 +49,8 @@ public class BusinessProjectWorkReportService
         if (routine != null && !userId.equals(routine.getAssigneeUserId()))
             throw new ServiceException("只能由持续工作执行人本人提交工作汇报");
         String role = projectMapper.selectMemberRole(project.getProjectId(), userId);
+        if (projectMapper.countMemberWorkPaused(project.getProjectId(), userId) > 0)
+            throw new ServiceException("你在本项目的工作已暂停，请联系负责人启动后再汇报");
         if (!userId.equals(project.getMainOwnerUserId()) && (role == null || "OBSERVER".equals(role)))
             throw new ServiceException("已不再是该项目的有效执行成员");
         LocalDate today = LocalDate.now(BUSINESS_ZONE);
@@ -99,6 +101,12 @@ public class BusinessProjectWorkReportService
     public List<BusinessProjectWorkReport> listForProject(Long projectId)
     {
         return reportMapper.selectByProject(projectId);
+    }
+
+    /** 内容及附件引用长期留存，至少保留三个月；重新提交不会覆盖历史记录。 */
+    public List<BusinessProjectWorkReport> historyForSubmitter(Long userId)
+    {
+        return reportMapper.selectBySubmitter(userId);
     }
 
     public List<BusinessProjectWorkReport> latestForSubmitter(Long userId)

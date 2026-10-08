@@ -35,6 +35,30 @@ class BusinessMemberDayCostServiceTest {
         when(work.selectMembers(1L)).thenReturn(Collections.singletonList(member));when(work.selectCalendars()).thenReturn(Collections.singletonList(calendar));
         when(work.selectBudgetRates(eq(7L),anyString(),anyString())).thenReturn(Collections.singletonList(rate));
     }
+    @Test void memberPauseSkipsOnlyItsProjectDaysAndStartDateRestoresCost(){
+        when(projects.selectMemberWorkPauses(1L)).thenReturn(Collections.singletonList(
+            row("userId",7L,"effectiveFrom","2026-09-01","effectiveTo","2026-09-03")));
+        List<Map<String,Object>> rows=service.calculateCurrent(project,LocalDate.parse("2026-08-31"),LocalDate.parse("2026-09-04"));
+        assertEquals(Arrays.asList("2026-08-31","2026-09-03","2026-09-04"),
+            rows.stream().map(r->r.get("bizDate")).collect(java.util.stream.Collectors.toList()));
+        assertTrue(rows.stream().allMatch(r->"PRICED".equals(r.get("pricingStatus"))));
+    }
+    @Test void activePauseAlsoRemovesPreservedCostForPausedDate(){
+        when(projects.selectMemberWorkPauses(1L)).thenReturn(Collections.singletonList(
+            row("userId",7L,"effectiveFrom","2026-09-01")));
+        when(costs.selectCosts(1L)).thenReturn(Collections.singletonList(
+            row("userId",7L,"bizDate","2026-09-01","pricingStatus","PRICED","amount",new BigDecimal("1000"))));
+        assertTrue(service.calculate(project,LocalDate.parse("2026-09-01"),LocalDate.parse("2026-09-01")).isEmpty());
+    }
+    @Test void fullMonthlyPayrollAlsoExcludesMemberPausePeriods(){
+        directPayrollFixture();
+        when(projects.selectMemberWorkPauses(1L)).thenReturn(Collections.singletonList(
+            row("userId",7L,"effectiveFrom","2026-09-24","effectiveTo","2026-09-29")));
+        List<Map<String,Object>> rows=service.calculateCurrent(project,LocalDate.parse("2026-09-23"),LocalDate.parse("2026-09-30"));
+        assertEquals(Arrays.asList("2026-09-23","2026-09-29","2026-09-30"),
+            rows.stream().map(r->r.get("bizDate")).collect(java.util.stream.Collectors.toList()));
+        assertTrue(rows.stream().allMatch(r->"PRICED".equals(r.get("pricingStatus"))));
+    }
     void directPayrollFixture(){
         project.setActualStartDate(Date.valueOf("2026-09-23"));member.put("joinedDate","2026-09-23");rate.put("unitCost",11250);
         when(costs.selectStaffMetadata(eq(7L),any())).thenReturn(row("departmentCostSource","DIRECT_PROJECT"));

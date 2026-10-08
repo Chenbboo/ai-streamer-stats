@@ -11,6 +11,10 @@
       </div>
     </header>
 
+    <section class="panel">
+      <div class="panel-head"><div><h2>{{ $tr("我的工作汇报记录") }}</h2><p>{{ $tr("每次提交的内容和附件至少保留三个月，重新提交不会覆盖历史记录，三个月后不会自动删除。") }}</p></div><el-button type="primary" plain @click="workReportHistoryDialog=true">{{ $tr("查看全部（{0}）", [workReportHistory.length]) }}</el-button></div>
+    </section>
+
     <section class="schedule-bar">
       <el-radio-group v-model="period" @change="changePeriod">
         <el-radio-button value="DAY">{{ $tr("今日安排") }}</el-radio-button>
@@ -72,7 +76,7 @@
         <el-empty v-if="!routines.length" :description="$tr(&quot;这个周期没有分配给你的持续工作&quot;)" />
         <div v-for="routine in routines" :key="routine.routineId" class="work-card">
           <div class="card-top"><div><el-tag size="small" effect="plain">{{ routine.projectName }}</el-tag><span>{{ $tr("{0}立项", [routine.initiatorName]) }}</span></div><el-tag size="small">{{ routineTargetModeLabel[routine.targetMode || 'FIXED'] }}</el-tag></div>
-          <h3>{{ routine.routineName }}</h3>
+          <h3>{{ routine.routineName }}</h3><el-tag v-if="routine.memberWorkPaused" type="warning">{{ $tr("本项目工作已暂停，请联系负责人启动") }}</el-tag>
           <p class="target">{{ routineTargetDescription(routine) }}</p>
           <p v-if="isToday&&routine.todayRequirement" class="note">{{ $tr("客户要求：{0}", [routine.todayRequirement]) }}</p>
           <div class="result-line"><span>{{ isToday ? (routine.todayLeaveId ? $tr("今日状态") : $tr("今日完成")) : $tr("周期累计") }}</span><b>{{ isToday && routine.todayLeaveId ? $tr("今日请假") : (isToday&&routine.targetMode==='NONE'&&routine.todayReportId?$tr("已填写完成说明"):`${isToday ? (routine.todayReportId ? routine.todayActual : '—') : (routine.periodActual || 0)} ${$tr(routine.unit)}`) }}</b></div>
@@ -81,7 +85,7 @@
           <p v-if="routineBelowTarget(routine) && routine.todayIssueReason" class="issue">{{ $tr("未达原因：{0}", [routine.todayIssueReason]) }}</p>
           <p v-if="latestWorkReport(routine)" class="note">{{ $tr("最近工作汇报：{0} · {1}", [workReportStatusLabel(latestWorkReport(routine).status), workReportFrequencyLabel(latestWorkReport(routine).frequency)]) }}</p>
           <p v-if="latestWorkReport(routine)?.status==='RETURNED'" class="issue">{{ $tr("退回原因：{0}", [latestWorkReport(routine).reviewComment]) }}</p>
-          <el-button v-if="isToday && !routine.todayLeaveId && !(routine.targetMode==='DAILY_DYNAMIC'&&!routine.todayTargetId)" type="primary" :plain="!!routine.todayReportId" @click="openRoutineReport(routine)">{{ routine.todayReportId ? $tr("修改今日填报") : (routine.targetMode==='NONE'?$tr("填写今日完成说明"):$tr("填报今日完成量")) }}</el-button>
+          <el-button v-if="isToday && !routine.memberWorkPaused && !routine.todayLeaveId && !(routine.targetMode==='DAILY_DYNAMIC'&&!routine.todayTargetId)" type="primary" :plain="!!routine.todayReportId" @click="openRoutineReport(routine)">{{ routine.todayReportId ? $tr("修改今日填报") : (routine.targetMode==='NONE'?$tr("填写今日完成说明"):$tr("填报今日完成量")) }}</el-button>
           <el-alert v-else-if="isToday && routine.targetMode==='DAILY_DYNAMIC'&&!routine.todayTargetId" :title="$tr(&quot;负责人尚未下达今日目标，下达后才能填报。&quot;)" type="warning" :closable="false" show-icon />
         </div>
       </article>
@@ -91,19 +95,31 @@
         <el-empty v-if="!tasks.length" :description="$tr(&quot;这个周期没有分配给你的一次性任务&quot;)" />
         <div v-for="task in tasks" :key="task.taskId" class="work-card task-card">
           <div class="card-top"><div><el-tag size="small" effect="plain">{{ task.projectName }}</el-tag><span>{{ $tr("{0}立项", [task.initiatorName]) }}</span></div><el-tag size="small" :type="taskTone[task.status]">{{ taskStatusLabel[task.status] }}</el-tag></div>
-          <h3>{{ task.taskName }}</h3>
+          <h3>{{ task.taskName }}</h3><el-tag v-if="task.memberWorkPaused" type="warning">{{ $tr("本项目工作已暂停，请联系负责人启动") }}</el-tag>
           <p class="target">{{ $tr("截止日期：{0}", [task.dueDate || $tr("未设置")]) }}</p>
           <el-progress :percentage="task.progress || 0" :stroke-width="7" />
           <p v-if="isToday && task.todayLeaveId" class="note">{{ $tr("请假说明：{0}", [task.todayLeaveReason || $tr("今日无需填报")]) }}</p>
           <p v-if="task.todayTaskReportId" class="note">{{ $tr("今日已填报：{0}%", [task.todayProgress]) }}<template v-if="task.todayCompletionSummary">，{{ task.todayCompletionSummary }}</template></p>
           <div class="task-actions">
-            <el-button v-if="isToday && task.projectStatus==='ACTIVE' && !task.todayLeaveId" type="primary" :plain="!!task.todayTaskReportId" @click="openTaskReport(task)">{{ task.todayTaskReportId ? $tr("修改今日填报") : $tr("填报今日完成量") }}</el-button>
+            <el-button v-if="isToday && !task.memberWorkPaused && task.projectStatus==='ACTIVE' && !task.todayLeaveId" type="primary" :plain="!!task.todayTaskReportId" @click="openTaskReport(task)">{{ task.todayTaskReportId ? $tr("修改今日填报") : $tr("填报今日完成量") }}</el-button>
             <span v-else-if="isToday && task.todayLeaveId" class="task-report-tip">{{ $tr("今日请假，无需填报") }}</span>
             <span v-else-if="isToday" class="task-report-tip">{{ $tr("项目执行中才能填报") }}</span>
           </div>
         </div>
       </article>
     </section>
+
+    <el-dialog v-model="workReportHistoryDialog" :title="$tr(&quot;我的工作汇报记录&quot;)" width="min(860px, 96vw)" append-to-body destroy-on-close>
+      <el-empty v-if="!workReportHistory.length" :description="$tr(&quot;暂无工作汇报记录&quot;)" />
+      <article v-for="report in workReportHistory" :key="report.reportId" class="work-card">
+        <div class="card-top"><b>{{ reportProjectName(report) }} · {{ report.routineName }}</b><el-tag>{{ workReportStatusLabel(report.status) }}</el-tag></div>
+        <p class="note">{{ report.submittedUserName }} · {{ report.createTime }} · {{ workReportFrequencyLabel(report.frequency) }} · {{ report.periodStart }} ~ {{ report.periodEnd }}</p>
+        <p v-if="report.content" style="white-space: pre-wrap; overflow-wrap: anywhere">{{ report.content }}</p>
+        <p v-if="report.reviewComment" class="note">{{ $tr("验收意见：{0}", [report.reviewComment]) }}</p>
+        <business-file-upload v-if="report.attachmentUrls" :model-value="report.attachmentUrls" :project-id="report.projectId" disabled />
+      </article>
+      <template #footer><el-button @click="workReportHistoryDialog=false">{{ $tr("关闭") }}</el-button></template>
+    </el-dialog>
 
     <el-dialog v-model="reportDialog" :title="reportForm.reportId?$tr(&quot;修改今日完成量&quot;):$tr(&quot;填报今日完成量&quot;)" width="min(620px, 94vw)" append-to-body>
       <el-alert :title="`${reportForm.routineName || ''} · ${data.today || today()}`" type="info" :closable="false" show-icon />
@@ -162,6 +178,8 @@ const router=useRouter(),route=useRoute()
 const ALL_PROJECTS='ALL_PROJECTS'
 const loading=ref(false),saving=ref(false),savingEffortId=ref(null),data=ref({}),period=ref('DAY'),anchorDate=ref(today()),selectedProjectId=ref(route.query.projectId??ALL_PROJECTS),reportDialog=ref(false),reportForm=ref({}),workReportDialog=ref(false),workReportForm=ref({}),workReportUploading=ref(false),taskReportDialog=ref(false),taskReportForm=ref({})
 const projectBonuses=computed(()=>data.value.projectBonuses||[])
+const workReportHistoryDialog=ref(false)
+const workReportHistory=computed(()=>(data.value.workReportHistory||[]).filter(projectMatches))
 const projectOptions=computed(()=>projectBonuses.value)
 const projectMatches=item=>selectedProjectId.value===ALL_PROJECTS||String(item.projectId)===String(selectedProjectId.value)
 const tasks=computed(()=>(data.value.tasks||[]).filter(projectMatches))

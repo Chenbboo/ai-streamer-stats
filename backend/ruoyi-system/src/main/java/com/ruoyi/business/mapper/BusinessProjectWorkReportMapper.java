@@ -9,6 +9,7 @@ public interface BusinessProjectWorkReportMapper
 {
     int insert(BusinessProjectWorkReport report);
     List<BusinessProjectWorkReport> selectByProject(@Param("projectId") Long projectId);
+    List<BusinessProjectWorkReport> selectBySubmitter(@Param("userId") Long userId);
     List<BusinessProjectWorkReport> selectLatestBySubmitter(@Param("userId") Long userId);
     BusinessProjectWorkReport selectById(@Param("reportId") Long reportId);
     int review(@Param("reportId") Long reportId, @Param("decision") String decision,

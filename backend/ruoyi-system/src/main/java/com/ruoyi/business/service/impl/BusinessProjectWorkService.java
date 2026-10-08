@@ -301,7 +301,12 @@ public class BusinessProjectWorkService
     }
     private void audit(Map<String,Object> row,String action,Long actor,String userName,Object reason){Map<String,Object> item=new LinkedHashMap<String,Object>();item.put("entryId",row.get("entryId"));item.put("action",action);item.put("snapshotJson",write(row));item.put("actorId",actor);item.put("userName",userName);item.put("reason",optionalReason(reason));mapper.insertAudit(item);}
     private void lockPerson(Long user,LocalDate day){mapper.ensurePersonDayLock(user,day.toString());mapper.lockPersonDay(user,day.toString());}
-    private void requireMembership(BusinessProject p,Long user,LocalDate day){if(user==null||mapper.countMembership(p.getProjectId(),user,day.toString())==0)throw new ServiceException("人员在工作日期没有有效项目参与授权");}
+    private void requireMembership(BusinessProject p,Long user,LocalDate day){
+        if(user!=null&&projectMapper.countMemberWorkPaused(p.getProjectId(),user)>0)
+            throw new ServiceException("该成员在本项目的工作已暂停，请先启动项目工作");
+        if(user==null||mapper.countMembership(p.getProjectId(),user,day.toString())==0)
+            throw new ServiceException("人员在工作日期没有有效项目参与授权");
+    }
     private void requireReporter(BusinessProject p,Long person,Long actor){if(!actor.equals(person)&&!actor.equals(p.getMainOwnerUserId()))throw new ServiceException("仅可记录本人工作，项目负责人代填须保留代填人");}
     private void requireWorkDate(BusinessProject p,LocalDate day,Object reason){if(p.getActualStartDate()!=null&&day.isBefore(date(p.getActualStartDate())))throw new ServiceException("工作日期早于实际项目开始日");if(BusinessProjectLifecycle.isTerminal(p.getStatus())){if(p.getActualEndDate()==null||day.isAfter(date(p.getActualEndDate())))throw new ServiceException("只能补录交付结束日前已经发生的工作");requiredReason(reason);}}
     private boolean canConfirm(BusinessProject p,Map<String,Object> row,Long actor){if(actor==null||actor.equals(id(row.get("userId")))||actor.equals(id(row.get("createUserId"))))return false;return actor.equals(p.getMainOwnerUserId())||companyAccess.project(p,actor);}

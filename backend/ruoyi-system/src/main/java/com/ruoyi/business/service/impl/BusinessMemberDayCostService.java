@@ -66,7 +66,7 @@ public class BusinessMemberDayCostService {
             if(!d.isBefore(from)&&!d.isAfter(to)&&preserveCost(row)&&!repriceMonthlyPayroll(row,merged.get(row.get("userId")+":"+d)))
                 merged.put(row.get("userId")+":"+d,new LinkedHashMap<>(row));
         }
-        List<Map<String,Object>> result=new ArrayList<>(merged.values());
+        List<Map<String,Object>> result=applyMemberWorkPauses(projectId,new ArrayList<>(merged.values()));
         result.sort(Comparator.comparing(r->day(r.get("bizDate"))));return result;
     }
     public List<Map<String,Object>> overview(Long projectId,String date){
@@ -98,7 +98,7 @@ public class BusinessMemberDayCostService {
             rows.removeIf(r->Objects.equals(id(r.get("userId")),id(row.get("userId"))));rows.add(new LinkedHashMap<>(row));
         }
         List<Map<String,Object>> merged=new ArrayList<>();for(List<Map<String,Object>> rows:next.values())merged.addAll(rows);
-        next=group(applyLeave(projectId,merged));
+        next=group(applyLeave(projectId,applyMemberWorkPauses(projectId,merged)));
         Set<String> dates=new TreeSet<>();dates.addAll(old.keySet());dates.addAll(next.keySet());
         Set<String> legacyDates=new HashSet<>(mapper.selectLegacyResultDates(projectId));dates.addAll(legacyDates);
         for(String date:dates) {
@@ -129,6 +129,7 @@ public class BusinessMemberDayCostService {
         BusinessPersonnelCost pricing=new BusinessPersonnelCost();
         List<Map<String,Object>> roles=mapper.selectRolePeriods(p.getProjectId());
         List<Map<String,Object>> pauses=mapper.selectCostPauses(p.getProjectId());
+        List<Map<String,Object>> memberPauses=projects.selectMemberWorkPauses(p.getProjectId());
         List<Map<String,Object>> allocations=mapper.selectAllocationPeriods(p.getProjectId());
         List<Map<String,Object>> assignments=work.selectAssignments(p.getProjectId()),calendars=work.selectCalendars();
         List<Map<String,Object>> memberships=new ArrayList<>(work.selectMembers(p.getProjectId()));memberships.addAll(mapper.selectPastMemberships(p.getProjectId()));
@@ -151,6 +152,7 @@ public class BusinessMemberDayCostService {
             BusinessFullProjectPayroll payroll=monthlyPayroll?new BusinessFullProjectPayroll(allocationTimeline==null?Collections.emptyList():allocationTimeline,calendars,fullPayrollScopes(userId,allocationTimeline),fullPayroll):null;
             Map<YearMonth,List<Map<String,Object>>> monthlyRates=new HashMap<>(),monthlyStored=new HashMap<>();
             for(LocalDate date=from;!date.isAfter(to);date=date.plusDays(1)) {
+                if(memberWorkPaused(memberPauses,userId,date))continue;
                 boolean released=false;
                 for(Map<String,Object> pause:pauses)if(!date.isBefore(day(pause.get("effectiveFrom")))&&(pause.get("effectiveTo")==null||date.isBefore(day(pause.get("effectiveTo"))))){released=true;break;}
                 if(released)continue;
@@ -268,7 +270,10 @@ public class BusinessMemberDayCostService {
             for(Map<String,Object> row:mapper.selectPastMemberships(projectId))if(userId.equals(id(row.get("userId"))))members.add(row);
             for(Map<String,Object> row:work.selectAssignments(projectId))if(userId.equals(id(row.get("userId"))))plans.add(row);
             for(Map<String,Object> row:mapper.selectRolePeriods(projectId))if(userId.equals(id(row.get("userId"))))roles.add(row);
-            scope.put("members",members);scope.put("plans",plans);scope.put("roles",roles);scope.put("pauses",mapper.selectCostPauses(projectId));result.put(projectId,scope);
+            List<Map<String,Object>> pauses=new ArrayList<>(mapper.selectCostPauses(projectId));
+            for(Map<String,Object> pause:projects.selectMemberWorkPauses(projectId))
+                if(userId.equals(id(pause.get("userId"))))pauses.add(pause);
+            scope.put("members",members);scope.put("plans",plans);scope.put("roles",roles);scope.put("pauses",pauses);result.put(projectId,scope);
         }
         return result;
     }
@@ -289,6 +294,17 @@ public class BusinessMemberDayCostService {
             for(Map<String,Object> cost:after.getOrDefault(key,Collections.emptyList()))mapper.insertCost(cost);
             accounting.recalculatePersonnelCost(projectId,java.sql.Date.valueOf(date),operator);
         }
+    }
+    private boolean memberWorkPaused(List<Map<String,Object>> pauses,Long userId,LocalDate date){
+        for(Map<String,Object> pause:pauses)
+            if(userId.equals(id(pause.get("userId")))&&!date.isBefore(day(pause.get("effectiveFrom")))
+                &&(pause.get("effectiveTo")==null||date.isBefore(day(pause.get("effectiveTo")))))return true;
+        return false;
+    }
+    private List<Map<String,Object>> applyMemberWorkPauses(Long projectId,List<Map<String,Object>> costs){
+        List<Map<String,Object>> pauses=projects.selectMemberWorkPauses(projectId);
+        costs.removeIf(row->memberWorkPaused(pauses,id(row.get("userId")),day(row.get("bizDate"))));
+        return costs;
     }
     public boolean workingDay(Map<String,Object> calendar,LocalDate date){
         return BusinessPersonnelCost.workingDay(calendar,date);

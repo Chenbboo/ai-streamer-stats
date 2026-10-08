@@ -23,6 +23,15 @@ import com.ruoyi.business.domain.BusinessStaffCostPolicy;
 
 public interface BusinessProjectMapper
 {
+    List<Map<String,Object>> selectMemberCompletionReports(Long projectId);
+    int insertRoutineCompletionSubmission(BusinessProjectRoutineReport report);
+    int insertTaskCompletionSubmission(BusinessProjectTaskReport report);
+    List<Map<String,Object>> selectMemberWorkPauses(Long projectId);
+    int countMemberWorkPaused(@Param("projectId") Long projectId, @Param("userId") Long userId);
+    int insertMemberWorkPause(@Param("projectId") Long projectId, @Param("userId") Long userId,
+        @Param("userName") String userName);
+    int startMemberWork(@Param("projectId") Long projectId, @Param("userId") Long userId,
+        @Param("userName") String userName);
     int separateDeliveryForPublicCosts(@org.apache.ibatis.annotations.Param("projectId") Long projectId,
         @org.apache.ibatis.annotations.Param("version") Integer version,@org.apache.ibatis.annotations.Param("userName") String userName);
     Long selectStaffCompanyId(Long userId);

@@ -83,6 +83,7 @@
               <el-table-column :label="$tr(&quot;操作&quot;)" width="105" fixed="right"><template #default="{row}"><el-button link type="primary" @click="selectProject(row.project.projectId)">{{ $tr("查看项目") }}</el-button></template></el-table-column>
             </el-table>
           </section>
+          <MemberTaskCompletionTable :records="memberCompletionReports" :projects="completionProjects" />
         </el-tab-pane>
         <el-tab-pane :label="$tr(&quot;人员与收支&quot;)" name="people">
           <div class="owner-section-intro"><span>{{ $tr("同步查看所有项目的成员、今日收入和今日花费") }}</span></div>
@@ -277,6 +278,7 @@
             </article>
           </article>
           </div></div>
+          <MemberTaskCompletionTable :records="memberCompletionReports" :projects="completionProjects" />
         </el-tab-pane>
         <el-tab-pane :label="$tr(&quot;人员与收支&quot;)" name="people">
           <div class="owner-section-intro"><span>{{ $tr("查看成员、人员成本和项目收支") }}</span><el-button v-hasPermi="['business:staff:list']" link type="primary" @click="router.push('/hcm/staff')">{{ $tr("人员管理与成本设置") }}</el-button></div>
@@ -405,10 +407,11 @@
     </el-dialog>
 
     <el-dialog v-model="workReportsDialog" :title="$tr(&quot;成员工作汇报记录 · 共 {0} 条&quot;, [workReports.length])" width="min(860px, 96vw)" append-to-body destroy-on-close>
+      <el-alert :title="$tr(&quot;成员和负责人每次提交的内容及附件至少保留三个月，重新提交不会覆盖历史记录，三个月后不会自动删除。&quot;)" type="info" :closable="false" />
       <div class="task-report-list">
         <article v-for="report in workReports" :key="report.reportId" class="task-report-row">
           <div class="task-report-head"><span><b>{{ report.routineId ? report.routineName : $tr("项目工作汇报") }}</b><small>{{ report.submittedUserName }} · {{ workReportPeriodLabel(report) }} · {{ report.createTime }}</small></span><div><el-tag effect="plain">{{ workReportFrequencyLabel(report.frequency) }}</el-tag><el-tag :type="workReportStatusTone(report.status)">{{ workReportStatusLabel(report.status) }}</el-tag></div></div>
-          <p v-if="report.content">{{ report.content }}</p>
+          <p v-if="report.content" style="white-space: pre-wrap; overflow-wrap: anywhere">{{ report.content }}</p>
           <p v-if="report.reviewComment" class="work-report-review-note">{{ $tr("验收意见：{0}", [report.reviewComment]) }}</p>
           <div class="task-report-footer"><el-button v-if="evidenceCount(report.attachmentUrls)" link type="primary" @click="openWorkReportEvidence(report)">{{ $tr("查看汇报附件（{0}）", [evidenceCount(report.attachmentUrls)]) }}</el-button><div><el-button v-if="canReviewWorkReport(report)" :loading="reviewingReportId===report.reportId" type="primary" size="small" @click="approveWorkReport(report)">{{ $tr("验收通过") }}</el-button><el-button v-if="canReviewWorkReport(report)" :disabled="reviewingReportId===report.reportId" size="small" @click="returnWorkReport(report)">{{ $tr("退回") }}</el-button></div></div>
         </article>
@@ -501,6 +504,7 @@
 
 <script setup name="BusinessOwnerWorkbench">
 import { translateText } from '@/locales/translate'
+import MemberTaskCompletionTable from './MemberTaskCompletionTable.vue'
 
 import { nextTick } from 'vue'
 import { getBusinessProjectSettlementStatus, getBusinessOwnerWorkbench, saveBusinessRoutineDailyTarget, submitBusinessProjectProgressReport, submitBusinessRoutineReport, reviewBusinessWorkReport, confirmBusinessMemberEffort, returnBusinessMemberEffort } from '@/api/business/project'
@@ -638,6 +642,10 @@ const personnelSetupIssueCount=computed(()=>missingAllocationMemberCount.value+b
 const openTasks=computed(()=>data.value.openTasks||[])
 const taskReports=computed(()=>data.value.taskReports||[])
 const workReports=computed(()=>data.value.workReports||[])
+const memberCompletionReports=computed(()=>allProjectsMode.value
+  ?allProjectWorkspaces.value.flatMap(entry=>entry.memberCompletionReports||[])
+  :data.value.memberCompletionReports||[])
+const completionProjects=computed(()=>allProjectsMode.value?projects.value:(project.value?[project.value]:[]))
 const pendingWorkReportCount=computed(()=>workReports.value.filter(report=>report.status==='PENDING').length)
 const workReportStats=computed(()=>buildWorkReportStats(project.value?.members,workReports.value,statsAnchorDate.value,statsFrequency.value))
 const statsPeriodLabel=computed(()=>workReportStats.value.start===workReportStats.value.end?workReportStats.value.start:translateText('{0} 至 {1}',[workReportStats.value.start,workReportStats.value.end]))

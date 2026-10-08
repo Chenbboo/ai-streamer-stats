@@ -797,13 +797,37 @@
     <select id="selectMembers" resultType="com.ruoyi.business.domain.BusinessProjectMember">
         select m.member_id memberId,m.project_id projectId,m.user_id userId,
           m.user_name_snapshot userNameSnapshot,u.user_name accountName,m.member_role memberRole,
-          m.status,m.joined_date joinedDate,m.left_date leftDate,m.create_by createBy,
+          m.status,case when exists(select 1 from biz_project_member_work_pause pause
+            where pause.project_id=m.project_id and pause.user_id=m.user_id and pause.started_time is null)
+            then 'PAUSED' else 'ACTIVE' end workStatus,
+          m.joined_date joinedDate,m.left_date leftDate,m.create_by createBy,
           m.create_time createTime,m.update_by updateBy,m.update_time updateTime,m.remark
         from biz_project_member m
         left join sys_user u on u.user_id=m.user_id
         where m.project_id=#{projectId} and m.status='0'
         order by field(m.member_role,'OWNER','DEPUTY','MEMBER','OBSERVER'),m.member_id
     </select>
+
+    <select id="selectMemberWorkPauses" resultType="map">
+        select pause_id pauseId,project_id projectId,user_id userId,
+          date_format(paused_time,'%Y-%m-%d %H:%i:%s') pausedTime,
+          date_format(started_time,'%Y-%m-%d %H:%i:%s') startedTime,
+          date_format(paused_time,'%Y-%m-%d') effectiveFrom,
+          date_format(started_time,'%Y-%m-%d') effectiveTo,paused_by pausedBy,started_by startedBy
+        from biz_project_member_work_pause where project_id=#{projectId} order by pause_id desc
+    </select>
+    <select id="countMemberWorkPaused" resultType="int">
+        select count(*) from biz_project_member_work_pause
+        where project_id=#{projectId} and user_id=#{userId} and started_time is null
+    </select>
+    <insert id="insertMemberWorkPause">
+        insert into biz_project_member_work_pause(project_id,user_id,paused_time,paused_by)
+        values(#{projectId},#{userId},sysdate(),#{userName})
+    </insert>
+    <update id="startMemberWork">
+        update biz_project_member_work_pause set started_time=sysdate(),started_by=#{userName}
+        where project_id=#{projectId} and user_id=#{userId} and started_time is null
+    </update>
 
     <select id="selectStaffDirectory" resultMap="StaffDirectoryUserResult">
         select distinct u.user_id,u.dept_id,u.user_name,u.nick_name,u.email,u.phonenumber,u.sex,u.status,
@@ -1117,6 +1141,46 @@
           update_by updateBy,update_time updateTime
         from biz_project_task_report where task_id=#{taskId} and biz_date=#{bizDate} limit 1
     </select>
+    <!-- 按实际提交人汇总两类执行填报，停用任务或退出项目不隐藏既有记录。 -->
+    <resultMap id="CompletionSubmissionMap" type="map" autoMapping="true">
+        <result property="reportDetails" column="reportDetails" javaType="java.lang.String"/>
+        <result property="issueReason" column="issueReason" javaType="java.lang.String"/>
+        <result property="evidenceUrls" column="evidenceUrls" javaType="java.lang.String"/>
+    </resultMap>
+    <select id="selectMemberCompletionReports" resultMap="CompletionSubmissionMap">
+        select submission_id submissionId,source_report_id reportId,source_version sourceVersion,
+          project_id projectId,project_name projectName,member_user_id memberUserId,member_name memberName,
+          work_type workType,work_name workName,date_format(report_date,'%Y-%m-%d') reportDate,
+          report_details reportDetails,issue_reason issueReason,evidence_urls evidenceUrls,
+          actual_value actualValue,unit,target_mode targetMode,progress,
+          date_format(submitted_time,'%Y-%m-%d %H:%i:%s') submittedTime
+        from biz_project_completion_submission where project_id=#{projectId}
+        order by report_date desc,submitted_time desc,submission_id desc
+    </select>
+    <insert id="insertRoutineCompletionSubmission">
+        insert into biz_project_completion_submission
+        (work_type,source_report_id,source_version,project_id,project_name,work_name,
+         member_user_id,member_name,report_date,report_details,issue_reason,evidence_urls,
+         actual_value,unit,target_mode,submitted_time)
+        select 'ROUTINE',rr.report_id,coalesce(rr.version,0),rr.project_id,p.project_name,
+          coalesce(r.routine_name,'持续工作'),rr.submitted_user_id,rr.submitted_user_name,rr.biz_date,
+          rr.summary,rr.issue_reason,rr.evidence_urls,rr.actual_value,rr.unit,r.target_mode,sysdate()
+        from biz_project_routine_report rr join biz_project p on p.project_id=rr.project_id
+        left join biz_project_routine r on r.routine_id=rr.routine_id and r.project_id=rr.project_id
+        where rr.project_id=#{projectId} and rr.routine_id=#{routineId} and rr.biz_date=#{bizDate}
+          and rr.status='SUBMITTED'
+    </insert>
+    <insert id="insertTaskCompletionSubmission">
+        insert into biz_project_completion_submission
+        (work_type,source_report_id,source_version,project_id,project_name,work_name,
+         member_user_id,member_name,report_date,report_details,evidence_urls,progress,submitted_time)
+        select 'TASK',tr.report_id,coalesce(tr.version,0),tr.project_id,p.project_name,
+          coalesce(t.task_name,'一次性工作'),tr.submitted_user_id,tr.submitted_user_name,tr.biz_date,
+          tr.completion_summary,tr.evidence_urls,tr.progress,sysdate()
+        from biz_project_task_report tr join biz_project p on p.project_id=tr.project_id
+        left join biz_project_task t on t.task_id=tr.task_id and t.project_id=tr.project_id
+        where tr.project_id=#{projectId} and tr.task_id=#{taskId} and tr.biz_date=#{bizDate}
+    </insert>
     <select id="selectTaskReports" resultType="com.ruoyi.business.domain.BusinessProjectTaskReport">
         select report_id reportId,task_id taskId,project_id projectId,biz_date bizDate,progress,
           completion_summary completionSummary,evidence_urls evidenceUrls,submitted_user_id submittedUserId,
@@ -1805,6 +1869,8 @@
         select t.task_id taskId,t.project_id projectId,t.parent_task_id parentTaskId,t.milestone_id milestoneId,
           t.assignee_user_id assigneeUserId,p.project_name projectName,p.project_no projectNo,
           p.initiator_name initiatorName,p.main_owner_name mainOwnerName,p.status projectStatus,
+          exists(select 1 from biz_project_member_work_pause pause where pause.project_id=p.project_id
+            and pause.user_id=#{userId} and pause.started_time is null) memberWorkPaused,
           t.task_name taskName,t.status,t.progress,t.priority,t.plan_start_date planStartDate,
           t.due_date dueDate,t.version,t.remark,today_report.report_id todayTaskReportId,
           today_report.progress todayProgress,today_report.completion_summary todayCompletionSummary,
@@ -1833,7 +1899,9 @@
     </select>
     <select id="selectMyWorkRoutines" resultType="map">
         select r.routine_id routineId,r.project_id projectId,p.project_name projectName,p.project_no projectNo,
-          p.initiator_name initiatorName,p.main_owner_name mainOwnerName,p.status projectStatus,p.goal_mode goalMode,
+          p.initiator_name initiatorName,p.main_owner_name mainOwnerName,p.status projectStatus,
+          exists(select 1 from biz_project_member_work_pause pause where pause.project_id=p.project_id
+            and pause.user_id=#{userId} and pause.started_time is null) memberWorkPaused,p.goal_mode goalMode,
           r.routine_name routineName,r.frequency,r.target_mode targetMode,r.target_value targetValue,r.unit,
           r.start_date startDate,r.end_date endDate,r.evidence_required evidenceRequired,r.version,r.remark,
           coalesce(sum(case when rr.biz_date between #{dateFrom} and #{dateTo} then rr.actual_value else 0 end),0) periodActual,
@@ -2164,6 +2232,7 @@
           union all select project_id from biz_project_task_report where find_in_set(#{attachmentUrl},replace(replace(coalesce(evidence_urls,''),' ',''),char(92),'/'))&gt;0
           union all select project_id from biz_project_progress_report where instr(coalesce(snapshot_json,''),#{attachmentUrl})&gt;0 or find_in_set(#{attachmentUrl},replace(replace(coalesce(evidence_urls,''),' ',''),char(92),'/'))&gt;0
           union all select project_id from biz_project_routine_report where find_in_set(#{attachmentUrl},replace(replace(coalesce(evidence_urls,''),' ',''),char(92),'/'))&gt;0
+          union all select project_id from biz_project_completion_submission where find_in_set(#{attachmentUrl},replace(replace(coalesce(evidence_urls,''),' ',''),char(92),'/'))&gt;0
           union all select project_id from biz_project_work_report where find_in_set(#{attachmentUrl},replace(replace(coalesce(attachment_urls,''),' ',''),char(92),'/'))&gt;0
           union all select settlement.project_id from biz_project_kpi_result result
             join biz_project_kpi_settlement settlement on settlement.settlement_id=result.settlement_id

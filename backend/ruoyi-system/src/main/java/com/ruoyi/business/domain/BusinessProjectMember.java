@@ -16,6 +16,12 @@ public class BusinessProjectMember extends BaseEntity
     private String accountName;
     private String memberRole;
     private String status;
+    private String workStatus;
+    private java.util.List<Map<String,Object>> workPauseHistory;
+    public String getWorkStatus() { return workStatus; }
+    public void setWorkStatus(String value) { workStatus = value; }
+    public java.util.List<Map<String,Object>> getWorkPauseHistory() { return workPauseHistory; }
+    public void setWorkPauseHistory(java.util.List<Map<String,Object>> value) { workPauseHistory = value; }
     /** 添加成员时设置的项目投入比例，保存至人员成本分摊记录。 */
     private BigDecimal allocationPercent;
     private Map<String,Object> allocationPlan;

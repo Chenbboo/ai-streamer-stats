@@ -2127,6 +2127,7 @@ class BusinessProjectServiceImplTest
         ArgumentCaptor<BusinessProjectRoutineReport> captor = ArgumentCaptor.forClass(BusinessProjectRoutineReport.class);
         verify(mapper).upsertRoutineReport(captor.capture());
         assertEquals(new BigDecimal("12"), captor.getValue().getTargetSnapshot());
+        verify(mapper).insertRoutineCompletionSubmission(report);
     }
 
     @Test
@@ -3851,6 +3852,43 @@ class BusinessProjectServiceImplTest
         task.setStatus("DONE");
         task.setProgress(100);
         return task;
+    }
+
+    @Test
+    void pauseAndStartMemberWorkKeepMembershipAndSynchronizeCosts()
+    {
+        BusinessProject p=project(42L,9L,"ACTIVE","APPROVED");
+        when(mapper.selectProjectById(42L)).thenReturn(p);
+        when(mapper.selectMemberRole(42L,9L)).thenReturn("OWNER");
+        when(mapper.selectMemberRole(42L,7L)).thenReturn("MEMBER");
+        when(mapper.countMemberWorkPaused(42L,7L)).thenReturn(0,1);
+        when(mapper.startMemberWork(42L,7L,"owner")).thenReturn(1);
+        service.changeMemberWorkStatus(42L,7L,"PAUSE",9L,"owner",false);
+        service.changeMemberWorkStatus(42L,7L,"START",9L,"owner",false);
+        verify(mapper).insertMemberWorkPause(42L,7L,"owner");
+        verify(mapper).startMemberWork(42L,7L,"owner");
+        verify(memberDays,times(2)).synchronizeAllocationChange(eq(42L),any(),eq("owner"));
+        verify(mapper,never()).upsertMember(any());
+    }
+
+    @Test
+    void repeatedMemberPauseIsRejectedWithoutChangingHistory()
+    {
+        when(mapper.selectProjectById(42L)).thenReturn(project(42L,9L,"ACTIVE","APPROVED"));
+        when(mapper.selectMemberRole(42L,9L)).thenReturn("OWNER");
+        when(mapper.selectMemberRole(42L,7L)).thenReturn("MEMBER");
+        when(mapper.countMemberWorkPaused(42L,7L)).thenReturn(1);
+        assertThrows(ServiceException.class,()->service.changeMemberWorkStatus(42L,7L,"PAUSE",9L,"owner",false));
+        verify(mapper,never()).insertMemberWorkPause(any(),any(),any());
+    }
+
+    @Test
+    void ordinaryMemberCannotPauseAnotherMembersWork()
+    {
+        when(mapper.selectProjectById(42L)).thenReturn(project(42L,9L,"ACTIVE","APPROVED"));
+        when(mapper.selectMemberRole(42L,7L)).thenReturn("MEMBER");
+        assertThrows(ServiceException.class,()->service.changeMemberWorkStatus(42L,8L,"PAUSE",7L,"member",false));
+        verify(mapper,never()).insertMemberWorkPause(any(),any(),any());
     }
 
     @SuppressWarnings({ "rawtypes", "unchecked" })

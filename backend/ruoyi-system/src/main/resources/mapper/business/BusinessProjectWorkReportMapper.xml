@@ -27,6 +27,14 @@
         where r.project_id = #{projectId}
         order by case when r.status = 'PENDING' then 0 else 1 end, r.create_time desc, r.report_id desc
     </select>
+    <!-- 每次提交独立留存，历史查询不按周期合并，也不设置三个月到期删除。 -->
+    <select id="selectBySubmitter" resultType="com.ruoyi.business.domain.BusinessProjectWorkReport">
+        select <include refid="columns"/>
+        from biz_project_work_report r
+        left join biz_project_routine t on t.routine_id = r.routine_id
+        where r.submitted_user_id = #{userId}
+        order by r.create_time desc, r.report_id desc
+    </select>
     <select id="selectLatestBySubmitter" resultType="com.ruoyi.business.domain.BusinessProjectWorkReport">
         select <include refid="columns"/>
         from biz_project_work_report r

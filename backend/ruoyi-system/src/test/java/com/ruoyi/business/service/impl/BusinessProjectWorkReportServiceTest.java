@@ -66,6 +66,14 @@ class BusinessProjectWorkReportServiceTest
     }
 
     @Test
+    void pausedMemberCannotSubmitWorkReport()
+    {
+        when(projects.countMemberWorkPaused(10L,7L)).thenReturn(1);
+        assertThrows(ServiceException.class, () -> service.submit(input("DAILY", "汇报", null), 7L, "member"));
+        verify(reports,never()).insert(any());
+    }
+
+    @Test
     void memberCanSubmitProjectReportWithoutRoutine()
     {
         BusinessProjectWorkReport input = input("DAILY", "项目进度已整理", null);
@@ -153,6 +161,29 @@ class BusinessProjectWorkReportServiceTest
         when(reports.review(42L, "RETURNED", "请补充本周成果", 99L, "owner")).thenReturn(1);
         assertEquals("RETURNED", service.review(42L, "RETURNED", "请补充本周成果", 99L, "owner").getStatus());
         verify(reports).insertReturnNotification(42L, 7L);
+    }
+
+    @Test
+    void repeatedSubmissionsPreserveEachContentAndAttachment()
+    {
+        java.util.List<BusinessProjectWorkReport> history = new java.util.ArrayList<>();
+        doAnswer(call -> {
+            BusinessProjectWorkReport report = call.getArgument(0);
+            report.setReportId((long) history.size() + 1);
+            history.add(report);
+            return 1;
+        }).when(reports).insert(any(BusinessProjectWorkReport.class));
+        when(reports.selectBySubmitter(7L)).thenReturn(history);
+
+        service.submit(input("DAILY", "第一次汇报", "/profile/first.pdf"), 7L, "member");
+        service.submit(input("DAILY", "补充汇报", "/profile/second.pdf"), 7L, "member");
+
+        java.util.List<BusinessProjectWorkReport> saved = service.historyForSubmitter(7L);
+        assertEquals(2, saved.size());
+        assertEquals("第一次汇报", saved.get(0).getContent());
+        assertEquals("/profile/first.pdf", saved.get(0).getAttachmentUrls());
+        assertEquals("补充汇报", saved.get(1).getContent());
+        assertEquals("/profile/second.pdf", saved.get(1).getAttachmentUrls());
     }
 
     private BusinessProjectWorkReport pendingReport()
