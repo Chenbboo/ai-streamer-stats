@@ -488,4 +488,17 @@ from (
   select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
     and table_name='biz_public_expense_daily' and column_name='it_transfer_amount'
     and data_type='decimal' and numeric_precision>=20 and numeric_scale=2 and is_nullable='NO'
+  union all
+  select if(count(*)=2,0,1) from information_schema.tables where table_schema=database()
+    and table_name in ('biz_project_bonus_setting','biz_project_bonus_setting_event')
+  union all
+  select if(count(*)=3,0,1) from information_schema.columns where table_schema=database()
+    and table_name='biz_incentive_rule' and is_nullable='YES' and data_type='decimal'
+    and ((column_name='after_tax_profit' and numeric_precision=18 and numeric_scale=2)
+      or (column_name in ('main_owner_bonus_rate','sponsor_owner_bonus_rate')
+        and numeric_precision=7 and numeric_scale=4))
+  union all
+  select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
+    and table_name='biz_incentive_award' and column_name='allocation_proposal_json'
+    and data_type='mediumtext' and is_nullable='YES'
 ) release_gate;

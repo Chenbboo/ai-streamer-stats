@@ -1,4 +1,4 @@
--- Project-level owner bonus percentages shown in HR incentive settings.
+-- V138: Project-level owner bonus percentages shown in HR incentive settings.
 -- Saving percentages does not create an award, accounting fact, allocation or payment.
 create table if not exists biz_project_bonus_setting (
   project_id bigint not null,

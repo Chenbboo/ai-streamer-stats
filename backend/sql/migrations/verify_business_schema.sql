@@ -1074,7 +1074,7 @@ where table_schema=database() and table_name='biz_project_delete_notification'
   and index_name='uk_project_delete_notification_request' and column_name='request_id' and non_unique=0;
 
 -- V136 monthly completion standard.
--- V139 reward application allocation proposal snapshot.
+-- V140 reward application allocation proposal snapshot.
 select 1-count(*) as missing_award_allocation_proposal from information_schema.columns
 where table_schema=database() and table_name='biz_incentive_award'
   and column_name='allocation_proposal_json' and is_nullable='YES';
@@ -1121,3 +1121,10 @@ select 1-count(*) as missing_department_public_cost_source from information_sche
 where table_schema=database() and table_name='sys_dept' and column_name='public_cost_source';
 select 1-count(*) as missing_public_daily_it_transfer_amount from information_schema.columns
 where table_schema=database() and table_name='biz_public_expense_daily' and column_name='it_transfer_amount';
+
+-- V138-V139 project bonus settings and immutable profit-share rule snapshots.
+select 2-count(*) as missing_project_bonus_setting_tables from information_schema.tables
+where table_schema=database() and table_name in ('biz_project_bonus_setting','biz_project_bonus_setting_event');
+select 3-count(*) as missing_incentive_profit_share_columns from information_schema.columns
+where table_schema=database() and table_name='biz_incentive_rule'
+  and column_name in ('after_tax_profit','main_owner_bonus_rate','sponsor_owner_bonus_rate');

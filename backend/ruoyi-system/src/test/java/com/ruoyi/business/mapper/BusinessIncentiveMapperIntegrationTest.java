@@ -65,12 +65,12 @@ class BusinessIncentiveMapperIntegrationTest
         Matcher column=Pattern.compile("alter table biz_incentive_rule add column kpi_plan_id bigint default null").matcher(scoreDdl);
         if (!column.find()) throw new AssertionError("Missing KPI plan column migration");
         execute(column.group());
-        String profitShareDdl=new String(Files.readAllBytes(migration().resolveSibling("V138__incentive_profit_share_rule.sql")),StandardCharsets.UTF_8);
+        String profitShareDdl=new String(Files.readAllBytes(migration().resolveSibling("V139__incentive_profit_share_rule.sql")),StandardCharsets.UTF_8);
         Matcher profitShareColumns=Pattern.compile("alter table biz_incentive_rule add column [a-z_]+ decimal\\(\\d+,\\d+\\) default null").matcher(profitShareDdl);
         int profitShareCount=0;
         while(profitShareColumns.find()){execute(profitShareColumns.group());profitShareCount++;}
         assertEquals(3,profitShareCount,"Profit-share rule columns must remain covered");
-        String allocationProposalDdl=new String(Files.readAllBytes(migration().resolveSibling("V139__award_allocation_proposal.sql")),StandardCharsets.UTF_8);
+        String allocationProposalDdl=new String(Files.readAllBytes(migration().resolveSibling("V140__award_allocation_proposal.sql")),StandardCharsets.UTF_8);
         Matcher allocationProposalColumn=Pattern.compile("alter table biz_incentive_award add column allocation_proposal_json mediumtext default null").matcher(allocationProposalDdl);
         if (!allocationProposalColumn.find()) throw new AssertionError("Missing award allocation proposal column migration");
         execute(allocationProposalColumn.group());
