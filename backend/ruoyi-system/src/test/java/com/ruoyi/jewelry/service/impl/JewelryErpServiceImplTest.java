@@ -3250,6 +3250,16 @@ class JewelryErpServiceImplTest
     }
 
     @Test
+    void welfareProductBindingDetailIncludesInfluencers()
+    {
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("WELFARE"));
+        List<Map<String, Object>> bindings = Arrays.asList(influencerBinding("达人甲", "0.10"));
+        when(mapper.selectInfluencerBindingsByProductId(PRODUCT_ID)).thenReturn(bindings);
+
+        assertEquals(bindings, service.getProductBindingDetail(PRODUCT_ID).get("bindings"));
+    }
+
+    @Test
     void importedRowsWithOneNewSupplierCreateOneSupplierArchive()
     {
         when(mapper.selectInfluencerByIdForUpdate(SALES_INFLUENCER_ID)).thenReturn(activeInfluencer(false));
@@ -3369,6 +3379,40 @@ class JewelryErpServiceImplTest
         ArgumentCaptor<Map<String, Object>> binding = ArgumentCaptor.forClass(Map.class);
         verify(mapper).insertInfluencerBinding(binding.capture());
         assertEquals(0, new BigDecimal("0.2500").compareTo((BigDecimal) binding.getValue().get("referencePurchasePrice")));
+    }
+
+    @Test
+    void newWelfareProductIsCreatedAndBound()
+    {
+        when(mapper.selectInfluencerByIdForUpdate(SALES_INFLUENCER_ID)).thenReturn(activeInfluencer(false));
+        when(mapper.selectProductBySkuAndType("WELFARE-1", "WELFARE")).thenReturn(null);
+        when(mapper.selectInfluencerProductPriceForUpdate(SALES_INFLUENCER_ID, 323L)).thenReturn(null);
+        when(mapper.insertProduct(any())).thenAnswer(invocation -> {
+            Map<String, Object> inserted = invocation.getArgument(0);
+            inserted.put("productId", 323L);
+            return 1;
+        });
+        Map<String, Object> created = product("WELFARE");
+        created.put("productId", 323L);
+        when(mapper.selectProductById(323L)).thenReturn(created);
+        when(mapper.insertInfluencerBinding(any())).thenReturn(1);
+        Map<String, Object> row = new HashMap<>();
+        row.put("sku", "WELFARE-1");
+        row.put("productName", "福利商品一");
+        row.put("productType", "WELFARE");
+        row.put("unit", "件");
+        row.put("fixedUnitPrice", "0.0000");
+        row.put("unitCost", "12.5000");
+        row.put("bindingStatus", "0");
+
+        service.saveInfluencerBindings(SALES_INFLUENCER_ID, Arrays.asList(row), MAKER_ID, "admin");
+
+        assertEquals(323L, row.get("productId"));
+        ArgumentCaptor<Map<String, Object>> product = ArgumentCaptor.forClass(Map.class);
+        verify(mapper).insertProduct(product.capture());
+        assertEquals("WELFARE", product.getValue().get("productType"));
+        verify(mapper).insertInfluencerBinding(any());
+        verify(mapper).ensureStock(323L);
     }
 
     @Test

@@ -55,7 +55,7 @@ public class JewelryInfluencerBindingExcelService
             }
             DataValidationHelper validationHelper = sheet.getDataValidationHelper();
             DataValidationConstraint productTypes = validationHelper.createExplicitListConstraint(
-                new String[] { "成品商品", "赠品商品" });
+                new String[] { "成品商品", "赠品商品", "福利商品" });
             DataValidation typeValidation = validationHelper.createValidation(productTypes,
                 new CellRangeAddressList(1, 2000, 2, 2));
             typeValidation.setShowErrorBox(true);
@@ -63,15 +63,15 @@ public class JewelryInfluencerBindingExcelService
             Sheet help = workbook.createSheet("填写说明");
             help.setColumnWidth(0, 20000);
             String[] notes = { "从「达人商品绑定」工作表第2行开始填写商品，每行一个商品。",
-                "商品类型可填写成品商品或赠品商品；其他类型不能在达人档案绑定。",
+                "商品类型可填写成品商品、赠品商品或福利商品；其他类型不能在达人档案绑定。",
                 "同一SKU可对应不同商品类型，导入时通过SKU和商品类型共同定位商品。",
-                "成品直播成交价必须大于0，赠品可为0；商品成本价必填且不能小于0。",
+                "成品直播成交价必须大于0，赠品和福利商品可为0；商品成本价必填且不能小于0。",
                 "费率填写百分数，例如20表示20%，三项费率合计须小于100%。",
                 "包装费、物流费、鉴定费不填写时按0处理；导入同一达人已绑定商品会覆盖其当前配置。",
                 "新SKU填写商品名称和单位后，将按所填类型自动新建商品档案。已有SKU默认只更新该达人的绑定；在确认表修改图片时会同步更新共用商品档案。",
                 "供应商名称填写供应商档案中的完整名称；名称不存在、重名或停用时可在导入预览中修改。",
                 "图片列请直接插入或粘贴一张图片；也可在导入确认表中上传图片，无需填写图片地址。",
-                "供应商和采购单价会在采购入库时带入；实际采购价以单据填写为准。" };
+                "成品和赠品按达人及供应商采购入库；福利商品采购仍按供应商录入。实际采购价以单据填写为准。" };
             for (int i = 0; i < notes.length; i++) help.createRow(i).createCell(0).setCellValue(notes[i]);
             response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
             String name = URLEncoder.encode("达人商品绑定模板.xlsx", StandardCharsets.UTF_8.name());
@@ -246,8 +246,8 @@ public class JewelryInfluencerBindingExcelService
             if (sku.isEmpty()) errors.add("SKU不能为空");
             if (sku.length() > 64) errors.add("商品SKU不能超过64个字符");
             if (type.isEmpty()) errors.add("商品类型不正确，请选择商品类型");
-            else if (!"FINISHED".equals(type) && !"GIFT".equals(type))
-                errors.add("达人商品绑定只支持成品商品或赠品商品");
+            else if (!"FINISHED".equals(type) && !"GIFT".equals(type) && !"WELFARE".equals(type))
+                errors.add("达人商品绑定只支持成品商品、赠品商品或福利商品");
             Object selectedId = item.get("productId");
             Map<String, Object> product = null;
             if (selectedId != null && !selectedId.toString().trim().isEmpty())
@@ -260,7 +260,7 @@ public class JewelryInfluencerBindingExcelService
             if (product == null)
             {
                 item.remove("productId");
-                if (!sku.isEmpty() && ("FINISHED".equals(type) || "GIFT".equals(type)))
+                if (!sku.isEmpty() && ("FINISHED".equals(type) || "GIFT".equals(type) || "WELFARE".equals(type)))
                 {
                     if (string(item.get("productName")).isEmpty()) errors.add("新商品须填写商品名称");
                     if (string(item.get("productName")).length() > 128) errors.add("商品名称不能超过128个字符");
@@ -296,7 +296,7 @@ public class JewelryInfluencerBindingExcelService
             }
             BigDecimal price = number(item.get("fixedUnitPrice"), "直播成交价", errors);
             if (price != null && (price.signum() < 0 || ("FINISHED".equals(type) && price.signum() == 0)))
-                errors.add("成品直播成交价必须大于0，赠品不能小于0");
+                errors.add("成品直播成交价必须大于0，赠品和福利商品不能小于0");
             BigDecimal unitCost = number(item.get("unitCost"), "商品成本价", errors);
             if (unitCost != null && unitCost.signum() < 0) errors.add("商品成本价不能小于0");
             BigDecimal total = BigDecimal.ZERO;

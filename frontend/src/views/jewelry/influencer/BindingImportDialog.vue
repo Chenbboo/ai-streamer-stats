@@ -24,7 +24,7 @@
             <el-option v-for="product in products" :key="product.productId" :value="product.productId"
               :label="`${product.sku} · ${product.productName}（${typeName(product.productType)}）`" />
           </el-select>
-          <small v-if="!row.productId && row.sku && ['FINISHED','GIFT'].includes(row.productType)">未匹配已有商品，将按本行信息建档</small>
+          <small v-if="!row.productId && row.sku && ['FINISHED','GIFT','WELFARE'].includes(row.productType)">未匹配已有商品，将按本行信息建档</small>
         </template>
       </el-table-column>
       <el-table-column label="商品类型" width="150">
@@ -32,6 +32,7 @@
           <el-select v-model="row.productType" clearable :placeholder="$tr(&quot;请选择类型&quot;)" style="width:100%" @change="productKeyChanged(row)">
             <el-option :label="$tr(&quot;成品商品&quot;)" value="FINISHED" />
             <el-option :label="$tr(&quot;赠品商品&quot;)" value="GIFT" />
+            <el-option :label="$tr(&quot;福利商品&quot;)" value="WELFARE" />
           </el-select>
           <small v-if="row.excelProductTypeName && row.excelProductTypeName !== typeName(row.productType)">{{ $tr("原Excel：{0}", [row.excelProductTypeName]) }}</small>
         </template>

@@ -26,7 +26,7 @@
       <el-table-column :label="$tr(&quot;商品类型&quot;)" width="170">
         <template #default="{row}">
           <el-tag :type="typeTag(row.productType)" effect="plain">{{typeLabel(row.productType)}}</el-tag>
-          <el-button v-if="canViewBindings && ['FINISHED','GIFT'].includes(row.productType)" link type="primary" class="view-binding" @click="openDetail(row)">查看</el-button>
+          <el-button v-if="canViewBindings && ['FINISHED','GIFT','WELFARE'].includes(row.productType)" link type="primary" class="view-binding" @click="openDetail(row)">查看</el-button>
         </template>
       </el-table-column>
       <el-table-column prop="unit" :label="$tr(&quot;单位&quot;)" width="70" :formatter="(row, column, value) => $tr(value)"/>

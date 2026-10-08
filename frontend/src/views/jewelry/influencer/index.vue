@@ -6,7 +6,7 @@
     <pagination v-show="total>0" v-model:page="query.pageNum" v-model:limit="query.pageSize" :total="total" @pagination="load"/>
     <el-dialog v-model="profileDialog" :title="profile.influencerId?'编辑达人/主播':'新增达人/主播'" :width="profile.influencerId?'1180px':'650px'" destroy-on-close>
       <el-tabs v-model="activeTab"><el-tab-pane :label="$tr(&quot;基本信息&quot;)" name="basic"><el-form ref="profileRef" :model="profile" :rules="profileRules" label-width="125px" class="profile-form"><el-form-item :label="$tr(&quot;达人编码&quot;)"><el-input :model-value="profile.influencerId ? profile.influencerCode : $tr('{0}+流水号，保存后生成', [profile.platformCode||$tr('平台简写')])" disabled/></el-form-item><el-form-item :label="$tr(&quot;平台&quot;)" prop="platformCode"><el-select v-model="profile.platformCode" :disabled="!!profile.influencerId" :placeholder="$tr(&quot;请选择平台&quot;)" style="width:100%" @change="onPlatformChange"><el-option v-for="p in platforms" :key="p.platformCode" :label="`${p.platformName}（${p.platformCode}）`" :value="p.platformCode"/></el-select></el-form-item><el-form-item :label="$tr(&quot;达人ID&quot;)"><el-input v-model="profile.externalInfluencerId" :disabled="!!profile.influencerId&&!canEditProfile" :placeholder="$tr(&quot;平台侧达人ID&quot;)"/></el-form-item><el-form-item :label="$tr(&quot;达人/主播名称&quot;)" prop="influencerName"><el-input v-model="profile.influencerName" :disabled="!!profile.influencerId&&!canEditProfile"/></el-form-item><el-form-item :label="$tr(&quot;平台账号&quot;)"><el-input v-model="profile.platformAccount" :disabled="!!profile.influencerId&&!canEditProfile"/></el-form-item><el-form-item :label="$tr(&quot;默认销售渠道&quot;)"><el-input v-model="profile.salesChannel" :disabled="!!profile.influencerId&&!canEditProfile"/></el-form-item><el-form-item :label="$tr(&quot;联系电话&quot;)"><el-input v-model="profile.contactPhone" :disabled="!!profile.influencerId&&!canEditProfile"/></el-form-item><el-form-item :label="$tr(&quot;状态&quot;)"><el-radio-group v-model="profile.status" :disabled="!!profile.influencerId&&!canEditProfile"><el-radio value="0">{{ $tr("启用") }}</el-radio><el-radio value="1">{{ $tr("停用") }}</el-radio></el-radio-group></el-form-item><el-form-item :label="$tr(&quot;备注&quot;)"><el-input v-model="profile.remark" :disabled="!!profile.influencerId&&!canEditProfile" type="textarea"/></el-form-item></el-form><div v-if="!profile.influencerId||canEditProfile" class="tab-actions"><el-button type="primary" @click="saveProfile">{{ $tr("保存基本信息") }}</el-button></div></el-tab-pane>
-      <template v-if="profile.influencerId"><el-tab-pane label="商品绑定" name="bindings"><el-alert title="可新建或绑定成品商品、赠品商品。直播价、成本价、供应商、采购单价、佣金及费用按达人分别保存；采购入库时按达人和供应商选择这些商品。" type="info" :closable="false" class="mb12"/><div class="toolbar" v-if="canPrice"><el-button type="primary" plain @click="openBinding()">录入商品/绑定</el-button><el-button @click="downloadTemplate">下载Excel模板</el-button><el-upload :show-file-list="false" :auto-upload="false" accept=".xlsx,.xls" :on-change="previewExcel"><el-button>批量Excel导入</el-button></el-upload></div><el-table :data="bindings" border max-height="440">
+      <template v-if="profile.influencerId"><el-tab-pane label="商品绑定" name="bindings"><el-alert title="可新建或绑定成品、赠品和福利商品。直播价、成本价、供应商、采购单价、佣金及费用按达人分别保存；成品和赠品采购入库时按达人及供应商选择，福利商品采购仍按供应商录入。" type="info" :closable="false" class="mb12"/><div class="toolbar" v-if="canPrice"><el-button type="primary" plain @click="openBinding()">录入商品/绑定</el-button><el-button @click="downloadTemplate">下载Excel模板</el-button><el-upload :show-file-list="false" :auto-upload="false" accept=".xlsx,.xls" :on-change="previewExcel"><el-button>批量Excel导入</el-button></el-upload></div><el-table :data="bindings" border max-height="440">
           <el-table-column prop="sku" label="商品SKU" width="140"/>
           <el-table-column prop="productName" label="商品名称" min-width="155" show-overflow-tooltip/>
           <el-table-column label="商品类型" width="105"><template #default="{row}">{{typeName(row.productType)}}</template></el-table-column>
@@ -24,7 +24,7 @@
           <el-table-column label="图片" width="85"><template #default="{row}"><el-image v-if="row.imageUrls" :src="imageSrc(row.imageUrls)" :preview-src-list="[imageSrc(row.imageUrls)]" preview-teleported fit="contain" style="width:48px;height:48px"/><span v-else>—</span></template></el-table-column>
           <el-table-column prop="bindingRemark" label="备注" min-width="160" show-overflow-tooltip/>
           <el-table-column label="状态" width="90"><template #default="{row}"><el-tag :type="row.priceStatus==='PENDING'?'warning':row.bindingStatus==='1'?'info':'success'">{{row.priceStatus==='PENDING'?'待生效':row.bindingStatus==='1'?'停用':'启用'}}</el-tag></template></el-table-column>
-          <el-table-column label="操作" width="75" fixed="right" v-if="canPrice"><template #default="{row}"><el-button v-if="['FINISHED','GIFT'].includes(row.productType)" link type="primary" :disabled="row.priceStatus==='PENDING'" @click="openBinding(row)">编辑</el-button></template></el-table-column>
+          <el-table-column label="操作" width="75" fixed="right" v-if="canPrice"><template #default="{row}"><el-button v-if="['FINISHED','GIFT','WELFARE'].includes(row.productType)" link type="primary" :disabled="row.priceStatus==='PENDING'" @click="openBinding(row)">编辑</el-button></template></el-table-column>
         </el-table></el-tab-pane>
       <el-tab-pane label="价格历史" name="history"><el-table :data="history" border max-height="430"><el-table-column prop="sku" label="SKU" width="125"/><el-table-column prop="productName" label="商品" min-width="150"/><el-table-column prop="priceVersion" label="版本" width="70"/><el-table-column label="原价" width="110"><template #default="{row}">{{row.oldPrice==null?'—':money(row.oldPrice)}}</template></el-table-column><el-table-column label="新价" width="110"><template #default="{row}">{{money(row.newPrice)}}</template></el-table-column><el-table-column label="来源" width="110"><template #default="{row}">{{sourceName(row.sourceType)}}</template></el-table-column><el-table-column prop="changeReason" label="原因" min-width="160"/><el-table-column prop="operatorName" label="操作人" width="100"/><el-table-column prop="createTime" label="时间" width="165"/></el-table></el-tab-pane>
       </template></el-tabs><template #footer><el-button @click="profileDialog=false">关闭</el-button></template></el-dialog>
@@ -36,10 +36,10 @@
         <template v-if="bindingMode==='new' && !binding.editing">
           <el-form-item label="商品SKU" required><el-input v-model.trim="binding.sku" maxlength="64" placeholder="请填写商品SKU"/></el-form-item>
           <el-form-item label="商品名称" required><el-input v-model.trim="binding.productName" maxlength="128"/></el-form-item>
-          <el-form-item label="商品类型" required><el-select v-model="binding.productType" style="width:100%"><el-option label="成品商品" value="FINISHED"/><el-option label="赠品商品" value="GIFT"/></el-select></el-form-item>
+          <el-form-item label="商品类型" required><el-select v-model="binding.productType" style="width:100%"><el-option label="成品商品" value="FINISHED"/><el-option label="赠品商品" value="GIFT"/><el-option label="福利商品" value="WELFARE"/></el-select></el-form-item>
         </template>
         <el-form-item v-else label="商品" required>
-          <el-select v-model="binding.productId" filterable :disabled="!!binding.editing" placeholder="选择已有成品或赠品商品" style="width:100%" @change="bindingProductChanged">
+          <el-select v-model="binding.productId" filterable :disabled="!!binding.editing" placeholder="选择已有成品、赠品或福利商品" style="width:100%" @change="bindingProductChanged">
             <el-option v-for="p in bindingProducts" :key="p.productId" :label="`${p.sku} · ${p.productName}（${typeName(p.productType)}）`" :value="p.productId"/>
           </el-select>
         </el-form-item>
@@ -57,7 +57,7 @@
           <el-form-item label="结算方式"><el-input v-model.trim="newSupplier.settlementType" maxlength="64"/></el-form-item>
           <el-form-item label="地址"><el-input v-model.trim="newSupplier.address" maxlength="255"/></el-form-item>
         </template>
-        <el-form-item label="直播成交价" required><el-input-number v-model="binding.fixedUnitPrice" :min="binding.productType==='GIFT'?0:0.0001" :precision="4" style="width:100%"/></el-form-item>
+        <el-form-item label="直播成交价" required><el-input-number v-model="binding.fixedUnitPrice" :min="binding.productType==='FINISHED'?0.0001:0" :precision="4" style="width:100%"/></el-form-item>
         <el-form-item label="商品成本价" required><el-input-number v-model="binding.unitCost" :min="0" :precision="4" style="width:100%"/></el-form-item>
         <el-form-item label="采购单价"><el-input-number v-model="binding.referencePurchasePrice" :min="0" :precision="4" style="width:100%"/></el-form-item>
         <el-form-item label="达人佣金率(%)"><el-input-number v-model="binding.commissionPercent" :min="0" :max="100" :precision="4" style="width:100%"/></el-form-item>
@@ -106,7 +106,7 @@ const supplierMode=ref('existing')
 const blankSupplier=()=>({supplierCode:'',supplierName:'',contactName:'',contactPhone:'',settlementType:'',address:''})
 const newSupplier=reactive(blankSupplier())
 const profileRules={influencerName:[{required:true,message:'请输入达人/主播名称'}],platformCode:[{required:true,message:'请选择平台'}]}
-const bindingProducts=computed(()=>products.value.filter(p=>['FINISHED','GIFT'].includes(p.productType)))
+const bindingProducts=computed(()=>products.value.filter(p=>['FINISHED','GIFT','WELFARE'].includes(p.productType)))
 const typeName=t=>jewelryProductType(t)?.label||t||'—'
 const imageSrc=path=>path ? (path.startsWith('http') ? path : import.meta.env.VITE_APP_BASE_API + path) : ''
 const money=n=>Number(n||0).toFixed(4)
@@ -125,15 +125,15 @@ async function saveBinding(){
     const sku=String(binding.sku||'').trim()
     if(!sku||!String(binding.productName||'').trim()||!String(binding.unit||'').trim())
       return proxy.$modal.msgError('请填写商品SKU、名称和单位')
-    const occupied=products.value.find(p=>(p.productType===binding.productType || !['SAMPLE','GIFT'].includes(p.productType) && binding.productType==='FINISHED')
+    const occupied=products.value.find(p=>(p.productType===binding.productType || !['SAMPLE','GIFT'].includes(p.productType) && ['FINISHED','WELFARE'].includes(binding.productType))
       &&String(p.sku||'').trim().toUpperCase()===sku.toUpperCase())
     if(occupied)return proxy.$modal.msgError(occupied.productType===binding.productType
       ?'该类型商品SKU已存在，请切换为绑定已有商品':'该SKU已被其他常规商品占用')
   }else if(!binding.productId||!bindingProducts.value.some(p=>Number(p.productId)===Number(binding.productId))){
-    return proxy.$modal.msgError('请选择已有成品或赠品商品')
+    return proxy.$modal.msgError('请选择已有成品、赠品或福利商品')
   }
   if(binding.fixedUnitPrice===null||Number(binding.fixedUnitPrice)<0||(binding.productType==='FINISHED'&&Number(binding.fixedUnitPrice)===0))
-    return proxy.$modal.msgError('成品直播成交价须大于0，赠品可为0')
+    return proxy.$modal.msgError('成品直播成交价须大于0，赠品和福利商品可为0')
   if(binding.unitCost===null||binding.unitCost===undefined||Number(binding.unitCost)<0)
     return proxy.$modal.msgError('请填写不能小于0的商品成本价')
   if(Number(binding.referencePurchasePrice||0)<0)return proxy.$modal.msgError('采购单价不能小于0')

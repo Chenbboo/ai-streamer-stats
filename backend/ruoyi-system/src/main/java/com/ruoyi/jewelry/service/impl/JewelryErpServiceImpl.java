@@ -51,8 +51,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         Map<String, Object> product = mapper.selectProductById(productId);
         if (product == null) throw new ServiceException("商品不存在");
         String type = textValue(product.get("productType"));
-        if (!"FINISHED".equals(type) && !"GIFT".equals(type))
-            throw new ServiceException("仅支持查看成品和赠品的达人绑定详情");
+        if (!"FINISHED".equals(type) && !"GIFT".equals(type) && !"WELFARE".equals(type))
+            throw new ServiceException("仅支持查看成品、赠品和福利商品的达人绑定详情");
         Map<String, Object> detail = new HashMap<String, Object>();
         detail.put("product", product);
         detail.put("bindings", mapper.selectInfluencerBindingsByProductId(productId));
@@ -305,8 +305,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 String unit = textValue(row.get("unit")).trim();
                 String productType = textValue(row.get("productType")).trim();
                 if (productType.isEmpty()) productType = "FINISHED";
-                if (!"FINISHED".equals(productType) && !"GIFT".equals(productType))
-                    throw new ServiceException("达人只能绑定成品商品或赠品商品");
+                if (!"FINISHED".equals(productType) && !"GIFT".equals(productType) && !"WELFARE".equals(productType))
+                    throw new ServiceException("达人只能绑定成品商品、赠品商品或福利商品");
                 if (sku.isEmpty() || name.isEmpty() || unit.isEmpty())
                     throw new ServiceException("新商品须填写SKU、名称和单位");
                 if (sku.length() > 64 || name.length() > 128 || unit.length() > 16
@@ -339,11 +339,12 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             if (product == null || !"0".equals(textValue(product.get("status"))))
                 throw new ServiceException("商品不存在或已停用");
             if (!"FINISHED".equals(textValue(product.get("productType")))
-                && !"GIFT".equals(textValue(product.get("productType"))))
-                throw new ServiceException("达人只能绑定成品商品或赠品商品");
+                && !"GIFT".equals(textValue(product.get("productType")))
+                && !"WELFARE".equals(textValue(product.get("productType"))))
+                throw new ServiceException("达人只能绑定成品商品、赠品商品或福利商品");
             BigDecimal price = fourDecimal(decimalValue(row.get("fixedUnitPrice"), "直播成交价"));
             if (price.signum() < 0 || ("FINISHED".equals(textValue(product.get("productType"))) && price.signum() == 0))
-                throw new ServiceException("成品直播成交价必须大于0，赠品不能小于0");
+                throw new ServiceException("成品直播成交价必须大于0，赠品和福利商品不能小于0");
             BigDecimal unitCost = fourDecimal(decimalValue(row.get("unitCost"), "商品成本价"));
             if (unitCost.signum() < 0) throw new ServiceException("商品成本价不能小于0");
             BigDecimal commission = percentageValue(row.get("commissionPercent"), "达人佣金率");

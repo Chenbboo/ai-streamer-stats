@@ -47,7 +47,7 @@ class JewelryInfluencerBindingExcelServiceTest
             Row header = workbook.getSheet("达人商品绑定").getRow(0);
             assertEquals("商品SKU", header.getCell(0).getStringCellValue());
             assertEquals("商品名称", header.getCell(1).getStringCellValue());
-            assertEquals(Arrays.asList("成品商品", "赠品商品"),
+            assertEquals(Arrays.asList("成品商品", "赠品商品", "福利商品"),
                 Arrays.asList(workbook.getSheet("达人商品绑定").getDataValidations().get(0)
                     .getValidationConstraint().getExplicitListValues()));
             String[] names = { "商品SKU", "商品名称", "商品类型", "供应商名称", "直播成交价", "商品成本价",
@@ -227,7 +227,34 @@ class JewelryInfluencerBindingExcelServiceTest
         assertEquals(1L, rows.get(0).get("productId"));
         assertEquals(2L, rows.get(1).get("productId"));
         assertTrue(errors(rows.get(0)).isEmpty());
-        assertTrue(errors(rows.get(1)).stream().anyMatch(error -> error.contains("只支持成品商品或赠品商品")));
+        assertTrue(errors(rows.get(1)).stream().anyMatch(error -> error.contains("只支持成品商品、赠品商品或福利商品")));
+    }
+
+    @Test
+    void welfareProductFromCurrentTemplateCanBeCreatedAndBound() throws Exception
+    {
+        when(mapper.selectProductBySkuAndType("WELFARE-1", "WELFARE")).thenReturn(null);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        service.writeTemplate(response);
+        try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(response.getContentAsByteArray()));
+            ByteArrayOutputStream out = new ByteArrayOutputStream())
+        {
+            Row row = workbook.getSheet("达人商品绑定").createRow(1);
+            row.createCell(0).setCellValue("WELFARE-1");
+            row.createCell(1).setCellValue("福利商品一");
+            row.createCell(2).setCellValue("福利商品");
+            row.createCell(4).setCellValue(0);
+            row.createCell(5).setCellValue(12.5);
+            row.createCell(13).setCellValue("件");
+            workbook.write(out);
+
+            List<Map<String, Object>> rows = service.preview(new MockMultipartFile("file", "bindings.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", out.toByteArray()), null);
+
+            assertEquals(1, rows.size());
+            assertEquals("WELFARE", rows.get(0).get("productType"));
+            assertTrue(errors(rows.get(0)).isEmpty(), errors(rows.get(0)).toString());
+        }
     }
 
     @Test
