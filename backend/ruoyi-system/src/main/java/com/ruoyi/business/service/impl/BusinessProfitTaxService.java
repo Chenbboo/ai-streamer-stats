@@ -14,17 +14,48 @@ import com.ruoyi.common.exception.ServiceException;
 @Service
 public class BusinessProfitTaxService {
     @Autowired private BusinessProfitTaxMapper mapper;
+    private java.time.Clock bonusClock=java.time.Clock.system(java.time.ZoneId.of("Asia/Shanghai"));
+    void setBonusClock(java.time.Clock clock){bonusClock=clock.withZone(java.time.ZoneId.of("Asia/Shanghai"));}
     public List<Map<String,Object>> settings(Long userId) { return mapper.selectCompanies(userId); }
+
+    public Map<String,Object> previousMonthResult(Long projectId) {
+        return monthlyBonusResult(projectId,java.time.YearMonth.now(bonusClock).minusMonths(1).toString());
+    }
+
+    public Map<String,Object> monthlyBonusResult(Long projectId,String settlementMonth) {
+        java.time.YearMonth month;
+        try {
+            if(settlementMonth==null||!settlementMonth.matches("[1-9]\\d{3}-(0[1-9]|1[0-2])"))throw new IllegalArgumentException();
+            month=java.time.YearMonth.parse(settlementMonth);
+        } catch(RuntimeException error){throw new ServiceException("奖金结算月份无效，请刷新重试");}
+        if(!month.isBefore(java.time.YearMonth.now(bonusClock)))throw new ServiceException("奖金只能按已结束的自然月结算");
+        return projectPeriodResult(projectId,month.atDay(1),month.atEndOfMonth());
+    }
 
     /** Current cumulative tax result for one project, using the same company-offset calculation as accounting. */
     public Map<String,Object> projectResult(Long projectId) {
+        return projectResult(projectId,null,null);
+    }
+
+    /** Calculate tax with prior company balances, then total only the requested calendar period. */
+    public Map<String,Object> projectPeriodResult(Long projectId,java.time.LocalDate from,java.time.LocalDate to) {
+        Map<String,Object> result=projectResult(projectId,from.toString(),to.toString());
+        result.put("dateFrom",from.toString());result.put("dateTo",to.toString());
+        result.put("month",java.time.YearMonth.from(from).toString());
+        return result;
+    }
+
+    private Map<String,Object> projectResult(Long projectId,String from,String to) {
         Map<String,Object> query=new LinkedHashMap<>();query.put("projectId",projectId);
+        if(to!=null)query.put("dateTo",to);
         List<Map<String,Object>> rows=mapper.selectSeries(query);if(rows==null)rows=Collections.emptyList();
+        if(to!=null){rows=new ArrayList<>(rows);rows.removeIf(row->String.valueOf(row.get("bizDate")).compareTo(to)>0);}
         calculateSeries(rows);
         BigDecimal pretax=BigDecimal.ZERO,taxAmount=BigDecimal.ZERO,afterTax=BigDecimal.ZERO;
         int resultCount=0;boolean available=false,taxConfigured=true,hasAdjustments=false;String currency=null;
         for(Map<String,Object> row:rows) {
             if(!String.valueOf(projectId).equals(String.valueOf(row.get("projectId"))))continue;
+            if(from!=null&&String.valueOf(row.get("bizDate")).compareTo(from)<0)continue;
             available=true;pretax=pretax.add(number(row.get("profitAmount")));
             taxAmount=taxAmount.add(number(row.get("taxAmount")));afterTax=afterTax.add(number(row.get("afterTaxProfit")));
             if(row.get("resultId")!=null)resultCount++;
@@ -36,6 +67,34 @@ public class BusinessProfitTaxService {
         result.put("pretaxProfit",pretax);result.put("taxAmount",taxAmount);result.put("afterTaxProfit",afterTax);
         result.put("taxConfigured",taxConfigured);result.put("resultCount",resultCount);result.put("hasClosedAdjustments",hasAdjustments);
         return result;
+    }
+
+    /** Bonus mutations must use the current project result, not a published rule's old snapshot. */
+    public static BigDecimal requirePositiveBonusProfit(Map<String,Object> result) {
+        String blocked=bonusBlockReason(result);
+        if("noProfitResult".equals(blocked))
+            throw new ServiceException("项目暂无税后盈利结果，不能设置、申请、核准或发放奖金");
+        if(!blocked.isEmpty())
+            throw new ServiceException("项目税后盈利金额必须大于 0，才能设置、申请、核准或发放奖金");
+        return number(result.get("afterTaxProfit")).setScale(2,RoundingMode.HALF_UP);
+    }
+
+    public static String bonusBlockReason(Map<String,Object> result) {
+        if(result==null||!Boolean.TRUE.equals(result.get("available"))||result.get("afterTaxProfit")==null)
+            return "noProfitResult";
+        return number(result.get("afterTaxProfit")).setScale(2,RoundingMode.HALF_UP).signum()>0 ? "" : "nonPositiveProfit";
+    }
+
+    public static String monthlyBonusBlockReason(Map<String,Object> result,BigDecimal snapshot) {
+        String blocked=bonusBlockReason(result);
+        if(!blocked.isEmpty())return blocked;
+        return snapshot==null||number(result.get("afterTaxProfit")).setScale(2,RoundingMode.HALF_UP).compareTo(snapshot)!=0?"monthlyProfitChanged":"";
+    }
+
+    public static void requireMonthlyBonusProfit(Map<String,Object> result,BigDecimal snapshot) {
+        requirePositiveBonusProfit(result);
+        if(!monthlyBonusBlockReason(result,snapshot).isEmpty())
+            throw new ServiceException("该月结算盈利已更新，请核对原申请及方案，不得按旧金额分配或发放奖金");
     }
 
     @Transactional(isolation=Isolation.READ_COMMITTED)

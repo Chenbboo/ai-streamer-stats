@@ -8636,5 +8636,10 @@
   "已关账或删除的项目含IT亏损转分，不能退回，请先核对历史成本": "Dự án đã khóa sổ hoặc bị xóa có phân bổ lỗ IT, không thể trả lại; hãy kiểm tra chi phí lịch sử trước",
   "税后盈利奖金方案不使用 KPI 得分依据": "Phương án thưởng theo lợi nhuận sau thuế không sử dụng điểm KPI làm căn cứ",
   "当前方案奖金为零，无需创建奖励申请": "Thưởng theo phương án hiện tại bằng 0, không cần tạo đề nghị thưởng",
-  "奖金金额与已发布方案不一致，请核对原申请": "Số tiền thưởng không khớp với phương án đã công bố; hãy kiểm tra đề nghị gốc"
+  "奖金金额与已发布方案不一致，请核对原申请": "Số tiền thưởng không khớp với phương án đã công bố; hãy kiểm tra đề nghị gốc",
+  "项目上月结算税后盈利结果": "Lợi nhuận sau thuế của dự án tháng trước",
+  "上月盈利结果暂时无法读取，请刷新重试": "Chưa tải được lợi nhuận tháng trước; vui lòng tải lại",
+  "上月暂无已核算税后盈利结果": "Tháng trước chưa có kết quả lợi nhuận sau thuế đã hạch toán",
+  "按上月已核算经营结果汇总，含税额冲回及已核准调整": "Tổng hợp kết quả kinh doanh đã hạch toán của tháng trước, gồm hoàn nhập thuế và điều chỉnh đã duyệt",
+  "上月成本待完善，当前仅显示已核算部分": "Chi phí tháng trước chưa đầy đủ; hiện chỉ hiển thị phần đã hạch toán"
 }

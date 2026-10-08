@@ -74,6 +74,10 @@ class BusinessIncentiveMapperIntegrationTest
         Matcher allocationProposalColumn=Pattern.compile("alter table biz_incentive_award add column allocation_proposal_json mediumtext default null").matcher(allocationProposalDdl);
         if (!allocationProposalColumn.find()) throw new AssertionError("Missing award allocation proposal column migration");
         execute(allocationProposalColumn.group());
+        String monthlyDdl=new String(Files.readAllBytes(migration().resolveSibling("V141__monthly_incentive_settlement.sql")),StandardCharsets.UTF_8);
+        Matcher monthlyColumn=Pattern.compile("alter table biz_incentive_rule add column settlement_month varchar\\(7\\) default null").matcher(monthlyDdl);
+        if(!monthlyColumn.find())throw new AssertionError("Missing monthly incentive migration");
+        execute(monthlyColumn.group());
         Matcher scoreTable=Pattern.compile("(?s)create table if not exists biz_incentive_tier.*?\\) engine=InnoDB default charset=utf8mb4 comment='[^']*';").matcher(scoreDdl);
         if (!scoreTable.find()) throw new AssertionError("Missing score tier migration");
         execute(scoreTable.group());execute(scoreTable.group());

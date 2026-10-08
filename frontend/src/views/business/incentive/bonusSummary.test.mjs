@@ -1,6 +1,33 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { currentBonusShares, profitShareAmount } from './bonusSummary.js'
+import { activeMonthlyRules, recordBonusBlockReason, bonusProfitBlockReason, currentBonusShares, profitShareAmount } from './bonusSummary.js'
+
+test('monthly application choices never reuse cumulative or another month plans', () => {
+  const rules = [
+    { policyVersion: 'PROFIT_SHARE_V1', status: 'ACTIVE', ruleVersion: 1 },
+    { policyVersion: 'PROFIT_SHARE_V1', status: 'ACTIVE', settlementMonth: '2026-08', ruleVersion: 2 },
+    { policyVersion: 'PROFIT_SHARE_V1', status: 'ACTIVE', settlementMonth: '2026-09', ruleVersion: 3 },
+    { policyVersion: 'PROFIT_SHARE_V1', status: 'RETIRED', settlementMonth: '2026-09', ruleVersion: 4 }
+  ]
+  assert.deepEqual(activeMonthlyRules(rules, '2026-09'), [rules[2]])
+  assert.equal(currentBonusShares(rules, {}, '2026-09'), rules[2])
+  assert.equal(currentBonusShares(rules, {}, '2026-10'), null)
+  assert.deepEqual(activeMonthlyRules(rules), [])
+})
+
+test('payment and approval use their record month, not the newest month eligibility', () => {
+  assert.equal(recordBonusBlockReason({ settlementMonth: '2026-09', bonusBlockReason: '' }, 'nonPositiveProfit'), '')
+  assert.equal(recordBonusBlockReason({ bonusBlockReason: 'monthlyProfitChanged' }, ''), 'monthlyProfitChanged')
+  assert.equal(recordBonusBlockReason({}, 'noProfitResult'), 'noProfitResult')
+})
+
+test('bonus setup and payment require current available profit greater than zero', () => {
+  for (const afterTaxProfit of ['0.00', '0', '-0.01', '-8352.29']) assert.equal(bonusProfitBlockReason({ available: true, afterTaxProfit }), 'nonPositiveProfit')
+  assert.equal(bonusProfitBlockReason({ available: true, afterTaxProfit: '0.01' }), '')
+  assert.equal(bonusProfitBlockReason({ available: false, afterTaxProfit: '10000.00' }), 'noProfitResult')
+  assert.equal(bonusProfitBlockReason(), 'noProfitResult')
+  assert.equal(bonusProfitBlockReason({ available: true, afterTaxProfit: null }), 'noProfitResult')
+})
 
 test('overview uses the latest active profit rule instead of retired or KPI rules', () => {
   const rule = { policyVersion: 'PROFIT_SHARE_V1', status: 'ACTIVE', ruleVersion: 3, mainOwnerBonusRate: 10, sponsorOwnerBonusRate: 15 }

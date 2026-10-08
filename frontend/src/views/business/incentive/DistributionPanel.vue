@@ -28,7 +28,7 @@
      </template>
     </div>
    </template></el-table-column>
-   <el-table-column :label="t('person')" min-width="160"><template #default="{row}"><strong>{{ row.userName }}</strong><div class="muted">{{ row.batch?.ruleName || row.award?.ruleName }} #{{ row.batch?.awardId || row.award?.awardId }}</div></template></el-table-column>
+   <el-table-column :label="t('person')" min-width="160"><template #default="{row}"><strong>{{ row.userName }}</strong><div class="muted">{{ row.batch?.ruleName || row.award?.ruleName }} #{{ row.batch?.awardId || row.award?.awardId }} · {{ row.batch?.settlementMonth || row.award?.settlementMonth || t('legacyCumulative') }}</div></template></el-table-column>
    <el-table-column :label="t('batch')" min-width="145"><template #default="{row}">{{ row.batch ? '#'+row.batch.allocationId : t('applicationAllocationTitle') }}</template></el-table-column>
    <el-table-column :label="t('memberBonusRate')" min-width="115"><template #default="{row}">{{ row.percentage == null ? '—' : `${row.percentage}%` }}</template></el-table-column>
    <el-table-column :label="t('memberBonusAmount')" min-width="150"><template #default="{row}">{{ money(row.amount) }} {{ row.currency }}</template></el-table-column>
@@ -38,15 +38,15 @@
    <el-table-column :label="t('allocationStatus')" min-width="115"><template #default="{row}"><el-tag>{{ t(row.allocationStatus) }}</el-tag></template></el-table-column>
    <el-table-column :label="t('actions')" min-width="260" fixed="right"><template #default="{row}"><div class="row-actions">
     <el-button v-if="row.award" link @click="emit('open-award',row.award)">{{ t('viewAward') }}</el-button>
-    <template v-if="row.batch?.canEdit && row.firstInBatch"><el-button v-hasPermi="['business:incentive:apply']" link @click="openEdit(row.batch)">{{ t('edit') }}</el-button><el-button v-hasPermi="['business:incentive:apply']" link type="primary" :disabled="busy" @click="act(row.batch,'SUBMITTED')">{{ t('submit') }}</el-button><el-button v-hasPermi="['business:incentive:apply']" link type="danger" :disabled="busy" @click="act(row.batch,'CANCELED')">{{ t('cancelBatch') }}</el-button></template>
-    <template v-if="row.batch?.canReview && row.firstInBatch"><el-button v-hasPermi="['business:incentive:approve']" link type="success" :disabled="busy" @click="act(row.batch,'APPROVED')">{{ t('approve') }}</el-button><el-button v-hasPermi="['business:incentive:approve']" link type="warning" :disabled="busy" @click="act(row.batch,'RETURNED')">{{ t('return') }}</el-button></template>
-    <el-button v-if="row.batch?.canPay && Number(row.paidAmount)<Number(row.amount)" v-hasPermi="['business:incentive:pay']" link type="primary" @click="openPayment(row.batch,row.line)">{{ t('pay') }}</el-button>
+    <template v-if="row.batch?.canEdit && row.firstInBatch"><el-button v-hasPermi="['business:incentive:apply']" link :disabled="!!rowBonusBlock(row.batch)" @click="openEdit(row.batch)">{{ t('edit') }}</el-button><el-button v-hasPermi="['business:incentive:apply']" link type="primary" :disabled="busy || !!rowBonusBlock(row.batch)" @click="act(row.batch,'SUBMITTED')">{{ t('submit') }}</el-button><el-button v-hasPermi="['business:incentive:apply']" link type="danger" :disabled="busy" @click="act(row.batch,'CANCELED')">{{ t('cancelBatch') }}</el-button></template>
+    <template v-if="row.batch?.canReview && row.firstInBatch"><el-button v-hasPermi="['business:incentive:approve']" link type="success" :disabled="busy || !!rowBonusBlock(row.batch)" @click="act(row.batch,'APPROVED')">{{ t('approve') }}</el-button><el-button v-hasPermi="['business:incentive:approve']" link type="warning" :disabled="busy" @click="act(row.batch,'RETURNED')">{{ t('return') }}</el-button></template>
+    <el-button v-if="row.batch?.canPay && Number(row.paidAmount)<Number(row.amount)" v-hasPermi="['business:incentive:pay']" link type="primary" :disabled="!!rowBonusBlock(row.batch)" @click="openPayment(row.batch,row.line)">{{ t('pay') }}</el-button>
    </div></template></el-table-column>
   </el-table>
   <el-dialog v-model="editOpen" :title="t('edit')" width="min(950px,95vw)" append-to-body>
    <el-form label-position="top">
     <el-form-item :label="t('award')" required><el-select v-model="form.awardId" :disabled="!!form.allocationId" style="width:100%"><el-option v-for="a in data.awards" :key="a.awardId" :value="a.awardId" :label="a.ruleName+' #'+a.awardId+' · '+money(a.sourceAmount)+' '+a.currency" /></el-select></el-form-item>
-    <p>{{ t('total') }}: <b>{{ money(selectedAward?.sourceAmount) }} {{ selectedAward?.currency }}</b></p>
+    <p>{{ t('settlementMonth') }}: {{ selectedAward?.settlementMonth || t('legacyCumulative') }} · {{ t('monthlySettlement') }}</p><p>{{ t('total') }}: <b>{{ money(selectedAward?.sourceAmount) }} {{ selectedAward?.currency }}</b></p>
     <p class="muted">{{ t('sourceHint') }}</p>
     <el-form-item :label="t('mode')"><el-radio-group v-model="form.mode"><el-radio value="AMOUNT">{{ t('AMOUNT') }}</el-radio><el-radio value="PERCENT">{{ t('PERCENT') }}</el-radio></el-radio-group></el-form-item>
     <p class="muted">{{ t(form.mode==='PERCENT'?'percentHint':'allocationNote') }}</p>
@@ -62,11 +62,11 @@
     <p><b>{{ t('sum') }}: {{ money(total) }} {{ selectedAward?.currency }}</b> · {{ t('capacity') }}: {{ money(capacity) }}</p>
     <el-form-item :label="t('reason')" required><el-input v-model="form.reason" type="textarea" maxlength="500" /></el-form-item>
    </el-form>
-   <template #footer><el-button @click="editOpen=false">{{ t('cancel') }}</el-button><el-button type="primary" :loading="busy" @click="save">{{ t('save') }}</el-button></template>
+   <template #footer><el-button @click="editOpen=false">{{ t('cancel') }}</el-button><el-button type="primary" :loading="busy" :disabled="!!editBonusBlock" @click="save">{{ t('save') }}</el-button></template>
   </el-dialog>
   <el-dialog v-model="paymentOpen" :title="t('paymentTitle')" width="min(640px,95vw)" append-to-body>
    <el-alert :title="t('payHint')" type="info" :closable="false" />
-   <p><b>{{ paymentPerson }}</b> · {{ t('unpaid') }}: {{ money(paymentLimit) }} {{ paymentCurrency }}</p>
+   <p>{{ t('settlementMonth') }}: {{ paymentBatch?.settlementMonth || t('legacyCumulative') }}</p><p><b>{{ paymentPerson }}</b> · {{ t('unpaid') }}: {{ money(paymentLimit) }} {{ paymentCurrency }}</p>
    <el-form label-position="top">
     <el-form-item :label="t('paidAmount')" required><el-input-number v-model="payment.amount" :min="0" :max="paymentLimit" :precision="2" :aria-label="t('paidAmount')" /></el-form-item>
     <el-form-item :label="t('date')" required><el-date-picker v-model="payment.paidDate" type="date" value-format="YYYY-MM-DD" /></el-form-item>
@@ -75,7 +75,7 @@
     <el-form-item :label="t('voucher')" required><el-upload action="#" :http-request="upload" :show-file-list="false" accept=".png,.jpg,.jpeg,.webp,.pdf" :disabled="uploading"><el-button :loading="uploading">{{ t('upload') }}</el-button></el-upload><span v-if="payment.voucher">{{ t('uploadOk') }}</span></el-form-item>
     <el-form-item :label="t('payReason')" required><el-input v-model="payment.reason" type="textarea" maxlength="500" /></el-form-item>
    </el-form>
-   <template #footer><el-button @click="paymentOpen=false">{{ t('cancel') }}</el-button><el-button type="primary" :loading="busy" :disabled="uploading" @click="pay">{{ t('record') }}</el-button></template>
+   <template #footer><el-button @click="paymentOpen=false">{{ t('cancel') }}</el-button><el-button type="primary" :loading="busy" :disabled="uploading || !!paymentBonusBlock" @click="pay">{{ t('record') }}</el-button></template>
   </el-dialog>
  </section>
 </template>
@@ -86,8 +86,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '@/utils/request'
 import { saveBonusAllocation, actBonusAllocation, recordBonusPayment } from '@/api/business/incentive'
 import messages from './distributionMessages'
+import { recordBonusBlockReason } from './bonusSummary.js'
 import { memberAllocationRows } from './memberAllocationRows'
 const props=defineProps({data:{type:Object,default:()=>({})},applicationAwards:{type:Array,default:()=>[]},requestedAllocationId:{type:[String,Number],default:null}})
+const bonusProfitBlock=computed(()=>props.data.bonusBlockReason ?? 'noProfitResult')
+const rowBonusBlock=row=>recordBonusBlockReason(row,bonusProfitBlock.value)
 const memberRows=computed(()=>memberAllocationRows(props.applicationAwards,props.data))
 const allocationTable=ref(null)
 const requestedMemberKeys=computed(()=>memberRows.value
@@ -102,6 +105,9 @@ watch(()=>[props.data.allocations,props.requestedAllocationId],async()=>{
 const emit=defineEmits(['refresh','open-award'])
 const {t}=useI18n({useScope:'local',messages})
 const editOpen=ref(false),paymentOpen=ref(false),busy=ref(false),uploading=ref(false),form=reactive({lines:[]}),payment=reactive({})
+const paymentBatch=ref(null)
+const editBonusBlock=computed(()=>rowBonusBlock(form))
+const paymentBonusBlock=computed(()=>rowBonusBlock(paymentBatch.value))
 const paymentPerson=ref(''),paymentLimit=ref(0),paymentCurrency=ref('')
 const money=v=>Number(v||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})
 const key=()=>crypto.randomUUID()
@@ -110,16 +116,17 @@ const cents=v=>Math.round(Number(v||0)*100)
 const lineAmount=l=>form.mode==='PERCENT'?Math.round(cents(selectedAward.value?.sourceAmount)*Number(l.percentage||0)/100)/100:Number(l.amount||0)
 const total=computed(()=>form.lines.reduce((sum,l)=>sum+cents(lineAmount(l)),0)/100)
 const capacity=computed(()=>Number(selectedAward.value?.remaining||0)+Number(form.originalAmount||0))
-function openEdit(row){if(!row)return;Object.keys(form).forEach(k=>delete form[k]);Object.assign(form,{...row,originalAmount:row.amount,lines:row.lines.map(l=>({...l}))});editOpen.value=true}
+function openEdit(row){if(!row)return;if(rowBonusBlock(row))return ElMessage.warning(t(rowBonusBlock(row)));Object.keys(form).forEach(k=>delete form[k]);Object.assign(form,{...row,originalAmount:row.amount,lines:row.lines.map(l=>({...l}))});editOpen.value=true}
 async function save(){
+ if(editBonusBlock.value)return ElMessage.warning(t(editBonusBlock.value))
  if(!form.awardId||!form.reason?.trim()||form.lines.some(l=>!l.userId||!l.reason?.trim()||lineAmount(l)<=0))return ElMessage.warning(t('required'))
  if(new Set(form.lines.map(l=>l.userId)).size!==form.lines.length||cents(total.value)>cents(capacity.value)||(form.mode==='PERCENT'&&form.lines.reduce((s,l)=>s+Number(l.percentage||0),0)>100))return ElMessage.warning(t('invalid'))
  busy.value=true;try{await saveBonusAllocation({allocationId:form.allocationId,awardId:form.awardId,version:form.version,mode:form.mode,reason:form.reason,requestKey:form.requestKey,lines:form.lines.map(l=>({userId:l.userId,amount:l.amount,percentage:l.percentage,reason:l.reason}))});editOpen.value=false;emit('refresh');ElMessage.success(t('saved'))}finally{busy.value=false}
 }
-async function act(row,action){if(busy.value)return;try{const {value}=await ElMessageBox.prompt(t('prompt'),t('confirm'),{inputType:'textarea',inputValidator:v=>!!v?.trim()&&v.trim().length<=500||t('required')});busy.value=true;await actBonusAllocation(row.allocationId,['APPROVED','RETURNED'].includes(action)?'review':'submit',{version:row.version,action,reason:value});emit('refresh')}catch(e){if(!['cancel','close'].includes(e))emit('refresh')}finally{busy.value=false}}
-function openPayment(batch,line){Object.assign(payment,{lineId:line.lineId,amount:null,paidDate:new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Shanghai'}),method:'BANK',referenceNo:'',voucher:'',reason:'',requestKey:key()});paymentPerson.value=line.userName;paymentLimit.value=(cents(line.amount)-cents(line.paidAmount))/100;paymentCurrency.value=batch.currency;paymentOpen.value=true}
+async function act(row,action){if(busy.value)return;if(['SUBMITTED','APPROVED'].includes(action)&&rowBonusBlock(row))return ElMessage.warning(t(rowBonusBlock(row)));try{const {value}=await ElMessageBox.prompt(t('prompt'),t('confirm'),{inputType:'textarea',inputValidator:v=>!!v?.trim()&&v.trim().length<=500||t('required')});busy.value=true;await actBonusAllocation(row.allocationId,['APPROVED','RETURNED'].includes(action)?'review':'submit',{version:row.version,action,reason:value});emit('refresh')}catch(e){if(!['cancel','close'].includes(e))emit('refresh')}finally{busy.value=false}}
+function openPayment(batch,line){if(rowBonusBlock(batch))return ElMessage.warning(t(rowBonusBlock(batch)));paymentBatch.value=batch;Object.assign(payment,{lineId:line.lineId,amount:null,paidDate:new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Shanghai'}),method:'BANK',referenceNo:'',voucher:'',reason:'',requestKey:key()});paymentPerson.value=line.userName;paymentLimit.value=(cents(line.amount)-cents(line.paidAmount))/100;paymentCurrency.value=batch.currency;paymentOpen.value=true}
 async function upload({file}){if(!/\.(png|jpe?g|webp|pdf)$/i.test(file.name)||file.size>10*1024*1024){ElMessage.warning(t('fileError'));throw new Error(t('fileError'))}uploading.value=true;try{const data=new FormData();data.append('file',file);const res=await request({url:'/common/upload',method:'post',headers:{'Content-Type':'multipart/form-data',repeatSubmit:false},data});payment.voucher=res.fileName}finally{uploading.value=false}}
-async function pay(){if(!payment.amount||payment.amount>paymentLimit.value||!payment.paidDate||!payment.method||!payment.referenceNo?.trim()||!payment.voucher||!payment.reason?.trim())return ElMessage.warning(t('payInvalid'));busy.value=true;try{await recordBonusPayment(payment);paymentOpen.value=false;emit('refresh');ElMessage.success(t('saved'))}finally{busy.value=false}}
+async function pay(){if(paymentBonusBlock.value)return ElMessage.warning(t(paymentBonusBlock.value));if(!payment.amount||payment.amount>paymentLimit.value||!payment.paidDate||!payment.method||!payment.referenceNo?.trim()||!payment.voucher||!payment.reason?.trim())return ElMessage.warning(t('payInvalid'));busy.value=true;try{await recordBonusPayment(payment);paymentOpen.value=false;emit('refresh');ElMessage.success(t('saved'))}finally{busy.value=false}}
 function voucherUrl(path){return typeof path==='string'&&path.startsWith('/profile/upload/')&&!path.includes('..')?import.meta.env.VITE_APP_BASE_API+path:'#'}
 function isImageVoucher(path){return typeof path==='string'&&/\.(png|jpe?g|webp)(?:\?.*)?$/i.test(path)}
 function memberPayments(row){return (row.batch?.payments||[]).filter(payment=>String(payment.lineId)===String(row.line.lineId))}

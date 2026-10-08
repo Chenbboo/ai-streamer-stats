@@ -1,9 +1,22 @@
 // The overview shows current financial results and published shares, never unsaved form values.
-export function currentBonusShares(rules = [], setting = {}) {
-  const active = rules.filter(rule => rule.policyVersion === 'PROFIT_SHARE_V1' && rule.status === 'ACTIVE')
+export function currentBonusShares(rules = [], setting = {}, month) {
+  const active = rules.filter(rule => rule.policyVersion === 'PROFIT_SHARE_V1' && rule.status === 'ACTIVE' && (!month || rule.settlementMonth === month))
     .reduce((latest, rule) => !latest || Number(rule.ruleVersion) > Number(latest.ruleVersion) ? rule : latest, null)
   if (active) return active
   return Number(setting.version) > 0 ? setting : null
+}
+
+export function activeMonthlyRules(rules = [], month) {
+  return month ? rules.filter(rule => rule.policyVersion === 'PROFIT_SHARE_V1' && rule.status === 'ACTIVE' && rule.settlementMonth === month) : []
+}
+
+export function recordBonusBlockReason(record, currentReason) {
+  return record?.bonusBlockReason ?? currentReason ?? 'noProfitResult'
+}
+
+export function bonusProfitBlockReason(profitResult) {
+  const amount = profitShareAmount(profitResult, 100)
+  return amount == null ? 'noProfitResult' : Number(amount) > 0 ? '' : 'nonPositiveProfit'
 }
 
 export function profitShareAmount(profitResult, rate) {

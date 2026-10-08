@@ -3,9 +3,10 @@
     <h3>{{ label('awardRuleDetails') }}</h3>
     <el-alert :title="label('awardRuleSnapshotHint')" type="info" :closable="false" show-icon />
     <el-descriptions :column="1" border>
+      <el-descriptions-item v-if="award.settlementMonth" :label="label('settlementMonth')">{{ award.settlementMonth }} · {{ label('monthlySettlement') }}</el-descriptions-item>
       <el-descriptions-item :label="label('rule')">{{ award.ruleName }} · v{{ award.ruleVersion }}</el-descriptions-item>
       <template v-if="award.policyVersion === 'PROFIT_SHARE_V1'">
-        <el-descriptions-item :label="label('afterTaxProfit')">{{ formatAmount(award.ruleAfterTaxProfit) }} {{ award.currency }}</el-descriptions-item>
+        <el-descriptions-item :label="label(award.settlementMonth ? 'afterTaxProfit' : 'legacyAfterTaxProfit')">{{ formatAmount(award.ruleAfterTaxProfit) }} {{ award.currency }}</el-descriptions-item>
         <el-descriptions-item :label="label('mainOwnerShare')">{{ rate(award.ruleMainOwnerBonusRate) }}</el-descriptions-item>
         <el-descriptions-item :label="label('mainOwnerAllocationAmount')">{{ formatAmount(award.ruleMainOwnerBonusAmount) }} {{ award.currency }}</el-descriptions-item>
         <el-descriptions-item :label="label('sponsorOwnerShare')">{{ rate(award.ruleSponsorOwnerBonusRate) }}</el-descriptions-item>

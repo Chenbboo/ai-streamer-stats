@@ -1050,6 +1050,21 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         result.put("companies",allowedCompanies);
         result.put("costPolicyVersion",project.get("costPolicyVersion"));
         result.put("pendingCostCount",BusinessMemberDayCostService.POLICY.equals(project.get("costPolicyVersion"))?memberDays.pending(projectId):"ACTUAL_WORK_V1".equals(project.get("costPolicyVersion"))?workMapper.countPendingCosts(projectId):0);
+        if(profitTax!=null)
+        {
+            java.time.YearMonth month=java.time.YearMonth.from(java.time.LocalDate.now(overviewClock)).minusMonths(1);
+            Map<String,Object> monthly=profitTax.projectPeriodResult(projectId,month.atDay(1),month.atEndOfMonth());
+            if(monthly!=null)
+            {
+                Map<String,Object> monthlyQuery=new HashMap<>();
+                monthlyQuery.put("projectId",projectId);monthlyQuery.put("userId",userId);monthlyQuery.put("viewAll",true);
+                monthlyQuery.put("dateFrom",month.atDay(1).toString());monthlyQuery.put("dateTo",month.atEndOfMonth().toString());
+                int pending=mapper.countPendingCostsInRange(monthlyQuery);
+                monthly.put("pendingCostCount",pending);
+                monthly.put("dataStatus",!Boolean.TRUE.equals(monthly.get("available"))?"NO_DATA":pending>0?"INCOMPLETE":"AVAILABLE");
+                result.put("previousMonthProfit",monthly);
+            }
+        }
         Map<String,Object> budget=com.ruoyi.business.support.BusinessBudgetSnapshot.read(mapper.selectProjectBudgetSnapshot(projectId));
         if(budget!=null)
         {

@@ -61,6 +61,8 @@ class BusinessIncentiveServiceImplTest
         project.setBaseCurrency("CNY");project.setPlanStartDate(Date.valueOf("2026-01-01"));
         lenient().when(projectMapper.selectProjectById(1L)).thenReturn(project);
         lenient().when(projectMapper.selectProjectByIdForUpdate(1L)).thenReturn(project);
+        lenient().when(profitTax.projectResult(1L)).thenReturn(currentProfit("10000.00"));
+        lenient().when(profitTax.previousMonthResult(1L)).thenAnswer(call->{Map<String,Object> value=profitTax.projectResult(1L);value.put("month","2026-09");return value;});
 
         companyAccess=com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture();
         org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
@@ -79,19 +81,55 @@ class BusinessIncentiveServiceImplTest
         assertEquals("PROFIT_SHARE_V1",saved.getPolicyVersion());assertEquals(new BigDecimal("1234.56"),saved.getAfterTaxProfit());
         assertEquals(new BigDecimal("308.64"),saved.getAmount());assertNull(saved.getKpiPlanId());assertNull(saved.getMinScore());
         assertEquals(new BigDecimal("10"),saved.getMainOwnerBonusRate());assertEquals(new BigDecimal("15"),saved.getSponsorOwnerBonusRate());
+        assertEquals("2026-09",saved.getSettlementMonth());
         verify(kpiMapper,never()).selectPlanById(any());verify(mapper).retireProfitRules(1L,"owner");
     }
 
-    @Test void profitRuleCanBeSavedForLossOrMissingResultWithoutNegativeBonus()
+    @Test void zeroLossOrMissingCurrentProfitCannotPublishOrSaveBonusShares()
     {
-        Map<String,Object> result=new LinkedHashMap<>();result.put("available",true);result.put("afterTaxProfit",new BigDecimal("-2130.68"));
-        when(profitTax.projectResult(1L)).thenReturn(result,null);
-        service.publishRule(profitRule(),9L,"owner",false);service.publishRule(profitRule(),9L,"owner",false);
-        ArgumentCaptor<BusinessIncentiveRule> captured=ArgumentCaptor.forClass(BusinessIncentiveRule.class);
-        verify(mapper,org.mockito.Mockito.times(2)).insertRule(captured.capture());
-        assertEquals(new BigDecimal("0.00"),captured.getAllValues().get(0).getAmount());
-        assertEquals(new BigDecimal("-2130.68"),captured.getAllValues().get(0).getAfterTaxProfit());
-        assertNull(captured.getAllValues().get(1).getAfterTaxProfit());
+        Map<String,Object> setting=new LinkedHashMap<>();setting.put("projectId",1L);
+        setting.put("mainOwnerBonusRate",40);setting.put("sponsorOwnerBonusRate",60);setting.put("version",0);
+        for(String amount:Arrays.asList("0.00","-2130.68",null))
+        {
+            when(profitTax.projectResult(1L)).thenReturn(currentProfit(amount));
+            assertThrows(ServiceException.class,()->service.publishRule(profitRule(),9L,"owner",false));
+            assertThrows(ServiceException.class,()->service.publishRule(rule(),9L,"owner",false));
+            assertThrows(ServiceException.class,()->service.saveBonusSetting(setting,9L,"owner",false));
+        }
+        verify(mapper,never()).insertRule(any());verify(mapper,never()).retireProfitRules(any(),any());
+        verify(mapper,never()).saveBonusSetting(anyMap());
+    }
+
+    @Test void oldPositiveSnapshotCannotCreateEditSubmitOrApproveWhenCurrentProfitIsNonPositive()
+    {
+        BusinessIncentiveAward source=award("DRAFT");source.setPolicyVersion("PROFIT_SHARE_V1");
+        source.setRuleAfterTaxProfit(new BigDecimal("10000.00"));mockAward(source);
+        for(String amount:Arrays.asList("0.00","-0.01"))
+        {
+            when(profitTax.projectResult(1L)).thenReturn(currentProfit(amount));source.setStatus("DRAFT");
+            assertTrue(assertThrows(ServiceException.class,()->service.createAward(award("DRAFT"),9L,"owner")).getMessage().contains("税后盈利"));
+            assertTrue(assertThrows(ServiceException.class,()->service.updateAward(21L,award("DRAFT"),9L,"owner")).getMessage().contains("税后盈利"));
+            assertTrue(assertThrows(ServiceException.class,()->service.submit(21L,0,"提交",9L,"owner")).getMessage().contains("税后盈利"));
+            source.setStatus("SUBMITTED");
+            assertTrue(assertThrows(ServiceException.class,()->service.review(21L,0,"APPROVED","同意",8L,"boss")).getMessage().contains("税后盈利"));
+        }
+        verify(mapper,never()).insertAward(any());verify(accountingMapper,never()).insertFact(any());
+        verify(mapper,never()).transitionAward(any(),any(),any(),any(),any(),any(),any(),any());
+    }
+
+    @Test void nonPositiveProfitStillAllowsReturningAnApplication()
+    {
+        BusinessIncentiveAward source=award("SUBMITTED");mockAward(source);
+        lenient().when(profitTax.projectResult(1L)).thenReturn(currentProfit("-100.00"));
+        when(mapper.transitionAward(21L,"SUBMITTED","RETURNED",0,8L,"boss","退回",null)).thenReturn(1);
+        service.review(21L,0,"RETURNED","退回",8L,"boss");
+        verify(mapper).transitionAward(21L,"SUBMITTED","RETURNED",0,8L,"boss","退回",null);
+    }
+
+    private Map<String,Object> currentProfit(String amount)
+    {
+        Map<String,Object> result=new LinkedHashMap<>();result.put("available",amount!=null);
+        result.put("afterTaxProfit",amount==null?null:new BigDecimal(amount));return result;
     }
 
     @Test void profitRuleRejectsMissingOverPreciseAndExcessiveShares()
@@ -118,6 +156,53 @@ class BusinessIncentiveServiceImplTest
     {
         BusinessIncentiveRule input=rule();input.setPolicyVersion("PROFIT_SHARE_V1");
         input.setMainOwnerBonusRate(new BigDecimal("10"));input.setSponsorOwnerBonusRate(new BigDecimal("15"));return input;
+    }
+
+    @Test void monthlyPublicationUsesLastMonthNotCumulativeAndRejectsStaleClientMonth()
+    {
+        Map<String,Object> monthly=currentProfit("2000.00");monthly.put("month","2026-09");
+        when(profitTax.previousMonthResult(1L)).thenReturn(monthly);
+        BusinessIncentiveRule input=profitRule();input.setSettlementMonth("2026-08");
+        assertThrows(ServiceException.class,()->service.publishRule(input,9L,"owner",false));
+        input.setSettlementMonth("2026-09");service.publishRule(input,9L,"owner",false);
+        ArgumentCaptor<BusinessIncentiveRule> saved=ArgumentCaptor.forClass(BusinessIncentiveRule.class);verify(mapper).insertRule(saved.capture());
+        assertEquals(new BigDecimal("500.00"),saved.getValue().getAmount());assertEquals(new BigDecimal("2000.00"),saved.getValue().getAfterTaxProfit());
+    }
+
+    @Test void monthlyApplicationFreezesMonthAndOwnerPoolAndBlocksDuplicateAcrossRuleVersions()
+    {
+        BusinessIncentiveRule source=profitRule();source.setSettlementMonth("2026-09");source.setAfterTaxProfit(new BigDecimal("10000.00"));source.setAmount(new BigDecimal("2500.00"));
+        when(mapper.selectRule(11L)).thenReturn(source);when(profitTax.monthlyBonusResult(1L,"2026-09")).thenReturn(currentProfit("10000.00"));
+        BusinessIncentiveAward input=award("DRAFT");input.setBizDate(Date.valueOf("2026-10-01"));
+        doAnswer(call->{BusinessIncentiveAward saved=call.getArgument(0);saved.setAwardId(21L);when(mapper.selectAward(21L)).thenReturn(saved);return 1;}).when(mapper).insertAward(any());
+        BusinessIncentiveAward result=service.createAward(input,9L,"owner");
+        assertEquals("2026-09",result.getSettlementMonth());assertEquals(new BigDecimal("2500.00"),result.getAmount());
+        assertEquals(new BigDecimal("1000.00"),result.getRuleMainOwnerBonusAmount());assertEquals(new BigDecimal("1500.00"),result.getRuleSponsorOwnerBonusAmount());
+        when(mapper.countExistingMonthlyAward(1L,"2026-09")).thenReturn(1);source.setRuleVersion(2);
+        assertThrows(ServiceException.class,()->service.createAward(input,9L,"owner"));
+        verify(mapper,org.mockito.Mockito.times(1)).insertAward(any());
+    }
+
+    @Test void previousMonthlyRuleAndLegacyCumulativeRuleCannotCreateNewMonthlyApplication()
+    {
+        BusinessIncentiveRule source=profitRule();when(mapper.selectRule(11L)).thenReturn(source);
+        BusinessIncentiveAward input=award("DRAFT");input.setBizDate(Date.valueOf("2026-10-01"));
+        assertThrows(ServiceException.class,()->service.createAward(input,9L,"owner"));
+        source.setSettlementMonth("2026-08");assertThrows(ServiceException.class,()->service.createAward(input,9L,"owner"));
+        verify(mapper,never()).insertAward(any());
+    }
+
+    @Test void monthlySubmissionKeepsItsOwnMonthAcrossRolloverAndRejectsChangedProfitOrBackdatedCost()
+    {
+        BusinessIncentiveAward source=award("DRAFT");source.setSettlementMonth("2026-09");source.setRuleAfterTaxProfit(new BigDecimal("10000.00"));source.setBizDate(Date.valueOf("2026-10-01"));mockAward(source);
+        when(profitTax.monthlyBonusResult(1L,"2026-09")).thenReturn(currentProfit("5000.00"));
+        assertThrows(ServiceException.class,()->service.submit(21L,0,"提交",9L,"owner"));
+        when(profitTax.monthlyBonusResult(1L,"2026-09")).thenReturn(currentProfit("10000.00"));source.setBizDate(Date.valueOf("2026-09-30"));
+        assertThrows(ServiceException.class,()->service.submit(21L,0,"提交",9L,"owner"));
+        source.setBizDate(Date.valueOf("2026-10-01"));
+        when(mapper.transitionAward(21L,"DRAFT","SUBMITTED",0,9L,"owner","提交",null)).thenReturn(1);
+        assertEquals("2026-09",service.submit(21L,0,"提交",9L,"owner").getSettlementMonth());
+        verify(profitTax,never()).previousMonthResult(any());
     }
 
     @Test void sponsorSeesOriginalPlanDetailsAfterOwnerSubmitsAward()

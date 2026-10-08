@@ -35,7 +35,7 @@
   </insert>
   <sql id="ruleColumns">
     rule_id ruleId,project_id projectId,rule_version ruleVersion,rule_name ruleName,policy_version policyVersion,
-    amount,currency,after_tax_profit afterTaxProfit,main_owner_bonus_rate mainOwnerBonusRate,sponsor_owner_bonus_rate sponsorOwnerBonusRate,
+    amount,currency,after_tax_profit afterTaxProfit,settlement_month settlementMonth,main_owner_bonus_rate mainOwnerBonusRate,sponsor_owner_bonus_rate sponsorOwnerBonusRate,
     min_score minScore,kpi_plan_id kpiPlanId,status,created_user_id createdUserId,created_user_name createdUserName,
     reason,create_by createBy,create_time createTime,update_by updateBy,update_time updateTime
   </sql>
@@ -49,9 +49,9 @@
     select coalesce(max(rule_version),0)+1 from biz_incentive_rule where project_id=#{projectId}
   </select>
   <insert id="insertRule" parameterType="com.ruoyi.business.domain.BusinessIncentiveRule" useGeneratedKeys="true" keyProperty="ruleId">
-    insert into biz_incentive_rule(project_id,rule_version,rule_name,policy_version,amount,currency,after_tax_profit,main_owner_bonus_rate,sponsor_owner_bonus_rate,min_score,kpi_plan_id,status,
+    insert into biz_incentive_rule(project_id,rule_version,rule_name,policy_version,amount,currency,after_tax_profit,settlement_month,main_owner_bonus_rate,sponsor_owner_bonus_rate,min_score,kpi_plan_id,status,
       created_user_id,created_user_name,reason,create_by,create_time)
-    values(#{projectId},#{ruleVersion},#{ruleName},#{policyVersion},#{amount},#{currency},#{afterTaxProfit},#{mainOwnerBonusRate},#{sponsorOwnerBonusRate},#{minScore},#{kpiPlanId},#{status},
+    values(#{projectId},#{ruleVersion},#{ruleName},#{policyVersion},#{amount},#{currency},#{afterTaxProfit},#{settlementMonth},#{mainOwnerBonusRate},#{sponsorOwnerBonusRate},#{minScore},#{kpiPlanId},#{status},
       #{createdUserId},#{createdUserName},#{reason},#{createBy},sysdate())
   </insert>
   <select id="selectRuleTiers" resultType="com.ruoyi.business.domain.BusinessIncentiveTier">
@@ -78,7 +78,7 @@
     a.award_id awardId,a.project_id projectId,a.company_dept_id companyDeptId,a.rule_id ruleId,a.rule_version ruleVersion,
     a.rule_name ruleName,a.policy_version policyVersion,a.settlement_id settlementId,a.score_snapshot scoreSnapshot,
     a.amount,a.currency,a.biz_date bizDate,a.reason,a.request_key requestKey,a.status,a.allocation_proposal_json allocationProposalJson,
-    r.after_tax_profit ruleAfterTaxProfit,r.main_owner_bonus_rate ruleMainOwnerBonusRate,
+    r.after_tax_profit ruleAfterTaxProfit,r.settlement_month settlementMonth,r.main_owner_bonus_rate ruleMainOwnerBonusRate,
     r.sponsor_owner_bonus_rate ruleSponsorOwnerBonusRate,r.reason ruleReason,
     a.applicant_user_id applicantUserId,
     case when nullif(trim(applicant_user.nick_name),'') is not null and nullif(trim(applicant_user.user_name),'') is not null
@@ -148,6 +148,12 @@
   <select id="countExistingScoreAward" resultType="int">
     select count(*) from biz_incentive_award where project_id=#{projectId} and settlement_id=#{settlementId}
       and policy_version='SCORE_TIERS_V1' and status&lt;&gt;'CANCELED'
+  </select>
+  <select id="countExistingMonthlyAward" resultType="int">
+    select count(*) from biz_incentive_award a join biz_incentive_rule r on r.rule_id=a.rule_id
+      and r.project_id=a.project_id and r.rule_version=a.rule_version
+    where a.project_id=#{projectId} and r.settlement_month=#{settlementMonth}
+      and a.policy_version='PROFIT_SHARE_V1' and a.status&lt;&gt;'CANCELED'
   </select>
   <select id="selectConfirmedKpis" resultType="map">
     select s.settlement_id settlementId,s.plan_id planId,p.plan_version planVersion,s.period_start periodStart,

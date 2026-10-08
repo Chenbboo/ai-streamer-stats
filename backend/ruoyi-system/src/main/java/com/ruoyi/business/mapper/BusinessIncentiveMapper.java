@@ -23,6 +23,7 @@ public interface BusinessIncentiveMapper
     int insertTier(BusinessIncentiveTier tier);
     int retirePlanRules(@Param("projectId") Long projectId, @Param("kpiPlanId") Long kpiPlanId, @Param("userName") String userName);
     int countExistingScoreAward(@Param("projectId") Long projectId, @Param("settlementId") Long settlementId);
+    int countExistingMonthlyAward(@Param("projectId") Long projectId, @Param("settlementMonth") String settlementMonth);
     int retireRule(@Param("ruleId") Long ruleId, @Param("userName") String userName);
     List<BusinessIncentiveAward> selectAwards(Long projectId);
     BusinessIncentiveAward selectAward(Long awardId);

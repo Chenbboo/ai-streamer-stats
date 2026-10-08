@@ -9,11 +9,34 @@ import com.ruoyi.business.mapper.BusinessProfitTaxMapper;
 import com.ruoyi.common.exception.ServiceException;
 class BusinessProfitTaxServiceTest {
     static Map<String,Object> row(Object... pairs){Map<String,Object> m=new HashMap<>();for(int i=0;i<pairs.length;i+=2)m.put((String)pairs[i],pairs[i+1]);return m;}
+    @Test void bonusRequiresAvailablePositiveAfterTaxProfitAtCurrencyPrecision() {
+        for(String value:Arrays.asList("0","-100.00","0.0049"))
+            assertThrows(ServiceException.class,()->BusinessProfitTaxService.requirePositiveBonusProfit(row("available",true,"afterTaxProfit",new BigDecimal(value))));
+        assertThrows(ServiceException.class,()->BusinessProfitTaxService.requirePositiveBonusProfit(row("available",false,"afterTaxProfit",10000)));
+        assertThrows(ServiceException.class,()->BusinessProfitTaxService.requirePositiveBonusProfit(null));
+        assertEquals(new BigDecimal("0.01"),BusinessProfitTaxService.requirePositiveBonusProfit(row("available",true,"afterTaxProfit","0.01")));
+    }
     @Test void finalBalanceAndLosses() {
         assertEquals(new BigDecimal("1000.00"),BusinessProfitTaxService.tax(new BigDecimal("10000"),new BigDecimal("10")));
         assertEquals(new BigDecimal("0.00"),BusinessProfitTaxService.tax(new BigDecimal("-10000"),new BigDecimal("10")));
         assertEquals(new BigDecimal("10000.00"),BusinessProfitTaxService.tax(new BigDecimal("10000"),new BigDecimal("100")));
         assertEquals(new BigDecimal("0.00"),BusinessProfitTaxService.tax(BigDecimal.ZERO,new BigDecimal("25")));
+    }
+    @Test void monthlyBonusUsesShanghaiPreviousCalendarMonthAndRejectsUnfinishedMonths() {
+        BusinessProfitTaxMapper mapper=mock(BusinessProfitTaxMapper.class);BusinessProfitTaxService service=service(mapper);
+        when(mapper.selectSeries(anyMap())).thenReturn(Collections.emptyList());
+        String[][] dates={{"2026-09-30T16:00:00Z","2026-09","2026-09-30"},{"2026-01-01T00:00:00Z","2025-12","2025-12-31"},{"2024-03-01T00:00:00Z","2024-02","2024-02-29"}};
+        for(String[] date:dates){service.setBonusClock(java.time.Clock.fixed(java.time.Instant.parse(date[0]),java.time.ZoneOffset.UTC));
+            Map<String,Object> result=service.previousMonthResult(1L);assertEquals(date[1],result.get("month"));assertEquals(date[2],result.get("dateTo"));}
+        assertThrows(ServiceException.class,()->service.monthlyBonusResult(1L,"2024-03"));
+        assertThrows(ServiceException.class,()->service.monthlyBonusResult(1L,"2024-13"));
+        assertThrows(ServiceException.class,()->service.monthlyBonusResult(1L,"2024-2"));
+    }
+    @Test void monthlySnapshotCannotBeUsedAfterItsMonthProfitChanges() {
+        Map<String,Object> result=row("available",true,"afterTaxProfit","100.00");
+        assertDoesNotThrow(()->BusinessProfitTaxService.requireMonthlyBonusProfit(result,new BigDecimal("100.00")));
+        assertEquals("monthlyProfitChanged",BusinessProfitTaxService.monthlyBonusBlockReason(result,new BigDecimal("200.00")));
+        assertThrows(ServiceException.class,()->BusinessProfitTaxService.requireMonthlyBonusProfit(result,new BigDecimal("200.00")));
     }
     @Test void roundedTaxNeverExceedsPositiveBalance() {
         for(String value:Arrays.asList("0.0049","0.005","0.015","1.005")){
@@ -66,6 +89,45 @@ class BusinessProfitTaxServiceTest {
         Map<String,Object> result=service.projectResult(1L);
         assertEquals(new BigDecimal("20.00"),result.get("taxAmount"));assertEquals(new BigDecimal("980.00"),result.get("afterTaxProfit"));
         assertEquals(true,result.get("available"));assertEquals(1,result.get("resultCount"));
+    }
+    @Test void previousMonthTotalsExcludeEarlierAndCurrentMonthButCarryCompanyTaxBalance() {
+        BusinessProfitTaxMapper mapper=mock(BusinessProfitTaxMapper.class);BusinessProfitTaxService service=service(mapper);
+        when(mapper.selectSeries(anyMap())).thenReturn(Arrays.asList(
+            row("projectId",1,"resultId",1,"companyDeptId",110,"currency","CNY","bizDate","2026-08-31","profitAmount",100,"taxRate",10,"taxConfigured","1"),
+            row("projectId",2,"resultId",2,"companyDeptId",110,"currency","CNY","bizDate","2026-08-31","profitAmount",-200,"taxRate",10,"taxConfigured","1"),
+            row("projectId",1,"resultId",3,"companyDeptId",110,"currency","CNY","bizDate","2026-09-01","profitAmount",1000,"taxRate",10,"taxConfigured","1"),
+            row("projectId",1,"resultId",4,"companyDeptId",110,"currency","CNY","bizDate","2026-09-30","profitAmount",200,"taxRate",10,"taxConfigured","1"),
+            row("projectId",1,"resultId",5,"companyDeptId",110,"currency","CNY","bizDate","2026-10-01","profitAmount",5000,"taxRate",10,"taxConfigured","1")));
+        Map<String,Object> result=service.projectPeriodResult(1L,java.time.LocalDate.parse("2026-09-01"),java.time.LocalDate.parse("2026-09-30"));
+        assertEquals(new BigDecimal("1200"),result.get("pretaxProfit"));
+        assertEquals(new BigDecimal("110.00"),result.get("taxAmount"));
+        assertEquals(new BigDecimal("1090.00"),result.get("afterTaxProfit"));
+        assertEquals(2,result.get("resultCount"));assertEquals("2026-09",result.get("month"));assertEquals("CNY",result.get("currency"));
+        org.mockito.ArgumentCaptor<Map<String,Object>> query=org.mockito.ArgumentCaptor.forClass(Map.class);
+        verify(mapper).selectSeries(query.capture());assertEquals(1L,query.getValue().get("projectId"));
+        assertEquals("2026-09-30",query.getValue().get("dateTo"));assertFalse(query.getValue().containsKey("dateFrom"));
+    }
+    @Test void monthlyResultIncludesTaxRefundAndApprovedAdjustmentsOnlyInPostingMonth() {
+        BusinessProfitTaxMapper mapper=mock(BusinessProfitTaxMapper.class);BusinessProfitTaxService service=service(mapper);
+        when(mapper.selectSeries(anyMap())).thenReturn(Arrays.asList(
+            row("projectId",1,"resultId",1,"companyDeptId",110,"currency","VND","bizDate","2026-08-31","profitAmount",10000,"taxRate",10,"taxConfigured","1"),
+            row("projectId",1,"companyDeptId",110,"currency","VND","bizDate","2026-09-30","profitAmount",-1000,"taxRate",10,"taxConfigured","1","isAdjustment",1)));
+        Map<String,Object> result=service.projectPeriodResult(1L,java.time.LocalDate.parse("2026-09-01"),java.time.LocalDate.parse("2026-09-30"));
+        assertEquals(new BigDecimal("-1000"),result.get("pretaxProfit"));assertEquals(new BigDecimal("-100.00"),result.get("taxAmount"));
+        assertEquals(new BigDecimal("-900.00"),result.get("afterTaxProfit"));assertEquals(true,result.get("available"));
+        assertEquals(true,result.get("hasClosedAdjustments"));assertEquals("VND",result.get("currency"));
+    }
+    @Test void monthlyResultDistinguishesNoResultsFromAnActualZeroAndFlagsMissingTaxRate() {
+        BusinessProfitTaxMapper mapper=mock(BusinessProfitTaxMapper.class);BusinessProfitTaxService service=service(mapper);
+        when(mapper.selectSeries(anyMap())).thenReturn(Collections.singletonList(
+            row("projectId",1,"resultId",1,"companyDeptId",110,"currency","CNY","bizDate","2026-08-31","profitAmount",500,"taxRate",0,"taxConfigured","0")));
+        java.time.LocalDate from=java.time.LocalDate.parse("2026-09-01"),to=java.time.LocalDate.parse("2026-09-30");
+        assertEquals(false,service.projectPeriodResult(1L,from,to).get("available"));
+        when(mapper.selectSeries(anyMap())).thenReturn(Collections.singletonList(
+            row("projectId",1,"resultId",2,"companyDeptId",110,"currency","CNY","bizDate","2026-09-15","profitAmount",0,"taxRate",0,"taxConfigured","0")));
+        Map<String,Object> result=service.projectPeriodResult(1L,from,to);
+        assertEquals(true,result.get("available"));assertEquals(BigDecimal.ZERO,result.get("afterTaxProfit"));
+        assertEquals(false,result.get("taxConfigured"));
     }
     @Test void differentCurrenciesAndRatesStaySeparate() {
         BusinessProfitTaxMapper mapper=mock(BusinessProfitTaxMapper.class);BusinessProfitTaxService service=service(mapper);

@@ -65,7 +65,7 @@ public class BusinessIncentiveServiceImpl implements IBusinessIncentiveService
         BusinessProject project = project(projectId, false);
         requireView(project, userId, viewAll);
         result.put("project", project);
-        Map<String,Object> profitResult = profitTax == null ? null : profitTax.projectResult(projectId);
+        Map<String,Object> profitResult = profitTax == null ? null : profitTax.previousMonthResult(projectId);
         if (profitResult == null) profitResult = new LinkedHashMap<String,Object>();
         profitResult.putIfAbsent("available", false); profitResult.putIfAbsent("currency", project.getBaseCurrency());
         profitResult.putIfAbsent("pretaxProfit", BigDecimal.ZERO); profitResult.putIfAbsent("taxAmount", BigDecimal.ZERO);
@@ -82,9 +82,13 @@ public class BusinessIncentiveServiceImpl implements IBusinessIncentiveService
         result.put("rules", mapper.selectRules(projectId));
         List<BusinessIncentiveAward> awards = mapper.selectAwards(projectId);
         List<Map<String,Object>> events = mapper.selectEvents(projectId);
+        Map<String,Map<String,Object>> awardProfitCache=new LinkedHashMap<>();
         if (awards != null) for (BusinessIncentiveAward award : awards)
         {
             actions(award, project, userId);
+            Map<String,Object> basis=awardProfitCache.computeIfAbsent(award.getSettlementMonth()==null?"LEGACY":award.getSettlementMonth(),key->awardProfit(project,award));
+            award.setBonusBlockReason(award.getSettlementMonth()==null?BusinessProfitTaxService.bonusBlockReason(basis)
+                :BusinessProfitTaxService.monthlyBonusBlockReason(basis,award.getRuleAfterTaxProfit()));
             List<Map<String,Object>> ownEvents = new ArrayList<Map<String,Object>>();
             if (events != null) for (Map<String,Object> item : events)
                 if (Objects.equals(award.getAwardId(), number(item.get("awardId")))) ownEvents.add(item);
@@ -117,6 +121,7 @@ public class BusinessIncentiveServiceImpl implements IBusinessIncentiveService
         BusinessProject project = project(projectId, true);
         requireRuleManager(project, userId, viewAll); requireOpen(project);
         if (!"ACTIVE".equals(project.getStatus())) throw new ServiceException("项目执行中才能设置奖金占比");
+        requireBonusProfit(project);
         BigDecimal mainOwnerRate = bonusRate(input.get("mainOwnerBonusRate"), "负责人奖金占比");
         BigDecimal sponsorOwnerRate = bonusRate(input.get("sponsorOwnerBonusRate"), "归属老板奖金占比");
         if (mainOwnerRate.add(sponsorOwnerRate).compareTo(new BigDecimal("100")) > 0)
@@ -143,6 +148,8 @@ public class BusinessIncentiveServiceImpl implements IBusinessIncentiveService
         requireRuleManager(project, userId, viewAll);
         requireOpen(project);
         if (!"ACTIVE".equals(project.getStatus())) throw new ServiceException("项目执行中才能发布新的奖金规则");
+        Map<String,Object> monthlyResult=profitTax.previousMonthResult(project.getProjectId());
+        BigDecimal currentProfit = BusinessProfitTaxService.requirePositiveBonusProfit(monthlyResult);
         String name = required(input.getRuleName(), "规则名称", 100);
         String reason = required(input.getReason(), "规则依据", 500);
         boolean scoreBased = SCORE_TIERS.equals(input.getPolicyVersion());
@@ -150,13 +157,13 @@ public class BusinessIncentiveServiceImpl implements IBusinessIncentiveService
         BigDecimal ownerRate = null, sponsorRate = null, profit = null;
         if (profitBased)
         {
+            if(input.getSettlementMonth()!=null&&!Objects.equals(input.getSettlementMonth(),monthlyResult.get("month")))
+                throw new ServiceException("结算月份已变化，请刷新并按上月重新设置奖金方案");
             ownerRate = bonusRate(input.getMainOwnerBonusRate(), "负责人奖金占比");
             sponsorRate = bonusRate(input.getSponsorOwnerBonusRate(), "归属老板奖金占比");
             if (ownerRate.add(sponsorRate).compareTo(new BigDecimal("100")) > 0)
                 throw new ServiceException("负责人与归属老板奖金占比合计不能超过 100%");
-            Map<String,Object> result = profitTax.projectResult(project.getProjectId());
-            if (result != null && Boolean.TRUE.equals(result.get("available")))
-                profit = new BigDecimal(String.valueOf(result.get("afterTaxProfit"))).setScale(2, java.math.RoundingMode.HALF_UP);
+            profit = currentProfit;
         }
         List<BusinessIncentiveTier> tiers = Collections.emptyList();
         if (scoreBased)
@@ -179,6 +186,7 @@ public class BusinessIncentiveServiceImpl implements IBusinessIncentiveService
         rule.setProjectId(project.getProjectId()); rule.setRuleVersion(mapper.nextRuleVersion(project.getProjectId()));
         rule.setRuleName(name); rule.setPolicyVersion(profitBased ? "PROFIT_SHARE_V1" : scoreBased ? SCORE_TIERS : "FIXED_V1"); rule.setAmount(amount.setScale(2));
         rule.setAfterTaxProfit(profit); rule.setMainOwnerBonusRate(ownerRate); rule.setSponsorOwnerBonusRate(sponsorRate);
+        rule.setSettlementMonth(profitBased?String.valueOf(monthlyResult.get("month")):null);
         rule.setCurrency(project.getBaseCurrency()); rule.setMinScore(profitBased ? null : scoreBased ? BigDecimal.ZERO : input.getMinScore()); rule.setReason(reason);
         rule.setKpiPlanId(scoreBased ? input.getKpiPlanId() : null);
         rule.setStatus("ACTIVE"); rule.setCreatedUserId(userId); rule.setCreatedUserName(userName); rule.setCreateBy(userName);
@@ -250,7 +258,19 @@ public class BusinessIncentiveServiceImpl implements IBusinessIncentiveService
         }
         requireOpen(project);
         validateDate(project, input.getBizDate());
+        requireBonusProfit(project);
         BusinessIncentiveRule rule = rule(input.getRuleId(), project.getProjectId(), true);
+        if("PROFIT_SHARE_V1".equals(rule.getPolicyVersion()))
+        {
+            Map<String,Object> monthly=profitTax.previousMonthResult(project.getProjectId());
+            if(rule.getSettlementMonth()==null||!Objects.equals(rule.getSettlementMonth(),monthly.get("month")))
+                throw new ServiceException("请发布上月的月结奖金方案，历史累计方案或其他月份方案不能新建申请");
+            requireMonthlyBasis(project,rule.getSettlementMonth(),rule.getAfterTaxProfit());
+            if(input.getBizDate().before(java.sql.Date.valueOf(java.time.YearMonth.parse(rule.getSettlementMonth()).plusMonths(1).atDay(1))))
+                throw new ServiceException("月结奖金业务日期须在结算月份结束后，避免重复计入上月成本");
+            if(mapper.countExistingMonthlyAward(project.getProjectId(),rule.getSettlementMonth())>0)
+                throw new ServiceException("该项目该结算月份已有奖金申请，不能更换方案重复申请，请办理原单");
+        }
         requireCurrency(project, rule.getCurrency());
         BusinessProjectKpiSettlement evidence = ruleEvidence(rule, input.getSettlementId());
         BigDecimal amount = rewardAmount(rule, evidence);
@@ -264,6 +284,7 @@ public class BusinessIncentiveServiceImpl implements IBusinessIncentiveService
         award.setProjectId(project.getProjectId()); award.setCompanyDeptId(project.getCompanyDeptId());
         award.setRuleId(rule.getRuleId()); award.setRuleVersion(rule.getRuleVersion()); award.setRuleName(rule.getRuleName());
         award.setPolicyVersion(rule.getPolicyVersion()); award.setAmount(amount); award.setCurrency(rule.getCurrency());
+        award.setSettlementMonth(rule.getSettlementMonth());
         award.setSettlementId(input.getSettlementId()); award.setScoreSnapshot(evidence == null ? null : evidence.getTotalScore());
         award.setBizDate(input.getBizDate()); award.setReason(reason); award.setRequestKey(key); award.setStatus("DRAFT");
         award.setApplicantUserId(userId); award.setApplicantUserName(userName); award.setCreateBy(userName);
@@ -288,9 +309,11 @@ public class BusinessIncentiveServiceImpl implements IBusinessIncentiveService
         if (!Objects.equals(award.getApplicantUserId(), userId)) throw new ServiceException("只有原申请人可以编辑奖励申请");
         if (!Arrays.asList("DRAFT", "RETURNED").contains(award.getStatus())) throw new ServiceException("只有草稿或已退回的奖励申请可以编辑");
         requireVersion(award, input.getVersion()); requireOpen(project);
+        requireAwardProfit(project,award);
         if (!Objects.equals(award.getRuleId(), input.getRuleId()) || !Objects.equals(award.getSettlementId(), input.getSettlementId()))
             throw new ServiceException("编辑时不能更换奖金方案或指标依据；请新建奖励申请");
         validateDate(project, input.getBizDate());
+        validateMonthlyDate(award,input.getBizDate());
         String reason = required(input.getReason(), "奖励依据", 500);
         award.setApplicationAllocation(input.getApplicationAllocation() == null ? null
             : distributionService.prepareApplicationAllocation(input.getApplicationAllocation(), award));
@@ -312,6 +335,8 @@ public class BusinessIncentiveServiceImpl implements IBusinessIncentiveService
         if ("SUBMITTED".equals(award.getStatus())) return actions(award, project, userId);
         requireVersion(award, version); requireOpen(project); validateDate(project, award.getBizDate());
         if (!Arrays.asList("DRAFT", "RETURNED").contains(award.getStatus())) throw new ServiceException("当前奖励状态不能提交");
+        requireAwardProfit(project,award);
+        validateMonthlyDate(award,award.getBizDate());
         if ("RETURNED".equals(award.getStatus())) reason = required(reason, "重新提交说明", 500);
         else reason = StringUtils.isBlank(reason) ? "提交奖励核准" : required(reason, "提交说明", 500);
         transition(award, "SUBMITTED", null, project, userId, userName, reason);
@@ -335,6 +360,8 @@ public class BusinessIncentiveServiceImpl implements IBusinessIncentiveService
         Long factId = null;
         if ("APPROVED".equals(decision))
         {
+            requireAwardProfit(project,award);
+            validateMonthlyDate(award,award.getBizDate());
             // Recheck immutable evidence under the same project lock as KPI confirmation and close.
             requireCurrency(project, award.getCurrency());
             BusinessProjectKpiSettlement evidence = evidence(project.getProjectId(), award.getSettlementId(), null);
@@ -423,6 +450,31 @@ public class BusinessIncentiveServiceImpl implements IBusinessIncentiveService
         fact.setCreateUserId(userId); fact.setCreateBy(userName); fact.setRemark("奖励已核准；成本待确认；未记录个人分配或支付");
         accountingMapper.insertFact(fact);
         return fact.getFactId();
+    }
+
+    private BigDecimal requireBonusProfit(BusinessProject project)
+    {
+        return BusinessProfitTaxService.requirePositiveBonusProfit(profitTax.previousMonthResult(project.getProjectId()));
+    }
+
+    private Map<String,Object> awardProfit(BusinessProject project,BusinessIncentiveAward award)
+    {return award.getSettlementMonth()==null?profitTax.projectResult(project.getProjectId()):profitTax.monthlyBonusResult(project.getProjectId(),award.getSettlementMonth());}
+
+    private void requireMonthlyBasis(BusinessProject project,String month,BigDecimal snapshot)
+    {
+        BusinessProfitTaxService.requireMonthlyBonusProfit(profitTax.monthlyBonusResult(project.getProjectId(),month),snapshot);
+    }
+
+    private void requireAwardProfit(BusinessProject project,BusinessIncentiveAward award)
+    {
+        if(award.getSettlementMonth()!=null)requireMonthlyBasis(project,award.getSettlementMonth(),award.getRuleAfterTaxProfit());
+        else BusinessProfitTaxService.requirePositiveBonusProfit(awardProfit(project,award));
+    }
+
+    private void validateMonthlyDate(BusinessIncentiveAward award,Date date)
+    {
+        if(award.getSettlementMonth()!=null&&date.before(java.sql.Date.valueOf(java.time.YearMonth.parse(award.getSettlementMonth()).plusMonths(1).atDay(1))))
+            throw new ServiceException("月结奖金业务日期须在结算月份结束后，避免重复计入上月成本");
     }
 
     private BusinessOperatingFact sourceFact(BusinessIncentiveAward award)

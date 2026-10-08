@@ -25,6 +25,7 @@ public class BusinessBonusDistributionService
     @Autowired private BusinessBonusDistributionMapper mapper;
     @Autowired private BusinessIncentiveMapper awards;
     @Autowired private BusinessProjectMapper projects;
+    @Autowired private BusinessProfitTaxService profitTax;
     private static final BigDecimal ZERO = new BigDecimal("0.00");
 
     public Map<String,Object> workspace(Long projectId,Long userId,boolean admin,boolean finance)
@@ -41,6 +42,11 @@ public class BusinessBonusDistributionService
         boolean payer=sponsor(p,userId)||(finance&&mapper.companyAccess(projectId,userId)>0);
         boolean full=manager||payer||BusinessProjectReadAccess.isParentOwner(p,userId,projects);
         out.put("project",map("projectId",p.getProjectId(),"projectName",p.getProjectName(),"baseCurrency",p.getBaseCurrency()));
+        // Personal recipients may see eligibility, but not the project's financial totals.
+        Map<String,Object> latestMonth=profitTax.previousMonthResult(projectId);
+        out.put("bonusBlockReason",BusinessProfitTaxService.bonusBlockReason(latestMonth));
+        out.put("settlementMonth",latestMonth==null?null:latestMonth.get("month"));
+        Map<String,String> monthBlocks=new HashMap<>();
         out.put("manager",manager); out.put("personal",!full);
         out.put("canAllocate",owner(p,userId)); out.put("canPay",payer);
         out.put("recipients",owner(p,userId)?mapper.recipients(projectId):Collections.emptyList());
@@ -51,7 +57,8 @@ public class BusinessBonusDistributionService
             BigDecimal sourceAmount=distributionSourceAmount(a),reserved=zero(mapper.reserved(a.getAwardId(),null));
             available.add(map("awardId",a.getAwardId(),"ruleName",a.getRuleName(),"score",a.getScoreSnapshot(),
                 "currency",a.getCurrency(),"amount",a.getAmount(),"sourceAmount",sourceAmount,"reserved",reserved,
-                "remaining",sourceAmount.subtract(reserved),"costStatus",a.getCostStatus()));
+                "remaining",sourceAmount.subtract(reserved),"costStatus",a.getCostStatus(),"settlementMonth",a.getSettlementMonth(),
+                "bonusBlockReason",awardBlock(p,a,monthBlocks)));
         }
         out.put("awards",available);
         List<Map<String,Object>> batches=new ArrayList<>();
@@ -77,6 +84,7 @@ public class BusinessBonusDistributionService
             batches.add(map("allocationId",b.getAllocationId(),"awardId",b.getAwardId(),"ruleName",a==null?"":a.getRuleName(),
                 "currency",a==null?p.getBaseCurrency():a.getCurrency(),"score",a==null?null:a.getScoreSnapshot(),"status",b.getStatus(),
                 "mode",b.getMode(),"reason",full?b.getReason():null,"version",b.getVersion(),"amount",total,"paidAmount",paid,
+                "settlementMonth",a==null?null:a.getSettlementMonth(),"bonusBlockReason",a==null?"noProfitResult":awardBlock(p,a,monthBlocks),
                 "lines",lines,"payments",payments,"events",full?mapper.events(b.getAllocationId()):Collections.emptyList(),
                 "canEdit",editable,"canReview",sponsor(p,userId)&&!userId.equals(b.getCreatedUserId())&&"SUBMITTED".equals(b.getStatus()),
                 "canPay",payer&&"APPROVED".equals(b.getStatus())&&a!=null&&"APPROVED".equals(a.getStatus())&&"CONFIRMED".equals(a.getCostStatus())));
@@ -91,6 +99,7 @@ public class BusinessBonusDistributionService
         BusinessIncentiveAward a=award(input.getAwardId());
         BusinessProject p=project(a.getProjectId(),true);
         a=awards.selectAwardForUpdate(input.getAwardId());requireApproved(a);requireOwner(p,userId);
+        requireBonusProfit(p,a);
         BusinessBonusAllocation previous=input.getAllocationId()==null?null:batch(input.getAllocationId());
         if(previous!=null)
         {
@@ -201,6 +210,7 @@ public class BusinessBonusDistributionService
         if("SUBMITTED".equals(next)||"APPROVED".equals(next))
         {
             BusinessIncentiveAward source=awards.selectAwardForUpdate(b.getAwardId());
+            requireBonusProfit(p,source);
             requireApproved(source);requireCapacity(source,b);
         }
         if(mapper.transition(id,version,next,userId,userName)!=1)throw error("分配已更新，请刷新");
@@ -220,6 +230,7 @@ public class BusinessBonusDistributionService
         BusinessIncentiveAward a=awards.selectAwardForUpdate(b.getAwardId());requireApproved(a);
         if(!"APPROVED".equals(b.getStatus()))throw error("分配核准后才能登记发放");
         if(!"CONFIRMED".equals(a.getCostStatus()))throw error("奖金成本确认入账后才能登记发放");
+        requireBonusProfit(p,a);
         money(input.getAmount(),"实付金额");
         input.setProjectId(b.getProjectId());input.setRequestKey(required(input.getRequestKey(),"请求标识",64));
         input.setReferenceNo(required(input.getReferenceNo(),"付款流水或收据编号",100));
@@ -245,6 +256,20 @@ public class BusinessBonusDistributionService
             if(!Objects.equals(x.getUserId(),y.getUserId())||x.getAmount().compareTo(y.getAmount())!=0||!Objects.equals(x.getReason(),y.getReason())
                 ||(x.getPercentage()==null)!=(y.getPercentage()==null)||x.getPercentage()!=null&&x.getPercentage().compareTo(y.getPercentage())!=0)return false;}
         return true;
+    }
+    private Map<String,Object> awardProfit(BusinessProject project,BusinessIncentiveAward award)
+    {return award.getSettlementMonth()==null?profitTax.projectResult(project.getProjectId()):profitTax.monthlyBonusResult(project.getProjectId(),award.getSettlementMonth());}
+    private void requireBonusProfit(BusinessProject project,BusinessIncentiveAward award)
+    {
+        Map<String,Object> basis=awardProfit(project,award);
+        if(award.getSettlementMonth()==null)BusinessProfitTaxService.requirePositiveBonusProfit(basis);
+        else BusinessProfitTaxService.requireMonthlyBonusProfit(basis,award.getRuleAfterTaxProfit());
+    }
+    private String awardBlock(BusinessProject project,BusinessIncentiveAward award,Map<String,String> cache)
+    {
+        String key=(award.getSettlementMonth()==null?"LEGACY":award.getSettlementMonth())+":"+award.getRuleAfterTaxProfit();
+        return cache.computeIfAbsent(key,k->{Map<String,Object> basis=awardProfit(project,award);return award.getSettlementMonth()==null
+            ?BusinessProfitTaxService.bonusBlockReason(basis):BusinessProfitTaxService.monthlyBonusBlockReason(basis,award.getRuleAfterTaxProfit());});
     }
     private boolean samePayment(BusinessBonusPayment a,BusinessBonusPayment b)
     {return Objects.equals(a.getLineId(),b.getLineId())&&a.getAmount().compareTo(b.getAmount())==0&&day(a.getPaidDate()).equals(day(b.getPaidDate()))

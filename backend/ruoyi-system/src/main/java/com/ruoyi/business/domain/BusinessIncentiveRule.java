@@ -16,6 +16,7 @@ public class BusinessIncentiveRule extends BaseEntity
     private String policyVersion;
     private BigDecimal amount;
     private BigDecimal afterTaxProfit;
+    private String settlementMonth;
     private BigDecimal mainOwnerBonusRate;
     private BigDecimal sponsorOwnerBonusRate;
     private String currency;
@@ -28,6 +29,8 @@ public class BusinessIncentiveRule extends BaseEntity
     private List<BusinessIncentiveTier> tiers;
 
     public Long getKpiPlanId() { return kpiPlanId; }
+    public String getSettlementMonth() { return settlementMonth; }
+    public void setSettlementMonth(String value) { settlementMonth = value; }
     public BigDecimal getAfterTaxProfit() { return afterTaxProfit; }
     public void setAfterTaxProfit(BigDecimal value) { afterTaxProfit = value; }
     public BigDecimal getMainOwnerBonusRate() { return mainOwnerBonusRate; }

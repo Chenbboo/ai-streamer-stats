@@ -82,6 +82,50 @@ class BusinessAccountingServiceImplTest
         verify(mapper,never()).selectDailySummary(any());
     }
 
+    @Test void cockpitPreviousMonthUsesShanghaiCalendarIncludingYearBoundaryAndLeapDay()
+    {
+        Map<String,Object> project=project(11L,8L);project.put("mainOwnerUserId",9L);
+        when(mapper.selectProjectForAccounting(11L)).thenReturn(project);
+        BusinessProfitTaxService tax=mock(BusinessProfitTaxService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"profitTax",tax);
+        String[][] periods={{"2026-09-30T16:00:00Z","2026-09-01","2026-09-30"},
+            {"2026-01-01T00:00:00Z","2025-12-01","2025-12-31"},{"2024-03-01T00:00:00Z","2024-02-01","2024-02-29"}};
+        for(String[] period:periods)
+        {
+            service.setOverviewClock(java.time.Clock.fixed(java.time.Instant.parse(period[0]),java.time.ZoneOffset.UTC));
+            Map<String,Object> monthly=new HashMap<>();monthly.put("available",true);monthly.put("afterTaxProfit",new BigDecimal("123.45"));
+            when(tax.projectPeriodResult(11L,java.time.LocalDate.parse(period[1]),java.time.LocalDate.parse(period[2]))).thenReturn(monthly);
+            Map<String,Object> result=service.projectDashboard(11L,Collections.singletonMap("dateFrom","2000-01-01"),9L,false);
+            assertSame(monthly,result.get("previousMonthProfit"));assertEquals("AVAILABLE",monthly.get("dataStatus"));
+            assertEquals(0,monthly.get("pendingCostCount"));
+        }
+        ArgumentCaptor<Map<String,Object>> queries=ArgumentCaptor.forClass(Map.class);
+        verify(mapper,times(6)).countPendingCostsInRange(queries.capture());
+        for(int i=0;i<periods.length;i++)
+        {
+            Map<String,Object> monthlyQuery=queries.getAllValues().get(i*2+1);
+            assertEquals(11L,monthlyQuery.get("projectId"));assertEquals(true,monthlyQuery.get("viewAll"));
+            assertEquals(periods[i][1],monthlyQuery.get("dateFrom"));assertEquals(periods[i][2],monthlyQuery.get("dateTo"));
+        }
+    }
+
+    @Test void monthlyCostReadinessStaysWithinLastMonthAndNoResultsAreNotSettledZero()
+    {
+        Map<String,Object> project=project(11L,8L);project.put("mainOwnerUserId",9L);
+        when(mapper.selectProjectForAccounting(11L)).thenReturn(project);
+        service.setOverviewClock(java.time.Clock.fixed(java.time.Instant.parse("2026-10-08T00:00:00Z"),java.time.ZoneOffset.UTC));
+        BusinessProfitTaxService tax=mock(BusinessProfitTaxService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"profitTax",tax);
+        Map<String,Object> monthly=new HashMap<>();monthly.put("available",true);
+        when(tax.projectPeriodResult(11L,java.time.LocalDate.parse("2026-09-01"),java.time.LocalDate.parse("2026-09-30"))).thenReturn(monthly);
+        when(mapper.countPendingCostsInRange(anyMap())).thenAnswer(call->"2026-09-01".equals(call.<Map<String,Object>>getArgument(0).get("dateFrom"))?2:9);
+        service.projectDashboard(11L,Collections.singletonMap("dateFrom","2000-01-01"),9L,false);
+        assertEquals(2,monthly.get("pendingCostCount"));assertEquals("INCOMPLETE",monthly.get("dataStatus"));
+        monthly.put("available",false);
+        service.projectDashboard(11L,Collections.emptyMap(),9L,false);
+        assertEquals("NO_DATA",monthly.get("dataStatus"));
+    }
+
     @Test void parentOwnerCanReadChildCockpitButCannotSubmitChildFacts()
     {
         Map<String,Object> child=project(11L,8L);child.put("mainOwnerUserId",30L);

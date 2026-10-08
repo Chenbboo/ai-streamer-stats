@@ -56,3 +56,8 @@ test('legacy rules do not invent profit or personal allocation details', async (
   assert.ok(html.includes(messages['zh-CN'].legacyRuleDetailsHint))
   assert.ok(!html.includes('负责人分配金额'))
 })
+
+test('monthly plan details retain their settlement month and monthly after-tax basis', async () => {
+  const html = await renderDetails({ settlementMonth: '2026-09', ruleName: '月结奖金', ruleVersion: 1, policyVersion: 'PROFIT_SHARE_V1', currency: 'CNY', ruleAfterTaxProfit: 2000 })
+  for (const text of ['结算月份', '2026-09', '月结', '项目上月结算税后盈利结果', '2000.00 CNY']) assert.ok(html.includes(text), text)
+})

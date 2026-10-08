@@ -43,6 +43,15 @@ public class BusinessIncentiveAward extends BaseEntity
     private Boolean canResubmitCost;
     private List<Map<String,Object>> events;
     private BusinessBonusAllocation applicationAllocation;
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    private String settlementMonth;
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    private String bonusBlockReason;
+
+    public String getSettlementMonth() { return settlementMonth; }
+    public void setSettlementMonth(String value) { settlementMonth = value; }
+    public String getBonusBlockReason() { return bonusBlockReason; }
+    public void setBonusBlockReason(String value) { bonusBlockReason = value; }
 
     public BusinessBonusAllocation getApplicationAllocation() { return applicationAllocation; }
     public void setApplicationAllocation(BusinessBonusAllocation value) { applicationAllocation = value; }

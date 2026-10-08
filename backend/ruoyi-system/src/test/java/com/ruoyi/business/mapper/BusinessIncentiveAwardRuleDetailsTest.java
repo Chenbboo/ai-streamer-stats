@@ -19,6 +19,24 @@ import com.ruoyi.business.domain.BusinessIncentiveAward;
 
 class BusinessIncentiveAwardRuleDetailsTest
 {
+    @Test void monthInheritsImmutableSourceAndDuplicateChecksSpanRuleVersionsButExcludeCanceled() throws Exception
+    {
+        try(SqlSession session=factory().openSession();Statement sql=session.getConnection().createStatement())
+        {
+            sql.execute("update biz_incentive_rule set settlement_month='2026-09'");
+            BusinessIncentiveMapper mapper=session.getMapper(BusinessIncentiveMapper.class);
+            BusinessIncentiveAward original=mapper.selectAward(21L);assertEquals("2026-09",original.getSettlementMonth());
+            assertEquals(1,mapper.countExistingMonthlyAward(1L,"2026-09"));assertEquals(0,mapper.countExistingMonthlyAward(1L,"2026-08"));
+            original.setAwardId(null);original.setRuleId(12L);original.setRuleVersion(2);original.setStatus("DRAFT");original.setRequestKey("monthly-second-version");
+            mapper.insertAward(original);session.clearCache();
+            assertEquals(2,mapper.countExistingMonthlyAward(1L,"2026-09"));
+            sql.execute("update biz_incentive_award set status='CANCELED' where award_id=21");session.clearCache();
+            assertEquals(1,mapper.countExistingMonthlyAward(1L,"2026-09"));
+            assertEquals("2026-09",mapper.selectAward(original.getAwardId()).getSettlementMonth());
+        }
+        BusinessIncentiveAward spoof=new ObjectMapper().readValue("{\"settlementMonth\":\"2026-08\"}",BusinessIncentiveAward.class);
+        assertNull(spoof.getSettlementMonth());
+    }
     @Test void allocationProposalPersistsWithAwardAndIsVisibleWithoutASeparateApprovedBatch() throws Exception
     {
         try(SqlSession session=factory().openSession())
@@ -96,6 +114,8 @@ class BusinessIncentiveAwardRuleDetailsTest
             sql.execute("insert into biz_incentive_rule values(11,1,1,'PROFIT_SHARE_V1','CNY',10000,40,60,'原方案依据','RETIRED'),(12,1,2,'PROFIT_SHARE_V1','CNY',99000,10,20,'新版方案依据','ACTIVE')");
             sql.execute("insert into biz_incentive_award(award_id,project_id,company_dept_id,rule_id,rule_version,rule_name,policy_version,amount,currency,biz_date,reason,status,applicant_user_id,applicant_user_name,version) values(21,1,110,11,1,'原方案','PROFIT_SHARE_V1',10000,'CNY','2026-06-30','申请说明','SUBMITTED',9,'owner',0)");
         }
+        try(Connection connection=source.getConnection();Statement sql=connection.createStatement())
+        {sql.execute("alter table biz_incentive_rule add column settlement_month varchar(7) default null");}
         Configuration configuration = new Configuration(new Environment("details", new JdbcTransactionFactory(), source));
         com.ruoyi.business.CompanyAccessTestSupport.register(configuration);
         String resource = "mapper/business/BusinessIncentiveMapper.xml";

@@ -1,6 +1,10 @@
+import scoreMessages from './scoreMessages.js'
+
 export default {
  'zh-CN': {
-  title:'奖金核验与发放', personal:'我的奖金', intro:'负责人分配 → 老板核准并发放 → 登记实付。分配与发放不重复计入项目成本。',
+  settlementMonth:scoreMessages['zh-CN'].settlementMonth, monthlySettlement:scoreMessages['zh-CN'].monthlySettlement, legacyCumulative:scoreMessages['zh-CN'].legacyCumulative, monthlyProfitChanged:scoreMessages['zh-CN'].monthlyProfitChanged,
+  nonPositiveProfit:scoreMessages['zh-CN'].nonPositiveProfit, noProfitResult:scoreMessages['zh-CN'].noProfitResult,
+  title:'奖金核验与发放', personal:'我的奖金', intro:'按结算月份办理：负责人分配该月奖金 → 老板核准并发放 → 登记实付。分配与发放不重复计入项目成本。',
   applicationAllocationHint:'可在奖励申请中一并填写分配；填写后需完整填写领取人及说明。奖励核准后生成分配草稿，再办理核验与发放。', applicationAllocationTitle:'申请中的奖金分配', applicationAllocationSnapshotHint:'以下为申请提交时保存的分配明细，不代表分配已核准或已发放；后续分配及付款状态请查看奖金核验与发放。',
   newBatch:'新建分配', memberAllocationTitle:'成员分配', empty:'暂无分配记录', noAwards:'尚无已核准奖金，请先完成奖金分配与申请。',
   total:'奖金来源金额', sourceHint:'盈利占比方案仅以负责人占比对应的奖金金额作为分配来源，不包含归属老板奖金；已占用的分配额度会从本次可分配金额中扣除。历史固定／KPI方案沿用原核准奖金。', reserved:'已占用分配额度', remaining:'可分配余额', reservedHint:'草稿、待核准、退回及已核准分配均占用额度；撤销后释放。',
@@ -20,6 +24,8 @@ export default {
   payInvalid:'请填写有效实付金额、日期、方式、流水号、凭证和说明。', allocationStatus:'分配状态', cost:'成本状态', CONFIRMED:'已入账', NOT_CREATED:'未生成'
  },
  'vi-VN': {
+  settlementMonth:scoreMessages['vi-VN'].settlementMonth, monthlySettlement:scoreMessages['vi-VN'].monthlySettlement, legacyCumulative:scoreMessages['vi-VN'].legacyCumulative, monthlyProfitChanged:scoreMessages['vi-VN'].monthlyProfitChanged,
+  nonPositiveProfit:scoreMessages['vi-VN'].nonPositiveProfit, noProfitResult:scoreMessages['vi-VN'].noProfitResult,
   title:'Kiểm tra và chi thưởng', personal:'Tiền thưởng của tôi', intro:'Phụ trách phân bổ → Người quản lý phê duyệt và chi thưởng → Ghi nhận thực chi. Không ghi chi phí dự án lần nữa.',
   applicationAllocationHint:'Có thể điền phân bổ cùng đề nghị thưởng; cần điền đủ người nhận và lý do. Sau khi duyệt thưởng, tạo bản nháp phân bổ để tiếp tục kiểm tra và chi trả.', applicationAllocationTitle:'Phân bổ trong đề nghị', applicationAllocationSnapshotHint:'Đây là chi tiết phân bổ đã lưu trong đề nghị, chưa phải phân bổ được duyệt hoặc đã chi. Xem trạng thái tiếp theo ở mục kiểm tra và chi thưởng.',
   newBatch:'Tạo phân bổ', memberAllocationTitle:'Phân bổ thành viên', empty:'Chưa có phân bổ', noAwards:'Chưa có thưởng được duyệt. Hãy hoàn tất đề nghị và phê duyệt trước.',

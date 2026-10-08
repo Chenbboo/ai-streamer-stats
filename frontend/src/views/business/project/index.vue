@@ -93,7 +93,8 @@
             <el-alert v-else-if="cockpitCostIncomplete" :title="cockpitCostNotice" type="warning" :closable="false" show-icon />
             <section class="cockpit-metrics" v-loading="cockpitLoading">
               <article><span>{{ projectBudgetTitle }}</span><b>{{ cockpitBudget==null?$tr("未设置"):money(cockpitBudget) }}</b><small>{{ cockpitCurrency }}</small></article>
-              <el-alert v-if="cockpit.budgetPeriodExpired" :title="$tr(&quot;本期预算已到期，请在项目计划与变更中续编；此处保留上一期使用情况。&quot;)" type="warning" :closable="false"/><article v-if="isDailyBudget"><span>{{ $tr("每日统计口径") }}</span><b>{{ (operating.budgetScope||detail.budgetScope)==='CASH_EXPENSE'?$tr("仅外部支出"):$tr("全成本") }}</b><small>{{ $tr("按业务日分别预警；启动预算 {0}", [money(operating.startupBudgetLimit??detail.startupBudgetLimit)]) }}</small></article><article v-else :class="budgetTone"><span>{{ detail.budget?$tr("本期预算已使用"):cockpitCostIncomplete?$tr("已核算预算使用"):$tr("预算已使用") }}</span><b>{{ money(cockpitBudgetSpent) }}</b><small v-if="cockpitCostIncomplete">{{ $tr("剩余预算待成本完整后确认") }}</small><small v-else>{{ $tr("{0} · 剩余 {1}", [budgetUsage==null?'—':`${budgetUsage}%`, money(cockpitBudgetRemaining)]) }}</small></article>
+              <PreviousMonthProfitCard :result="cockpit.previousMonthProfit" :failed="cockpitError" :currency="cockpitCurrency" :label="$tr" :format-amount="signedMoney" />
+              <article v-if="isDailyBudget"><span>{{ $tr("每日统计口径") }}</span><b>{{ (operating.budgetScope||detail.budgetScope)==='CASH_EXPENSE'?$tr("仅外部支出"):$tr("全成本") }}</b><small>{{ $tr("按业务日分别预警；启动预算 {0}", [money(operating.startupBudgetLimit??detail.startupBudgetLimit)]) }}</small></article><article v-else :class="budgetTone"><span>{{ detail.budget?$tr("本期预算已使用"):cockpitCostIncomplete?$tr("已核算预算使用"):$tr("预算已使用") }}</span><b>{{ money(cockpitBudgetSpent) }}</b><small v-if="cockpitCostIncomplete">{{ $tr("剩余预算待成本完整后确认") }}</small><small v-else>{{ $tr("{0} · 剩余 {1}", [budgetUsage==null?'—':`${budgetUsage}%`, money(cockpitBudgetRemaining)]) }}</small></article>
               <article><span>{{ $tr("累计收入") }}</span><b>{{ money(cockpitSummary.revenueAmount) }}</b><small>{{ cockpitCurrency }}</small></article>
               <article><span>{{ cockpitCostIncomplete?$tr("累计已核算成本"):$tr("累计总成本") }}</span><b>{{ money(cockpitTotalCost) }}</b><small>{{ cockpitCostIncomplete?$tr("部分人员成本未知，待完善"):$tr("业务、人员、奖金及公共费用") }}</small></article>
               <article :class="cockpitCostIncomplete?'is-warning':cockpitSummary.profitAmount==null?'':Number(cockpitSummary.profitAmount)<0?'is-danger':'is-success'"><span>{{ cockpitCostIncomplete?$tr("已核算税前结果"):$tr("累计税前结果") }}</span><b>{{ signedMoney(cockpitSummary.pretaxProfit ?? cockpitSummary.profitAmount) }}</b><small>{{ cockpitCostIncomplete?$tr("成本尚不完整，不代表最终利润"):cockpitCurrency }}</small></article>
@@ -305,6 +306,7 @@ import ProjectPublicExpensePanel from '@/views/business/components/ProjectPublic
 import { h, nextTick } from 'vue'
 import ProjectHierarchyTable from './ProjectHierarchyTable.vue'
 import ProjectDeletionReviews from './ProjectDeletionReviews.vue'
+import PreviousMonthProfitCard from './PreviousMonthProfitCard.vue'
 import { getBusinessProjectCompanies, getBusinessProjectDepartments } from '@/api/business/project'
 import { useResizeObserver } from '@vueuse/core'
 import { ElMessage, ElMessageBox } from 'element-plus'
