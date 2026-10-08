@@ -75,11 +75,29 @@ class JewelryErpControllerPermissionTest
     }
 
     @Test
+    void onlyAdministratorMayRepairHistoricalPurchaseAttribution()
+    {
+        IJewelryErpService service = mock(IJewelryErpService.class);
+        JewelryErpController controller = new JewelryErpController();
+        ReflectionTestUtils.setField(controller, "service", service);
+        Map<String, Object> body = new HashMap<String, Object>();
+        body.put("influencerId", 10L); body.put("reason", "已核实原采购归属");
+        loginAs("jewelry_maker", Collections.singleton("jewelry:document:edit"));
+        assertEquals(500, controller.repairPurchaseInfluencer(119L, body).get("code"));
+        verify(service, never()).repairPurchaseInfluencer(eq(119L), eq(10L), any(), any(), any());
+        loginAs("jewelry_admin", Collections.singleton("jewelry:document:edit"));
+        assertEquals(200, controller.repairPurchaseInfluencer(119L, body).get("code"));
+        verify(service).repairPurchaseInfluencer(119L, 10L, "已核实原采购归属", 20L, "jewelry_admin");
+    }
+
+    @Test
     void criticalWorkflowEndpointsKeepTheirDedicatedPermissions()
     {
         Map<String, String> expected = new HashMap<String, String>();
         expected.put("dashboard", "@ss.hasPermi('jewelry:overview:list')");
         expected.put("supplierReturnProducts", "@ss.hasPermi('jewelry:document:list')");
+        expected.put("purchaseInfluencerOptions", "@ss.hasPermi('jewelry:document:edit')");
+        expected.put("repairPurchaseInfluencer", "@ss.hasPermi('jewelry:document:edit')");
         expected.put("sampleReturnProducts", "@ss.hasPermi('jewelry:document:list')");
         expected.put("staffList", "@ss.hasPermi('jewelry:staff:list')");
         expected.put("addStaff", "@ss.hasPermi('jewelry:staff:add')");

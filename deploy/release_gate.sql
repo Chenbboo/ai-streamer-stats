@@ -522,4 +522,7 @@ from (
     and non_unique=0 and ((seq_in_index=1 and column_name='work_type')
       or (seq_in_index=2 and column_name='source_report_id')
       or (seq_in_index=3 and column_name='source_version'))
+  union all
+  select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
+    and table_name='jewelry_document_item' and column_name='unit_snapshot'
 ) release_gate;

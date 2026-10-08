@@ -37,6 +37,8 @@ export const updateJewelryStockWarningDays = (days) => request({ url: '/jewelry/
 export const directAdjustJewelryCosts = (data) => request({ url: '/jewelry/stock/direct-cost-adjust', method: 'post', data })
 export const listJewelryDocuments = (params) => request({ url: '/jewelry/document/list', method: 'get', params })
 export const getJewelryDocument = (id) => request({ url: `/jewelry/document/${id}`, method: 'get' })
+export const getPurchaseInfluencerRepairOptions = (id) => request({ url: `/jewelry/document/${id}/purchase-influencer-options`, method: 'get' })
+export const repairPurchaseInfluencer = (id, data) => request({ url: `/jewelry/document/${id}/purchase-influencer`, method: 'put', data })
 export const listSupplierReturnSources = (influencerId, supplierId) => request({
   url: '/jewelry/document/supplier-return-sources', method: 'get', params: { influencerId, supplierId }
 })

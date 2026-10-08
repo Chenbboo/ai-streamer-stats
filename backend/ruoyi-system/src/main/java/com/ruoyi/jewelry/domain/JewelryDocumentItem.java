@@ -22,6 +22,7 @@ public class JewelryDocumentItem
     private String productNameSnapshot;
     private String productTypeSnapshot;
     private String specificationSnapshot;
+    private String unitSnapshot;
     private String imageUrls;
     @JsonFormat(pattern = "yyyy-MM-dd")
     private Date bizDate;
@@ -87,6 +88,8 @@ public class JewelryDocumentItem
     public void setProductTypeSnapshot(String productTypeSnapshot) { this.productTypeSnapshot = productTypeSnapshot; }
     public String getSpecificationSnapshot() { return specificationSnapshot; }
     public void setSpecificationSnapshot(String specificationSnapshot) { this.specificationSnapshot = specificationSnapshot; }
+    public String getUnitSnapshot() { return unitSnapshot; }
+    public void setUnitSnapshot(String unitSnapshot) { this.unitSnapshot = unitSnapshot; }
     public String getImageUrls() { return imageUrls; }
     public void setImageUrls(String imageUrls) { this.imageUrls = imageUrls; }
     public Date getBizDate() { return bizDate; }

@@ -65,6 +65,7 @@
         <result property="productNameSnapshot" column="product_name_snapshot"/>
         <result property="productTypeSnapshot" column="product_type_snapshot"/>
         <result property="specificationSnapshot" column="specification_snapshot"/>
+        <result property="unitSnapshot" column="unit_snapshot"/>
         <result property="imageUrls" column="image_urls"/>
         <result property="bizDate" column="biz_date"/>
         <result property="supplierId" column="supplier_id"/>
@@ -1242,6 +1243,29 @@
             where reversal.doc_type='REVERSAL' and reversal.source_document_id=d.document_id)
         order by d.biz_date,d.document_id,source_item.item_id
     </select>
+    <select id="selectPurchaseInfluencerRepairOptions" resultType="java.util.LinkedHashMap">
+        select inf.influencer_id influencerId,inf.influencer_code influencerCode,
+          inf.influencer_name influencerName,inf.platform
+        from jewelry_influencer inf join jewelry_document d on d.document_id=#{documentId}
+        where inf.status='0' and d.doc_type='PURCHASE_IN' and d.status='POSTED' and d.influencer_id is null
+          and exists (select 1 from jewelry_document_item wi
+            where wi.document_id=d.document_id and wi.product_type_snapshot='WELFARE')
+          and not exists (
+            select 1 from jewelry_document_item i where i.document_id=d.document_id
+              and i.product_type_snapshot in ('FINISHED','GIFT','WELFARE')
+              and not exists (select 1 from jewelry_influencer_product_price pp
+                where pp.influencer_id=inf.influencer_id and pp.product_id=i.product_id
+                  and pp.preferred_supplier_id=d.supplier_id and pp.binding_status='0'
+                  and pp.price_status='PRICED' and pp.fixed_unit_price is not null
+                  and pp.unit_cost is not null and pp.commission_rate is not null
+                  and pp.platform_rate is not null and pp.tax_rate is not null))
+        order by inf.influencer_code,inf.influencer_id
+    </select>
+    <update id="repairPurchaseInfluencer">
+        update jewelry_document set influencer_id=#{influencerId},influencer_name=#{influencerName},
+          update_by=#{userName},update_time=sysdate(),version=version+1
+        where document_id=#{documentId} and doc_type='PURCHASE_IN' and status='POSTED' and influencer_id is null
+    </update>
     <select id="selectSampleReturnAllocationSources" resultMap="itemMap">
         select source_item.*,d.document_id source_document_id,d.doc_no source_doc_no,
           greatest(0,stock.on_hand_qty-stock.reserved_out_qty) available_return_qty,
@@ -1296,7 +1320,7 @@
             p.sku sortSku
           from jewelry_influencer_product_price pp
           join jewelry_product p on p.product_id=pp.product_id
-            and p.product_type='FINISHED' and p.status='0'
+            and p.product_type in ('FINISHED','WELFARE') and p.status='0'
           left join (
             select d.influencer_id,i.product_id,sum(i.qty) sold_qty
             from jewelry_document d
@@ -1459,13 +1483,13 @@
     </delete>
     <insert id="insertDocumentItem" useGeneratedKeys="true" keyProperty="itemId">
         insert into jewelry_document_item(document_id,product_id,item_role,source_item_id,bundle_group_no,sale_role,pricing_mode,
-          sku_snapshot,product_name_snapshot,product_type_snapshot,specification_snapshot,image_urls,biz_date,supplier_id,supplier_name_snapshot,sample_goods_no,
+          sku_snapshot,product_name_snapshot,product_type_snapshot,specification_snapshot,unit_snapshot,image_urls,biz_date,supplier_id,supplier_name_snapshot,sample_goods_no,
           qty,good_qty,defect_qty,system_qty,counted_qty,adjustment_qty,unit_price,
           influencer_price_snapshot,influencer_price_version,unit_cost,pack_fee,ship_fee,
           cert_fee,other_fee1,other_fee2,other_fee3,platform_rate_snapshot,commission_rate_snapshot,tax_rate_snapshot,
           amount,cost_amount,profit_amount,profit_rate,line_reason)
         values(#{documentId},#{productId},#{itemRole},#{sourceItemId},#{bundleGroupNo},#{saleRole},#{pricingMode},
-          #{skuSnapshot},#{productNameSnapshot},#{productTypeSnapshot},#{specificationSnapshot},#{imageUrls},#{bizDate},#{supplierId},#{supplierNameSnapshot},#{sampleGoodsNo},#{qty},#{goodQty},
+          #{skuSnapshot},#{productNameSnapshot},#{productTypeSnapshot},#{specificationSnapshot},#{unitSnapshot},#{imageUrls},#{bizDate},#{supplierId},#{supplierNameSnapshot},#{sampleGoodsNo},#{qty},#{goodQty},
           #{defectQty},#{systemQty},#{countedQty},#{adjustmentQty},#{unitPrice},
           #{influencerPriceSnapshot},#{influencerPriceVersion},#{unitCost},#{packFee},#{shipFee},
           #{certFee},#{otherFee1},#{otherFee2},#{otherFee3},#{platformRateSnapshot},#{commissionRateSnapshot},#{taxRateSnapshot},

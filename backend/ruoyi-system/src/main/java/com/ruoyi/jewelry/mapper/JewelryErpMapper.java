@@ -100,6 +100,9 @@ public interface JewelryErpMapper
     List<JewelryDocument> selectDocumentList(JewelryDocument query);
     JewelryDocument selectDocumentById(Long documentId);
     JewelryDocument selectDocumentByIdForUpdate(Long documentId);
+    List<Map<String, Object>> selectPurchaseInfluencerRepairOptions(Long documentId);
+    int repairPurchaseInfluencer(@Param("documentId") Long documentId, @Param("influencerId") Long influencerId,
+        @Param("influencerName") String influencerName, @Param("userName") String userName);
     int countReversalBySource(Long sourceDocumentId);
     int countActiveCustomerReturnsBySource(Long sourceDocumentId);
     int countActiveSupplierReturnsBySource(Long sourceDocumentId);

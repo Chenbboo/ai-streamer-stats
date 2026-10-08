@@ -95,6 +95,49 @@ class JewelryErpMapperIntegrationTest
     }
 
     @Test
+    void welfareAttributionRepairEnablesSupplierReturnAndWelfareCustomerReturnStats()
+    {
+        execute("insert into jewelry_product(product_id,sku,product_name,product_type,status) values(59,'fl009','福利009','WELFARE','0')");
+        execute("insert into jewelry_influencer(influencer_id,influencer_code,influencer_name,status) values"
+            + "(10,'KS0001','达人甲','0'),(11,'KS0002','达人乙','0')");
+        execute("insert into jewelry_influencer_product_price(influencer_id,product_id,preferred_supplier_id,"
+            + "binding_status,price_status,fixed_unit_price,unit_cost,commission_rate,platform_rate,tax_rate) values"
+            + "(10,59,10,'0','PRICED',3,5,0,0,0),(11,59,11,'0','PRICED',3,5,0,0,0)");
+        insertStock(59L, 5, 0, 0, 0, 0, 0, "5");
+        insertDocument(119L, "WELFARE-PURCHASE", "PURCHASE_IN", "POSTED", null);
+        execute("update jewelry_document set supplier_id=10 where document_id=119");
+        insertItem(373L, 119L, null, 59L, 5);
+        execute("update jewelry_document_item set product_type_snapshot='WELFARE' where item_id=373");
+        insertDocument(120L, "WELFARE-SALE", "SALES_OUT", "POSTED", null);
+        execute("update jewelry_document set influencer_id=10 where document_id=120");
+        insertItem(374L, 120L, null, 59L, 5);
+        insertDocument(121L, "WELFARE-RETURN", "CUSTOMER_RETURN", "DRAFT", null);
+        execute("update jewelry_document set influencer_id=10 where document_id=121");
+        insertItem(375L, 121L, 374L, 59L, 2);
+
+        try (SqlSession session = sqlSessionFactory.openSession())
+        {
+            JewelryErpMapper mapper = session.getMapper(JewelryErpMapper.class);
+            assertTrue(mapper.selectSupplierReturnAllocationSources(10L, 10L, null).isEmpty());
+            List<Map<String, Object>> candidates = mapper.selectPurchaseInfluencerRepairOptions(119L);
+            assertEquals(1, candidates.size());
+            assertEquals(10L, ((Number) mapValue(candidates.get(0), "influencerId")).longValue());
+            assertEquals(1, mapper.repairPurchaseInfluencer(119L, 10L, "达人甲", "admin"));
+            assertEquals(0, mapper.repairPurchaseInfluencer(119L, 11L, "达人乙", "admin"));
+            assertTrue(mapper.selectPurchaseInfluencerRepairOptions(119L).isEmpty());
+            List<JewelryDocumentItem> sources = mapper.selectSupplierReturnAllocationSources(10L, 10L, null);
+            assertEquals(1, sources.size());
+            assertEquals(5, sources.get(0).getAvailableReturnQty());
+            assertEquals("POSTED", mapper.selectDocumentById(119L).getStatus());
+            assertEquals(5, mapper.selectDocumentItems(119L).get(0).getQty());
+            List<Map<String, Object>> returnStats = mapper.selectCustomerReturnProductStats(10L, null, 59L, null, "MAIN");
+            assertEquals(1, returnStats.size());
+            assertEquals(5, ((Number) mapValue(returnStats.get(0), "soldQty")).intValue());
+            assertEquals(3, ((Number) mapValue(returnStats.get(0), "remainingReturnQty")).intValue());
+        }
+    }
+
+    @Test
     void customerReturnStatsKeepAddonQuantityUnderItsSoldMainProduct()
     {
         execute("insert into jewelry_product(product_id,sku,product_name,product_type,specification) values"
@@ -1968,6 +2011,7 @@ class JewelryErpMapperIntegrationTest
         item.setPricingMode("INCLUDED");
         item.setSkuSnapshot("PART-1");
         item.setProductNameSnapshot("Bundled part");
+        item.setUnitSnapshot("盒");
         item.setProductTypeSnapshot("PART");
         item.setSpecificationSnapshot("普通");
         item.setQty(1);
@@ -2022,6 +2066,7 @@ class JewelryErpMapperIntegrationTest
             assertEquals(0, storedItem.getCommissionRateSnapshot().compareTo(new BigDecimal("0.200000")));
             assertEquals(0, storedItem.getTaxRateSnapshot().compareTo(new BigDecimal("0.010000")));
             assertEquals("普通", storedItem.getSpecificationSnapshot());
+            assertEquals("盒", storedItem.getUnitSnapshot());
         }
     }
 
@@ -2123,7 +2168,7 @@ class JewelryErpMapperIntegrationTest
             + "item_role varchar(16) not null default 'NORMAL',source_item_id bigint,bundle_group_no int,"
             + "sale_role varchar(16) not null default 'NORMAL',pricing_mode varchar(16) not null default 'SEPARATE',"
             + "sku_snapshot varchar(64) not null,product_name_snapshot varchar(128) not null,"
-            + "product_type_snapshot varchar(16),specification_snapshot varchar(16),image_urls varchar(1000),biz_date date,"
+            + "product_type_snapshot varchar(16),specification_snapshot varchar(16),unit_snapshot varchar(16),image_urls varchar(1000),biz_date date,"
             + "supplier_id bigint,supplier_name_snapshot varchar(128),sample_goods_no varchar(64),"
             + "qty int not null default 0,good_qty int not null default 0,defect_qty int not null default 0,"
             + "system_qty int,counted_qty int,adjustment_qty int not null default 0,"

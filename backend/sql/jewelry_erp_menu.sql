@@ -180,6 +180,7 @@ create table if not exists jewelry_document_item (
   product_name_snapshot varchar(128) not null,
   product_type_snapshot varchar(16) default null comment '销售时商品类型快照',
   specification_snapshot varchar(16) default null comment '销售时规格类型快照',
+  unit_snapshot varchar(16) default null comment '单据商品单位，可手填',
   image_urls text comment '单据商品图片，逗号分隔',
   biz_date date default null comment '样品入库明细业务日期；其他单据使用主表日期',
   supplier_id bigint default null comment '样品入库明细供应商ID',

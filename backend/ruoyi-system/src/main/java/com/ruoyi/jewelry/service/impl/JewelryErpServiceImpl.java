@@ -704,6 +704,51 @@ public class JewelryErpServiceImpl implements IJewelryErpService
     }
 
     @Override
+    public List<Map<String, Object>> getPurchaseInfluencerRepairOptions(Long documentId)
+    {
+        validatePurchaseInfluencerRepair(mapper.selectDocumentById(documentId));
+        return mapper.selectPurchaseInfluencerRepairOptions(documentId);
+    }
+
+    private void validatePurchaseInfluencerRepair(JewelryDocument document)
+    {
+        if (document == null || !"PURCHASE_IN".equals(document.getDocType()) || !"POSTED".equals(document.getStatus())
+            || document.getInfluencerId() != null)
+            throw new ServiceException("仅可补录已入账且缺少达人的福利采购单");
+        if (mapper.countReversalBySource(document.getDocumentId()) > 0
+            || mapper.countActiveSupplierReturnsBySource(document.getDocumentId()) > 0)
+            throw new ServiceException("采购单已存在红冲或有效退货，不能补录达人归属");
+        boolean welfare = false;
+        for (JewelryDocumentItem item : mapper.selectDocumentItems(document.getDocumentId()))
+            if ("WELFARE".equals(item.getProductTypeSnapshot())) welfare = true;
+        if (!welfare) throw new ServiceException("该采购单不含福利商品，无需补录福利采购达人");
+    }
+
+    @Override
+    @Transactional
+    public void repairPurchaseInfluencer(Long documentId, Long influencerId, String reason, Long userId, String userName)
+    {
+        String explanation = text(reason).trim();
+        if (influencerId == null) throw new ServiceException("请选择核实后的达人/主播");
+        if (explanation.isEmpty() || explanation.length() > 300)
+            throw new ServiceException("请填写补录原因，最多300字");
+        JewelryDocument document = mapper.selectDocumentByIdForUpdate(documentId);
+        validatePurchaseInfluencerRepair(document);
+        Map<String, Object> influencer = mapper.selectInfluencerByIdForUpdate(influencerId);
+        if (influencer == null || !"0".equals(textValue(influencer.get("status"))))
+            throw new ServiceException("达人/主播不存在或已停用");
+        boolean allowed = false;
+        for (Map<String, Object> option : mapper.selectPurchaseInfluencerRepairOptions(documentId))
+            if (influencerId.equals(nullableLong(option.get("influencerId")))) allowed = true;
+        if (!allowed) throw new ServiceException("所选达人未有效绑定该采购单的全部成品、赠品或福利商品及供应商");
+        String name = textValue(influencer.get("influencerName"));
+        if (mapper.repairPurchaseInfluencer(documentId, influencerId, name, userName) != 1)
+            throw new ServiceException("采购单状态或达人归属已变化，请刷新后重试");
+        mapper.insertEvent(documentId, "INFLUENCER_REPAIR", "POSTED", "POSTED", userId, userName,
+            "达人归属由未记录补录为" + name + "（ID：" + influencerId + "）；原因：" + explanation);
+    }
+
+    @Override
     public List<Map<String, Object>> listSampleReturnProducts(Long supplierId)
     {
         if (supplierId == null) throw new ServiceException("请选择供应商");
@@ -1473,6 +1518,11 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             && price.get("platformRate") != null && price.get("taxRate") != null;
     }
 
+    private boolean requiresInfluencerPurchase(String productType)
+    {
+        return "FINISHED".equals(productType) || "GIFT".equals(productType) || "WELFARE".equals(productType);
+    }
+
     private void validateSalesBindingsForWrite(JewelryDocument document)
     {
         if (!"SALES_OUT".equals(document.getDocType()) || document.getInfluencerId() == null
@@ -1688,16 +1738,23 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             item.setProductNameSnapshot(String.valueOf(product.get("productName")));
             item.setProductTypeSnapshot(textValue(product.get("productType")));
             item.setSpecificationSnapshot(textValue(product.get("specification")));
+            String unit = text(item.getUnitSnapshot()).trim();
+            if (unit.isEmpty()) unit = textValue(product.get("unit"));
+            if (unit.isEmpty()) unit = "件";
+            if (unit.length() > 16) throw new ServiceException("商品单位不能超过16个字符");
+            item.setUnitSnapshot(unit);
             if ("PURCHASE_IN".equals(document.getDocType()) && "SAMPLE".equals(item.getProductTypeSnapshot()))
                 throw new ServiceException("样品商品请使用样品入库单据");
             if ("PURCHASE_IN".equals(document.getDocType())
-                && ("FINISHED".equals(item.getProductTypeSnapshot()) || "GIFT".equals(item.getProductTypeSnapshot())))
+                && requiresInfluencerPurchase(item.getProductTypeSnapshot()))
             {
+                if (document.getInfluencerId() == null)
+                    throw new ServiceException("成品、赠品或福利商品采购入库必须先选择达人/主播");
                 Map<String, Object> binding = purchaseBindings.get(item.getProductId());
                 if (!isConfiguredSalesBinding(binding) || binding.get("unitCost") == null
                     || nullableLong(binding.get("preferredSupplierId")) == null
                     || !document.getSupplierId().equals(nullableLong(binding.get("preferredSupplierId"))))
-                    throw new ServiceException("成品或赠品采购入库必须选择当前达人和供应商已绑定的商品");
+                    throw new ServiceException("成品、赠品或福利商品采购入库必须选择当前达人和供应商已绑定的商品");
             }
             if ("SAMPLE_IN".equals(document.getDocType()))
             {
@@ -1851,6 +1908,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     item.setRemainingReturnQty(remainingQty);
                     item.setSourceItemId(sourceItem.getItemId());
                     item.setSourceUnitPrice(money(sourceItem.getUnitPrice()));
+                    item.setUnitSnapshot(sourceItem.getUnitSnapshot());
                     if (item.getUnitPrice() == null)
                         throw new ServiceException("供应商退货必须填写实际退货单价");
                     if (item.getUnitPrice().signum() < 0)
@@ -1908,6 +1966,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     item.setPricingMode(normalizedPricingMode(sourceItem.getPricingMode()));
                     item.setProductTypeSnapshot(sourceItem.getProductTypeSnapshot());
                     item.setSpecificationSnapshot(sourceItem.getSpecificationSnapshot());
+                    item.setUnitSnapshot(sourceItem.getUnitSnapshot());
                     document.setSalesChannel(source.getSalesChannel());
                     document.setInfluencerId(source.getInfluencerId());
                     document.setInfluencerName(source.getInfluencerName());
@@ -1942,8 +2001,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     }
                     else
                     {
-                        if (!"FINISHED".equals(productType))
-                            throw new ServiceException("客户退货独立商品必须是当前达人已绑定的成品商品");
+                        if (!"FINISHED".equals(productType) && !"WELFARE".equals(productType))
+                            throw new ServiceException("客户退货独立商品必须是当前达人已绑定的成品或福利商品");
                         returnRole = "NORMAL";
                         groupNo = null;
                     }
@@ -1956,7 +2015,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                     if (returnStats == null || returnStats.isEmpty())
                         throw new ServiceException("ADDON".equals(returnRole)
                             ? "该商品不是所选成品历史销售组合中的可退搭售商品"
-                            : "客户退货只能选择当前达人已绑定的成品商品");
+                            : "客户退货只能选择当前达人已绑定的成品或福利商品");
                     Map<String, Object> returnStat = returnStats.get(0);
                     int soldQty = intValue(returnStat.get("soldQty"));
                     int remainingReturnQty = Math.max(0, intValue(returnStat.get("remainingReturnQty")));
@@ -1967,7 +2026,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                             + remainingReturnQty + "件（已售" + soldQty + "件）");
                     String pricingMode = "ADDON".equals(returnRole)
                         ? normalizedPricingMode(textValue(returnStat.get("pricingMode"))) : "SEPARATE";
-                    if (money(item.getUnitPrice()).signum() <= 0)
+                    if (money(item.getUnitPrice()).signum() < 0
+                        || (money(item.getUnitPrice()).signum() == 0 && !"WELFARE".equals(productType)))
                         throw new ServiceException("未关联原销售单时必须填写实际退款单价");
                     item.setSourceItemId(null);
                     item.setBundleGroupNo(groupNo);
@@ -1995,6 +2055,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
                 item.setUnitCost(money(sourceItem.getUnitCost()));
                 item.setProductTypeSnapshot(sourceItem.getProductTypeSnapshot());
                 item.setSpecificationSnapshot(sourceItem.getSpecificationSnapshot());
+                item.setUnitSnapshot(sourceItem.getUnitSnapshot());
             }
             validateNonNegative(item.getUnitPrice(), "商品单价");
             validateNonNegative(item.getUnitCost(), "商品成本");
@@ -2069,6 +2130,9 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         String productType = textValue(product.get("productType"));
         if (!SALES_ROLES.contains(role)) throw new ServiceException("销售商品角色不正确");
         if (!SALES_PRICING_MODES.contains(pricingMode)) throw new ServiceException("搭售计价方式不正确");
+        if ("WELFARE".equals(productType)
+            && (!"NORMAL".equals(role) || groupNo != null || !"SEPARATE".equals(pricingMode)))
+            throw new ServiceException("福利商品只允许独立销售，不能参与搭售组合");
         if ("MAIN".equals(role))
         {
             if (groupNo == null || groupNo <= 0) throw new ServiceException("销售组合主商品缺少组合编号");
@@ -2096,8 +2160,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         }
         else
         {
-            if (!productType.isEmpty() && !"FINISHED".equals(productType))
-                throw new ServiceException("独立销售商品必须是成品商品");
+            if (!productType.isEmpty() && !"FINISHED".equals(productType) && !"WELFARE".equals(productType))
+                throw new ServiceException("独立销售商品必须是成品商品或福利商品");
             role = "NORMAL";
             pricingMode = "SEPARATE";
             groupNo = null;
@@ -2925,7 +2989,8 @@ public class JewelryErpServiceImpl implements IJewelryErpService
             if ("INCLUDED".equals(normalizedPricingMode(item.getPricingMode()))
                 || !processedProducts.add(item.getProductId())) continue;
             BigDecimal snapshot = fourDecimal(item.getInfluencerPriceSnapshot());
-            if (snapshot.signum() <= 0)
+            if (item.getInfluencerPriceSnapshot() == null || snapshot.signum() < 0
+                || (snapshot.signum() == 0 && !"WELFARE".equals(item.getProductTypeSnapshot())))
                 throw new ServiceException(text(item.getProductNameSnapshot()) + " 缺少达人商品固定价快照，不能入账");
             Map<String, Object> current = mapper.selectInfluencerProductPriceForUpdate(
                 document.getInfluencerId(), item.getProductId());
@@ -3420,6 +3485,7 @@ public class JewelryErpServiceImpl implements IJewelryErpService
         item.setProductNameSnapshot(source.getProductNameSnapshot());
         item.setProductTypeSnapshot(source.getProductTypeSnapshot());
         item.setSpecificationSnapshot(source.getSpecificationSnapshot());
+        item.setUnitSnapshot(source.getUnitSnapshot());
         item.setImageUrls(source.getImageUrls());
         item.setBizDate(source.getBizDate());
         item.setSupplierId(source.getSupplierId());

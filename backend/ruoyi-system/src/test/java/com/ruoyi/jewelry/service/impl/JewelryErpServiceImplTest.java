@@ -269,6 +269,77 @@ class JewelryErpServiceImplTest
     }
 
     @Test
+    void submittingBoundWelfareAppliesPriceRatesFeesAndReservesStock()
+    {
+        JewelryDocument document = document(9601L, "SALES_OUT", "DRAFT");
+        document.setSalesChannel("douyin");
+        JewelryDocumentItem welfare = item(9602L, 2, "999");
+        stubDocument(document, welfare);
+        stubSalesBindings(welfare);
+        Map<String, Object> binding = mapper.selectInfluencerProductPrices(SALES_INFLUENCER_ID).get(0);
+        binding.put("fixedUnitPrice", decimal("10"));
+        binding.put("unitCost", decimal("3"));
+        binding.put("commissionRate", decimal("0.10"));
+        binding.put("platformRate", decimal("0.05"));
+        binding.put("taxRate", decimal("0.02"));
+        binding.put("packFee", decimal("1"));
+        binding.put("shipFee", decimal("2"));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("WELFARE"));
+        when(mapper.reserveOutbound(PRODUCT_ID, 2)).thenReturn(1);
+
+        service.submit(9601L, MAKER_ID, "maker");
+
+        assertEquals("WELFARE", welfare.getProductTypeSnapshot());
+        assertMoney("10", welfare.getUnitPrice());
+        assertMoney("10", welfare.getInfluencerPriceSnapshot());
+        assertMoney("0.10", welfare.getCommissionRateSnapshot());
+        assertMoney("0.05", welfare.getPlatformRateSnapshot());
+        assertMoney("0.02", welfare.getTaxRateSnapshot());
+        assertMoney("1", welfare.getPackFee());
+        assertMoney("2", welfare.getShipFee());
+        verify(mapper).reserveOutbound(PRODUCT_ID, 2);
+    }
+
+    @Test
+    void zeroPriceWelfarePostingConsumesStockAndRecordsCost()
+    {
+        JewelryDocument document = document(9603L, "SALES_OUT", "PENDING_SECOND");
+        document.setFirstReviewerUserId(REVIEWER_ONE_ID);
+        JewelryDocumentItem welfare = item(9604L, 2, "0");
+        welfare.setProductTypeSnapshot("WELFARE");
+        welfare.setInfluencerPriceSnapshot(BigDecimal.ZERO);
+        welfare.setInfluencerPriceVersion(1);
+        welfare.setPackFee(decimal("1"));
+        stubDocument(document, welfare);
+        when(mapper.selectStockForUpdate(PRODUCT_ID)).thenReturn(stock(10, 2, 0, 0, 0, 0, "3", "0", "0"));
+        when(mapper.selectInfluencerByIdForUpdate(SALES_INFLUENCER_ID)).thenReturn(activeInfluencer(false));
+        when(mapper.selectInfluencerProductPriceForUpdate(SALES_INFLUENCER_ID, PRODUCT_ID))
+            .thenReturn(pricedProductPrice(PRODUCT_ID, "0", 1));
+
+        service.approve(9603L, "", null, REVIEWER_TWO_ID, "reviewer2");
+
+        verify(mapper).applyStock(eq(PRODUCT_ID), eq(8), eq(0), eq(0), eq(0), eq(0), eq(0),
+            decimalEq("3"), decimalEq("0"), decimalEq("0"));
+        assertMoney("0", document.getTotalAmount());
+        assertMoney("8", document.getTotalCost());
+        assertMoney("-8", document.getTotalProfit());
+    }
+
+    @Test
+    void unboundWelfareCannotBeSavedAsSalesDraft()
+    {
+        JewelryDocument document = document(null, "SALES_OUT", null);
+        document.setSalesChannel("douyin");
+        JewelryDocumentItem welfare = item(null, 1, "10");
+        welfare.setProductTypeSnapshot("WELFARE");
+        document.setItems(Arrays.asList(welfare));
+        when(mapper.selectInfluencerProductPrices(SALES_INFLUENCER_ID)).thenReturn(java.util.Collections.emptyList());
+
+        assertThrows(ServiceException.class, () -> service.saveDocument(document, MAKER_ID, "maker"));
+        verify(mapper, never()).insertDocument(any());
+    }
+
+    @Test
     void creatorCanDeleteOwnDraftAndItsRelatedRecords()
     {
         JewelryDocument document = document(64L, "SALES_OUT", "DRAFT");
@@ -590,7 +661,7 @@ class JewelryErpServiceImplTest
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.saveDocument(customerReturn, MAKER_ID, "maker"));
 
-        assertEquals("客户退货独立商品必须是当前达人已绑定的成品商品", error.getMessage());
+        assertEquals("客户退货独立商品必须是当前达人已绑定的成品或福利商品", error.getMessage());
         verify(mapper, never()).insertDocument(any(JewelryDocument.class));
     }
 
@@ -801,7 +872,7 @@ class JewelryErpServiceImplTest
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.saveDocument(purchase, MAKER_ID, "maker"));
 
-        assertEquals("成品或赠品采购入库必须选择当前达人和供应商已绑定的商品", error.getMessage());
+        assertEquals("成品、赠品或福利商品采购入库必须选择当前达人和供应商已绑定的商品", error.getMessage());
         verify(mapper, never()).insertDocument(any(JewelryDocument.class));
     }
 
@@ -812,6 +883,182 @@ class JewelryErpServiceImplTest
         assertThrows(ServiceException.class, () -> service.listSupplierReturnSources(SALES_INFLUENCER_ID, null));
         service.listSupplierReturnSources(SALES_INFLUENCER_ID, 9L);
         verify(mapper).selectSupplierReturnSourceList(SALES_INFLUENCER_ID, 9L);
+    }
+
+    @Test
+    void welfarePurchaseCannotBeSavedWithoutInfluencer()
+    {
+        JewelryDocument purchase = document(null, "PURCHASE_IN", null);
+        purchase.setSupplierId(1L);
+        purchase.setItems(Arrays.asList(item(null, 2, "5")));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("WELFARE"));
+
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveDocument(purchase, MAKER_ID, "maker"));
+        assertTrue(error.getMessage().contains("必须先选择达人"));
+        verify(mapper, never()).insertDocument(any());
+    }
+
+    @Test
+    void welfarePurchasePersistsInfluencerAndRejectsWrongSupplier()
+    {
+        JewelryDocument purchase = document(null, "PURCHASE_IN", null);
+        purchase.setSupplierId(1L);
+        purchase.setInfluencerId(SALES_INFLUENCER_ID);
+        JewelryDocumentItem welfare = item(null, 2, "5");
+        welfare.setUnitCost(decimal("5"));
+        purchase.setItems(Arrays.asList(welfare));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("WELFARE"));
+        stubSalesBindings(welfare);
+        Map<String, Object> binding = mapper.selectInfluencerProductPrices(SALES_INFLUENCER_ID).get(0);
+        binding.put("preferredSupplierId", 2L);
+        assertThrows(ServiceException.class, () -> service.saveDocument(purchase, MAKER_ID, "maker"));
+        verify(mapper, never()).insertDocument(any());
+
+        binding.put("preferredSupplierId", 1L);
+        when(mapper.insertDocument(purchase)).thenAnswer(invocation -> { purchase.setDocumentId(9801L); return 1; });
+        when(mapper.selectDocumentById(9801L)).thenReturn(purchase);
+        when(mapper.selectDocumentItems(9801L)).thenReturn(purchase.getItems());
+        service.saveDocument(purchase, MAKER_ID, "maker");
+        assertEquals(SALES_INFLUENCER_ID, purchase.getInfluencerId());
+        assertEquals("销售达人", purchase.getInfluencerName());
+        assertEquals("WELFARE", welfare.getProductTypeSnapshot());
+        assertMoney("10", purchase.getTotalAmount());
+    }
+
+    @Test
+    void welfareCannotBecomeBundleMainAddonOrIncludedStandalone()
+    {
+        for (String role : Arrays.asList("MAIN", "ADDON", "NORMAL"))
+        {
+            JewelryDocument sale = document(null, "SALES_OUT", null);
+            sale.setSalesChannel("douyin");
+            JewelryDocumentItem welfare = item(null, 1, "5");
+            welfare.setSaleRole(role);
+            welfare.setBundleGroupNo(1);
+            welfare.setPricingMode("INCLUDED");
+            sale.setItems(Arrays.asList(welfare));
+            stubSalesBindings(welfare);
+            when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("WELFARE"));
+            assertTrue(assertThrows(ServiceException.class,
+                () -> service.saveDocument(sale, MAKER_ID, "maker")).getMessage().contains("只允许独立销售"));
+        }
+        verify(mapper, never()).insertDocument(any());
+    }
+
+    @Test
+    void zeroPriceWelfareCustomerReturnUsesSoldQuota()
+    {
+        JewelryDocument returned = document(null, "CUSTOMER_RETURN", null);
+        returned.setReturnReason("福利退货");
+        returned.setActualRefundAmount(BigDecimal.ZERO);
+        JewelryDocumentItem welfare = item(null, 2, "0");
+        returned.setItems(Arrays.asList(welfare));
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(product("WELFARE"));
+        when(mapper.selectInfluencerProductPrices(RETURN_INFLUENCER_ID))
+            .thenReturn(Arrays.asList(pricedProductPrice(PRODUCT_ID, "0", 1)));
+        Map<String, Object> stat = new HashMap<String, Object>();
+        stat.put("soldQty", 3); stat.put("remainingReturnQty", 2);
+        when(mapper.selectCustomerReturnProductStats(RETURN_INFLUENCER_ID, null, PRODUCT_ID, null, "MAIN"))
+            .thenReturn(Arrays.asList(stat));
+        when(mapper.insertDocument(returned)).thenAnswer(invocation -> { returned.setDocumentId(9802L); return 1; });
+        when(mapper.selectDocumentById(9802L)).thenReturn(returned);
+        when(mapper.selectDocumentItems(9802L)).thenReturn(returned.getItems());
+
+        service.saveDocument(returned, MAKER_ID, "maker");
+        assertEquals("NORMAL", welfare.getSaleRole());
+        assertMoney("0", returned.getTotalAmount());
+        assertEquals("WELFARE", welfare.getProductTypeSnapshot());
+    }
+
+    @Test
+    void historicalWelfarePurchaseRepairOnlyUpdatesAttributionAndAddsAuditEvent()
+    {
+        JewelryDocument purchase = document(9803L, "PURCHASE_IN", "POSTED");
+        JewelryDocumentItem welfare = item(9804L, 5, "5");
+        welfare.setProductTypeSnapshot("WELFARE");
+        when(mapper.selectDocumentByIdForUpdate(9803L)).thenReturn(purchase);
+        when(mapper.selectDocumentItems(9803L)).thenReturn(Arrays.asList(welfare));
+        Map<String, Object> option = activeInfluencer(false);
+        when(mapper.selectInfluencerByIdForUpdate(SALES_INFLUENCER_ID)).thenReturn(option);
+        when(mapper.selectPurchaseInfluencerRepairOptions(9803L)).thenReturn(Arrays.asList(option));
+        when(mapper.repairPurchaseInfluencer(9803L, SALES_INFLUENCER_ID, "销售达人", "admin")).thenReturn(1);
+
+        service.repairPurchaseInfluencer(9803L, SALES_INFLUENCER_ID, "已核实原采购归属", REVIEWER_TWO_ID, "admin");
+
+        verify(mapper).insertEvent(eq(9803L), eq("INFLUENCER_REPAIR"), eq("POSTED"), eq("POSTED"),
+            eq(REVIEWER_TWO_ID), eq("admin"), org.mockito.ArgumentMatchers.contains("已核实原采购归属"));
+        verify(mapper, never()).updateDocumentFinancials(any());
+        verify(mapper, never()).updateDocument(any());
+        verify(mapper, never()).selectStockForUpdate(anyLong());
+        verify(mapper, never()).updateDocumentItemCost(any());
+    }
+
+    @Test
+    void historicalPurchaseRepairRejectsAssignedOrUnboundInfluencer()
+    {
+        JewelryDocument purchase = document(9805L, "PURCHASE_IN", "POSTED");
+        purchase.setInfluencerId(SALES_INFLUENCER_ID);
+        when(mapper.selectDocumentByIdForUpdate(9805L)).thenReturn(purchase);
+        assertThrows(ServiceException.class, () -> service.repairPurchaseInfluencer(9805L,
+            SALES_INFLUENCER_ID, "核实", REVIEWER_TWO_ID, "admin"));
+        purchase.setInfluencerId(null);
+        JewelryDocumentItem welfare = item(9806L, 1, "5");
+        welfare.setProductTypeSnapshot("WELFARE");
+        when(mapper.selectDocumentItems(9805L)).thenReturn(Arrays.asList(welfare));
+        when(mapper.selectInfluencerByIdForUpdate(SALES_INFLUENCER_ID)).thenReturn(activeInfluencer(false));
+        when(mapper.selectPurchaseInfluencerRepairOptions(9805L)).thenReturn(java.util.Collections.emptyList());
+        assertThrows(ServiceException.class, () -> service.repairPurchaseInfluencer(9805L,
+            SALES_INFLUENCER_ID, "核实", REVIEWER_TWO_ID, "admin"));
+        verify(mapper, never()).repairPurchaseInfluencer(anyLong(), anyLong(), anyString(), anyString());
+    }
+
+    @Test
+    void purchaseKeepsManuallyEnteredUnitWhenSavingAndSubmitting()
+    {
+        JewelryDocument purchase = document(null, "PURCHASE_IN", null);
+        purchase.setSupplierId(1L);
+        JewelryDocumentItem line = item(null, 2, "10.00");
+        line.setUnitSnapshot("  盒  ");
+        purchase.setItems(Arrays.asList(line));
+        Map<String, Object> archive = product("PART");
+        archive.put("unit", "件");
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(archive);
+        when(mapper.selectSupplierById(1L)).thenReturn(activeSupplier());
+        when(mapper.insertDocument(purchase)).thenAnswer(call -> { purchase.setDocumentId(900L); return 1; });
+        when(mapper.selectDocumentById(900L)).thenReturn(purchase);
+        when(mapper.selectDocumentItems(900L)).thenReturn(purchase.getItems());
+        service.saveDocument(purchase, MAKER_ID, "maker");
+        assertEquals("盒", line.getUnitSnapshot());
+        verify(mapper).insertDocumentItem(line);
+
+        service.submit(900L, MAKER_ID, "maker");
+        assertEquals("盒", line.getUnitSnapshot());
+        assertEquals("件", archive.get("unit"));
+        verify(mapper, never()).updateProduct(any());
+    }
+
+    @Test
+    void purchaseUsesArchiveUnitWhenOmittedAndRejectsOversizedUnit()
+    {
+        JewelryDocument purchase = document(null, "PURCHASE_IN", null);
+        purchase.setSupplierId(1L);
+        JewelryDocumentItem line = item(null, 2, "10.00");
+        purchase.setItems(Arrays.asList(line));
+        Map<String, Object> archive = product("PART");
+        archive.put("unit", "条");
+        when(mapper.selectProductById(PRODUCT_ID)).thenReturn(archive);
+        when(mapper.selectSupplierById(1L)).thenReturn(activeSupplier());
+        when(mapper.insertDocument(purchase)).thenAnswer(call -> { purchase.setDocumentId(901L); return 1; });
+        when(mapper.selectDocumentById(901L)).thenReturn(purchase);
+        when(mapper.selectDocumentItems(901L)).thenReturn(purchase.getItems());
+        service.saveDocument(purchase, MAKER_ID, "maker");
+        assertEquals("条", line.getUnitSnapshot());
+        line.setUnitSnapshot("12345678901234567");
+        ServiceException error = assertThrows(ServiceException.class,
+            () -> service.saveDocument(purchase, MAKER_ID, "maker"));
+        assertEquals("商品单位不能超过16个字符", error.getMessage());
+        verify(mapper, times(1)).insertDocumentItem(any());
     }
 
     @Test
@@ -2705,7 +2952,7 @@ class JewelryErpServiceImplTest
         ServiceException error = assertThrows(ServiceException.class,
             () -> service.assessDocumentRisk(document));
 
-        assertTrue(error.getMessage().contains("搭售商品只能选择配件商品或当前达人绑定的赠品商品"));
+        assertTrue(error.getMessage().contains("福利商品只允许独立销售"));
     }
 
     @Test

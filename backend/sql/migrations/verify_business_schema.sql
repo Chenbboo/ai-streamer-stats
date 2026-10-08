@@ -1141,6 +1141,10 @@ select 4-count(*) as missing_member_work_pause_columns from information_schema.c
 where table_schema=database() and table_name='biz_project_member_work_pause'
   and column_name in ('paused_time','started_time','paused_by','started_by');
 
+-- V144 receipt item unit snapshot.
+select count(*)=0 as missing_jewelry_unit_snapshot from information_schema.columns
+where table_schema=database() and table_name='jewelry_document_item' and column_name='unit_snapshot';
+
 -- V143 immutable execution submission history, retained for at least three months.
 select 1-count(*) as missing_completion_submission_history from information_schema.tables
 where table_schema=database() and table_name='biz_project_completion_submission';

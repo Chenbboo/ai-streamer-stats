@@ -199,8 +199,29 @@ class JewelryDocumentExcelServiceTest
             assertEquals("B2:B501", sheet.getDataValidations().get(0).getRegions()
                 .getCellRangeAddresses()[0].formatAsString());
             assertEquals("成品商品", workbook.getSheet("模板选项").getRow(0).getCell(0).getStringCellValue());
+            assertEquals("福利商品", workbook.getSheet("模板选项").getRow(1).getCell(0).getStringCellValue());
+            assertEquals("'模板选项'!$A$1:$A$2", workbook.getName("SalesProductTypeOptions").getRefersToFormula());
             assertTrue(workbook.isSheetHidden(workbook.getSheetIndex("模板选项")));
         }
+    }
+
+    @Test
+    void salesPreviewAcceptsWelfareAndStillChecksAvailableStock() throws Exception
+    {
+        Map<String, Object> welfare = product("WELFARE-1", 5, 1);
+        welfare.put("productType", "WELFARE");
+        when(mapper.selectProductList(any())).thenReturn(Collections.singletonList(welfare));
+        String[] headers = { "SKU", "商品类型", "数量" };
+
+        Map<String, Object> valid = service.preview("SALES_OUT", workbook(headers,
+            new Object[] { "WELFARE-1", "福利商品", 4 }), false);
+        assertEquals(0, valid.get("errorCount"));
+        assertEquals("WELFARE", rows(valid).get(0).get("productType"));
+
+        Map<String, Object> excess = service.preview("SALES_OUT", workbook(headers,
+            new Object[] { "WELFARE-1", "福利商品", 5 }), false);
+        assertEquals(1, excess.get("errorCount"));
+        assertTrue(String.valueOf(rows(excess).get(0).get("errorMessage")).contains("超过可用库存"));
     }
 
     @Test
@@ -508,7 +529,7 @@ class JewelryDocumentExcelServiceTest
             new Object[] { "NEW-002", "测试项链", "成品商品", "件", 1, 2000, "" }), true);
 
         assertEquals(1, result.get("errorCount"));
-        assertTrue(String.valueOf(rows(result).get(0).get("errorMessage")).contains("新成品或赠品请先在达人档案建档并绑定"));
+        assertTrue(String.valueOf(rows(result).get(0).get("errorMessage")).contains("请先在达人档案建档并绑定"));
     }
 
     @Test
@@ -532,7 +553,7 @@ class JewelryDocumentExcelServiceTest
     }
 
     @Test
-    void purchasePreviewSupportsAccessoryAndWelfareProductTypes() throws Exception
+    void purchasePreviewCreatesAccessoryButRequiresWelfareToBeBoundFirst() throws Exception
     {
         when(mapper.selectProductList(any())).thenReturn(Collections.emptyList());
         new RuoYiConfig().setProfile(tempDir.toString());
@@ -543,7 +564,9 @@ class JewelryDocumentExcelServiceTest
             new Object[] { "NEW-GIFT", "测试福利", "福利商品", "件", 1, 1, "" }), true);
 
         assertEquals("ACCESSORY", rows(accessory).get(0).get("productType"));
-        assertEquals("WELFARE", rows(welfare).get(0).get("productType"));
+        assertEquals(0, accessory.get("errorCount"));
+        assertEquals(1, welfare.get("errorCount"));
+        assertTrue(String.valueOf(rows(welfare).get(0).get("errorMessage")).contains("福利商品请先在达人档案建档并绑定"));
     }
 
     @Test

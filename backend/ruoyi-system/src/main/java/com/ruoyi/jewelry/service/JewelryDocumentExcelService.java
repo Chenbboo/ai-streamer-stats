@@ -128,9 +128,10 @@ public class JewelryDocumentExcelService
             {
                 Sheet options = workbook.createSheet("模板选项");
                 options.createRow(0).createCell(0).setCellValue("成品商品");
+                options.createRow(1).createCell(0).setCellValue("福利商品");
                 addDropdownValidation(workbook, data, headers, "商品类型",
-                    "SalesProductTypeOptions", "'模板选项'!$A$1:$A$1", "商品类型",
-                    "销售出库Excel仅支持选择成品商品");
+                    "SalesProductTypeOptions", "'模板选项'!$A$1:$A$2", "商品类型",
+                    "销售出库Excel支持选择成品商品或福利商品");
                 workbook.setSheetHidden(workbook.getSheetIndex(options), true);
             }
             data.createFreezePane(0, 1);
@@ -352,8 +353,8 @@ public class JewelryDocumentExcelService
                     if (string(row.get("productName")).isEmpty()) errors.add("新商品必须填写商品名称");
                     String productType = normalizeProductType(string(row.get("productType")));
                     if (productType == null) errors.add("新商品类型必须选择成品商品、散件商品、配件商品、福利商品或赠品商品");
-                    else if ("FINISHED".equals(productType) || "GIFT".equals(productType))
-                        errors.add("新成品或赠品请先在达人档案建档并绑定，采购导入不能直接新建");
+                    else if ("FINISHED".equals(productType) || "GIFT".equals(productType) || "WELFARE".equals(productType))
+                        errors.add("新成品、赠品或福利商品请先在达人档案建档并绑定，采购导入不能直接新建");
                     else row.put("productType", productType);
                 }
                 if (!newProduct && "PURCHASE_IN".equals(docType))
@@ -368,8 +369,9 @@ public class JewelryDocumentExcelService
                     row.put("productType", currentType);
                 }
                 if ("SALES_OUT".equals(docType) && product != null
-                    && !"FINISHED".equals(string(product.get("productType"))))
-                    errors.add("销售Excel只能导入达人已绑定的成品商品；配件搭售请在表单中添加");
+                    && !"FINISHED".equals(string(product.get("productType")))
+                    && !"WELFARE".equals(string(product.get("productType"))))
+                    errors.add("销售Excel只能导入达人已绑定的成品或福利商品；配件搭售请在表单中添加");
                 if ("SAMPLE_IN".equals(docType))
                 {
                     if (string(row.get("bizDate")).isEmpty()) errors.add("业务日期格式应为yyyy-MM-dd");
@@ -766,9 +768,9 @@ public class JewelryDocumentExcelService
     private String[] guide(String docType)
     {
         if ("PURCHASE_IN".equals(docType))
-            return new String[] { "导入成品或赠品商品时，先在单据选择达人，再选择其绑定的供应商，并确保商品已绑定该达人和供应商；导入其他商品类型时只需先选择供应商。",
+            return new String[] { "导入成品、赠品或福利商品时，先在单据选择达人，再选择其绑定的供应商，并确保商品已绑定该达人和供应商；导入其他商品类型时只需先选择供应商。",
                 "一行填写一个SKU，数量必须为正整数。已有SKU只需填写SKU、数量和采购单价；同一SKU有多个商品类型时须填写商品类型。",
-                "新商品仅支持散件、配件或福利商品，须填写商品名称和商品类型；成品及赠品请先在达人档案建档并绑定，样品请使用样品入库。",
+                "新商品仅支持散件或配件商品，须填写商品名称和商品类型；成品、赠品及福利商品请先在达人档案建档并绑定，样品请使用样品入库。",
                 "每行只能在“商品图片”列插入一张JPG或PNG图片；已有档案图片的SKU可不重复插图。",
                 "图片应完整放在对应单元格内，并设置为随单元格移动和调整大小。",
                 "确认导入时系统会先创建商品档案。单次最多500行，同一商品不可重复；同一SKU的不同商品类型可分行填写。" };
@@ -780,9 +782,10 @@ public class JewelryDocumentExcelService
                 "同一SKU可填写多行，但相同SKU、日期和供应商必须合并数量；数量须为正整数。",
                 "未建档的SKU在确认导入时按填写的商品名称新建样品商品，需商品新增权限。单价和本次入库成本固定为0；仍须提交并审核后入账。单次最多500行。" };
         if ("SALES_OUT".equals(docType))
-            return new String[] { "请先在销售出库表单选择达人/主播；Excel只填写该达人已有效绑定的成品SKU和数量。",
-                "同一SKU有多种商品类型时，商品类型填“成品商品”；销售数量不能超过当前可用库存。",
+            return new String[] { "请先在销售出库表单选择达人/主播；Excel填写该达人已有效绑定的成品或福利商品SKU和数量。",
+                "商品类型可填写“成品商品”或“福利商品”；同一SKU有多种商品类型时必须填写，销售数量不能超过当前可用库存。",
                 "成交价、成本、佣金率、平台扣点率、税率和履约费用由系统按达人商品绑定自动带入，Excel不重复填写。",
+                "福利商品只允许独立销售，不能作为组合主商品或搭售商品；绑定的直播成交价可为0，仍计入成本和费用并扣减库存。",
                 "配件搭售请导入后在销售表单中手动添加；单次最多500行，同一商品不可重复。" };
         return new String[] { "一行填写一个SKU，SKU必须已存在；同一SKU有多种商品类型时填写商品类型。", "实盘数量必须为大于等于0的整数。",
             "每一行都必须填写调整原因。", "单次最多500行，同一商品不可重复。" };

@@ -584,6 +584,25 @@ public class JewelryErpController extends BaseController
         return success(service.listSupplierReturnProducts(influencerId, supplierId));
     }
 
+    @PreAuthorize("@ss.hasPermi('jewelry:document:edit')")
+    @GetMapping("/document/{id}/purchase-influencer-options")
+    public AjaxResult purchaseInfluencerOptions(@PathVariable Long id)
+    {
+        if (!isErpAdministrator()) return error("只有管理员可以补录历史采购达人归属");
+        return success(service.getPurchaseInfluencerRepairOptions(id));
+    }
+
+    @PreAuthorize("@ss.hasPermi('jewelry:document:edit')")
+    @Log(title = "历史福利采购达人补录", businessType = BusinessType.UPDATE)
+    @PutMapping("/document/{id}/purchase-influencer")
+    public AjaxResult repairPurchaseInfluencer(@PathVariable Long id, @RequestBody Map<String, Object> body)
+    {
+        if (!isErpAdministrator()) return error("只有管理员可以补录历史采购达人归属");
+        service.repairPurchaseInfluencer(id, number(body.get("influencerId")), string(body.get("reason")),
+            SecurityUtils.getUserId(), SecurityUtils.getUsername());
+        return success();
+    }
+
     @PreAuthorize("@ss.hasPermi('jewelry:document:list')")
     @GetMapping("/document/sample-return-products")
     public AjaxResult sampleReturnProducts(@RequestParam Long supplierId)
