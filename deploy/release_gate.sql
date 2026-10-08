@@ -505,4 +505,21 @@ from (
   select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
     and table_name='biz_incentive_rule' and column_name='settlement_month'
     and data_type='varchar' and character_maximum_length=7 and is_nullable='YES'
+  union all
+  select if(count(*)=2,0,1) from information_schema.tables where table_schema=database()
+    and table_name in ('biz_project_member_work_pause','biz_project_completion_submission')
+  union all
+  select if(count(*)=25,0,1) from information_schema.columns where table_schema=database()
+    and ((table_name='biz_project_member_work_pause' and column_name in
+        ('pause_id','project_id','user_id','paused_time','started_time','paused_by','started_by'))
+      or (table_name='biz_project_completion_submission' and column_name in
+        ('submission_id','work_type','source_report_id','source_version','project_id','project_name',
+         'work_name','member_user_id','member_name','report_date','report_details','issue_reason',
+         'evidence_urls','actual_value','unit','target_mode','progress','submitted_time')))
+  union all
+  select if(count(*)=3,0,1) from information_schema.statistics where table_schema=database()
+    and table_name='biz_project_completion_submission' and index_name='uk_completion_source_version'
+    and non_unique=0 and ((seq_in_index=1 and column_name='work_type')
+      or (seq_in_index=2 and column_name='source_report_id')
+      or (seq_in_index=3 and column_name='source_version'))
 ) release_gate;
