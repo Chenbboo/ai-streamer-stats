@@ -136,6 +136,24 @@ class BusinessProjectProposalServiceImplTest
     }
 
     @Test
+    void returningMemberWithoutCurrentAllocationRemainsInProposalWorkspace()
+    {
+        Map<String,Object> active=BusinessProjectWorkServiceTest.row("projectId",88L,"allocationId",null,
+            "allocationValue",BigDecimal.ZERO);
+        when(mapper.selectStaffAllocationPreview(eq(12L),any(Date.class)))
+            .thenReturn(Collections.singletonList(active));
+        when(mapper.selectStaffAllocationTimeline(12L)).thenReturn(Collections.singletonList(
+            BusinessProjectWorkServiceTest.row("projectId",88L,"allocationId",9L,"allocationValue",new BigDecimal("100"),
+                "effectiveFrom","2026-09-01","effectiveTo","2026-09-30","confirmationStatus","CONFIRMED")));
+
+        java.util.List<Map<String,Object>> rows=org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,
+            "allocationPreviewRows",12L,java.sql.Date.valueOf("2026-10-08"));
+
+        assertEquals(Collections.singletonList(active),rows,
+            "Returning members must remain at 0% in both proposal preview and project launch");
+    }
+
+    @Test
     void foreignCompanyStaffOptionsKeepIdentityButRemoveEveryRateField()
     {
         when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"planner","立项人员"));

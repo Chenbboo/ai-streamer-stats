@@ -1314,7 +1314,9 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
             {
                 Long projectId = longValue(row.get("projectId"));
                 Map<String,Object> weight = weights.get(projectId);
-                if (weight == null && weightedProjects.contains(projectId)) continue;
+                // Match the project workspace: retain a returning member at 0% until a new
+                // allocation is assigned, even when this project has older ended records.
+                if (weight == null && weightedProjects.contains(projectId) && row.get("allocationId") != null) continue;
                 Map<String,Object> copy = new LinkedHashMap<>(row);
                 if (weight != null)
                 {

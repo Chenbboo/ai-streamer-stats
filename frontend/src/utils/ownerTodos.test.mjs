@@ -38,6 +38,19 @@ test('monthly target completion never creates a project-close todo',()=>{
   assert.equal(rows.some(row=>row.key==='close'),false)
  }
 })
+test('whole-project total budget expiry is a project-plan todo, not a budget renewal',()=>{
+  const rows=buildOwnerTodos({data:{project:{projectId:12,status:'ACTIVE',accountingState:'CLOSED',goalMode:'NO_TOTAL',closeMethod:'DIRECT',planEndDate:'2026-09-30',budget:{mode:'TOTAL',cycle:'PROJECT',endDate:'2026-09-30'}}},userId:9,today:'2026-10-08',permissions:['business:project:edit']})
+  assert.equal(rows.some(row=>row.key==='budget'),false)
+  assert.deepEqual(rows.find(row=>row.key==='plan-expired'),{
+    key:'plan-expired',title:'项目计划已到期',detail:'计划截至 2026-09-30，请延长计划或办理结项',action:'project',tab:'plan',urgent:true
+  })
+})
+test('expired rolling total-cap budget still requires renewal',()=>{
+  const rows=buildOwnerTodos({data:{project:{projectId:12,status:'ACTIVE',accountingState:'CLOSED',goalMode:'NO_TOTAL',closeMethod:'DIRECT',budget:{mode:'TOTAL',cycle:'MONTH',endDate:'2026-09-30'}}},userId:9,today:'2026-10-08',permissions:['business:project:edit']})
+  assert.deepEqual(rows.find(row=>row.key==='budget'),{
+    key:'budget',title:'续编项目预算',detail:'上期截至 2026-09-30',action:'project',tab:'plan',urgent:true
+  })
+})
 const data = { project: { projectId: 12, status: 'ACTIVE', accountingState: 'OPEN', goalMode: 'NO_TOTAL' } }
 
 test('active owner receives KPI setup todo when no plan has been published', () => {

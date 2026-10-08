@@ -60,8 +60,11 @@ export function buildOwnerTodos({ data = {}, userId, today, permissions = [], kp
     }
   }
   if (active && can('business:project:edit')) {
-    if (p.budget?.endDate && day(p.budget.endDate) < today)
+    const rollingBudget = ['WEEK', 'MONTH', 'QUARTER', 'YEAR'].includes(p.budget?.cycle)
+    if (rollingBudget && p.budget?.endDate && day(p.budget.endDate) < today)
       add('budget', translateText("续编项目预算"), translateText("上期截至 {0}", [day(p.budget.endDate)]), 'project', { tab: 'plan', urgent: true })
+    if (p.planEndDate && day(p.planEndDate) < today)
+      add('plan-expired', translateText("项目计划已到期"), translateText("计划截至 {0}，请延长计划或办理结项", [day(p.planEndDate)]), 'project', { tab: 'plan', urgent: true })
     for (const risk of p.risks || []) if (risk.status === 'OPEN' && same(risk.ownerUserId, userId))
       add(`risk-${risk.riskId}`, translateText("处理项目风险"), risk.riskTitle, 'project', { tab: 'risks', urgent: ['HIGH','CRITICAL'].includes(risk.severity) })
     if (p.closeMethod === 'STAGED_ACCEPTANCE') {

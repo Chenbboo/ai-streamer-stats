@@ -64,7 +64,7 @@ class BusinessAllocationWeightsMapperTest {
             if(event)s.execute("insert into biz_project_event values(1,'DELETE_REQUEST','2026-09-18 12:00:00'),(1,'DELETE','2026-09-21 12:00:00')");
         }
         Configuration config=new Configuration(new Environment("deleted_weights",new JdbcTransactionFactory(),source));
-        for(String resource:Arrays.asList("mapper/business/BusinessCompanyAccessMapper.xml","mapper/business/BusinessProjectMapper.xml"))
+        for(String resource:Arrays.asList("mapper/business/BusinessCompanyAccessMapper.xml","mapper/business/BusinessProjectMapper.xml","mapper/business/BusinessProjectProposalMapper.xml"))
             try(InputStream input=Resources.getResourceAsStream(resource)){new XMLMapperBuilder(input,config,resource,config.getSqlFragments()).parse();}
         try(SqlSession session=new SqlSessionFactoryBuilder().build(config).openSession()){
             List<Map<String,Object>> rows=new ArrayList<>();
@@ -73,16 +73,29 @@ class BusinessAllocationWeightsMapperTest {
                 for(String key:Arrays.asList("projectId","allocationId","allocationValue","effectiveFrom","effectiveTo","confirmationStatus","projectStartDate","projectEndDate","projectName","projectCurrency"))row.put(key,raw.get(key.toLowerCase(Locale.ROOT)));
                 rows.add(row);
             }
+            List<Map<String,Object>> proposalRows=new ArrayList<>();
+            for(Map<String,Object> raw:session.getMapper(BusinessProjectProposalMapper.class).selectStaffAllocationTimeline(131L)){
+                Map<String,Object> row=new HashMap<>();
+                for(String key:Arrays.asList("projectId","allocationId","allocationValue","effectiveFrom","effectiveTo","confirmationStatus","projectStartDate","projectEndDate"))row.put(key,raw.get(key.toLowerCase(Locale.ROOT)));
+                proposalRows.add(row);
+            }
+            assertEquals(rows.size(),proposalRows.size(),"Proposal previews must include the same deleted donor history as project launch");
             assertEquals(4,rows.size());
             Map<Long,Map<String,Object>> before=BusinessAllocationWeights.at(rows,LocalDate.parse(endDate));
             assertEquals(4,before.size());
             assertEquals(0,new BigDecimal("25").compareTo((BigDecimal)before.get(1L).get("allocationValue")));
             assertEquals("CNY",before.get(1L).get("projectCurrency"));
             Map<Long,Map<String,Object>> after=BusinessAllocationWeights.at(rows,LocalDate.parse(endDate).plusDays(1));
+            Map<Long,Map<String,Object>> proposalAfter=BusinessAllocationWeights.at(proposalRows,LocalDate.parse(endDate).plusDays(1));
             assertEquals(3,after.size());assertFalse(after.containsKey(1L));
             assertEquals(0,new BigDecimal("33.34").compareTo((BigDecimal)after.get(2L).get("allocationValue")));
             assertEquals(0,new BigDecimal("33.33").compareTo((BigDecimal)after.get(3L).get("allocationValue")));
             assertEquals(0,new BigDecimal("33.33").compareTo((BigDecimal)after.get(4L).get("allocationValue")));
+            for(Long projectId:after.keySet()){
+                assertTrue(proposalAfter.containsKey(projectId));
+                assertEquals(after.get(projectId).get("allocationValue"),proposalAfter.get(projectId).get("allocationValue"),
+                    "Proposal preview and project launch must use identical effective weights");
+            }
         }
     }
 }

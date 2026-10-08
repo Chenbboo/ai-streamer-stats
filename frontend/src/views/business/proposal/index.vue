@@ -351,7 +351,7 @@ async function showPlanError(message){
   message=sourceText(message)
   const section=message.includes('收入')?'revenue':message.includes('目标')?'targets':message.includes('风险')?'risk':message.includes('支出')?'expenses':null
   await nextTick()
-  const heading=[...document.querySelectorAll('.proposal-form h3')].find(el=>sourceText(el.textContent.replace(/^\d+/, '').trim()).includes(section==='revenue'?'收入测算':section==='targets'?'项目验收目标':message.includes('人员')?'人员计划':message.includes('预算')?'预算设置':'支出计划'))
+  const heading=[...document.querySelectorAll('.proposal-form h3')].find(el=>sourceText(el.textContent.replace(/^\d+/, '').trim()).includes(section==='revenue'?'收入测算':section==='targets'?'项目验收目标':message.includes('人员')||message.includes('投入')?'人员与投入比例':message.includes('预算')?'执行预算':'支出计划'))
   heading?.scrollIntoView({block:'center',behavior:'smooth'})
   ElMessage.warning(translateText(message))
 }
@@ -458,27 +458,38 @@ function staffAllocationSummary(row){
   if(periodProjects.length){const current=row.allocationPlan.allocations||[],other=current.reduce((sum,item)=>sum+number(item.allocationValue),0);return translateText("周期内 {0} 个项目 · 当前 {1}%", [periodProjects.length, other.toFixed(2)])}
   return allocationLoadedKeys.value.has(key)?translateText("未参与其他项目"):translateText("查看其他项目投入")
 }
-async function loadStaffAllocationPlan(row,force=false){
+async function loadStaffAllocationPlan(row,force=false,preserveEdits=true){
   const effectiveDate=shortDate(row?.planStartDate),periodEndDate=shortDate(row?.planEndDate)||undefined,userId=row?.userId,companyDeptId=form.value.companyDeptId
-  if(!isNewTemplate.value||!userId||!effectiveDate||!companyDeptId)return
+  if(!isNewTemplate.value||!userId||!effectiveDate||!companyDeptId)return false
   const key=`${userId}:${effectiveDate}:${periodEndDate||''}`
-  if(!force&&allocationLoadedKeys.value.has(key))return
+  if(!force&&allocationLoadedKeys.value.has(key))return true
   const previous=row.allocationPlan
   allocationLoadingKeys.value.add(key)
   try{
-    const res=await getProjectProposalStaffAllocationPreview({companyDeptId,userId,effectiveDate,periodEndDate})
-    if(companyDeptId!==form.value.companyDeptId||Number(row.userId)!==Number(userId)||shortDate(row.planStartDate)!==effectiveDate||shortDate(row.planEndDate)!==(periodEndDate||''))return
+    const res=await getProjectProposalStaffAllocationPreview({companyDeptId,userId,effectiveDate,periodEndDate},{silentError:true})
+    if(companyDeptId!==form.value.companyDeptId||Number(row.userId)!==Number(userId)||shortDate(row.planStartDate)!==effectiveDate||shortDate(row.planEndDate)!==(periodEndDate||''))return false
     const data=res.data||{},projects=data.projects||[],periodProjects=data.periodProjects||projects
     if(!periodProjects.length)row.allocationPlan=null
     else{
-      const previousValues=new Map((previous?.allocations||[]).map(item=>[String(item.projectId),item.allocationValue]))
+      const previousValues=new Map(((preserveEdits?previous?.allocations:[])||[]).map(item=>[String(item.projectId),item.allocationValue]))
       row.allocationPlan={effectiveDate:data.effectiveDate,periodStartDate:data.periodStartDate||effectiveDate,periodEndDate:data.periodEndDate||null,versionToken:data.versionToken,reason:previous?.reason||'',periodProjects,allocations:projects.map(item=>({...item,editable:true,originalValue:item.allocationValue,allocationValue:previousValues.has(String(item.projectId))?previousValues.get(String(item.projectId)):item.allocationValue}))}
     }
     allocationLoadedKeys.value.add(key)
-  }catch(error){ElMessage.warning(error?.message||translateText("其他项目投入加载失败，请稍后重试"))}
+    return true
+  }catch(error){if(preserveEdits)ElMessage.warning(error?.message||translateText("其他项目投入加载失败，请稍后重试"));return false}
   finally{allocationLoadingKeys.value.delete(key)}
 }
-async function refreshStaffAllocationPlans(force=false){await Promise.all((form.value.staffingLines||[]).map(row=>loadStaffAllocationPlan(row,force)))}
+async function refreshStaffAllocationPlans(force=false,preserveEdits=true){await Promise.all((form.value.staffingLines||[]).map(row=>loadStaffAllocationPlan(row,force,preserveEdits)))}
+const isStaffAllocationConflict=message=>/其他项目投入已变化|参与的项目已变化/.test(sourceText(message||''))
+async function recoverStaffAllocationConflict(message){
+  const named=(form.value.staffingLines||[]).filter(row=>row.userName&&sourceText(message||'').startsWith(`${row.userName}的`))
+  const rows=named.length?named:(form.value.staffingLines||[])
+  const refreshed=await Promise.all(rows.map(row=>loadStaffAllocationPlan(row,true,false)))
+  if(refreshed.some(result=>!result))return showPlanError(translateText("最新人员投入加载失败，请重新打开立项申请后核对投入比例"))
+  const affected=rows.find(row=>row.allocationPlan?.allocations?.length)
+  if(affected)allocationPopoverVisible[staffAllocationKey(affected)]=true
+  await showPlanError(translateText("已加载最新人员投入，请核对比例后重新保存或启动"))
+}
 function shiftedMonth(value,offset){const date=new Date(`${String(value).slice(0,7)}-01T00:00:00`);date.setMonth(date.getMonth()+offset);return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`}
 function lineDateIssue(value,rule='project'){
   if(!value)return ''
@@ -574,16 +585,16 @@ async function saveForm(launch=false,keepFormOpen=false){if(saving.value)return;
   if(budgetLoading.value||budgetError.value||budgetIssues.value.length)return showPlanError(budgetLoading.value?translateText("预算正在计算，请稍后启动"):budgetIssues.value.join('；')||translateText("请先完成预算测算"))
 }}
 const staffing=isChildCreatorPhase.value?[]:(form.value.staffingLines||[]);const payload={...form.value,...budgetPolicyPayload(),saveAsDraft:!launch&&isNewTemplate.value,revenueLines:isChildCreatorPhase.value?[]:[...(form.value.revenueLines||[])],expenseLines:isChildCreatorPhase.value?[]:[...(form.value.expenseLines||[])],targetLines:showTargetLines.value?form.value.targetLines:[],staffingLines:staffing.map(item=>({...item,inputUnit:'PERCENTAGE',inputQuantity:item.inputQuantity??100,unitPolicyId:item.unitPolicyId||defaultUnitPolicy()})),estimatedBonusCost:0,planEndDate:openEnded.value?null:form.value.planEndDate,budget:{...form.value.budget,businessAmount:isChildCreatorPhase.value?0:businessBudgetAmount.value,cycle:openEnded.value?form.value.budget.cycle:'PROJECT',projectOpenEnded:openEnded.value}};let res;
-if(payload.proposalId)res=await updateProjectProposal(payload);
+if(payload.proposalId)res=await updateProjectProposal(payload,{silentError:true});
 else{
   // Reuse the create key on every retry, then apply current edits to the recovered draft.
   const retry=!!pendingCreate;pendingCreate=true;
-  res=await addProjectProposal(payload);
+  res=await addProjectProposal(payload,{silentError:true});
   form.value.proposalId=res.data.proposalId;form.value.version=res.data.version;
   pendingCreate=null;
-  if(retry)res=await updateProjectProposal({...payload,proposalId:res.data.proposalId,version:res.data.version});
+  if(retry)res=await updateProjectProposal({...payload,proposalId:res.data.proposalId,version:res.data.version},{silentError:true});
 }
-form.value.proposalId=res.data.proposalId;form.value.version=res.data.version;formBaseline=formSnapshot();if(launch){try{const started=await submitProjectProposal(res.data.proposalId);ElMessage.success(translateText("项目已启动"));formVisible.value=false;detailVisible.value=false;await refreshAll();if(started.data?.createdProjectId)openProject(started.data)}catch(error){await showPlanError(error?.message||translateText("启动未完成，草稿已保存"));await refreshAll()}}else if(keepFormOpen){ElMessage.success(translateText("投入比例及当前表单已保存到立项草稿"));await refreshAll()}else{formVisible.value=false;ElMessage.success(translateText("草稿已保存"));await refreshAll();await openDetail(res.data)}return true}catch(error){return false}finally{saving.value=false}}
+form.value.proposalId=res.data.proposalId;form.value.version=res.data.version;formBaseline=formSnapshot();if(launch){try{const started=await submitProjectProposal(res.data.proposalId,{silentError:true});ElMessage.success(translateText("项目已启动"));formVisible.value=false;detailVisible.value=false;await refreshAll();if(started.data?.createdProjectId)openProject(started.data)}catch(error){const message=error?.message||translateText("启动未完成，草稿已保存");if(isStaffAllocationConflict(message))await recoverStaffAllocationConflict(message);else await showPlanError(message);await refreshAll()}}else if(keepFormOpen){ElMessage.success(translateText("投入比例及当前表单已保存到立项草稿"));await refreshAll()}else{formVisible.value=false;ElMessage.success(translateText("草稿已保存"));await refreshAll();await openDetail(res.data)}return true}catch(error){const message=error?.message||translateText("立项申请保存失败，请检查后重试");if(isStaffAllocationConflict(message))await recoverStaffAllocationConflict(message);else await showPlanError(message);return false}finally{saving.value=false}}
 
 async function openDetail(row){const res=await getProjectProposal(row.proposalId);detail.value=res.data||{};detailVisible.value=true}
 const submitting=ref(false)

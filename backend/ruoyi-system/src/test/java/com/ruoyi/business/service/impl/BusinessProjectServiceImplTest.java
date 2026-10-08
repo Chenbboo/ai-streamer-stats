@@ -3360,6 +3360,43 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
+    void proposalPreviewAndLaunchUseSameVersionForReturningZeroPercentMember()
+    {
+        Date effective=java.sql.Date.valueOf("2026-10-08");
+        Map<String,Object> existing=row("projectId",9L,"ownerUserId",130L,"allocationId",73L,
+            "allocationVersion",0,"allocationValue",new BigDecimal("90.0000"),
+            "confirmationStatus","CONFIRMED","allocationHistoryToken","8:74:5");
+        Map<String,Object> returning=row("projectId",13L,"ownerUserId",132L,"allocationId",null,
+            "allocationVersion",null,"allocationValue",new BigDecimal("0.0000"),
+            "confirmationStatus",null,"allocationHistoryToken","8:74:5");
+        java.util.List<Map<String,Object>> workspace=Arrays.asList(existing,returning);
+        java.util.List<Map<String,Object>> timeline=Arrays.asList(
+            row("projectId",9L,"allocationId",73L,"allocationValue",new BigDecimal("90.0000"),
+                "effectiveFrom","2026-09-18","confirmationStatus","CONFIRMED"),
+            row("projectId",13L,"allocationId",56L,"allocationValue",new BigDecimal("10.0000"),
+                "effectiveFrom","2026-09-18","effectiveTo","2026-09-19","confirmationStatus","CONFIRMED"));
+        when(mapper.selectUserAllocationWorkspace(130L,effective)).thenReturn(workspace);
+        when(mapper.selectUserAllocationTimeline(130L)).thenReturn(timeline);
+        when(proposalMapper.selectStaffAllocationPreview(130L,effective)).thenReturn(workspace);
+        when(proposalMapper.selectStaffAllocationTimeline(130L)).thenReturn(timeline);
+        BusinessProjectProposalServiceImpl proposals=new BusinessProjectProposalServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(proposals,"mapper",proposalMapper);
+
+        java.util.List<Map<String,Object>> preview=org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+            proposals,"allocationPreviewRows",130L,effective);
+        java.util.List<Map<String,Object>> launch=org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+            service,"effectiveAllocationWorkspace",130L,effective);
+
+        assertEquals(2,preview.size());assertEquals(returning,preview.get(1));assertEquals(preview,launch);
+        String previewToken=org.springframework.test.util.ReflectionTestUtils.invokeMethod(proposals,"allocationPreviewToken",preview);
+        String launchToken=org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"allocationVersionToken",launch);
+        assertEquals(previewToken,launchToken,"Unchanged allocations must not prevent proposal launch");
+        launch.get(1).put("allocationVersion",1);
+        String changedToken=org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"allocationVersionToken",launch);
+        assertFalse(previewToken.equals(changedToken),"A real concurrent change must still invalidate the snapshot");
+    }
+
+    @Test
     void separatedProjectSettlementPreviewAndConfirmationUseOneStepClose()
     {
         BusinessProject p = project(910L, 9L, "ACTIVE", "APPROVED");
