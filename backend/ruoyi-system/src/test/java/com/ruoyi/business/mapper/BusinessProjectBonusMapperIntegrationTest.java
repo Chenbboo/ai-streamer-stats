@@ -22,6 +22,7 @@ class BusinessProjectBonusMapperIntegrationTest
         try(Connection c=source.getConnection();Statement s=c.createStatement()){
             s.execute("create table biz_project(project_id bigint,project_no varchar(40),project_name varchar(100),base_currency varchar(3),status varchar(16),update_time timestamp,del_flag char(1),main_owner_user_id bigint)");
             s.execute("create table biz_project_member(project_id bigint,user_id bigint,status char(1),member_role varchar(16))");
+            s.execute("create table biz_project_member_work_pause(pause_id bigint auto_increment primary key,project_id bigint not null,user_id bigint not null,paused_time timestamp not null default current_timestamp,started_time timestamp,paused_by varchar(64) not null,started_by varchar(64))");
             s.execute("create table biz_project_kpi_plan(plan_id bigint,reward_policy_version varchar(24))");
             s.execute("create table biz_project_kpi_settlement(project_id bigint,plan_id bigint,bonus_amount decimal(20,2),status varchar(16))");
             s.execute("create table biz_incentive_award(project_id bigint,currency varchar(3),amount decimal(20,2),status varchar(16))");
@@ -42,6 +43,22 @@ class BusinessProjectBonusMapperIntegrationTest
             assertEquals(new BigDecimal("650.00"),cny.get("TOTALBONUS"));
             assertEquals(new BigDecimal("25.00"),usd.get("TOTALBONUS"));assertEquals(new BigDecimal("100.00"),usd.get("LEGACYBONUS"));
             assertTrue(session.getMapper(BusinessProjectKpiMapper.class).selectMemberProjectBonusTotals(55L).isEmpty());
+            assertEquals(1,((Number)cny.get("CANSUBMITWORKREPORT")).intValue());
+            try(Connection c=source.getConnection();Statement s=c.createStatement()){
+                s.execute("insert into biz_project_member_work_pause(project_id,user_id,paused_by) values(1,7,'owner')");
+            }
+            session.clearCache();
+            Map<String,Object> paused=session.getMapper(BusinessProjectKpiMapper.class).selectMemberProjectBonusTotals(7L).stream()
+                .filter(r->"CNY".equals(r.get("CURRENCY"))).findFirst().get();
+            assertEquals(0,((Number)paused.get("CANSUBMITWORKREPORT")).intValue());
+            assertEquals(new BigDecimal("650.00"),paused.get("TOTALBONUS"));
+            try(Connection c=source.getConnection();Statement s=c.createStatement()){
+                s.execute("update biz_project_member_work_pause set started_time=current_timestamp,started_by='owner' where project_id=1 and user_id=7");
+            }
+            session.clearCache();
+            Map<String,Object> resumed=session.getMapper(BusinessProjectKpiMapper.class).selectMemberProjectBonusTotals(7L).stream()
+                .filter(r->"CNY".equals(r.get("CURRENCY"))).findFirst().get();
+            assertEquals(1,((Number)resumed.get("CANSUBMITWORKREPORT")).intValue());
         }
     }
 }
