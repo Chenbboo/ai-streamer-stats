@@ -1128,3 +1128,8 @@ where table_schema=database() and table_name in ('biz_project_bonus_setting','bi
 select 3-count(*) as missing_incentive_profit_share_columns from information_schema.columns
 where table_schema=database() and table_name='biz_incentive_rule'
   and column_name in ('after_tax_profit','main_owner_bonus_rate','sponsor_owner_bonus_rate');
+
+-- V141 immutable monthly bonus settlement basis; historical cumulative plans stay null.
+select 1-count(*) as missing_incentive_settlement_month from information_schema.columns
+where table_schema=database() and table_name='biz_incentive_rule' and column_name='settlement_month'
+  and data_type='varchar' and character_maximum_length=7 and is_nullable='YES';

@@ -501,4 +501,8 @@ from (
   select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
     and table_name='biz_incentive_award' and column_name='allocation_proposal_json'
     and data_type='mediumtext' and is_nullable='YES'
+  union all
+  select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
+    and table_name='biz_incentive_rule' and column_name='settlement_month'
+    and data_type='varchar' and character_maximum_length=7 and is_nullable='YES'
 ) release_gate;
