@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {dailyAttendance,matchesAttendanceStatus} from './daily.mjs'
+import {dailyAttendance,matchesAttendanceStatus,attendanceCodes,displayAttendanceCodes,punchDisplayResult} from './daily.mjs'
 test('one day combines sources, preserves multiple punches and excludes old revisions',()=>{
   const base={userId:7,userName:'A',businessDate:'2026-09-04',isCurrent:1,quality:'KNOWN'}
   const rows=[{...base,kind:'ATTENDANCE',detailsJson:JSON.stringify({results:[{checkInTime:1},{checkInTime:2}]})},{...base,kind:'SHIFT',intervalsJson:'[[1,3]]'},{...base,kind:'LEAVE',normalizedStatus:'CONFIRMED',intervalsJson:'[[2,3]]'}, {...base,isCurrent:0,kind:'ATTENDANCE',detailsJson:'{"results":[{"checkInTime":99}]}'}]
@@ -46,7 +46,7 @@ test('approved and withdrawn outings accompany original missing-punch results wi
   ])
   assert.equal(days.length,1)
   assert.deepEqual(days[0].outings.map(p=>p.status),['CONFIRMED','CANCELED'])
-  assert.deepEqual(days[0].outings[0],{status:'CONFIRMED',seconds:3600,intervals:[[1789606800,1789610400]],zone:'Asia/Shanghai'})
+  assert.deepEqual(days[0].outings[0],{status:'CONFIRMED',seconds:3600,intervals:[[1789606800,1789610400]],zone:'Asia/Shanghai',sourceQuality:'KNOWN'})
   assert.equal(days[0].leaves.length,0)
   assert.equal(days[0].punches[0].checkInResult,'Lack')
   assert.equal(matchesAttendanceStatus(days[0],'Lack'),true)
@@ -60,4 +60,48 @@ test('outings remain visible on no-punch-required days and preserve cross-day ti
   assert.equal(days[0].outings[0].zone,'Asia/Ho_Chi_Minh')
   assert.deepEqual(days[0].warnings,['STALE'])
   assert.equal(matchesAttendanceStatus(days[0],'ABNORMAL'),false)
+})
+test('real approved outing covering scheduled check-in becomes the primary display with raw Lack preserved',()=>{
+  const base={userId:137,businessDate:'2026-09-17',isCurrent:1,quality:'KNOWN'}
+  const day=dailyAttendance([
+    {...base,kind:'ATTENDANCE',detailsJson:JSON.stringify({results:[{checkInResult:'Lack',checkOutResult:'Normal',scheduledIn:1789606800,scheduledOut:1789639200,checkInTime:1789610334,checkOutTime:1789639561}]})},
+    {...base,kind:'OUT',normalizedStatus:'CONFIRMED',intervalsJson:'[[1789606800,1789610400]]'},
+    {...base,kind:'OUT',normalizedStatus:'CANCELED',intervalsJson:'[[1789606800,1789610400]]'}
+  ])[0]
+  assert.deepEqual(displayAttendanceCodes(day),['APPROVED_OUT'])
+  assert.equal(punchDisplayResult(day,day.punches[0],'in'),'APPROVED_OUT')
+  assert.deepEqual(attendanceCodes(day),['Lack','Normal'])
+  assert.equal(day.punches[0].checkInResult,'Lack')
+  assert.equal(matchesAttendanceStatus(day,'Lack'),true,'source-status filter still queries the explicit Feishu result')
+})
+test('morning outing cannot cover missing checkout or another shift and does not replace late or early results',()=>{
+  const day={outings:[{status:'CONFIRMED',sourceQuality:'KNOWN',intervals:[[100,200]]}],punches:[
+    {checkInResult:'Lack',checkOutResult:'Lack',scheduledIn:100,scheduledOut:900},
+    {checkInResult:'Lack',checkOutResult:'Early',scheduledIn:500,scheduledOut:900}
+  ]}
+  assert.deepEqual(displayAttendanceCodes(day),['APPROVED_OUT','Lack','Early'])
+  assert.equal(punchDisplayResult(day,day.punches[0],'out'),'Lack')
+  assert.equal(punchDisplayResult(day,day.punches[1],'in'),'Lack')
+  assert.equal(punchDisplayResult(day,{checkInResult:'Late',scheduledIn:100},'in'),'Late')
+})
+test('withdrawn unknown malformed or non-covering outings cannot explain missing punches',()=>{
+  const punch={checkInResult:'Lack',checkOutResult:'Lack',scheduledIn:100,scheduledOut:900}
+  for(const outing of [
+    {status:'CANCELED',sourceQuality:'KNOWN',intervals:[[100,200]]},
+    {status:'CONFIRMED',sourceQuality:'UNKNOWN',intervals:[[100,200]]},
+    {status:'CONFIRMED',sourceQuality:'KNOWN',intervals:[[200,500]]},
+    {status:'CONFIRMED',sourceQuality:'KNOWN',intervals:[null,[200,100]]},
+    {status:'CONFIRMED',sourceQuality:'KNOWN',intervals:{}}
+  ]) assert.deepEqual(displayAttendanceCodes({punches:[punch],outings:[outing]}),['Lack'])
+  const day={outings:[{status:'CONFIRMED',sourceQuality:'KNOWN',intervals:[[100,200]]}]}
+  assert.equal(punchDisplayResult(day,{checkInResult:'Lack',checkInTime:150},'in'),'Lack','actual punch time must not substitute for missing schedule')
+})
+test('outing coverage uses epoch boundaries across midnight and retains stale-snapshot warnings',()=>{
+  const day={outings:[{status:'CONFIRMED',sourceQuality:'KNOWN',intervals:[[1788796800,1788804000]]}],punches:[],warnings:['STALE']}
+  const result=(side,time)=>punchDisplayResult(day,{checkInResult:'Lack',checkOutResult:'Lack',scheduledIn:time,scheduledOut:time},side)
+  assert.equal(result('in',1788796800),'APPROVED_OUT')
+  assert.equal(result('in',1788804000),'Lack')
+  assert.equal(result('out',1788796800),'Lack')
+  assert.equal(result('out',1788804000),'APPROVED_OUT')
+  assert.deepEqual(day.warnings,['STALE'])
 })
