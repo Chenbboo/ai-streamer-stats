@@ -525,4 +525,13 @@ from (
   union all
   select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
     and table_name='jewelry_document_item' and column_name='unit_snapshot'
+  union all
+  select if(count(*)=2,0,1) from information_schema.columns where table_schema=database()
+    and table_name='biz_incentive_award' and is_nullable='YES'
+    and ((column_name='attachment_urls' and data_type='text')
+      or (column_name='application_month' and data_type='varchar' and character_maximum_length=7))
+  union all
+  select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
+    and table_name='biz_project' and column_name='kpi_setup_ignored_user_id'
+    and data_type='bigint' and is_nullable='YES'
 ) release_gate;
