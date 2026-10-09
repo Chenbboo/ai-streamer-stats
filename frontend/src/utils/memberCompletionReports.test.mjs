@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { filterMemberCompletionReports } from './memberCompletionReports.js'
+import { filterMemberCompletionReports, mergeMemberCompletionReports } from './memberCompletionReports.js'
 
 const records = [
   { reportId:1,memberUserId:7,memberName:'成员甲',projectId:10,workType:'ROUTINE',reportDate:'2026-10-01',reportDetails:'完成素材' },
@@ -25,4 +25,20 @@ test('preserves every version of the same daily report and lists the later submi
   const result=filterMemberCompletionReports(versions,{memberUserId:7,dates:['2026-10-01','2026-10-01']})
   assert.equal(result.length,2)
   assert.deepEqual(result.map(row=>row.evidenceUrls),['/profile/new.pdf','/profile/old.pdf'])
+})
+
+test('active work reports retain member, project, period, content and attachments alongside completion records',()=>{
+ const workspace={project:{projectId:10,projectName:'项目甲'},memberCompletionReports:records.slice(0,1),workReports:[{reportId:1,submittedUserId:8,submittedUserName:'成员乙',frequency:'WEEKLY',periodStart:'2026-09-28',periodEnd:'2026-10-04',createTime:'2026-10-05 09:00:00',content:'本周工作内容',attachmentUrls:'["/file/a.pdf"]'}]}
+ const rows=mergeMemberCompletionReports(workspace)
+ assert.equal(rows.length,2)
+ const [report]=filterMemberCompletionReports(rows,{memberUserId:'8'})
+ assert.equal(report.workType,'WORK_REPORT')
+ assert.equal(report.projectName,'项目甲')
+ assert.equal(report.reportDate,'2026-10-05')
+ assert.equal(report.periodStart,'2026-09-28')
+ assert.equal(report.periodEnd,'2026-10-04')
+ assert.equal(report.frequency,'WEEKLY')
+ assert.equal(report.reportDetails,'本周工作内容')
+ assert.equal(report.evidenceUrls,'["/file/a.pdf"]')
+ assert.equal(workspace.memberCompletionReports.length,1)
 })

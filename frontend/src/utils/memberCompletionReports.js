@@ -11,3 +11,19 @@ export function filterMemberCompletionReports(records, { memberUserId, projectId
     String(left.workType).localeCompare(String(right.workType)) || Number(right.reportId) - Number(left.reportId)
   )
 }
+
+export function mergeMemberCompletionReports(workspace = {}) {
+  const project = workspace.project || {}
+  const reports = (workspace.workReports || []).map(report => ({
+    workType: 'WORK_REPORT', reportId: report.reportId,
+    projectId: report.projectId ?? project.projectId,
+    projectName: report.projectName || project.projectName,
+    memberUserId: report.submittedUserId, memberName: report.submittedUserName,
+    workName: report.routineName || '', routineId: report.routineId,
+    reportDate: String(report.createTime || report.periodEnd || report.periodStart || '').slice(0, 10),
+    submittedTime: report.createTime, frequency: report.frequency,
+    periodStart: report.periodStart, periodEnd: report.periodEnd,
+    reportDetails: report.content, evidenceUrls: report.attachmentUrls
+  }))
+  return [...(workspace.memberCompletionReports || []), ...reports]
+}

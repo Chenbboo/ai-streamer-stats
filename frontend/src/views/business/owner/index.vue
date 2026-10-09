@@ -527,6 +527,7 @@ import { listProjectProposals } from '@/api/business/proposal'
 import { buildOwnerTodos, buildPublicExpenseTodos, buildAllocationReviewTodos, buildProposalHandoffTodos, buildChildAcceptanceTodos } from '@/utils/ownerTodos'
 import { getOwnerPublicExpenseWorkspace } from '@/api/business/publicExpense'
 import { canContinueProjectSettlement, isSeparatedDelivery, isDeliveryEnded, projectAccountingState } from '@/utils/businessProjectState'
+import { mergeMemberCompletionReports } from '@/utils/memberCompletionReports'
 import { buildWorkReportStats } from '@/utils/workReportStats'
 import { projectSettlementCount, reportedProjectProgress } from '@/utils/ownerSettlement'
 import { monthlyProgressPercent, projectProgressLimit, progressSubmissionIssue, completionStandardForProgress } from '@/utils/projectProgress'
@@ -655,8 +656,8 @@ const openTasks=computed(()=>data.value.openTasks||[])
 const taskReports=computed(()=>data.value.taskReports||[])
 const workReports=computed(()=>data.value.workReports||[])
 const memberCompletionReports=computed(()=>allProjectsMode.value
-  ?allProjectWorkspaces.value.flatMap(entry=>entry.memberCompletionReports||[])
-  :data.value.memberCompletionReports||[])
+  ?allProjectWorkspaces.value.flatMap(entry=>mergeMemberCompletionReports(entry))
+  :mergeMemberCompletionReports(data.value))
 const completionProjects=computed(()=>allProjectsMode.value?projects.value:(project.value?[project.value]:[]))
 const pendingWorkReportCount=computed(()=>workReports.value.filter(report=>report.status==='PENDING').length)
 const workReportStats=computed(()=>buildWorkReportStats(project.value?.members,workReports.value,statsAnchorDate.value,statsFrequency.value))

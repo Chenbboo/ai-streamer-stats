@@ -1,6 +1,6 @@
 <template>
   <section class="panel member-completion-panel">
-    <div class="panel-head"><div><h2>{{ $tr('成员汇报详情') }}</h2><p>{{ $tr('查看持续工作和一次性工作的历史填报，共 {0} 条。', [filteredReports.length]) }}</p></div></div>
+    <div class="panel-head"><div><h2>{{ $tr('成员汇报详情') }}</h2><p>{{ $tr('查看成员主动汇报、持续工作和一次性工作的历史填报，共 {0} 条。', [filteredReports.length]) }}</p></div></div>
     <el-alert :title="$tr('每次提交的内容和附件至少保存三个月，修改填报也保留原版本，三个月后不会自动删除。')" type="info" :closable="false" class="completion-retention" />
     <div class="completion-filters">
       <el-select v-model="memberUserId" filterable clearable :placeholder="$tr('全部成员')" :aria-label="$tr('筛选成员名字')">
@@ -18,10 +18,16 @@
     <el-table :data="selectedEntry?.reports || []" :row-key="row => row.submissionId || `${row.workType}:${row.reportId}`" :empty-text="$tr('暂无符合筛选条件的填报记录')">
       <el-table-column prop="memberName" :label="$tr('成员名字')" min-width="120" />
       <el-table-column prop="projectName" :label="$tr('项目名称')" min-width="180" />
-      <el-table-column :label="$tr('工作分类')" min-width="120"><template #default="{row}"><el-tag :type="row.workType==='ROUTINE'?'primary':'success'" effect="plain">{{ row.workType==='ROUTINE'?$tr('持续工作'):$tr('一次性工作') }}</el-tag></template></el-table-column>
+      <el-table-column :label="$tr('工作分类')" min-width="120"><template #default="{row}"><el-tag :type="row.workType==='ROUTINE'?'primary':'success'" effect="plain">{{ row.workType==='WORK_REPORT'?$tr('主动工作汇报'):row.workType==='ROUTINE'?$tr('持续工作'):$tr('一次性工作') }}</el-tag></template></el-table-column>
       <el-table-column prop="reportDate" :label="$tr('汇报日期')" min-width="120" />
       <el-table-column :label="$tr('汇报详情')" min-width="330">
         <template #default="{row}">
+          <template v-if="row.workType==='WORK_REPORT'">
+            <div class="completion-meta"><b>{{ $tr('汇报内容') }}</b></div>
+            <p class="completion-details">{{ row.reportDetails || '—' }}</p>
+            <div class="completion-meta"><b>{{ $tr('汇报附件') }}</b>：<el-button v-if="row.evidenceUrls && row.evidenceUrls!=='[]'" link type="primary" @click="attachmentReport=row">{{ $tr('查看汇报附件') }}</el-button><span v-else>—</span></div>
+          </template>
+          <template v-else>
           <b>{{ row.workName }}</b>
           <div class="completion-meta">{{ $tr('提交时间：{0}', [row.submittedTime || row.reportDate]) }}</div>
           <div v-if="row.workType==='ROUTINE' && row.targetMode!=='NONE' && row.actualValue!=null" class="completion-meta">{{ $tr('完成量：{0} {1}', [row.actualValue, row.unit || '']) }}</div>
@@ -29,6 +35,7 @@
           <p v-if="row.reportDetails" class="completion-details">{{ row.reportDetails }}</p>
           <p v-if="row.issueReason" class="completion-details completion-issue">{{ $tr('未达原因：{0}', [row.issueReason]) }}</p>
           <el-button v-if="row.evidenceUrls" link type="primary" @click="attachmentReport=row">{{ $tr('查看成果凭证') }}</el-button>
+          </template>
         </template>
       </el-table-column>
     </el-table>

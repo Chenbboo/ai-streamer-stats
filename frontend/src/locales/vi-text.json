@@ -8705,5 +8705,8 @@
   "启动项目KPI": "Bật KPI dự án",
   "暂停项目KPI": "Tạm dừng KPI dự án",
   "项目KPI已暂停，启动后恢复显示": "KPI dự án đã tạm dừng; bật lại để hiển thị",
-  "请选择启动或暂停项目KPI": "Vui lòng chọn bật hoặc tạm dừng KPI dự án"
+  "请选择启动或暂停项目KPI": "Vui lòng chọn bật hoặc tạm dừng KPI dự án",
+  "查看成员主动汇报、持续工作和一次性工作的历史填报，共 {0} 条。": "Xem báo cáo chủ động, công việc định kỳ và công việc một lần, tổng {0} bản ghi.",
+  "主动工作汇报": "Báo cáo công việc chủ động",
+  "查看汇报附件": "Xem tệp đính kèm báo cáo"
 }
