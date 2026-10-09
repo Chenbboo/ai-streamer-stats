@@ -64,6 +64,16 @@ public class BusinessProjectHierarchyMapperIntegrationTest
         }
     }
 
+    @Test void projectKpiSwitchPersistsAndCanResume() throws Exception {
+        try (SqlSession session=factory.openSession()) {
+            BusinessProjectMapper mapper=session.getMapper(BusinessProjectMapper.class);
+            assertEquals(1,mapper.setProjectKpiEnabled(1L,false,"owner"));
+            session.clearCache();assertEquals(false,mapper.selectProjectById(1L).getKpiEnabled());
+            assertEquals(1,mapper.setProjectKpiEnabled(1L,true,"owner"));
+            session.clearCache();assertEquals(true,mapper.selectProjectById(1L).getKpiEnabled());
+        }
+    }
+
     @Test void paginationCountsOnlyRootsAndDoesNotReturnChildRecords()
     {
         try (SqlSession session = factory.openSession())

@@ -4,6 +4,7 @@
 
     <resultMap id="ProjectResult" type="com.ruoyi.business.domain.BusinessProject">
         <id property="projectId" column="project_id"/>
+        <result property="kpiEnabled" column="kpi_enabled"/>
         <result property="kpiSetupIgnoredUserId" column="kpi_setup_ignored_user_id"/>
         <result property="projectNo" column="project_no"/>
         <result property="sourceProposalId" column="source_proposal_id"/>
@@ -125,7 +126,7 @@
     </resultMap>
 
     <sql id="projectColumns">
-        p.project_id,p.kpi_setup_ignored_user_id,p.project_no,p.source_proposal_id,p.parent_id,parent.project_name parent_name,p.company_dept_id,p.department_id,company.dept_name company_name,p.project_name,p.project_type,
+        p.project_id,p.kpi_enabled,p.kpi_setup_ignored_user_id,p.project_no,p.source_proposal_id,p.parent_id,parent.project_name parent_name,p.company_dept_id,p.department_id,company.dept_name company_name,p.project_name,p.project_type,
         p.accounting_mode,p.management_mode,p.close_method,p.management_reason,p.acceptance_criteria,p.goal_mode,
         p.objective,p.status,p.baseline_status,p.delivery_policy_version,p.accounting_state,p.settlement_policy_version,p.cost_policy_version,p.template_version,p.template_snapshot_json,
         p.applicant_user_id,p.applicant_name,p.sponsor_owner_user_id,p.sponsor_owner_name,p.initiator_user_id,p.initiator_name,
@@ -210,6 +211,10 @@
         and related_owner.main_owner_user_id=#{userId}
         and (related_owner.parent_id=${alias}.project_id or related_owner.project_id=${alias}.parent_id))
     </sql>
+    <update id="setProjectKpiEnabled">
+      update biz_project set kpi_enabled=#{enabled},update_by=#{userName},update_time=sysdate()
+      where project_id=#{projectId} and del_flag='0'
+    </update>
     <update id="ignoreKpiSetup">
       update biz_project set kpi_setup_ignored_user_id=#{userId}
       where project_id=#{projectId} and main_owner_user_id=#{userId} and del_flag='0'

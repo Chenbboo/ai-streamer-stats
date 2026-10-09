@@ -8701,5 +8701,9 @@
   "成品、赠品或福利必须已绑定当前达人和供应商，请重新选择": "Thành phẩm, quà tặng hoặc hàng ưu đãi phải liên kết với người bán và nhà cung cấp hiện tại; hãy chọn lại",
   "可新建或绑定成品、赠品和福利商品。直播价、成本价、供应商、采购单价、佣金及费用按达人分别保存；成品、赠品和福利商品采购入库时均按达人及供应商选择；福利商品只允许独立销售，不能参与搭售组合。": "Có thể tạo hoặc liên kết thành phẩm, quà tặng và hàng ưu đãi. Giá livestream, giá vốn, nhà cung cấp, giá nhập, hoa hồng và phí được lưu riêng theo người bán. Khi nhập các loại này, phải chọn người bán và nhà cung cấp. Hàng ưu đãi chỉ được bán riêng, không được đưa vào nhóm bán kèm.",
   "忽略": "Bỏ qua",
-  "已忽略": "Đã bỏ qua"
+  "已忽略": "Đã bỏ qua",
+  "启动项目KPI": "Bật KPI dự án",
+  "暂停项目KPI": "Tạm dừng KPI dự án",
+  "项目KPI已暂停，启动后恢复显示": "KPI dự án đã tạm dừng; bật lại để hiển thị",
+  "请选择启动或暂停项目KPI": "Vui lòng chọn bật hoặc tạm dừng KPI dự án"
 }

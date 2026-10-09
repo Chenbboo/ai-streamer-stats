@@ -492,6 +492,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
                 if(!"CONFIRMED".equals(plan.get("settlementStatus")) && !"VOIDED".equals(plan.get("status"))
                     && !com.ruoyi.business.support.BusinessKpiPause.allPaused(kpiMapper.selectPlanItems(((Number)plan.get("planId")).longValue()),pausedKpis)) kpiCount++;
         }
+        if(Boolean.FALSE.equals(project.getKpiEnabled()))kpiCount=0;
         int effortCount = BusinessMemberDayCostService.enabled(project)?0:"ACTUAL_WORK_V1".equals(project.getCostPolicyVersion()) ? workMapper.countPendingWork(projectId) : mapper.countPendingProjectEfforts(projectId);
         int pendingCostCount = BusinessMemberDayCostService.enabled(project)?memberDays.pending(projectId):"ACTUAL_WORK_V1".equals(project.getCostPolicyVersion()) ? workMapper.countPendingCosts(projectId) : 0;
         int factCount = accountingMapper.countProjectUnsettledFacts(projectId);
@@ -1168,6 +1169,17 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             if (mapper.selectCurrentProjectKpi(projectId, code) == null) return code;
         }
         throw new ServiceException("KPI编码生成失败，请重试");
+    }
+
+    @Override
+    @Transactional
+    public void setProjectKpiEnabled(Long projectId, Boolean enabled, Long userId, String userName, boolean boss)
+    {
+        if(enabled==null)throw new ServiceException("请选择启动或暂停项目KPI");
+        BusinessProject project=requireProjectForUpdate(projectId);
+        requireMainOwnerOrBoss(project,userId,boss);ensureMutable(project);
+        if(mapper.setProjectKpiEnabled(projectId,enabled,userName)!=1)throw changed();
+        addEvent(projectId,enabled?"PROJECT_KPI_STARTED":"PROJECT_KPI_PAUSED",project.getStatus(),project.getStatus(),userId,userName,enabled?"启动项目KPI":"暂停项目KPI");
     }
 
     @Override

@@ -87,3 +87,5 @@ export const readProgressNotification = id => request({ url: '/business/project/
 export const changeBusinessProjectKpiStatus = (projectId, kpiId, action) => request({url: `/business/project/${projectId}/kpi/${kpiId}/status`,method: 'put',data:{action}})
 
 export const ignoreProjectKpiSetup = projectId => request({ url: `/business/project/${projectId}/kpi-setup/ignore`, method: 'put' })
+
+export const setProjectKpiEnabled = (projectId,enabled) => request({ url: `/business/project/${projectId}/kpi-enabled`, method: 'put', data: {enabled} })

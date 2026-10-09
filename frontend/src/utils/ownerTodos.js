@@ -22,7 +22,7 @@ export function buildOwnerTodos({ data = {}, userId, today, permissions = [], kp
     if (same(item.projectId, p.projectId))
       add(`allocation-${item.requestId}`, translateText("确认跨项目人员投入"), translateText("{0} · {1}发起 · {2}生效", [item.userName, item.applicantName, item.effectiveDate]), 'allocation-review', { item, urgent: true })
   }
-  if (active && kpi && kpiWorkspace.canManage && can('business:kpi:manage')) {
+  if (p.kpiEnabled !== false && active && kpi && kpiWorkspace.canManage && can('business:kpi:manage')) {
     const hasPublishedPlan = (kpiWorkspace.plans || []).some(plan => plan.status !== 'VOIDED')
     if (!hasPublishedPlan && !same(p.kpiSetupIgnoredUserId, userId))
       add('kpi-setup', translateText("设置项目 KPI"), translateText("项目已启动，请设置指标并发布考核方案"), 'kpi-settings', { urgent: true })
@@ -73,7 +73,7 @@ export function buildOwnerTodos({ data = {}, userId, today, permissions = [], kp
         add(`milestone-${m.milestoneId}`, translateText("完成阶段成果并提交验收"), m.milestoneName, 'project', { tab: 'stageAcceptance', urgent: !!m.planDate && day(m.planDate) < today })
     }
   }
-  if (accountingOpen && kpiWorkspace.canSettle && can('business:kpi:settle')) for (const plan of kpiWorkspace.plans || []) {
+  if (p.kpiEnabled !== false && accountingOpen && kpiWorkspace.canSettle && can('business:kpi:settle')) for (const plan of kpiWorkspace.plans || []) {
     if (plan.status !== 'VOIDED' && ['DRAFT','RETURNED'].includes(plan.settlementStatus) && day(plan.cycleEnd) && day(plan.cycleEnd) < today)
       add(`kpi-${plan.planId}`, translateText("确认 KPI 结算结果"), translateText("第 {0} 版 · 截至 {1}", [plan.planVersion, day(plan.cycleEnd)]), 'kpi', { planId: plan.planId })
   }

@@ -66,6 +66,7 @@
           <div class="todo-copy"><b>{{ item.title }}</b><small>{{ item.projectName }} · {{ item.detail }}</small></div>
           <el-tag v-if="item.urgent" type="danger" size="small" effect="plain">{{ $tr("优先处理") }}</el-tag>
           <el-button size="small" type="primary" plain :disabled="loading || saving" @click="handleAllOwnerTodo(item)">{{ item.action==='proposal-handoff' ? $tr("去完善") : item.action==='allocation-review' ? $tr("去确认") : item.action==='public-expense' ? $tr("去分摊") : $tr("去处理") }}</el-button>
+          <el-button v-if="item.action==='kpi-settings'" size="small" :disabled="loading || saving" @click="ignoreKpiTodo(item.projectId)">{{ $tr("忽略") }}</el-button>
         </article>
         <el-button v-if="allOwnerTodos.length > 5" class="todo-expand" link type="primary" @click="allTodosExpanded = !allTodosExpanded">{{ allTodosExpanded ? $tr("收起") : $tr("查看全部 {0} 项", [allOwnerTodos.length]) }}</el-button>
       </section>
@@ -120,7 +121,7 @@
               <el-table-column :label="$tr(&quot;项目状态&quot;)" min-width="135"><template #default="{row}"><el-tag :type="statusTone[row.project.status] || 'info'" effect="plain">{{ projectStatusLabel(row.project) }}</el-tag><small class="table-subtext">{{ closeMethodLabel[row.project.closeMethod] || row.project.closeMethod }}</small></template></el-table-column>
               <el-table-column :label="$tr(&quot;计划周期&quot;)" min-width="210"><template #default="{row}">{{ $tr("{0} 至 {1}", [row.project.planStartDate || '—', row.project.planEndDate || $tr("不限期")]) }}</template></el-table-column>
               <el-table-column :label="$tr('本月汇报')" min-width="125"><template #default="{row}"><span v-if="entryReportedProgress(row) !== null">{{ entryReportedProgress(row) }}%</span><span v-else class="table-subtext">{{ $tr('尚未汇报') }}</span><small v-if="entryReportedProgress(row) !== null" class="table-subtext">{{ row.project.progressBizDate }}</small></template></el-table-column>
-              <el-table-column :label="$tr('项目结算待办')" min-width="175"><template #default="{row}"><el-tag :type="row.settlementFailed ? 'info' : entrySettlementPending(row) ? 'warning' : 'success'" effect="plain">{{ row.settlementFailed ? $tr('暂未加载') : entrySettlementPending(row) ? $tr('{0} 项', [entrySettlementPending(row)]) : $tr('无') }}</el-tag><small v-if="Number(row.settlement?.pendingKpiCount)>0" class="table-subtext">{{ $tr('KPI待结算') }} · {{ row.settlement.pendingKpiCount }}</small><small v-if="Number(row.settlement?.pendingPublicExpenseCount)>0" class="table-subtext">{{ $tr('公共费用见公司共享') }}</small></template></el-table-column>
+              <el-table-column :label="$tr('项目结算待办')" min-width="175"><template #default="{row}"><el-tag :type="row.settlementFailed ? 'info' : entrySettlementPending(row) ? 'warning' : 'success'" effect="plain">{{ row.settlementFailed ? $tr('暂未加载') : entrySettlementPending(row) ? $tr('{0} 项', [entrySettlementPending(row)]) : $tr('无') }}</el-tag><small v-if="row.project?.kpiEnabled!==false && Number(row.settlement?.pendingKpiCount)>0" class="table-subtext">{{ $tr('KPI待结算') }} · {{ row.settlement.pendingKpiCount }}</small><small v-if="Number(row.settlement?.pendingPublicExpenseCount)>0" class="table-subtext">{{ $tr('公共费用见公司共享') }}</small></template></el-table-column>
               <el-table-column :label="$tr(&quot;操作&quot;)" width="120" fixed="right"><template #default="{row}"><el-button link type="primary" @click="selectProjectSettlement(row.project.projectId, 'overview')">{{ $tr('项目概览') }}</el-button><el-button class="settlement-row-action" link type="primary" @click="selectProjectSettlement(row.project.projectId, 'settlement')">{{ $tr('结算办理') }}</el-button></template></el-table-column>
             </el-table>
           </section>
@@ -150,14 +151,14 @@
       </section>
       <section class="panel owner-todos">
         <div class="panel-head"><div><h2>{{ $tr("我的待办 ") }}<el-tag size="small" :type="ownerTodos.length ? 'warning' : 'success'">{{ $tr("{0} 项", [ownerTodos.length]) }}</el-tag></h2><p>{{ $tr("{0} · 同时显示跨项目投入调整待确认事项", [project.projectName]) }}</p></div></div>
-        <el-alert v-if="todoLoadFailed" :title="$tr(&quot;KPI 待办暂未加载，请刷新重试&quot;)" type="warning" :closable="false" />
+        <el-alert v-if="project.kpiEnabled!==false && todoLoadFailed" :title="$tr(&quot;KPI 待办暂未加载，请刷新重试&quot;)" type="warning" :closable="false" />
         <el-alert v-if="publicExpenseTodoFailed" :title="$tr(&quot;公共费用待办暂未加载，请刷新重试&quot;)" type="warning" :closable="false" /><div v-if="!ownerTodos.length && !loading && !publicExpenseTodoLoading && !publicExpenseTodoFailed" class="todo-empty">{{ $tr("✓ 当前项目暂无需要你处理的事项") }}</div>
         <article v-for="item in visibleOwnerTodos" :key="item.key" class="owner-todo-row">
           <span :class="['todo-dot', { urgent: item.urgent }]"></span>
           <div class="todo-copy"><b>{{ item.title }}</b><small>{{ item.detail }}</small></div>
           <el-tag v-if="item.urgent" type="danger" size="small" effect="plain">{{ $tr("优先处理") }}</el-tag>
           <el-button size="small" type="primary" plain :disabled="loading || saving" @click="handleOwnerTodo(item)">{{ item.action==='proposal-handoff' ? $tr("去完善") : item.action==='allocation-review' ? $tr("去确认") : item.action==='public-expense' ? $tr("去分摊") : item.action==='effort' ? $tr("确认") : item.action==='revenue' ? $tr("去填写") : item.action==='kpi-settings' ? $tr("去设置") : $tr("去处理") }}</el-button>
-          <el-button v-if="item.action==='kpi-settings'" size="small" :disabled="loading || saving" @click="ignoreKpiTodo">{{ $tr("忽略") }}</el-button>
+          <el-button v-if="item.action==='kpi-settings'" size="small" :disabled="loading || saving" @click="ignoreKpiTodo()">{{ $tr("忽略") }}</el-button>
           <el-button v-if="item.action==='spend' && item.allowZero" size="small" :disabled="loading || saving" @click="confirmNoSpend">{{ $tr("无支出") }}</el-button>
           <el-button v-if="item.action==='revenue' && item.allowZero" size="small" :disabled="loading || saving" @click="confirmNoRevenue">{{ $tr("无收入") }}</el-button>
           <el-button v-if="item.action==='effort'" size="small" :disabled="loading || saving" @click="returnPendingEffort(item.item)">{{ $tr("退回") }}</el-button>
@@ -573,11 +574,15 @@ const allocationReviewTodos=computed(()=>buildAllocationReviewTodos(data.value.p
 const childAcceptanceTodos=computed(()=>buildChildAcceptanceTodos(data.value.pendingChildAcceptanceReviews||[]))
 const crossProjectTodos=computed(()=>[...proposalHandoffTodos.value,...childAcceptanceTodos.value])
 const ownerWorkPanel=ref(null)
-async function ignoreKpiTodo(){
- if(saving.value || !project.value)return
- const selected=project.value
+async function ignoreKpiTodo(projectId=project.value?.projectId){
+ if(saving.value || !projectId)return
  saving.value=true
- try{await ignoreProjectKpiSetup(selected.projectId);selected.kpiSetupIgnoredUserId=userStore.id;ElMessage.success(translateText("已忽略"))}finally{saving.value=false}
+ try{
+  await ignoreProjectKpiSetup(projectId)
+  const related=[project.value,...projects.value,...allProjectWorkspaces.value.map(entry=>entry.project)]
+  for(const selected of related)if(selected && String(selected.projectId)===String(projectId))selected.kpiSetupIgnoredUserId=userStore.id
+  ElMessage.success(translateText("已忽略"))
+ }finally{saving.value=false}
 }
 const ownerTodos=computed(()=>{
   const rows=[...crossProjectTodos.value,...allocationReviewTodos.value,...publicExpenseTodos.value,...buildOwnerTodos({data:{...data.value,pendingAllocationRequests:[]},userId:userStore.id,today:today(),permissions:userStore.permissions,kpi:todoKpi.value})]
@@ -788,8 +793,8 @@ function entryRoutineLeave(entry,routine){return routine.sourceManaged?null:(ent
 function entryOpenTasks(entry){return entry.openTasks||[]}
 function entryOverdueTasks(entry){return entryOpenTasks(entry).filter(task=>task.dueDate&&String(task.dueDate).slice(0,10)<today()).length}
 function entryOpenRisks(entry){return (entry.project?.risks||[]).filter(item=>item.status==='OPEN').length}
-function entryCurrentKpis(entry){return (entry.operating?.kpis||[]).filter(item=>item.status==='CURRENT')}
-function entryPublishedPlans(entry){return (entry.kpi?.plans||[]).filter(item=>item.status==='PUBLISHED').length}
+function entryCurrentKpis(entry){if(entry.project?.kpiEnabled===false)return [];return (entry.operating?.kpis||[]).filter(item=>item.status==='CURRENT')}
+function entryPublishedPlans(entry){if(entry.project?.kpiEnabled===false)return 0;return (entry.kpi?.plans||[]).filter(item=>item.status==='PUBLISHED').length}
 function entrySettlementPending(entry){return projectSettlementCount(entry.settlement)}
 function entryReportedProgress(entry){return reportedProjectProgress(entry.project, today().slice(0,7))}
 function entryPersonnelIssueCount(entry){const alert=(entry.allocationAlerts||[]).find(item=>Number(item.projectId)===Number(entry.project.projectId));return Number(alert?.missingAllocationCount||0)+Number(alert?.missingRegionCount||0)+Number(alert?.missingCostCount||0)}
@@ -828,7 +833,7 @@ async function load(projectId){
         const projectId=entry.project.projectId
         const [settlementResult,kpiResult]=await Promise.allSettled([
           getBusinessProjectSettlementStatus(projectId),
-          canLoadKpi?getProjectKpiWorkspace(projectId):Promise.resolve({data:null})
+          canLoadKpi && entry.project.kpiEnabled!==false?getProjectKpiWorkspace(projectId):Promise.resolve({data:null})
         ])
         if(settlementResult.status==='rejected'||kpiResult.status==='rejected')allProjectsLoadWarning.value=true
         return {...entry,settlement:settlementResult.status==='fulfilled'?(settlementResult.value.data||{}):{},settlementFailed:settlementResult.status==='rejected'||!settlementResult.value?.data?.projectId,kpi:kpiResult.status==='fulfilled'?kpiResult.value.data:null}
@@ -851,7 +856,7 @@ async function load(projectId){
       const statusRequest=getBusinessProjectSettlementStatus(currentProjectId)
         .then(response=>{if(request===ownerRequest){settlementSummary.value=response.data||{};settlementLoadFailed.value=!response.data?.projectId}})
         .catch(()=>{if(request===ownerRequest)settlementLoadFailed.value=true})
-      const kpiRequest=userStore.permissions.includes('*:*:*')||userStore.permissions.includes('business:kpi:list')
+      const kpiRequest=data.value.project?.kpiEnabled!==false && (userStore.permissions.includes('*:*:*')||userStore.permissions.includes('business:kpi:list'))
         ? getProjectKpiWorkspace(currentProjectId).then(response=>{if(request===ownerRequest)todoKpi.value=response.data||{}}).catch(()=>{if(request===ownerRequest)todoLoadFailed.value=true})
         : Promise.resolve()
       await Promise.all([statusRequest,kpiRequest])

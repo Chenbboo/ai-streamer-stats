@@ -266,6 +266,16 @@ public class BusinessProjectController extends BaseController
     }
 
     @PreAuthorize("@ss.hasAnyPermi('business:project:manage,business:kpi:manage')")
+    @PutMapping("/project/{projectId}/kpi-enabled")
+    public AjaxResult setProjectKpiEnabled(@PathVariable Long projectId,@RequestBody Map<String,Object> body)
+    {
+        Object enabled=body.get("enabled");
+        if(!(enabled instanceof Boolean))return error("请选择启动或暂停项目KPI");
+        projectService.setProjectKpiEnabled(projectId,(Boolean)enabled,currentUserId(),currentUserName(),isBoss());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:project:manage,business:kpi:manage')")
     @PutMapping("/project/{projectId}/kpi-setup/ignore")
     public AjaxResult ignoreKpiSetup(@PathVariable Long projectId)
     {

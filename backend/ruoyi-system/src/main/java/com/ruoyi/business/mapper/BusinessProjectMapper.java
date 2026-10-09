@@ -132,6 +132,7 @@ public interface BusinessProjectMapper
     int updateProjectOwner(@Param("projectId") Long projectId, @Param("ownerUserId") Long ownerUserId,
         @Param("ownerName") String ownerName, @Param("userName") String userName,
         @Param("version") Integer version);
+    int setProjectKpiEnabled(@Param("projectId") Long projectId, @Param("enabled") Boolean enabled, @Param("userName") String userName);
     int ignoreKpiSetup(@Param("projectId") Long projectId, @Param("userId") Long userId);
     int countRelatedProjectOwner(@Param("projectId") Long projectId, @Param("userId") Long userId);
     String selectMemberRole(@Param("projectId") Long projectId, @Param("userId") Long userId);

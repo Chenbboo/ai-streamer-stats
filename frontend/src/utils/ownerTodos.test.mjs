@@ -134,3 +134,12 @@ test('ignoring KPI setup hides only the current owner reminder', () => {
  project.kpiSetupIgnoredUserId=8
  assert.equal(buildOwnerTodos(input).some(row=>row.action==='kpi-settings'),true)
 })
+
+test('paused project hides KPI setup and settlement reminders until restarted', () => {
+ const project={projectId:1,status:'ACTIVE',mainOwnerUserId:9,kpiEnabled:false}
+ const input={data:{project},userId:9,permissions:['business:kpi:manage','business:kpi:settle'],kpi:{canManage:true,canSettle:true,plans:[{planId:1,status:'PUBLISHED',settlementStatus:'DRAFT'}]}}
+ assert.equal(buildOwnerTodos(input).some(row=>['kpi','kpi-settings'].includes(row.action)),false)
+ project.kpiEnabled=true
+ input.kpi.plans=[]
+ assert.equal(buildOwnerTodos(input).some(row=>row.action==='kpi-settings'),true)
+})

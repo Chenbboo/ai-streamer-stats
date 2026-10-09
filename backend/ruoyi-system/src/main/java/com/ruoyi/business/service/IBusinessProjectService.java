@@ -49,6 +49,7 @@ public interface IBusinessProjectService
     BusinessProject updateBudget(Long projectId, java.math.BigDecimal budgetLimit, String currency, String reason,
         Long userId, String userName, boolean boss);
     BusinessProjectKpi saveKpi(BusinessProjectKpi kpi, Long userId, String userName, boolean boss);
+    void setProjectKpiEnabled(Long projectId, Boolean enabled, Long userId, String userName, boolean boss);
     void ignoreKpiSetup(Long projectId, Long userId);
     void changeKpiStatus(Long projectId, Long kpiId, String action, Long userId, String userName, boolean boss);
     void retireKpi(Long projectId, Long kpiId, Long userId, String userName, boolean boss);
