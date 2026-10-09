@@ -42,7 +42,7 @@ required=(
   migrations/verify_business_schema.sql migrations/verify_continuous_operations.sql migrations/release_gate.sql
 )
 for file in "${required[@]}"; do test -s "$stage_dir/$file"; done
-for version in $(seq 10 147); do
+for version in $(seq 10 148); do
   printf -v migration_prefix 'V%03d' "$version"
   matches=("$stage_dir/migrations/${migration_prefix}"__*.sql)
   test "${#matches[@]}" = 1

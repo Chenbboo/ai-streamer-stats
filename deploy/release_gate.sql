@@ -534,4 +534,8 @@ from (
   select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
     and table_name='biz_project' and column_name='kpi_setup_ignored_user_id'
     and data_type='bigint' and is_nullable='YES'
+  union all
+  select if(count(*)=1,0,1) from information_schema.columns where table_schema=database()
+    and table_name='biz_project' and column_name='kpi_enabled'
+    and data_type='tinyint' and is_nullable='NO' and column_default='1'
 ) release_gate;
