@@ -44,6 +44,6 @@ export function dailyAttendance(records) {
     if (source.kind === 'REMEDY') day.remedies.push({status:source.normalizedStatus, time:details.remedyTime})
   }
   return [...days.values()]
-    .filter(day => day.outings.length || !(day.punches.length && day.punches.every(p => p.checkInResult === 'NoNeedCheck' && p.checkOutResult === 'NoNeedCheck')))
+    .filter(day => day.leaves.length || day.outings.length || !(day.punches.length && day.punches.every(p => p.checkInResult === 'NoNeedCheck' && p.checkOutResult === 'NoNeedCheck')))
     .sort((a,b) => b.date.localeCompare(a.date) || String(a.userName).localeCompare(String(b.userName)))
 }

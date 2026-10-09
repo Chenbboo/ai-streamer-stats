@@ -74,6 +74,37 @@ test('real approved outing covering scheduled check-in becomes the primary displ
   assert.equal(day.punches[0].checkInResult,'Lack')
   assert.equal(matchesAttendanceStatus(day,'Lack'),true,'source-status filter still queries the explicit Feishu result')
 })
+
+test('September 28 through 30 approved leave remains visible when Feishu says no punch is required',()=>{
+  const rows=[]
+  for (const [offset,date] of ['2026-09-28','2026-09-29','2026-09-30'].entries()) {
+    const base={userId:137,businessDate:date,isCurrent:1,quality:'KNOWN',sourceTimezone:'Asia/Shanghai'}
+    const start=1790557200+offset*86400,end=1790589600+offset*86400
+    rows.push({...base,kind:'ATTENDANCE',detailsJson:JSON.stringify({results:[{checkInResult:'NoNeedCheck',checkOutResult:'NoNeedCheck',checkInTime:null,checkOutTime:null,scheduledIn:start,scheduledOut:end}]})},
+      {...base,kind:'LEAVE',normalizedStatus:'CONFIRMED',intervalsJson:JSON.stringify([[start,end]])})
+  }
+  const days=dailyAttendance(rows)
+  assert.deepEqual(days.map(day=>day.date),['2026-09-30','2026-09-29','2026-09-28'])
+  for(const day of days) {
+    assert.equal(day.leaves[0].status,'CONFIRMED')
+    assert.equal(day.leaves[0].zone,'Asia/Shanghai')
+    assert.deepEqual(day.leaves[0].intervals,[[day.punches[0].scheduledIn,day.punches[0].scheduledOut]])
+    assert.deepEqual(attendanceCodes(day),['NoNeedCheck'])
+    assert.equal(matchesAttendanceStatus(day,'ABNORMAL'),false)
+  }
+})
+
+test('no-punch-required days preserve current withdrawn or uncertain leave but omit ordinary rest days and old leave revisions',()=>{
+  const base={userId:7,businessDate:'2026-09-28',isCurrent:1,quality:'KNOWN'}
+  const punch={...base,kind:'ATTENDANCE',detailsJson:'{"results":[{"checkInResult":"NoNeedCheck","checkOutResult":"NoNeedCheck"}]}'}
+  const leave={...base,kind:'LEAVE',normalizedStatus:'CANCELED',intervalsJson:'[[1790557200,1790589600]]'}
+  assert.equal(dailyAttendance([punch]).length,0)
+  assert.equal(dailyAttendance([punch,{...leave,isCurrent:0}]).length,0)
+  assert.equal(dailyAttendance([punch,leave])[0].leaves[0].status,'CANCELED')
+  const day=dailyAttendance([punch,{...leave,normalizedStatus:'UNKNOWN',quality:'STALE'}])[0]
+  assert.equal(day.leaves[0].status,'UNKNOWN')
+  assert.deepEqual(day.warnings,['STALE'])
+})
 test('morning outing cannot cover missing checkout or another shift and does not replace late or early results',()=>{
   const day={outings:[{status:'CONFIRMED',sourceQuality:'KNOWN',intervals:[[100,200]]}],punches:[
     {checkInResult:'Lack',checkOutResult:'Lack',scheduledIn:100,scheduledOut:900},
