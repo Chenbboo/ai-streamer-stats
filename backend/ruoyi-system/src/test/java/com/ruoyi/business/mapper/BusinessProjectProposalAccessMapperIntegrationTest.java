@@ -69,7 +69,7 @@ public class BusinessProjectProposalAccessMapperIntegrationTest {
             sql.execute("insert into biz_project values(1,'0'),(2,'2')");
             sql.execute("update biz_project_proposal set status='APPROVED',created_project_id=1 where proposal_id=77");
             BusinessProjectProposalMapper mapper=session.getMapper(BusinessProjectProposalMapper.class);
-            java.util.Map<String,Object> query=java.util.Map.of("viewAll",true);
+            java.util.Map<String,Object> query=java.util.Collections.<String,Object>singletonMap("viewAll",true);
             assertEquals(Boolean.FALSE,mapper.selectDirectory(query).get(0).getCreatedProjectDeleted());
             sql.execute("update biz_project_proposal set created_project_id=2 where proposal_id=77");session.clearCache();
             assertEquals(Boolean.TRUE,mapper.selectDirectory(query).get(0).getCreatedProjectDeleted());
