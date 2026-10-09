@@ -265,6 +265,22 @@ public class BusinessProjectController extends BaseController
         return success();
     }
 
+    @PreAuthorize("@ss.hasAnyPermi('business:project:manage,business:kpi:manage')")
+    @PutMapping("/project/{projectId}/kpi-setup/ignore")
+    public AjaxResult ignoreKpiSetup(@PathVariable Long projectId)
+    {
+        projectService.ignoreKpiSetup(projectId,currentUserId());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('business:project:manage,business:kpi:manage')")
+    @PutMapping("/project/{projectId}/kpi/{kpiId}/status")
+    public AjaxResult changeKpiStatus(@PathVariable Long projectId,@PathVariable Long kpiId,@RequestBody Map<String,Object> body)
+    {
+        projectService.changeKpiStatus(projectId,kpiId,text(body,"action"),currentUserId(),currentUserName(),isBoss());
+        return success();
+    }
+
     @PreAuthorize("@ss.hasAnyPermi('business:staff:cost,business:staff:list')")
     @GetMapping("/staff/cost-options")
     public AjaxResult staffCostOptions(){return success(projectService.staffCostOptions(currentUserId(),canManageStaffCost()));}

@@ -24,7 +24,7 @@ export function buildOwnerTodos({ data = {}, userId, today, permissions = [], kp
   }
   if (active && kpi && kpiWorkspace.canManage && can('business:kpi:manage')) {
     const hasPublishedPlan = (kpiWorkspace.plans || []).some(plan => plan.status !== 'VOIDED')
-    if (!hasPublishedPlan)
+    if (!hasPublishedPlan && !same(p.kpiSetupIgnoredUserId, userId))
       add('kpi-setup', translateText("设置项目 KPI"), translateText("项目已启动，请设置指标并发布考核方案"), 'kpi-settings', { urgent: true })
   }
   if (active && report && p.goalMode !== 'NO_TOTAL' && !data.todayProjectProgress)

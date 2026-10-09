@@ -13,7 +13,6 @@ import com.ruoyi.business.domain.BusinessProjectProposal;
 import com.ruoyi.business.mapper.BusinessProjectMapper;
 import com.ruoyi.business.mapper.BusinessProjectWorkMapper;
 import com.ruoyi.business.support.BusinessProjectLifecycle;
-import com.ruoyi.business.support.BusinessProjectReadAccess;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
 
@@ -31,7 +30,7 @@ public class BusinessProjectPlanService
     public Map<String,Object> plan(Long projectId,Long actor,boolean admin)
     {
         BusinessProject p=projectMapper.selectProjectById(projectId);requireProject(p);
-        if(!admin&&!manager(p,actor)&&!BusinessProjectReadAccess.isParentOwner(p,actor,projectMapper)
+        if(!admin&&!manager(p,actor)
             &&mapper.selectMembers(projectId).stream().noneMatch(m->actor.equals(id(m.get("userId")))))throw new ServiceException("无权查看项目计划");
         List<Map<String,Object>> changes=mapper.selectPlanChanges(projectId);
         for(Map<String,Object> change:changes)change.put("canReview",canReview(p,change,actor));

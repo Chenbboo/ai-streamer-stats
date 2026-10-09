@@ -14,7 +14,6 @@ import com.ruoyi.business.domain.BusinessProject;
 import com.ruoyi.business.mapper.*;
 import com.ruoyi.business.service.IBusinessAccountingService;
 import com.ruoyi.business.support.BusinessProjectLifecycle;
-import com.ruoyi.business.support.BusinessProjectReadAccess;
 import com.ruoyi.business.support.BusinessPersonnelCost;
 import com.ruoyi.business.support.BusinessMemberDayLeaveCost;
 import com.ruoyi.business.support.BusinessAllocationWeights;
@@ -323,7 +322,7 @@ public class BusinessMemberDayCostService {
         BusinessProject p=projects.selectProjectById(projectId);if(p==null)throw new ServiceException("项目不存在");
         if(!enabled(p))throw new ServiceException("该历史项目保留原核算结果，请在项目核算中查看");
         boolean manager=admin||actor.equals(p.getMainOwnerUserId())||companyAccess.project(p,actor);
-        if(!manager&&!BusinessProjectReadAccess.isParentOwner(p,actor,projects)
+        if(!manager
             &&work.selectMembers(projectId).stream().noneMatch(m->actor.equals(id(m.get("userId")))&&"0".equals(String.valueOf(m.get("status")))))throw new ServiceException("无权查看项目人员成本");
         LocalDate to=query.get("dateTo")==null?LocalDate.now():day(query.get("dateTo"));LocalDate from=query.get("dateFrom")==null?to.withDayOfMonth(1):day(query.get("dateFrom"));
         if(from==null||to==null||to.isBefore(from)||to.toEpochDay()-from.toEpochDay()>730)throw new ServiceException("请选择两年以内的日期范围");

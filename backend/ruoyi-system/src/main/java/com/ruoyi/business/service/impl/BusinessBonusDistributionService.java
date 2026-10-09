@@ -12,7 +12,6 @@ import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.business.domain.*;
 import com.ruoyi.business.mapper.*;
-import com.ruoyi.business.support.BusinessProjectReadAccess;
 import com.ruoyi.common.exception.ServiceException;
 
 /** Personal allocation and payment evidence never generate or confirm cost facts. */
@@ -40,7 +39,7 @@ public class BusinessBonusDistributionService
         BusinessProject p=project(projectId,false);
         boolean manager=admin||owner(p,userId)||sponsor(p,userId);
         boolean payer=sponsor(p,userId)||(finance&&mapper.companyAccess(projectId,userId)>0);
-        boolean full=manager||payer||BusinessProjectReadAccess.isParentOwner(p,userId,projects);
+        boolean full=manager||payer;
         out.put("project",map("projectId",p.getProjectId(),"projectName",p.getProjectName(),"baseCurrency",p.getBaseCurrency()));
         // Personal recipients may see eligibility, but not the project's financial totals.
         Map<String,Object> latestMonth=profitTax.previousMonthResult(projectId);
@@ -261,12 +260,14 @@ public class BusinessBonusDistributionService
     {return award.getSettlementMonth()==null?profitTax.projectResult(project.getProjectId()):profitTax.monthlyBonusResult(project.getProjectId(),award.getSettlementMonth());}
     private void requireBonusProfit(BusinessProject project,BusinessIncentiveAward award)
     {
+        if("FIXED_V1".equals(award.getPolicyVersion()) && (award.getSettlementMonth()==null || award.getApplicationMonth()!=null)) return;
         Map<String,Object> basis=awardProfit(project,award);
         if(award.getSettlementMonth()==null)BusinessProfitTaxService.requirePositiveBonusProfit(basis);
         else BusinessProfitTaxService.requireMonthlyBonusProfit(basis,award.getRuleAfterTaxProfit());
     }
     private String awardBlock(BusinessProject project,BusinessIncentiveAward award,Map<String,String> cache)
     {
+        if("FIXED_V1".equals(award.getPolicyVersion()) && (award.getSettlementMonth()==null || award.getApplicationMonth()!=null)) return "";
         String key=(award.getSettlementMonth()==null?"LEGACY":award.getSettlementMonth())+":"+award.getRuleAfterTaxProfit();
         return cache.computeIfAbsent(key,k->{Map<String,Object> basis=awardProfit(project,award);return award.getSettlementMonth()==null
             ?BusinessProfitTaxService.bonusBlockReason(basis):BusinessProfitTaxService.monthlyBonusBlockReason(basis,award.getRuleAfterTaxProfit());});

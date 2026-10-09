@@ -30,13 +30,13 @@
               <el-button v-if="canEditPlan" v-hasPermi="['business:kpi:manage']" type="primary" @click="openTarget()">{{ $tr("新增KPI") }}</el-button>
             </div>
             <el-alert v-if="currentTargets.length && Number(weightTotal)!==100" :title="$tr(&quot;当前权重合计 {0}%，必须调整为100%后才能发布方案。&quot;, [weightTotal])" type="warning" :closable="false" show-icon />
-            <el-table :data="currentTargets" :empty-text="$tr(&quot;项目负责人尚未设置项目KPI&quot;)">
-              <el-table-column :label="$tr(&quot;指标&quot;)" min-width="180"><template #default="{row}"><b>{{ row.kpiName }}</b><small>{{ row.kpiCode }} · v{{ row.targetVersion }}</small></template></el-table-column>
+            <el-table :data="settingTargets" :empty-text="$tr(&quot;项目负责人尚未设置项目KPI&quot;)">
+              <el-table-column :label="$tr(&quot;指标&quot;)" min-width="180"><template #default="{row}"><b>{{ row.kpiName }}</b><el-tag v-if="row.status==='PAUSED'" type="warning" size="small">{{ $tr("已暂停") }}</el-tag><small>{{ row.kpiCode }} · v{{ row.targetVersion }}</small></template></el-table-column>
               <el-table-column :label="$tr(&quot;目标&quot;)" min-width="125"><template #default="{row}">{{ row.targetValue }} {{ $tr(row.unit) || '' }}</template></el-table-column>
               <el-table-column :label="$tr(&quot;方向&quot;)" width="95"><template #default="{row}">{{ directionLabel[row.direction] }}</template></el-table-column>
               <el-table-column :label="$tr(&quot;数据来源&quot;)" min-width="150"><template #default="{row}"><el-tag :type="row.sourceType==='MANUAL'?'info':'success'">{{ sourceTypeLabel[row.sourceType] || row.sourceType }}</el-tag><small v-if="row.sourceRefId">{{ sourceReferenceLabel(row) }}</small></template></el-table-column>
               <el-table-column :label="$tr(&quot;权重&quot;)" width="85"><template #default="{row}">{{ row.weight }}%</template></el-table-column>
-              <el-table-column v-if="canEditPlan" :label="$tr(&quot;操作&quot;)" width="120"><template #default="{row}"><el-button link @click="openTarget(row)">{{ $tr("调整") }}</el-button><el-button link type="danger" @click="retireTarget(row)">{{ $tr("停用") }}</el-button></template></el-table-column>
+              <el-table-column v-if="canEditPlan" :label="$tr(&quot;操作&quot;)" width="190"><template #default="{row}"><el-button link :type="row.status==='PAUSED'?'success':'warning'" @click="toggleTarget(row)">{{ row.status==='PAUSED'?$tr("启动"):$tr("暂停") }}</el-button><el-button v-if="row.status==='CURRENT'" link @click="openTarget(row)">{{ $tr("调整") }}</el-button><el-button link type="danger" @click="retireTarget(row)">{{ $tr("停用") }}</el-button></template></el-table-column>
             </el-table>
           </el-card>
 
@@ -67,8 +67,8 @@
             <el-empty v-if="!selectedPlan" :description="$tr(&quot;尚未发布KPI方案&quot;)" />
             <div v-else class="result-list">
               <article v-for="item in selectedPlan.items || []" :key="item.itemId" class="result-row">
-                <div class="result-target"><b>{{ item.kpiName }}</b><span>{{ $tr("目标 {0} {1} · 权重 {2}% · {3}", [item.targetValue, $tr(item.unit) || '', item.weight, directionLabel[item.direction]]) }}</span><el-tag size="small" :type="isAutomatic(item)?'success':'info'">{{ sourceTypeLabel[item.sourceType] || item.sourceType }}</el-tag></div>
-                <template v-if="workspace.canSettle && ['DRAFT','RETURNED'].includes(settlement?.status) && !isAutomatic(item)">
+                <div class="result-target"><b>{{ item.kpiName }}</b><el-tag v-if="item.paused" type="warning" size="small">{{ $tr("已暂停") }}</el-tag><span>{{ $tr("目标 {0} {1} · 权重 {2}% · {3}", [item.targetValue, $tr(item.unit) || '', item.weight, directionLabel[item.direction]]) }}</span><el-tag size="small" :type="isAutomatic(item)?'success':'info'">{{ sourceTypeLabel[item.sourceType] || item.sourceType }}</el-tag></div>
+                <template v-if="!item.paused && workspace.canSettle && ['DRAFT','RETURNED'].includes(settlement?.status) && !isAutomatic(item)">
                   <div class="manual-result-input">
                     <el-input-number v-model="resultDraft[item.itemId].actualValue" :min="0" :precision="manualAmountInYuan(item)?2:4" controls-position="right" :placeholder="manualAmountInYuan(item)?$tr(&quot;实际金额（元）&quot;):$tr(&quot;实际值&quot;)" />
                     <small v-if="manualAmountInYuan(item)">{{ $tr("输入元；折合 {0} 万元", [actualFor(item) ?? '—']) }}</small>
@@ -185,7 +185,7 @@
 import { translateText } from '@/locales/translate'
 
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { retireBusinessProjectKpi, saveBusinessProjectKpi } from '@/api/business/project'
+import { changeBusinessProjectKpiStatus, retireBusinessProjectKpi, saveBusinessProjectKpi } from '@/api/business/project'
 import { correctProjectKpiResult, getProjectKpiOverview, getProjectKpiWorkspace, publishProjectKpiPlan, reviewProjectKpiSettlement, saveProjectKpiResults, submitProjectKpiSettlement, voidProjectKpiPlan } from '@/api/business/kpi'
 import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 import { isDeliveryEnded, projectAccountingState } from '@/utils/businessProjectState'
@@ -196,7 +196,7 @@ const route=useRoute(),router=useRouter()
 const loading=ref(false),saving=ref(false),projects=ref([]),projectsLoaded=ref(false),selectedProjectId=ref(null),workspace=reactive({}),targetDialog=ref(false),targetForm=reactive({}),planDialog=ref(false),planForm=reactive({}),planDates=ref([]),resultDraft=reactive({}),correctionDialog=ref(false),correctionForm=reactive({item:null,original:null,actualInput:null,reason:''})
 const workspacePaths=props.resultsOnly?['/projects/kpi-results']:['/business/kpi-bonus','/projects/kpi']
 let workspaceRequestId=0
-const selectedPlan=computed(()=>workspace.selectedPlan||null),settlement=computed(()=>selectedPlan.value?.settlement||null),currentTargets=computed(()=>workspace.currentTargets||[])
+const selectedPlan=computed(()=>workspace.selectedPlan||null),settlement=computed(()=>selectedPlan.value?.settlement||null),settingTargets=computed(()=>workspace.currentTargets||[]),currentTargets=computed(()=>settingTargets.value.filter(item=>item.status==='CURRENT'))
 function openResults(){if(!selectedProjectId.value||!selectedPlan.value)return;router.push({path:'/projects/kpi-results',query:{projectId:selectedProjectId.value,planId:selectedPlan.value.planId}})}
 function openSettings(){router.push({path:'/business/kpi-bonus',query:{projectId:selectedProjectId.value,...(selectedPlan.value?{planId:selectedPlan.value.planId}:{})}})}
 const isLegacyPlan=computed(()=>!!selectedPlan.value && selectedPlan.value.rewardPolicyVersion!=='INDEPENDENT_V1')
@@ -211,7 +211,7 @@ const maxKpiWeight=computed(()=>Math.max(0,Number((100-otherKpiWeightTotal.value
 const pendingKpiWeightTotal=computed(()=>Number((otherKpiWeightTotal.value+Number(targetForm.weight||0)).toFixed(2)))
 const periodEnded=computed(()=>!settlement.value?.periodEnd||settlement.value.periodEnd<today())
 const automaticSourceTypes=['REVENUE','BUSINESS_COST','PERSONNEL_COST','PROFIT','ROUTINE','TASK','MILESTONE']
-const manualItems=computed(()=>(selectedPlan.value?.items||[]).filter(item=>!isAutomatic(item)))
+const manualItems=computed(()=>(selectedPlan.value?.items||[]).filter(item=>!item.paused&&!isAutomatic(item)))
 const cycleLabel={MONTH:translateText("月度"),QUARTER:translateText("季度"),PROJECT:translateText("项目周期")}
 const directionLabel={HIGHER_BETTER:translateText("越高越好"),LOWER_BETTER:translateText("越低越好")}
 const metricTypeLabel={COUNT:translateText("数量"),AMOUNT:translateText("金额"),PERCENT:translateText("百分比"),DURATION:translateText("时长"),SCORE:translateText("评分"),MILESTONE:translateText("里程碑")}
@@ -227,7 +227,7 @@ function resultFor(itemId){return settlement.value?.results?.find(result=>Number
 function isAutomatic(item){return automaticSourceTypes.includes(item?.sourceType)}
 function manualAmountInYuan(item){return !isAutomatic(item)&&item?.unit==='万元'}
 function actualFor(item){const value=isAutomatic(item)?resultFor(item.itemId)?.actualValue:resultDraft[item.itemId]?.actualValue;return value==null?null:manualAmountInYuan(item)?Number((Number(value)/10000).toFixed(8)):value}
-const allTargetsMet=computed(()=>{const items=selectedPlan.value?.items||[];return !!items.length&&items.every(item=>{const value=actualFor(item);if(value==null)return false;const actual=Number(value),target=Number(item.targetValue);if(!Number.isFinite(actual)||!Number.isFinite(target))return false;return item.direction==='LOWER_BETTER'?actual<=target:actual>=target})})
+const allTargetsMet=computed(()=>{const items=(selectedPlan.value?.items||[]).filter(item=>!item.paused);return !!items.length&&items.every(item=>{const value=actualFor(item);if(value==null)return false;const actual=Number(value),target=Number(item.targetValue);if(!Number.isFinite(actual)||!Number.isFinite(target))return false;return item.direction==='LOWER_BETTER'?actual<=target:actual>=target})})
 const canFinishCycle=computed(()=>periodEnded.value||allTargetsMet.value)
 const sourceNeedsReference=computed(()=>['ROUTINE','TASK','MILESTONE'].includes(targetForm.sourceType))
 const sourceReferenceOptions=computed(()=>{const options=workspace.sourceOptions||{};if(targetForm.sourceType==='ROUTINE')return (options.routines||[]).map(item=>({value:item.routineId,label:`${item.routineName} · ${translateText(item.unit)||''}`}));if(targetForm.sourceType==='TASK')return (options.tasks||[]).map(item=>({value:item.taskId,label:item.taskName}));if(targetForm.sourceType==='MILESTONE')return (options.milestones||[]).map(item=>({value:item.milestoneId,label:item.milestoneName}));return []})
@@ -256,6 +256,7 @@ function useProposalTarget(key){
 }
 function openTarget(row={}){selectedProposalTarget.value=null;Object.assign(targetForm,{kpiId:null,projectId:selectedProjectId.value,kpiCode:'',kpiName:'',metricType:'COUNT',targetValue:null,minimumValue:null,warningValue:null,challengeValue:null,unit:'',weight:0,direction:'HIGHER_BETTER',aggregateType:'SUM',sourceType:'MANUAL',sourceRefId:null,remark:'',...row,actualValue:null,ownerUserId:null,ownerName:null});if(workspace.project?.baseCurrency==='CNY'&&targetForm.unit==='CNY')targetForm.unit='元';targetDialog.value=true}
 async function saveTarget(){if(!targetForm.kpiName?.trim())return ElMessage.warning(translateText("请填写指标名称"));if(!(Number(targetForm.targetValue)>0))return ElMessage.warning(translateText("KPI目标值必须大于0"));if(!Number.isFinite(Number(targetForm.weight))||Number(targetForm.weight)<0)return ElMessage.warning(translateText("请填写0到100之间的KPI权重"));if(pendingKpiWeightTotal.value>100)return ElMessage.warning(translateText("当前KPI权重合计为 {0}%，不能超过100%；本项最多可填 {1}%", [formatWeight(pendingKpiWeightTotal.value), formatWeight(maxKpiWeight.value)]));if(targetForm.sourceType==='ROUTINE'&&!targetForm.sourceRefId)return ElMessage.warning(translateText("请选择要自动汇总的持续工作"));saving.value=true;try{await saveBusinessProjectKpi(targetForm);targetDialog.value=false;await loadWorkspace(selectedProjectId.value,selectedPlan.value?.planId);ElMessage.success(targetForm.kpiId?translateText("KPI新版本已保存"):translateText("KPI已创建，编码已自动生成"))}finally{saving.value=false}}
+async function toggleTarget(row){const action=row.status==='PAUSED'?'START':'PAUSE';await changeBusinessProjectKpiStatus(selectedProjectId.value,row.kpiId,action);await loadWorkspace(selectedProjectId.value,selectedPlan.value?.planId);ElMessage.success(translateText(action==='PAUSE'?"KPI已暂停，结项不再要求完成此指标":"KPI已启动"))}
 async function retireTarget(row){await ElMessageBox.confirm(translateText("确认停用“{0}”吗？已发布方案不会受影响。", [row.kpiName]),translateText("停用KPI"),{type:'warning'});await retireBusinessProjectKpi(selectedProjectId.value,row.kpiId);await loadWorkspace(selectedProjectId.value,selectedPlan.value?.planId);ElMessage.success(translateText("KPI已停用"))}
 function monthRange(){const date=new Date(),start=new Date(date.getFullYear(),date.getMonth(),1),end=new Date(date.getFullYear(),date.getMonth()+1,0);return [localDate(start),localDate(end)]}
 function quarterRange(){const date=new Date(),month=Math.floor(date.getMonth()/3)*3,start=new Date(date.getFullYear(),month,1),end=new Date(date.getFullYear(),month+3,0);return [localDate(start),localDate(end)]}

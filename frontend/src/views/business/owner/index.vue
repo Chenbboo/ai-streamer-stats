@@ -157,6 +157,7 @@
           <div class="todo-copy"><b>{{ item.title }}</b><small>{{ item.detail }}</small></div>
           <el-tag v-if="item.urgent" type="danger" size="small" effect="plain">{{ $tr("优先处理") }}</el-tag>
           <el-button size="small" type="primary" plain :disabled="loading || saving" @click="handleOwnerTodo(item)">{{ item.action==='proposal-handoff' ? $tr("去完善") : item.action==='allocation-review' ? $tr("去确认") : item.action==='public-expense' ? $tr("去分摊") : item.action==='effort' ? $tr("确认") : item.action==='revenue' ? $tr("去填写") : item.action==='kpi-settings' ? $tr("去设置") : $tr("去处理") }}</el-button>
+          <el-button v-if="item.action==='kpi-settings'" size="small" :disabled="loading || saving" @click="ignoreKpiTodo">{{ $tr("忽略") }}</el-button>
           <el-button v-if="item.action==='spend' && item.allowZero" size="small" :disabled="loading || saving" @click="confirmNoSpend">{{ $tr("无支出") }}</el-button>
           <el-button v-if="item.action==='revenue' && item.allowZero" size="small" :disabled="loading || saving" @click="confirmNoRevenue">{{ $tr("无收入") }}</el-button>
           <el-button v-if="item.action==='effort'" size="small" :disabled="loading || saving" @click="returnPendingEffort(item.item)">{{ $tr("退回") }}</el-button>
@@ -507,7 +508,7 @@ import { translateText } from '@/locales/translate'
 import MemberTaskCompletionTable from './MemberTaskCompletionTable.vue'
 
 import { nextTick } from 'vue'
-import { getBusinessProjectSettlementStatus, getBusinessOwnerWorkbench, saveBusinessRoutineDailyTarget, submitBusinessProjectProgressReport, submitBusinessRoutineReport, reviewBusinessWorkReport, confirmBusinessMemberEffort, returnBusinessMemberEffort } from '@/api/business/project'
+import { ignoreProjectKpiSetup, getBusinessProjectSettlementStatus, getBusinessOwnerWorkbench, saveBusinessRoutineDailyTarget, submitBusinessProjectProgressReport, submitBusinessRoutineReport, reviewBusinessWorkReport, confirmBusinessMemberEffort, returnBusinessMemberEffort } from '@/api/business/project'
 import { confirmProjectNoSpend } from '@/api/business/flow'
 import { newSubmissionId } from '@/utils/submission'
 import { getBusinessProjectDashboard, getInternalTransferProjects, reverseBusinessProjectDailySpend, saveBusinessProjectDailySpend, saveBusinessProjectFact } from '@/api/business/accounting'
@@ -572,6 +573,12 @@ const allocationReviewTodos=computed(()=>buildAllocationReviewTodos(data.value.p
 const childAcceptanceTodos=computed(()=>buildChildAcceptanceTodos(data.value.pendingChildAcceptanceReviews||[]))
 const crossProjectTodos=computed(()=>[...proposalHandoffTodos.value,...childAcceptanceTodos.value])
 const ownerWorkPanel=ref(null)
+async function ignoreKpiTodo(){
+ if(saving.value || !project.value)return
+ const selected=project.value
+ saving.value=true
+ try{await ignoreProjectKpiSetup(selected.projectId);selected.kpiSetupIgnoredUserId=userStore.id;ElMessage.success(translateText("已忽略"))}finally{saving.value=false}
+}
 const ownerTodos=computed(()=>{
   const rows=[...crossProjectTodos.value,...allocationReviewTodos.value,...publicExpenseTodos.value,...buildOwnerTodos({data:{...data.value,pendingAllocationRequests:[]},userId:userStore.id,today:today(),permissions:userStore.permissions,kpi:todoKpi.value})]
   if(Number(settlementSummary.value.pendingCostCount)>0)rows.push({key:'cost-setup',title:translateText("完善人员成本"),detail:translateText("部分工作日缺少有效成本，请核对后补充"),action:'people',urgent:true})

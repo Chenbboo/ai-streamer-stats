@@ -54,6 +54,16 @@ public class BusinessProjectHierarchyMapperIntegrationTest
         return query;
     }
 
+    @Test void ignoredKpiReminderPersistsOnlyForCurrentOwner() throws Exception {
+        try (SqlSession session=factory.openSession()) {
+            BusinessProjectMapper mapper=session.getMapper(BusinessProjectMapper.class);
+            assertEquals(0,mapper.ignoreKpiSetup(1L,10L));
+            assertEquals(1,mapper.ignoreKpiSetup(1L,9L));
+            session.clearCache();
+            assertEquals(9L,mapper.selectProjectById(1L).getKpiSetupIgnoredUserId());
+        }
+    }
+
     @Test void paginationCountsOnlyRootsAndDoesNotReturnChildRecords()
     {
         try (SqlSession session = factory.openSession())
@@ -193,59 +203,59 @@ public class BusinessProjectHierarchyMapperIntegrationTest
         }
     }
 
-    @Test void parentOwnerCanSeeAllDirectChildrenButNotUnrelatedOrDeletedChildren() throws Exception {
+    @Test void parentOwnerSeesChildDirectoryWithoutDetailAccess() throws Exception {
         try (SqlSession session=factory.openSession();Statement sql=session.getConnection().createStatement()) {
             sql.execute("update biz_project set applicant_user_id=9 where project_id=10");
             BusinessProjectMapper mapper=session.getMapper(BusinessProjectMapper.class);
             for (boolean boss : new boolean[] {false, true}) {
                 Map<String,Object> query=query(9L,false,boss,"Needle");
-                List<BusinessProject> roots=mapper.selectProjectRoots(query);
-                assertEquals(1,roots.size());
-                assertEquals(1L,roots.get(0).getProjectId());
-                assertEquals(10L,roots.get(0).getMatchedChildId());
-
-                // The current parent owner can also find a child they did not create.
-                query.put("keyword","Secret");
-                roots=mapper.selectProjectRoots(query);
-                assertEquals(1,roots.size());
-                assertEquals(11L,roots.get(0).getMatchedChildId());
-
+                assertEquals(10L,mapper.selectProjectRoots(query).get(0).getMatchedChildId());
+                query.put("keyword","Secret");assertEquals(11L,mapper.selectProjectRoots(query).get(0).getMatchedChildId());
                 query.remove("keyword");query.put("parentId",1L);
-                List<BusinessProject> children=mapper.selectProjectList(query);
-                Set<Long> childIds=new HashSet<>();
-                children.forEach(child -> childIds.add(child.getProjectId()));
-                assertEquals(2,children.size());
-                assertEquals(new HashSet<>(Arrays.asList(10L,11L)),childIds);
-
-                // Parent ownership does not grant access under another parent.
-                query.put("parentId",3L);
                 assertTrue(mapper.selectProjectList(query).isEmpty());
+                query.put("hierarchyDirectory",true);
+                List<BusinessProject> children=mapper.selectProjectList(query);
+                assertEquals(2,children.size());assertTrue(children.stream().allMatch(BusinessProject::isContextOnly));
             }
         }
     }
 
-    @Test void assigningParentOwnerCanSeeAllItsChildren() throws Exception {
+    @Test void parentOwnerMembershipDoesNotGrantChildDetails() throws Exception {
         try (SqlSession session=factory.openSession();Statement sql=session.getConnection().createStatement()) {
             sql.execute("update biz_project set applicant_user_id=9 where project_id=10");
+            sql.execute("insert into biz_project_member(member_id,project_id,user_id,member_role,status) values(999,10,9,'OBSERVER','0')");
             BusinessProjectMapper mapper=session.getMapper(BusinessProjectMapper.class);
             Map<String,Object> query=query(9L,false,false,"Needle");
             assertEquals(10L,mapper.selectProjectRoots(query).get(0).getMatchedChildId());
             query.remove("keyword");query.put("parentId",1L);
             List<BusinessProject> children=mapper.selectProjectList(query);
-            assertEquals(2,children.size());
-            assertEquals(new HashSet<>(Arrays.asList(10L,11L)),children.stream().map(BusinessProject::getProjectId).collect(java.util.stream.Collectors.toSet()));
+            assertTrue(children.isEmpty());
+            assertEquals(1,mapper.countRelatedProjectOwner(10L,9L));
         }
     }
 
-    @Test void deputyCanSeeOnlyChildrenTheyCreated() throws Exception {
+    @Test void childOwnerMembershipDoesNotGrantParentDetails() throws Exception {
+        try (SqlSession session=factory.openSession();Statement sql=session.getConnection().createStatement()) {
+            sql.execute("insert into biz_project_member(member_id,project_id,user_id,member_role,status) values(998,1,10,'MEMBER','0')");
+            BusinessProjectMapper mapper=session.getMapper(BusinessProjectMapper.class);
+            Map<String,Object> query=query(10L,false,false,null);
+            List<BusinessProject> roots=mapper.selectProjectRoots(query);
+            assertTrue(roots.stream().filter(p->p.getProjectId().equals(1L)).findFirst().get().isContextOnly());
+            assertEquals(1,mapper.countRelatedProjectOwner(1L,10L));
+            query.put("projectId",1L);
+            assertTrue(mapper.selectProjectList(query).stream().noneMatch(p->p.getProjectId().equals(1L)));
+        }
+    }
+
+    @Test void parentDeputyApplicantDoesNotInheritChildAccess() throws Exception {
         try (SqlSession session=factory.openSession();Statement sql=session.getConnection().createStatement()) {
             sql.execute("insert into biz_project_member(member_id,project_id,user_id,member_role,status) values(999,1,7,'DEPUTY','0')");
             sql.execute("update biz_project set applicant_user_id=7 where project_id=10");
             BusinessProjectMapper mapper=session.getMapper(BusinessProjectMapper.class);
             Map<String,Object> query=query(7L,false,false,"Needle");
-            assertEquals(10L,mapper.selectProjectRoots(query).get(0).getMatchedChildId());
+            assertTrue(mapper.selectProjectRoots(query).isEmpty());
             query.remove("keyword");query.put("parentId",1L);
-            assertEquals(1,mapper.selectProjectList(query).size());
+            assertTrue(mapper.selectProjectList(query).isEmpty());
         }
     }
 

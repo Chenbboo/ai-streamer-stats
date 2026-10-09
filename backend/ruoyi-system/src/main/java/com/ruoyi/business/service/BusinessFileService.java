@@ -43,7 +43,6 @@ import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.file.FileUploadUtils;
 import com.ruoyi.business.domain.BusinessProject;
 import com.ruoyi.business.mapper.BusinessProjectMapper;
-import com.ruoyi.business.support.BusinessProjectReadAccess;
 
 /**
  * 公司经营模块统一附件上传：保留原件，并为图片生成 WebP 预览与缩略图。
@@ -288,9 +287,7 @@ public class BusinessFileService
 
     private boolean hasProjectReadAccess(Long projectId, Long userId, boolean boss, boolean admin)
     {
-        if (hasProjectAccess(projectId, userId, boss, admin)) return true;
-        BusinessProject project = projectMapper.selectProjectById(projectId);
-        return BusinessProjectReadAccess.isParentOwner(project, userId, projectMapper);
+        return hasProjectAccess(projectId, userId, boss, admin);
     }
 
     private void validateFileSignature(MultipartFile file, String extension) throws Exception

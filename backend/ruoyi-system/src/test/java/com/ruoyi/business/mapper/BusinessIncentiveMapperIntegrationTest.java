@@ -74,6 +74,8 @@ class BusinessIncentiveMapperIntegrationTest
         Matcher allocationProposalColumn=Pattern.compile("alter table biz_incentive_award add column allocation_proposal_json mediumtext default null").matcher(allocationProposalDdl);
         if (!allocationProposalColumn.find()) throw new AssertionError("Missing award allocation proposal column migration");
         execute(allocationProposalColumn.group());
+        execute("alter table biz_incentive_award add column attachment_urls text default null");
+        execute("alter table biz_incentive_award add column application_month varchar(7)");
         String monthlyDdl=new String(Files.readAllBytes(migration().resolveSibling("V141__monthly_incentive_settlement.sql")),StandardCharsets.UTF_8);
         Matcher monthlyColumn=Pattern.compile("alter table biz_incentive_rule add column settlement_month varchar\\(7\\) default null").matcher(monthlyDdl);
         if(!monthlyColumn.find())throw new AssertionError("Missing monthly incentive migration");
@@ -115,15 +117,15 @@ class BusinessIncentiveMapperIntegrationTest
         }
     }
 
-    @Test void parentOwnerSeesOnlyOwnChildInIncentiveAndDistributionDirectories() throws Exception
+    @Test void parentOwnerDirectoriesExcludeChildProjects() throws Exception
     {
         execute("insert into biz_project values(4,'P4','Child','ACTIVE',120,'VND','OPEN',19,18,18,'0',current_timestamp,1)");
         try(SqlSession session=factory.openSession(false))
         {
             BusinessIncentiveMapper incentives=session.getMapper(BusinessIncentiveMapper.class);
             BusinessBonusDistributionMapper distributions=session.getMapper(BusinessBonusDistributionMapper.class);
-            assertEquals(2,incentives.selectProjects(9L,false).size());
-            assertEquals(2,distributions.projects(9L,false,false).size());
+            assertEquals(1,incentives.selectProjects(9L,false).size());
+            assertEquals(1,distributions.projects(9L,false,false).size());
             assertEquals(0,incentives.selectProjects(10L,false).size());
             assertEquals(0,distributions.projects(10L,false,false).size());
         }

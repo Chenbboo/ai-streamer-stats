@@ -1,4 +1,14 @@
 {
+  "奖励方案（可选）": "Phương án thưởng (tùy chọn)",
+  "直接填写奖励金额，或选择方案": "Nhập trực tiếp số tiền thưởng hoặc chọn phương án",
+  "可直接填写奖励金额新建申请。": "Có thể tạo đề nghị bằng cách nhập trực tiếp số tiền thưởng.",
+  "启动": "Khởi động",
+  "KPI已启动": "KPI đã được khởi động",
+  "KPI已暂停": "KPI đã tạm dừng",
+  "KPI已暂停，结项不再要求完成此指标": "KPI đã tạm dừng; không cần hoàn thành chỉ tiêu này để kết thúc dự án",
+  "暂停的KPI不作为结项必要条件": "KPI tạm dừng không phải điều kiện bắt buộc để kết thúc dự án",
+  "可以继续办理项目结项；启动指标后恢复完成校验。": "Có thể tiếp tục kết thúc dự án; khi khởi động lại chỉ tiêu, yêu cầu hoàn thành sẽ được áp dụng lại.",
+  "进入KPI设置": "Mở cài đặt KPI",
   "选择采购单，追加商品": "Chọn phiếu mua để thêm sản phẩm",
   "可连续选择同达人、同供应商的采购单追加商品，不替换已有明细；每行保留原采购单，同一商品跨单合计不得超过可用库存。": "Có thể chọn liên tiếp phiếu mua của cùng người giới thiệu và nhà cung cấp để thêm sản phẩm, không thay thế chi tiết hiện có; mỗi dòng giữ phiếu mua gốc, tổng số lượng trả của cùng sản phẩm không được vượt tồn kho khả dụng.",
   "采购单正在加载，请稍后再保存": "Đang tải phiếu mua, vui lòng lưu sau",
@@ -3644,7 +3654,7 @@
   "部分子项目读取失败，请刷新重试": "Một số dự án con không đọc được, vui lòng làm mới và thử lại.",
   "暂无匹配的主项目或子项目": "Không có dự án chính hoặc dự án phụ nào phù hợp.",
   "项目名": "Tên dự án",
-  "仅显示基本信息，详情按项目权限开放": "Chỉ hiển thị thông tin cơ bản, chi tiết được mở theo quyền của dự án",
+  "仅显示基本信息": "Chỉ hiển thị thông tin cơ bản",
   "交付 / 核算": "Giao hàng/Kế toán",
   "成员 / 风险": "Thành viên/Rủi ro",
   "查看{0}成员和风险详情": "Xem {0} thành viên và chi tiết rủi ro",
@@ -8689,5 +8699,7 @@
   "导入的成品、赠品或福利不符合当前达人和供应商": "Thành phẩm, quà tặng hoặc hàng ưu đãi được nhập không phù hợp với người bán và nhà cung cấp hiện tại",
   "成品、赠品或福利采购入库请先选择达人/主播": "Hãy chọn người bán/streamer trước khi nhập thành phẩm, quà tặng hoặc hàng ưu đãi",
   "成品、赠品或福利必须已绑定当前达人和供应商，请重新选择": "Thành phẩm, quà tặng hoặc hàng ưu đãi phải liên kết với người bán và nhà cung cấp hiện tại; hãy chọn lại",
-  "可新建或绑定成品、赠品和福利商品。直播价、成本价、供应商、采购单价、佣金及费用按达人分别保存；成品、赠品和福利商品采购入库时均按达人及供应商选择；福利商品只允许独立销售，不能参与搭售组合。": "Có thể tạo hoặc liên kết thành phẩm, quà tặng và hàng ưu đãi. Giá livestream, giá vốn, nhà cung cấp, giá nhập, hoa hồng và phí được lưu riêng theo người bán. Khi nhập các loại này, phải chọn người bán và nhà cung cấp. Hàng ưu đãi chỉ được bán riêng, không được đưa vào nhóm bán kèm."
+  "可新建或绑定成品、赠品和福利商品。直播价、成本价、供应商、采购单价、佣金及费用按达人分别保存；成品、赠品和福利商品采购入库时均按达人及供应商选择；福利商品只允许独立销售，不能参与搭售组合。": "Có thể tạo hoặc liên kết thành phẩm, quà tặng và hàng ưu đãi. Giá livestream, giá vốn, nhà cung cấp, giá nhập, hoa hồng và phí được lưu riêng theo người bán. Khi nhập các loại này, phải chọn người bán và nhà cung cấp. Hàng ưu đãi chỉ được bán riêng, không được đưa vào nhóm bán kèm.",
+  "忽略": "Bỏ qua",
+  "已忽略": "Đã bỏ qua"
 }

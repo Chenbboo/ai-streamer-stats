@@ -109,6 +109,8 @@ class BusinessIncentiveAwardRuleDetailsTest
             sql.execute("create table biz_incentive_rule(rule_id bigint,project_id bigint,rule_version int,policy_version varchar(32),currency varchar(3),after_tax_profit decimal(18,2),main_owner_bonus_rate decimal(7,4),sponsor_owner_bonus_rate decimal(7,4),reason varchar(500),status varchar(20))");
             sql.execute("create table biz_incentive_award(award_id bigint auto_increment,project_id bigint,company_dept_id bigint,rule_id bigint,rule_version int,rule_name varchar(100),policy_version varchar(32),settlement_id bigint,score_snapshot decimal(6,2),amount decimal(18,2),currency varchar(3),biz_date date,reason varchar(500),request_key varchar(64),status varchar(20),applicant_user_id bigint,applicant_user_name varchar(100),approved_user_id bigint,approved_user_name varchar(100),approved_time timestamp,accounting_fact_id bigint,review_comment varchar(500),version int,create_by varchar(100),create_time timestamp,update_by varchar(100),update_time timestamp)");
             sql.execute("alter table biz_incentive_award add column allocation_proposal_json clob");
+            sql.execute("alter table biz_incentive_award add column attachment_urls clob");
+            sql.execute("alter table biz_incentive_award add column application_month varchar(7)");
             sql.execute("create table biz_operating_fact(fact_id bigint,status varchar(20))");
             sql.execute("create table sys_user(user_id bigint,nick_name varchar(100),user_name varchar(100),del_flag char(1))");
             sql.execute("insert into biz_incentive_rule values(11,1,1,'PROFIT_SHARE_V1','CNY',10000,40,60,'原方案依据','RETIRED'),(12,1,2,'PROFIT_SHARE_V1','CNY',99000,10,20,'新版方案依据','ACTIVE')");

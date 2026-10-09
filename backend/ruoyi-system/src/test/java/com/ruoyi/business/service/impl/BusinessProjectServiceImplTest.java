@@ -1,5 +1,7 @@
 package com.ruoyi.business.service.impl;
 
+import static org.junit.jupiter.api.Assertions.assertNull;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -1340,7 +1342,7 @@ class BusinessProjectServiceImplTest
         when(mapper.selectNextAcceptanceVersion(71L)).thenReturn(2);
         doAnswer(invocation -> { ((BusinessProjectAcceptance)invocation.getArgument(0)).setAcceptanceId(61L); return 1; })
             .when(mapper).insertAcceptance(any());
-        when(kpiMapper.selectPlanSummaries(71L)).thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
+        lenient().when(kpiMapper.selectPlanSummaries(71L)).thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
         when(mapper.updateProjectStatus(71L, "ACTIVE", "ACCEPTANCE", null, false, "owner9", 0)).thenReturn(1);
 
         BusinessProjectAcceptance evidence = new BusinessProjectAcceptance();
@@ -1520,7 +1522,7 @@ class BusinessProjectServiceImplTest
         when(mapper.selectMilestones(79L)).thenReturn(Collections.singletonList(milestone));
         when(mapper.selectRisks(79L)).thenReturn(Collections.emptyList());
         when(mapper.selectTasks(79L)).thenReturn(Collections.singletonList(completedTask("阶段交付")));
-        when(kpiMapper.selectPlanSummaries(79L))
+        lenient().when(kpiMapper.selectPlanSummaries(79L))
             .thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
         when(mapper.updateProjectStatus(79L, "ACTIVE", "ACCEPTANCE", null, false, "owner9", 0)).thenReturn(1);
 
@@ -1557,7 +1559,7 @@ class BusinessProjectServiceImplTest
         when(mapper.selectProjectById(880L)).thenReturn(parent);
         when(mapper.selectTasks(88L)).thenReturn(Collections.singletonList(completedTask("子项目交付")));
         when(mapper.selectRisks(88L)).thenReturn(Collections.emptyList());
-        when(kpiMapper.selectPlanSummaries(88L)).thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
+        lenient().when(kpiMapper.selectPlanSummaries(88L)).thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
         when(mapper.updateProjectStatus(88L, "ACCEPTANCE", "CLOSED", null, false, "parent8", 0)).thenReturn(1);
         when(mapper.closeAccounting(88L, 1, "parent8")).thenReturn(1);
 
@@ -1810,7 +1812,7 @@ class BusinessProjectServiceImplTest
         when(mapper.selectTasks(85L)).thenReturn(Collections.singletonList(completedTask("子项目交付")));
         when(mapper.selectMilestones(85L)).thenReturn(Collections.emptyList());
         when(mapper.selectRisks(85L)).thenReturn(Collections.emptyList());
-        when(kpiMapper.selectPlanSummaries(85L)).thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
+        lenient().when(kpiMapper.selectPlanSummaries(85L)).thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
         when(mapper.selectActiveUserById(8L)).thenReturn(reviewer);
         when(mapper.reviewAcceptance(8500L, "APPROVED", 8L, "主负责人八", "验收通过", "parent8")).thenReturn(1);
         when(mapper.updateProjectStatus(85L, "ACCEPTANCE", "CLOSED", null, false, "parent8", 0)).thenReturn(1);
@@ -1818,6 +1820,7 @@ class BusinessProjectServiceImplTest
         BusinessProject result = service.reviewAcceptance(85L, "APPROVED", "验收通过", 8L, "parent8", false);
 
         assertEquals("CLOSED", result.getStatus());
+        assertTrue(result.isContextOnly());assertNull(result.getMainOwnerUserId());
         verify(mapper).reviewAcceptance(8500L, "APPROVED", 8L, "主负责人八", "验收通过", "parent8");
     }
 
@@ -1869,7 +1872,7 @@ class BusinessProjectServiceImplTest
         when(mapper.selectMilestones(80L)).thenReturn(Collections.singletonList(milestone));
         when(mapper.selectTasks(80L)).thenReturn(Collections.singletonList(completedTask("阶段交付")));
         when(mapper.selectRisks(80L)).thenReturn(Collections.emptyList());
-        when(kpiMapper.selectPlanSummaries(80L))
+        lenient().when(kpiMapper.selectPlanSummaries(80L))
             .thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
         when(mapper.updateProjectStatus(80L, "ACCEPTANCE", "CLOSED", null, false, "boss8", 0)).thenReturn(1);
 
@@ -1889,7 +1892,7 @@ class BusinessProjectServiceImplTest
         BusinessProject project = project(81L, 9L, "ACTIVE", "APPROVED");
         project.setInitiatorUserId(8L);
         when(mapper.selectProjectById(81L)).thenReturn(project);
-        when(kpiMapper.selectPlanSummaries(81L))
+        lenient().when(kpiMapper.selectPlanSummaries(81L))
             .thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
         when(mapper.selectTasks(81L)).thenReturn(Collections.singletonList(completedTask("项目交付")));
         when(mapper.selectMilestones(81L)).thenReturn(Collections.emptyList());
@@ -2320,7 +2323,7 @@ class BusinessProjectServiceImplTest
         when(mapper.selectTasks(76L)).thenReturn(Collections.singletonList(completedTask("项目交付")));
         when(mapper.selectMilestones(76L)).thenReturn(Collections.emptyList());
         when(mapper.selectRisks(76L)).thenReturn(Collections.emptyList());
-        when(kpiMapper.selectPlanSummaries(76L))
+        lenient().when(kpiMapper.selectPlanSummaries(76L))
             .thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
         when(mapper.updateProjectStatus(76L, "ACTIVE", "CLOSED", null, false, "boss8", 0)).thenReturn(1);
 
@@ -2335,76 +2338,6 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
-    void projectWithoutPublishedKpiPlanCannotClose()
-    {
-        BusinessProject project = project(77L, 9L, "ACTIVE", "APPROVED");
-        project.setInitiatorUserId(8L);
-        when(mapper.selectProjectById(77L)).thenReturn(project);
-        when(kpiMapper.selectPlanSummaries(77L)).thenReturn(Collections.emptyList());
-
-        ServiceException error = assertThrows(ServiceException.class,
-            () -> service.transition(77L, "CLOSE", "目标已完成", 8L, "boss8", true));
-
-        assertTrue(error.getMessage().contains("尚未发布KPI方案"));
-        verify(mapper, never()).updateProjectStatus(any(), any(), any(), any(),
-            org.mockito.ArgumentMatchers.anyBoolean(), any(), any());
-    }
-
-    @Test
-    void dueDraftKpiSettlementCannotClose()
-    {
-        BusinessProject project = project(78L, 9L, "ACTIVE", "APPROVED");
-        project.setInitiatorUserId(8L);
-        when(mapper.selectProjectById(78L)).thenReturn(project);
-        when(kpiMapper.selectPlanSummaries(78L))
-            .thenReturn(Collections.singletonList(publishedKpiPlan("DRAFT")));
-
-        ServiceException error = assertThrows(ServiceException.class,
-            () -> service.transition(78L, "CLOSE", "目标已完成", 8L, "boss8", true));
-
-        assertTrue(error.getMessage().contains("负责人尚未提交"));
-        verify(mapper, never()).updateProjectStatus(any(), any(), any(), any(),
-            org.mockito.ArgumentMatchers.anyBoolean(), any(), any());
-    }
-
-    @Test
-    void dueReturnedKpiSettlementCannotClose()
-    {
-        BusinessProject project = project(79L, 9L, "ACTIVE", "APPROVED");
-        project.setInitiatorUserId(8L);
-        when(mapper.selectProjectById(79L)).thenReturn(project);
-        when(kpiMapper.selectPlanSummaries(79L))
-            .thenReturn(Collections.singletonList(publishedKpiPlan("RETURNED")));
-
-        ServiceException error = assertThrows(ServiceException.class,
-            () -> service.transition(79L, "CLOSE", "目标已完成", 8L, "boss8", true));
-
-        assertTrue(error.getMessage().contains("被退回"));
-        verify(mapper, never()).updateProjectStatus(any(), any(), any(), any(),
-            org.mockito.ArgumentMatchers.anyBoolean(), any(), any());
-    }
-
-    @Test
-    void unfinishedFutureKpiPeriodBlocksSeparatedDeliveryClose()
-    {
-        BusinessProject project = project(80L, 9L, "ACTIVE", "APPROVED");
-        project.setInitiatorUserId(8L);
-        project.setDeliveryPolicyVersion("SEPARATED_V1");
-        project.setAccountingState("OPEN");
-        Map<String, Object> futurePlan = publishedKpiPlan("DRAFT");
-        futurePlan.put("cycleEnd", new Date(System.currentTimeMillis() + 172800000L));
-        when(mapper.selectProjectById(80L)).thenReturn(project);
-        when(kpiMapper.selectPlanSummaries(80L)).thenReturn(Collections.singletonList(futurePlan));
-
-        ServiceException error = assertThrows(ServiceException.class,
-            () -> service.transition(80L, "CLOSE", "目标已完成", 8L, "boss8", true));
-
-        assertTrue(error.getMessage().contains("KPI考核周期未结束"));
-        verify(mapper, never()).updateProjectStatus(any(), any(), any(), any(),
-            org.mockito.ArgumentMatchers.anyBoolean(), any(), any());
-    }
-
-    @Test
     void confirmedEarlyKpiAllowsSeparatedDeliveryClose()
     {
         BusinessProject project = project(801L, 9L, "ACTIVE", "APPROVED");
@@ -2413,11 +2346,51 @@ class BusinessProjectServiceImplTest
         confirmedPlan.put("cycleEnd", new Date(System.currentTimeMillis() + 172800000L));
         when(mapper.selectProjectById(801L)).thenReturn(project);
         when(mapper.selectTasks(801L)).thenReturn(Collections.singletonList(completedTask("项目交付")));
-        when(kpiMapper.selectPlanSummaries(801L)).thenReturn(Collections.singletonList(confirmedPlan));
+        lenient().when(kpiMapper.selectPlanSummaries(801L)).thenReturn(Collections.singletonList(confirmedPlan));
         when(mapper.updateProjectStatus(801L, "ACTIVE", "CLOSED", null, false, "boss8", 0)).thenReturn(1);
         when(mapper.closeAccounting(801L, 1, "boss8")).thenReturn(1);
 
         service.transition(801L, "CLOSE", "KPI已提前达标", 8L, "boss8", true);
+
+        verify(mapper).updateProjectStatus(801L, "ACTIVE", "CLOSED", null, false, "boss8", 0);
+        verify(accountingService).closeProjectAccounting(eq(801L), any(Date.class), eq("boss8"));
+        verify(mapper).closeAccounting(801L, 1, "boss8");
+    }
+
+    @Test
+    void unfinishedFutureKpiDoesNotBlockProjectClose()
+    {
+        BusinessProject project = project(801L, 9L, "ACTIVE", "APPROVED");
+        project.setInitiatorUserId(8L);project.setDeliveryPolicyVersion("SEPARATED_V1");project.setAccountingState("OPEN");
+        Map<String, Object> confirmedPlan = publishedKpiPlan("DRAFT");
+        confirmedPlan.put("cycleEnd", new Date(System.currentTimeMillis() + 172800000L));
+        when(mapper.selectProjectById(801L)).thenReturn(project);
+        when(mapper.selectTasks(801L)).thenReturn(Collections.singletonList(completedTask("项目交付")));
+        lenient().when(kpiMapper.selectPlanSummaries(801L)).thenReturn(Collections.singletonList(confirmedPlan));
+        when(mapper.updateProjectStatus(801L, "ACTIVE", "CLOSED", null, false, "boss8", 0)).thenReturn(1);
+        when(mapper.closeAccounting(801L, 1, "boss8")).thenReturn(1);
+
+        service.transition(801L, "CLOSE", "项目交付已完成", 8L, "boss8", true);
+
+        verify(mapper).updateProjectStatus(801L, "ACTIVE", "CLOSED", null, false, "boss8", 0);
+        verify(accountingService).closeProjectAccounting(eq(801L), any(Date.class), eq("boss8"));
+        verify(mapper).closeAccounting(801L, 1, "boss8");
+    }
+
+    @Test
+    void projectWithoutTasksOrRoutineRecordsCanClose()
+    {
+        BusinessProject project = project(801L, 9L, "ACTIVE", "APPROVED");
+        project.setInitiatorUserId(8L);project.setDeliveryPolicyVersion("SEPARATED_V1");project.setAccountingState("OPEN");
+        Map<String, Object> confirmedPlan = publishedKpiPlan("DRAFT");
+        confirmedPlan.put("cycleEnd", new Date(System.currentTimeMillis() + 172800000L));
+        when(mapper.selectProjectById(801L)).thenReturn(project);
+        when(mapper.selectTasks(801L)).thenReturn(Collections.emptyList());
+        lenient().when(kpiMapper.selectPlanSummaries(801L)).thenReturn(Collections.singletonList(confirmedPlan));
+        when(mapper.updateProjectStatus(801L, "ACTIVE", "CLOSED", null, false, "boss8", 0)).thenReturn(1);
+        when(mapper.closeAccounting(801L, 1, "boss8")).thenReturn(1);
+
+        service.transition(801L, "CLOSE", "项目交付已完成", 8L, "boss8", true);
 
         verify(mapper).updateProjectStatus(801L, "ACTIVE", "CLOSED", null, false, "boss8", 0);
         verify(accountingService).closeProjectAccounting(eq(801L), any(Date.class), eq("boss8"));
@@ -2443,7 +2416,7 @@ class BusinessProjectServiceImplTest
         when(mapper.selectTasks(72L)).thenReturn(Collections.singletonList(done));
         when(mapper.selectMilestones(72L)).thenReturn(Collections.emptyList());
         when(mapper.selectRisks(72L)).thenReturn(Collections.emptyList());
-        when(kpiMapper.selectPlanSummaries(72L))
+        lenient().when(kpiMapper.selectPlanSummaries(72L))
             .thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
         when(mapper.selectActiveUserById(8L)).thenReturn(boss);
         when(mapper.reviewAcceptance(700L, "APPROVED", 8L, "老板八", "同意验收", "boss8")).thenReturn(1);
@@ -2456,30 +2429,34 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
-    void dueSubmittedKpiSettlementBlocksAcceptanceApproval()
+    void submittedKpiDoesNotBlockAcceptanceApproval()
     {
-        BusinessProject pendingProject = project(73L, 9L, "ACCEPTANCE", "APPROVED");
+        BusinessProject pendingProject = project(72L, 9L, "ACCEPTANCE", "APPROVED");
         pendingProject.setCloseMethod("RESULT_ACCEPTANCE");
         pendingProject.setInitiatorUserId(8L);
+        BusinessProject closedProject = project(72L, 9L, "CLOSED", "APPROVED");
+        closedProject.setInitiatorUserId(8L);
         BusinessProjectAcceptance pending = new BusinessProjectAcceptance();
-        pending.setAcceptanceId(701L);
+        pending.setAcceptanceId(700L);
         BusinessProjectTask done = new BusinessProjectTask();
         done.setStatus("DONE");
-        when(mapper.selectProjectById(73L)).thenReturn(pendingProject);
-        when(mapper.selectLatestPendingAcceptance(73L)).thenReturn(pending);
-        when(mapper.selectTasks(73L)).thenReturn(Collections.singletonList(done));
-        when(mapper.selectMilestones(73L)).thenReturn(Collections.emptyList());
-        when(mapper.selectRisks(73L)).thenReturn(Collections.emptyList());
-        when(kpiMapper.selectPlanSummaries(73L))
+        Map<String, Object> boss = new HashMap<String, Object>();
+        boss.put("nickName", "老板八");
+        when(mapper.selectProjectById(72L)).thenReturn(pendingProject, closedProject);
+        when(mapper.selectLatestPendingAcceptance(72L)).thenReturn(pending);
+        when(mapper.selectTasks(72L)).thenReturn(Collections.singletonList(done));
+        when(mapper.selectMilestones(72L)).thenReturn(Collections.emptyList());
+        when(mapper.selectRisks(72L)).thenReturn(Collections.emptyList());
+        lenient().when(kpiMapper.selectPlanSummaries(72L))
             .thenReturn(Collections.singletonList(publishedKpiPlan("SUBMITTED")));
+        when(mapper.selectActiveUserById(8L)).thenReturn(boss);
+        when(mapper.reviewAcceptance(700L, "APPROVED", 8L, "老板八", "同意验收", "boss8")).thenReturn(1);
+        when(mapper.updateProjectStatus(72L, "ACCEPTANCE", "CLOSED", null, false, "boss8", 0)).thenReturn(1);
 
-        ServiceException error = assertThrows(ServiceException.class,
-            () -> service.reviewAcceptance(73L, "APPROVED", "同意验收", 8L, "boss8", true));
+        BusinessProject result = service.reviewAcceptance(72L, "APPROVED", "同意验收", 8L, "boss8", true);
 
-        assertTrue(error.getMessage().contains("待老板确认"));
-        verify(mapper, never()).reviewAcceptance(any(), any(), any(), any(), any(), any());
-        verify(mapper, never()).updateProjectStatus(any(), any(), any(), any(),
-            org.mockito.ArgumentMatchers.anyBoolean(), any(), any());
+        assertEquals("CLOSED", result.getStatus());
+        verify(mapper).insertEvent(any());
     }
 
     @Test
@@ -2508,25 +2485,34 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
-    void parentOwnerCanSeeChildProjectRawStaffCost()
+    void parentAndChildOwnersCannotReadEachOthersDetailsEvenWhenApplicant()
     {
         BusinessProject child = project(82L, 30L, "ACTIVE", "APPROVED");
-        child.setParentId(13L);
+        child.setParentId(13L);child.setApplicantUserId(9L);
         BusinessProject parent = project(13L, 9L, "ACTIVE", "APPROVED");
-        Map<String, Object> allocation = new HashMap<String, Object>();
-        allocation.put("userId", 30L);
-        allocation.put("unitCost", new BigDecimal("800"));
         when(mapper.selectProjectById(82L)).thenReturn(child);
         when(mapper.selectProjectById(13L)).thenReturn(parent);
-        when(mapper.selectProjectStaffAllocations(82L)).thenReturn(Collections.singletonList(allocation));
-        when(mapper.selectProjectKpis(82L)).thenReturn(Collections.emptyList());
-        when(mapper.selectBudgetHistory(82L)).thenReturn(Collections.emptyList());
+        assertThrows(ServiceException.class,()->service.getProject(82L,9L,false,false));
+        assertThrows(ServiceException.class,()->service.operatingConfig(82L,9L,false,false));
+        assertThrows(ServiceException.class,()->service.getProject(13L,30L,false,false));
+        assertThrows(ServiceException.class,()->service.operatingConfig(13L,30L,false,false));
+        verify(mapper,never()).selectProjectStaffAllocations(anyLong());
+        verify(mapper,never()).selectBudgetHistory(anyLong());
+    }
 
-        Map<String, Object> config = service.operatingConfig(82L, 9L, false, false);
-
-        Map<?, ?> visible = ((List<Map<String, Object>>) config.get("staffAllocations")).get(0);
-        assertEquals(new BigDecimal("800"), visible.get("unitCost"));
-        assertEquals(true, config.get("rawCostVisible"));
+    @Test
+    void childDirectoryOnlyReturnsBasicInformationToParentOwner()
+    {
+        BusinessProject parent=project(13L,9L,"ACTIVE","APPROVED");
+        BusinessProject child=project(82L,30L,"ACTIVE","APPROVED");
+        child.setParentId(13L);child.setContextOnly(true);
+        child.setBudgetLimit(new BigDecimal("8000"));child.setObjective("private details");
+        when(mapper.selectProjectById(13L)).thenReturn(parent);
+        when(mapper.selectProjectList(any())).thenReturn(new java.util.ArrayList<>(Collections.singletonList(child)));
+        BusinessProject visible=service.projectChildren(13L,9L,false,false).get(0);
+        assertEquals(82L,visible.getProjectId());assertEquals(13L,visible.getParentId());
+        assertTrue(visible.isContextOnly());assertFalse(visible.isManageable());
+        assertNull(visible.getBudgetLimit());assertNull(visible.getObjective());
     }
 
     @Test
@@ -2623,7 +2609,9 @@ class BusinessProjectServiceImplTest
             when(mapper.selectMemberRole(15L,9L)).thenReturn("OWNER");
             when(mapper.selectActiveUserById(10L)).thenReturn(Collections.singletonMap("nickName","子负责人"));
         }
-        BusinessProject created=service.createApprovedProject(proposal,9L,"owner");ArgumentCaptor<Map<String,Object>> baseline=mapCaptor();verify(workMapper).insertBaseline(baseline.capture());
+        BusinessProject response=service.createApprovedProject(proposal,9L,"owner");
+        if(subproject){assertTrue(response.isContextOnly());assertNull(response.getBudgetLimit());assertNull(response.getMainOwnerUserId());}
+        BusinessProject created=stored[0];ArgumentCaptor<Map<String,Object>> baseline=mapCaptor();verify(workMapper).insertBaseline(baseline.capture());
         assertEquals(Integer.valueOf(1),created.getBaselineVersion());assertEquals(created.getBaselineVersion(),baseline.getValue().get("baselineVersion"));assertEquals("MEMBER_DAYS_V1",created.getCostPolicyVersion());
         assertEquals(subproject ? Long.valueOf(15) : null,created.getParentId());
         assertEquals(88L,baseline.getValue().get("projectId"));
@@ -3298,12 +3286,12 @@ class BusinessProjectServiceImplTest
         p.setDeliveryPolicyVersion("SEPARATED_V1"); p.setAccountingState("OPEN");
         when(mapper.selectProjectById(900L)).thenReturn(p);
         when(mapper.selectTasks(900L)).thenReturn(Collections.singletonList(completedTask("交付")));
-        when(kpiMapper.selectPlanSummaries(900L))
+        lenient().when(kpiMapper.selectPlanSummaries(900L))
             .thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
         when(mapper.updateProjectStatus(900L, "ACTIVE", "CLOSED", null, false, "boss8", 0)).thenReturn(1);
         when(mapper.closeAccounting(900L, 1, "boss8")).thenReturn(1);
         service.transition(900L, "CLOSE", "完成交付并冻结", 8L, "boss8", true);
-        verify(kpiMapper).selectPlanSummaries(900L);
+        verify(kpiMapper, never()).selectPlanSummaries(900L);
         verify(accountingService, never()).ensureProjectCanClose(900L);
         verify(accountingService).closeProjectAccounting(eq(900L), any(Date.class), eq("boss8"));
         verify(mapper).closeAccounting(900L, 1, "boss8");
@@ -3428,7 +3416,7 @@ class BusinessProjectServiceImplTest
         p.setSponsorOwnerUserId(8L); p.setDeliveryPolicyVersion("SEPARATED_V1"); p.setAccountingState("OPEN");
         when(mapper.selectProjectById(910L)).thenReturn(p);
         when(mapper.selectTasks(910L)).thenReturn(Collections.singletonList(completedTask("最终交付")));
-        when(kpiMapper.selectPlanSummaries(910L))
+        lenient().when(kpiMapper.selectPlanSummaries(910L))
             .thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
         when(mapper.updateProjectStatus(910L, "ACTIVE", "CLOSED", null, false, "boss8", 0)).thenReturn(1);
         when(mapper.closeAccounting(910L, 1, "boss8")).thenReturn(1);
@@ -3511,13 +3499,12 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
-    void deliveryEndCannotBypassUnconfirmedKpiOrUnfinishedTasksOrPendingFacts()
+    void deliveryEndAllowsUnconfirmedKpiButStillChecksTasksAndFacts()
     {
         projectAwaitingPublicCosts(924L,"SEPARATED_V1");
-        when(kpiMapper.selectPlanSummaries(924L)).thenReturn(Collections.singletonList(publishedKpiPlan("PENDING")));
-        assertEquals(false,service.settlementStatus(924L,8L,false,true).get("canEndDeliveryAwaitingCosts"));
-        assertThrows(ServiceException.class,()->service.endDeliveryAwaitingCosts(924L,0,"提前结束",null,false,false,8L,"boss8",true));
-        when(kpiMapper.selectPlanSummaries(924L)).thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
+        lenient().when(kpiMapper.selectPlanSummaries(924L)).thenReturn(Collections.singletonList(publishedKpiPlan("PENDING")));
+        assertEquals(true,service.settlementStatus(924L,8L,false,true).get("canEndDeliveryAwaitingCosts"));
+        lenient().when(kpiMapper.selectPlanSummaries(924L)).thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
         BusinessProjectTask unfinished=completedTask("未完成交付");unfinished.setStatus("DOING");unfinished.setProgress(50);when(mapper.selectTasks(924L)).thenReturn(Collections.singletonList(unfinished));
         assertEquals(false,service.settlementStatus(924L,8L,false,true).get("canEndDeliveryAwaitingCosts"));
         when(mapper.selectTasks(924L)).thenReturn(Collections.singletonList(completedTask("已完成")));when(accountingMapper.countProjectUnsettledFacts(924L)).thenReturn(1);
@@ -3553,7 +3540,7 @@ class BusinessProjectServiceImplTest
         when(mapper.selectProjectById(911L)).thenReturn(p);
         when(mapper.selectLatestPendingAcceptance(911L)).thenReturn(pending);
         when(mapper.selectTasks(911L)).thenReturn(Collections.singletonList(completedTask("成果交付")));
-        when(kpiMapper.selectPlanSummaries(911L))
+        lenient().when(kpiMapper.selectPlanSummaries(911L))
             .thenReturn(Collections.singletonList(publishedKpiPlan("CONFIRMED")));
         when(mapper.selectActiveUserById(8L)).thenReturn(boss);
         when(mapper.reviewAcceptance(9110L, "APPROVED", 8L, "老板八", "验收通过", "boss8")).thenReturn(1);
@@ -3584,6 +3571,20 @@ class BusinessProjectServiceImplTest
     {
         BusinessProject p = separatedClosedProject();
         when(mapper.selectProjectById(901L)).thenReturn(p);
+        when(mapper.closeAccounting(901L, 0, "boss8")).thenReturn(1);
+        Map<String, Object> result = service.closeAccounting(901L, 0, "所有成本已核对", 8L, "boss8", true);
+        assertEquals("CLOSED", result.get("accountingState"));
+        assertEquals(1, result.get("version"));
+        verify(accountingService).closeProjectAccounting(901L, p.getActualEndDate(), "boss8");
+        verify(mapper).insertEvent(any(Map.class));
+    }
+
+    @Test
+    void pendingKpiDoesNotBlockFinalAccountingClose()
+    {
+        BusinessProject p = separatedClosedProject();
+        when(mapper.selectProjectById(901L)).thenReturn(p);
+        when(mapper.countPendingProjectKpi(901L)).thenReturn(1);
         when(mapper.closeAccounting(901L, 0, "boss8")).thenReturn(1);
         Map<String, Object> result = service.closeAccounting(901L, 0, "所有成本已核对", 8L, "boss8", true);
         assertEquals("CLOSED", result.get("accountingState"));
@@ -3802,7 +3803,7 @@ class BusinessProjectServiceImplTest
         assertTrue(context.isContextOnly()); assertEquals("XM-15", context.getProjectNo());
         assertEquals("公司A", context.getCompanyName()); assertEquals("老板A", context.getSponsorOwnerName());
         assertEquals("负责人A", context.getMainOwnerName()); assertEquals("STANDARD", context.getManagementMode());
-        assertEquals("项目目标", context.getObjective());
+        assertNull(context.getObjective());
         assertEquals(null, context.getMainOwnerUserId()); assertEquals(null, context.getBudgetLimit());
         assertEquals(16L, context.getMatchedChildId());
         assertTrue(hierarchy == page); assertEquals(25, page.getTotal());

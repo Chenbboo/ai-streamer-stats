@@ -126,3 +126,11 @@ test('parent owner receives direct links for every kind of child acceptance revi
   assert.equal(todos.every(item=>item.action==='child-acceptance'&&item.urgent),true)
   assert.match(todos[1].detail,/交付节点/)
 })
+
+test('ignoring KPI setup hides only the current owner reminder', () => {
+ const project={projectId:1,status:'ACTIVE',mainOwnerUserId:9,kpiSetupIgnoredUserId:9}
+ const input={data:{project},userId:9,permissions:['business:kpi:manage'],kpi:{canManage:true,plans:[]}}
+ assert.equal(buildOwnerTodos(input).some(row=>row.action==='kpi-settings'),false)
+ project.kpiSetupIgnoredUserId=8
+ assert.equal(buildOwnerTodos(input).some(row=>row.action==='kpi-settings'),true)
+})

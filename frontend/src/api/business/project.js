@@ -83,3 +83,7 @@ export const getProjectProgress = id => request({ url: '/business/project/progre
 export const setProjectProgressWeight = (parentId,projectId,weight) => request({ url: `/business/project/progress/${parentId}/weights/${projectId}`, method: 'put', data: {weight} })
 export const getProgressNotifications = () => request({ url: '/business/project/progress/notifications', method: 'get' })
 export const readProgressNotification = id => request({ url: '/business/project/progress/notifications/' + id + '/read', method: 'put' })
+
+export const changeBusinessProjectKpiStatus = (projectId, kpiId, action) => request({url: `/business/project/${projectId}/kpi/${kpiId}/status`,method: 'put',data:{action}})
+
+export const ignoreProjectKpiSetup = projectId => request({ url: `/business/project/${projectId}/kpi-setup/ignore`, method: 'put' })

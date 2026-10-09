@@ -32,7 +32,6 @@ import com.ruoyi.business.service.IBusinessAccountingService;
 import com.ruoyi.business.service.IBusinessProjectKpiService;
 import com.ruoyi.business.service.BusinessFileService;
 import com.ruoyi.business.support.BusinessProjectLifecycle;
-import com.ruoyi.business.support.BusinessProjectReadAccess;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.StringUtils;
 
@@ -78,10 +77,17 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         List<BusinessProjectKpi> allTargets = safe(projectMapper.selectProjectKpis(projectId));
         List<BusinessProjectKpi> currentTargets = new ArrayList<BusinessProjectKpi>();
         for (BusinessProjectKpi target : allTargets)
-            if ("CURRENT".equals(target.getStatus())) currentTargets.add(target);
+            if (Arrays.asList("CURRENT","PAUSED").contains(target.getStatus())) currentTargets.add(target);
         result.put("currentTargets", currentTargets);
         result.put("targetHistory", allTargets);
-        result.put("plans", mapper.selectPlanSummaries(projectId));
+        List<Map<String,Object>> summaries=mapper.selectPlanSummaries(projectId);
+        Set<String> paused=com.ruoyi.business.support.BusinessKpiPause.pausedCodes(allTargets);
+        if(!paused.isEmpty()) for(Map<String,Object> summary:summaries)
+        {
+            List<BusinessProjectKpiPlanItem> items=planItems(((Number)summary.get("planId")).longValue());
+            summary.put("requiredItemCount",items.stream().filter(item->!paused.contains(item.getKpiCode())).count());
+        }
+        result.put("plans", summaries);
         Long selectedPlanId = planId == null ? mapper.selectLatestPlanId(projectId) : planId;
         BusinessProjectKpiPlan selectedPlan = selectedPlanId == null ? null : requirePlan(selectedPlanId, projectId);
         if (selectedPlan != null) hydrate(selectedPlan, userId);
@@ -218,7 +224,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         if (input == null || input.getResults() == null || input.getResults().isEmpty())
             throw new ServiceException("请至少填写一项KPI结果");
 
-        List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
+        List<BusinessProjectKpiPlanItem> items = planItems(settlement.getPlanId());
         Map<Long, BusinessProjectKpiPlanItem> itemMap = itemMap(items);
         Set<Long> submittedItems = new HashSet<Long>();
         for (BusinessProjectKpiResult result : input.getResults())
@@ -227,6 +233,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
                 throw new ServiceException("KPI结果不属于当前方案");
             if (!submittedItems.add(result.getPlanItemId())) throw new ServiceException("同一KPI不能重复填报");
             BusinessProjectKpiPlanItem item = itemMap.get(result.getPlanItemId());
+            if (item.isPaused()) continue;
             if (isAutomatic(item)) throw new ServiceException("自动取数KPI不能手工覆盖");
             validateResult(result);
             businessFileService.validateReferences(result.getAttachmentUrls(), settlement.getProjectId(), userId, false, false);
@@ -265,7 +272,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         ensureProjectAllowsSettlement(project);
         if (!Arrays.asList("DRAFT", "RETURNED").contains(settlement.getStatus()))
             throw new ServiceException("当前结算状态不能提交");
-        List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
+        List<BusinessProjectKpiPlanItem> items = planItems(settlement.getPlanId());
         persistAutomaticResults(settlement, items, userId, userName);
         List<BusinessProjectKpiResult> results = mapper.selectSettlementResults(settlementId);
         requireComplete(items, results);
@@ -325,7 +332,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
             return detail(settlementId);
         }
 
-        List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
+        List<BusinessProjectKpiPlanItem> items = planItems(settlement.getPlanId());
         List<BusinessProjectKpiResult> results = mapper.selectSettlementResults(settlementId);
         requireComplete(items, results);
         if (!settlement.getPeriodEnd().before(today()) && !allTargetsMet(items, results))
@@ -344,9 +351,21 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         return detail(settlementId);
     }
 
+    private List<BusinessProjectKpiPlanItem> planItems(Long planId)
+    {
+        List<BusinessProjectKpiPlanItem> items=mapper.selectPlanItems(planId);
+        BusinessProjectKpiPlan plan=mapper.selectPlanById(planId);
+        if(plan!=null)
+        {
+            Set<String> paused=com.ruoyi.business.support.BusinessKpiPause.pausedCodes(projectMapper.selectProjectKpis(plan.getProjectId()));
+            for(BusinessProjectKpiPlanItem item:items) item.setPaused(paused.contains(item.getKpiCode()));
+        }
+        return items;
+    }
+
     private void hydrate(BusinessProjectKpiPlan plan, Long userId)
     {
-        List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(plan.getPlanId());
+        List<BusinessProjectKpiPlanItem> items = planItems(plan.getPlanId());
         List<BusinessProjectBonusTier> tiers = mapper.selectBonusTiers(plan.getPlanId());
         plan.setItems(items);
         plan.setTiers(tiers);
@@ -373,7 +392,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
     private BusinessProjectKpiSettlement detail(Long settlementId)
     {
         BusinessProjectKpiSettlement settlement = requireSettlement(settlementId);
-        List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
+        List<BusinessProjectKpiPlanItem> items = planItems(settlement.getPlanId());
         settlement.setResults(mapper.selectSettlementResults(settlementId));
         settlement.setAllTargetsMet(allTargetsMet(items, settlement.getResults()));
         return settlement;
@@ -382,7 +401,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
     private BusinessProjectKpiSettlement detailWithAutomatic(Long settlementId, Long userId, String userName)
     {
         BusinessProjectKpiSettlement settlement = requireSettlement(settlementId);
-        List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
+        List<BusinessProjectKpiPlanItem> items = planItems(settlement.getPlanId());
         List<BusinessProjectKpiResult> stored = mapper.selectSettlementResults(settlementId);
         if ("CONFIRMED".equals(settlement.getStatus()))
         {
@@ -495,6 +514,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         List<BusinessProjectKpiResult> merged = new ArrayList<BusinessProjectKpiResult>();
         for (BusinessProjectKpiPlanItem item : items)
         {
+            if(item.isPaused()) continue;
             BusinessProjectKpiResult result = storedByItem.get(item.getItemId());
             if (isAutomatic(item)) result = automaticResult(settlement, item, financialSummary, userId, userName);
             if (result != null)
@@ -513,9 +533,9 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         Map<String, Object> financialSummary = automaticFinancialSummary(settlement, items, userId);
         if (Boolean.TRUE.equals(financialSummary.get("_pendingCost")))
             for (BusinessProjectKpiPlanItem item : items)
-                if (costDependent(item)) throw new ServiceException("项目仍有投入待计价，人员成本或利润指标尚不能确认；请先完成全项目成本计价");
+                if (!item.isPaused() && costDependent(item)) throw new ServiceException("项目仍有投入待计价，人员成本或利润指标尚不能确认；请先完成全项目成本计价");
         for (BusinessProjectKpiPlanItem item : items)
-            if (isAutomatic(item)) mapper.upsertSettlementResult(
+            if (!item.isPaused() && isAutomatic(item)) mapper.upsertSettlementResult(
                 automaticResult(settlement, item, financialSummary, userId, userName));
     }
 
@@ -525,7 +545,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
     {
         boolean needed = false;
         for (BusinessProjectKpiPlanItem item : items)
-            if (Arrays.asList("REVENUE", "BUSINESS_COST", "PERSONNEL_COST", "PROFIT").contains(item.getSourceType()))
+            if (!item.isPaused() && Arrays.asList("REVENUE", "BUSINESS_COST", "PERSONNEL_COST", "PROFIT").contains(item.getSourceType()))
                 needed = true;
         if (!needed) return Collections.emptyMap();
         Map<String, Object> query = new HashMap<String, Object>();
@@ -658,7 +678,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
             throw new ServiceException("请填写非负数且不超过8位小数的正确实际值");
         if (StringUtils.isBlank(reason) || reason.trim().length() > 500)
             throw new ServiceException("请填写不超过500字的更正原因");
-        List<BusinessProjectKpiPlanItem> items = mapper.selectPlanItems(settlement.getPlanId());
+        List<BusinessProjectKpiPlanItem> items = planItems(settlement.getPlanId());
         BusinessProjectKpiPlanItem item = itemMap(items).get(planItemId);
         if (item == null || !"MANUAL".equals(item.getSourceType()))
             throw new ServiceException("只能更正本期手工填报的KPI结果");
@@ -711,6 +731,7 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         {
             BusinessProjectKpiPlanItem item = itemsById.get(result.getPlanItemId());
             if (item == null) throw new ServiceException("KPI结果与方案快照不一致");
+            if (item.isPaused()) continue;
             if (result.getActualValue() == null) return null;
             BigDecimal rate = completionRate(item, result.getActualValue());
             total = total.add(weightedScore(rate, item.getWeight()));
@@ -720,11 +741,12 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
 
     private boolean allTargetsMet(List<BusinessProjectKpiPlanItem> items, List<BusinessProjectKpiResult> results)
     {
-        if (items == null || items.isEmpty() || results == null || results.size() != items.size()) return false;
+        if (items == null || items.isEmpty() || results == null) return false;
         Map<Long, BusinessProjectKpiResult> resultsByItem = new HashMap<Long, BusinessProjectKpiResult>();
         for (BusinessProjectKpiResult result : results) resultsByItem.put(result.getPlanItemId(), result);
         for (BusinessProjectKpiPlanItem item : items)
         {
+            if(item.isPaused()) continue;
             BusinessProjectKpiResult result = resultsByItem.get(item.getItemId());
             if (result == null || result.getActualValue() == null
                 || completionRate(item, result.getActualValue()).compareTo(ONE_HUNDRED) < 0) return false;
@@ -752,16 +774,16 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
 
     private void requireComplete(List<BusinessProjectKpiPlanItem> items, List<BusinessProjectKpiResult> results)
     {
-        if (items == null || items.isEmpty() || results == null || results.size() != items.size())
-            throw new ServiceException("请完整填写所有KPI结果后再提交");
-        Set<Long> ids = new HashSet<Long>();
-        for (BusinessProjectKpiResult result : results)
+        if(items==null||items.isEmpty()||results==null) throw new ServiceException("请完整填写所有KPI结果后再提交");
+        Map<Long,BusinessProjectKpiResult> byItem=new HashMap<>();
+        for(BusinessProjectKpiResult result:results) byItem.put(result.getPlanItemId(),result);
+        for(BusinessProjectKpiPlanItem item:items)
         {
+            if(item.isPaused()) continue;
+            BusinessProjectKpiResult result=byItem.get(item.getItemId());
+            if(result==null) throw new ServiceException("请完整填写所有KPI结果后再提交");
             validateResult(result);
-            ids.add(result.getPlanItemId());
         }
-        for (BusinessProjectKpiPlanItem item : items)
-            if (!ids.contains(item.getItemId())) throw new ServiceException("请完整填写所有KPI结果后再提交");
     }
 
     private Map<Long, BusinessProjectKpiPlanItem> itemMap(List<BusinessProjectKpiPlanItem> items)
@@ -822,7 +844,6 @@ public class BusinessProjectKpiServiceImpl implements IBusinessProjectKpiService
         if (viewAll) return;
         if (boss && companyAccess.project(project, userId)) return;
         if (userId.equals(project.getMainOwnerUserId())) return;
-        if (BusinessProjectReadAccess.isParentOwner(project, userId, projectMapper)) return;
         throw new ServiceException("无权查看该项目KPI奖金");
     }
 

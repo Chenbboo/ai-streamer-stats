@@ -50,6 +50,7 @@ class BusinessIncentiveServiceImplTest
     @Mock BusinessAccountingMapper accountingMapper;
     @Mock BusinessProfitTaxService profitTax;
     @Mock BusinessBonusDistributionService distributionService;
+    @Mock com.ruoyi.business.service.BusinessFileService businessFileService;
     @InjectMocks BusinessIncentiveServiceImpl service;
     BusinessProject project;
 
@@ -107,7 +108,6 @@ class BusinessIncentiveServiceImplTest
         for(String amount:Arrays.asList("0.00","-0.01"))
         {
             when(profitTax.projectResult(1L)).thenReturn(currentProfit(amount));source.setStatus("DRAFT");
-            assertTrue(assertThrows(ServiceException.class,()->service.createAward(award("DRAFT"),9L,"owner")).getMessage().contains("税后盈利"));
             assertTrue(assertThrows(ServiceException.class,()->service.updateAward(21L,award("DRAFT"),9L,"owner")).getMessage().contains("税后盈利"));
             assertTrue(assertThrows(ServiceException.class,()->service.submit(21L,0,"提交",9L,"owner")).getMessage().contains("税后盈利"));
             source.setStatus("SUBMITTED");
@@ -230,12 +230,10 @@ class BusinessIncentiveServiceImplTest
         verify(mapper,never()).selectAwards(any());
     }
 
-    @Test void parentOwnerCanReadChildAwardsWithoutManagingOrApprovingThem()
+    @Test void parentOwnerCannotReadChildAwards()
     {
         project.setParentId(2L);BusinessProject parent=new BusinessProject();parent.setProjectId(2L);parent.setMainOwnerUserId(99L);
-        when(projectMapper.selectProjectById(2L)).thenReturn(parent);
-        Map<String,Object> result=service.workspace(1L,99L,false);
-        assertEquals(false,result.get("canManageRules"));assertEquals(false,result.get("canApply"));
+        assertThrows(com.ruoyi.common.exception.ServiceException.class,()->service.workspace(1L,99L,false));
         assertThrows(ServiceException.class,()->service.workspace(1L,88L,false));
     }
 
@@ -412,9 +410,9 @@ class BusinessIncentiveServiceImplTest
     {
         BusinessIncentiveAward existing=award("DRAFT");mockAward(existing);
         BusinessIncentiveAward input=award("DRAFT");input.setBizDate(Date.valueOf("2026-07-01"));input.setReason("更新成员分配依据");
-        when(mapper.updateAwardDraft(21L,0,input.getBizDate(),input.getReason(),null,"owner")).thenReturn(1);
+        when(mapper.updateAwardDraft(21L,0,existing.getBizDate(),input.getReason(),null,null,"owner")).thenReturn(1);
         service.updateAward(21L,input,9L,"owner");
-        verify(mapper).updateAwardDraft(21L,0,input.getBizDate(),input.getReason(),null,"owner");
+        verify(mapper).updateAwardDraft(21L,0,input.getBizDate(),input.getReason(),null,null,"owner");
         existing.setStatus("RETURNED");service.updateAward(21L,input,9L,"owner");
         existing.setStatus("SUBMITTED");assertThrows(ServiceException.class,()->service.updateAward(21L,input,9L,"owner"));
         existing.setStatus("DRAFT");assertThrows(ServiceException.class,()->service.updateAward(21L,input,8L,"boss"));
@@ -699,6 +697,23 @@ class BusinessIncentiveServiceImplTest
         a.setAmount(new BigDecimal("800.00"));a.setCurrency("CNY");a.setStatus(status);a.setVersion(0);
         a.setApplicantUserId(9L);a.setApplicantUserName("owner");a.setBizDate(Date.valueOf("2026-06-30"));
         a.setReason("交付成果已核对");a.setRequestKey("request-12345678");return a;
+    }
+
+    @Test void launchedProjectCanCreateDirectAwardWithoutProfitOrPublishedRule()
+    {
+        BusinessIncentiveAward input=award("DRAFT");input.setRuleId(null);input.setApplicationMonth("2026-09");input.setAmount(new BigDecimal("300.00"));input.setAttachmentUrls("/profile/upload/business/9/1/evidence.pdf");
+        when(mapper.nextRuleVersion(1L)).thenReturn(1);
+        doAnswer(call->{((BusinessIncentiveRule)call.getArgument(0)).setRuleId(31L);return 1;}).when(mapper).insertRule(any());
+        final BusinessIncentiveAward[] stored=new BusinessIncentiveAward[1];
+        doAnswer(call->{stored[0]=call.getArgument(0);stored[0].setAwardId(21L);stored[0].setVersion(0);return 1;}).when(mapper).insertAward(any());
+        when(mapper.selectAward(21L)).thenAnswer(call->stored[0]);
+        BusinessIncentiveAward created=service.createAward(input,9L,"owner");
+        assertEquals(new BigDecimal("300.00"),created.getAmount());assertEquals("FIXED_V1",created.getPolicyVersion());
+        assertEquals(Date.valueOf(java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"))),created.getBizDate());
+        assertEquals(input.getAttachmentUrls(),created.getAttachmentUrls());
+        verify(businessFileService).validateReferences(input.getAttachmentUrls(),1L,9L,false,false);
+        assertEquals("2026-09",created.getSettlementMonth());verify(profitTax,never()).previousMonthResult(any());
+        assertThrows(ServiceException.class,()->service.createAward(input,88L,"other"));
     }
     private BusinessProjectKpiSettlement evidence(String policy)
     {

@@ -4,6 +4,7 @@
 
     <resultMap id="ProjectResult" type="com.ruoyi.business.domain.BusinessProject">
         <id property="projectId" column="project_id"/>
+        <result property="kpiSetupIgnoredUserId" column="kpi_setup_ignored_user_id"/>
         <result property="projectNo" column="project_no"/>
         <result property="sourceProposalId" column="source_proposal_id"/>
         <result property="parentId" column="parent_id"/>
@@ -124,7 +125,7 @@
     </resultMap>
 
     <sql id="projectColumns">
-        p.project_id,p.project_no,p.source_proposal_id,p.parent_id,parent.project_name parent_name,p.company_dept_id,p.department_id,company.dept_name company_name,p.project_name,p.project_type,
+        p.project_id,p.kpi_setup_ignored_user_id,p.project_no,p.source_proposal_id,p.parent_id,parent.project_name parent_name,p.company_dept_id,p.department_id,company.dept_name company_name,p.project_name,p.project_type,
         p.accounting_mode,p.management_mode,p.close_method,p.management_reason,p.acceptance_criteria,p.goal_mode,
         p.objective,p.status,p.baseline_status,p.delivery_policy_version,p.accounting_state,p.settlement_policy_version,p.cost_policy_version,p.template_version,p.template_snapshot_json,
         p.applicant_user_id,p.applicant_name,p.sponsor_owner_user_id,p.sponsor_owner_name,p.initiator_user_id,p.initiator_name,
@@ -162,6 +163,9 @@
 
     <select id="selectProjectList" resultMap="ProjectResult">
         select <include refid="projectColumns"/>
+        <if test="hierarchyDirectory == true">,
+          case when (<include refid="hierarchyAccess"><property name="alias" value="p"/></include>) then 0 else 1 end context_only
+        </if>
         from biz_project p left join biz_project parent on parent.project_id=p.parent_id and parent.del_flag='0'
         left join sys_dept company on company.dept_id=p.company_dept_id and company.del_flag='0'
         <include refid="projectProgressJoin"/>
@@ -173,13 +177,14 @@
                 </when>
                 <when test="viewAll == true"/>
                 <when test="boss == true">
-                    and (<include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include> or parent.main_owner_user_id=#{userId} or (p.applicant_user_id=#{userId} and exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=parent.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY'))))
+                    and (<include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include><if test="hierarchyDirectory == true"> or parent.main_owner_user_id=#{userId}</if>)
                 </when>
                 <otherwise>
-                    and (p.main_owner_user_id=#{userId} or parent.main_owner_user_id=#{userId} or (p.applicant_user_id=#{userId} and exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=parent.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY'))) or exists(
+                    and (p.main_owner_user_id=#{userId}<if test="hierarchyDirectory == true"> or parent.main_owner_user_id=#{userId}</if> or exists(
                         select 1 from biz_project_member scope_member
                         where scope_member.project_id=p.project_id and scope_member.user_id=#{userId}
-                          and scope_member.status='0'))
+                          and scope_member.status='0'
+                          and not (<include refid="relatedProjectOwner"><property name="alias" value="p"/></include>)))
                 </otherwise>
             </choose>
             <if test="keyword != null and keyword != ''">
@@ -200,15 +205,37 @@
                  p.priority='HIGH' desc,p.update_time desc,p.project_id desc
     </select>
 
+    <sql id="relatedProjectOwner">
+      exists(select 1 from biz_project related_owner where related_owner.del_flag='0'
+        and related_owner.main_owner_user_id=#{userId}
+        and (related_owner.parent_id=${alias}.project_id or related_owner.project_id=${alias}.parent_id))
+    </sql>
+    <update id="ignoreKpiSetup">
+      update biz_project set kpi_setup_ignored_user_id=#{userId}
+      where project_id=#{projectId} and main_owner_user_id=#{userId} and del_flag='0'
+    </update>
+    <select id="countRelatedProjectOwner" resultType="int">
+      select count(*) from biz_project p where p.project_id=#{projectId}
+        and <include refid="relatedProjectOwner"><property name="alias" value="p"/></include>
+    </select>
     <!-- alias is a static include property, never supplied by request parameters. -->
     <sql id="hierarchyAccess">
         <choose>
             <when test="viewAll == true">1=1</when>
-            <when test="boss == true">(<include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="${alias}.company_dept_id"/><property name="capability" value="BUSINESS"/></include> or exists(select 1 from biz_project hp where hp.project_id=${alias}.parent_id and hp.del_flag='0' and (hp.main_owner_user_id=#{userId} or (${alias}.applicant_user_id=#{userId} and exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=hp.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY'))))))</when>
-            <otherwise>(${alias}.main_owner_user_id=#{userId} or exists(select 1 from biz_project hp where hp.project_id=${alias}.parent_id and hp.del_flag='0' and (hp.main_owner_user_id=#{userId} or (${alias}.applicant_user_id=#{userId} and exists(select 1 from biz_project_member creator_parent where creator_parent.project_id=hp.project_id and creator_parent.user_id=#{userId} and creator_parent.status='0' and creator_parent.member_role in('OWNER','DEPUTY'))))) or exists(
+            <when test="boss == true">(<include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="${alias}.company_dept_id"/><property name="capability" value="BUSINESS"/></include>)</when>
+            <otherwise>(${alias}.main_owner_user_id=#{userId} or exists(
                 select 1 from biz_project_member hm where hm.project_id=${alias}.project_id
-                and hm.user_id=#{userId} and hm.status='0'))</otherwise>
+                and hm.user_id=#{userId} and hm.status='0'
+                and not (<include refid="relatedProjectOwner"><property name="alias" value="${alias}"/></include>)))</otherwise>
         </choose>
+    </sql>
+
+    <!-- Directory visibility is separate from permission to read project details. -->
+    <sql id="hierarchyDirectoryAccess">
+        (<include refid="hierarchyAccess"><property name="alias" value="${alias}"/></include>
+          or exists(select 1 from biz_project directory_parent
+            where directory_parent.project_id=${alias}.parent_id and directory_parent.del_flag='0'
+              and directory_parent.main_owner_user_id=#{userId}))
     </sql>
 
     <sql id="projectOrganizationFilters">
@@ -241,7 +268,7 @@
           <choose>
             <when test="(keyword != null and keyword != '') or (status != null and status != '') or (projectType != null and projectType != '') or (managementMode != null and managementMode != '') or (closeMethod != null and closeMethod != '') or (companyDeptId != null and companyDeptId != '') or (mainOwnerDeptId != null and mainOwnerDeptId != '')">
                 (select min(c.project_id) from biz_project c where c.parent_id=p.project_id and c.del_flag='0'
-                  and (<include refid="hierarchyAccess"><property name="alias" value="c"/></include>)
+                  and (<include refid="hierarchyDirectoryAccess"><property name="alias" value="c"/></include>)
                   <include refid="hierarchyFilters"><property name="alias" value="c"/></include>)
             </when>
             <otherwise>null</otherwise>
@@ -253,7 +280,7 @@
           ((<include refid="hierarchyAccess"><property name="alias" value="p"/></include>)
             <include refid="hierarchyFilters"><property name="alias" value="p"/></include>)
           or exists(select 1 from biz_project c where c.parent_id=p.project_id and c.del_flag='0'
-            and (<include refid="hierarchyAccess"><property name="alias" value="c"/></include>)
+            and (<include refid="hierarchyDirectoryAccess"><property name="alias" value="c"/></include>)
             <include refid="hierarchyFilters"><property name="alias" value="c"/></include>))
         order by field(p.status,'PLANNING','ACTIVE','PAUSED','ACCEPTANCE','DRAFT','CLOSED','CANCELED'),
             p.priority='HIGH' desc,p.update_time desc,p.project_id desc
@@ -499,15 +526,19 @@
     </select>
     <select id="selectCurrentProjectKpi" resultType="com.ruoyi.business.domain.BusinessProjectKpi">
         select kpi_id kpiId,project_id projectId,kpi_code kpiCode,kpi_name kpiName,target_version targetVersion,status
-        from biz_project_kpi where project_id=#{projectId} and kpi_code=#{kpiCode} and status='CURRENT' limit 1
+        from biz_project_kpi where project_id=#{projectId} and kpi_code=#{kpiCode} and status in ('CURRENT','PAUSED') limit 1
     </select>
     <select id="selectNextKpiVersion" resultType="int">
         select coalesce(max(target_version),0)+1 from biz_project_kpi
         where project_id=#{projectId} and kpi_code=#{kpiCode}
     </select>
+    <update id="changeProjectKpiStatus">
+        update biz_project_kpi set status=#{to},update_by=#{userName},update_time=sysdate()
+        where project_id=#{projectId} and kpi_id=#{kpiId} and status=#{from}
+    </update>
     <update id="retireProjectKpi">
         update biz_project_kpi set status='RETIRED',effective_to=coalesce(effective_to,current_date()),
-          update_by=#{userName},update_time=sysdate() where kpi_id=#{kpiId} and status='CURRENT'
+          update_by=#{userName},update_time=sysdate() where kpi_id=#{kpiId} and status in ('CURRENT','PAUSED')
     </update>
     <insert id="insertProjectKpi" parameterType="com.ruoyi.business.domain.BusinessProjectKpi"
             useGeneratedKeys="true" keyProperty="kpiId">

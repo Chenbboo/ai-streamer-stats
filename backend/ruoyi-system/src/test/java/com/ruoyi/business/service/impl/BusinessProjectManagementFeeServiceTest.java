@@ -54,12 +54,11 @@ class BusinessProjectManagementFeeServiceTest
         assertEquals("ESTIMATED",result.get("processStatus"));
     }
 
-    @Test void parentOwnerCanReadChildManagementFeeWithoutConfiguringIt()
+    @Test void parentOwnerCannotReadChildManagementFee()
     {
         project.setParentId(2L);BusinessProject parent=new BusinessProject();parent.setProjectId(2L);parent.setMainOwnerUserId(99L);
         when(projects.selectProjectById(2L)).thenReturn(parent);
-        Map<String,Object> result=service.workspace(1L,99L,false,false);
-        assertEquals(false,result.get("canConfigure"));assertEquals(false,result.get("canPay"));
+        assertThrows(com.ruoyi.common.exception.ServiceException.class,()->service.workspace(1L,99L,false,false));
         assertThrows(RuntimeException.class,()->service.workspace(1L,88L,false,false));
     }
 

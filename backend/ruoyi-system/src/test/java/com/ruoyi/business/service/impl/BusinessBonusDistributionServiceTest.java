@@ -142,16 +142,12 @@ class BusinessBonusDistributionServiceTest
   input.getLines().get(0).setAmount(new BigDecimal("30.00"));assertFalse(service.sameApplicationAllocation(input,award));
   assertFalse(service.sameApplicationAllocation(null,award));
  }
- @Test void parentOwnerSeesFullChildDistributionWithoutPaymentOrAllocationAuthority(){
-  project.setParentId(2L);BusinessProject parent=new BusinessProject();parent.setProjectId(2L);parent.setMainOwnerUserId(99L);
-  when(projects.selectProjectById(2L)).thenReturn(parent);
-  when(mapper.projects(99L,false,false)).thenReturn(Arrays.asList(Collections.<String,Object>singletonMap("projectId",1L)));
-  when(mapper.allocations(1L)).thenReturn(Arrays.asList(batch));
-  Map<String,Object> result=service.workspace(1L,99L,false,false);
-  assertEquals(false,result.get("manager"));assertEquals(false,result.get("personal"));
-  assertEquals(false,result.get("canAllocate"));assertEquals(false,result.get("canPay"));
-  assertEquals(1,((List<?>)result.get("allocations")).size());
- }
+ @Test void parentOwnerCannotReadChildDistribution(){
+  project.setParentId(2L);
+  when(mapper.projects(99L,false,false)).thenReturn(Collections.emptyList());
+  assertThrows(ServiceException.class,()->service.workspace(1L,99L,false,false));
+  verify(mapper,never()).allocations(1L);
+    }
  @Test void onlyActualOwnerCanAllocateIncludingAdministrator(){
   for(Long actor:Arrays.asList(20L,30L,50L,1L,999L))assertThrows(ServiceException.class,()->service.save(draft(),actor,"user"));
   verify(mapper,never()).insertAllocation(any());

@@ -79,6 +79,7 @@ public interface BusinessProjectMapper
     BusinessProjectKpi selectProjectKpiById(Long kpiId);
     BusinessProjectKpi selectCurrentProjectKpi(@Param("projectId") Long projectId, @Param("kpiCode") String kpiCode);
     Integer selectNextKpiVersion(@Param("projectId") Long projectId, @Param("kpiCode") String kpiCode);
+    int changeProjectKpiStatus(@Param("projectId") Long projectId, @Param("kpiId") Long kpiId, @Param("from") String from, @Param("to") String to, @Param("userName") String userName);
     int retireProjectKpi(@Param("kpiId") Long kpiId, @Param("userName") String userName);
     int insertProjectKpi(BusinessProjectKpi kpi);
 
@@ -131,6 +132,8 @@ public interface BusinessProjectMapper
     int updateProjectOwner(@Param("projectId") Long projectId, @Param("ownerUserId") Long ownerUserId,
         @Param("ownerName") String ownerName, @Param("userName") String userName,
         @Param("version") Integer version);
+    int ignoreKpiSetup(@Param("projectId") Long projectId, @Param("userId") Long userId);
+    int countRelatedProjectOwner(@Param("projectId") Long projectId, @Param("userId") Long userId);
     String selectMemberRole(@Param("projectId") Long projectId, @Param("userId") Long userId);
     List<BusinessProjectMember> selectMembers(Long projectId);
     List<com.ruoyi.common.core.domain.entity.SysUser> selectStaffDirectory(

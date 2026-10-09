@@ -26,6 +26,9 @@ public class BusinessIncentiveAward extends BaseEntity
     @JsonFormat(pattern = "yyyy-MM-dd")
     private Date bizDate;
     private String reason;
+    private String attachmentUrls;
+    public String getAttachmentUrls() { return attachmentUrls; }
+    public void setAttachmentUrls(String value) { attachmentUrls = value; }
     private String requestKey;
     private String status;
     private Long applicantUserId;
@@ -45,10 +48,13 @@ public class BusinessIncentiveAward extends BaseEntity
     private BusinessBonusAllocation applicationAllocation;
     @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private String settlementMonth;
+    private String applicationMonth;
+    public String getApplicationMonth() { return applicationMonth; }
+    public void setApplicationMonth(String value) { applicationMonth = value; }
     @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private String bonusBlockReason;
 
-    public String getSettlementMonth() { return settlementMonth; }
+    public String getSettlementMonth() { return applicationMonth == null ? settlementMonth : applicationMonth; }
     public void setSettlementMonth(String value) { settlementMonth = value; }
     public String getBonusBlockReason() { return bonusBlockReason; }
     public void setBonusBlockReason(String value) { bonusBlockReason = value; }

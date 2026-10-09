@@ -3,7 +3,7 @@
   <el-alert v-else-if="childLoadFailed" :title="$tr(&quot;部分子项目读取失败，请刷新重试&quot;)" type="warning" :closable="false" show-icon><el-button link type="primary" @click="refresh">{{ $tr("重新加载") }}</el-button></el-alert>
   <el-table ref="tableRef" :data="visibleRows" row-key="projectId" v-loading="loading" :row-class-name="rowClass" :empty-text="$tr(&quot;暂无匹配的主项目或子项目&quot;)">
     <el-table-column :label="$tr(&quot;项目名&quot;)" min-width="220">
-      <template #default="{ row }"><div :data-project-id="row.projectId" :style="{ paddingLeft: `${row.depth * 22}px` }"><el-tag v-if="row.parentId" size="small" effect="plain" class="child-tag">{{ $tr("子项目") }}</el-tag><b>{{ row.projectName }}</b><small>{{ row.projectNo || '—' }}</small><small v-if="row.contextOnly">{{ $tr("仅显示基本信息，详情按项目权限开放") }}</small></div></template>
+      <template #default="{ row }"><div :data-project-id="row.projectId" :style="{ paddingLeft: `${row.depth * 22}px` }"><el-tag v-if="row.parentId" size="small" effect="plain" class="child-tag">{{ $tr("子项目") }}</el-tag><b>{{ row.projectName }}</b><small>{{ row.projectNo || '—' }}</small><small v-if="row.contextOnly">{{ $tr("仅显示基本信息") }}</small></div></template>
     </el-table-column>
     <el-table-column prop="companyName" :label="$tr(&quot;归属公司&quot;)" min-width="130"><template #default="{ row }">{{ row.companyName || '—' }}</template></el-table-column>
     <el-table-column :label="$tr(&quot;归属老板&quot;)" min-width="90"><template #default="{ row }">{{ row.sponsorOwnerName || row.initiatorName || '—' }}</template></el-table-column>

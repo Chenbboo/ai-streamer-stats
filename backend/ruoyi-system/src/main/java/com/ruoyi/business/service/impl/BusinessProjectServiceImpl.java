@@ -117,6 +117,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     public List<BusinessProject> listProjects(Map<String, Object> query, Long userId, boolean viewAll, boolean boss)
     {
         Map<String, Object> scoped = query == null ? new HashMap<String, Object>() : new HashMap<String, Object>(query);
+        scoped.remove("hierarchyDirectory");
         scoped.put("userId", userId);
         scoped.put("viewAll", viewAll);
         scoped.put("boss", boss);
@@ -199,24 +200,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             BusinessProject project = rows.get(index);
             if (project.isContextOnly())
             {
-                BusinessProject context = new BusinessProject();
-                context.setProjectId(project.getProjectId());
-                context.setProjectNo(project.getProjectNo());
-                context.setProjectName(project.getProjectName());
-                context.setCompanyName(project.getCompanyName());
-                context.setSponsorOwnerName(project.getSponsorOwnerName());
-                context.setInitiatorName(project.getInitiatorName());
-                context.setMainOwnerName(project.getMainOwnerName());
-                context.setManagementMode(project.getManagementMode());
-                context.setCloseMethod(project.getCloseMethod());
-                context.setProjectType(project.getProjectType());
-                context.setStatus(project.getStatus());
-                context.setAccountingMode(project.getAccountingMode());
-                context.setPlanStartDate(project.getPlanStartDate());
-                context.setPlanEndDate(project.getPlanEndDate());
-                context.setObjective(project.getObjective());
-                context.setContextOnly(true);
-                context.setMatchedChildId(project.getMatchedChildId());
+                BusinessProject context = directoryContext(project);
                 rows.set(index, context);
             }
             else decorateHierarchyProject(project, userId, boss);
@@ -231,9 +215,41 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (parent.getParentId() != null) throw new ServiceException("仅支持主项目与子项目两级结构");
         Map<String, Object> query = new HashMap<>();
         query.put("parentId", parentId);
-        List<BusinessProject> rows = listProjects(query, userId, viewAll, boss);
-        for (BusinessProject project : rows) decorateHierarchyProject(project, userId, boss);
+        query.put("hierarchyDirectory", true);
+        query.put("userId", userId);
+        query.put("viewAll", viewAll);
+        query.put("boss", boss);
+        List<BusinessProject> rows = mapper.selectProjectList(query);
+        for (int index = 0; index < rows.size(); index++)
+        {
+            BusinessProject project = rows.get(index);
+            if (project.isContextOnly()) rows.set(index, directoryContext(project));
+            else decorateHierarchyProject(project, userId, boss);
+        }
         return rows;
+    }
+
+    private BusinessProject directoryContext(BusinessProject project)
+    {
+        BusinessProject context = new BusinessProject();
+        context.setProjectId(project.getProjectId());
+        context.setParentId(project.getParentId());
+        context.setProjectNo(project.getProjectNo());
+        context.setProjectName(project.getProjectName());
+        context.setCompanyName(project.getCompanyName());
+        context.setSponsorOwnerName(project.getSponsorOwnerName());
+        context.setInitiatorName(project.getInitiatorName());
+        context.setMainOwnerName(project.getMainOwnerName());
+        context.setManagementMode(project.getManagementMode());
+        context.setCloseMethod(project.getCloseMethod());
+        context.setProjectType(project.getProjectType());
+        context.setStatus(project.getStatus());
+        context.setAccountingMode(project.getAccountingMode());
+        context.setPlanStartDate(project.getPlanStartDate());
+        context.setPlanEndDate(project.getPlanEndDate());
+        context.setContextOnly(true);
+        context.setMatchedChildId(project.getMatchedChildId());
+        return context;
     }
 
     private void decorateHierarchyProject(BusinessProject project, Long userId, boolean boss)
@@ -431,7 +447,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             throw new ServiceException("请填写交付结束说明，且不超过2000个字符");
         Map<String,Object> readiness = buildSettlementStatus(project, userId, boss, false, false);
         if (!Boolean.TRUE.equals(readiness.get("canEndDeliveryAwaitingCosts")))
-            throw new ServiceException("项目尚不满足结束交付条件，请先完成交付、KPI及其他待办；此操作用于公共费用待月结的项目");
+            throw new ServiceException("项目尚不满足结束交付条件，请先完成交付及其他待办；此操作用于公共费用待月结的项目");
         if (!BusinessProjectLifecycle.isSeparated(project))
         {
             if (!separateLegacyAccounting) throw new ServiceException("旧版项目需明确同意将本项目的交付结束与核算关闭分开办理");
@@ -468,6 +484,14 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         Long projectId = project.getProjectId();
         if(BusinessMemberDayCostService.enabled(project))memberDays.synchronize(projectId);
         int kpiCount = mapper.countPendingProjectKpi(projectId);
+        Set<String> pausedKpis=com.ruoyi.business.support.BusinessKpiPause.pausedCodes(mapper.selectProjectKpis(projectId));
+        if (!pausedKpis.isEmpty())
+        {
+            kpiCount=0;
+            for(Map<String,Object> plan:kpiMapper.selectPlanSummaries(projectId))
+                if(!"CONFIRMED".equals(plan.get("settlementStatus")) && !"VOIDED".equals(plan.get("status"))
+                    && !com.ruoyi.business.support.BusinessKpiPause.allPaused(kpiMapper.selectPlanItems(((Number)plan.get("planId")).longValue()),pausedKpis)) kpiCount++;
+        }
         int effortCount = BusinessMemberDayCostService.enabled(project)?0:"ACTUAL_WORK_V1".equals(project.getCostPolicyVersion()) ? workMapper.countPendingWork(projectId) : mapper.countPendingProjectEfforts(projectId);
         int pendingCostCount = BusinessMemberDayCostService.enabled(project)?memberDays.pending(projectId):"ACTUAL_WORK_V1".equals(project.getCostPolicyVersion()) ? workMapper.countPendingCosts(projectId) : 0;
         int factCount = accountingMapper.countProjectUnsettledFacts(projectId);
@@ -494,7 +518,6 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             ? "需由获授权的公司老板确认" : "需由主项目主负责人确认", acceptanceReviewer ? 0 : 1);
         addSettlementBlocker(blockers, "MISSING_END_DATE", "缺少实际交付结束日期",
             BusinessProjectLifecycle.isTerminal(project.getStatus()) && project.getActualEndDate() == null ? 1 : 0);
-        addSettlementBlocker(blockers, "PENDING_KPI", "KPI方案尚未完成结算或作废", kpiCount);
         addSettlementBlocker(blockers, "PENDING_EFFORT", "人员投入尚待确认", effortCount);
         addSettlementBlocker(blockers, "PENDING_FACT", "财务事实尚待处理", factCount);
         addSettlementBlocker(blockers, "PENDING_PUBLIC_EXPENSE", BusinessProjectLifecycle.isTerminal(project.getStatus())
@@ -516,7 +539,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         String deliveryEndIssue = !deliveryActive ? "项目交付已经结束"
             : (!BusinessProjectLifecycle.isSeparated(project) || "RESULT_ACCEPTANCE".equals(effectiveCloseMethod(project))) ? unifiedCloseReadinessIssue(project, true) : deliveryIssue;
         boolean canEndDelivery = deliveryActive && sponsor && deliveryEndIssue == null && publicExpenseCount > 0
-            && kpiCount == 0 && effortCount == 0 && factCount == 0 && pendingCostCount == 0 && awardCount == 0
+            && effortCount == 0 && factCount == 0 && pendingCostCount == 0 && awardCount == 0
             && !Boolean.TRUE.equals(managementFee.get("configurationRequired"));
         result.put("canEndDeliveryAwaitingCosts", canEndDelivery);
         result.put("requiresLegacyDeliverySeparation", deliveryActive && !BusinessProjectLifecycle.isSeparated(project));
@@ -586,7 +609,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             }
             if (!"LIGHT".equals(normalizeManagementMode(project.getManagementMode())))
                 ensureHighRisksClosed(project.getProjectId());
-            ensureKpiReadyForClose(project.getProjectId());
+
             ensureReadyForAcceptance(project.getProjectId());
             return null;
         }
@@ -620,7 +643,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         project.setStatus("CLOSED");
         project.setAccountingState("CLOSED");
         project.setVersion(version + 2);
-        return project;
+        return authorizedOperationResult(project, userId, boss);
     }
 
     @Override
@@ -775,7 +798,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             reviewerUserName, "负责人确认项目测算并直接进入执行");
         syncExecutionSource(project, reviewerUserId, reviewerUserName);
         boolean operatorIsSponsor = companyAccess.allowed(reviewerUserId,proposal.getCompanyDeptId(),"BUSINESS");
-        return getProject(project.getProjectId(), reviewerUserId, SecurityUtils.isAdmin(reviewerUserId), operatorIsSponsor);
+        return projectOperationResult(project.getProjectId(), reviewerUserId, operatorIsSponsor);
     }
 
     private Date memberJoinedDate(BusinessProjectProposal proposal, Map<String,Object> line)
@@ -922,8 +945,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         result.put("budgetHistory", mapper.selectBudgetHistory(projectId));
         result.put("kpis", mapper.selectProjectKpis(projectId));
         List<Map<String, Object>> allocations = mapper.selectProjectStaffAllocations(projectId);
-        boolean rawCostVisible = boss || viewAll
-            || com.ruoyi.business.support.BusinessProjectReadAccess.isParentOwner(project, userId, mapper);
+        boolean rawCostVisible = boss || viewAll;
         if (!rawCostVisible)
         {
             for (Map<String, Object> row : allocations)
@@ -1146,6 +1168,28 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             if (mapper.selectCurrentProjectKpi(projectId, code) == null) return code;
         }
         throw new ServiceException("KPI编码生成失败，请重试");
+    }
+
+    @Override
+    public void ignoreKpiSetup(Long projectId, Long userId)
+    {
+        if (mapper.ignoreKpiSetup(projectId,userId) != 1)
+            throw new ServiceException("只有当前项目负责人可以忽略该待办");
+    }
+
+    @Override
+    @Transactional
+    public void changeKpiStatus(Long projectId, Long kpiId, String action, Long userId, String userName, boolean boss)
+    {
+        BusinessProject project=requireProjectForUpdate(projectId);
+        requireMainOwnerOrBoss(project,userId,boss);ensureMutable(project);
+        if (!Arrays.asList("PAUSE","START").contains(action)) throw new ServiceException("请选择暂停或启动KPI");
+        BusinessProjectKpi kpi=mapper.selectProjectKpiById(kpiId);
+        String from="PAUSE".equals(action)?"CURRENT":"PAUSED",to="PAUSE".equals(action)?"PAUSED":"CURRENT";
+        if(kpi==null||!projectId.equals(kpi.getProjectId())||!from.equals(kpi.getStatus())
+            ||mapper.changeProjectKpiStatus(projectId,kpiId,from,to,userName)!=1)
+            throw new ServiceException("KPI状态已变化，请刷新后重试");
+        addEvent(projectId,"KPI_"+action,project.getStatus(),project.getStatus(),userId,userName,kpi.getKpiName());
     }
 
     @Override
@@ -1988,7 +2032,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             throw new ServiceException("只有选择成果验收的项目需要提交整体验收资料");
         if ("KEY_CONTROL".equals(normalizeManagementMode(project.getManagementMode()))) ensureKeyMilestonesReady(projectId);
         ensureReadyForAcceptance(projectId);
-        ensureKpiReadyForClose(projectId);
+
         if (acceptance == null || StringUtils.isBlank(acceptance.getResultSummary()))
             throw new ServiceException("请填写项目结果摘要");
         if (StringUtils.isBlank(acceptance.getDeliverables())) throw new ServiceException("请填写交付成果说明");
@@ -2032,7 +2076,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         {
             if ("KEY_CONTROL".equals(normalizeManagementMode(project.getManagementMode()))) ensureKeyMilestonesReady(projectId);
             ensureReadyForAcceptance(projectId);
-            ensureKpiReadyForClose(projectId);
+
             if (!BusinessProjectLifecycle.isSeparated(project)) prepareTerminalState(project, "CLOSED", userName);
         }
         String reviewerName = displayName(requireActiveUser(userId));
@@ -2047,7 +2091,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             throw changed();
         addEvent(projectId, "APPROVED".equals(decision) ? "CLOSE" : "RETURN_ACTIVE",
             "ACCEPTANCE", to, userId, userName, StringUtils.isBlank(comment) ? "验收通过" : comment);
-        return getProject(projectId, userId, SecurityUtils.isAdmin(userId), boss);
+        return projectOperationResult(projectId, userId, boss);
     }
 
     private void requireStaffCostScope(Long staffUserId, Long operatorUserId, boolean companyOwner, boolean staffCostManager, String capability)
@@ -2118,7 +2162,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         addEvent(projectId, "APPROVED".equals(decision) ? "APPROVE_STAGE" : "RETURN_STAGE",
             "ACTIVE", "ACTIVE", userId, userName,
             StringUtils.isBlank(comment) ? "阶段验收通过" : comment);
-        return getProject(projectId, userId, SecurityUtils.isAdmin(userId), boss);
+        return projectOperationResult(projectId, userId, boss);
     }
 
     @Override
@@ -2193,7 +2237,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             if ("STAGED_ACCEPTANCE".equals(closeMethod)) ensureStagesReadyForClose(projectId);
             else if ("KEY_CONTROL".equals(normalizeManagementMode(project.getManagementMode()))) ensureKeyMilestonesReady(projectId);
             if (!"LIGHT".equals(normalizeManagementMode(project.getManagementMode()))) ensureHighRisksClosed(projectId);
-            ensureKpiReadyForClose(projectId);
+
             ensureReadyForAcceptance(projectId);
             if (StringUtils.isBlank(comment)) throw new ServiceException("请填写结项申请说明");
             to = "ACCEPTANCE";
@@ -2226,7 +2270,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
             }
             if (!"LIGHT".equals(normalizeManagementMode(project.getManagementMode()))) ensureHighRisksClosed(projectId);
             if (StringUtils.isBlank(comment)) throw new ServiceException("请填写项目完成结论");
-            ensureKpiReadyForClose(projectId);
+
             ensureReadyForAcceptance(projectId);
             if (BusinessProjectLifecycle.isSeparated(project))
                 return finalizeSeparatedProject(project, comment, userId, userName, boss);
@@ -3772,19 +3816,41 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     private void requireAccess(BusinessProject project, Long userId, boolean viewAll, boolean boss)
     {
         if (viewAll) return;
-        if (project.getParentId() != null) {
-            BusinessProject parent = mapper.selectProjectById(project.getParentId());
-            if (parent != null && userId.equals(parent.getMainOwnerUserId())) return;
-            if (userId.equals(project.getApplicantUserId()) && parent != null
-                && Arrays.asList("OWNER", "DEPUTY").contains(mapper.selectMemberRole(parent.getProjectId(), userId))) return;
-        }
         if (boss)
         {
             if (companyAccess.project(project, userId)) return;
             throw new ServiceException("无权查看未授权公司的项目");
         }
         if (project.getMainOwnerUserId().equals(userId)) return;
-        if (mapper.selectMemberRole(project.getProjectId(), userId) == null) throw new ServiceException("无权查看该项目");
+        if (mapper.countRelatedProjectOwner(project.getProjectId(), userId) > 0
+            || mapper.selectMemberRole(project.getProjectId(), userId) == null) throw new ServiceException("无权查看该项目");
+    }
+
+    /** Creation and acceptance authority do not grant access to the project's details. */
+    private BusinessProject projectOperationResult(Long projectId, Long userId, boolean boss)
+    {
+        BusinessProject project = requireProject(projectId);
+        BusinessProject result = authorizedOperationResult(project, userId, boss);
+        if (result.isContextOnly()) return result;
+        return getProject(projectId, userId, SecurityUtils.isAdmin(userId), boss);
+    }
+
+    private BusinessProject authorizedOperationResult(BusinessProject project, Long userId, boolean boss)
+    {
+        try
+        {
+            requireAccess(project, userId, SecurityUtils.isAdmin(userId), boss);
+        }
+        catch (ServiceException denied)
+        {
+            BusinessProject result = new BusinessProject();
+            result.setProjectId(project.getProjectId());
+            result.setProjectName(project.getProjectName());
+            result.setStatus(project.getStatus());
+            result.setContextOnly(true);
+            return result;
+        }
+        return project;
     }
 
     private void requireManage(BusinessProject project, Long userId, boolean boss)
@@ -3938,15 +4004,8 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     {
         List<BusinessProjectTask> tasks = mapper.selectTasks(projectId);
         if(tasks==null)tasks=Collections.emptyList();
-        if(tasks.isEmpty()){
-            List<BusinessProjectRoutine> routines=mapper.selectRoutines(projectId,new Date());
-            List<BusinessProjectRoutine> retired=mapper.selectRetiredRoutines(projectId,new Date());
-            Map<String,Object> relation=mapper.selectActiveExecutionRelation(projectId);
-            List<BusinessProjectRoutine> source=relation==null?Collections.emptyList():mapper.selectLiveStreamerRoutines(relation);
-            if((routines==null||routines.isEmpty())&&(retired==null||retired.isEmpty())&&(source==null||source.isEmpty()))
-                throw new ServiceException("项目至少需要一项任务或持续工作记录才能验收");
-            if(workMapper.countPendingWork(projectId)>0)throw new ServiceException("持续工作仍有待处理记录，请先处理后结项");
-        }
+        if (tasks.isEmpty() && workMapper.countPendingWork(projectId)>0)
+            throw new ServiceException("持续工作仍有待处理记录，请先处理后结项");
         List<String> blockers = new ArrayList<String>();
         List<String> unfinishedTasks = new ArrayList<String>();
         for (BusinessProjectTask task : tasks)
@@ -4105,66 +4164,6 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if (acceptance.getDeliverables().length() > 4000) throw new ServiceException("阶段交付成果不能超过4000个字符");
         if (StringUtils.isNotEmpty(acceptance.getAttachmentUrls()) && acceptance.getAttachmentUrls().length() > 4000)
             throw new ServiceException("验收附件数量或地址长度超出限制");
-    }
-
-    private void ensureKpiReadyForClose(Long projectId)
-    {
-        List<Map<String, Object>> plans = kpiMapper.selectPlanSummaries(projectId);
-        if (plans == null) plans = Collections.emptyList();
-
-        int publishedPlanCount = 0;
-        int pendingInputCount = 0;
-        int returnedCount = 0;
-        int pendingReviewCount = 0;
-        int otherUnconfirmedCount = 0;
-        String nextCycleEnd = null;
-        String today = DateUtils.getDate();
-
-        for (Map<String, Object> plan : plans)
-        {
-            if (plan == null) continue;
-            String planStatus = value(plan.get("status"));
-            if (!"PUBLISHED".equals(planStatus) && !"CLOSED".equals(planStatus)) continue;
-            publishedPlanCount++;
-
-            String settlementStatus = value(plan.get("settlementStatus"));
-            if ("CONFIRMED".equals(settlementStatus)) continue;
-
-            Date cycleEnd = plan.get("cycleEnd") instanceof Date
-                ? (Date) plan.get("cycleEnd") : DateUtils.parseDate(plan.get("cycleEnd"));
-            if (cycleEnd == null)
-                throw new ServiceException("KPI方案的考核结束日期异常，请检查后再结项");
-            String cycleEndDate = DateUtils.dateTime(cycleEnd);
-            if (cycleEndDate.compareTo(today) > 0)
-            {
-                if (nextCycleEnd == null || cycleEndDate.compareTo(nextCycleEnd) < 0) nextCycleEnd = cycleEndDate;
-                continue;
-            }
-
-            if (StringUtils.isBlank(settlementStatus) || "DRAFT".equals(settlementStatus)) pendingInputCount++;
-            else if ("RETURNED".equals(settlementStatus)) returnedCount++;
-            else if ("SUBMITTED".equals(settlementStatus)) pendingReviewCount++;
-            else otherUnconfirmedCount++;
-        }
-
-        if (publishedPlanCount == 0)
-            throw new ServiceException("项目尚未发布KPI方案，请先设置并发布KPI及奖金方案后再结项");
-        if (nextCycleEnd != null)
-            throw new ServiceException("尚有KPI考核周期未结束（最近结束日期：" + nextCycleEnd + "），暂不能结项");
-
-        int incompleteCount = pendingInputCount + returnedCount + pendingReviewCount + otherUnconfirmedCount;
-        if (incompleteCount == 0) return;
-        int incompleteKinds = (pendingInputCount > 0 ? 1 : 0) + (returnedCount > 0 ? 1 : 0)
-            + (pendingReviewCount > 0 ? 1 : 0) + (otherUnconfirmedCount > 0 ? 1 : 0);
-        if (incompleteKinds > 1)
-            throw new ServiceException("存在多项已到期但尚未完成确认的KPI结算，请先全部完成负责人填报和老板确认后再结项");
-        if (pendingInputCount > 0)
-            throw new ServiceException("存在已到期但负责人尚未提交的KPI结算，请先完成结果填报并提交后再结项");
-        if (returnedCount > 0)
-            throw new ServiceException("存在已到期且被退回的KPI结算，请负责人修改并重新提交后再结项");
-        if (pendingReviewCount > 0)
-            throw new ServiceException("存在已到期且待老板确认的KPI结算，请先确认KPI及奖金后再结项");
-        throw new ServiceException("存在已到期但尚未确认的KPI结算，请先完成结算后再结项");
     }
 
     private String value(Object value)

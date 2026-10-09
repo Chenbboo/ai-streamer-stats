@@ -49,11 +49,11 @@ class BusinessPublicExpenseServiceTest
         org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",companyAccess);
 }
 
-    @Test void parentOwnerCanReadChildPublicExpensesWithoutBecomingCompanyLeader()
+    @Test void parentOwnerCannotReadChildPublicExpenses()
     {
         project.setParentId(2L);BusinessProject parent=new BusinessProject();parent.setProjectId(2L);parent.setMainOwnerUserId(99L);
         when(projects.selectProjectById(2L)).thenReturn(parent);
-        assertDoesNotThrow(()->service.projectWorkspace(4L,"2025-02",99L,false));
+        assertThrows(com.ruoyi.common.exception.ServiceException.class,()->service.projectWorkspace(4L,"2025-02",99L,false));
         assertThrows(RuntimeException.class,()->service.projectWorkspace(4L,"2025-02",88L,false));
     }
 

@@ -1,0 +1,8 @@
+-- Reward application supporting attachments.
+set @has_attachments := (select count(*) from information_schema.columns
+  where table_schema=database() and table_name='biz_incentive_award' and column_name='attachment_urls');
+set @sql := if(@has_attachments=0,
+  'alter table biz_incentive_award add column attachment_urls text default null', 'select 1');
+prepare stmt from @sql;
+execute stmt;
+deallocate prepare stmt;

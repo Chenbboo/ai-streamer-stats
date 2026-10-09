@@ -54,8 +54,8 @@ test('zero or unknown owner pool cannot save a filled allocation', () => {
 })
 test('switching rules resets proposal and the award request includes allocation in one call', async () => {
   const source = await readFile(new URL('./index.vue', import.meta.url), 'utf8')
-  assert.ok(source.includes('<AwardAllocationEditor :model="applicationAllocation"'))
-  assert.ok(source.includes('function changeAwardRule(){Object.assign(applicationAllocation,emptyAllocationProposal());'))
+  assert.match(source, /<AwardAllocationEditor\b[^>]*:model="applicationAllocation"/)
+  assert.match(source, /function changeAwardRule\(\)\{[^}]*Object\.assign\(applicationAllocation,emptyAllocationProposal\(\)\)/)
   assert.ok(source.includes('applicationAllocation:proposalPayload(applicationAllocation)'))
   assert.ok(source.includes('<AwardAllocationDetails :allocation="history.applicationAllocation"'))
   assert.ok(source.includes('afterTaxProfit:awardRule.value.afterTaxProfit'))

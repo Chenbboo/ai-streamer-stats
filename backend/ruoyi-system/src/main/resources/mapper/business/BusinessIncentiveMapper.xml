@@ -9,9 +9,9 @@
   <select id="selectProjects" resultType="map">
     select p.project_id projectId,p.project_no projectNo,p.project_name projectName,p.status,
       p.company_dept_id companyDeptId,p.base_currency currency,p.accounting_state accountingState
-    from biz_project p left join biz_project parent on parent.project_id=p.parent_id and parent.del_flag='0'
+    from biz_project p
     where p.del_flag='0'
-    <if test="viewAll == false">and (p.main_owner_user_id=#{userId} or parent.main_owner_user_id=#{userId} or <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include>)</if>
+    <if test="viewAll == false">and (p.main_owner_user_id=#{userId} or <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include>)</if>
     order by p.update_time desc,p.project_id desc
   </select>
   <select id="selectBonusSetting" resultType="map">
@@ -77,7 +77,7 @@
   <sql id="awardColumns">
     a.award_id awardId,a.project_id projectId,a.company_dept_id companyDeptId,a.rule_id ruleId,a.rule_version ruleVersion,
     a.rule_name ruleName,a.policy_version policyVersion,a.settlement_id settlementId,a.score_snapshot scoreSnapshot,
-    a.amount,a.currency,a.biz_date bizDate,a.reason,a.request_key requestKey,a.status,a.allocation_proposal_json allocationProposalJson,
+    a.amount,a.currency,a.biz_date bizDate,a.reason,a.attachment_urls attachmentUrls,a.application_month applicationMonth,a.request_key requestKey,a.status,a.allocation_proposal_json allocationProposalJson,
     r.after_tax_profit ruleAfterTaxProfit,r.settlement_month settlementMonth,r.main_owner_bonus_rate ruleMainOwnerBonusRate,
     r.sponsor_owner_bonus_rate ruleSponsorOwnerBonusRate,r.reason ruleReason,
     a.applicant_user_id applicantUserId,
@@ -117,20 +117,21 @@
   </select>
   <insert id="insertAward" parameterType="com.ruoyi.business.domain.BusinessIncentiveAward" useGeneratedKeys="true" keyProperty="awardId">
     insert into biz_incentive_award(project_id,company_dept_id,rule_id,rule_version,rule_name,policy_version,
-      settlement_id,score_snapshot,amount,currency,biz_date,reason,request_key,status,
+      settlement_id,score_snapshot,amount,currency,biz_date,reason,attachment_urls,application_month,request_key,status,
       applicant_user_id,applicant_user_name,version,create_by,create_time,allocation_proposal_json)
     values(#{projectId},#{companyDeptId},#{ruleId},#{ruleVersion},#{ruleName},#{policyVersion},
-      #{settlementId},#{scoreSnapshot},#{amount},#{currency},#{bizDate},#{reason},#{requestKey},#{status},
+      #{settlementId},#{scoreSnapshot},#{amount},#{currency},#{bizDate},#{reason},#{attachmentUrls},#{applicationMonth},#{requestKey},#{status},
       #{applicantUserId},#{applicantUserName},0,#{createBy},sysdate(),#{allocationProposalJson})
   </insert>
   <update id="updateAwardDraft">
-    update biz_incentive_award set biz_date=#{bizDate},reason=#{reason},
+    update biz_incentive_award set biz_date=#{bizDate},reason=#{reason},attachment_urls=#{attachmentUrls},
       allocation_proposal_json=#{allocationProposalJson},version=version+1,
       update_by=#{userName},update_time=sysdate()
     where award_id=#{awardId} and version=#{version} and status in('DRAFT','RETURNED')
   </update>
   <update id="transitionAward">
     update biz_incentive_award set status=#{toStatus},review_comment=#{reason},
+      <if test="toStatus == 'SUBMITTED'">biz_date=current_date,</if>
       <if test="toStatus == 'APPROVED' and fromStatus != 'APPROVED'">
         approved_user_id=#{userId},approved_user_name=#{userName},approved_time=sysdate(),
       </if>

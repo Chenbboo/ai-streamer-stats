@@ -19,6 +19,9 @@ public class BusinessProject extends BaseEntity
     public void setSubprojectCount(Integer value) { subprojectCount = value; }
 
     private Long projectId;
+    private Long kpiSetupIgnoredUserId;
+    public Long getKpiSetupIgnoredUserId() { return kpiSetupIgnoredUserId; }
+    public void setKpiSetupIgnoredUserId(Long value) { kpiSetupIgnoredUserId = value; }
     private String projectNo;
     private Long sourceProposalId;
     private Long parentId;

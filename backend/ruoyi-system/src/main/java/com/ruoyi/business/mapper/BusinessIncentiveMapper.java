@@ -32,7 +32,7 @@ public interface BusinessIncentiveMapper
     int insertAward(BusinessIncentiveAward award);
     int updateAwardDraft(@Param("awardId") Long awardId, @Param("version") Integer version,
         @Param("bizDate") java.util.Date bizDate, @Param("reason") String reason,
-        @Param("allocationProposalJson") String allocationProposalJson, @Param("userName") String userName);
+        @Param("allocationProposalJson") String allocationProposalJson, @Param("attachmentUrls") String attachmentUrls, @Param("userName") String userName);
     int transitionAward(@Param("awardId") Long awardId, @Param("fromStatus") String fromStatus,
         @Param("toStatus") String toStatus, @Param("version") Integer version, @Param("userId") Long userId,
         @Param("userName") String userName, @Param("reason") String reason, @Param("factId") Long factId);

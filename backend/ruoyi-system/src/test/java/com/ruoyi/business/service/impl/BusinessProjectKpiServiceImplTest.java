@@ -87,15 +87,12 @@ class BusinessProjectKpiServiceImplTest
         assertEquals(new BigDecimal("5000"),workspace.get("proposalEstimatedRevenue"));
     }
 
-    @Test void parentOwnerCanReadChildKpiButCannotManageIt()
+    @Test void parentOwnerCannotReadChildKpi()
     {
         BusinessProject child=project();child.setParentId(7L);child.setMainOwnerUserId(30L);
         BusinessProject parent=project();parent.setProjectId(7L);parent.setMainOwnerUserId(9L);
         when(projectMapper.selectProjectById(1L)).thenReturn(child);
-        when(projectMapper.selectProjectById(7L)).thenReturn(parent);
-        when(mapper.selectLatestPlanId(1L)).thenReturn(null);
-        Map<String,Object> result=service.workspace(1L,null,9L,false,false);
-        assertEquals(false,result.get("canManage"));assertEquals(false,result.get("canSettle"));
+        assertThrows(com.ruoyi.common.exception.ServiceException.class,()->service.workspace(1L,null,9L,false,false));
         assertThrows(ServiceException.class,()->service.workspace(1L,null,99L,false,false));
     }
 
