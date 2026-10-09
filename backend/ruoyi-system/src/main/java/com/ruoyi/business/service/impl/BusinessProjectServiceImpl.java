@@ -2975,8 +2975,6 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if ("NONE".equals(routine.getTargetMode())) report.setActualValue(BigDecimal.ZERO);
         if (report.getActualValue() == null || report.getActualValue().compareTo(BigDecimal.ZERO) < 0)
             throw new ServiceException("实际完成数量不能为空或为负数");
-        if ("NONE".equals(routine.getTargetMode()) && StringUtils.isBlank(report.getSummary()))
-            throw new ServiceException("请填写今日完成说明");
         boolean belowDailyTarget = !"NONE".equals(routine.getTargetMode())
             && report.getActualValue().compareTo(effectiveTarget) < 0;
         if (belowDailyTarget && StringUtils.isBlank(report.getIssueReason()))

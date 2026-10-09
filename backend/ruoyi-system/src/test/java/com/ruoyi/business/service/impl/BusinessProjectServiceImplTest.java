@@ -2130,6 +2130,30 @@ class BusinessProjectServiceImplTest
         verify(mapper).insertRoutineCompletionSubmission(report);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"FIXED", "NONE"})
+    void routineReportAcceptsEmptySummaryAndArchivesSubmission(String targetMode)
+    {
+        BusinessProject project = project(74L, 9L, "ACTIVE", "APPROVED");
+        BusinessProjectRoutine routine = new BusinessProjectRoutine();
+        routine.setRoutineId(113L); routine.setProjectId(74L); routine.setTargetMode(targetMode);
+        routine.setStatus("ACTIVE"); routine.setUnit("条"); routine.setAssigneeUserId(9L);
+        routine.setTargetValue(BigDecimal.ONE);
+        Map<String, Object> user = new HashMap<String, Object>(); user.put("nickName", "员工九");
+        when(mapper.selectRoutineById(113L)).thenReturn(routine);
+        when(mapper.selectProjectById(74L)).thenReturn(project);
+        when(mapper.selectActiveUserById(9L)).thenReturn(user);
+        BusinessProjectRoutineReport report = new BusinessProjectRoutineReport();
+        report.setRoutineId(113L); report.setActualValue(BigDecimal.ONE); report.setSummary("");
+
+        service.submitRoutineReport(report, 9L, "employee9", false);
+
+        verify(mapper).upsertRoutineReport(report);
+        verify(mapper).insertRoutineCompletionSubmission(report);
+        assertEquals("", report.getSummary());
+        assertEquals("NONE".equals(targetMode) ? BigDecimal.ZERO : BigDecimal.ONE, report.getActualValue());
+    }
+
     @Test
     void noTotalProjectRejectsPercentageProgressReport()
     {

@@ -79,7 +79,7 @@
           <h3>{{ routine.routineName }}</h3><el-tag v-if="routine.memberWorkPaused" type="warning">{{ $tr("本项目工作已暂停，请联系负责人启动") }}</el-tag>
           <p class="target">{{ routineTargetDescription(routine) }}</p>
           <p v-if="isToday&&routine.todayRequirement" class="note">{{ $tr("客户要求：{0}", [routine.todayRequirement]) }}</p>
-          <div class="result-line"><span>{{ isToday ? (routine.todayLeaveId ? $tr("今日状态") : $tr("今日完成")) : $tr("周期累计") }}</span><b>{{ isToday && routine.todayLeaveId ? $tr("今日请假") : (isToday&&routine.targetMode==='NONE'&&routine.todayReportId?$tr("已填写完成说明"):`${isToday ? (routine.todayReportId ? routine.todayActual : '—') : (routine.periodActual || 0)} ${$tr(routine.unit)}`) }}</b></div>
+          <div class="result-line"><span>{{ isToday ? (routine.todayLeaveId ? $tr("今日状态") : $tr("今日完成")) : $tr("周期累计") }}</span><b>{{ isToday && routine.todayLeaveId ? $tr("今日请假") : (isToday&&routine.targetMode==='NONE'&&routine.todayReportId?$tr("已提交"):`${isToday ? (routine.todayReportId ? routine.todayActual : '—') : (routine.periodActual || 0)} ${$tr(routine.unit)}`) }}</b></div>
           <p v-if="isToday && routine.todayLeaveId" class="note">{{ $tr("请假说明：{0}", [routine.todayLeaveReason || $tr("今日无需填报")]) }}</p>
           <p v-if="routine.todaySummary" class="note">{{ $tr("今日说明：{0}", [routine.todaySummary]) }}</p>
           <p v-if="routineBelowTarget(routine) && routine.todayIssueReason" class="issue">{{ $tr("未达原因：{0}", [routine.todayIssueReason]) }}</p>
@@ -121,12 +121,12 @@
       <template #footer><el-button @click="workReportHistoryDialog=false">{{ $tr("关闭") }}</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="reportDialog" :title="reportForm.reportId?$tr(&quot;修改今日完成量&quot;):$tr(&quot;填报今日完成量&quot;)" width="min(620px, 94vw)" append-to-body>
+    <el-dialog v-model="reportDialog" :title="reportForm.reportId?$tr(&quot;修改今日完成量&quot;):$tr(&quot;填报今日完成量&quot;)" width="min(620px, 94vw)" append-to-body destroy-on-close>
       <el-alert :title="`${reportForm.routineName || ''} · ${data.today || today()}`" type="info" :closable="false" show-icon />
       <el-form :model="reportForm" label-width="92px" class="report-form">
         <el-form-item v-if="reportForm.targetMode!=='NONE'" :label="$tr(&quot;每日目标&quot;)"><el-input :model-value="`${reportForm.todayTarget || 0} ${reportForm.unit || ''}`" disabled /></el-form-item>
         <el-form-item v-if="reportForm.targetMode!=='NONE'" :label="$tr(&quot;实际完成&quot;)" required><el-input-number v-model="reportForm.actualValue" :min="0" :precision="4" style="width:100%" /></el-form-item>
-        <el-form-item :label="$tr(&quot;今日说明&quot;)" required><el-input v-model="reportForm.summary" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
+        <el-form-item :label="$tr(&quot;今日说明&quot;)"><el-input v-model="reportForm.summary" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
         <el-form-item v-if="needsReason" :label="$tr(&quot;未达原因&quot;)" required><el-input v-model="reportForm.issueReason" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
         <el-form-item :label="$tr(&quot;成果凭证（选填）&quot;)"><business-file-upload v-model="reportForm.evidenceUrls" :project-id="reportForm.projectId" /></el-form-item>
       </el-form>
@@ -220,7 +220,7 @@ const effortTone={UNSUBMITTED:'info',SUBMITTED:'warning',CONFIRMED:'success',RET
 const money=value=>Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})
 const projectOptionLabel=project=>project.projectNo?`${project.projectName} · ${project.projectNo}`:project.projectName
 function routineBelowTarget(routine){return routine.targetMode!=='NONE'&&!!routine.todayReportId&&Number(routine.todayActual)<Number(routine.todayTarget||0)}
-function routineTargetDescription(routine){if(routine.targetMode==='NONE')return translateText("无量化目标：只需填写今日完成说明");if(isToday.value&&routine.targetMode==='DAILY_DYNAMIC'&&!routine.todayTargetId)return translateText("今日目标：等待负责人下达");if(isToday.value)return translateText("今日目标：{0} {1}", [routine.todayTarget ?? 0, translateText(routine.unit)]);return translateText("周期累计：{0} {1}", [routine.periodActual || 0, translateText(routine.unit)])}
+function routineTargetDescription(routine){if(routine.targetMode==='NONE')return translateText("无量化目标");if(isToday.value&&routine.targetMode==='DAILY_DYNAMIC'&&!routine.todayTargetId)return translateText("今日目标：等待负责人下达");if(isToday.value)return translateText("今日目标：{0} {1}", [routine.todayTarget ?? 0, translateText(routine.unit)]);return translateText("周期累计：{0} {1}", [routine.periodActual || 0, translateText(routine.unit)])}
 function latestWorkReport(routine){return (data.value.latestWorkReports||[]).find(item=>Number(item.routineId)===Number(routine.routineId))}
 function reportProjectName(report){return projectOptions.value.find(project=>String(project.projectId)===String(report.projectId))?.projectName||translateText("项目工作汇报")}
 function openWorkReport(){const selected=reportableProjects.value.find(project=>String(project.projectId)===String(selectedProjectId.value));const projectId=selected?.projectId??(reportableProjects.value.length===1?reportableProjects.value[0].projectId:null);workReportUploading.value=false;workReportForm.value={projectId,frequency:'DAILY',content:'',attachmentUrls:''};workReportDialog.value=true}
@@ -235,7 +235,6 @@ function openRoutineReport(routine){reportForm.value={reportId:routine.todayRepo
 async function submitRoutine(){
   const form=reportForm.value
   if(form.targetMode!=='NONE'&&(form.actualValue===null||form.actualValue===undefined||Number(form.actualValue)<0))return ElMessage.warning(translateText("请填写实际完成量"))
-  if(!form.summary?.trim())return ElMessage.warning(translateText("请填写今日完成说明"))
   if(needsReason.value&&!form.issueReason?.trim())return ElMessage.warning(translateText("未达到每日目标时请填写原因"))
   form.actualValue=form.targetMode==='NONE'?0:form.actualValue
   form.issueReason=needsReason.value?form.issueReason.trim():null
