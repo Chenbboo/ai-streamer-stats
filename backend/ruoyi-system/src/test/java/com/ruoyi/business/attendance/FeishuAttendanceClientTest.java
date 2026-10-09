@@ -41,6 +41,38 @@ class FeishuAttendanceClientTest
         assertFalse(json.writeValueAsString(approved).contains("private medical"));
     }
 
+    @Test void actualOutingSampleKeepsApprovalAndCancellationSeparateFromLeave() throws Exception
+    {
+        LocalDate date=LocalDate.of(2026,9,17);
+        String fixture="{\"user_approvals\":[{\"user_id\":\"u1\",\"date\":\"20260917\",\"time_zone\":\"Asia/Shanghai\",\"leaves\":[],\"outs\":[{\"approval_id\":\"7686318352385477581\",\"start_time\":\"2026-09-17 09:00:00\",\"end_time\":\"2026-09-17 10:00:00\",\"interval\":3600,\"unit\":2,\"reason\":\"private reason\",\"location\":\"private location\"}]}]}";
+        Map<String,Object> approved=client.normalizeApprovals(json.readTree(fixture),2,"Asia/Shanghai",Arrays.asList("u1"),date).get(0);
+        Map<String,Object> canceled=client.normalizeApprovals(json.readTree(fixture),3,"Asia/Shanghai",Arrays.asList("u1"),date).get(0);
+        assertEquals("OUT",approved.get("kind"));assertEquals("CONFIRMED",approved.get("normalizedStatus"));
+        assertEquals("CANCELED",canceled.get("normalizedStatus"));
+        assertEquals(approved.get("sourceRecordKey"),canceled.get("sourceRecordKey"));
+        assertEquals(3600L,approved.get("sourceDurationSeconds"));
+        assertEquals(60L,AttendanceIntervals.minutes((List<long[]>)approved.get("intervals")));
+        assertFalse(json.writeValueAsString(approved).contains("private"));
+        String changed=fixture.replace("09:00:00","08:30:00");
+        assertEquals(approved.get("sourceRecordKey"),client.normalizeApprovals(json.readTree(changed),2,"Asia/Shanghai",Arrays.asList("u1"),date).get(0).get("sourceRecordKey"));
+    }
+
+    @Test void outingsValidateScopeDuplicatesAndCrossDayTimezoneWithoutCollidingWithLeave() throws Exception
+    {
+        String approval="{\"approval_id\":\"a1\",\"start_time\":\"2026-09-07 23:00:00\",\"end_time\":\"2026-09-08 01:00:00\",\"interval\":7200}";
+        String fixture="{\"user_approvals\":[{\"user_id\":\"u1\",\"date\":\"20260907\",\"time_zone\":\"Asia/Ho_Chi_Minh\",\"leaves\":["+approval+"],\"outs\":["+approval+"]}]}";
+        List<Map<String,Object>> rows=client.normalizeApprovals(json.readTree(fixture),2,"Asia/Shanghai",Arrays.asList("u1"),day);
+        assertEquals(2,rows.size());assertNotEquals(rows.get(0).get("sourceRecordKey"),rows.get(1).get("sourceRecordKey"));
+        Map<String,Object> outing=rows.get(1);
+        assertEquals("Asia/Ho_Chi_Minh",outing.get("sourceTimezone"));
+        assertEquals("2026-09-07",outing.get("businessDate"));
+        assertEquals(day.atTime(23,0).atZone(java.time.ZoneId.of("Asia/Ho_Chi_Minh")).toEpochSecond(),((List<long[]>)outing.get("intervals")).get(0)[0]);
+        assertThrows(ServiceException.class,()->client.normalizeApprovals(json.readTree(fixture),2,"Asia/Shanghai",Arrays.asList("other"),day));
+        assertThrows(ServiceException.class,()->client.normalizeApprovals(json.readTree(fixture.replace("\"outs\":["+approval+"]","\"outs\":["+approval+","+approval+"]")),2,"Asia/Shanghai",Arrays.asList("u1"),day));
+        assertThrows(ServiceException.class,()->client.normalizeApprovals(json.readTree(fixture.replace("2026-09-08 01:00:00","2026-09-07 22:00:00")),2,"Asia/Shanghai",Arrays.asList("u1"),day));
+        assertThrows(ServiceException.class,()->client.normalizeApprovals(json.readTree(fixture.replace("\"outs\":["+approval+"]","\"outs\":{}")),2,"Asia/Shanghai",Arrays.asList("u1"),day));
+    }
+
     @Test void unknownIdentityAndAmbiguousKeysFailInsteadOfMergingByPersonDay() throws Exception
     {
         String leave="{\"approval_id\":\"a1\",\"uniq_id\":\"type\",\"start_time\":\"2026-09-07 09:00:00\",\"end_time\":\"2026-09-07 10:00:00\"}";

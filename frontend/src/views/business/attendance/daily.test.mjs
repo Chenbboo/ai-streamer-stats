@@ -36,3 +36,28 @@ test('pending punches, missing data and freshness warnings do not imply an abnor
   assert.equal(matchesAttendanceStatus({punches:[],warnings:['UNKNOWN']},'ABNORMAL'),false)
   assert.equal(matchesAttendanceStatus({punches:[{checkInResult:'Late',checkOutResult:'Todo'}],warnings:[]},'ABNORMAL'),true)
 })
+test('approved and withdrawn outings accompany original missing-punch results without becoming leave',()=>{
+  const base={userId:137,userName:'陈嘉雪',businessDate:'2026-09-17',isCurrent:1,quality:'KNOWN',sourceTimezone:'Asia/Shanghai'}
+  const days=dailyAttendance([
+    {...base,kind:'ATTENDANCE',detailsJson:JSON.stringify({results:[{checkInResult:'Lack',checkOutResult:'Normal',checkInTime:1789610334,checkOutTime:1789639561}]})},
+    {...base,kind:'OUT',normalizedStatus:'CONFIRMED',sourceDurationSeconds:3600,intervalsJson:'[[1789606800,1789610400]]'},
+    {...base,kind:'OUT',normalizedStatus:'CANCELED',sourceDurationSeconds:3600,intervalsJson:'[[1789606800,1789610400]]'},
+    {...base,kind:'OUT',isCurrent:0,normalizedStatus:'CONFIRMED',intervalsJson:'[[1,2]]'}
+  ])
+  assert.equal(days.length,1)
+  assert.deepEqual(days[0].outings.map(p=>p.status),['CONFIRMED','CANCELED'])
+  assert.deepEqual(days[0].outings[0],{status:'CONFIRMED',seconds:3600,intervals:[[1789606800,1789610400]],zone:'Asia/Shanghai'})
+  assert.equal(days[0].leaves.length,0)
+  assert.equal(days[0].punches[0].checkInResult,'Lack')
+  assert.equal(matchesAttendanceStatus(days[0],'Lack'),true)
+})
+test('outings remain visible on no-punch-required days and preserve cross-day times and source warnings',()=>{
+  const base={userId:7,businessDate:'2026-09-07',isCurrent:1,quality:'KNOWN'}
+  const punch={...base,kind:'ATTENDANCE',detailsJson:'{"results":[{"checkInResult":"NoNeedCheck","checkOutResult":"NoNeedCheck"}]}'}
+  assert.equal(dailyAttendance([punch]).length,0)
+  const days=dailyAttendance([punch,{...base,kind:'OUT',quality:'STALE',normalizedStatus:'CONFIRMED',sourceTimezone:'Asia/Ho_Chi_Minh',intervalsJson:'[[1788796800,1788804000]]'}])
+  assert.equal(days.length,1)
+  assert.equal(days[0].outings[0].zone,'Asia/Ho_Chi_Minh')
+  assert.deepEqual(days[0].warnings,['STALE'])
+  assert.equal(matchesAttendanceStatus(days[0],'ABNORMAL'),false)
+})

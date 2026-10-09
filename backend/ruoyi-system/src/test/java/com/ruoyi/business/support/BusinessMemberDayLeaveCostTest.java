@@ -91,6 +91,15 @@ class BusinessMemberDayLeaveCostTest {
         apply(cost,leave);assertEquals(new BigDecimal("100.00"),cost.get("amount"));
         assertFalse(String.valueOf(cost.get("basisJson")).contains("attendanceAdjustment"));
     }
+    @Test void approvedOutingDoesNotReduceCostOrExtendApprovedLeave() {
+        Map<String,Object> outing=source(800L,"OUT",interval("2026-09-28T09:00","2026-09-28T18:00"));
+        Map<String,Object> cost=cost();
+        apply(cost,shift(),outing);
+        assertEquals(new BigDecimal("100.00"),cost.get("amount"));
+        assertFalse(String.valueOf(cost.get("basisJson")).contains("attendanceAdjustment"));
+        apply(cost,shift(),outing,leave("2026-09-28T09:00","2026-09-28T12:00"));
+        assertEquals(new BigDecimal("62.50"),cost.get("amount"));
+    }
     @Test void otherPeoplesLeaveDoesNotReduceThisPerson() {
         Map<String,Object> cost=cost(),leave=leave("2026-09-28T09:00","2026-09-28T18:00");leave.put("userId",132L);
         apply(cost,shift(),leave);assertEquals(new BigDecimal("100.00"),cost.get("amount"));

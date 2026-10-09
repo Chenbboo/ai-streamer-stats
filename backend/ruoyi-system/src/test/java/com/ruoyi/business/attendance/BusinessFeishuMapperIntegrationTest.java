@@ -75,6 +75,23 @@ class BusinessFeishuMapperIntegrationTest
             q.put("companyDeptId",111L);assertEquals(0,mapper.records(q).size());session.commit();
         }
     }
+    @Test void outingsAreReadWithCurrentRevisionAndCompanyScope()
+    {
+        try(SqlSession session=sessions.openSession(false))
+        {
+            BusinessFeishuMapper mapper=session.getMapper(BusinessFeishuMapper.class);
+            Map<String,Object> approved=observation(1,"CONFIRMED");approved.put("kind","OUT");
+            mapper.insertObservation(approved);
+            Map<String,Object> q=map("dateFrom","2026-09-07","dateTo","2026-09-07","companyDeptId",110L,"userId",7L,"includeHistory",false,"offset",0,"pageSize",50);
+            assertEquals("OUT",value(mapper.records(q).get(0),"kind"));
+            mapper.supersedeObservation(((Number)approved.get("observationId")).longValue());
+            Map<String,Object> canceled=observation(2,"CANCELED");canceled.put("kind","OUT");mapper.insertObservation(canceled);
+            assertEquals(1,mapper.records(q).size());
+            assertEquals("CANCELED",value(mapper.records(q).get(0),"normalizedStatus"));
+            q.put("companyDeptId",111L);assertTrue(mapper.records(q).isEmpty());
+            session.rollback();
+        }
+    }
     @Test void identityConflictsAreScopedByTenantAndEffectiveIntervalAcrossCompanies()
     {
         try(SqlSession session=sessions.openSession(false))

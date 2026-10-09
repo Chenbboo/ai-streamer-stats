@@ -225,26 +225,34 @@ public class FeishuAttendanceClient implements AttendanceProvider
             String externalId = required(user, "user_id");
             String zone = user.path("time_zone").asText(timezone); ZoneId.of(zone);
             LocalDate businessDate = LocalDate.parse(required(user, "date"), DAY);
-            // Only leave is unavailable time. Travel/out/overtime are not absence.
-            for (JsonNode leave : user.path("leaves"))
+            // Keep outings as their own source facts. Only LEAVE reduces available work time.
+            for (String field : Arrays.asList("leaves", "outs"))
             {
-                // Approval instance is stable across changed type/times/status. Do not include mutable
-                // leave type or interval in its key. Multiple rows per instance/day are quarantined.
-                String key = required(leave, "approval_id");
-                Map<String, Object> out = base(externalId, "LEAVE:" + externalId + ":" + key + ":" + businessDate,
-                    "LEAVE", businessDate, zone);
-                long start = localInstant(required(leave, "start_time"), zone);
-                long end = localInstant(required(leave, "end_time"), zone);
-                if (end <= start) throw new ServiceException("FEISHU_INVALID_INTERVAL");
-                out.put("intervals", Collections.singletonList(new long[] {start, end}));
-                out.put("sourceStatus", String.valueOf(status));
-                out.put("normalizedStatus", status == 2 ? "CONFIRMED" : "CANCELED");
-                out.put("sourceDurationSeconds", leave.has("interval") ? leave.path("interval").asLong() : null);
-                out.put("sourceDetails", map("approvalId", required(leave, "approval_id"),
-                    "unit", leave.path("unit").asInt(), "sourceLocalStart", leave.path("start_time").asText(),
-                    "sourceLocalEnd", leave.path("end_time").asText()));
-                // Reasons, names, location, photo and device fields are deliberately not copied.
-                checkScope(out, ids, date); result.add(out);
+                String kind = "outs".equals(field) ? "OUT" : "LEAVE";
+                JsonNode approvals = user.path(field);
+                if (!approvals.isMissingNode() && !approvals.isArray())
+                    throw new ServiceException("FEISHU_INVALID_" + field.toUpperCase(Locale.ROOT));
+                for (JsonNode approval : approvals)
+                {
+                    // Approval instance is stable across changed type/times/status. Do not include mutable
+                    // approval type or interval in its key. Multiple rows per instance/day are quarantined.
+                    String key = required(approval, "approval_id");
+                    Map<String, Object> out = base(externalId, kind + ":" + externalId + ":" + key + ":" + businessDate,
+                        kind, businessDate, zone);
+                    if ("OUT".equals(kind)) out.put("adapterVersion", "FEISHU_ATTENDANCE_OUT_V1_20261009");
+                    long start = localInstant(required(approval, "start_time"), zone);
+                    long end = localInstant(required(approval, "end_time"), zone);
+                    if (end <= start) throw new ServiceException("FEISHU_INVALID_INTERVAL");
+                    out.put("intervals", Collections.singletonList(new long[] {start, end}));
+                    out.put("sourceStatus", String.valueOf(status));
+                    out.put("normalizedStatus", status == 2 ? "CONFIRMED" : "CANCELED");
+                    out.put("sourceDurationSeconds", approval.has("interval") ? approval.path("interval").asLong() : null);
+                    out.put("sourceDetails", map("approvalId", required(approval, "approval_id"),
+                        "unit", approval.path("unit").asInt(), "sourceLocalStart", approval.path("start_time").asText(),
+                        "sourceLocalEnd", approval.path("end_time").asText()));
+                    // Reasons, names, location, photo and device fields are deliberately not copied.
+                    checkScope(out, ids, date); result.add(out);
+                }
             }
         }
         rejectAmbiguousKeys(result); return result;
