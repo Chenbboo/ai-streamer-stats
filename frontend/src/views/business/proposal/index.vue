@@ -21,7 +21,7 @@
               <el-button v-if="canEditProposal(row)" link type="primary" @click="openForm(row)">{{ row.parentProjectId ? $tr("继续完善") : $tr("编辑") }}</el-button>
               <el-button v-if="canEditProposal(row)&&canLaunchProposal(row)" link type="success" @click="submitRow(row)">{{ $tr("启动项目") }}</el-button>
               <el-button v-if="row.status==='PENDING'" link type="warning" @click="withdrawRow(row)">{{ $tr("撤回") }}</el-button>
-              <el-button v-if="row.status==='APPROVED'&&row.createdProjectId" link @click="openProject(row)">{{ $tr("查看项目") }}</el-button>
+              <el-button v-if="row.status==='APPROVED'&&row.createdProjectId&&!row.createdProjectDeleted" link @click="openProject(row)">{{ $tr("查看项目") }}</el-button>
             </div></template></el-table-column>
           </el-table>
           <el-pagination v-model:current-page="minePage.pageNum" v-model:page-size="minePage.pageSize" :total="minePage.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next" @current-change="loadMine" @size-change="minePage.pageNum=1;loadMine()" style="margin-top:16px" />
@@ -205,7 +205,7 @@
       <section v-if="detail.targetLines?.length" class="detail-section"><h3>{{ $tr("项目验收目标") }}</h3><el-table :data="detail.targetLines" size="small"><el-table-column prop="targetName" :label="$tr(&quot;目标&quot;)"/><el-table-column :label="$tr(&quot;目标值&quot;)"><template #default="{row}">{{ row.targetType==='DELIVERY'?$tr("通过验收"):`${row.targetValue} ${$tr(row.unit)}` }}</template></el-table-column><el-table-column prop="dueDate" :label="$tr(&quot;完成日期&quot;)"/><el-table-column prop="acceptanceEvidence" :label="$tr(&quot;验收依据&quot;)"/></el-table></section>
       <section class="detail-section"><h3>{{ $tr("项目目标") }}</h3><p>{{ detail.objective }}</p></section><section class="detail-section"><h3>{{ $tr("立项理由") }}</h3><p>{{ detail.applicationReason }}</p></section><section v-if="detail.managementReason" class="detail-section"><h3>{{ $tr("重点监管原因") }}</h3><p>{{ detail.managementReason }}</p></section><section v-if="detail.acceptanceCriteria" class="detail-section"><h3>{{ $tr("验收标准") }}</h3><p>{{ detail.acceptanceCriteria }}</p></section><section v-if="detail.reviewComment" class="detail-section review-comment"><h3>{{ $tr("审批/撤回意见") }}</h3><p>{{ detail.reviewComment }}</p></section>
       <section class="detail-section"><h3>{{ $tr("操作记录") }}</h3><el-timeline><el-timeline-item v-for="event in detail.events || []" :key="event.eventId" :timestamp="event.createTime"><b>{{ eventLabel[event.eventType] || event.eventType }}</b><p>{{ event.operatorName }}<span v-if="event.comment"> · {{ event.comment }}</span></p></el-timeline-item></el-timeline></section>
-      <div class="drawer-actions"><el-button v-if="canEditProposal(detail)" type="primary" @click="openForm(detail)">{{ detail.parentProjectId ? $tr("继续完善") : $tr("修改") }}</el-button><el-button v-if="canEditProposal(detail)&&canLaunchProposal(detail)" type="success" @click="submitRow(detail)">{{ $tr("启动项目") }}</el-button><el-button v-if="detail.status==='APPROVED'&&detail.createdProjectId" @click="openProject(detail)">{{ $tr("查看正式项目") }}</el-button></div>
+      <div class="drawer-actions"><el-button v-if="canEditProposal(detail)" type="primary" @click="openForm(detail)">{{ detail.parentProjectId ? $tr("继续完善") : $tr("修改") }}</el-button><el-button v-if="canEditProposal(detail)&&canLaunchProposal(detail)" type="success" @click="submitRow(detail)">{{ $tr("启动项目") }}</el-button><el-button v-if="detail.status==='APPROVED'&&detail.createdProjectId&&!detail.createdProjectDeleted" @click="openProject(detail)">{{ $tr("查看正式项目") }}</el-button></div>
     </el-drawer>
   </div>
 </template>
@@ -270,10 +270,10 @@ const forecastPanels=ref([])
 const canViewDirectory=computed(()=>userStore.roles.includes('admin')||userStore.permissions.includes('*:*:*')||userStore.permissions.includes('business:project:proposal:review'))
 const statusLabel={DRAFT:translateText("草稿"),PENDING:translateText("待启动"),RETURNED:translateText("已退回"),WITHDRAWN:translateText("已撤回"),APPROVED:translateText("已启动")}
 const statusTone={DRAFT:'info',PENDING:'warning',RETURNED:'danger',WITHDRAWN:'info',APPROVED:'success'}
-const proposalStatusLabel=row=>row?.parentProjectId&&row?.status==='DRAFT'
+const proposalStatusLabel=row=>row?.createdProjectDeleted?translateText("已删除"):row?.parentProjectId&&row?.status==='DRAFT'
   ? Number(row.assignedOwnerUserId)===currentUserId.value?translateText("待我完善"):translateText("待子负责人完善")
   : statusLabel[row?.status]||row?.status||'—'
-const proposalStatusTone=row=>row?.parentProjectId&&row?.status==='DRAFT'?'warning':statusTone[row?.status]||'info'
+const proposalStatusTone=row=>row?.createdProjectDeleted?'info':row?.parentProjectId&&row?.status==='DRAFT'?'warning':statusTone[row?.status]||'info'
 const accountingOptions={PROFIT:{label:translateText("盈利型"),example:translateText("电商销售"),description:translateText("看收入、成本和赚了多少")},VALUE:{label:translateText("价值型"),example:translateText("员工培训"),description:translateText("看投入多少，目标有没有完成")}}
 const accountingLabel={PROFIT:translateText("盈利型"),VALUE:translateText("价值型"),COST:translateText("成本型（历史）"),HYBRID:translateText("混合型（历史）")}
 const revenueTypeLabel={SALES:translateText("商品销售"),SERVICE:translateText("服务费"),COMMISSION:translateText("佣金"),LIVE:translateText("直播收入"),OTHER:translateText("其他")}

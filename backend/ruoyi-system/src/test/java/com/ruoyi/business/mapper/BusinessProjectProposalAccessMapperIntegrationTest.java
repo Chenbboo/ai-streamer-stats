@@ -61,4 +61,24 @@ public class BusinessProjectProposalAccessMapperIntegrationTest {
             assertThrows(SQLException.class,()->sql.execute("insert into biz_project_proposal values(80,9,'proposal-request-123456','0')"));
         }
     }
+    @Test void directoryDistinguishesDeletedAndMissingProjectsFromActiveProjectsAndDrafts() throws Exception {
+        try(SqlSession session=factory.openSession();Statement sql=session.getConnection().createStatement()){
+            for(String column:new String[]{"proposal_no varchar(60)","project_name varchar(100)","applicant_name varchar(60)","sponsor_owner_user_id bigint","sponsor_owner_name varchar(60)","status varchar(20)","create_time timestamp","update_time timestamp","created_project_id bigint"})
+                sql.execute("alter table biz_project_proposal add "+column);
+            sql.execute("create table biz_project(project_id bigint primary key,del_flag char(1))");
+            sql.execute("insert into biz_project values(1,'0'),(2,'2')");
+            sql.execute("update biz_project_proposal set status='APPROVED',created_project_id=1 where proposal_id=77");
+            BusinessProjectProposalMapper mapper=session.getMapper(BusinessProjectProposalMapper.class);
+            java.util.Map<String,Object> query=java.util.Map.of("viewAll",true);
+            assertEquals(Boolean.FALSE,mapper.selectDirectory(query).get(0).getCreatedProjectDeleted());
+            sql.execute("update biz_project_proposal set created_project_id=2 where proposal_id=77");session.clearCache();
+            assertEquals(Boolean.TRUE,mapper.selectDirectory(query).get(0).getCreatedProjectDeleted());
+            assertEquals("APPROVED",mapper.selectDirectory(query).get(0).getStatus());
+            sql.execute("update biz_project_proposal set created_project_id=999 where proposal_id=77");session.clearCache();
+            assertEquals(Boolean.TRUE,mapper.selectDirectory(query).get(0).getCreatedProjectDeleted());
+            sql.execute("update biz_project_proposal set status='DRAFT',created_project_id=null where proposal_id=77");session.clearCache();
+            assertEquals(Boolean.FALSE,mapper.selectDirectory(query).get(0).getCreatedProjectDeleted());
+        }
+    }
+
 }

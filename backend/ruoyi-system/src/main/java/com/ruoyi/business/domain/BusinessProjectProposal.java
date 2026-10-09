@@ -95,6 +95,7 @@ public class BusinessProjectProposal extends BaseEntity
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss") private Date reviewedTime;
     private String reviewComment;
     private Long createdProjectId;
+    private Boolean createdProjectDeleted;
     private Integer version;
     private String delFlag;
     private Boolean canOpen;
@@ -254,6 +255,8 @@ public class BusinessProjectProposal extends BaseEntity
     public void setReviewedTime(Date reviewedTime) { this.reviewedTime = reviewedTime; }
     public String getReviewComment() { return reviewComment; }
     public void setReviewComment(String reviewComment) { this.reviewComment = reviewComment; }
+    public Boolean getCreatedProjectDeleted() { return createdProjectDeleted; }
+    public void setCreatedProjectDeleted(Boolean value) { this.createdProjectDeleted = value; }
     public Long getCreatedProjectId() { return createdProjectId; }
     public void setCreatedProjectId(Long createdProjectId) { this.createdProjectId = createdProjectId; }
     public Integer getVersion() { return version; }
