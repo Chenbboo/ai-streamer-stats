@@ -88,6 +88,7 @@
         </el-tab-pane>
         <el-tab-pane :label="$tr(&quot;人员与收支&quot;)" name="people">
           <div class="owner-section-intro"><span>{{ $tr("同步查看所有项目的成员、今日收入和今日花费") }}</span></div>
+          <MemberProjectAllocationChart v-if="workspaceTab === 'people'" :workspaces="allProjectWorkspaces" @select-project="projectId => selectProject(projectId, 'people')" @changed="refreshWorkbench" />
           <section class="panel all-project-table-panel">
             <el-table :data="allProjectWorkspaces" row-key="project.projectId">
               <el-table-column :label="$tr(&quot;项目&quot;)" min-width="210" fixed="left"><template #default="{row}"><div class="all-project-name"><b>{{ row.project.projectName }}</b><small>{{ row.project.companyName || $tr("归属公司待设置") }}</small></div></template></el-table-column>
@@ -309,6 +310,7 @@
               <div class="daily-spend-actions"><el-button link type="primary" @click="editDailySpend(item)">{{ $tr("修改") }}</el-button><el-button link type="danger" @click="reverseDailySpend(item)">{{ $tr("冲销") }}</el-button></div>
             </div>
           </article></div>
+          <ProjectPersonnelCostChart :project-id="project.projectId" :can-manage="canManageAllocation" :refresh-key="ownerChartRefresh" @changed="load(project.projectId)" />
           <section v-if="usesActualWork" class="panel owner-cost-panel"><BusinessProjectWorkPanel ref="ownerWorkPanel" :project-id="project.projectId" :members="project.members || []" :can-manage="canManageAllocation" @changed="load(project.projectId)"/></section>
           <article class="panel">
             <div class="panel-head"><div><h2>{{ $tr("参项人员") }}</h2><p>{{ $tr("本项目共 {0} 人，考勤由飞书自动同步。", [project.members?.length || 0]) }}</p></div></div>
@@ -326,6 +328,7 @@
           </article>
         </el-tab-pane>
         <el-tab-pane :label="$tr(&quot;项目与结算&quot;)" name="project" lazy>
+          <ProjectBudgetUsage :project-id="project.projectId" :refresh-key="ownerChartRefresh" />
           <OwnerProjectSettlement :project="project" :summary="settlementSummary" :kpi="todoKpi" :load-failed="settlementLoadFailed" :kpi-failed="todoLoadFailed" :public-expense-failed="publicExpenseTodoFailed" :public-expense-todos="publicExpenseTodos" :public-expense-bills="publicExpenseBills" :open-task-count="openTasks.length" :open-risk-count="entryOpenRisks({project})" :initial-tab="projectSettlementTab" :refresh-key="settlementRefreshKey" @update:initial-tab="projectSettlementTab=$event" @all-projects="selectProjectSettlement(ALL_PROJECTS, 'overview')" @people="goToWorkspace('people')" @public-expense="handleProjectPublicExpense" @refresh="refreshProjectSettlement" />
         </el-tab-pane>
         <el-tab-pane :label="$tr(&quot;公共费用&quot;)" name="public-expense" lazy>
@@ -521,6 +524,9 @@ import BusinessProjectWorkPanel from '@/components/BusinessProjectWorkPanel/inde
 import InternalProjectIncomeTooltip from '@/components/InternalProjectIncomeTooltip/index.vue'
 import ProjectSpendHistoryDialog from '@/components/ProjectSpendHistoryDialog/index.vue'
 import OwnerProjectSettlement from './components/OwnerProjectSettlement.vue'
+import ProjectPersonnelCostChart from '../components/ProjectPersonnelCostChart.vue'
+import MemberProjectAllocationChart from '../components/MemberProjectAllocationChart.vue'
+import ProjectBudgetUsage from '../components/ProjectBudgetUsage.vue'
 import PublicExpenseOwnerPanel from '@/views/business/components/PublicExpenseOwnerPanel.vue'
 import { getProjectKpiWorkspace } from '@/api/business/kpi'
 import { listProjectProposals } from '@/api/business/proposal'
@@ -585,6 +591,7 @@ async function ignoreKpiTodo(projectId=project.value?.projectId){
   ElMessage.success(translateText("已忽略"))
  }finally{saving.value=false}
 }
+const ownerChartRefresh=ref(0)
 const ownerTodos=computed(()=>{
   const rows=[...crossProjectTodos.value,...allocationReviewTodos.value,...publicExpenseTodos.value,...buildOwnerTodos({data:{...data.value,pendingAllocationRequests:[]},userId:userStore.id,today:today(),permissions:userStore.permissions,kpi:todoKpi.value})]
   if(Number(settlementSummary.value.pendingCostCount)>0)rows.push({key:'cost-setup',title:translateText("完善人员成本"),detail:translateText("部分工作日缺少有效成本，请核对后补充"),action:'people',urgent:true})
@@ -850,7 +857,7 @@ async function load(projectId){
     const{data:payload={}}=await getBusinessOwnerWorkbench(projectId||undefined)
     if(request!==ownerRequest)return
     if(data.value.project?.projectId!==payload.project?.projectId){todosExpanded.value=false;workspaceTab.value='execution';projectSettlementTab.value='overview'}
-    data.value=payload;selectedProjectId.value=payload.project?.projectId||null
+    data.value=payload;selectedProjectId.value=payload.project?.projectId||null;ownerChartRefresh.value++
     if(selectedProjectId.value){
       router.replace({query:{...route.query,projectId:selectedProjectId.value}})
       const currentProjectId=selectedProjectId.value

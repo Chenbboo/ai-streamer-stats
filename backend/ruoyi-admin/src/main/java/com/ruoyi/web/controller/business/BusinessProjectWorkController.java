@@ -44,11 +44,6 @@ public class BusinessProjectWorkController extends BaseController
     @Log(title="项目计划变更复核",businessType=BusinessType.UPDATE)
     public AjaxResult reviewChange(@PathVariable Long changeId,@RequestBody Map<String,Object> body){return success(plans.review(changeId,body,getUserId(),getUsername()));}
 
-    @PostMapping("/{projectId}/forecast")
-    @PreAuthorize("@ss.hasPermi('business:project:edit')")
-    @Log(title="项目预测更新",businessType=BusinessType.INSERT)
-    public AjaxResult forecast(@PathVariable Long projectId,@RequestBody Map<String,Object> body){return success(plans.forecast(projectId,body,getUserId(),getUsername()));}
-
     @GetMapping("/{projectId}/workspace")
     @PreAuthorize("@ss.hasAnyPermi('business:project:list,business:project:owner:view,business:work:report')")
     public AjaxResult workspace(@PathVariable Long projectId,@RequestParam Map<String,Object> query){return success(memberDays.workspace(projectId,query,getUserId(),SecurityUtils.isAdmin()));}

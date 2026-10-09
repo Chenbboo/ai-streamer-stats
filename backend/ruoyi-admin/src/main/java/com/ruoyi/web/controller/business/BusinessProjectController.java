@@ -345,7 +345,7 @@ public class BusinessProjectController extends BaseController
         return success(projectService.saveStaffAllocation(allocation, currentUserId(), currentUserName(), isBoss()));
     }
 
-    @PreAuthorize("@ss.hasPermi('business:project:allocation')")
+    @PreAuthorize("@ss.hasAnyPermi('business:project:allocation,business:project:owner:view')")
     @GetMapping("/project/staff-allocation/workspace")
     public AjaxResult staffAllocationWorkspace(@RequestParam Long userId,
         @RequestParam(required = false) String effectiveDate)

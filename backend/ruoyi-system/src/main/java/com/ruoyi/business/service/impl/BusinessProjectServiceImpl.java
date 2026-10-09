@@ -76,8 +76,6 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
     private static final List<String> MANUAL_EXPENSE_CATEGORY_CODES = Arrays.asList("PURCHASE_COST", "PLATFORM_FEE",
         "MARKETING_COST", "LOGISTICS_COST", "INTERNAL_PROJECT_COST", "OTHER_EXPENSE");
     private static final List<String> LEAVE_TYPES = Arrays.asList("SICK", "PERSONAL", "ANNUAL", "COMPENSATORY", "OTHER");
-    private static final BigDecimal CHINA_STANDARD_WORK_DAYS = new BigDecimal("21.75");
-    private static final BigDecimal VIETNAM_STANDARD_WORK_DAYS = new BigDecimal("26");
 
     @Autowired
     private BusinessProjectMapper mapper;
@@ -1256,9 +1254,7 @@ public class BusinessProjectServiceImpl implements IBusinessProjectService
         if(!Arrays.asList("MONTHLY","DAILY","HOURLY").contains(mode))throw new ServiceException("内部费率单位只支持月、日或小时");
         if("MONTHLY".equals(mode))
         {
-            if("CN".equals(countryRegion))policy.setStandardWorkDays(CHINA_STANDARD_WORK_DAYS);
-            else if("VN".equals(countryRegion))policy.setStandardWorkDays(VIETNAM_STANDARD_WORK_DAYS);
-            else throw new ServiceException("该人员的国家/地区未配置月度成本折算规则，请先在人员管理中设置为中国或越南");
+            policy.setStandardWorkDays(com.ruoyi.business.support.BusinessHrDailyCost.standardWorkDays(countryRegion,null));
         }
         else policy.setStandardWorkDays(null);
         policy.setCountryRegion(countryRegion);

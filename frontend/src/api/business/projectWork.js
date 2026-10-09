@@ -9,4 +9,3 @@ export const getProjectPlan = id => request({ url: `/business/project-work/${id}
 export const requestProjectPlanChange = (id, data) => request({ url: `/business/project-work/${id}/plan-changes`, method: 'post', data })
 export const previewProjectPlanChange = (id, data) => request({ url: `/business/project-work/${id}/plan-change-preview`, method: 'post', data, headers: { repeatSubmit: false } })
 export const reviewProjectPlanChange = (id, data) => request({ url: `/business/project-work/plan-changes/${id}/review`, method: 'post', data })
-export const saveProjectForecast = (id, data) => request({ url: `/business/project-work/${id}/forecast`, method: 'post', data })

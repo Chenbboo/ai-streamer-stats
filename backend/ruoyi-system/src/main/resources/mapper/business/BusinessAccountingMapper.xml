@@ -271,7 +271,7 @@
     select coalesce(sum(case
       when leave_record.leave_id is not null then 0
       when a.allocation_mode='PERCENTAGE' and c.cost_mode='DAILY' then c.unit_cost*coalesce(e.actual_percent,a.allocation_value)/100
-      when a.allocation_mode='PERCENTAGE' and c.cost_mode='MONTHLY' then c.unit_cost/c.standard_work_days*coalesce(e.actual_percent,a.allocation_value)/100
+      when a.allocation_mode='PERCENTAGE' and c.cost_mode='MONTHLY' then c.unit_cost/(case when c.country_region_snapshot='VN' or (c.country_region_snapshot is null and c.standard_work_days=26) then 26 else 21.75 end)*coalesce(e.actual_percent,a.allocation_value)/100
       when a.allocation_mode='PERCENTAGE' and c.cost_mode='HOURLY' then c.unit_cost*8*coalesce(e.actual_percent,a.allocation_value)/100
       when a.allocation_mode='FIXED_DAILY' then a.allocation_value
       when a.allocation_mode='HOURS' and c.cost_mode='HOURLY' then c.unit_cost*a.allocation_value
@@ -288,9 +288,9 @@
       and (a.effective_to is null or a.effective_to&gt;=#{bizDate})
   </select>
   <select id="selectProjectPersonnelCostDetails" resultType="map">
-    select a.user_id userId,a.user_name componentName,c.country_region_snapshot countryRegion,
-      c.unit_cost monthlyCost,c.currency,c.standard_work_days standardWorkDays,
-      round(c.unit_cost/nullif(c.standard_work_days,0),4) dailyCost,
+    select a.user_id userId,a.user_name componentName,c.country_region_snapshot countryRegion,c.cost_mode costMode,a.allocation_mode allocationMode,
+      c.unit_cost monthlyCost,c.currency,case when c.cost_mode='MONTHLY' then (case when c.country_region_snapshot='VN' or (c.country_region_snapshot is null and c.standard_work_days=26) then 26 else 21.75 end) end standardWorkDays,
+      round(c.unit_cost/(case when c.country_region_snapshot='VN' or (c.country_region_snapshot is null and c.standard_work_days=26) then 26 else 21.75 end),4) dailyCost,
       a.allocation_value plannedPercent,e.actual_percent actualPercent,
       coalesce(e.actual_percent,a.allocation_value) appliedPercent,
       case when leave_record.leave_id is not null then 'LEAVE'
@@ -299,7 +299,7 @@
       case
         when leave_record.leave_id is not null then 0
         when a.allocation_mode='PERCENTAGE' and c.cost_mode='DAILY' then c.unit_cost*coalesce(e.actual_percent,a.allocation_value)/100
-        when a.allocation_mode='PERCENTAGE' and c.cost_mode='MONTHLY' then c.unit_cost/c.standard_work_days*coalesce(e.actual_percent,a.allocation_value)/100
+        when a.allocation_mode='PERCENTAGE' and c.cost_mode='MONTHLY' then c.unit_cost/(case when c.country_region_snapshot='VN' or (c.country_region_snapshot is null and c.standard_work_days=26) then 26 else 21.75 end)*coalesce(e.actual_percent,a.allocation_value)/100
         when a.allocation_mode='PERCENTAGE' and c.cost_mode='HOURLY' then c.unit_cost*8*coalesce(e.actual_percent,a.allocation_value)/100
         when a.allocation_mode='FIXED_DAILY' then a.allocation_value
         when a.allocation_mode='HOURS' and c.cost_mode='HOURLY' then c.unit_cost*a.allocation_value
@@ -312,7 +312,7 @@
           case when e.effort_id is not null then '已确认实际投入 ' else '计划投入 ' end,
           cast(coalesce(e.actual_percent,a.allocation_value) as char),'%；',
           case c.cost_mode
-            when 'MONTHLY' then concat('月度用人成本 ',cast(c.unit_cost as char),' / ',cast(c.standard_work_days as char),' 天（',
+            when 'MONTHLY' then concat('月度用人成本 ',cast(c.unit_cost as char),' / ',cast((case when c.country_region_snapshot='VN' or (c.country_region_snapshot is null and c.standard_work_days=26) then 26 else 21.75 end) as char),' 天（',
               case c.country_region_snapshot when 'VN' then '越南' when 'CN' then '中国' else c.country_region_snapshot end,'）')
             when 'DAILY' then concat('日成本 ',cast(c.unit_cost as char))
             when 'HOURLY' then concat('时成本 ',cast(c.unit_cost as char),' × 8 小时')
@@ -651,8 +651,8 @@
       profile.country_region profileCountryRegion,
       coalesce(c.country_region_snapshot,profile.country_region,
         case when vietnam.dept_id is not null then 'VN' else 'CN' end) countryRegion,
-      c.policy_id policyId,c.unit_cost monthlyCost,c.currency,c.standard_work_days standardWorkDays,
-      round(c.unit_cost/nullif(c.standard_work_days,0),4) dailyCost,
+      c.policy_id policyId,c.cost_mode costMode,a.allocation_mode allocationMode,c.unit_cost monthlyCost,c.currency,case when c.cost_mode='MONTHLY' then (case when c.country_region_snapshot='VN' or (c.country_region_snapshot is null and c.standard_work_days=26) then 26 else 21.75 end) end standardWorkDays,
+      round(c.unit_cost/(case when c.country_region_snapshot='VN' or (c.country_region_snapshot is null and c.standard_work_days=26) then 26 else 21.75 end),4) dailyCost,
       a.allocation_id allocationId,a.allocation_value plannedPercent,e.actual_percent actualPercent,
       coalesce(e.actual_percent,a.allocation_value) appliedPercent,
       coalesce(total_plan.total_planned_percent,0) totalPlannedPercent,
@@ -661,11 +661,10 @@
       leave_record.leave_type leaveType,
       case when leave_record.leave_id is not null then 0
            when c.cost_mode='MONTHLY' and c.currency='CNY' and a.allocation_mode='PERCENTAGE'
-             then round(c.unit_cost/nullif(c.standard_work_days,0)*coalesce(e.actual_percent,a.allocation_value)/100,4)
+             then round(c.unit_cost/(case when c.country_region_snapshot='VN' or (c.country_region_snapshot is null and c.standard_work_days=26) then 26 else 21.75 end)*coalesce(e.actual_percent,a.allocation_value)/100,4)
            else 0 end personnelCost,
-      case when profile.country_region is null or profile.country_region not in ('CN','VN') then 'MISSING_REGION'
-           when c.policy_id is null then 'MISSING_COST'
-           when c.cost_mode&lt;&gt;'MONTHLY' or c.currency&lt;&gt;'CNY' or c.standard_work_days is null then 'LEGACY_COST'
+      case when c.policy_id is null then 'MISSING_COST'
+           when c.cost_mode&lt;&gt;'MONTHLY' or c.currency&lt;&gt;'CNY' then 'LEGACY_COST'
            when a.allocation_id is null then 'MISSING_ALLOCATION'
            when coalesce(total_plan.total_planned_percent,0)&gt;100 then 'OVER_ALLOCATED'
            when leave_record.leave_id is not null then 'LEAVE'
@@ -712,8 +711,7 @@
   <select id="selectCompanyPersonnelCostReadiness" resultType="map">
     select u.user_id userId,coalesce(nullif(u.nick_name,''),u.user_name) userName,
       company.dept_id companyDeptId,company.dept_name companyName,profile.country_region profileCountryRegion,
-      case when profile.country_region is null or profile.country_region not in ('CN','VN') then 'MISSING_REGION'
-           when valid_cost.user_id is not null then 'READY'
+      case when valid_cost.user_id is not null then 'READY'
            when any_cost.user_id is not null then 'LEGACY_COST'
            else 'MISSING_COST' end costStatus,
       count(distinct project.project_id) projectCount,
@@ -732,7 +730,7 @@
     left join (
       select user_id from biz_staff_cost_policy
       where status='ACTIVE' and cost_mode='MONTHLY' and currency='CNY'
-        and standard_work_days is not null and standard_work_days&gt;0
+
         and effective_from&lt;=#{bizDate} and (effective_to is null or effective_to&gt;=#{bizDate})
       group by user_id
     ) valid_cost on valid_cost.user_id=u.user_id

@@ -34,7 +34,27 @@ class BusinessProjectWorkPricingServiceTest
     @Test void monthlyRateUsesConfirmedMinutesAndSingleFinalRounding(){assertEquals(new BigDecimal("137.93"),BusinessProjectWorkPricingService.price(240,480,row("costMode","MONTHLY","unitCost",new BigDecimal("6000"),"standardWorkDays",new BigDecimal("21.75"))));}
     @Test void hourlyRateDoesNotDependOnCalendarOrDayDisplayUnit(){assertEquals(new BigDecimal("120.00"),BusinessProjectWorkPricingService.price(240,360,row("costMode","HOURLY","unitCost",new BigDecimal("30"))));}
     @Test void changingWorkDisplayPolicyCannotChangeDailyRatePrice(){Map<String,Object> rate=row("costMode","DAILY","unitCost",new BigDecimal("200"),"rateMinutesPerDay",480);assertEquals(new BigDecimal("100.00"),BusinessProjectWorkPricingService.price(240,480,rate));assertEquals(new BigDecimal("100.00"),BusinessProjectWorkPricingService.price(240,360,rate));}
-    @Test void invalidAndMissingRateNeverBecomeZero(){assertThrows(ServiceException.class,()->BusinessProjectWorkPricingService.price(240,480,row("costMode","MONTHLY","unitCost",6000,"standardWorkDays",0)));assertThrows(ServiceException.class,()->BusinessProjectWorkPricingService.price(240,480,row("costMode","FIXED_TASK","unitCost",50)));}
+    @Test void monthlyDivisorIsFixedForLegacyAndMissingStoredValues(){for(Object days:Arrays.asList(null,0,22,26))assertEquals(new BigDecimal("137.93"),BusinessProjectWorkPricingService.price(240,480,row("costMode","MONTHLY","unitCost",6000,"standardWorkDays",days,"countryRegion","CN")));}
+    @Test void vietnamMonthlyWorkPricingRestoresTwentySixDays(){assertEquals(new BigDecimal("50.00"),BusinessProjectWorkPricingService.price(240,480,row("costMode","MONTHLY","unitCost",2600,"standardWorkDays",21.75,"countryRegion","VN")));}
+    @Test void invalidAndMissingRateNeverBecomeZero(){assertThrows(ServiceException.class,()->BusinessProjectWorkPricingService.price(240,480,row("costMode","MONTHLY","unitCost",null)));assertThrows(ServiceException.class,()->BusinessProjectWorkPricingService.price(240,480,row("costMode","FIXED_TASK","unitCost",50)));}
+    @Test void confirmedFullDaysAccumulateRegionalDailyCosts(){
+        Map<String,Object> calendar=row("calendarId",1L,"workingWeekdays","1,2,3,4,5","dailyMinutes",480,"exceptionsJson","[]");
+        BigDecimal total=BigDecimal.ZERO;
+        for(java.time.LocalDate date=java.time.LocalDate.parse("2026-10-01");!date.isAfter(java.time.LocalDate.parse("2026-10-31"));date=date.plusDays(1)){
+            if(!com.ruoyi.business.support.BusinessPersonnelCost.workingDay(calendar,date))continue;
+            total=total.add(BusinessProjectWorkPricingService.priceMonthly(480,row("costMode","MONTHLY","unitCost",3300),calendar,date));
+        }
+        assertEquals(new BigDecimal("3337.84"),total);
+    }
+    @Test void monthlyWorkPricingUsesItsSavedCalendarRatherThanCurrentCalendar() throws Exception {
+        entry.put("calendarSnapshotJson",json.writeValueAsString(row("calendarId",1L,"workingWeekdays","1,2,3,4,5","dailyMinutes",480,"exceptionsJson","[]")));
+        when(mapper.selectApplicableRates(30L,"2026-03-02")).thenReturn(Collections.singletonList(row("policyId",88L,"version",3,"costMode","MONTHLY","unitCost",3300,"currency","CNY")));
+        service.process(5L,"pricing");
+        ArgumentCaptor<Map<String,Object>> cost=ArgumentCaptor.forClass(Map.class);verify(mapper).upsertWorkCost(cost.capture());
+        assertEquals(new BigDecimal("75.86"),cost.getValue().get("amount"));
+        assertTrue(String.valueOf(cost.getValue().get("basisJson")).contains("REGION_STANDARD_PROJECT_DAY_V4"));
+        verify(mapper,never()).selectCalendar(any());
+    }
     @Test void missingRateIsPersistedAsPendingWithNullAmount(){service.process(5L,"pricing");ArgumentCaptor<Map<String,Object>> cost=ArgumentCaptor.forClass(Map.class);verify(mapper).upsertWorkCost(cost.capture());assertEquals("PENDING",cost.getValue().get("pricingStatus"));assertNull(cost.getValue().get("amount"));assertTrue(String.valueOf(cost.getValue().get("basisJson")).contains("MISSING_RATE"));verify(accountingService,never()).recalculatePersonnelCost(any(),any(),any());}
     @Test void overlappingRatesRequireResolution(){when(mapper.selectApplicableRates(30L,"2026-03-02")).thenReturn(Arrays.asList(row("policyId",1L),row("policyId",2L)));service.process(5L,"pricing");ArgumentCaptor<Map<String,Object>> cost=ArgumentCaptor.forClass(Map.class);verify(mapper).upsertWorkCost(cost.capture());assertTrue(String.valueOf(cost.getValue().get("basisJson")).contains("AMBIGUOUS_RATE"));assertNull(cost.getValue().get("amount"));}
     @Test void successfulPricingStoresSourceRevisionRateAndRounding(){when(mapper.selectApplicableRates(30L,"2026-03-02")).thenReturn(Collections.singletonList(row("policyId",88L,"version",3,"costMode","DAILY","unitCost",new BigDecimal("200"),"currency","CNY")));service.process(5L,"pricing");ArgumentCaptor<Map<String,Object>> cost=ArgumentCaptor.forClass(Map.class);verify(mapper).upsertWorkCost(cost.capture());assertEquals(new BigDecimal("100.00"),cost.getValue().get("amount"));assertEquals(88L,cost.getValue().get("ratePolicyId"));assertTrue(String.valueOf(cost.getValue().get("basisJson")).contains("HALF_UP"));verify(accountingService).recalculatePersonnelCost(eq(1L),any(),eq("pricing"));assertEquals("DONE",event.get("status"));}

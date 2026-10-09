@@ -106,10 +106,10 @@ class BusinessFullProjectPayrollTest {
         Map<String,Object> pending=period(20,20);pending.put("confirmationStatus","PENDING");
         assertThrows(ServiceException.class,()->BusinessFullProjectPayroll.normalize(Collections.singletonMap(20L,pending)));
     }
-    @Test void aMidMonthCostVersionChangeUsesWholeMonthBudgetInsteadOfTheReportWindow(){
+    @Test void midMonthCostVersionsAccumulateRegionalDailyCostsAcrossTheWholeMonth(){
         rate.put("effectiveTo","2026-09-15");Map<String,Object> later=new LinkedHashMap<>(rate);later.remove("effectiveTo");later.put("effectiveFrom","2026-09-16");later.put("unitCost",new BigDecimal("22500.00"));
         BusinessFullProjectPayroll payroll=payroll(Arrays.asList(period(20,20)),Collections.singletonMap(20L,scope("2026-09-23")));
         Map<String,Object> cost=payroll.amount(20L,LocalDate.of(2026,9,29),calendar,Arrays.asList(rate,later),Collections.emptyList(),"CNY",null);
-        assertEquals(new BigDecimal("16875.00"),cost.get("fullMonthlyCost"));
+        assertEquals(new BigDecimal("17068.92"),cost.get("fullMonthlyCost"));
     }
 }

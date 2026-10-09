@@ -35,7 +35,7 @@ export const saveBusinessProjectKpi = data => {
 }
 export const retireBusinessProjectKpi = (projectId, kpiId) => request({ url: `/business/project/${projectId}/kpi/${kpiId}`, method: 'delete' })
 export const saveBusinessStaffAllocation = data => request({ url: '/business/project/staff-allocation', method: 'post', data })
-export const getBusinessStaffAllocationWorkspace = params => request({ url: '/business/project/staff-allocation/workspace', method: 'get', params })
+export const getBusinessStaffAllocationWorkspace = (params, { silentError = false } = {}) => request({ url: '/business/project/staff-allocation/workspace', method: 'get', params, silentError })
 export const saveBusinessStaffAllocationWorkspace = data => request({ url: '/business/project/staff-allocation/workspace', method: 'post', data })
 export const reviewBusinessStaffAllocation = (requestId, data) => request({ url: `/business/project/staff-allocation/request/${requestId}/review`, method: 'post', data })
 export const removeBusinessStaffAllocation = (projectId, allocationId) => request({ url: `/business/project/${projectId}/staff-allocation/${allocationId}`, method: 'delete' })

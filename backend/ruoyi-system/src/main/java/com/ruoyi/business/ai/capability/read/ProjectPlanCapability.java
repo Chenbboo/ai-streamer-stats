@@ -19,7 +19,7 @@ public class ProjectPlanCapability implements AiCapability
     @Autowired public ProjectPlanCapability(BusinessProjectPlanService service) { this.service = service; }
     @Override public String code() { return "project.plan.get"; }
     @Override public String description()
-    { return "只读查询有权查看的标准项目计划基线版本、变更单及负责人预测。基线、预测、实际分别记录；预算和计划日期修改须走计划变更流程。本能力不申请、不核准变更，也不改写预算或实际成本。"; }
+    { return "只读查询有权查看的标准项目计划基线版本和变更单。计划与实际分别记录；预算和计划日期修改须走计划变更流程。本能力不申请、不核准变更，也不改写预算或实际成本。"; }
     @Override public String requiredPermission() { return "business:project:list"; }
     @Override public boolean isAllowed(AiExecutionContext actor)
     { return actor != null && (actor.hasPermission(requiredPermission()) || actor.hasPermission("business:project:owner:view")); }
@@ -37,7 +37,7 @@ public class ProjectPlanCapability implements AiCapability
         Map<String,Object> result = new LinkedHashMap<String,Object>();
         result.put("projectId", projectId);
         result.put("plan", service.plan(projectId, invocation.getActor().getUserId(), invocation.getActor().isAdministrator()));
-        result.put("meaning", "基线保存已授权计划，预测表达当前判断，二者均不代表已发生成本；修改须进入计划变更流程。");
+        result.put("meaning", "基线保存已授权计划，计划金额不代表已发生成本；修改预算和计划日期须进入计划变更流程。");
         return result;
     }
 }

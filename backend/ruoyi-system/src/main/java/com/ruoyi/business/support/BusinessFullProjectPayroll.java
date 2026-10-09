@@ -118,6 +118,12 @@ public final class BusinessFullProjectPayroll {
         }
         return result;
     }
+    /** Retain existing eligibility and allocation rules, without redistributing a monthly salary across dates. */
+    public Map<String,Object> dailyShare(Long projectId,LocalDate date,Map<String,Object> calendar) {
+        Map<String,Object> share=shares(eligible(date,calendar)).get(projectId);
+        if(share==null)throw new ServiceException("缺少该日期有效的项目投入比例");
+        return share;
+    }
     public Map<String,Object> amount(Long projectId,LocalDate date,Map<String,Object> calendar,List<Map<String,Object>> rates,
         List<Map<String,Object>> stored,String currency,LocalDate hireDate) {
         YearMonth period=YearMonth.from(date);Month month=months.get(period);

@@ -2749,7 +2749,7 @@ class BusinessProjectServiceImplTest
     }
 
     @Test
-    void batchStaffMonthlyCostSavesEveryPersonWithTheirRegionRule()
+    void batchStaffMonthlyCostUsesEachRegionalRule()
     {
         Map<String, Object> chinaStaff = new HashMap<String, Object>();
         chinaStaff.put("nickName", "中国员工");
@@ -2805,11 +2805,9 @@ class BusinessProjectServiceImplTest
         input.setUserId(149L); input.setUnitCost(new BigDecimal("9000")); input.setStandardWorkDays(new BigDecimal("22"));
         input.setEffectiveFrom(java.sql.Date.valueOf("2026-08-19"));
 
-        ServiceException error = assertThrows(ServiceException.class,
-            () -> service.saveStaffCostPolicy(input, 8L, "boss8", true));
-
-        assertTrue(error.getMessage().contains("国家/地区"));
-        verify(mapper, never()).insertStaffCostPolicy(any());
+        BusinessStaffCostPolicy saved = service.saveStaffCostPolicy(input, 8L, "boss8", true);
+        assertEquals(new BigDecimal("21.75"), saved.getStandardWorkDays());
+        verify(mapper).insertStaffCostPolicy(saved);
     }
 
     @Test

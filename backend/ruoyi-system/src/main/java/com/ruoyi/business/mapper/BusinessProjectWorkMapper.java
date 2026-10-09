@@ -23,9 +23,6 @@ public interface BusinessProjectWorkMapper
     int reviewPlanChange(Map<String,Object> row);
     int applyPlanChange(Map<String,Object> row);
     int countAssignmentsOutside(Map<String,Object> row);
-    int touchProject(Map<String,Object> row);
-    int insertForecast(Map<String,Object> row);
-    Map<String,Object> selectForecast(Long projectId);
     List<Map<String,Object>> selectMembers(Long projectId);
     int countMembership(@Param("projectId") Long projectId,@Param("userId") Long userId,@Param("bizDate") String bizDate);
     int insertAssignment(Map<String,Object> row);

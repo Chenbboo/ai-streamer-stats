@@ -172,6 +172,25 @@ class BusinessAccountingServiceImplTest
         order.verify(mapper).updateDailyResultBudgetSpent(99L,new BigDecimal("500"));
         verify(mapper,times(5)).insertDailyResultItem(any());
     }
+    @Test void legacyMonthlyProjectAccountingUsesTheRegionalDailyCost(){
+        Map<String,Object> p=project(21L,8L);when(mapper.selectProjectForAccounting(21L)).thenReturn(p);
+        Map<String,Object> calendar=new HashMap<>();calendar.put("calendarId",1L);calendar.put("workingWeekdays","1,2,3,4,5");calendar.put("dailyMinutes",480);
+        when(workMapper.selectCalendars()).thenReturn(Collections.singletonList(calendar));
+        when(mapper.selectProjectPersonnelCostDetails(org.mockito.ArgumentMatchers.eq(21L),any())).thenAnswer(call->{
+            Map<String,Object> person=new HashMap<>();person.put("componentName","蔡新武");person.put("costMode","MONTHLY");
+            person.put("allocationMode","PERCENTAGE");person.put("monthlyCost",3300);person.put("appliedPercent",100);person.put("dailyCost",new BigDecimal("151.7241"));
+            return Collections.singletonList(person);
+        });
+        when(mapper.sumProjectFacts(org.mockito.ArgumentMatchers.eq(21L),any())).thenReturn(new HashMap<>());
+        doAnswer(call->{call.<Map<String,Object>>getArgument(0).put("resultId",99L);return 1;}).when(mapper).insertDailyResult(any());
+        BigDecimal total=BigDecimal.ZERO;
+        for(java.time.LocalDate day=java.time.LocalDate.parse("2026-09-01");!day.isAfter(java.time.LocalDate.parse("2026-09-30"));day=day.plusDays(1)){
+            Map<String,Object> result=service.recalculate(21L,java.sql.Date.valueOf(day),8L,"boss8",false);
+            total=total.add((BigDecimal)result.get("personnelCost"));
+        }
+        assertEquals(new BigDecimal("3337.84"),total);
+        verify(mapper,never()).sumProjectPersonnelCost(any(),any());
+    }
 
     @Test void backdatedRecalculationRefreshesEveryLaterCumulativeSnapshot()
     {

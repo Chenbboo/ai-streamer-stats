@@ -16,6 +16,10 @@ import com.ruoyi.business.mapper.BusinessProjectMapper;
 import com.ruoyi.business.mapper.BusinessProjectWorkMapper;
 import com.ruoyi.business.service.IBusinessAccountingService;
 import com.ruoyi.business.support.BusinessProjectLifecycle;
+import com.ruoyi.business.support.BusinessHrDailyCost;
+import com.ruoyi.business.support.BusinessPersonnelCost;
+import java.time.LocalDate;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
 
@@ -80,7 +84,21 @@ public class BusinessProjectWorkPricingService
         else {
             Map<String,Object> rate=rates.get(0);basis.put("rateSnapshot",rate);
             if(!project.getBaseCurrency().equalsIgnoreCase(String.valueOf(rate.get("currency"))))pending="CURRENCY_MISMATCH";
-            else try{amount=price(integer(entry.get("workMinutes")),integer(entry.get("minutesPerDay")),rate);cost.put("ratePolicyId",rate.get("policyId"));cost.put("ratePolicyVersion",rate.get("version"));basis.put("formula","confirmedMinutes / rateUnitMinutes * effectiveRate; per-entry HALF_UP(2)");}catch(ServiceException ex){pending="INVALID_RATE";}
+            else try{
+                if("MONTHLY".equals(rate.get("costMode"))){
+                    Map<String,Object> calendar=entryCalendar(entry);
+                    LocalDate date=LocalDate.parse(day(entry.get("bizDate")));
+                    amount=priceMonthly(integer(entry.get("workMinutes")),rate,calendar,date);
+                    basis.put("standardWorkDays",BusinessHrDailyCost.standardWorkDays(rate));
+                    basis.put("monthWorkingDays",new BusinessPersonnelCost().monthWorkingDays(calendar,date));
+                    basis.put("calendarSnapshot",calendar);basis.put("monthlyCostRule",BusinessPersonnelCost.PROJECT_MONTHLY_RULE);
+                    basis.put("formula","月成本 ÷ 地区标准天数（国内21.75天、越南26天） × 已确认工时 ÷ 费率人天分钟数，四舍五入到分");
+                }else{
+                    amount=price(integer(entry.get("workMinutes")),integer(entry.get("minutesPerDay")),rate);
+                    basis.put("formula","confirmedMinutes / rateUnitMinutes * effectiveRate; per-entry HALF_UP(2)");
+                }
+                cost.put("ratePolicyId",rate.get("policyId"));cost.put("ratePolicyVersion",rate.get("version"));
+            }catch(ServiceException ex){pending="INVALID_RATE";}
         }
         cost.put("pricingStatus",pending==null?"PRICED":"PENDING");cost.put("amount",amount);basis.put("pricingIssue",pending);basis.put("amount",amount);
         try{cost.put("basisJson",json.writeValueAsString(basis));}catch(Exception ex){throw new ServiceException("计价依据无法保存");}
@@ -102,10 +120,23 @@ public class BusinessProjectWorkPricingService
         if("HOURLY".equals(mode))denominator=new BigDecimal("60");
         else if("DAILY".equals(mode))denominator=BigDecimal.valueOf(rateMinutes);
         else if("MONTHLY".equals(mode)){
-            BigDecimal days;try{days=new BigDecimal(String.valueOf(rate.get("standardWorkDays")));}catch(Exception ex){throw new ServiceException("缺少月度标准工作天数");}
-            if(days.signum()<=0)throw new ServiceException("月度标准工作天数无效");denominator=days.multiply(BigDecimal.valueOf(rateMinutes));
+            denominator=BusinessHrDailyCost.standardWorkDays(rate).multiply(BigDecimal.valueOf(rateMinutes));
         }else throw new ServiceException("实际工时不支持该内部费率单位");
         return unit.multiply(BigDecimal.valueOf(minutes)).divide(denominator,2,RoundingMode.HALF_UP);
+    }
+    public static BigDecimal priceMonthly(int minutes,Map<String,Object> rate,Map<String,Object> calendar,LocalDate date){
+        int rateMinutes=rate.get("rateMinutesPerDay")==null?480:((Number)rate.get("rateMinutesPerDay")).intValue();
+        if(minutes<0||rateMinutes<1||rateMinutes>1440)throw new ServiceException("工作量换算无效");
+        BigDecimal percent=BigDecimal.valueOf(minutes).multiply(new BigDecimal("100")).divide(BigDecimal.valueOf(rateMinutes),12,RoundingMode.HALF_UP);
+        return new BusinessPersonnelCost().amount(rate,calendar,date,percent);
+    }
+    private Map<String,Object> entryCalendar(Map<String,Object> entry){
+        if(entry.get("calendarSnapshotJson")!=null)try{
+            return json.readValue(String.valueOf(entry.get("calendarSnapshotJson")),new TypeReference<Map<String,Object>>(){});
+        }catch(Exception ex){throw new ServiceException("工作记录的工作日历快照无效");}
+        Map<String,Object> calendar=mapper.selectCalendar(id(entry.get("calendarId")));
+        if(calendar==null)throw new ServiceException("工作记录缺少工作日历");
+        return calendar;
     }
     private void finish(Map<String,Object> event,String status,String reason){event.put("status",status);event.put("lastError",reason);mapper.finishEvent(event);}
     private static Long id(Object v){return v==null?null:Long.valueOf(String.valueOf(v));}

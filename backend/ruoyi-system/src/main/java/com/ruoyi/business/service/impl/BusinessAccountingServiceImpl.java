@@ -267,6 +267,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             bizDate=new SimpleDateFormat("yyyy-MM-dd").format(new Date());
         scoped.put("bizDate",bizDate);
         List<Map<String,Object>> oldRows=mapper.selectPersonnelCostOverview(scoped);
+        prorateMonthlyPersonnel(oldRows,java.sql.Date.valueOf(bizDate));
         List<Map<String,Object>> rows=new java.util.ArrayList<Map<String,Object>>();if(oldRows!=null)rows.addAll(oldRows);
         List<Map<String,Object>> workRows=workMapper.selectPersonnelCostOverview(scoped);if(workRows!=null)rows.addAll(workRows);
         for(Map<String,Object> p:mapper.selectProjectOptions(userId,viewAll,true))
@@ -988,7 +989,12 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
                 if("PRICED".equals(item.get("pricingStatus"))&&item.get("amount")!=null)personnel=personnel.add(decimal(item.get("amount")));
                 else pendingPersonnel++;
         }
-        else personnel=decimal(mapper.sumProjectPersonnelCost(projectId,bizDate));
+        else {
+            actualItems=mapper.selectProjectPersonnelCostDetails(projectId,bizDate);
+            if(prorateMonthlyPersonnel(actualItems,bizDate)){
+                for(Map<String,Object> item:actualItems)personnel=personnel.add(decimal(item.get("amount")));
+            }else personnel=decimal(mapper.sumProjectPersonnelCost(projectId,bizDate));
+        }
         BigDecimal profit=revenue.subtract(cost).subtract(personnel).subtract(bonus).subtract(publicCost).add(adjustment);
         Map<String,Object> result=new HashMap<String,Object>();result.put("projectId",projectId);
         result.put("companyDeptId",project.get("companyDeptId"));result.put("bizDate",bizDate);
@@ -1011,7 +1017,7 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         addItem(result,"PERSONNEL_COST","内部人员成本",personnel,automaticDays?"成员参与期间有效工作日 × 当日有效日成本 × 项目投入权重；无需填报工时。待完善："+pendingPersonnel:actualWork
             ? "仅汇总已确认且已计价工作；计划不代替实际。待计价记录："+pendingPersonnel
             : "按当日生效的成本政策和项目投入计算；已确认实际投入优先，否则使用计划投入");
-        List<Map<String,Object>> personnelItems=actualWork||automaticDays?actualItems:mapper.selectProjectPersonnelCostDetails(projectId,bizDate);
+        List<Map<String,Object>> personnelItems=actualItems;
         if(personnelItems!=null)for(Map<String,Object> personnelItem:personnelItems)
             if(!(actualWork||automaticDays)||"PRICED".equals(personnelItem.get("pricingStatus")))
             addItem(result,"PERSONNEL_COST_PERSON",String.valueOf(personnelItem.get("componentName")),
@@ -1021,6 +1027,35 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
         if(publicEstimated.signum()!=0)addItem(result,"PUBLIC_COST_ESTIMATED","其中：公共费用暂估",publicEstimated,"已包含在公司公共费用中，请勿再次相加；月结后确认实际金额");
         addItem(result,"ADJUSTMENT","核算调整",adjustment,"已确认调整事实合计");
         return result;
+    }
+
+    /** Legacy percentage projects use the same regional daily costs as member-day projects. */
+    private boolean prorateMonthlyPersonnel(List<Map<String,Object>> rows,Date bizDate){
+        if(rows==null||rows.stream().noneMatch(r->"MONTHLY".equals(r.get("costMode"))&&"PERCENTAGE".equals(r.get("allocationMode"))))return false;
+        java.time.LocalDate date=java.time.LocalDate.parse(DateUtils.parseDateToStr("yyyy-MM-dd",bizDate));
+        Map<String,Object> calendar=null;
+        for(Map<String,Object> candidate:workMapper.selectCalendars()){
+            java.time.LocalDate from=personnelCalendarDate(candidate.get("effectiveFrom"));
+            java.time.LocalDate to=personnelCalendarDate(candidate.get("effectiveTo"));
+            if((from==null||!date.isBefore(from))&&(to==null||!date.isAfter(to))
+                &&(calendar==null||longValue(candidate.get("calendarId"))<longValue(calendar.get("calendarId"))))calendar=candidate;
+        }
+        if(calendar==null)throw new ServiceException("人员月成本分摊缺少有效工作日历");
+        com.ruoyi.business.support.BusinessPersonnelCost pricing=new com.ruoyi.business.support.BusinessPersonnelCost();
+        for(Map<String,Object> row:rows){
+            if(!"MONTHLY".equals(row.get("costMode"))||!"PERCENTAGE".equals(row.get("allocationMode")))continue;
+            if(row.get("monthlyCost")==null||row.get("appliedPercent")==null)continue;
+            Map<String,Object> rate=new HashMap<>();rate.put("costMode","MONTHLY");rate.put("unitCost",row.get("monthlyCost"));
+            rate.put("countryRegion",row.get("countryRegion"));rate.put("standardWorkDays",row.get("standardWorkDays"));
+            BigDecimal amount="LEAVE".equals(row.get("inputSource"))||!com.ruoyi.business.support.BusinessPersonnelCost.workingDay(calendar,date)?BigDecimal.ZERO.setScale(2):pricing.amount(rate,calendar,date,decimal(row.get("appliedPercent")));
+            row.put("standardDailyCost",row.get("dailyCost"));row.put("dailyCost",pricing.amount(rate,calendar,date,new BigDecimal("100")));
+            row.put("monthWorkingDays",pricing.monthWorkingDays(calendar,date));row.put("amount",amount);row.put("personnelCost",amount);
+            row.put("calculationDetail",com.ruoyi.business.support.BusinessPersonnelCost.PROJECT_FORMULA);
+        }
+        return true;
+    }
+    private java.time.LocalDate personnelCalendarDate(Object value){
+        return value==null?null:java.time.LocalDate.parse(value instanceof Date?DateUtils.parseDateToStr("yyyy-MM-dd",(Date)value):String.valueOf(value).substring(0,10));
     }
 
     @Override

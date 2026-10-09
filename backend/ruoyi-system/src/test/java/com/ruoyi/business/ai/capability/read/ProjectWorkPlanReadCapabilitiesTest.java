@@ -52,7 +52,7 @@ class ProjectWorkPlanReadCapabilitiesTest
     {
         AiCapabilityRegistry registry = registry(); AiCapabilityInvocation invocation = invocation(9L, "business:project:owner:view");
         assertEquals(2, registry.allowed(invocation.getActor()).size());
-        Map<String,Object> plan = Collections.<String,Object>singletonMap("forecast", Collections.singletonMap("forecastCost", null));
+        Map<String,Object> plan = Collections.<String,Object>singletonMap("currentPlan", Collections.singletonMap("budgetLimit", null));
         when(plans.plan(17L, 9L, false)).thenReturn(plan);
         Map<String,Object> result = new AiCapabilityExecutor(registry).execute("project.plan.get", invocation, input());
         assertSame(plan, result.get("plan")); assertEquals(AiCapabilityRisk.READ_ONLY, registry.require("project.plan.get").risk());

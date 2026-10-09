@@ -411,8 +411,8 @@
           coalesce(nullif(profile.position_name,''),'项目成员') positionName,
           company.dept_id companyDeptId,company.dept_name companyName,
           cost.policy_id costPolicyId,cost.policy_version costPolicyVersion,
-          cost.cost_mode costMode,cost.unit_cost monthlyCost,cost.standard_work_days standardWorkDays,
-          round(cost.unit_cost/nullif(cost.standard_work_days,0),4) dailyCost,cost.currency costCurrency
+          cost.cost_mode costMode,cost.unit_cost monthlyCost,case when cost.cost_mode='MONTHLY' then (case when cost.country_region_snapshot='VN' or (cost.country_region_snapshot is null and cost.standard_work_days=26) then 26 else 21.75 end) end standardWorkDays,
+          round(cost.unit_cost/(case when cost.country_region_snapshot='VN' or (cost.country_region_snapshot is null and cost.standard_work_days=26) then 26 else 21.75 end),4) dailyCost,cost.currency costCurrency
         from sys_user u
         join sys_dept staff_dept on staff_dept.dept_id=u.dept_id and staff_dept.del_flag='0'
         left join sys_dept company on company.parent_id=100 and company.del_flag='0'
@@ -434,8 +434,8 @@
           coalesce(nullif(profile.position_name,''),'项目成员') positionName,
           company.dept_id companyDeptId,company.dept_name companyName,
           cost.policy_id costPolicyId,cost.policy_version costPolicyVersion,
-          cost.cost_mode costMode,cost.unit_cost monthlyCost,cost.standard_work_days standardWorkDays,
-          round(cost.unit_cost/nullif(cost.standard_work_days,0),4) dailyCost,cost.currency costCurrency
+          cost.cost_mode costMode,cost.unit_cost monthlyCost,case when cost.cost_mode='MONTHLY' then (case when cost.country_region_snapshot='VN' or (cost.country_region_snapshot is null and cost.standard_work_days=26) then 26 else 21.75 end) end standardWorkDays,
+          round(cost.unit_cost/(case when cost.country_region_snapshot='VN' or (cost.country_region_snapshot is null and cost.standard_work_days=26) then 26 else 21.75 end),4) dailyCost,cost.currency costCurrency
         from sys_user u
         join sys_dept staff_dept on staff_dept.dept_id=u.dept_id and staff_dept.del_flag='0'
         join sys_dept company on company.parent_id=100 and company.del_flag='0'

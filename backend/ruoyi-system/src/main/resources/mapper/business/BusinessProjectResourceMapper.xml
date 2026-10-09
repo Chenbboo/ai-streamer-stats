@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.business.mapper.BusinessProjectResourceMapper">
+  <select id="unrecognizedDays" resultType="int">
+    select count(distinct cost.bizDate) from (
+      select c.project_id projectId,c.biz_date bizDate from biz_project_member_day_cost c
+      join biz_project p on p.project_id=c.project_id and p.cost_policy_version='MEMBER_DAYS_V1'
+      where c.project_id=#{projectId} and c.biz_date between #{from} and #{to} and c.pricing_status='PRICED' and c.amount is not null
+      union all
+      select e.project_id projectId,e.biz_date bizDate from biz_project_work_entry e
+      join biz_project p on p.project_id=e.project_id and p.cost_policy_version='ACTUAL_WORK_V1'
+      join biz_project_work_cost c on c.entry_id=e.entry_id and c.pricing_status='PRICED' and c.amount is not null
+      where e.project_id=#{projectId} and e.biz_date between #{from} and #{to} and e.status='CONFIRMED' and e.is_current='1'
+    ) cost where not exists(select 1 from biz_project_daily_result r where r.project_id=cost.projectId and r.biz_date=cost.bizDate and r.is_current='1')
+  </select>
+  <!-- Read frozen accounting items, so changing current allocations cannot rewrite historical shares. -->
+  <select id="personnel" resultType="map">
+    select coalesce(a.user_id,e.user_id) userId,
+      max(coalesce(nullif(json_unquote(json_extract(cost.basis,'$.userName')),'null'),cost.component_name)) userName,
+      sum(cost.amount) amount,count(distinct cost.biz_date) workingDays,
+      date_format(min(cost.biz_date),'%Y-%m-%d') startDate,date_format(max(cost.biz_date),'%Y-%m-%d') endDate
+    from (
+      select r.project_id,r.biz_date,i.amount,i.component_name,
+        case when json_valid(i.calculation_detail) then i.calculation_detail else '{}' end basis
+      from biz_project_daily_result r join biz_project_daily_result_item i on i.result_id=r.result_id
+      where r.project_id=#{projectId} and r.biz_date between #{from} and #{to} and r.is_current='1'
+        and i.component_code='PERSONNEL_COST_PERSON'
+    ) cost
+    left join biz_project_staff_allocation a on a.allocation_id=cast(json_unquote(json_extract(cost.basis,'$.allocationId')) as unsigned) and a.project_id=cost.project_id
+    left join biz_project_work_entry e on e.entry_id=cast(json_unquote(json_extract(cost.basis,'$.sourceEntryId')) as unsigned) and e.project_id=cost.project_id
+    group by coalesce(a.user_id,e.user_id),case when coalesce(a.user_id,e.user_id) is null then cost.component_name else '' end
+    order by amount desc,userId
+  </select>
+  <select id="totals" resultType="map">
+    select coalesce(sum(personnel_cost),0) personnelCost,count(*) resultCount
+    from biz_project_daily_result where project_id=#{projectId} and biz_date between #{from} and #{to} and is_current='1'
+  </select>
+  <select id="externalCost" resultType="java.math.BigDecimal">
+    select coalesce(sum(amount),0) from biz_operating_fact where project_id=#{projectId} and biz_date between #{from} and #{to}
+      and fact_kind='COST' and status in('CONFIRMED','REVERSED')
+      and coalesce(category_code,'') not in('COMPANY_PUBLIC_COST','PERSONNEL_COST','PROJECT_BONUS_COST','INTERNAL_PROJECT_COST')
+  </select>
+</mapper>

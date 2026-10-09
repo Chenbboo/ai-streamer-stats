@@ -73,7 +73,7 @@ import { buildBossChartData, chartCurrencies } from '@/utils/bossCharts'
 
 echarts.use([BarChart, LineChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 const props = defineProps({ bizDate: String, companyDeptId: [Number, String], ready: Boolean, busy: Boolean, upstreamError: Boolean })
-const emit = defineEmits(['details'])
+const emit = defineEmits(['details', 'range-change', 'selection'])
 const { t, locale } = useI18n()
 const month = ref(''), currency = ref(''), data = ref({}), loading = ref(false), error = ref(false), expanded = ref({})
 const monthMode = ref('single'), monthRange = ref([])
@@ -95,7 +95,7 @@ const shareCharts = computed(() => [
   { kind: 'revenue', model: model.value.revenue, amountKey: 'revenueAmount', title: 'bossCharts.revenueShare', total: 'bossCharts.totalRevenue', noPositive: 'bossCharts.noPositiveRevenue', reversals: 'bossCharts.revenueReversals', denominator: 'bossCharts.revenueDenominator' }
 ])
 const trendTotal = key => model.value.trend.reduce((sum, row) => sum + Number(row?.[key] || 0), 0)
-function openProject(row) { emit('details', { projectId: row.projectId, dateFrom: data.value.dateFrom, dateTo: data.value.dateTo, companyDeptId: props.companyDeptId }) }
+function openProject(row) { emit('selection',row.projectId); emit('details', { projectId: row.projectId, dateFrom: data.value.dateFrom, dateTo: data.value.dateTo, companyDeptId: props.companyDeptId }) }
 function selectSlice(slice, kind) { if (slice.other) expanded.value[kind] = !expanded.value[kind]; else openProject(slice) }
 function futureMonth(date) {
   const currentMonth = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit' }).formatToParts(new Date())
@@ -160,6 +160,7 @@ watch(() => props.bizDate, (date, previous) => {
 watch(month, value => { if (monthMode.value === 'single') monthRange.value = [value, value] })
 watch(() => [props.companyDeptId, props.ready, ...(selectedMonths.value || [])], load, { immediate: true })
 watch([model, locale], render)
+watch(() => [data.value.dateFrom, data.value.dateTo, currency.value], ([dateFrom,dateTo,currency]) => emit('range-change', {dateFrom,dateTo,currency}))
 onMounted(() => { observer = new ResizeObserver(resize); observer.observe(trendElement.value); render() })
 onActivated(() => nextTick(resize))
 onBeforeUnmount(() => { disposed = true; sequence++; observer?.disconnect(); trendChart?.dispose(); Object.values(shareInstances).forEach(chart => chart.dispose()) })

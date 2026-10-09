@@ -120,7 +120,7 @@
               <el-table-column v-else :label="$tr(&quot;历史预计成本&quot;)" min-width="175"><template #default="{row}">{{ row.estimatedCost==null?$tr("由后台核对"):money(row.estimatedCost,row.costCurrency||form.baseCurrency) }}</template></el-table-column>
               <el-table-column :label="$tr(&quot;说明&quot;)" min-width="150"><template #default="{row}"><el-input v-model="row.note" maxlength="500" :placeholder="$tr(&quot;可选&quot;)" /></template></el-table-column>
               <el-table-column width="55"><template #default="{$index}"><el-button v-if="!isOwnerStaff(form.staffingLines[$index])" link type="danger" @click="form.staffingLines.splice($index,1)">{{ $tr("删") }}</el-button><span v-else>{{ $tr("负责人") }}</span></template></el-table-column>
-            </el-table><details v-if="isNewTemplate" class="inline-help"><summary>{{ $tr("人员成本计算说明") }}</summary><p>{{ $tr("月成本按有效费率和这里填写的投入比例计入预算，不足整月按参与工作日折算。启动项目时，该比例同时写入项目投入分配；如该人员已有其他项目，请在投入比例下展开调整，全部有效项目合计须等于 100%。") }}</p></details></div></el-col>
+            </el-table><details v-if="isNewTemplate" class="inline-help"><summary>{{ $tr("人员成本计算说明") }}</summary><p>{{ $tr("日成本按月度用人成本除以地区标准天数计算（国内21.75天、越南26天），再按计费工作日和当天有效投入比例累计，分币尾差自动处理。启动项目时，投入比例同时写入项目投入分配；全部有效项目合计须等于100%。") }}</p></details></div></el-col>
 
           <el-col :span="24"><ProposalPlanDetails :section-number="isChildCreatorPhase?'02':'03'" :date-type="planDateType" kind="targets" :form="form" :required-plan-sections="requiredPlanSections" :target-type-label="targetTypeLabel" :target-unit-options="targetUnitOptions" :revenue-type-label="revenueTypeLabel" :plan-end-date="openEnded ? null : form.planEndDate" :line-date-issue="lineDateIssue" @add-target="addTarget" @add-revenue="addRevenue" @change-target-type="changeTargetType" @change-currency="changeProjectCurrency" /></el-col>
           <el-col v-if="!isChildCreatorPhase" :span="24"><el-alert v-if="form.parentProjectId" class="child-plan-alert" type="info" :closable="false" show-icon :title="$tr(&quot;主项目拨款已计入子项目预计收入；下方只填写子项目自行产生的额外收入，避免重复计算。&quot;)"/><ProposalPlanDetails :section-number="'04'" :date-type="planDateType" kind="revenue" :form="form" :required-plan-sections="requiredPlanSections" :target-type-label="targetTypeLabel" :target-unit-options="targetUnitOptions" :revenue-type-label="revenueTypeLabel" :plan-end-date="openEnded ? null : form.planEndDate" :line-date-issue="lineDateIssue" @add-target="addTarget" @add-revenue="addRevenue" @change-target-type="changeTargetType" @change-currency="changeProjectCurrency" /></el-col>
@@ -161,8 +161,27 @@
               <el-col :span="24"><p class="budget-period-summary">{{ budgetPeriodText }}</p><details class="inline-help"><summary>{{ $tr("预算计算说明") }}</summary><p v-if="openEnded">{{ $tr("按所选预算周期测算，期满后在计划变更中续编。首期从项目开始日计算。") }}<template v-if="form.budget.cycle==='WEEK'">{{ $tr("周度为周一至周日。") }}</template></p><p v-else>{{ $tr("按整个项目期间测算。") }}</p><p>{{ $tr("人员预算按人员计划、日历和有效费率计算。未填日期的收支计入本期，业务预算未分配部分为计划余量。测算为计划估算，实际成本按项目核算规则计算。") }}</p></details><el-alert v-if="budgetIssues.length" style="margin:10px 0" :title="$tr(&quot;启动前需处理&quot;)" :description="budgetIssues.join('；')" type="warning" :closable="false" show-icon /></el-col>
               <el-col :span="24"><div v-if="budgetError || budgetLoading" class="budget-refresh-status" role="status" aria-live="polite"><span>{{ budgetError?$tr("测算失败，请重试"):$tr("正在更新测算…") }}</span><el-button v-if="budgetError" link type="primary" @click="retryBudgetEstimate">{{ $tr("重新测算") }}</el-button></div></el-col>
               <el-col v-if="isNewTemplate && form.staffingLines?.length" :span="24"><p class="field-help">{{ $tr("已包含负责人人员成本") }}</p></el-col>
-              <el-col :span="24" class="budget-result-block"><h3>{{ $tr("本期预计收支") }}</h3><div class="finance-summary"><div><span>{{ $tr("预计收入") }}</span><b>{{ estimateMoney(planSummary.revenue) }}</b></div><div><span>{{ $tr("业务成本") }}</span><b>{{ estimateMoney(planSummary.external) }}</b></div><div><span>{{ $tr("人员成本") }}</span><b>{{ estimateMoney(planSummary.personnel) }}</b></div><div><span>{{ $tr("预计总成本") }}</span><b>{{ estimateMoney(planSummary.total) }}</b></div><div><span>{{ $tr("预计利润") }}</span><b :class="planSummary.profit==null?'':planSummary.profit<0?'danger-text':'success-text'">{{ estimateMoney(planSummary.profit) }}</b></div><div><span>{{ $tr("利润率") }}</span><b>{{ isChildCreatorPhase?$tr("待子负责人设置"):budgetError?$tr("测算未更新"):budgetLoading?$tr("计算中…"):planSummary.margin===null?$tr("待完善计划"):`${planSummary.margin.toFixed(2)}%` }}</b></div></div></el-col>
-              <el-col v-if="budgetEstimate.monthlyForecasts?.length" :span="24"><div class="monthly-forecast"><div class="plan-section-head"><div><h3>{{ $tr("按月预计收支与盈利") }}</h3><p>{{ $tr("从项目开始月逐月展示；不限期项目先展示未来 12 个月") }}</p></div></div><el-table :data="budgetEstimate.monthlyForecasts" size="small" max-height="420"><el-table-column prop="month" :label="$tr(&quot;月份&quot;)" width="105"/><el-table-column :label="$tr(&quot;预计收入&quot;)" align="right"><template #default="{row}">{{ estimateMoney(row.revenueAmount) }}</template></el-table-column><el-table-column :label="$tr(&quot;业务支出&quot;)" align="right"><template #default="{row}">{{ estimateMoney(row.plannedBusinessAmount) }}</template></el-table-column><el-table-column :label="$tr(&quot;人员成本&quot;)" align="right"><template #default="{row}">{{ estimateMoney(row.personnelAmount) }}</template></el-table-column><el-table-column :label="$tr(&quot;预计总成本&quot;)" align="right"><template #default="{row}">{{ estimateMoney(row.plannedTotalCost) }}</template></el-table-column><el-table-column :label="$tr(&quot;预计利润&quot;)" align="right"><template #default="{row}"><b :class="Number(row.profit)<0?'danger-text':'success-text'">{{ estimateMoney(row.profit) }}</b></template></el-table-column></el-table></div></el-col>
+              <el-col :span="24" class="budget-result-block">
+                <h3>{{ $tr("本期预计收支") }}</h3>
+                <div class="finance-summary">
+                  <div v-for="metric in estimateMetrics" :key="metric.key">
+                    <button type="button" class="proposal-estimate-label" :disabled="!canViewBudgetSources" :aria-label="$tr('查看{0}金额来源', [metric.label])" @click="showBudgetSource(metric.key, budgetEstimate)"><span>{{ metric.label }}</span><el-icon><ArrowRight /></el-icon></button>
+                    <b :class="metric.key === 'profit' && planSummary.profit != null ? planSummary.profit < 0 ? 'danger-text' : 'success-text' : ''">{{ estimateMoney(planSummary[metric.summaryKey]) }}</b>
+                  </div>
+                  <div><span>{{ $tr("利润率") }}</span><b>{{ isChildCreatorPhase?$tr("待子负责人设置"):budgetError?$tr("测算未更新"):budgetLoading?$tr("计算中…"):planSummary.margin===null?$tr("待完善计划"):planSummary.margin.toFixed(2)+'%' }}</b></div>
+                </div>
+              </el-col>
+              <el-col v-if="budgetEstimate.monthlyForecasts?.length" :span="24">
+                <div class="monthly-forecast">
+                  <div class="plan-section-head"><div><h3>{{ $tr("按月预计收支与盈利") }}</h3><p>{{ $tr("从项目开始月逐月展示；不限期项目先展示未来 12 个月") }}</p></div></div>
+                  <el-table :data="budgetEstimate.monthlyForecasts" size="small" max-height="420">
+                    <el-table-column prop="month" :label="$tr('月份')" width="105" />
+                    <el-table-column v-for="metric in estimateMetrics" :key="metric.key" :label="metric.monthLabel" align="right" min-width="155">
+                      <template #default="{ row }"><button type="button" class="proposal-estimate-value" :disabled="!canViewBudgetSources" :aria-label="$tr('查看{0}金额来源', [row.month + ' ' + metric.monthLabel])" @click="showBudgetSource(metric.key, row)"><span :class="metric.key === 'profit' && row.profit != null ? Number(row.profit) < 0 ? 'danger-text' : 'success-text' : ''">{{ estimateMoney(row[metric.key]) }}</span><el-icon><ArrowRight /></el-icon></button></template>
+                    </el-table-column>
+                  </el-table>
+                </div>
+              </el-col>
             </el-row>
           </div></el-col>
         </el-row>
@@ -207,6 +226,7 @@
       <section class="detail-section"><h3>{{ $tr("操作记录") }}</h3><el-timeline><el-timeline-item v-for="event in detail.events || []" :key="event.eventId" :timestamp="event.createTime"><b>{{ eventLabel[event.eventType] || event.eventType }}</b><p>{{ event.operatorName }}<span v-if="event.comment"> · {{ event.comment }}</span></p></el-timeline-item></el-timeline></section>
       <div class="drawer-actions"><el-button v-if="canEditProposal(detail)" type="primary" @click="openForm(detail)">{{ detail.parentProjectId ? $tr("继续完善") : $tr("修改") }}</el-button><el-button v-if="canEditProposal(detail)&&canLaunchProposal(detail)" type="success" @click="submitRow(detail)">{{ $tr("启动项目") }}</el-button><el-button v-if="detail.status==='APPROVED'&&detail.createdProjectId&&!detail.createdProjectDeleted" @click="openProject(detail)">{{ $tr("查看正式项目") }}</el-button></div>
     </el-drawer>
+    <EstimateSourceDialog ref="estimateSourceDialog" />
   </div>
 </template>
 
@@ -226,6 +246,8 @@ import { useBusinessRefreshOnReactivated } from '@/utils/businessRefresh'
 import ProposalMonthPicker from './ProposalMonthPicker.vue'
 import BudgetPeriodPicker from '@/components/BudgetPeriodPicker/index.vue'
 import BudgetControlFields from '@/components/BudgetControlFields/index.vue'
+import { ArrowRight } from '@element-plus/icons-vue'
+import EstimateSourceDialog from '@/components/BusinessProjectPlanPanel/EstimateSourceDialog.vue'
 
 const route=useRoute(),router=useRouter(), userStore=useUserStore(), loading=ref(false), saving=ref(false), activeTab=ref('mine')
 const mineRows=ref([]),directoryRows=ref([]),options=reactive({bosses:[],companies:[],departments:[],staff:[],calendars:[],unitPolicies:[]})
@@ -423,6 +445,29 @@ watch(()=>JSON.stringify(budgetCalculationInput.value),()=>{
   budgetTimer=setTimeout(async()=>{try{const res=await estimateProjectProposalBudget({...form.value,...budgetPolicyPayload(),revenueLines:[...(form.value.revenueLines||[])],budget:{...form.value.budget,businessAmount:businessBudgetAmount.value,cycle:openEnded.value?form.value.budget.cycle:'PROJECT'}});if(request===budgetRequest)budgetEstimate.value=res.data||{}}catch(e){if(request===budgetRequest)budgetError.value=e?.message||translateText("预算计算未完成，请检查输入或稍后重试")}finally{if(request===budgetRequest)budgetLoading.value=false}},450)
 })
 onBeforeUnmount(()=>{clearTimeout(budgetTimer);budgetRequest++})
+const estimateSourceDialog=ref()
+const canViewBudgetSources=computed(()=>formVisible.value&&!saving.value&&!isChildCreatorPhase.value&&!budgetLoading.value&&!budgetError.value&&Object.hasOwn(budgetEstimate.value,'revenueAmount'))
+const estimateMetrics=computed(()=>[
+  {key:'revenueAmount',summaryKey:'revenue',label:translateText('预计收入'),monthLabel:translateText('预计收入')},
+  {key:'plannedBusinessAmount',summaryKey:'external',label:translateText('业务成本'),monthLabel:translateText('业务支出')},
+  {key:'personnelAmount',summaryKey:'personnel',label:translateText('人员成本'),monthLabel:translateText('人员成本')},
+  {key:'plannedTotalCost',summaryKey:'total',label:translateText('预计总成本'),monthLabel:translateText('预计总成本')},
+  {key:'profit',summaryKey:'profit',label:translateText('预计利润'),monthLabel:translateText('预计利润')}
+])
+function showBudgetSource(key,budget){
+  if(!canViewBudgetSources.value)return
+  const snapshot={currency:form.value.baseCurrency,...budget}
+  // Description edits do not need a new estimate; keep source names aligned with the current form.
+  for(const [sourceKey,lineKey,noteKey] of [['revenueSources','revenueLines','assumptionText'],['expenseSources','expenseLines','purpose']]){
+    if(Array.isArray(snapshot[sourceKey]))snapshot[sourceKey]=snapshot[sourceKey].map(source=>{
+      const line=form.value[lineKey]?.[Number(source.lineNo)-1]
+      return line?{...source,itemName:line.itemName,note:line[noteKey]}:source
+    })
+  }
+  estimateSourceDialog.value?.open(key,snapshot)
+}
+watch(formVisible,visible=>{if(!visible)estimateSourceDialog.value?.close()})
+onBeforeUnmount(()=>estimateSourceDialog.value?.close())
 const planSummary=computed(()=>{const b=budgetEstimate.value,revenue=b.revenueAmount==null?null:number(b.revenueAmount),external=b.plannedBusinessAmount==null?null:number(b.plannedBusinessAmount),personnel=b.personnelAmount==null?null:number(b.personnelAmount),total=personnel==null||external==null?null:external+personnel,profit=total==null||revenue==null?null:revenue-total;return{revenue,external,personnel,total,profit,margin:profit===null||!revenue?null:profit*100/revenue}})
 function changeProjectCurrency(currency){if(!['CNY','VND','USD'].includes(currency)||form.value.baseCurrency===currency)return;const hasAmounts=(form.value.revenueLines||[]).some(row=>Number(row.expectedAmount)>0)||(form.value.expenseLines||[]).some(row=>Number(row.amount)>0)||Number(form.value.budget?.businessAmount)>0;form.value.baseCurrency=currency;if(hasAmounts)ElMessage.warning(translateText("项目币种已切换，金额不会自动换算，请核对收入、支出和预算数值"))}
 function addRevenue(){form.value.revenueLines.push({scenario:'BASE',revenueType:'SALES',itemName:'',expectedAmount:0,occurrenceType:'ONE_TIME',expectedDate:null,assumptionText:''})}
@@ -517,10 +562,9 @@ function estimatedDailyCostDisplay(row){
   const staff=options.staff.find(item=>Number(item.userId)===Number(row.userId))
   if(!staff)return '—'
   if(!staff.rawCostVisible)return translateText("无成本查看权限")
-  if(staff.dailyCost==null)return translateText("待完善")
-  const allocation=row.inputQuantity==null?100:Number(row.inputQuantity)
-  if(!Number.isFinite(allocation)||allocation<=0)return translateText("待填写投入比例")
-  return translateText("{0} / 工作日", [money(Number(staff.dailyCost)*allocation/100,staff.costCurrency||form.value.baseCurrency)])
+  const status=staffBudgetStatus(row)
+  if(status?.amount==null||!status.workingDays)return translateText("待完善计划")
+  return translateText("{0} / 工作日", [money(Number(status.amount)/Number(status.workingDays),status.currency||staff.costCurrency||form.value.baseCurrency)])
 }
 function syncParticipation(row){
   if(row.participationMode==='FOLLOW_PROJECT')Object.assign(row,{planStartDate:form.value.planStartDate||null,planEndDate:openEnded.value?null:form.value.planEndDate||null})
@@ -689,4 +733,5 @@ useBusinessRefreshOnReactivated(async()=>{await refreshAll();await openRequested
 .budget-composition{padding:18px;background:linear-gradient(180deg,#fbfdff 0%,#fff 100%)}.budget-composition-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px}.budget-composition-head h3{margin-bottom:4px}.budget-composition-head p{color:#8793a1;font-size:12px}.budget-cycle-tag{padding:4px 10px;border:1px solid #cfe0f5;border-radius:999px;background:#f1f7ff;color:#3977c5;font-size:12px;white-space:nowrap}.budget-total-card{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:17px 18px;border:1px solid #bcd5f3;border-radius:10px;background:linear-gradient(135deg,#edf6ff 0%,#f7fbff 100%);box-shadow:0 5px 16px rgba(50,106,171,.08)}.budget-total-card span,.budget-total-card small,.budget-total-card strong{display:block}.budget-total-card span{color:#2f65a7;font-size:13px;font-weight:600}.budget-total-card small{margin-top:5px;color:#7a8da4}.budget-total-card strong{color:#1f4f88;font-size:22px;line-height:1.2;text-align:right}.budget-breakdown{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px}.budget-breakdown-card{position:relative;overflow:hidden;padding:14px;border:1px solid #e2e9f1;border-radius:9px;background:#fff}.budget-breakdown-card::before{position:absolute;top:0;left:0;width:100%;height:3px;background:#6d9fe0;content:''}.budget-breakdown-card.business::before{background:#56b6a2}.budget-breakdown-card.startup::before{background:#e8a955}.budget-breakdown-card span,.budget-breakdown-card b,.budget-breakdown-card small{display:block}.budget-breakdown-card span{color:#738296;font-size:12px}.budget-breakdown-card b{margin-top:7px;color:#24364b;font-size:15px}.budget-breakdown-card small{margin-top:5px;color:#9aa4b1;line-height:1.4}.budget-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));margin-top:12px;padding:2px 14px;border:1px solid #e8edf2;border-radius:9px;background:#fafbfc}.budget-meta>div{padding:10px 0}.budget-meta>div:nth-child(even){padding-left:16px;border-left:1px solid #e8edf2}.budget-meta span,.budget-meta b{display:block}.budget-meta span{color:#8b96a4;font-size:12px}.budget-meta b{margin-top:4px;color:#435266;font-size:13px;line-height:1.55}.budget-meta .budget-reason{grid-column:1/-1;padding-left:0;border-top:1px solid #e8edf2;border-left:0}.budget-composition>.el-alert{margin-top:12px}
 @media(max-width:760px){.plan-period-line{grid-template-columns:1fr}.plan-period-line>span{display:none}.budget-total-card{align-items:flex-start;flex-direction:column}.budget-total-card strong{text-align:left}.budget-breakdown,.budget-meta,.parent-funding-summary,.handoff-summary-grid,.handoff-funding-card{grid-template-columns:1fr}.handoff-summary-grid .wide{grid-column:auto}.budget-meta>div:nth-child(even){padding-left:0;border-left:0;border-top:1px solid #e8edf2}.budget-meta .budget-reason{grid-column:auto}}
 @media(max-width:900px){.finance-summary{grid-template-columns:repeat(2,1fr)}.plan-section{overflow-x:auto}.plan-section .el-table{min-width:850px}}
+.finance-summary .proposal-estimate-label{display:inline-flex;align-items:center;gap:5px;max-width:100%;margin-bottom:6px;padding:0;border:0;background:transparent;color:#718096;font:inherit;font-size:12px;text-align:left;cursor:pointer}.finance-summary .proposal-estimate-label span{margin:0}.proposal-estimate-label .el-icon,.proposal-estimate-value .el-icon{flex-shrink:0;color:var(--el-color-primary);font-size:12px}.proposal-estimate-label:hover,.proposal-estimate-value:hover{color:var(--el-color-primary)}.proposal-estimate-label:focus-visible,.proposal-estimate-value:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:3px;border-radius:3px}.proposal-estimate-label:disabled,.proposal-estimate-value:disabled{cursor:default;opacity:.55}.proposal-estimate-value{display:inline-flex;align-items:center;justify-content:flex-end;gap:5px;max-width:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:right;cursor:pointer}.proposal-estimate-value span{overflow-wrap:anywhere}.budget-result-block .finance-summary>div>b{display:block;overflow-wrap:anywhere}
 </style>

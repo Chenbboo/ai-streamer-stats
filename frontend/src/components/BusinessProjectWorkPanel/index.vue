@@ -1,6 +1,7 @@
 <template>
   <section v-loading="loading" class="member-cost-panel">
-    <div class="heading"><div><h3>{{ $tr("人员工作日成本") }}</h3></div><div class="heading-actions"><el-button v-if="canManage" type="primary" @click="openAllocation">{{ $tr("申请调整投入") }}</el-button><el-button icon="Refresh" @click="load">{{ $tr("刷新") }}</el-button></div></div>
+    <template v-if="showCosts">
+    <div class="heading"><div><h3>{{ $tr("人员工作日成本") }}</h3><p>{{ $tr("日成本按月度用人成本除以地区标准天数计算（国内21.75天、越南26天），再按计费工作日和当日投入比例累计。") }}</p></div><div class="heading-actions"><el-button v-if="canManage" type="primary" @click="openAllocation">{{ $tr("申请调整投入") }}</el-button><el-button icon="Refresh" @click="load">{{ $tr("刷新") }}</el-button></div></div>
     <el-alert v-if="data.overdue" :title="$tr(&quot;项目已超过计划结束日，仍参与的成员继续按工作日计费，请更新项目计划。&quot;)" type="warning" :closable="false" show-icon />
     <el-date-picker v-model="dates" type="daterange" value-format="YYYY-MM-DD" :start-placeholder="$tr(&quot;开始日期&quot;)" :end-placeholder="$tr(&quot;结束日期&quot;)" :clearable="false" @change="load" />
     <p class="history-hint">{{ $tr("此处按所选日期展示已发生的成本。人员移除后，退出前的历史成本仍会保留；移除当天是否计费以移除时的选择为准。") }}</p>
@@ -16,6 +17,7 @@
     <div v-if="costRows.length > costPageSize" class="cost-pagination">
       <el-pagination v-model:current-page="costPage" :page-size="costPageSize" :total="costRows.length" layout="total, prev, pager, next" small background />
     </div>
+    </template>
 
     <el-dialog v-model="allocationDialog" :title="$tr(&quot;设置人员跨项目投入权重&quot;)" width="min(720px, 95vw)" :z-index="4000" append-to-body destroy-on-close>
       <el-alert :title="$tr(&quot;填写该员工全部项目的投入比例，合计必须为100%。项目结束次日起，其比例自动平均分给剩余项目；全部结束后不再计项目投入。手动调整涉及其他负责人时仍需确认。&quot;)" type="info" :closable="false" show-icon />
@@ -71,7 +73,7 @@ import { getProjectWork } from '@/api/business/projectWork'
 import { getBusinessStaffAllocationWorkspace, saveBusinessStaffAllocationWorkspace, reviewBusinessStaffAllocation } from '@/api/business/project'
 import useUserStore from '@/store/modules/user'
 import { parseTime } from '@/utils/ruoyi'
-const props = defineProps({ projectId: [Number, String], members: { type: Array, default: () => [] }, canManage: Boolean })
+const props = defineProps({ projectId: [Number, String], members: { type: Array, default: () => [] }, canManage: Boolean, showCosts: { type: Boolean, default: true } })
 const emit = defineEmits(['changed'])
 const now = new Date()
 const dates = ref([parseTime(new Date(now.getFullYear(), now.getMonth(), 1), '{y}-{m}-{d}'), parseTime(now, '{y}-{m}-{d}')])
@@ -94,7 +96,7 @@ const memberLabel=member=>`${member.userNameSnapshot}${member.accountName?`（${
 let sequence = 0
 async function load() {
   const current = ++sequence
-  if (!props.projectId || !dates.value?.length) return
+  if (!props.showCosts || !props.projectId || !dates.value?.length) return
   loading.value = true
   try {
     const response = await getProjectWork(props.projectId, { dateFrom: dates.value[0], dateTo: dates.value[1] })
@@ -102,6 +104,7 @@ async function load() {
   } finally { if (current === sequence) loading.value = false }
 }
 async function openAllocation(userId,effectiveDate){
+  if(!props.canManage)return
   if(!editableMembers.value.length)return ElMessage.warning(translateText("当前项目没有可设置投入权重的负责人或成员"))
   allocationUserId.value=editableMembers.value.some(member=>Number(member.userId)===Number(userId))?userId:editableMembers.value[0].userId
   allocationDate.value=typeof effectiveDate==='string'?effectiveDate:parseTime(new Date(),'{y}-{m}-{d}')

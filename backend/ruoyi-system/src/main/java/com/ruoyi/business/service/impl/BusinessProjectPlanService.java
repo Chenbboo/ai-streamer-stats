@@ -26,6 +26,7 @@ public class BusinessProjectPlanService
     @Autowired private BusinessProjectWorkMapper mapper;
     @Autowired private ObjectMapper json;
     @Autowired private BusinessProjectBudgetService budgets;
+    @Autowired private com.ruoyi.business.mapper.BusinessMemberDayCostMapper memberCosts;
 
     public Map<String,Object> plan(Long projectId,Long actor,boolean admin)
     {
@@ -36,7 +37,7 @@ public class BusinessProjectPlanService
         for(Map<String,Object> change:changes)change.put("canReview",canReview(p,change,actor));
         List<Map<String,Object>> baselines=mapper.selectBaselines(projectId);
         Map<String,Object> result=new LinkedHashMap<String,Object>();
-        result.put("baselines",displaySnapshots(p,baselines));result.put("changes",displaySnapshots(p,changes));result.put("forecast",mapper.selectForecast(projectId));
+        result.put("baselines",displaySnapshots(p,baselines));result.put("changes",displaySnapshots(p,changes));
         Map<String,Object> current=currentPlan(p,baselines);
         // This projection belongs only to the read response; normalize() must use approved inputs.
         Map<String,Object> source=Collections.emptyMap();
@@ -45,7 +46,7 @@ public class BusinessProjectPlanService
                 source=readSnapshot(baseline.get("snapshotJson"));break;
             }
         current.put("budget",displayBudget(p,source,p.getBudget()));result.put("currentPlan",current);
-        result.put("canRequestChange",actor.equals(p.getMainOwnerUserId())&&mutable(p));result.put("canForecast",actor.equals(p.getMainOwnerUserId())&&mutable(p));result.put("version",p.getVersion());result.put("baselineVersion",p.getBaselineVersion());return result;
+        result.put("canRequestChange",actor.equals(p.getMainOwnerUserId())&&mutable(p));result.put("version",p.getVersion());result.put("baselineVersion",p.getBaselineVersion());return result;
     }
 
     /** Preview uses the same normalization and calculation as approval, without writing a new version. */
@@ -82,16 +83,6 @@ public class BusinessProjectPlanService
             proposed=normalize(p,proposed);apply(p,proposed,actor,userName,"SPONSOR_APPROVED_CHANGE");
         }
         change.put("decision",decision);change.put("actorId",actor);change.put("userName",userName);change.put("reason",reason(body.get("reason")));if(mapper.reviewPlanChange(change)!=1)throw changed();return mapper.selectPlanChange(changeId);
-    }
-
-    @Transactional(isolation=Isolation.READ_COMMITTED)
-    public Map<String,Object> forecast(Long projectId,Map<String,Object> body,Long actor,String userName)
-    {
-        BusinessProject p=projectMapper.selectProjectByIdForUpdate(projectId);requireProject(p);requireMutable(p);if(!actor.equals(p.getMainOwnerUserId()))throw new ServiceException("只有项目负责人可以维护预测");
-        if(body.get("version")==null||integer(body.get("version"))!=p.getVersion())throw changed();
-        Date end=DateUtils.parseDate(body.get("forecastEndDate"));if(end==null||p.getPlanStartDate()!=null&&end.before(p.getPlanStartDate()))throw new ServiceException("预测结束日期不正确");
-        Map<String,Object> row=new LinkedHashMap<String,Object>();row.put("projectId",projectId);row.put("projectVersion",p.getVersion());row.put("forecastEndDate",end);row.put("forecastCost",money(body.get("forecastCost")));row.put("reason",reason(body.get("reason")));row.put("actorId",actor);row.put("userName",userName);
-        if(mapper.touchProject(row)!=1)throw changed();mapper.insertForecast(row);return mapper.selectForecast(projectId);
     }
 
     private void apply(BusinessProject p,Map<String,Object> proposed,Long actor,String userName,String source)
@@ -135,17 +126,14 @@ public class BusinessProjectPlanService
             estimate.setDailyBudgetLimit(money(requested.get("dailyLimit")));estimate.setStartupBudgetLimit(money(requested.get("startupLimit")));estimate.setBudgetReason(text(requested.get("reason")));
             estimate.setRevenueLines(revenueLines);estimate.setExpenseLines(expenseLines);estimate.setTargetLines(targetLines);estimate.setGoalMode(p.getGoalMode()==null?"NO_TOTAL":p.getGoalMode());
             List<Map<String,Object>> staff=new ArrayList<Map<String,Object>>();
-            for(Map<String,Object> assignment:mapper.selectAssignments(p.getProjectId()))if("ACTIVE".equals(assignment.get("status")))
+            if(!BusinessMemberDayCostService.enabled(p))for(Map<String,Object> assignment:mapper.selectAssignments(p.getProjectId()))if("ACTIVE".equals(assignment.get("status")))
             {Map<String,Object> person=new LinkedHashMap<String,Object>(assignment);person.put("planStartDate",person.get("effectiveFrom"));person.put("planEndDate",person.get("effectiveTo"));person.put("participationMode",person.getOrDefault("participationMode",person.get("effectiveTo")==null?"UNLIMITED":"CUSTOM"));staff.add(person);}
             if(BusinessMemberDayCostService.enabled(p)) {
-                Set<Long> activeMembers=new HashSet<>();
-                for(Map<String,Object> member:mapper.selectMembers(p.getProjectId()))
-                    if("0".equals(String.valueOf(member.get("status")))&&!"OBSERVER".equals(member.get("memberRole")))activeMembers.add(id(member.get("userId")));
-                staff.removeIf(person->!activeMembers.contains(id(person.get("userId"))));
-                Set<Long> planned=new HashSet<>();for(Map<String,Object> person:staff)planned.add(id(person.get("userId")));
-                for(Long uid:activeMembers)if(!planned.contains(uid)) {Map<String,Object> person=new LinkedHashMap<>();person.put("userId",uid);person.put("participationMode","FOLLOW_PROJECT");person.put("calendarId",1L);staff.add(person);}
+                staff=memberStaffing(p,from,to);
             }
             estimate.setStaffingLines(staff);
+            // Freeze the dated inputs with the approved version, rather than reconstructing it from today's members.
+            row.put("staffingLines",staff);
             Map<String,Object> budget=budgets.estimate(estimate);
             if(!"READY".equals(budget.get("status")))throw new ServiceException("预算尚未计算完整："+budget.get("issues"));
             row.put("budget",budget);row.put("budgetLimit","TOTAL".equals(budget.getOrDefault("mode","TOTAL"))?budget.get("totalAmount"):null);
@@ -159,6 +147,46 @@ public class BusinessProjectPlanService
             }catch(Exception ex){throw new ServiceException("预算快照无法保存");}
         }
         return row;
+    }
+
+    private List<Map<String,Object>> memberStaffing(BusinessProject p,Date from,Date to)
+    {
+        List<Map<String,Object>> members=new ArrayList<>(mapper.selectMembers(p.getProjectId()));
+        members.addAll(memberCosts.selectPastMemberships(p.getProjectId()));
+        List<Map<String,Object>> roles=memberCosts.selectRolePeriods(p.getProjectId());
+        List<Map<String,Object>> assignments=mapper.selectAssignments(p.getProjectId());
+        List<Map<String,Object>> calendars=mapper.selectCalendars();
+        Map<Long,Map<String,Object>> people=new LinkedHashMap<>();
+        for(Map<String,Object> member:members){
+            if(!"0".equals(String.valueOf(member.get("status")))&&member.get("leftDate")==null)continue;
+            Long uid=id(member.get("userId"));
+            Map<String,Object> person=people.computeIfAbsent(uid,key->{
+                Map<String,Object> value=new LinkedHashMap<>();value.put("userId",key);value.put("userName",member.get("userName"));
+                value.put("projectId",p.getProjectId());value.put("participationMode","FOLLOW_PROJECT");
+                value.put("membershipPeriods",new ArrayList<Map<String,Object>>());
+                value.put("rolePeriods",datedRows(roles,key));value.put("assignmentPeriods",datedRows(assignments,key));
+                value.put("calendars",datedRows(calendars,null));
+                List<Map<String,Object>> timeline=datedRows(projectMapper.selectUserAllocationTimeline(key),null);
+                for(Map<String,Object> allocation:timeline)if(p.getProjectId().equals(id(allocation.get("projectId")))){
+                    allocation.put("projectStartDate",DateUtils.parseDateToStr("yyyy-MM-dd",from));
+                    allocation.put("projectEndDate",to==null?null:DateUtils.parseDateToStr("yyyy-MM-dd",to));
+                }
+                value.put("allocationTimeline",timeline);return value;
+            });
+            ((List<Map<String,Object>>)person.get("membershipPeriods")).add(datedRow(member));
+        }
+        return new ArrayList<>(people.values());
+    }
+    private List<Map<String,Object>> datedRows(List<Map<String,Object>> source,Long userId){
+        List<Map<String,Object>> result=new ArrayList<>();
+        if(source!=null)for(Map<String,Object> row:source)if(userId==null||userId.equals(id(row.get("userId"))))result.add(datedRow(row));
+        return result;
+    }
+    private Map<String,Object> datedRow(Map<String,Object> source){
+        Map<String,Object> result=new LinkedHashMap<>(source);
+        for(Map.Entry<String,Object> field:result.entrySet())if(field.getValue() instanceof Date)
+            field.setValue(DateUtils.parseDateToStr("yyyy-MM-dd",(Date)field.getValue()));
+        return result;
     }
 
     private List<Map<String,Object>> planLines(Object value,boolean revenue,Date from,Date to)

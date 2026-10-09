@@ -9,5 +9,5 @@ public class BusinessMemberDayCostScheduler {
     private static final Logger LOG=LoggerFactory.getLogger(BusinessMemberDayCostScheduler.class);
     @Autowired private BusinessMemberDayCostService service;
     @Scheduled(fixedDelay=300000,initialDelay=15000)
-    public void refresh(){for(Long id:service.openProjects())try{service.synchronize(id);}catch(Exception ex){LOG.warn("Member-day cost refresh failed for project {}",id);}}
+    public void refresh(){for(Long id:service.openProjects())try{service.synchronize(id);}catch(Exception ex){LOG.warn("Member-day cost refresh failed for project {}",id,ex);}}
 }

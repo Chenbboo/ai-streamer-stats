@@ -9,10 +9,12 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.common.exception.ServiceException;
 
-/** Calendar-month payroll shares, independent of the requested report window. */
+/** Regional daily personnel costs, independent of the requested report window. */
 public final class BusinessPersonnelCost
 {
     public static final String MONTHLY_RULE = "CALENDAR_MONTH_V1";
+    public static final String PROJECT_MONTHLY_RULE = "REGION_STANDARD_PROJECT_DAY_V4";
+    public static final String PROJECT_FORMULA = "月成本 ÷ 地区标准天数（国内21.75天、越南26天） × 当日项目投入比例，按计费工作日累计（跨项目分配尾差到分）";
     private static final BigDecimal HUNDRED = new BigDecimal("100");
     private static final ObjectMapper JSON = new ObjectMapper();
     private final Map<Map<String,Object>, Map<YearMonth,List<LocalDate>>> months = new IdentityHashMap<>();
@@ -29,17 +31,8 @@ public final class BusinessPersonnelCost
         String mode = String.valueOf(rate.get("costMode"));
         if ("MONTHLY".equals(mode))
         {
-            List<LocalDate> days = month(calendar, date);
-            if (days.isEmpty()) throw new ServiceException("当月工作日历没有应工作日");
-            int index = Collections.binarySearch(days, date);
-            if (index < 0) return BigDecimal.ZERO.setScale(2);
-            BigDecimal monthlyShare = unit.multiply(allocationPercent).divide(HUNDRED);
-            BigDecimal count = BigDecimal.valueOf(days.size());
-            // Difference of rounded cumulative shares: a complete month equals the monthly field
-            // (including its project weight), without accumulating per-day rounding errors.
-            BigDecimal throughToday = monthlyShare.multiply(BigDecimal.valueOf(index + 1)).divide(count, 2, RoundingMode.HALF_UP);
-            BigDecimal beforeToday = monthlyShare.multiply(BigDecimal.valueOf(index)).divide(count, 2, RoundingMode.HALF_UP);
-            return throughToday.subtract(beforeToday);
+            if (!workingDay(calendar, date)) return BigDecimal.ZERO.setScale(2);
+            return BusinessHrDailyCost.allocated(BusinessHrDailyCost.dailyRate(rate), allocationPercent);
         }
         if ("HOURLY".equals(mode)) unit = unit.multiply(new BigDecimal("8"));
         else if (!"DAILY".equals(mode)) throw new ServiceException("缺少可折算的有效日成本");
@@ -47,6 +40,25 @@ public final class BusinessPersonnelCost
     }
 
     public int monthWorkingDays(Map<String,Object> calendar, LocalDate date) { return month(calendar, date).size(); }
+
+    /** Cumulative project shares assign rounding cents once across projects. */
+    public BigDecimal projectAmount(Map<String,Object> rate, Map<String,Object> calendar, LocalDate date,
+        BigDecimal percent, BigDecimal shareFrom)
+    {
+        if (!"MONTHLY".equals(rate.get("costMode")) || shareFrom == null)
+            return amount(rate, calendar, date, percent);
+        return amount(rate, calendar, date, shareFrom.add(percent)).subtract(amount(rate, calendar, date, shareFrom));
+    }
+
+    public static BigDecimal shareFrom(Map<Long,Map<String,Object>> weights, Long projectId)
+    {
+        BigDecimal before = BigDecimal.ZERO;
+        for (Map.Entry<Long,Map<String,Object>> entry : new TreeMap<>(weights).entrySet()) {
+            if (entry.getKey().equals(projectId)) return before;
+            before = before.add(new BigDecimal(String.valueOf(entry.getValue().get("allocationValue"))));
+        }
+        return null;
+    }
 
     private List<LocalDate> month(Map<String,Object> calendar, LocalDate date)
     {

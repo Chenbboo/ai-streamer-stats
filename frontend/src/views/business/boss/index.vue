@@ -176,7 +176,10 @@
       :busy="accountingLoading"
       :upstream-error="accountingError"
       @details="openAccounting"
+      @range-change="resourceChartRange=$event"
+      @selection="resourceProjectId=$event"
     />
+    <BusinessResourceCharts :company-dept-id="selectedReviewCompanyId" :ready="!accountingLoading && !accountingError && !!selectedReviewCompany && String(accounting.companyDeptId) === String(selectedReviewCompanyId)" :range="resourceChartRange" :selected-project-id="resourceProjectId" />
 
     <section class="panel owner-load-panel">
       <div class="section-title section-title--between">
@@ -322,6 +325,8 @@ import { translateText } from '@/locales/translate'
 
 import CompanyAccessSettings from '../components/CompanyAccessSettings.vue'
 import BusinessOperatingCharts from '../components/BusinessOperatingCharts.vue'
+import BusinessResourceCharts from '../components/BusinessResourceCharts.vue'
+const resourceChartRange=ref({}),resourceProjectId=ref(null)
 import ProfitTaxSettings from '@/components/ProfitTaxSettings/index.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
@@ -422,8 +427,8 @@ const costSubmitLabel = computed(() => costDialogMode.value === 'batch' ? transl
 const costTargetRows = computed(() => costDialogMode.value === 'batch' ? batchEligibleRows.value : selectedPersonnel.value ? [selectedPersonnel.value] : [])
 const costPersonText = computed(() => costDialogMode.value === 'batch' ? translateText("{0} 名未设置人员", [costTargetRows.value.length]) : selectedPersonnel.value?.userName || '—')
 const costRegionCounts = computed(() => costTargetRows.value.reduce((result, row) => {
-  const region = row.countryRegion
-  if (region === 'CN' || region === 'VN') result[region] = (result[region] || 0) + 1
+  const region = row.countryRegion || 'OTHER'
+  result[region] = (result[region] || 0) + 1
   return result
 }, {}))
 const costRegionText = computed(() => {
@@ -434,7 +439,7 @@ const costPreviews = computed(() => {
   const definitions = { CN: { label: translateText("中国"), days: 21.75 }, VN: { label: translateText("越南"), days: 26 } }
   const regions = costDialogMode.value === 'batch' ? Object.keys(costRegionCounts.value) : [selectedPersonnel.value?.countryRegion].filter(Boolean)
   return regions.map(region => {
-    const definition = definitions[region]
+    const definition = definitions[region] || { label: regionLabel(region), days: 21.75 }
     if (!definition) return { region, formula: translateText("— ÷ — 天 = — 元/天"), hint: translateText("该国家/地区尚未配置折算规则") }
     const monthly = costForm.unitCost === null || costForm.unitCost === undefined ? '—' : costMoney(costForm.unitCost)
     const daily = costForm.unitCost === null || costForm.unitCost === undefined ? '—' : costMoney(Number(costForm.unitCost) / definition.days)

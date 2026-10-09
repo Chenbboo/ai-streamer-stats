@@ -18,7 +18,8 @@ class BusinessCostIntegrityTest {
         List<Map<String,Object>> stored=f.week();when(f.costs.selectCosts(1L)).thenReturn(stored);
         when(f.work.selectBudgetRates(eq(7L),anyString(),anyString())).thenReturn(Collections.emptyList());
         f.service.synchronize(1L);verify(f.costs,never()).deleteDay(anyLong(),anyString());verifyNoInteractions(f.accounting);
-        assertEquals(new BigDecimal("1000.00"),f.service.overview(1L,"2026-09-01").get(0).get("dailyCost"));
+        // The saved day uses 22000 / 21.75, not the former actual-month workday divisor.
+        assertEquals(new BigDecimal("1011.49"),f.service.overview(1L,"2026-09-01").get(0).get("dailyCost"));
     }
     @Test void roleChangeDoesNotDeletePricedHistory(){
         BusinessMemberDayCostServiceTest f=fixture();f.project.setActualEndDate(Date.valueOf("2026-09-04"));
@@ -65,6 +66,7 @@ class BusinessCostIntegrityTest {
         when(f.proposals.selectProposalStaff(eq(10L),any())).thenReturn(row("userId",10L,"companyDeptId",10L,"nickName","负责人"));
         Map<String,Object> budget=f.service.estimate(f.p);assertEquals("PENDING",budget.get("status"));assertNull(budget.get("personnelAmount"));assertEquals(2,f.p.getStaffingLines().size());
         when(f.mapper.selectBudgetRates(eq(10L),anyString(),anyString())).thenReturn(Collections.singletonList(f.rate));
-        budget=f.service.estimate(f.p);assertEquals("READY",budget.get("status"));assertEquals(new BigDecimal("44000.00"),budget.get("personnelAmount"));assertEquals(2,f.p.getStaffingLines().size());
+        // September has 22 billable weekdays: 1011.49 per day for exactly two people.
+        budget=f.service.estimate(f.p);assertEquals("READY",budget.get("status"));assertEquals(new BigDecimal("44505.56"),budget.get("personnelAmount"));assertEquals(2,f.p.getStaffingLines().size());
     }
 }

@@ -17,7 +17,8 @@ import com.ruoyi.common.utils.DateUtils;
 @Service
 public class BusinessProjectBudgetService
 {
-    private static final String MONTHLY_FORECAST_VERSION="CALENDAR_MONTH_V3";
+    private static final String MONTHLY_FORECAST_VERSION="MONTHLY_ALLOCATION_V7";
+    private static final String CASH_COST_RULE="CALENDAR_MONTH_V1";
     private static final String EXECUTION_FORECAST_VERSION="CALENDAR_MONTH_V2";
     private static final String HISTORICAL_PERSONNEL_ISSUE="暂无法还原原计划的分月人员成本，请重新测算计划";
     @Autowired private BusinessProjectProposalMapper proposals;
@@ -106,10 +107,11 @@ public class BusinessProjectBudgetService
         validateLineDates(proposal,proposal.getExpenseLines(),"occurDate","支出计划",issues);
         if(!issues.isEmpty())return;
         LocalDate cashStart=includeAllFiniteOneOffs?null:start,cashEnd=includeAllFiniteOneOffs?null:end;
-        BigDecimal revenue=plannedAmount(proposal.getRevenueLines(),"expectedAmount","expectedDate",start,end,true,issues,null,cashStart,cashEnd);
+        boolean calendarMonths=includeAllFiniteOneOffs||CASH_COST_RULE.equals(proposal.getBudget().get("cashCostRule"));
+        BigDecimal revenue=plannedAmount(proposal.getRevenueLines(),"expectedAmount","expectedDate",start,end,true,issues,null,cashStart,cashEnd,calendarMonths);
         if(proposal.getParentProjectId()!=null&&proposal.getParentFundingAmount()!=null)
             revenue=revenue.add(proposal.getParentFundingAmount().setScale(2,RoundingMode.HALF_UP));
-        BigDecimal business=plannedAmount(proposal.getExpenseLines(),"amount","occurDate",start,end,false,issues,null,cashStart,cashEnd);
+        BigDecimal business=plannedAmount(proposal.getExpenseLines(),"amount","occurDate",start,end,false,issues,null,cashStart,cashEnd,calendarMonths);
         for(Map<String,Object> forecast:forecasts){
             revenue=revenue.subtract(amountOrNull(forecast.get("revenueAmount")));
             business=business.subtract(amountOrNull(forecast.get("plannedBusinessAmount")));
@@ -136,7 +138,19 @@ public class BusinessProjectBudgetService
         for(int i=forecasts.size()-1;i>=0&&remainder.signum()!=0;i--){
             Map<String,Object> forecast=forecasts.get(i);BigDecimal amount=amountOrNull(forecast.get(field));
             BigDecimal adjusted=amount.add(remainder).max(BigDecimal.ZERO.setScale(2));
-            remainder=remainder.subtract(adjusted.subtract(amount));forecast.put(field,adjusted);
+            BigDecimal adjustment=adjusted.subtract(amount);
+            reconcileCashSources(forecast,"revenueAmount".equals(field)?"revenueSources":"expenseSources",adjustment);
+            remainder=remainder.subtract(adjustment);forecast.put(field,adjusted);
+        }
+    }
+    private void reconcileCashSources(Map<String,Object> forecast,String field,BigDecimal adjustment){
+        Object raw=forecast.get(field);if(!(raw instanceof List))return;
+        List<Map<String,Object>> sources=(List<Map<String,Object>>)raw;
+        for(int i=sources.size()-1;i>=0&&adjustment.signum()!=0;i--){
+            Map<String,Object> source=sources.get(i);BigDecimal before=amountOrNull(source.get("amount"));
+            BigDecimal after=before.add(adjustment).max(BigDecimal.ZERO.setScale(2)),applied=after.subtract(before);
+            source.put("amount",after);source.put("roundingAdjustment",amountOrNull(source.getOrDefault("roundingAdjustment",BigDecimal.ZERO)).add(applied));
+            adjustment=adjustment.subtract(applied);
         }
     }
     /** Refresh derived monthly views only; approved totals and persisted snapshots stay intact. */
@@ -145,7 +159,7 @@ public class BusinessProjectBudgetService
             ||proposal.getTemplateVersion()==null||"LEGACY_V1".equals(proposal.getTemplateVersion()))return;
         boolean finite=proposal.getPlanEndDate()!=null;
         Object savedVersion=proposal.getBudget().get("monthlyForecastVersion");
-        if(finite&&(MONTHLY_FORECAST_VERSION.equals(savedVersion)||EXECUTION_FORECAST_VERSION.equals(savedVersion)))return;
+        if(finite&&(MONTHLY_FORECAST_VERSION.equals(savedVersion)||"STANDARD_21_75_V5".equals(savedVersion)||"CALENDAR_MONTH_V4".equals(savedVersion)||"CALENDAR_MONTH_V3".equals(savedVersion)||EXECUTION_FORECAST_VERSION.equals(savedVersion)))return;
         BusinessProjectProposal copy=new BusinessProjectProposal();org.springframework.beans.BeanUtils.copyProperties(proposal,copy);
         if(!finite){
             // Keep the established open-ended behavior: only its forward-looking steady month
@@ -227,7 +241,7 @@ public class BusinessProjectBudgetService
             ||!month.equals(date(source.getPlanStartDate()).withDayOfMonth(1)))copy.setParentFundingAmount(null);
         Map<String,Object> estimate=estimate(copy,false,month,includeAllFiniteOneOffs);
         Map<String,Object> result=new LinkedHashMap<String,Object>();
-        for(String key:Arrays.asList("startDate","endDate","currency","revenueAmount","plannedBusinessAmount","personnelAmount","plannedTotalCost","profit","status","issues","staffingStatus","personnelCostRule"))result.put(key,estimate.get(key));
+        for(String key:Arrays.asList("startDate","endDate","currency","revenueAmount","plannedBusinessAmount","personnelAmount","plannedTotalCost","profit","status","issues","staffingStatus","personnelCostRule","cashCostRule","revenueSources","expenseSources"))result.put(key,estimate.get(key));
         result.put("recurringOnly",recurringOnly);return result;
     }
     private List<Map<String,Object>> recurring(List<Map<String,Object>> rows){List<Map<String,Object>> result=new ArrayList<Map<String,Object>>();for(Map<String,Object> row:rows(rows))if(!"ONE_TIME".equals(occurrence(row)))result.add(row);return result;}
@@ -240,6 +254,9 @@ public class BusinessProjectBudgetService
     {
         Map<String,Object> input=proposal.getBudget()==null?Collections.<String,Object>emptyMap():proposal.getBudget();
         Map<String,Object> result=new LinkedHashMap<String,Object>();List<String> issues=new ArrayList<String>();
+        // New estimates use calendar months. A read projection of an older approved snapshot keeps its original rule.
+        boolean calendarMonths=includeAllFiniteOneOffs||CASH_COST_RULE.equals(input.get("cashCostRule"));
+        result.put("cashCostRule",calendarMonths?CASH_COST_RULE:"FIXED_30_DAY_V1");
         String mode=proposal.getBudgetMode()!=null?proposal.getBudgetMode():String.valueOf(input.getOrDefault("mode","TOTAL"));
         String scope=proposal.getBudgetScope()!=null?proposal.getBudgetScope():String.valueOf(input.getOrDefault("scope","FULL_COST"));
         if(!Arrays.asList("TOTAL","DAILY","NONE").contains(mode)||!Arrays.asList("FULL_COST","CASH_EXPENSE").contains(scope))throw new ServiceException("预算控制方式或统计口径不正确");
@@ -301,7 +318,8 @@ public class BusinessProjectBudgetService
         if(includeAllFiniteOneOffs&&projectEnd!=null){
             cashStart=forecastMonth;cashEnd=forecastMonth==null?null:forecastMonth.plusMonths(1).minusDays(1);
         }
-        BigDecimal external=plannedAmount(proposal.getExpenseLines(),"amount","occurDate",start,end,false,issues,forecastOrigin,cashStart,cashEnd);
+        BigDecimal external=plannedAmount(proposal.getExpenseLines(),"amount","occurDate",start,end,false,issues,forecastOrigin,cashStart,cashEnd,calendarMonths);
+        result.put("expenseSources",cashSources(proposal.getExpenseLines(),"amount","occurDate",start,end,false,forecastOrigin,cashStart,cashEnd,calendarMonths));
         BigDecimal expensePlanTotal=BigDecimal.ZERO.setScale(2);
         if ("TOTAL".equals(mode) && !resourcePlan)
             for (Map<String,Object> line : rows(proposal.getExpenseLines()))
@@ -313,16 +331,21 @@ public class BusinessProjectBudgetService
             if (!resourcePlan && input.get("businessAmount")==null) business=expensePlanTotal;
             else if (proposal.getBudget()!=null) business=money(input.get("businessAmount"),"业务预算",issues);
         }
-        BigDecimal externalRevenue=plannedAmount(proposal.getRevenueLines(),"expectedAmount","expectedDate",start,end,true,issues,forecastOrigin,cashStart,cashEnd);
+        BigDecimal externalRevenue=plannedAmount(proposal.getRevenueLines(),"expectedAmount","expectedDate",start,end,true,issues,forecastOrigin,cashStart,cashEnd,calendarMonths);
         BigDecimal fundingRevenue=proposal.getParentProjectId()==null||proposal.getParentFundingAmount()==null
             ?BigDecimal.ZERO:proposal.getParentFundingAmount().setScale(2,RoundingMode.HALF_UP);
         BigDecimal revenue=externalRevenue.add(fundingRevenue);
+        List<Map<String,Object>> revenueSources=cashSources(proposal.getRevenueLines(),"expectedAmount","expectedDate",start,end,true,forecastOrigin,cashStart,cashEnd,calendarMonths);
+        if(fundingRevenue.signum()!=0){
+            Map<String,Object> funding=new LinkedHashMap<>();funding.put("itemName","主项目拨款");funding.put("sourceType","PARENT_FUNDING");funding.put("occurrenceType","ONE_TIME");
+            funding.put("plannedDate",projectStart==null?null:projectStart.toString());funding.put("inputAmount",fundingRevenue);funding.put("amount",fundingRevenue);revenueSources.add(funding);
+        }
+        result.put("revenueSources",revenueSources);
         if(business!=null&&external.compareTo(business)>0)issues.add("业务预算不能低于本期支出计划合计 "+external.toPlainString()+" "+currency);
         if("TOTAL".equals(mode)&&!resourcePlan&&business!=null&&expensePlanTotal.compareTo(business)>0)
             issues.add("业务预算不能低于全部支出计划金额合计 "+expensePlanTotal.toPlainString()+" "+currency);
         Map<LocalDate,BigDecimal> dailyPersonnel=new TreeMap<>();
-        BusinessPersonnelCost pricing=new BusinessPersonnelCost();
-        result.put("personnelCostRule",BusinessPersonnelCost.MONTHLY_RULE);
+        result.put("personnelCostRule",BusinessPersonnelCost.PROJECT_MONTHLY_RULE);
         List<Map<String,Object>> staffingStatus=new ArrayList<>();
         BigDecimal personnel=BigDecimal.ZERO;boolean missing=false;Set<Long> people=new HashSet<Long>();
         for(Map<String,Object> staff:rows(proposal.getStaffingLines()))
@@ -330,18 +353,22 @@ public class BusinessProjectBudgetService
             Map<String,Object> staffStatus=new LinkedHashMap<>();
             List<String> staffIssues=new ArrayList<>();
             staffStatus.put("userId",staff.get("userId"));staffStatus.put("issues",staffIssues);staffStatus.put("status","READY");staffingStatus.add(staffStatus);
+            staffStatus.put("userName",staff.get("userName"));staffStatus.put("currency",currency);
             // No employment or rate lookup outside the execution period (including legacy cost modes).
-            if(cashOnlyMonth){staffStatus.put("amount",BigDecimal.ZERO.setScale(2));staffStatus.put("currency",currency);continue;}
+            if(cashOnlyMonth){staffStatus.put("amount",BigDecimal.ZERO.setScale(2));staffStatus.put("workingDays",0);staffStatus.put("currency",currency);continue;}
             String label=String.valueOf(staff.getOrDefault("userName","所选人员"));
             try
             {
                 Long userId=staff.get("userId")==null?null:Long.valueOf(String.valueOf(staff.get("userId")));
                 if(userId==null||!resourcePlan&&!people.add(userId))throw new ServiceException("请选择不同的具体人员");
-                Map<String,Object> member=proposals.selectProposalStaff(userId,proposal.getPlanStartDate());
-                if(member==null||member.get("userId")==null||member.get("companyDeptId")==null)
+                boolean memberPlan=staff.containsKey("membershipPeriods");
+                Map<String,Object> member=memberPlan?staff:proposals.selectProposalStaff(userId,proposal.getPlanStartDate());
+                if(member==null||member.get("userId")==null||!memberPlan&&member.get("companyDeptId")==null)
                     throw new ServiceException("人员不在有效任职范围");
                 label=String.valueOf(member.getOrDefault("nickName",member.getOrDefault("accountName",label)));
+                staffStatus.put("userName",label);
                 if(start==null||end==null)throw new ServiceException("请先确定预算期间");
+                staffStatus.put("startDate",start.toString());staffStatus.put("endDate",end.toString());
                 if("LEGACY_V1".equals(proposal.getTemplateVersion())||proposal.getTemplateVersion()==null)
                 {
                     if(!"MONTHLY".equals(member.get("costMode"))||member.get("monthlyCost")==null)throw new ServiceException("缺少有效的历史人员成本");
@@ -370,7 +397,8 @@ public class BusinessProjectBudgetService
                     throw new ServiceException("请填写项目范围内的人员参与方式和日期");
                 LocalDate pricedFrom=from.isAfter(start)?from:start;
                 LocalDate pricedTo=participationEnd==null||participationEnd.isAfter(end)?end:participationEnd;
-                if(pricedTo.isBefore(pricedFrom))continue;
+                if(pricedTo.isBefore(pricedFrom)){staffStatus.put("amount",BigDecimal.ZERO.setScale(2));staffStatus.put("workingDays",0);continue;}
+                staffStatus.put("startDate",pricedFrom.toString());staffStatus.put("endDate",pricedTo.toString());
                 Map<String,Object> planned=new LinkedHashMap<String,Object>(staff);
                 planned.put("planStartDate",pricedFrom.toString());planned.put("planEndDate",pricedTo.toString());
                 BigDecimal inputQuantity=staff.get("inputQuantity")==null?new BigDecimal("100"):new BigDecimal(String.valueOf(staff.get("inputQuantity")));
@@ -381,33 +409,61 @@ public class BusinessProjectBudgetService
                 // 预算按每个有效工作日的完整日成本乘投入比例计算。这里用 100% 只取得工作日，
                 // 避免 8.33% 等比例换算成分钟时产生无意义的整数分钟校验误差。
                 planned.put("inputUnit","PERCENTAGE");planned.put("inputQuantity",new BigDecimal("100"));planned.put("unitPolicyId",1L);
-                List<Map<String,Object>> days=work.plannedWorkDays(planned);
-                Map<String,Object> calendar=mapper.selectCalendar(Long.valueOf(String.valueOf(planned.get("calendarId"))));
+                List<Map<String,Object>> days=memberPlan?com.ruoyi.business.support.BusinessPlannedMemberDays.days(staff,pricedFrom,pricedTo):work.plannedWorkDays(planned);
+                Map<String,Object> calendar=memberPlan?null:mapper.selectCalendar(Long.valueOf(String.valueOf(planned.get("calendarId"))));
                 List<Map<String,Object>> rates=mapper.selectBudgetRates(userId,start.toString(),end.toString());
                 if(rates==null)rates=Collections.emptyList();
                 BigDecimal staffCost=BigDecimal.ZERO;
-                List<LocalDate> missingDates=new ArrayList<>(),overlapDates=new ArrayList<>(),currencyDates=new ArrayList<>();
+                BusinessPersonnelCost personnelPricing=new BusinessPersonnelCost();
+                List<LocalDate> missingDates=new ArrayList<>(),overlapDates=new ArrayList<>(),currencyDates=new ArrayList<>(),missingAllocations=new ArrayList<>(),pendingAllocations=new ArrayList<>();
                 Map<Object,Map<String,Object>> usedPeriods=new LinkedHashMap<>();
+                List<Map<String,Object>> allocationPeriods=new ArrayList<>();Object previousPeriodKey=null;Map<String,Object> costPeriod=null;
+                staffStatus.put("allocationPeriods",allocationPeriods);staffStatus.put("workingDays",0);
                 for(Map<String,Object> day:days)
                 {
                     LocalDate d=date(day.get("bizDate"));int minutes=((Number)day.get("plannedMinutes")).intValue();
                     if(d.isBefore(start)||d.isAfter(end)||minutes==0)continue;
+                    BigDecimal dayPercent=inputQuantity,costShareFrom=null;Map<String,Object> allocation=null;
+                    Map<String,Object> dayCalendar=memberPlan?(Map<String,Object>)day.get("calendar"):calendar;
+                    if(memberPlan){
+                        Long projectId=Long.valueOf(String.valueOf(staff.get("projectId")));
+                        Map<Long,Map<String,Object>> weights=com.ruoyi.business.support.BusinessAllocationWeights.at(rows((List<Map<String,Object>>)staff.get("allocationTimeline")),d);
+                        allocation=weights.get(projectId);costShareFrom=BusinessPersonnelCost.shareFrom(weights,projectId);
+                        if(allocation==null){missingAllocations.add(d);continue;}
+                        if("PENDING".equals(allocation.get("confirmationStatus"))){pendingAllocations.add(d);continue;}
+                        dayPercent=new BigDecimal(String.valueOf(allocation.get("allocationValue")));
+                    }
                     List<Map<String,Object>> matches=new ArrayList<Map<String,Object>>();
                     for(Map<String,Object> rate:rates)if(!d.isBefore(date(rate.get("effectiveFrom")))&&(date(rate.get("effectiveTo"))==null||!d.isAfter(date(rate.get("effectiveTo")))))matches.add(rate);
                     if(matches.size()!=1){(matches.isEmpty()?missingDates:overlapDates).add(d);continue;}
                     Map<String,Object> rate=matches.get(0);
                     if(!currency.equals(String.valueOf(rate.get("currency")))){currencyDates.add(d);continue;}
-                    BigDecimal dayCost=pricing.amount(rate,calendar,d,inputQuantity);
+                    BigDecimal dayCost=personnelPricing.projectAmount(rate,dayCalendar,d,dayPercent,costShareFrom);
                     staffCost=staffCost.add(dayCost);dailyPersonnel.merge(d,dayCost,BigDecimal::add);
+                    String periodKey=String.valueOf(rate.get("policyId"))+"|"+rate.get("version")+"|"+dayCalendar.get("calendarId")+"|"+dayPercent.stripTrailingZeros().toPlainString();
+                    if(!periodKey.equals(previousPeriodKey)){
+                        costPeriod=new LinkedHashMap<>();costPeriod.put("startDate",d.toString());costPeriod.put("allocationPercent",dayPercent);costPeriod.put("workingDays",0);costPeriod.put("amount",BigDecimal.ZERO.setScale(2));
+                        costPeriod.put("rateVersion",rate.get("version"));allocationPeriods.add(costPeriod);previousPeriodKey=periodKey;
+                    }
+                    costPeriod.put("endDate",d.toString());costPeriod.put("workingDays",((Number)costPeriod.get("workingDays")).intValue()+1);
+                    costPeriod.put("amount",((BigDecimal)costPeriod.get("amount")).add(dayCost));
+                    staffStatus.put("workingDays",((Number)staffStatus.get("workingDays")).intValue()+1);
                     Map<String,Object> period=new LinkedHashMap<>();
                     period.put("effectiveFrom",date(rate.get("effectiveFrom")).toString());
                     period.put("effectiveTo",date(rate.get("effectiveTo"))==null?null:date(rate.get("effectiveTo")).toString());
                     period.put("version",rate.get("version"));usedPeriods.put(rate.get("policyId"),period);
-                    Map<String,Object> reference=new LinkedHashMap<String,Object>();reference.put("userId",userId);reference.put("bizDate",d.toString());reference.put("plannedMinutes",minutes);reference.put("ratePolicyId",rate.get("policyId"));reference.put("rateVersion",rate.get("version"));basis.add(reference);
+                    Map<String,Object> reference=new LinkedHashMap<String,Object>();reference.put("userId",userId);reference.put("bizDate",d.toString());reference.put("plannedMinutes",minutes);reference.put("ratePolicyId",rate.get("policyId"));reference.put("rateVersion",rate.get("version"));
+                    reference.put("allocationPercent",dayPercent);reference.put("calendarId",dayCalendar.get("calendarId"));
+                    reference.put("personnelCostRule",BusinessPersonnelCost.PROJECT_MONTHLY_RULE);
+                    if(costShareFrom!=null)reference.put("costShareFrom",costShareFrom);
+                    if("MONTHLY".equals(rate.get("costMode")))reference.put("monthWorkingDays",personnelPricing.monthWorkingDays(dayCalendar,d));
+                    if(allocation!=null){reference.put("allocationId",allocation.get("allocationId"));reference.put("allocationVersion",allocation.get("allocationVersion"));}basis.add(reference);
                 }
                 addDateIssue(staffIssues,missingDates,"缺少有效成本费率");
                 addDateIssue(staffIssues,overlapDates,"存在重叠成本费率");
                 addDateIssue(staffIssues,currencyDates,"成本币种与项目币种不一致");
+                addDateIssue(staffIssues,missingAllocations,"缺少有效的项目投入比例");
+                addDateIssue(staffIssues,pendingAllocations,"项目投入比例尚未确认");
                 staffStatus.put("ratePeriods",new ArrayList<>(usedPeriods.values()));
                 if(staffIssues.isEmpty()){staffStatus.put("amount",staffCost.setScale(2,RoundingMode.HALF_UP));staffStatus.put("currency",currency);}
                 personnel=personnel.add(staffCost);
@@ -427,7 +483,7 @@ public class BusinessProjectBudgetService
         result.put("revenueAmount",revenue);result.put("status",issues.isEmpty()?"READY":"PENDING");
         BigDecimal plannedCost=missing?null:personnel.add(external).setScale(2,RoundingMode.HALF_UP);
         result.put("plannedTotalCost",plannedCost);result.put("profit",plannedCost==null?null:revenue.subtract(plannedCost));
-        BigDecimal oneTime=external.subtract(plannedAmount(recurring(proposal.getExpenseLines()),"amount","occurDate",start,end,false,issues,forecastOrigin));
+        BigDecimal oneTime=external.subtract(plannedAmount(recurring(proposal.getExpenseLines()),"amount","occurDate",start,end,false,issues,forecastOrigin,start,end,calendarMonths));
         if("DAILY".equals(mode)&&startup!=null&&oneTime.compareTo(startup)>0)issues.add("启动预算不能低于本期一次性支出 "+oneTime);
         if("DAILY".equals(mode)&&oneTime.signum()>0&&startup==null)issues.add("每日预算模式下请单独设置一次性启动预算");
         if("DAILY".equals(mode)&&start!=null&&end!=null&&!end.isBefore(start)&&daily!=null){
@@ -436,7 +492,7 @@ public class BusinessProjectBudgetService
             result.put("expectedDailyCost",complete?controlled.divide(BigDecimal.valueOf(java.time.temporal.ChronoUnit.DAYS.between(start,end)+1),2,RoundingMode.HALF_UP):null);
             BigDecimal peak=BigDecimal.ZERO;LocalDate peakDate=start,firstExceeded=null;int exceededDays=0;
             for(LocalDate day=start;!day.isAfter(end);day=day.plusDays(1)){
-                BigDecimal dayCost=recurringDailyCost(proposal.getExpenseLines(),day,issues);
+                BigDecimal dayCost=recurringDailyCost(proposal.getExpenseLines(),day,issues,calendarMonths);
                 if("FULL_COST".equals(scope))dayCost=dayCost.add(dailyPersonnel.getOrDefault(day,BigDecimal.ZERO));
                 if(dayCost.compareTo(peak)>0){peak=dayCost;peakDate=day;}
                 if(dayCost.compareTo(daily)>0){exceededDays++;if(firstExceeded==null)firstExceeded=day;}
@@ -470,7 +526,7 @@ public class BusinessProjectBudgetService
         for(LocalDate d=start;!d.isAfter(end);d=d.plusDays(1))if(!weekdaysOnly||d.getDayOfWeek().getValue()<=5)days.add(d);
         if(!days.isEmpty())for(LocalDate d:days)costs.merge(d,amount.divide(BigDecimal.valueOf(days.size()),8,RoundingMode.HALF_UP),BigDecimal::add);
     }
-    private BigDecimal recurringDailyCost(List<Map<String,Object>> lines,LocalDate day,List<String> issues){
+    private BigDecimal recurringDailyCost(List<Map<String,Object>> lines,LocalDate day,List<String> issues,boolean calendarMonths){
         BigDecimal total=BigDecimal.ZERO;
         for(Map<String,Object> line:rows(lines)){
             String frequency=occurrence(line);if("ONE_TIME".equals(frequency))continue;
@@ -478,13 +534,15 @@ public class BusinessProjectBudgetService
             // Missing values were already reported by the aggregate calculation.
             if(line.get("amount")==null||"".equals(line.get("amount")))continue;
             BigDecimal amount=money(line.get("amount"),"计划支出",issues);
-            total=total.add(amount.divide(new BigDecimal("WEEKLY".equals(frequency)?7:"MONTHLY".equals(frequency)?30:1),8,RoundingMode.HALF_UP));
+            total=total.add(amount.divide(new BigDecimal("WEEKLY".equals(frequency)?7:"MONTHLY".equals(frequency)?calendarMonths?day.lengthOfMonth():30:1),8,RoundingMode.HALF_UP));
         }
         return total;
     }
     private BigDecimal plannedAmount(List<Map<String,Object>> lines,String field,String dateField,LocalDate start,LocalDate end,boolean revenue,List<String> issues,LocalDate forecastOrigin)
     { return plannedAmount(lines,field,dateField,start,end,revenue,issues,forecastOrigin,start,end); }
     private BigDecimal plannedAmount(List<Map<String,Object>> lines,String field,String dateField,LocalDate start,LocalDate end,boolean revenue,List<String> issues,LocalDate forecastOrigin,LocalDate cashStart,LocalDate cashEnd)
+    { return plannedAmount(lines,field,dateField,start,end,revenue,issues,forecastOrigin,cashStart,cashEnd,true); }
+    private BigDecimal plannedAmount(List<Map<String,Object>> lines,String field,String dateField,LocalDate start,LocalDate end,boolean revenue,List<String> issues,LocalDate forecastOrigin,LocalDate cashStart,LocalDate cashEnd,boolean calendarMonths)
     {
         BigDecimal total=BigDecimal.ZERO;
         for(Map<String,Object> line:rows(lines))
@@ -497,11 +555,43 @@ public class BusinessProjectBudgetService
             if("ONE_TIME".equals(frequency)){if(d!=null&&(cashStart!=null&&d.isBefore(cashStart)||cashEnd!=null&&d.isAfter(cashEnd)))continue;total=total.add(amount);continue;}
             if(start==null||end==null||end.isBefore(start))continue;
             LocalDate from=d!=null&&d.isAfter(start)?d:start;if(from.isAfter(end))continue;
+            if("MONTHLY".equals(frequency)&&calendarMonths){
+                for(LocalDate month=from.withDayOfMonth(1);!month.isAfter(end);month=month.plusMonths(1)){
+                    LocalDate first=from.isAfter(month)?from:month,last=month.withDayOfMonth(month.lengthOfMonth());
+                    if(end.isBefore(last))last=end;
+                    BigDecimal covered=BigDecimal.valueOf(java.time.temporal.ChronoUnit.DAYS.between(first,last)+1);
+                    total=total.add(amount.multiply(covered).divide(BigDecimal.valueOf(month.lengthOfMonth()),2,RoundingMode.HALF_UP));
+                }
+                continue;
+            }
             BigDecimal days=BigDecimal.valueOf(java.time.temporal.ChronoUnit.DAYS.between(from,end)+1);
             BigDecimal divisor=new BigDecimal("WEEKLY".equals(frequency)?7:"MONTHLY".equals(frequency)?30:1);
             total=total.add(amount.multiply(days).divide(divisor,2,RoundingMode.HALF_UP));
         }
         return total.setScale(2,RoundingMode.HALF_UP);
+    }
+    /** Explain contributions using exactly the same dated calculation, without exposing payroll rates. */
+    private List<Map<String,Object>> cashSources(List<Map<String,Object>> lines,String field,String dateField,LocalDate start,LocalDate end,boolean revenue,LocalDate forecastOrigin,LocalDate cashStart,LocalDate cashEnd,boolean calendarMonths)
+    {
+        List<Map<String,Object>> result=new ArrayList<>();int lineNo=0;
+        for(Map<String,Object> line:rows(lines)){
+            lineNo++;
+            if(revenue&&!"BASE".equals(String.valueOf(line.getOrDefault("scenario","BASE")))||line.get(field)==null||"".equals(line.get(field)))continue;
+            String frequency=occurrence(line);LocalDate occurred=date(line.get(dateField));
+            if(occurred==null&&forecastOrigin!=null&&"ONE_TIME".equals(frequency))occurred=forecastOrigin;
+            LocalDate from=occurred!=null&&start!=null&&occurred.isAfter(start)?occurred:start;
+            if("ONE_TIME".equals(frequency)){
+                if(occurred!=null&&(cashStart!=null&&occurred.isBefore(cashStart)||cashEnd!=null&&occurred.isAfter(cashEnd)))continue;
+            }else if(start==null||end==null||end.isBefore(start)||from.isAfter(end))continue;
+            BigDecimal contribution=plannedAmount(Collections.singletonList(line),field,dateField,start,end,revenue,new ArrayList<String>(),forecastOrigin,cashStart,cashEnd,calendarMonths);
+            Map<String,Object> source=new LinkedHashMap<>();source.put("lineNo",lineNo);source.put("itemName",line.get("itemName"));
+            source.put("sourceType",revenue?"REVENUE_PLAN":"EXPENSE_PLAN");source.put("occurrenceType",frequency);
+            source.put("plannedDate",occurred==null?null:occurred.toString());source.put("inputAmount",new BigDecimal(String.valueOf(line.get(field))).setScale(2,RoundingMode.HALF_UP));
+            source.put("amount",contribution);source.put("note",line.get(revenue?"assumptionText":"purpose"));
+            source.put("startDate","ONE_TIME".equals(frequency)?source.get("plannedDate"):from.toString());
+            source.put("endDate","ONE_TIME".equals(frequency)?source.get("plannedDate"):end.toString());result.add(source);
+        }
+        return result;
     }
     private BigDecimal money(Object value,String label,List<String> issues)
     {

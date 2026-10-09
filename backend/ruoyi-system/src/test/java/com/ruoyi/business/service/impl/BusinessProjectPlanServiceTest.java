@@ -25,6 +25,7 @@ class BusinessProjectPlanServiceTest
     @Mock BusinessProjectMapper projectMapper;
     @Mock BusinessProjectWorkMapper mapper;
     @Mock BusinessProjectBudgetService budgets;
+    @Mock com.ruoyi.business.mapper.BusinessMemberDayCostMapper memberCosts;
     @Spy ObjectMapper json=new ObjectMapper();
     @InjectMocks BusinessProjectPlanService service;
     BusinessProject project;
@@ -36,7 +37,6 @@ class BusinessProjectPlanServiceTest
     @Test void controlledChangeDoesNotMutateBaselineUntilReview(){project.setTemplateVersion("CONTROLLED_V1");service.request(1L,change(),10L,"owner");ArgumentCaptor<Map<String,Object>> c=ArgumentCaptor.forClass(Map.class);verify(mapper).insertPlanChange(c.capture());assertEquals("SUBMITTED",c.getValue().get("status"));verify(mapper,never()).applyPlanChange(any());}
     @Test void staleBaseCannotBeApproved(){project.setTemplateVersion("CONTROLLED_V1");Map<String,Object> c=row("changeId",8L,"projectId",1L,"baseVersion",0,"status","SUBMITTED","requestUserId",10L,"version",0);when(mapper.selectPlanChange(8L)).thenReturn(c);assertThrows(ServiceException.class,()->service.review(8L,row("version",0,"decision","APPROVED","reason","同意"),20L,"sponsor"));verify(mapper,never()).applyPlanChange(any());}
     @Test void technicalAdministratorCannotApproveInsteadOfSponsor(){Map<String,Object> c=row("changeId",8L,"projectId",1L,"baseVersion",1,"status","SUBMITTED","requestUserId",10L,"version",0);when(mapper.selectPlanChange(8L)).thenReturn(c);assertThrows(ServiceException.class,()->service.review(8L,row("version",0,"decision","APPROVED","reason","同意"),1L,"admin"));}
-    @Test void forecastDoesNotReplaceApprovedBaseline(){when(mapper.touchProject(anyMap())).thenReturn(1);service.forecast(1L,row("version",3,"forecastEndDate","2026-06-10","reason","更新剩余预测"),10L,"owner");verify(mapper).insertForecast(anyMap());verify(mapper,never()).insertBaseline(anyMap());verify(mapper,never()).applyPlanChange(anyMap());}
     @Test void closedProjectCannotCreateNewPlan(){project.setStatus("CLOSED");assertThrows(ServiceException.class,()->service.request(1L,change(),10L,"owner"));verify(mapper,never()).insertPlanChange(any());}
     @Test void unlimitedPlanChangeKeepsNullEndDate() throws Exception
     {
@@ -239,6 +239,39 @@ class BusinessProjectPlanServiceTest
         assertEquals(new java.math.BigDecimal("0.00"),months.get(1).get("revenueAmount"));
         assertEquals(new java.math.BigDecimal("0.00"),months.get(1).get("plannedBusinessAmount"));
         assertEquals(snapshot,((java.util.List<Map<String,Object>>)result.get("baselines")).get(0).get("snapshotJson"));
+    }
+    @Test void memberPreviewLoadsDatedAllocationsMembershipsAndCalendarsAndFreezesThemWithoutWrites() {
+        project.setCostPolicyVersion("MEMBER_DAYS_V1");project.setBaseCurrency("CNY");
+        project.setTemplateSnapshotJson("{\"budget\":{\"mode\":\"TOTAL\",\"businessAmount\":100}}");
+        when(projectMapper.selectProjectById(1L)).thenReturn(project);
+        when(mapper.selectMembers(1L)).thenReturn(java.util.Arrays.asList(
+            row("userId",30L,"userName","成员甲","memberRole","MEMBER","status","0","joinedDate",Date.valueOf("2026-02-10")),
+            row("userId",40L,"userName","已退出成员","memberRole","MEMBER","status","1","joinedDate",Date.valueOf("2026-01-01"),"leftDate",Date.valueOf("2026-02-09"))));
+        when(memberCosts.selectPastMemberships(1L)).thenReturn(java.util.Collections.singletonList(
+            row("userId",30L,"memberRole","MEMBER","status","1","joinedDate",Date.valueOf("2026-01-01"),"leftDate",Date.valueOf("2026-01-31"))));
+        when(mapper.selectAssignments(1L)).thenReturn(java.util.Collections.singletonList(
+            row("userId",30L,"inputQuantity",0,"calendarId",2L,"status","ACTIVE","participationMode","FOLLOW_PROJECT","effectiveFrom",Date.valueOf("2026-02-10"))));
+        when(mapper.selectCalendars()).thenReturn(java.util.Collections.singletonList(row("calendarId",2L,"workingWeekdays","1,2,3,4,5","dailyMinutes",480)));
+        when(projectMapper.selectUserAllocationTimeline(30L)).thenReturn(java.util.Collections.singletonList(
+            row("projectId",1L,"allocationId",11L,"allocationValue",30,"confirmationStatus","CONFIRMED","effectiveFrom",Date.valueOf("2026-02-10"))));
+        when(projectMapper.selectUserAllocationTimeline(40L)).thenReturn(java.util.Collections.singletonList(
+            row("projectId",1L,"allocationId",12L,"allocationValue",50,"effectiveFrom",Date.valueOf("2026-01-01"),"effectiveTo",Date.valueOf("2026-02-09"))));
+        when(budgets.estimate(any())).thenReturn(row("status","READY","mode","TOTAL","totalAmount",100));
+
+        Map<String,Object> result=service.preview(1L,change(),10L);
+
+        ArgumentCaptor<com.ruoyi.business.domain.BusinessProjectProposal> captured=ArgumentCaptor.forClass(com.ruoyi.business.domain.BusinessProjectProposal.class);
+        verify(budgets).estimate(captured.capture());
+        java.util.List<Map<String,Object>> staff=captured.getValue().getStaffingLines();assertEquals(2,staff.size());
+        Map<String,Object> person=staff.get(0);assertFalse(person.containsKey("inputQuantity"));
+        java.util.List<Map<String,Object>> membership=(java.util.List<Map<String,Object>>)person.get("membershipPeriods");
+        assertEquals(2,membership.size());assertEquals("2026-02-10",membership.get(0).get("joinedDate"));
+        assertEquals("2026-01-31",membership.get(1).get("leftDate"));
+        Map<String,Object> allocation=((java.util.List<Map<String,Object>>)person.get("allocationTimeline")).get(0);
+        assertEquals(30,allocation.get("allocationValue"));assertEquals("2026-02-10",allocation.get("effectiveFrom"));
+        assertEquals("2026-06-01",allocation.get("projectEndDate"));
+        assertEquals(staff,result.get("staffingLines"));
+        verify(mapper,never()).applyPlanChange(anyMap());verify(mapper,never()).insertPlanChange(anyMap());
     }
     private Map<String,Object> change(){return row("version",3,"reason","增加交付验证","objective","完成成果交付","applicationReason","调整立项计划","planStartDate","2026-01-01","planEndDate","2026-06-01","acceptanceCriteria","检查成果清单");}
 }

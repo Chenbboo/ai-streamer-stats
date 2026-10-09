@@ -778,7 +778,7 @@ function workPeriods(row){return workExecutionPeriods(row,todayText())}
 function executionPeriodText(period){const end=period.endDate||(period.longTerm?translateText('长期'):period.ongoing?translateText('持续执行'):'—');return translateText("{0}{1} 至 {2}", [period.assigneeName?`${period.assigneeName} · `:'', period.startDate, end])}
 watch(()=>route.query.create,value=>{if(value)router.replace('/business/project-proposals')},{immediate:true})
 watch(()=>route.query.id,async value=>{if(!value||Number(value)===Number(detail.value?.projectId))return;try{await openDetail({projectId:Number(value)})}catch{const nextQuery={...route.query};delete nextQuery.id;router.replace({query:nextQuery})}},{immediate:true})
-watch(()=>route.query.tab,value=>{if(['overview','operating','resources','routines','tasks','members','milestones','risks','acceptance','stageAcceptance','ownerHistory','events'].includes(value))activeTab.value=value},{immediate:true})
+watch(()=>route.query.tab,value=>{if(['overview','operating','resources','plan','routines','tasks','members','milestones','risks','acceptance','stageAcceptance','ownerHistory','events'].includes(value))activeTab.value=value},{immediate:true})
 watch([()=>route.query.allocationUserId,()=>detail.value?.projectId,()=>projectWorkPanel.value],async([userId,projectId,panel])=>{if(userId&&panel&&Number(projectId)===Number(route.query.id)){activeTab.value='resources';await nextTick();await panel.openAllocation(Number(userId));const query={...route.query};delete query.allocationUserId;router.replace({query})}},{flush:'post'})
 onMounted(load)
 onMounted(loadFilterOptions)

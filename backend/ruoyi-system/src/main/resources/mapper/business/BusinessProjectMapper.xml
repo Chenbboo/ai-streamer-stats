@@ -643,7 +643,7 @@
           c.cost_mode costMode,c.unit_cost unitCost,c.currency,c.policy_version policyVersion,
           c.country_region_snapshot countryRegion,c.standard_work_days standardWorkDays,c.rate_minutes_per_day rateMinutesPerDay,
           case when a.allocation_mode='PERCENTAGE' and c.cost_mode='MONTHLY'
-                    then c.unit_cost/c.standard_work_days*a.allocation_value/100
+                    then c.unit_cost/(case when c.country_region_snapshot='VN' or (c.country_region_snapshot is null and c.standard_work_days=26) then 26 else 21.75 end)*a.allocation_value/100
                when a.allocation_mode='PERCENTAGE' then c.unit_cost*a.allocation_value/100
                when a.allocation_mode='FIXED_DAILY' then a.allocation_value
                else c.unit_cost*a.allocation_value end allocatedCost
@@ -655,11 +655,10 @@
     <select id="selectOwnerPersonnelCostReadiness" resultType="map">
         select p.project_id projectId,p.project_no projectNo,p.project_name projectName,p.status,
           p.main_owner_name mainOwnerName,count(*) memberCount,
-          sum(case when profile.country_region is null or profile.country_region not in ('CN','VN') then 1 else 0 end) missingRegionCount,
-          group_concat(case when profile.country_region is null or profile.country_region not in ('CN','VN') then m.user_name_snapshot end
-            order by field(m.member_role,'OWNER','DEPUTY','MEMBER'),m.member_id separator '、') missingRegionMemberNames,
-          sum(case when current_cost.user_id is null and profile.country_region in ('CN','VN') then 1 else 0 end) missingCostCount,
-          group_concat(case when current_cost.user_id is null and profile.country_region in ('CN','VN') then m.user_name_snapshot end
+          0 missingRegionCount,
+          null missingRegionMemberNames,
+          sum(case when current_cost.user_id is null then 1 else 0 end) missingCostCount,
+          group_concat(case when current_cost.user_id is null then m.user_name_snapshot end
             order by field(m.member_role,'OWNER','DEPUTY','MEMBER'),m.member_id separator '、') missingCostMemberNames,
           sum(case when profile.country_region in ('CN','VN') and current_cost.user_id is not null and current_allocation.user_id is null then 1 else 0 end) missingAllocationCount,
           group_concat(case when profile.country_region in ('CN','VN') and current_cost.user_id is not null and current_allocation.user_id is null then m.user_name_snapshot end
@@ -672,7 +671,7 @@
           select user_id
           from biz_staff_cost_policy
           where status='ACTIVE' and cost_mode='MONTHLY' and currency='CNY'
-            and standard_work_days is not null and standard_work_days&gt;0
+
             and effective_from&lt;=date(#{bizDate})
             and (effective_to is null or effective_to&gt;=date(#{bizDate}))
           group by user_id
@@ -1674,8 +1673,7 @@
         company.dept_name companyName,null planStartDate,null planEndDate,null mainOwnerName,
         null status,null baselineStatus,null targetCount,null planId,null planVersion,null cycleEnd,
         null totalScore,null bonusAmount,
-        case when profile.country_region is null or profile.country_region not in ('CN','VN') then 'MISSING_REGION'
-             when valid_cost.user_id is not null then 'READY'
+        case when valid_cost.user_id is not null then 'READY'
              when any_cost.user_id is not null then 'LEGACY_COST' else 'MISSING_COST' end costStatus,
         profile.country_region countryRegion,
         count(distinct project.project_id) projectCount,
@@ -1693,7 +1691,7 @@
       left join (select user_id from biz_staff_cost_policy where status='ACTIVE' and effective_from&lt;=#{bizDate}
         and (effective_to is null or effective_to&gt;=#{bizDate}) group by user_id) any_cost on any_cost.user_id=u.user_id
       left join (select user_id from biz_staff_cost_policy where status='ACTIVE' and cost_mode='MONTHLY'
-        and currency in ('CNY','VND') and standard_work_days is not null and standard_work_days&gt;0
+        and currency in ('CNY','VND')
         and effective_from&lt;=#{bizDate} and (effective_to is null or effective_to&gt;=#{bizDate})
         group by user_id) valid_cost on valid_cost.user_id=u.user_id
       left join biz_project_member member on member.user_id=u.user_id and member.status='0' and member.member_role&lt;&gt;'OBSERVER'
@@ -1842,8 +1840,7 @@
           where p.del_flag='0'
           <if test="viewAll == false">and <include refid="com.ruoyi.business.mapper.BusinessCompanyAccessMapper.scope"><property name="company" value="p.company_dept_id"/><property name="capability" value="BUSINESS"/></include></if>) kpiReviewCount,
         (select count(*) from (select u.user_id,
-            case when profile.country_region is null or profile.country_region not in ('CN','VN') then 'MISSING_REGION'
-                 when valid_cost.user_id is not null then 'READY'
+            case when valid_cost.user_id is not null then 'READY'
                  when any_cost.user_id is not null then 'LEGACY_COST' else 'MISSING_COST' end costStatus
           from sys_user u
           join sys_dept staff_dept on staff_dept.dept_id=u.dept_id and staff_dept.del_flag='0'
@@ -1853,7 +1850,7 @@
           left join (select user_id from biz_staff_cost_policy where status='ACTIVE' and effective_from&lt;=#{bizDate}
             and (effective_to is null or effective_to&gt;=#{bizDate}) group by user_id) any_cost on any_cost.user_id=u.user_id
           left join (select user_id from biz_staff_cost_policy where status='ACTIVE' and cost_mode='MONTHLY'
-            and currency in ('CNY','VND') and standard_work_days is not null and standard_work_days&gt;0
+            and currency in ('CNY','VND')
             and effective_from&lt;=#{bizDate} and (effective_to is null or effective_to&gt;=#{bizDate})
             group by user_id) valid_cost on valid_cost.user_id=u.user_id
           where u.del_flag='0' and u.status='0' and coalesce(profile.employment_status,'ACTIVE')&lt;&gt;'LEFT'
