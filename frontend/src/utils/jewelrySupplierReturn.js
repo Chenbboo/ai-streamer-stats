@@ -80,3 +80,21 @@ export function supplierReturnProductQuantitiesValid(rows) {
   }
   return rows.length > 0 && [...totals].every(([key, qty]) => qty <= limits.get(key))
 }
+
+export function selectAllSampleReturnProducts(products, currentRows, blankRow) {
+  const selected = new Map()
+  for (const product of products) {
+    const qty = Number(product.remainingReturnQty || 0)
+    const key = String(product.productId)
+    if (!product.productId || !Number.isSafeInteger(qty) || qty <= 0 || selected.has(key)) continue
+    const current = currentRows.find(row => String(row.productId) === key)
+    selected.set(key, {
+      ...blankRow(), ...(current || {}), productId: product.productId,
+      skuSnapshot: product.sku, productNameSnapshot: product.productName,
+      productTypeSnapshot: product.productType, qty,
+      remainingReturnQty: qty, availableReturnQty: qty, unitPrice: 0, sourceUnitPrice: 0,
+      sourceItemId: null, sourceDocumentId: null, sourceDocNo: ''
+    })
+  }
+  return [...selected.values()]
+}

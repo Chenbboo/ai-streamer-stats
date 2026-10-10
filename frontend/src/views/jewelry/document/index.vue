@@ -59,7 +59,14 @@
           <el-form-item v-if="isReturnToSupplier(form.docType) && readonly" :label="form.docType==='SAMPLE_RETURN'?$tr('原样品入库单'):$tr(&quot;原采购单&quot;)">
             <el-input :model-value="supplierReturnSourceDocNos || form.sourceDocNo || form.sourceDocumentId" disabled />
           </el-form-item>
-          <el-form-item v-if="!isTransfer(form) && form.docType!=='SAMPLE_IN'" :label="$tr(&quot;外部单号&quot;)"><el-input v-model="form.externalNo" :disabled="readonly"/></el-form-item>
+          <el-form-item v-if="!isTransfer(form) && form.docType!=='SAMPLE_IN'" :label="$tr(&quot;外部单号&quot;)">
+            <div class="external-no-actions">
+              <el-input v-model="form.externalNo" :disabled="readonly"/>
+              <el-button v-if="form.docType==='SAMPLE_RETURN' && !readonly" type="primary" plain
+                :disabled="!form.supplierId || supplierReturnSourceLoading || supplierReturnProductError"
+                @click="selectAllSampleReturns">{{ $tr('全选') }}</el-button>
+            </div>
+          </el-form-item>
           <el-form-item v-if="form.docType==='CUSTOMER_RETURN'" :label="$tr(&quot;原销售单（可选）&quot;)">
             <el-select v-model="form.sourceDocumentId" filterable clearable :loading="salesSourceLoading" :no-data-text="salesSourceError?$tr(&quot;加载失败，请重新打开下拉框重试&quot;):$tr(&quot;该达人暂无已入账销售单，待审核单不能关联退货&quot;)" :disabled="readonly || !form.influencerId" :placeholder="form.influencerId?$tr(&quot;请选择&quot;):$tr(&quot;请先选择达人/主播&quot;)" @visible-change="customerReturnSalesOpened" @change="salesSourceChanged">
               <el-option v-for="d in customerReturnSalesDocuments" :key="d.documentId"
@@ -280,7 +287,7 @@
           <el-table-column v-if="showQuantityColumn" :label="form.docType==='CUSTOMER_RETURN'?$tr(&quot;退货数量&quot;):$tr(&quot;数量&quot;)" width="130">
             <template #default="{ row }">
               <span v-if="readonly">{{ row.qty }}</span>
-              <el-input-number v-else v-model="row.qty" :min="1" :max="linkedReturnMaxQty(row)"
+              <el-input-number v-else v-model="row.qty" :key="row.productId" :min="1" :max="linkedReturnMaxQty(row)"
                 :disabled="isReturnToSupplier(form.docType) && (!row.productId || supplierReturnSourceLoading || supplierReturnProductError || Number(row.remainingReturnQty || 0)<=0) || form.docType==='CUSTOMER_RETURN' && !form.sourceDocumentId && (!row.productId || Number(row.remainingReturnQty || 0)<=0)"
                 @change="linkedReturnQtyChanged(row)" />
             </template>
@@ -502,7 +509,7 @@ import {listJewelryDocuments,getJewelryDocument,getCustomerReturnSource,listCust
 import {compressXlsxImages,formatFileSize} from '@/utils/xlsxImageCompressor'
 import {jewelryProductTypes,jewelryProductType,matchesJewelryProductFilters} from '@/utils/jewelryProduct'
 import { documentBundleAddons, documentBundleExpanded, visibleDocumentBundleItems } from '@/utils/jewelryDocumentBundles'
-import { supplierReturnProductRows, refreshSupplierReturnProducts, supplierReturnProductQuantitiesValid, supplierReturnMaxQty } from '@/utils/jewelrySupplierReturn'
+import { supplierReturnProductRows, refreshSupplierReturnProducts, supplierReturnProductQuantitiesValid, supplierReturnMaxQty, selectAllSampleReturnProducts } from '@/utils/jewelrySupplierReturn'
 import { listSupplierReturnProducts, listSampleReturnProducts } from '@/api/jewelry/erp'
 import { isInfluencerPurchaseType, isIndependentSalesType, isCustomerReturnType } from '@/utils/jewelryProductPolicy'
 import { getPurchaseInfluencerRepairOptions, repairPurchaseInfluencer } from '@/api/jewelry/erp'
@@ -1473,6 +1480,13 @@ async function loadSupplierReturnProducts(influencerId,supplierId){
     if(request===supplierReturnSourceRequest){supplierReturnProductError.value=true;form.items=refreshSupplierReturnProducts(form.items,[]);proxy.$modal.msgError(error?.message||translateText('可退商品加载失败，请重试后再保存'))}
   }finally{if(request===supplierReturnSourceRequest)supplierReturnSourceLoading.value=false}
 }
+function selectAllSampleReturns(){
+  if(readonly.value || form.docType!=='SAMPLE_RETURN' || !form.supplierId
+    || supplierReturnSourceLoading.value || supplierReturnProductError.value)return
+  const items=selectAllSampleReturnProducts(supplierReturnProducts.value,form.items,blankItem)
+  if(!items.length){proxy.$modal.msgWarning(translateText('该供应商暂无可退样品'));return}
+  form.items=items
+}
 async function supplierChanged(id){
   supplierReturnSourceRequest++;supplierReturnSourceSelection.value=null;supplierReturnSourceLoading.value=false
   form.supplierNameSnapshot=suppliers.value.find(x=>x.supplierId===id)?.supplierName||''
@@ -1685,5 +1699,11 @@ async function withdraw(row){await proxy.$modal.confirm(translateText("确认撤
 async function reverse(row){await proxy.$modal.confirm(translateText("确认对单据 {0} 发起整单红冲？{1}", [row.docNo, ['STOCK_ADJUST','COST_ADJUST'].includes(row.docType)?translateText("红冲单需要审核员和管理员两级审批。"):translateText("红冲单审核通过后入账。")]));await createJewelryReversal(row.documentId);proxy.$modal.msgSuccess(translateText("红冲草稿已生成"));load()}
 preload();load()
 </script>
+
+<style scoped>
+.external-no-actions{display:flex;align-items:center;gap:8px;width:100%}
+.external-no-actions .el-input{flex:1;min-width:0}
+.external-no-actions .el-button{flex:none}
+</style>
 <style scoped>.sheet{border:1px solid #cfd5dc}.sheet-head{display:grid;grid-template-columns:repeat(6,minmax(150px,1fr));gap:12px;padding:14px;background:#f4f6f8}.sheet-head :deep(.el-form-item){margin:0}.sheet-head :deep(.el-input-number),.sheet-head :deep(.el-select),.sheet-head :deep(.el-date-editor){width:100%}.item-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-top:1px solid #d9dee5;background:#fafbfc}.item-toolbar>div:first-child{display:flex;align-items:baseline;gap:10px}.item-toolbar b{color:#334155;font-size:14px}.item-toolbar span{color:#8490a0;font-size:12px}.item-toolbar-actions{display:flex;align-items:center;gap:8px}.product-filter-bar{display:flex;align-items:center;gap:0 12px;margin:0;padding:12px 14px 0;border-top:1px solid #d9dee5;background:#fafbfc}.product-filter-bar :deep(.el-form-item){margin-right:0}.product-filter-bar :deep(.el-select){width:210px}.excel-compress-progress{display:flex!important;flex-direction:column;align-items:stretch!important;gap:4px!important;width:180px}.excel-compress-progress span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.excel-compress-progress :deep(.el-progress){width:100%}.item-table{border-left:0;border-right:0}.item-table :deep(.el-input-number){width:100%;min-width:0}.item-table :deep(.bundle-addon-row){background:#fffaf0}.item-table :deep(.bundle-addon-row .product-picker){padding-left:18px;border-left:3px solid #e6a23c}.product-picker{display:flex;align-items:center;gap:8px}.product-picker .el-select{flex:1;min-width:0}.product-picker .el-button{flex:none}.unit-price-cell{display:flex;flex-direction:column;gap:3px}.unit-price-cell small{line-height:1.25}.fixed-price-note{color:#16803c}.pending-price-note{color:#b45309}.pack-fee-cell{display:flex;flex-direction:column;gap:3px}.pack-fee-cell small{line-height:1.35;color:#6b7280}.packaging-cost-note{color:#b45309}.packaging-shortage{color:#dc2626!important;font-weight:600}.packaging-covered{color:#16803c!important}.bundle-summaries{display:flex;gap:10px;flex-wrap:wrap;padding:10px 12px 0}.bundle-summaries>div{display:flex;gap:14px;align-items:center;padding:8px 12px;border:1px solid #f1d39c;border-radius:4px;background:#fffaf0;color:#6b7280;font-size:13px}.bundle-summaries b{color:#92400e}.add-line{margin:12px}.document-total{display:flex;justify-content:flex-end;gap:28px;padding:12px 16px;border-top:1px solid #d9dee5;background:#f8fafc;color:#475569}.document-total b{color:#111827}.loss,.document-total .loss,.document-total .loss b{color:#dc2626;font-weight:700}.sheet-foot{padding:12px 14px 0;border-top:1px solid #d9dee5}.import-summary{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}.import-summary span:last-child{color:#7c8796}.import-error{color:#c2413a}@media(max-width:1200px){.sheet-head{grid-template-columns:repeat(3,1fr)}}@media(max-width:760px){.sheet-head{grid-template-columns:1fr}.item-toolbar{align-items:stretch;flex-direction:column;gap:10px}.item-toolbar>div:first-child{align-items:flex-start;flex-direction:column;gap:2px}.item-toolbar-actions{flex-wrap:wrap}.product-filter-bar{align-items:stretch;flex-direction:column;padding-right:14px}.product-filter-bar :deep(.el-form-item),.product-filter-bar :deep(.el-select){width:100%}.excel-compress-progress{width:100%}.product-picker{align-items:stretch;flex-direction:column}.bundle-summaries>div{align-items:flex-start;flex-direction:column;gap:4px}.document-total{justify-content:flex-start;flex-wrap:wrap;gap:12px 20px}}</style>
 <style scoped>.included-addons{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:5px}.included-addons .el-button{margin:0;padding:0;height:auto;font-size:12px}.included-addon-summary{color:#6b7280;font-size:12px;line-height:1.4}.included-gift-cost{display:block;color:#6b7280;font-size:11px;line-height:1.4}</style>

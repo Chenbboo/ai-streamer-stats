@@ -8990,5 +8990,6 @@
   "这里保留保存时的原始比例；实际生效分配请以上方时间段汇总为准，未修改的期间保留。": "Giữ tỷ lệ gốc khi lưu; xem phân bổ có hiệu lực tại phần tổng hợp theo kỳ phía trên. Các kỳ chưa sửa được giữ nguyên.",
   "原始投入比例": "Tỷ lệ phân bổ gốc",
   "每次最多调整20个时间段": "Mỗi lần điều chỉnh tối đa 20 kỳ",
-  "该期间与正在编辑的时间段重叠，请在已有时间段内调整": "Kỳ này trùng với kỳ đang chỉnh sửa, hãy điều chỉnh trong kỳ hiện có"
+  "该期间与正在编辑的时间段重叠，请在已有时间段内调整": "Kỳ này trùng với kỳ đang chỉnh sửa, hãy điều chỉnh trong kỳ hiện có",
+  "全选": "Chọn tất cả"
 }
