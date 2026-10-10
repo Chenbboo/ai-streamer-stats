@@ -92,7 +92,9 @@ class BusinessHistoricalAllocationServiceTest {
         assertTrue(assertThrows(ServiceException.class,()->service.preview(1L,submission(),10L)).getMessage().contains("已冻结"));
     }
     @Test void splitRetainsPriorAndFutureVersionsAndOnlyAddsBoundedRecords(){
-        List<Map<String,Object>> simulated=BusinessHistoricalAllocationService.replaceTimeline(timeline,Set.of(1L,2L),Map.of(1L,new BigDecimal("50"),2L,new BigDecimal("50")),from,to);
+        Map<Long,BigDecimal> weights=new HashMap<>();
+        weights.put(1L,new BigDecimal("50"));weights.put(2L,new BigDecimal("50"));
+        List<Map<String,Object>> simulated=BusinessHistoricalAllocationService.replaceTimeline(timeline,new HashSet<>(Arrays.asList(1L,2L)),weights,from,to);
         assertEquals(new BigDecimal("100"),new BigDecimal(BusinessAllocationWeights.at(simulated,LocalDate.parse("2026-08-31")).get(2L).get("allocationValue").toString()));
         assertEquals(50,BusinessAllocationWeights.at(simulated,LocalDate.parse("2026-09-09")).get(1L).get("allocationValue"));
         assertEquals(100,BusinessAllocationWeights.at(simulated,LocalDate.parse("2026-09-09")).get(2L).get("allocationValue"));

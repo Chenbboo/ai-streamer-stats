@@ -44,7 +44,7 @@ public class BusinessHistoricalAllocationMapperTest {
             assertEquals(0,m.selectMemberships(8L,null,"2026-09-01","2026-09-30").size());assertEquals(1,m.selectMemberships(null,1L,"2026-10-01","2026-10-10").size());
         }
     }
-    Object column(Map<String,Object> row,String name){return row.entrySet().stream().filter(e->e.getKey().equalsIgnoreCase(name)).findFirst().orElseThrow().getValue();}
+    Object column(Map<String,Object> row,String name){return row.entrySet().stream().filter(e->e.getKey().equalsIgnoreCase(name)).findFirst().orElseThrow(()->new AssertionError("Missing column: "+name)).getValue();}
     @Test void deletedProjectsStopParticipatingAfterDeletionAndRetainEarlierHistory() throws Exception {
         try(SqlSession session=factory.openSession();Statement s=session.getConnection().createStatement()){
             s.execute("insert into biz_project(project_id,project_name,status,accounting_state,cost_policy_version,del_flag,plan_start_date,actual_start_date,update_time) values(3,'同名旧项目','ACTIVE','OPEN','MEMBER_DAYS_V1','2','2026-08-01','2026-08-01','2026-10-10'),(4,'无删除事件的旧项目','ACTIVE','OPEN','MEMBER_DAYS_V1','2','2026-08-01','2026-08-01','2026-09-12')");
