@@ -88,11 +88,15 @@ public class BusinessProjectWorkPricingService
                 if("MONTHLY".equals(rate.get("costMode"))){
                     Map<String,Object> calendar=entryCalendar(entry);
                     LocalDate date=LocalDate.parse(day(entry.get("bizDate")));
-                    amount=priceMonthly(integer(entry.get("workMinutes")),rate,calendar,date);
+                    LocalDate from=project.getActualStartDate()==null?localDay(project.getPlanStartDate()):localDay(project.getActualStartDate());
+                    LocalDate to=LocalDate.now();for(Date boundary:Arrays.asList(project.getActualEndDate(),project.getPlanEndDate()))if(boundary!=null&&localDay(boundary).isBefore(to))to=localDay(boundary);
+                    boolean fullMonth=BusinessPersonnelCost.fullMonth(date,from,to);
+                    amount=priceMonthly(integer(entry.get("workMinutes")),rate,calendar,date,fullMonth);
+                    basis.put("fullMonthBilling",fullMonth);basis.put("billingMode",fullMonth?"FULL_MONTH":"REGIONAL_DAYS");
                     basis.put("standardWorkDays",BusinessHrDailyCost.standardWorkDays(rate));
                     basis.put("monthWorkingDays",new BusinessPersonnelCost().monthWorkingDays(calendar,date));
                     basis.put("calendarSnapshot",calendar);basis.put("monthlyCostRule",BusinessPersonnelCost.PROJECT_MONTHLY_RULE);
-                    basis.put("formula","月成本 ÷ 地区标准天数（国内21.75天、越南26天） × 已确认工时 ÷ 费率人天分钟数，四舍五入到分");
+                    basis.put("formula",BusinessPersonnelCost.PROJECT_FORMULA+"；按已确认工时占费率人天分钟数的比例计算");
                 }else{
                     amount=price(integer(entry.get("workMinutes")),integer(entry.get("minutesPerDay")),rate);
                     basis.put("formula","confirmedMinutes / rateUnitMinutes * effectiveRate; per-entry HALF_UP(2)");
@@ -124,11 +128,15 @@ public class BusinessProjectWorkPricingService
         }else throw new ServiceException("实际工时不支持该内部费率单位");
         return unit.multiply(BigDecimal.valueOf(minutes)).divide(denominator,2,RoundingMode.HALF_UP);
     }
+    private static LocalDate localDay(Date value){return value==null?null:LocalDate.parse(DateUtils.parseDateToStr("yyyy-MM-dd",value));}
     public static BigDecimal priceMonthly(int minutes,Map<String,Object> rate,Map<String,Object> calendar,LocalDate date){
+        return priceMonthly(minutes,rate,calendar,date,false);
+    }
+    public static BigDecimal priceMonthly(int minutes,Map<String,Object> rate,Map<String,Object> calendar,LocalDate date,boolean fullMonth){
         int rateMinutes=rate.get("rateMinutesPerDay")==null?480:((Number)rate.get("rateMinutesPerDay")).intValue();
         if(minutes<0||rateMinutes<1||rateMinutes>1440)throw new ServiceException("工作量换算无效");
         BigDecimal percent=BigDecimal.valueOf(minutes).multiply(new BigDecimal("100")).divide(BigDecimal.valueOf(rateMinutes),12,RoundingMode.HALF_UP);
-        return new BusinessPersonnelCost().amount(rate,calendar,date,percent);
+        return new BusinessPersonnelCost().amount(rate,calendar,date,percent,fullMonth);
     }
     private Map<String,Object> entryCalendar(Map<String,Object> entry){
         if(entry.get("calendarSnapshotJson")!=null)try{

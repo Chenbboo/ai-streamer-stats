@@ -410,6 +410,8 @@ public class BusinessProjectBudgetService
                 // 避免 8.33% 等比例换算成分钟时产生无意义的整数分钟校验误差。
                 planned.put("inputUnit","PERCENTAGE");planned.put("inputQuantity",new BigDecimal("100"));planned.put("unitPolicyId",1L);
                 List<Map<String,Object>> days=memberPlan?com.ruoyi.business.support.BusinessPlannedMemberDays.days(staff,pricedFrom,pricedTo):work.plannedWorkDays(planned);
+                int participationWorkingDays=0;for(Map<String,Object> plannedDay:days){LocalDate d=date(plannedDay.get("bizDate"));if(!d.isBefore(start)&&!d.isAfter(end)&&((Number)plannedDay.get("plannedMinutes")).intValue()>0)participationWorkingDays++;}
+                staffStatus.put("participationWorkingDays",participationWorkingDays);
                 Map<String,Object> calendar=memberPlan?null:mapper.selectCalendar(Long.valueOf(String.valueOf(planned.get("calendarId"))));
                 List<Map<String,Object>> rates=mapper.selectBudgetRates(userId,start.toString(),end.toString());
                 if(rates==null)rates=Collections.emptyList();
@@ -418,12 +420,17 @@ public class BusinessProjectBudgetService
                 List<LocalDate> missingDates=new ArrayList<>(),overlapDates=new ArrayList<>(),currencyDates=new ArrayList<>(),missingAllocations=new ArrayList<>(),pendingAllocations=new ArrayList<>();
                 Map<Object,Map<String,Object>> usedPeriods=new LinkedHashMap<>();
                 List<Map<String,Object>> allocationPeriods=new ArrayList<>();Object previousPeriodKey=null;Map<String,Object> costPeriod=null;
+                Map<java.time.YearMonth,Boolean> completeMonths=new HashMap<>();
+                Map<java.time.YearMonth,List<LocalDate>> billingDays=new HashMap<>();
+                for(Map<String,Object> plannedDay:days)if(((Number)plannedDay.get("plannedMinutes")).intValue()>0){
+                    LocalDate billDate=date(plannedDay.get("bizDate"));billingDays.computeIfAbsent(java.time.YearMonth.from(billDate),month->new ArrayList<>()).add(billDate);
+                }
                 staffStatus.put("allocationPeriods",allocationPeriods);staffStatus.put("workingDays",0);
                 for(Map<String,Object> day:days)
                 {
                     LocalDate d=date(day.get("bizDate"));int minutes=((Number)day.get("plannedMinutes")).intValue();
                     if(d.isBefore(start)||d.isAfter(end)||minutes==0)continue;
-                    BigDecimal dayPercent=inputQuantity,costShareFrom=null;Map<String,Object> allocation=null;
+                    BigDecimal dayPercent=proposalAllocationPercent(staff,d,inputQuantity),costShareFrom=null;Map<String,Object> allocation=null;
                     Map<String,Object> dayCalendar=memberPlan?(Map<String,Object>)day.get("calendar"):calendar;
                     if(memberPlan){
                         Long projectId=Long.valueOf(String.valueOf(staff.get("projectId")));
@@ -438,12 +445,18 @@ public class BusinessProjectBudgetService
                     if(matches.size()!=1){(matches.isEmpty()?missingDates:overlapDates).add(d);continue;}
                     Map<String,Object> rate=matches.get(0);
                     if(!currency.equals(String.valueOf(rate.get("currency")))){currencyDates.add(d);continue;}
-                    BigDecimal dayCost=personnelPricing.projectAmount(rate,dayCalendar,d,dayPercent,costShareFrom);
+                    boolean fullMonth="MONTHLY".equals(rate.get("costMode"))&&completeMonths.computeIfAbsent(java.time.YearMonth.from(d),month->
+                        BusinessPersonnelCost.fullMonth(d,pricedFrom,pricedTo)
+                            &&(!memberPlan||com.ruoyi.business.support.BusinessPlannedMemberDays.coversFullMonth(staff,d)));
+                    if(fullMonth)personnelPricing.useMonthDays(dayCalendar,d,billingDays.get(java.time.YearMonth.from(d)));
+                    BigDecimal dayCost=personnelPricing.projectAmount(rate,dayCalendar,d,dayPercent,costShareFrom,fullMonth);
                     staffCost=staffCost.add(dayCost);dailyPersonnel.merge(d,dayCost,BigDecimal::add);
-                    String periodKey=String.valueOf(rate.get("policyId"))+"|"+rate.get("version")+"|"+dayCalendar.get("calendarId")+"|"+dayPercent.stripTrailingZeros().toPlainString();
+                    String billingMode=fullMonth?"FULL_MONTH":"REGIONAL_DAYS";
+                    String periodKey=String.valueOf(rate.get("policyId"))+"|"+rate.get("version")+"|"+dayCalendar.get("calendarId")+"|"+dayPercent.stripTrailingZeros().toPlainString()+"|"+java.time.YearMonth.from(d)+"|"+billingMode;
                     if(!periodKey.equals(previousPeriodKey)){
                         costPeriod=new LinkedHashMap<>();costPeriod.put("startDate",d.toString());costPeriod.put("allocationPercent",dayPercent);costPeriod.put("workingDays",0);costPeriod.put("amount",BigDecimal.ZERO.setScale(2));
                         costPeriod.put("rateVersion",rate.get("version"));allocationPeriods.add(costPeriod);previousPeriodKey=periodKey;
+                        costPeriod.put("billingMode",billingMode);costPeriod.put("month",java.time.YearMonth.from(d).toString());
                     }
                     costPeriod.put("endDate",d.toString());costPeriod.put("workingDays",((Number)costPeriod.get("workingDays")).intValue()+1);
                     costPeriod.put("amount",((BigDecimal)costPeriod.get("amount")).add(dayCost));
@@ -455,6 +468,7 @@ public class BusinessProjectBudgetService
                     Map<String,Object> reference=new LinkedHashMap<String,Object>();reference.put("userId",userId);reference.put("bizDate",d.toString());reference.put("plannedMinutes",minutes);reference.put("ratePolicyId",rate.get("policyId"));reference.put("rateVersion",rate.get("version"));
                     reference.put("allocationPercent",dayPercent);reference.put("calendarId",dayCalendar.get("calendarId"));
                     reference.put("personnelCostRule",BusinessPersonnelCost.PROJECT_MONTHLY_RULE);
+                    reference.put("billingMode",billingMode);
                     if(costShareFrom!=null)reference.put("costShareFrom",costShareFrom);
                     if("MONTHLY".equals(rate.get("costMode")))reference.put("monthWorkingDays",personnelPricing.monthWorkingDays(dayCalendar,d));
                     if(allocation!=null){reference.put("allocationId",allocation.get("allocationId"));reference.put("allocationVersion",allocation.get("allocationVersion"));}basis.add(reference);
@@ -505,6 +519,25 @@ public class BusinessProjectBudgetService
         result.put("status",issues.isEmpty()?"READY":"PENDING");
         result.put("revenueLines",rows(proposal.getRevenueLines()));result.put("expenseLines",rows(proposal.getExpenseLines()));
         result.put("issues",issues);result.put("basis",basis);return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private BigDecimal proposalAllocationPercent(Map<String,Object> staff,LocalDate day,BigDecimal fallback){
+        Object plan=staff.get("allocationPlan");if(!(plan instanceof Map))return fallback;
+        Object segments=((Map<?,?>)plan).get("segments");if(!(segments instanceof List))return fallback;
+        Map<String,Object> matched=null;
+        for(Object raw:(List<?>)segments){
+            if(!(raw instanceof Map))throw new ServiceException("投入时间段格式不正确");
+            Map<String,Object> segment=(Map<String,Object>)raw;LocalDate from=date(segment.get("dateFrom")),to=date(segment.get("dateTo"));
+            if(from==null||to!=null&&to.isBefore(from))throw new ServiceException("投入时间段日期不正确");
+            if(!day.isBefore(from)&&(to==null||!day.isAfter(to))){if(matched!=null)throw new ServiceException("投入时间段不能重叠");matched=segment;}
+        }
+        if(matched==null)throw new ServiceException(day+" 缺少人员投入时间段");
+        BigDecimal percent;
+        try{percent=new BigDecimal(String.valueOf(matched.get("inputQuantity")));}catch(Exception ex){throw new ServiceException("投入比例必须是有效数字");}
+        if(percent.signum()<0||percent.compareTo(new BigDecimal("100"))>0||percent.stripTrailingZeros().scale()>2)
+            throw new ServiceException("投入比例必须在0%至100%之间，最多两位小数");
+        return percent;
     }
 
     private void validateLineDates(BusinessProjectProposal proposal,List<Map<String,Object>> lines,String field,String label,List<String> issues){

@@ -1,5 +1,5 @@
 <template>
-  <el-dialog v-model="visible" class="estimate-source-dialog" :title="$tr('{0}金额来源', [label])" width="min(960px, 96vw)" append-to-body destroy-on-close>
+  <el-dialog v-model="visible" class="estimate-source-dialog" :title="$tr('{0}金额来源', [label])" width="min(1180px, 96vw)" append-to-body destroy-on-close>
     <template v-if="budget">
       <div class="source-summary">
         <div><span>{{ label }}</span><strong :class="{ negative: Number(budget[metric]) < 0 }">{{ money(budget[metric]) }}</strong></div>
@@ -29,27 +29,35 @@
       </section>
       <section v-if="showPersonnel" class="source-section">
         <div class="source-heading"><h3>{{ $tr('人员成本') }}</h3><b>{{ money(budget.personnelAmount) }}</b></div>
-        <p v-if="['PROJECT_MONTH_SHARE_DAY_V3', 'CALENDAR_MONTH_V1'].includes(budget.personnelCostRule)" class="source-note">{{ $tr('月成本按当月实际工作日和当日投入比例分摊，整月100%投入等于设置的月成本；展开人员可查看分段金额。') }}</p>
+        <p v-if="budget.personnelCostRule === 'NATURAL_MONTH_AND_REGIONAL_DAYS_V5'" class="source-note">{{ $tr('完整自然月按月成本及当日投入比例分摊；不足整月按地区日薪（国内月成本÷21.75、越南÷26）及计费工作日累计。展开人员可查看整月和零散工作日的分段金额。') }}</p>
+        <p v-else-if="['PROJECT_MONTH_SHARE_DAY_V3', 'CALENDAR_MONTH_V1'].includes(budget.personnelCostRule)" class="source-note">{{ $tr('月成本按当月实际工作日和当日投入比例分摊，整月100%投入等于设置的月成本；展开人员可查看分段金额。') }}</p>
         <p v-else class="source-note">{{ $tr('日成本按月度用人成本除以地区标准天数计算（国内21.75天、越南26天），再按计费工作日和当日投入比例累计；展开人员可查看分段金额。') }}</p>
+        <div v-if="personnelIssues.length" class="personnel-issues">
+          <b>{{ $tr('人员成本待完善的具体原因') }}</b>
+          <ul><li v-for="(issue,index) in personnelIssues" :key="index">{{ issue.name }}：{{ $tr(issue.reason) }}</li></ul>
+        </div>
+        <p v-if="hasDisplayPeriods" class="source-note">{{ $tr('参与期间和工作日按成员参与记录及工作日历展示；原测算金额保留。') }}</p>
         <el-table :data="budget.staffingStatus || []" size="small" :empty-text="$tr('本期没有人员成本明细')">
           <el-table-column type="expand" width="40"><template #default="{ row }">
             <div class="personnel-breakdown">
-              <el-alert v-if="row.issues?.length" :title="row.issues.map(issue => $tr(issue)).join('；')" type="warning" :closable="false" />
+              <el-alert v-if="rowIssues(row).length" :title="rowIssues(row).map(issue => $tr(issue)).join('；')" type="warning" :closable="false" />
               <el-table v-if="row.allocationPeriods?.length" :data="row.allocationPeriods" size="small">
                 <el-table-column :label="$tr('计费日期')" min-width="180"><template #default="{ row: segment }">{{ period(segment) }}</template></el-table-column>
+                <el-table-column :label="$tr('计费方式')" min-width="125"><template #default="{ row: segment }">{{ segment.billingMode === 'FULL_MONTH' ? $tr('整月按月成本') : segment.billingMode === 'REGIONAL_DAYS' ? $tr('零散工作日按日薪') : '—' }}</template></el-table-column>
                 <el-table-column :label="$tr('计费工作日')" min-width="100"><template #default="{ row: segment }">{{ segment.workingDays }} {{ $tr('天') }}</template></el-table-column>
                 <el-table-column :label="$tr('项目投入比例')" min-width="110"><template #default="{ row: segment }">{{ Number(segment.allocationPercent).toFixed(2) }}%</template></el-table-column>
                 <el-table-column :label="$tr('本期计入金额')" min-width="145" align="right"><template #default="{ row: segment }">{{ money(segment.amount) }}</template></el-table-column>
               </el-table>
-              <p v-else class="source-note">{{ $tr('没有可展示的计费分段') }}</p>
+              <p v-else class="source-note">{{ row.sourceDetailsMissing ? $tr('原测算未保存计费分段，已保留原金额。') : $tr('没有可展示的计费分段') }}</p>
               <p v-if="row.status === 'PENDING'" class="source-note">{{ $tr('以上仅展示已完成测算的部分，待完善项不计作完整金额。') }}</p>
             </div>
           </template></el-table-column>
           <el-table-column :label="$tr('人员')" min-width="120"><template #default="{ row }">{{ row.userName || $tr('人员编号 {0}', [row.userId || '—']) }}</template></el-table-column>
-          <el-table-column :label="$tr('参与期间')" min-width="180"><template #default="{ row }">{{ period(row) }}</template></el-table-column>
-          <el-table-column :label="$tr('计费工作日')" min-width="100"><template #default="{ row }">{{ row.workingDays == null ? '—' : `${row.workingDays} ${$tr('天')}` }}</template></el-table-column>
+          <el-table-column :label="$tr('参与期间')" min-width="200"><template #default="{ row }">{{ participationPeriod(row) }}</template></el-table-column>
+          <el-table-column :label="$tr('参与工作日')" min-width="130"><template #default="{ row }">{{ row.participationWorkingDays == null && row.workingDays == null ? '—' : `${row.participationWorkingDays ?? row.workingDays} ${$tr('天')}` }}<small v-if="row.status === 'PENDING' && row.workingDays != null" class="source-note">{{ $tr('已测算工作日：{0}天', [row.workingDays]) }}</small></template></el-table-column>
           <el-table-column :label="$tr('本期计入金额')" min-width="145" align="right"><template #default="{ row }"><b>{{ money(row.amount) }}</b></template></el-table-column>
           <el-table-column :label="$tr('状态')" min-width="100"><template #default="{ row }"><el-tag :type="row.status === 'PENDING' ? 'warning' : 'success'" size="small">{{ row.status === 'PENDING' ? $tr('待完善') : $tr('已完成') }}</el-tag></template></el-table-column>
+          <el-table-column :label="$tr('说明')" min-width="290"><template #default="{ row }"><span :class="{ 'issue-text': rowIssues(row).length }">{{ rowIssues(row).map(issue => $tr(issue)).join('；') || (row.noParticipation ? $tr('本期未参与') : $tr('无待完善项')) }}</span></template></el-table-column>
         </el-table>
       </section>
       <p v-if="cashSections.length" class="source-note source-rule">{{ budget.cashCostRule === 'FIXED_30_DAY_V1' ? $tr('此历史测算按月费用以 30 天折算；按周费用以 7 天折算，按日费用按覆盖天数累计。') : $tr('一次性按发生期间计入；按月费用按自然月覆盖天数折算，按周费用按 7 天折算，按日费用按覆盖天数累计。') }}</p>
@@ -65,6 +73,10 @@ const visible = ref(false), budget = ref(null), metric = ref('revenueAmount')
 const labels = computed(() => ({ revenueAmount: translateText('预计收入'), plannedBusinessAmount: translateText('业务支出'), personnelAmount: translateText('人员成本'), plannedTotalCost: translateText('预计总成本'), profit: translateText('预计利润') }))
 const label = computed(() => labels.value[metric.value])
 const showPersonnel = computed(() => ['personnelAmount', 'plannedTotalCost', 'profit'].includes(metric.value))
+const rowIssues = row => [...new Set([...(Array.isArray(row.issues) ? row.issues : []), ...(row.displayIssues || [])])]
+const personName = row => row.userName || translateText('人员编号 {0}', [row.userId || '—'])
+const personnelIssues = computed(() => (budget.value?.staffingStatus || []).flatMap(row => rowIssues(row).map(reason => ({ name: personName(row), reason }))))
+const hasDisplayPeriods = computed(() => (budget.value?.staffingStatus || []).some(row => Array.isArray(row.participationPeriods)))
 const cashSections = computed(() => [
   { key: 'revenueSources', totalKey: 'revenueAmount', label: translateText('收入计划'), metrics: ['revenueAmount', 'profit'] },
   { key: 'expenseSources', totalKey: 'plannedBusinessAmount', label: translateText('支出计划'), metrics: ['plannedBusinessAmount', 'plannedTotalCost', 'profit'] }
@@ -72,6 +84,7 @@ const cashSections = computed(() => [
 const money = value => value == null ? translateText('待完善') : `${Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${budget.value?.currency || 'CNY'}`
 const frequency = value => ({ ONE_TIME: translateText('一次性'), DAILY: translateText('按日'), WEEKLY: translateText('按周'), MONTHLY: translateText('按月') }[value] || value || '—')
 const period = row => row.startDate || row.plannedDate ? `${row.startDate || row.plannedDate}${row.endDate && row.endDate !== (row.startDate || row.plannedDate) ? ` — ${row.endDate}` : ''}` : '—'
+const participationPeriod = row => Array.isArray(row.participationPeriods) ? row.participationPeriods.length ? row.participationPeriods.map(period).join('；') : translateText('本期未参与') : period(row)
 function open(key, source) { metric.value = key; budget.value = JSON.parse(JSON.stringify(source)); visible.value = true }
 defineExpose({ open, close: () => { visible.value = false } })
 </script>
@@ -95,6 +108,9 @@ defineExpose({ open, close: () => { visible.value = false } })
 .source-note { display: block; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.8; margin: 6px 0; overflow-wrap: anywhere; }
 .source-rule { margin-top: 20px; }
 .personnel-breakdown { padding: 12px 20px; background: var(--el-fill-color-lighter); }
+.personnel-issues { margin: 12px 0; padding: 12px 16px; border-radius: 8px; background: var(--el-color-warning-light-9); color: var(--el-color-warning-dark-2); font-size: 13px; line-height: 1.7; }
+.personnel-issues ul { margin: 6px 0 0; padding-left: 20px; }
+.issue-text { color: var(--el-color-warning-dark-2); line-height: 1.6; }
 @media (max-width: 600px) { .source-summary { flex-direction: column; align-items: flex-start; padding: 16px; } .source-summary strong { font-size: 22px; } .source-heading { flex-wrap: wrap; } .personnel-breakdown { padding: 12px; } }
 </style>
 

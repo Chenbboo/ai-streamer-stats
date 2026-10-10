@@ -14,6 +14,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.Objects;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -757,7 +760,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
                 line.put("userName",displayStaffName(staff));line.put("roleName",StringUtils.defaultIfEmpty(text(staff.get("positionName")),"项目成员"));line.put("headcount",1);
                 line.put("participationMode",participationMode);line.put("planStartDate",from);line.put("planEndDate",to);
                 line.put("inputUnit","PERCENTAGE");line.put("inputQuantity",inputQuantity);line.put("unitPolicyId",1L);
-                normalizeAllocationPlan(line, inputQuantity, from);
+                normalizeAllocationPlan(line, inputQuantity, from, to);
                 line.put("allocationPercent",null);line.put("estimatedCost",null);
                 for(String sensitive:Arrays.asList("costPolicyId","costPolicyVersion","monthlyCostSnapshot","standardWorkDaysSnapshot","dailyCostSnapshot","costCurrency"))line.put(sensitive,null);
                 headcount++;continue;
@@ -1004,7 +1007,7 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
     }
 
     @SuppressWarnings("unchecked")
-    private void normalizeAllocationPlan(Map<String,Object> line, BigDecimal currentPercent, Date effectiveDate)
+    private void normalizeAllocationPlan(Map<String,Object> line, BigDecimal currentPercent, Date effectiveDate, Date periodEnd)
     {
         effectiveDate = allocationEffectiveDate(effectiveDate);
         Long staffUserId = longValue(line.get("userId"));
@@ -1014,6 +1017,11 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         {
             try { rawPlan = objectMapper.readValue(text(line.get("allocationPlanJson")), Map.class); }
             catch (Exception ex) { throw new ServiceException("人员跨项目投入计划格式不正确"); }
+        }
+        if (rawPlan instanceof Map && ((Map<?,?>)rawPlan).get("segments") instanceof List)
+        {
+            normalizeAllocationSegments(line, (Map<String,Object>)rawPlan, currentPercent, effectiveDate, periodEnd, current);
+            return;
         }
         if (current.isEmpty())
         {
@@ -1284,18 +1292,124 @@ public class BusinessProjectProposalServiceImpl implements IBusinessProjectPropo
         result.put("projects", projects); result.put("totalPercent", total);
         result.put("periodProjects", periodProjects);
         result.put("versionToken", allocationPreviewToken(projects));
+        result.put("segments", allocationSegments(staffUserId, periodStart, periodEnd, projects, periodProjects));
         return result;
     }
 
+    /** Split a proposal at existing participation and allocation boundaries, never overwrite later plans. */
+    private List<Map<String,Object>> allocationSegments(Long userId, Date start, Date end,
+        List<Map<String,Object>> firstProjects, List<Map<String,Object>> periodProjects)
+    {
+        java.time.LocalDate from = java.time.LocalDate.parse(DateUtils.parseDateToStr("yyyy-MM-dd", start));
+        java.time.LocalDate to = end == null ? null : java.time.LocalDate.parse(DateUtils.parseDateToStr("yyyy-MM-dd", end));
+        if (to != null && (to.isBefore(from) || java.time.temporal.ChronoUnit.DAYS.between(from,to)>3660))
+            throw new ServiceException("投入计划跨度最多10年，请分段设置");
+        SortedSet<java.time.LocalDate> boundaries = new TreeSet<>(); boundaries.add(from);
+        Set<Long> mutable = new HashSet<>();
+        for (Map<String,Object> project : firstProjects) mutable.add(longValue(project.get("projectId")));
+        for (Map<String,Object> project : periodProjects)
+        {
+            if (Arrays.asList("CLOSED","CANCELED","COMPLETED").contains(text(project.get("projectStatus")))
+                || "CLOSED".equals(text(project.get("accountingState")))) continue;
+            mutable.add(longValue(project.get("projectId")));
+            for (String key : Arrays.asList("projectStartDate","joinedDate","projectEndDate","leftDate"))
+                allocationBoundary(boundaries,project.get(key),key.endsWith("EndDate")||"leftDate".equals(key),from,to);
+        }
+        for (Map<String,Object> period : mapper.selectStaffAllocationTimeline(userId))
+            if (mutable.contains(longValue(period.get("projectId"))))
+                for (String key : Arrays.asList("effectiveFrom","effectiveTo"))
+                    allocationBoundary(boundaries,period.get(key),"effectiveTo".equals(key),from,to);
+        if (boundaries.size()>20) throw new ServiceException("人员周期内投入变化超过20段，请缩小参与期间");
+        List<java.time.LocalDate> dates = new ArrayList<>(boundaries);
+        List<Map<String,Object>> result = new ArrayList<>();
+        for (int i=0;i<dates.size();i++)
+        {
+            java.time.LocalDate date = dates.get(i), last = i+1<dates.size()?dates.get(i+1).minusDays(1):to;
+            List<Map<String,Object>> projects = i==0?firstProjects:allocationPreviewRows(userId,java.sql.Date.valueOf(date));
+            Map<String,Object> segment = new LinkedHashMap<>();
+            segment.put("dateFrom",date.toString()); segment.put("dateTo",last==null?null:last.toString());
+            segment.put("versionToken",allocationPreviewToken(projects)); segment.put("allocations",projects);
+            result.add(segment);
+        }
+        return result;
+    }
+
+    private void allocationBoundary(Set<java.time.LocalDate> dates,Object raw,boolean after,
+        java.time.LocalDate from,java.time.LocalDate to)
+    {
+        Date parsed=DateUtils.parseDate(raw);if(parsed==null)return;
+        java.time.LocalDate d=java.time.LocalDate.parse(DateUtils.parseDateToStr("yyyy-MM-dd",parsed));
+        if(after)d=d.plusDays(1);
+        if(d.isAfter(from)&&(to==null||!d.isAfter(to)))dates.add(d);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void normalizeAllocationSegments(Map<String,Object> line,Map<String,Object> plan,BigDecimal firstPercent,
+        Date start,Date end,List<Map<String,Object>> firstProjects)
+    {
+        Long user=longValue(line.get("userId"));
+        List<Map<String,Object>> periodProjects=mapper.selectStaffAllocationPeriodProjects(user,start,end);
+        List<Map<String,Object>> expected=allocationSegments(user,start,end,firstProjects,periodProjects);
+        List<?> submitted=(List<?>)plan.get("segments");
+        if(submitted.size()!=expected.size())throw new ServiceException("人员参与的项目已变化，请重新加载跨项目投入分配");
+        List<Map<String,Object>> safeSegments=new ArrayList<>();
+        boolean hasOtherProjects=false;
+        for(int i=0;i<expected.size();i++)
+        {
+            if(!(submitted.get(i) instanceof Map))throw new ServiceException("投入时间段格式不正确");
+            Map<String,Object> input=(Map<String,Object>)submitted.get(i), current=expected.get(i);
+            if(!Objects.equals(current.get("dateFrom"),input.get("dateFrom"))||!Objects.equals(current.get("dateTo"),input.get("dateTo")))
+                throw new ServiceException("投入时间段已变化，请重新加载跨项目投入分配");
+            if(!Objects.equals(current.get("versionToken"),input.get("versionToken")))
+                throw new ServiceException("人员的其他项目投入已变化，请重新加载后调整");
+            BigDecimal own=allocationSegmentPercent(input.get("inputQuantity"));
+            if(i==0&&own.compareTo(firstPercent)!=0)throw new ServiceException("首段投入比例与人员投入比例不一致");
+            Map<Long,BigDecimal> values=new LinkedHashMap<>();
+            if(!(input.get("allocations") instanceof List))throw new ServiceException("请填写各时间段全部项目投入比例");
+            for(Object raw:(List<?>)input.get("allocations"))
+            {
+                if(!(raw instanceof Map))throw new ServiceException("跨项目投入比例格式不正确");
+                Map<String,Object> row=(Map<String,Object>)raw;Long id=longValue(row.get("projectId"));
+                if(id==null||values.put(id,allocationSegmentPercent(row.get("allocationValue")))!=null)
+                    throw new ServiceException("跨项目投入比例不能重复");
+            }
+            List<Map<String,Object>> projects=(List<Map<String,Object>>)current.get("allocations");
+            Set<Long> required=new HashSet<>();for(Map<String,Object> row:projects)required.add(longValue(row.get("projectId")));
+            if(!required.equals(values.keySet()))throw new ServiceException("人员参与的项目已变化，请重新加载跨项目投入分配");
+            BigDecimal total=own;for(BigDecimal value:values.values())total=total.add(value);
+            if(total.compareTo(new BigDecimal("100"))!=0)
+                throw new ServiceException(current.get("dateFrom")+" 起全部项目投入比例合计必须等于100%，当前为"+total.stripTrailingZeros().toPlainString()+"%");
+            List<Map<String,Object>> allocations=new ArrayList<>();
+            for(Map<String,Object> row:projects){Map<String,Object> safe=new LinkedHashMap<>(row);
+                safe.put("originalValue",row.get("allocationValue"));safe.put("allocationValue",values.get(longValue(row.get("projectId"))));allocations.add(safe);}
+            Map<String,Object> segment=new LinkedHashMap<>(current);segment.put("inputQuantity",own);segment.put("allocations",allocations);
+            safeSegments.add(segment);hasOtherProjects|=!projects.isEmpty();
+        }
+        String reason=text(plan.get("reason"));
+        if(hasOtherProjects&&(StringUtils.isBlank(reason)||reason.length()>500))throw new ServiceException("请填写500字内的跨项目投入调整原因");
+        if(!hasOtherProjects){line.put("allocationPlan",null);line.put("allocationPlanJson",null);return;}
+        Map<String,Object> safe=new LinkedHashMap<>();safe.put("effectiveDate",DateUtils.parseDateToStr("yyyy-MM-dd",start));
+        safe.put("reason",reason);safe.put("segments",safeSegments);
+        try{line.put("allocationPlanJson",objectMapper.writeValueAsString(safe));}catch(Exception ex){throw new ServiceException("人员跨项目投入计划无法保存");}
+        line.put("allocationPlan",safe);
+    }
+
+    private BigDecimal allocationSegmentPercent(Object raw)
+    {
+        BigDecimal value;
+        try{value=new BigDecimal(String.valueOf(raw));}catch(Exception ex){throw new ServiceException("投入比例必须是有效数字");}
+        if(value.signum()<0||value.compareTo(new BigDecimal("100"))>0||value.stripTrailingZeros().scale()>2)
+            throw new ServiceException("投入比例必须在0%至100%之间，最多两位小数");
+        return value;
+    }
+
     /**
-     * A proposal may be entered after its planned start date. Allocation changes must not be
-     * previewed in the past, otherwise projects that started between the planned date and today
-     * disappear from the workspace even though the employee is currently assigned to them.
+     * Initial allocations use the actual participation date. Current and historical project
+     * participation are displayed separately; entering a project later does not change this date.
      */
     private Date allocationEffectiveDate(Date requestedDate)
     {
-        Date today = DateUtils.parseDate(DateUtils.getDate());
-        return requestedDate.before(today) ? today : requestedDate;
+        return requestedDate;
     }
 
     private List<Map<String,Object>> allocationPreviewRows(Long staffUserId, Date effectiveDate)

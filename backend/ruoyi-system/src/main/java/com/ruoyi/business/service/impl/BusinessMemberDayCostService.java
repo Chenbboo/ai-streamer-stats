@@ -48,39 +48,43 @@ public class BusinessMemberDayCostService {
             ||BusinessMemberDayLeaveCost.hasBase(row,json);
     }
     /** Correct known open-project pricing using the frozen salary, weight and calendar. */
-    private Map<String,Object> hrDailySnapshot(Map<String,Object> original){
-        Map<String,Object> row=new LinkedHashMap<>(original);
+    private Map<String,Object> monthBillingSnapshot(Map<String,Object> original,Map<String,Object> current){
+        Map<String,Object> row=new LinkedHashMap<>(original);boolean fullMonth=fullMonthBilling(current==null?original:current);
         String raw=String.valueOf(row.get("basisJson"));
-        if(!raw.contains(BusinessPersonnelCost.MONTHLY_RULE)&&!raw.contains("PROJECT_MONTH_SHARE_DAY_V3")&&!raw.contains("HR_STANDARD_DAY_V1")&&!raw.contains("STANDARD_21_75_DAY_V1")&&!raw.contains(BusinessHrDailyCost.RULE))return row;
+        if(!raw.contains(BusinessPersonnelCost.MONTHLY_RULE)&&!raw.contains("PROJECT_MONTH_SHARE_DAY_V3")&&!raw.contains("HR_STANDARD_DAY_V1")&&!raw.contains("STANDARD_21_75_DAY_V1")&&!raw.contains(BusinessHrDailyCost.RULE)&&!raw.contains("REGION_STANDARD_PROJECT_DAY_V4")&&!raw.contains(BusinessPersonnelCost.PROJECT_MONTHLY_RULE))return row;
         try {
             Map<String,Object> basis=json.readerFor(new TypeReference<Map<String,Object>>(){}).
                 with(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS).readValue(raw);
-            if(!Arrays.asList(BusinessPersonnelCost.MONTHLY_RULE,"PROJECT_MONTH_SHARE_DAY_V3","HR_STANDARD_DAY_V1","STANDARD_21_75_DAY_V1",BusinessHrDailyCost.RULE).contains(basis.get("monthlyCostRule"))||!"MONTHLY".equals(basis.get("costMode")))return row;
+            if(!Arrays.asList(BusinessPersonnelCost.MONTHLY_RULE,"PROJECT_MONTH_SHARE_DAY_V3","HR_STANDARD_DAY_V1","STANDARD_21_75_DAY_V1",BusinessHrDailyCost.RULE,"REGION_STANDARD_PROJECT_DAY_V4",BusinessPersonnelCost.PROJECT_MONTHLY_RULE).contains(basis.get("monthlyCostRule"))||!"MONTHLY".equals(basis.get("costMode")))return row;
+            if(BusinessPersonnelCost.PROJECT_MONTHLY_RULE.equals(basis.get("monthlyCostRule"))&&Objects.equals(fullMonth,basis.get("fullMonthBilling")))return row;
             Object oldDays=basis.get("previousStandardWorkDays")==null?basis.get("standardWorkDays"):basis.get("previousStandardWorkDays");
             BigDecimal days=BusinessHrDailyCost.standardWorkDays(basis.get("countryRegion"),oldDays);
             LocalDate date=day(row.get("bizDate"));
             Map<String,Object> calendar=historicalCalendar(basis,date);
             Map<String,Object> rate=new LinkedHashMap<>();rate.put("costMode","MONTHLY");rate.put("unitCost",basis.get("monthlyCost"));
             rate.put("countryRegion",basis.get("countryRegion"));rate.put("standardWorkDays",days);
+            if(fullMonth&&current!=null&&basis.get("billingWorkDates")==null){Map<String,Object> context=json.readValue(String.valueOf(current.get("basisJson")),Map.class);if(context.get("billingWorkDates") instanceof List)basis.put("billingWorkDates",context.get("billingWorkDates"));}
             BusinessPersonnelCost pricing=new BusinessPersonnelCost();
-            BigDecimal salary=pricing.amount(rate,calendar,date,new BigDecimal("100"));
-            BigDecimal base=pricing.projectAmount(rate,calendar,date,new BigDecimal(String.valueOf(basis.get("allocationPercent"))),basis.get("costShareFrom")==null?null:new BigDecimal(String.valueOf(basis.get("costShareFrom"))));
+            if(fullMonth&&basis.get("billingWorkDates") instanceof List){List<LocalDate> dates=new ArrayList<>();for(Object d:(List<?>)basis.get("billingWorkDates"))dates.add(day(d));pricing.useMonthDays(calendar,date,dates);}
+            BigDecimal salary=pricing.amount(rate,calendar,date,new BigDecimal("100"),fullMonth);
+            BigDecimal base=pricing.projectAmount(rate,calendar,date,new BigDecimal(String.valueOf(basis.get("allocationPercent"))),basis.get("costShareFrom")==null?null:new BigDecimal(String.valueOf(basis.get("costShareFrom"))),fullMonth);
             basis.put("previousMonthlyCostRule",basis.get("monthlyCostRule"));
             basis.put("previousStandardWorkDays",basis.get("standardWorkDays"));
             basis.put("standardWorkDays",days);
             basis.put("previousAmount",row.get("amount"));basis.put("previousFullDailyCost",basis.get("fullDailyCost"));
             basis.put("monthlyCostRule",BusinessPersonnelCost.PROJECT_MONTHLY_RULE);basis.put("formula",BusinessPersonnelCost.PROJECT_FORMULA);
+            basis.put("fullMonthBilling",fullMonth);basis.put("billingMode",fullMonth?"FULL_MONTH":"REGIONAL_DAYS");
             basis.put("monthWorkingDays",pricing.monthWorkingDays(calendar,date));basis.put("calendarSnapshot",new LinkedHashMap<>(calendar));
             basis.put("standardDailyCost",BusinessHrDailyCost.dailyRate("MONTHLY",basis.get("monthlyCost"),days,basis.get("countryRegion")));
             basis.put("fullDailyCost",salary);basis.put("dailyCost",base);
             if(basis.get("attendanceBaseAmount")!=null)basis.put("attendanceBaseAmount",base);
-            // Leave is reapplied below against the corrected base; payroll-month redistribution no longer prices this day.
+            // Leave is reapplied below against the corrected base, with the frozen salary and allocation retained.
             for(String obsolete:Arrays.asList("fullMonthlyCost","frozenMonthlyCost","allocationWorkingDays"))basis.remove(obsolete);
             row.put("amount",base);row.put("pricingStatus","PRICED");row.put("issue",null);basis.put("issue",null);
             row.put("basisJson",json.writeValueAsString(basis));row.put("calculationDetail",row.get("basisJson"));
             return row;
         }catch(ServiceException invalid){throw invalid;}
-        catch(Exception invalid){throw new ServiceException("历史人员成本依据不完整，无法按地区标准日成本更正");}
+        catch(Exception invalid){throw new ServiceException("历史人员成本依据不完整，无法按整月和地区日成本更正");}
     }
     @SuppressWarnings("unchecked")
     private Map<String,Object> historicalCalendar(Map<String,Object> basis,LocalDate date){
@@ -104,7 +108,7 @@ public class BusinessMemberDayCostService {
         for(Map<String,Object> row:mapper.selectCosts(projectId)){
             LocalDate d=day(row.get("bizDate"));
             if(!d.isBefore(from)&&!d.isAfter(to)&&preserveCost(row))
-                merged.put(row.get("userId")+":"+d,hrDailySnapshot(row));
+                merged.put(row.get("userId")+":"+d,monthBillingSnapshot(row,merged.get(row.get("userId")+":"+d)));
         }
         List<Map<String,Object>> result=applyMemberWorkPauses(projectId,new ArrayList<>(merged.values()));
         result.sort(Comparator.comparing(r->day(r.get("bizDate"))));return result;
@@ -132,7 +136,8 @@ public class BusinessMemberDayCostService {
         Map<String,List<Map<String,Object>>> old=group(stored),next=group(desired);
         for(Map<String,Object> row:stored)if(preserveCost(row)){
             String key=day(row.get("bizDate")).toString();List<Map<String,Object>> rows=next.computeIfAbsent(key,k->new ArrayList<>());
-            rows.removeIf(r->Objects.equals(id(r.get("userId")),id(row.get("userId"))));rows.add(hrDailySnapshot(row));
+            Map<String,Object> current=rows.stream().filter(r->Objects.equals(id(r.get("userId")),id(row.get("userId")))).findFirst().orElse(null);
+            rows.removeIf(r->Objects.equals(id(r.get("userId")),id(row.get("userId"))));rows.add(monthBillingSnapshot(row,current));
         }
         List<Map<String,Object>> merged=new ArrayList<>();for(List<Map<String,Object>> rows:next.values())merged.addAll(rows);
         next=group(applyLeave(projectId,applyMemberWorkPauses(projectId,merged)));
@@ -162,6 +167,15 @@ public class BusinessMemberDayCostService {
         return applyLeave(p.getProjectId(),calculateBase(p,from,to));
     }
     private List<Map<String,Object>> calculateBase(BusinessProject p,LocalDate from,LocalDate to){
+        return calculateBase(p,from,to,null,null);
+    }
+    /** Read-only simulation of a bounded historical allocation, using the same actual-cost rules. */
+    public List<Map<String,Object>> previewHistoricalAllocation(BusinessProject p,LocalDate from,LocalDate to,
+        Long userId,List<Map<String,Object>> timeline){
+        return applyLeave(p.getProjectId(),calculateBase(p,from,to,userId,timeline));
+    }
+    private List<Map<String,Object>> calculateBase(BusinessProject p,LocalDate from,LocalDate to,
+        Long previewUser,List<Map<String,Object>> previewTimeline){
         List<Map<String,Object>> result=new ArrayList<>();
         BusinessPersonnelCost personnelPricing=new BusinessPersonnelCost();
         List<Map<String,Object>> roles=mapper.selectRolePeriods(p.getProjectId());
@@ -181,13 +195,17 @@ public class BusinessMemberDayCostService {
             List<Map<String,Object>> plans=new ArrayList<>();
             for(Map<String,Object> a:assignments)if(userId.equals(id(a.get("userId")))&&("FOLLOW_PROJECT".equals(a.get("participationMode"))||joined==null||day(a.get("effectiveTo"))==null||!day(a.get("effectiveTo")).isBefore(joined)))plans.add(a);
             List<Map<String,Object>> rates=work.selectBudgetRates(userId,from.toString(),to.toString());
-            List<Map<String,Object>> allocationTimeline=projects.selectUserAllocationTimeline(userId);
+            List<Map<String,Object>> allocationTimeline=userId.equals(previewUser)?previewTimeline:projects.selectUserAllocationTimeline(userId);
             boolean automaticWeights=allocationTimeline!=null&&!allocationTimeline.isEmpty();
             Map<String,Object> staffMetadata=mapper.selectStaffMetadata(userId,null);
             boolean fullPayroll=staffMetadata!=null&&"DIRECT_PROJECT".equals(staffMetadata.get("departmentCostSource"));
             boolean monthlyPayroll=fullPayroll||staffMetadata!=null&&"STAFF_REMAINDER".equals(staffMetadata.get("departmentCostSource"));
             BusinessFullProjectPayroll payroll=monthlyPayroll?new BusinessFullProjectPayroll(allocationTimeline==null?Collections.emptyList():allocationTimeline,calendars,fullPayrollScopes(userId,allocationTimeline),fullPayroll):null;
+            Map<YearMonth,Boolean> completeMonths=new HashMap<>();Map<YearMonth,List<LocalDate>> billingDays=new HashMap<>();
             for(LocalDate date=from;!date.isAfter(to);date=date.plusDays(1)) {
+                final LocalDate pricedDate=date;
+                boolean fullMonth=completeMonths.computeIfAbsent(YearMonth.from(date),month->actualFullMonth(p,userId,pricedDate,memberships,roles,plans,calendars,pauses,memberPauses));
+                List<LocalDate> monthDays=fullMonth?billingDays.computeIfAbsent(YearMonth.from(date),month->actualMonthDays(userId,month,memberships,roles,plans,calendars)):Collections.emptyList();
                 if(memberWorkPaused(memberPauses,userId,date))continue;
                 boolean released=false;
                 for(Map<String,Object> pause:pauses)if(!date.isBefore(day(pause.get("effectiveFrom")))&&(pause.get("effectiveTo")==null||date.isBefore(day(pause.get("effectiveTo"))))){released=true;break;}
@@ -232,8 +250,9 @@ public class BusinessMemberDayCostService {
                                 allocationPercent=new BigDecimal(String.valueOf(payrollBasis.get("allocationValue")));
                                 costShareFrom=new BigDecimal(String.valueOf(payrollBasis.get("costShareFrom")));
                             }
-                            fullDailyCost=personnelPricing.amount(rate,calendar,date,new BigDecimal("100"));
-                            amount=personnelPricing.projectAmount(rate,calendar,date,allocationPercent,costShareFrom);
+                            if(fullMonth)personnelPricing.useMonthDays(calendar,date,monthDays);
+                            fullDailyCost=personnelPricing.amount(rate,calendar,date,new BigDecimal("100"),fullMonth);
+                            amount=personnelPricing.projectAmount(rate,calendar,date,allocationPercent,costShareFrom,fullMonth);
                         }catch(ServiceException ex){issue=ex.getMessage();}}
                 }
                 String metadataKey=userId+":"+(rate==null?"":rate.get("policyId"));
@@ -247,6 +266,8 @@ public class BusinessMemberDayCostService {
                 Map<String,Object> basis=new LinkedHashMap<>();basis.put("costPolicyVersion",POLICY);basis.put("formula","工作日数 × 当日有效日成本 × 项目投入权重");basis.put("workingDays",1);basis.put("bizDate",date.toString());basis.put("userName",member.get("userName"));basis.put("calendarId",cost.get("calendarId"));basis.put("calendarVersion",calendar==null?null:calendar.get("version"));basis.put("ratePolicyId",cost.get("ratePolicyId"));basis.put("rateVersion",rate==null?null:rate.get("version"));basis.put("allocationId",allocation==null?null:allocation.get("allocationId"));basis.put("allocationVersion",allocation==null?null:allocation.get("version"));basis.put("allocationPercent",allocationPercent);basis.put("fullDailyCost",fullDailyCost);basis.put("dailyCost",amount);basis.put("currency",p.getBaseCurrency());basis.put("issue",issue);for(String field:Arrays.asList("companyName","companyDeptId","countryRegion","costMode","monthlyCost","standardWorkDays"))basis.put(field,cost.get(field));
                 if(rate!=null&&"MONTHLY".equals(rate.get("costMode"))&&calendar!=null){
                     basis.put("monthlyCostRule",BusinessPersonnelCost.PROJECT_MONTHLY_RULE);
+                    basis.put("fullMonthBilling",fullMonth);basis.put("billingMode",fullMonth?"FULL_MONTH":"REGIONAL_DAYS");
+                    if(fullMonth)basis.put("billingWorkDates",monthDays.stream().map(LocalDate::toString).collect(java.util.stream.Collectors.toList()));
                     basis.put("formula",BusinessPersonnelCost.PROJECT_FORMULA);
                     basis.put("monthWorkingDays",personnelPricing.monthWorkingDays(calendar,date));
                     basis.put("calendarSnapshot",new LinkedHashMap<>(calendar));
@@ -320,9 +341,14 @@ public class BusinessMemberDayCostService {
     }
     @Transactional
     public void synchronizeAllocationChange(Long projectId,Date effectiveDate,String operator){
+        synchronizeHistoricalAllocationChange(projectId,effectiveDate,null,operator);
+    }
+    @Transactional
+    public void synchronizeHistoricalAllocationChange(Long projectId,Date effectiveDate,Date endDate,String operator){
         BusinessProject p=projects.selectProjectByIdForUpdate(projectId);
         if(!enabled(p)||BusinessProjectLifecycle.isAccountingClosed(p))return;
         LocalDate from=day(effectiveDate),start=projectStart(p),to=LocalDate.now();
+        if(endDate!=null&&day(endDate).isBefore(to))to=day(endDate);
         if(start!=null&&start.isAfter(from))from=start;
         if(p.getActualEndDate()!=null&&day(p.getActualEndDate()).isBefore(to))to=day(p.getActualEndDate());
         if(from.isAfter(to))return;
@@ -376,6 +402,44 @@ public class BusinessMemberDayCostService {
         }
         for(Map<String,Object> r:summary.values())if(!((Set<?>)r.get("issues")).isEmpty())r.put("amount",null);
         Map<String,Object> result=new LinkedHashMap<>();result.put("rows",summary.values());result.put("totalAmount",pending==0?total:null);result.put("pendingCount",pending);result.put("currency",p.getBaseCurrency());result.put("overdue",p.getPlanEndDate()!=null&&day(p.getPlanEndDate()).isBefore(LocalDate.now())&&p.getActualEndDate()==null);result.put("dateFrom",from.toString());result.put("dateTo",to.toString());return result;
+    }
+    private boolean fullMonthBilling(Map<String,Object> row) {
+        if(row==null||row.get("basisJson")==null)return false;
+        try{return Boolean.TRUE.equals(json.readValue(String.valueOf(row.get("basisJson")),Map.class).get("fullMonthBilling"));}
+        catch(Exception invalid){return false;}
+    }
+    private List<LocalDate> actualMonthDays(Long userId,YearMonth month,List<Map<String,Object>> members,
+        List<Map<String,Object>> roles,List<Map<String,Object>> plans,List<Map<String,Object>> calendars) {
+        List<Map<String,Object>> periods=new ArrayList<>(),userRoles=new ArrayList<>();
+        for(Map<String,Object> member:members)if(userId.equals(id(member.get("userId")))
+            &&("0".equals(String.valueOf(member.get("status")))||member.get("leftDate")!=null))periods.add(member);
+        for(Map<String,Object> role:roles)if(userId.equals(id(role.get("userId"))))userRoles.add(role);
+        Map<String,Object> staff=new LinkedHashMap<>();staff.put("membershipPeriods",periods);staff.put("rolePeriods",userRoles);
+        staff.put("assignmentPeriods",plans);staff.put("calendars",calendars);List<LocalDate> result=new ArrayList<>();
+        for(Map<String,Object> bill:com.ruoyi.business.support.BusinessPlannedMemberDays.days(staff,month.atDay(1),month.atEndOfMonth()))result.add(day(bill.get("bizDate")));
+        return result;
+    }
+    /** Eligibility uses the actual participation horizon, never the requested report window. */
+    private boolean actualFullMonth(BusinessProject p,Long userId,LocalDate date,List<Map<String,Object>> members,
+        List<Map<String,Object>> roles,List<Map<String,Object>> plans,List<Map<String,Object>> calendars,
+        List<Map<String,Object>> pauses,List<Map<String,Object>> memberPauses) {
+        LocalDate end=LocalDate.now();
+        Date boundary=p.getActualEndDate()!=null?p.getActualEndDate():p.getPlanEndDate();
+        if(boundary!=null&&day(boundary).isBefore(end))end=day(boundary);
+        if(!BusinessPersonnelCost.fullMonth(date,projectStart(p),end))return false;
+        List<Map<String,Object>> periods=new ArrayList<>(),userRoles=new ArrayList<>();
+        for(Map<String,Object> member:members)if(userId.equals(id(member.get("userId")))
+            &&("0".equals(String.valueOf(member.get("status")))||member.get("leftDate")!=null))periods.add(member);
+        for(Map<String,Object> role:roles)if(userId.equals(id(role.get("userId"))))userRoles.add(role);
+        Map<String,Object> staff=new LinkedHashMap<>();staff.put("membershipPeriods",periods);staff.put("rolePeriods",userRoles);
+        staff.put("assignmentPeriods",plans);staff.put("calendars",calendars);
+        if(!com.ruoyi.business.support.BusinessPlannedMemberDays.coversFullMonth(staff,date))return false;
+        for(LocalDate d:actualMonthDays(userId,YearMonth.from(date),members,roles,plans,calendars)) {
+            if(memberWorkPaused(memberPauses,userId,d))return false;
+            for(Map<String,Object> pause:pauses)if(!d.isBefore(day(pause.get("effectiveFrom")))
+                &&(pause.get("effectiveTo")==null||d.isBefore(day(pause.get("effectiveTo")))))return false;
+        }
+        return true;
     }
     private boolean participates(Map<String,Object> assignment,LocalDate date){
         LocalDate from=day(assignment.get("effectiveFrom")),to=day(assignment.get("effectiveTo"));

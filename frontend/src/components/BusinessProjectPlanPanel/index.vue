@@ -18,15 +18,17 @@
 
           <ProposalPlanDetails data-plan-section="targetLines" section-number="02" kind="targets" :form="form" :required-plan-sections="optionalPlanSections" :target-type-label="targetTypes" :target-unit-options="targetUnits" :revenue-type-label="revenueTypes" :plan-end-date="openEnded?null:form.planEndDate" :line-date-issue="lineDateIssue" :date-type="planDateType" @add-target="addTarget" @add-revenue="addRevenue" @change-target-type="changeTargetType"/>
           <el-form-item :label="$tr(&quot;收入模式&quot;)"><el-input v-model="form.revenueModel" type="textarea" maxlength="1000" :rows="2" :placeholder="$tr(&quot;说明项目如何获得收入&quot;)"/></el-form-item>
-          <ProposalPlanDetails data-plan-section="revenueLines" section-number="03" kind="revenue" :form="form" :required-plan-sections="optionalPlanSections" :target-type-label="targetTypes" :target-unit-options="targetUnits" :revenue-type-label="revenueTypes" :plan-end-date="openEnded?null:form.planEndDate" :line-date-issue="lineDateIssue" :date-type="planDateType" @add-target="addTarget" @add-revenue="addRevenue" @change-target-type="changeTargetType"/>
+          <ProposalPlanDetails data-plan-section="revenueLines" section-number="03" kind="revenue" :form="form" currency-readonly :required-plan-sections="optionalPlanSections" :target-type-label="targetTypes" :target-unit-options="targetUnits" :revenue-type-label="revenueTypes" :plan-end-date="openEnded?null:form.planEndDate" :line-date-issue="lineDateIssue" :date-type="planDateType" @add-target="addTarget" @add-revenue="addRevenue" @change-target-type="changeTargetType"/>
 
-          <ProposalExpenseLines data-plan-section="expenseLines" section-number="04" :form="form" :description="$tr(&quot;可选择项目开始月前 6 个月；有限期项目最晚可选结束月后 6 个月&quot;)" :expense-category-label="expenseTypes" :date-type="planDateType" :plan-end-date="openEnded?null:form.planEndDate" :line-date-issue="lineDateIssue" @add-expense="addExpense"/>
+          <ProposalExpenseLines data-plan-section="expenseLines" section-number="04" :form="form" currency-readonly :description="$tr(&quot;可选择项目开始月前 6 个月；有限期项目最晚可选结束月后 6 个月&quot;)" :expense-category-label="expenseTypes" :date-type="planDateType" :plan-end-date="openEnded?null:form.planEndDate" :line-date-issue="lineDateIssue" @add-expense="addExpense"/>
 
           <section class="change-section"><h3><span>05</span>{{ $tr("预算设置") }}</h3><template v-if="form.budget"><BudgetControlFields v-model="form.budget" :validation-errors="budgetFieldErrors"/><el-alert :title="$tr(&quot;人员预算按照当前有效成员和投入比例重新计算；成员与投入比例请在“人员工作成本”页调整。&quot;)" :closable="false"/><el-form-item data-plan-field="budget.businessAmount" :error="fieldError('budget.businessAmount')" v-if="(form.budget.mode||'TOTAL')==='TOTAL'" :label="$tr(&quot;业务预算&quot;)" required><el-input-number v-model="form.budget.businessAmount" :min="0" :precision="2"/></el-form-item><template v-if="openEnded"><el-form-item data-plan-field="budget.cycle" :error="fieldError('budget.cycle')" :label="$tr(&quot;预算周期&quot;)" required><el-select v-model="form.budget.cycle" @change="normalizeBudgetAnchor"><el-option :label="$tr(&quot;周度&quot;)" value="WEEK"/><el-option :label="$tr(&quot;月度&quot;)" value="MONTH"/><el-option :label="$tr(&quot;季度&quot;)" value="QUARTER"/><el-option :label="$tr(&quot;年度&quot;)" value="YEAR"/></el-select></el-form-item><el-form-item data-plan-field="budget.anchorDate" :error="fieldError('budget.anchorDate')" :label="budgetPeriodFieldLabel" required><BudgetPeriodPicker v-model:anchor-date="form.budget.anchorDate" :cycle="form.budget.cycle" /></el-form-item></template></template><el-form-item v-else :label="tx('预算上限（可不设置）','Giới hạn ngân sách (tùy chọn)')"><el-input-number v-model="form.budgetLimit" :min="0" :precision="2"/></el-form-item></section>
 
           <section class="change-section estimate-section">
             <div class="section-head"><div><h3><span>06</span>{{ $tr("预计收支与盈利") }}</h3><p>{{ $tr("使用与立项表单相同的服务端计算规则，金额包含当前人员计划。") }}</p></div><el-button :loading="previewLoading" @click="runPreview(true)">{{ $tr("重新测算") }}</el-button></div>
             <el-alert v-if="previewError" :title="previewError" type="warning" :closable="false" show-icon />
+            <el-button v-if="previewError.includes('投入比例')" plain @click="allocationEditor?.open()">{{ $tr('调整投入') }}</el-button>
+            <el-alert v-if="budgetRetained" :title="$tr('本次未变更收支、日期或预算，沿用已批准预算；历史投入缺口可另行补齐。')" type="info" :closable="false" show-icon />
             <template v-if="previewBudget">
               <div class="finance-summary">
                 <div v-for="metric in estimateMetrics" :key="metric.key">
@@ -57,6 +59,7 @@
       <el-table-column :label="$tr(&quot;状态&quot;)" min-width="180"><template #default="{row}">{{ row.issues?.map(issue => $tr(issue)).join('；') || $tr("已完成") }}</template></el-table-column>
     </el-table></template></el-drawer>
     <EstimateSourceDialog ref="estimateSourceDialog" />
+    <BusinessAllocationSchedule v-if="project.costPolicyVersion==='MEMBER_DAYS_V1'" ref="allocationEditor" :project-id="project.projectId" :members="project.members || []" :can-manage="!!data.canRequestChange" @changed="historyChanged" />
   </section>
 </template>
 
@@ -68,6 +71,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { ArrowRight } from '@element-plus/icons-vue'
 import EstimateSourceDialog from './EstimateSourceDialog.vue'
+import BusinessAllocationSchedule from '@/components/BusinessAllocationSchedule/index.vue'
 import { getProjectPlan, previewProjectPlanChange, requestProjectPlanChange, reviewProjectPlanChange } from '@/api/business/projectWork'
 import BudgetPeriodPicker from '@/components/BudgetPeriodPicker/index.vue'
 import BudgetControlFields from '@/components/BudgetControlFields/index.vue'
@@ -80,6 +84,8 @@ const props=defineProps({project:{type:Object,required:true}}),emit=defineEmits(
 const {locale}=useI18n(),tx=(zh,vi)=>locale.value==='vi-VN'?vi:zh
 const data=ref({}),loading=ref(false),saving=ref(false),dialog=ref(false),openEnded=ref(false),form=reactive({}),snapshotOpen=ref(false),snapshot=ref({}),previewLoading=ref(false),previewBudget=ref(null),previewError=ref('');let seq=0,previewSeq=0,previewTimer
 const estimateSourceDialog=ref(),previewDirty=ref(true)
+const allocationEditor=ref(),budgetRetained=ref(false)
+async function historyChanged(){await load();if(dialog.value)schedulePreview();emit('changed')}
 const estimateMetrics=computed(()=>[
   {key:'revenueAmount',label:translateText('预计收入')},
   {key:'plannedBusinessAmount',label:translateText('业务支出')},
@@ -91,7 +97,8 @@ function showEstimateSource(key,budget){if(!previewLoading.value&&!previewDirty.
 const revenueTypes={SALES:translateText("商品销售"),SERVICE:translateText("服务费"),COMMISSION:translateText("佣金"),LIVE:translateText("直播收入"),OTHER:translateText("其他"),ADVERTISING:translateText("广告"),SUBSCRIPTION:translateText("订阅"),SAVING:translateText("成本节约")}
 const expenseTypes={PROCUREMENT:translateText("采购"),MARKETING:translateText("推广"),PLATFORM:translateText("平台服务"),TRAVEL:translateText("差旅"),OUTSOURCING:translateText("外包"),EQUIPMENT:translateText("设备"),LOGISTICS:translateText("物流"),OTHER:translateText("其他")}
 const targetTypes={FINANCIAL:translateText("财务"),QUANTITY:translateText("数量"),SCHEDULE:translateText("进度"),QUALITY:translateText("质量"),EFFICIENCY:translateText("效率"),GROWTH:translateText("增长"),CUSTOMER:translateText("客户"),COMPLIANCE:translateText("合规"),OTHER:translateText("价值 / 其他"),DELIVERY:translateText("成果验收")}
-const targetUnits=computed(()=>['个','件','条','次','人','单','份','套','台','场','天','小时','分钟',...(props.project.baseCurrency==='CNY'?['元','万元']:[props.project.baseCurrency||'CNY']),'%','分'])
+const projectCurrency=computed(()=>props.project.baseCurrency||data.value.currentPlan?.budget?.currency||props.project.budget?.currency||'CNY')
+const targetUnits=computed(()=>['个','件','条','次','人','单','份','套','台','场','天','小时','分钟',...(projectCurrency.value==='CNY'?['元','万元']:[projectCurrency.value]),'%','分'])
 const optionalPlanSections={targets:false,revenue:false}
 const changeForm=ref(null),validationMode=ref('')
 let highlightedField,highlightedPath
@@ -125,7 +132,7 @@ const status=s=>({SUBMITTED:tx('待复核','Chờ duyệt'),APPROVED:tx('已批�
 const source=s=>({OWNER_AUTHORIZED_CHANGE:tx('负责人授权变更','Người phụ trách phê duyệt'),SPONSOR_APPROVED_CHANGE:tx('归属责任人批准变更','Người quản lý phê duyệt'),SELF_AUTHORIZED:tx('负责人启动','Người phụ trách khởi tạo'),MANUAL_APPROVAL:tx('归属责任人批准','Người quản lý phê duyệt')}[s]||s)
 const clone=value=>value==null?value:JSON.parse(JSON.stringify(value))
 async function load(){const n=++seq;loading.value=true;try{const r=await getProjectPlan(props.project.projectId);if(n===seq)data.value=r.data||{}}finally{if(n===seq)loading.value=false}}
-function open(){const current=data.value.currentPlan||{};openEnded.value=!(current.planEndDate??props.project.planEndDate);const budget=clone(current.budget||props.project.budget);const cycle=budget?.cycle;Object.assign(form,{version:data.value.version,projectName:current.projectName||props.project.projectName,priority:current.priority||props.project.priority||'MEDIUM',objective:current.objective??props.project.objective,applicationReason:current.applicationReason??props.project.remark??'',acceptanceCriteria:current.acceptanceCriteria??props.project.acceptanceCriteria,planStartDate:String(current.planStartDate||props.project.planStartDate||'').slice(0,10),planEndDate:openEnded.value?null:String(current.planEndDate||props.project.planEndDate||'').slice(0,10),revenueModel:current.revenueModel||'',revenueLines:clone(current.revenueLines||[]),expenseLines:clone(current.expenseLines||[]),targetLines:clone(current.targetLines||[]),budgetLimit:props.project.budgetLimit,budget:budget?{...budget,cycle:['WEEK','MONTH','QUARTER','YEAR'].includes(cycle)?cycle:'MONTH'}:null,reason:''});previewBudget.value=budget;previewError.value='';validationMode.value='';dialog.value=true;schedulePreview()}
+function open(){const current=data.value.currentPlan||{};openEnded.value=!(current.planEndDate??props.project.planEndDate);const budget=clone(current.budget||props.project.budget);const cycle=budget?.cycle;Object.assign(form,{version:data.value.version,baseCurrency:projectCurrency.value,projectName:current.projectName||props.project.projectName,priority:current.priority||props.project.priority||'MEDIUM',objective:current.objective??props.project.objective,applicationReason:current.applicationReason??props.project.remark??'',acceptanceCriteria:current.acceptanceCriteria??props.project.acceptanceCriteria,planStartDate:String(current.planStartDate||props.project.planStartDate||'').slice(0,10),planEndDate:openEnded.value?null:String(current.planEndDate||props.project.planEndDate||'').slice(0,10),revenueModel:current.revenueModel||'',revenueLines:clone(current.revenueLines||[]),expenseLines:clone(current.expenseLines||[]),targetLines:clone(current.targetLines||[]),budgetLimit:props.project.budgetLimit,budget:budget?{...budget,cycle:['WEEK','MONTH','QUARTER','YEAR'].includes(cycle)?cycle:'MONTH'}:null,reason:''});previewBudget.value=budget;previewError.value='';validationMode.value='';dialog.value=true;schedulePreview()}
 function addRevenue(){form.revenueLines.push({scenario:'BASE',revenueType:'SALES',itemName:'',expectedAmount:0,occurrenceType:'ONE_TIME',expectedDate:null,assumptionText:''})}
 function addExpense(){form.expenseLines.push({expenseCategory:'OTHER',itemName:'',purpose:'',counterparty:'',amount:0,occurrenceType:'ONE_TIME',occurDate:null,expenseType:'ONE_TIME',hasQuotation:'0'})}
 function addTarget(){const delivery=['VALUE','HYBRID'].includes(props.project.accountingMode);form.targetLines.push({targetType:delivery?'DELIVERY':'QUANTITY',targetName:'',targetValue:delivery?1:0,unit:delivery?'项':'',dueDate:null,acceptanceEvidence:''})}
@@ -142,6 +149,7 @@ function handleOpenEndedChange(value){if(value){form.planEndDate=null;if(form.bu
 function payload(){return{version:form.version,projectName:form.projectName,priority:form.priority,objective:form.objective,applicationReason:form.applicationReason,acceptanceCriteria:form.acceptanceCriteria,planStartDate:form.planStartDate,planEndDate:openEnded.value?null:form.planEndDate,revenueModel:form.revenueModel,revenueLines:clone(form.revenueLines||[]),expenseLines:clone(form.expenseLines||[]),targetLines:clone(form.targetLines||[]),budgetLimit:form.budgetLimit,budget:clone(form.budget),reason:form.reason}}
 function schedulePreview(){clearTimeout(previewTimer);if(!dialog.value)return;previewDirty.value=true;previewSeq++;previewTimer=setTimeout(()=>runPreview(),450)}
 async function runPreview(manual=false){
+  budgetRetained.value=false
   const n=++previewSeq,issues=missingFields(false)
   if(issues.length){
     previewLoading.value=false;previewBudget.value=null
@@ -150,7 +158,7 @@ async function runPreview(manual=false){
     return
   }
   previewLoading.value=true;previewError.value=''
-  try{const r=await previewProjectPlanChange(props.project.projectId,payload());if(n===previewSeq){previewBudget.value=r.data?.budget||null;previewDirty.value=false}}
+  try{const r=await previewProjectPlanChange(props.project.projectId,payload());if(n===previewSeq){previewBudget.value=r.data?.budget||null;budgetRetained.value=!!r.data?.budgetRetained;previewDirty.value=false}}
   catch(error){if(n===previewSeq){previewBudget.value=null;previewError.value=error?.msg||error?.message||translateText("测算失败，请核对计划内容")}}
   finally{if(n===previewSeq)previewLoading.value=false}
 }
@@ -164,7 +172,7 @@ async function save(){
 }
 async function review(row,decision){try{const {value}=await ElMessageBox.prompt(tx('请填写复核依据','Nhập căn cứ duyệt'),tx('复核计划变更','Duyệt thay đổi'),{inputType:'textarea',inputValidator:v=>!!v?.trim()||tx('请填写原因','Nhập lý do')});await reviewProjectPlanChange(row.changeId,{version:row.version,decision,reason:value.trim()});await load();emit('changed')}catch(e){if(!['cancel','close'].includes(e))await load()}}
 function view(row){try{const value=row.displaySnapshot??row.snapshotJson;snapshot.value=typeof value==='string'?JSON.parse(value):value||{};snapshotOpen.value=true}catch{ElMessage.error(tx('无法读取计划快照','Không thể đọc bản chụp'))}}
-function money(value){return value==null?translateText("待完善"):`${Number(value).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} ${props.project.baseCurrency||'CNY'}`}
+function money(value){return value==null?translateText("待完善"):`${Number(value).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} ${projectCurrency.value}`}
 watch(dialog,value=>{if(!value){clearTimeout(previewTimer);previewSeq++;previewLoading.value=false;estimateSourceDialog.value?.close()}})
 onBeforeUnmount(()=>{clearTimeout(previewTimer);seq++;previewSeq++;estimateSourceDialog.value?.close()})
 watch(visibleMissingFields,issues=>{if(!issues.some(issue=>issue.path===highlightedPath))highlightedField?.classList.remove('plan-missing-field')})

@@ -17,6 +17,44 @@ import com.ruoyi.business.service.IBusinessAccountingService;
 import com.ruoyi.common.exception.ServiceException;
 
 class BusinessMemberDayCostServiceTest {
+    @Test void pauseOnNonWorkingDatesDoesNotTurnACompleteMonthIntoLooseDays(){
+        project.setActualStartDate(Date.valueOf("2026-09-01"));project.setActualEndDate(Date.valueOf("2026-09-30"));member.put("joinedDate","2026-09-01");rate.put("unitCost",7500);
+        when(projects.selectMemberWorkPauses(1L)).thenReturn(Collections.singletonList(row("userId",7L,"effectiveFrom","2026-09-05","effectiveTo","2026-09-07")));
+        assertEquals(new BigDecimal("7500.00"),sum(service.calculateCurrent(project,LocalDate.parse("2026-09-01"),LocalDate.parse("2026-09-30"))));
+    }
+    @Test void completeMonthUsesDatedCalendarChangesAndPreservesTheirFrozenPricing() throws Exception {
+        project.setActualStartDate(Date.valueOf("2026-09-01"));project.setActualEndDate(Date.valueOf("2026-09-30"));member.put("joinedDate","2026-09-01");rate.put("unitCost",7500);
+        calendar.put("effectiveTo","2026-09-13");Map<String,Object> next=new HashMap<>(calendar);next.put("calendarId",2L);next.put("effectiveFrom","2026-09-14");next.remove("effectiveTo");next.put("workingWeekdays","1,2,3,4,5,6");
+        when(work.selectCalendars()).thenReturn(Arrays.asList(calendar,next));
+        List<Map<String,Object>> rows=service.calculateCurrent(project,LocalDate.parse("2026-09-01"),LocalDate.parse("2026-09-30"));assertEquals(new BigDecimal("7500.00"),sum(rows));
+        List<Map<String,Object>> saved=new ArrayList<>();ObjectMapper json=new ObjectMapper();
+        for(Map<String,Object> row:rows){Map<String,Object> snapshot=new LinkedHashMap<>(row);Map<String,Object> basis=json.readValue(row.get("basisJson").toString(),Map.class);
+            basis.put("monthlyCostRule","REGION_STANDARD_PROJECT_DAY_V4");basis.remove("billingWorkDates");basis.remove("fullMonthBilling");snapshot.put("basisJson",json.writeValueAsString(basis));snapshot.put("amount",new BigDecimal("344.83"));saved.add(snapshot);}
+        when(costs.selectCosts(1L)).thenReturn(saved);rate.put("unitCost",99999);
+        List<Map<String,Object>> corrected=service.calculate(project,LocalDate.parse("2026-09-01"),LocalDate.parse("2026-09-30"));assertEquals(new BigDecimal("7500.00"),sum(corrected));
+        assertTrue(corrected.stream().allMatch(r->r.get("basisJson").toString().contains("billingWorkDates")));
+    }
+    @Test void completedActualMonthPlusLooseDaysUsesMonthlySalaryAndIndependentReportWindows(){
+        project.setActualStartDate(Date.valueOf("2026-09-01"));project.setActualEndDate(Date.valueOf("2026-10-09"));member.put("joinedDate","2026-09-01");rate.put("unitCost",7500);
+        List<Map<String,Object>> rows=service.calculateCurrent(project,LocalDate.parse("2026-09-01"),LocalDate.parse("2026-10-09"));
+        assertEquals(new BigDecimal("9913.81"),sum(rows));
+        assertEquals(new BigDecimal("7500.00"),sum(rows.stream().filter(r->r.get("bizDate").toString().startsWith("2026-09")).collect(java.util.stream.Collectors.toList())));
+        Map<String,Object> september=service.calculateCurrent(project,LocalDate.parse("2026-09-01"),LocalDate.parse("2026-09-01")).get(0);
+        assertEquals(rows.get(0).get("amount"),september.get("amount"));assertTrue(september.get("basisJson").toString().contains("\"fullMonthBilling\":true"));
+        assertEquals(new BigDecimal("344.83"),service.calculateCurrent(project,LocalDate.parse("2026-10-09"),LocalDate.parse("2026-10-09")).get(0).get("amount"));
+    }
+    @Test void completedMonthMigrationRetainsFrozenSalaryAndUpdatesLedgerOnlyOnce() throws Exception {
+        project.setActualStartDate(Date.valueOf("2026-09-01"));project.setActualEndDate(Date.valueOf("2026-09-30"));member.put("joinedDate","2026-09-01");rate.put("unitCost",99999);
+        List<Map<String,Object>> original=new ArrayList<>();
+        for(LocalDate day=LocalDate.parse("2026-09-01");!day.isAfter(LocalDate.parse("2026-09-30"));day=day.plusDays(1))if(day.getDayOfWeek().getValue()<=5){
+            Map<String,Object> cost=oldMonthlySnapshot(day.toString(),"7500","100","344.83");original.add(cost);
+        }
+        when(costs.selectCosts(1L)).thenReturn(original);List<Map<String,Object>> corrected=service.calculate(project,LocalDate.parse("2026-09-01"),LocalDate.parse("2026-09-30"));
+        assertEquals(new BigDecimal("7500.00"),sum(corrected));
+        Map<?,?> basis=new ObjectMapper().readValue(corrected.get(0).get("basisJson").toString(),Map.class);assertEquals(7500.0,((Number)basis.get("monthlyCost")).doubleValue());
+        when(costs.selectCosts(1L)).thenReturn(original,corrected);service.synchronize(1L);service.synchronize(1L);
+        verify(costs,times(22)).insertCost(anyMap());verify(accounting,times(22)).recalculatePersonnelCost(anyLong(),any(),anyString());
+    }
     BusinessMemberDayCostService service=new BusinessMemberDayCostService();{org.springframework.test.util.ReflectionTestUtils.setField(service,"companyAccess",com.ruoyi.business.CompanyAccessTestSupport.sponsorFixture());}
     BusinessProjectMapper projects=mock(BusinessProjectMapper.class);
     BusinessProjectWorkMapper work=mock(BusinessProjectWorkMapper.class);
@@ -59,6 +97,16 @@ class BusinessMemberDayCostServiceTest {
             rows.stream().map(r->r.get("bizDate")).collect(java.util.stream.Collectors.toList()));
         assertTrue(rows.stream().allMatch(r->"PRICED".equals(r.get("pricingStatus"))));
     }
+    @Test void historyPreviewUsesProposedWeightsWithoutChangingStoredRows(){
+        List<Map<String,Object>> timeline=Arrays.asList(row("projectId",1L,"allocationId",-1L,"allocationValue",50,"effectiveFrom","2026-09-01","effectiveTo","2026-09-01","confirmationStatus","CONFIRMED"));
+        List<Map<String,Object>> result=service.previewHistoricalAllocation(project,LocalDate.parse("2026-09-01"),LocalDate.parse("2026-09-01"),7L,timeline);
+        assertEquals(1,result.size());assertEquals("PRICED",result.get(0).get("pricingStatus"));assertEquals(new BigDecimal("500.00"),result.get(0).get("amount"));
+        verify(costs,never()).deleteDay(anyLong(),anyString());verify(costs,never()).insertCost(anyMap());verifyNoInteractions(accounting);
+    }
+    @Test void boundedHistoryRepricingDoesNotDeleteOrAccountOutsideSelectedInterval(){
+        service.synchronizeHistoricalAllocationChange(1L,Date.valueOf("2026-09-01"),Date.valueOf("2026-09-01"),"owner");
+        verify(costs).deleteDay(1L,"2026-09-01");verify(costs,times(1)).deleteDay(anyLong(),anyString());verify(accounting).recalculatePersonnelCost(1L,Date.valueOf("2026-09-01"),"owner");verify(accounting,times(1)).recalculatePersonnelCost(anyLong(),any(),anyString());
+    }
     void directPayrollFixture(){
         project.setActualStartDate(Date.valueOf("2026-09-23"));member.put("joinedDate","2026-09-23");rate.put("unitCost",11250);
         when(costs.selectStaffMetadata(eq(7L),any())).thenReturn(row("departmentCostSource","DIRECT_PROJECT"));
@@ -72,7 +120,7 @@ class BusinessMemberDayCostServiceTest {
         assertEquals(6,month.size());assertTrue(month.stream().allMatch(r->"PRICED".equals(r.get("pricingStatus"))));
         assertEquals(new BigDecimal("3103.44"),month.stream().map(r->(BigDecimal)r.get("amount")).reduce(BigDecimal.ZERO,BigDecimal::add));
         Map<String,Object> day=service.calculateCurrent(project,LocalDate.parse("2026-09-29"),LocalDate.parse("2026-09-29")).get(0);
-        assertEquals(new BigDecimal("517.24"),day.get("amount"));assertTrue(day.get("basisJson").toString().contains("REGION_STANDARD_PROJECT_DAY_V4"));
+        assertEquals(new BigDecimal("517.24"),day.get("amount"));assertTrue(day.get("basisJson").toString().contains("NATURAL_MONTH_AND_REGIONAL_DAYS_V5"));
     }
     @Test void preservedDeletedProjectCostsKeepTheirNameAndAmountInMonthlyDetails(){
         directPayrollFixture();
@@ -127,14 +175,14 @@ class BusinessMemberDayCostServiceTest {
     List<Map<String,Object>> week(){return service.calculate(project,LocalDate.parse("2026-08-31"),LocalDate.parse("2026-09-06"));}
     @Test void fiveWeekdaysWithoutAnyWorkReportOrPercentage(){
         assertEquals(5,week().size());assertEquals(new BigDecimal("1011.49"),week().get(0).get("amount"));
-        assertTrue(week().subList(1,5).stream().allMatch(c->new BigDecimal("1011.49").equals(c.get("amount"))));
+        assertTrue(week().subList(1,5).stream().allMatch(c->new BigDecimal("1000.00").equals(c.get("amount"))));
         verify(work,never()).selectWorkCosts(anyLong(),any());
     }
     @Test void holidayAndMakeupDayCountWholeDayEvenWhenCalendarHoursVary(){
         calendar.put("exceptionsJson","[{\"bizDate\":\"2026-09-01\",\"minutes\":0},{\"bizDate\":\"2026-09-05\",\"minutes\":240}]");
         List<Map<String,Object>> rows=week();assertEquals(5,rows.size());
         assertFalse(rows.stream().anyMatch(c->"2026-09-01".equals(c.get("bizDate"))));
-        assertEquals(new BigDecimal("1011.49"),rows.get(4).get("amount"));
+        assertEquals(new BigDecimal("1000.00"),rows.get(4).get("amount"));
     }
     @Test void joinLeaveAndParticipationDatesIntersectAndIgnoreStoredPercent(){
         member.put("joinedDate","2026-09-01");member.put("leftDate","2026-09-03");member.put("status","1");
@@ -148,7 +196,7 @@ class BusinessMemberDayCostServiceTest {
     @Test void effectiveRateChangesDaily(){
         rate.put("effectiveTo","2026-09-02");Map<String,Object> next=new HashMap<>(rate);next.put("effectiveFrom","2026-09-03");next.remove("effectiveTo");next.put("unitCost",44000);
         when(work.selectBudgetRates(eq(7L),anyString(),anyString())).thenReturn(Arrays.asList(rate,next));
-        assertEquals(new BigDecimal("1011.49"),week().get(2).get("amount"));assertEquals(new BigDecimal("2022.99"),week().get(3).get("amount"));
+        assertEquals(new BigDecimal("1000.00"),week().get(2).get("amount"));assertEquals(new BigDecimal("2000.00"),week().get(3).get("amount"));
     }
     @Test void monthlyCostsUseSequentialEqualRedistributionAcrossProjectEndings(){
         rate.put("unitCost",3300);member.put("joinedDate","2026-09-14");
@@ -182,7 +230,7 @@ class BusinessMemberDayCostServiceTest {
         List<Map<String,Object>> rows=week();
         assertEquals(5,rows.size());
         assertEquals(new BigDecimal("404.60"),rows.get(0).get("amount"));
-        assertTrue(rows.subList(1,5).stream().allMatch(c->new BigDecimal("404.60").equals(c.get("amount"))));
+        assertTrue(rows.subList(1,5).stream().allMatch(c->new BigDecimal("400.00").equals(c.get("amount"))));
         assertTrue(rows.stream().allMatch(c->String.valueOf(c.get("basisJson")).contains("\"allocationPercent\":40")));
     }
     @Test void missingEffectiveProjectWeightStaysPending(){
@@ -192,7 +240,7 @@ class BusinessMemberDayCostServiceTest {
         assertNull(rows.get(0).get("amount"));
         assertEquals("PENDING",rows.get(0).get("pricingStatus"));
         assertEquals("缺少该日期有效的项目投入权重",rows.get(0).get("issue"));
-        assertEquals(new BigDecimal("404.60"),rows.get(3).get("amount"));
+        assertEquals(new BigDecimal("400.00"),rows.get(3).get("amount"));
     }
     @Test void unconfirmedNewProjectDoesNotPretendPersonnelCostIsZero(){
         when(costs.selectAllocationPeriods(1L)).thenReturn(Collections.singletonList(
@@ -267,7 +315,7 @@ class BusinessMemberDayCostServiceTest {
             row("allocationId",31L,"userId",7L,"allocationValue",new BigDecimal("33.33"),"effectiveFrom","2026-08-31","confirmationStatus","CONFIRMED")));
         List<Map<String,Object>> rows=service.calculate(project,from,to);
         assertEquals(new BigDecimal("2696.98"),sum(rows));
-        assertTrue(String.valueOf(rows.get(0).get("basisJson")).contains("REGION_STANDARD_PROJECT_DAY_V4"));
+        assertTrue(String.valueOf(rows.get(0).get("basisJson")).contains("NATURAL_MONTH_AND_REGIONAL_DAYS_V5"));
         assertEquals(sum(rows),sum(service.calculate(project,from,LocalDate.parse("2026-10-14"))).add(sum(service.calculate(project,LocalDate.parse("2026-10-15"),to))));
     }
     @Test void midMonthRateAndWeightChangesAreProrated(){
@@ -304,7 +352,7 @@ class BusinessMemberDayCostServiceTest {
             Map<String,Object> corrected=service.calculate(project,LocalDate.parse("2026-10-09"),LocalDate.parse("2026-10-09")).get(0);
             assertEquals(new BigDecimal("CN".equals(region)?"413.79":"346.15"),corrected.get("amount"));
             Map<?,?> migrated=json.readValue(String.valueOf(corrected.get("basisJson")),Map.class);
-            assertEquals("REGION_STANDARD_PROJECT_DAY_V4",migrated.get("monthlyCostRule"));
+            assertEquals("NATURAL_MONTH_AND_REGIONAL_DAYS_V5",migrated.get("monthlyCostRule"));
             assertEquals("PROJECT_MONTH_SHARE_DAY_V3",migrated.get("previousMonthlyCostRule"));
             assertEquals(9000,((Number)migrated.get("monthlyCost")).intValue());
             assertEquals(new BigDecimal("409.09"),old.get("amount"));
@@ -319,7 +367,7 @@ class BusinessMemberDayCostServiceTest {
         Map<String,Object> corrected=service.calculate(project,LocalDate.parse("2026-10-01"),LocalDate.parse("2026-10-01")).get(0);
         assertEquals(new BigDecimal("91.03"),corrected.get("amount"));
         Map<?,?> basis=new ObjectMapper().readValue(String.valueOf(corrected.get("basisJson")),Map.class);
-        assertEquals("REGION_STANDARD_PROJECT_DAY_V4",basis.get("monthlyCostRule"));
+        assertEquals("NATURAL_MONTH_AND_REGIONAL_DAYS_V5",basis.get("monthlyCostRule"));
         assertEquals("CALENDAR_MONTH_V1",basis.get("previousMonthlyCostRule"));
         assertEquals(60.0,((Number)basis.get("allocationPercent")).doubleValue());
         assertEquals(new BigDecimal("90.00"),old.get("amount"));
@@ -378,7 +426,7 @@ class BusinessMemberDayCostServiceTest {
         assertEquals(new BigDecimal("0.00"),deducted.get(0).get("amount"));
         when(costs.selectCosts(1L)).thenReturn(deducted);
         when(costs.selectCostAttendance(1L,"2026-09-28","2026-09-28")).thenReturn(todayAttendance("CANCELED"));
-        assertEquals(new BigDecimal("91.03"),service.calculate(project,LocalDate.parse("2026-09-28"),LocalDate.parse("2026-09-28")).get(0).get("amount"));
+        assertEquals(new BigDecimal("90.00"),service.calculate(project,LocalDate.parse("2026-09-28"),LocalDate.parse("2026-09-28")).get(0).get("amount"));
     }
     private List<Map<String,Object>> todayAttendance(String leaveStatus){
         return Arrays.asList(
@@ -389,7 +437,7 @@ class BusinessMemberDayCostServiceTest {
         LocalDate today=LocalDate.parse("2026-09-28");
         rate.put("unitCost",11250);
         List<Map<String,Object>> original=service.calculate(project,today,today);
-        assertEquals(new BigDecimal("517.24"),original.get(0).get("amount"));
+        assertEquals(new BigDecimal("511.36"),original.get(0).get("amount"));
         when(costs.selectCosts(1L)).thenReturn(original);
         when(costs.selectCostAttendance(1L,"2026-09-28","2026-09-28")).thenReturn(todayAttendance("CONFIRMED"));
         rate.put("unitCost",99999);
@@ -397,7 +445,7 @@ class BusinessMemberDayCostServiceTest {
         assertEquals(new BigDecimal("0.00"),deducted.get(0).get("amount"));
         when(costs.selectCosts(1L)).thenReturn(deducted);
         when(costs.selectCostAttendance(1L,"2026-09-28","2026-09-28")).thenReturn(todayAttendance("CANCELED"));
-        assertEquals(new BigDecimal("517.24"),service.calculate(project,today,today).get(0).get("amount"));
+        assertEquals(new BigDecimal("511.36"),service.calculate(project,today,today).get(0).get("amount"));
     }
     @Test void synchronizationUpdatesDailyResultAndRepeatedSyncIsIdempotent(){
         project.setActualStartDate(Date.valueOf("2026-09-28"));project.setActualEndDate(Date.valueOf("2026-09-28"));

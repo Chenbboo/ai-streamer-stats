@@ -1,4 +1,6 @@
 package com.ruoyi.business.service.impl;
+import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.anyMap;
 
 import static org.junit.jupiter.api.Assertions.assertNull;
 
@@ -2601,6 +2603,7 @@ class BusinessProjectServiceImplTest
     void standardProjectStartsWithPlanSnapshotAndNoAutomaticTask(boolean subproject)
     {
         BusinessProjectProposal proposal=new BusinessProjectProposal();proposal.setProposalId(66L);proposal.setProjectName("基础交付项目");proposal.setTemplateVersion("LIGHT_V1");proposal.setApplicantUserId(9L);proposal.setSponsorOwnerUserId(23L);proposal.setManagementMode("LIGHT");proposal.setAcceptanceCriteria("交付文件");
+        proposal.setPlanStartDate(java.sql.Date.valueOf("2026-06-01"));
         if (!subproject) when(mapper.selectActiveUserById(9L)).thenReturn(Collections.singletonMap("nickName","负责人"));when(mapper.selectActiveUserById(23L)).thenReturn(Collections.singletonMap("nickName","归属老板"));
         final BusinessProject[] stored=new BusinessProject[1];doAnswer(call->{stored[0]=call.getArgument(0);stored[0].setProjectId(88L);return 1;}).when(mapper).insertProject(any());when(mapper.selectProjectById(88L)).thenAnswer(call->stored[0]);
         if (subproject) {
@@ -2612,6 +2615,7 @@ class BusinessProjectServiceImplTest
         BusinessProject response=service.createApprovedProject(proposal,9L,"owner");
         if(subproject){assertTrue(response.isContextOnly());assertNull(response.getBudgetLimit());assertNull(response.getMainOwnerUserId());}
         BusinessProject created=stored[0];ArgumentCaptor<Map<String,Object>> baseline=mapCaptor();verify(workMapper).insertBaseline(baseline.capture());
+        assertEquals(proposal.getPlanStartDate(),created.getActualStartDate());
         assertEquals(Integer.valueOf(1),created.getBaselineVersion());assertEquals(created.getBaselineVersion(),baseline.getValue().get("baselineVersion"));assertEquals("MEMBER_DAYS_V1",created.getCostPolicyVersion());
         assertEquals(subproject ? Long.valueOf(15) : null,created.getParentId());
         assertEquals(88L,baseline.getValue().get("projectId"));
@@ -2619,6 +2623,7 @@ class BusinessProjectServiceImplTest
         assertEquals(23L,created.getSponsorOwnerUserId());
         ArgumentCaptor<BusinessProjectMember> member=ArgumentCaptor.forClass(BusinessProjectMember.class);
         verify(mapper).upsertMember(member.capture());assertEquals(created.getMainOwnerUserId(),member.getValue().getUserId());assertEquals("OWNER",member.getValue().getMemberRole());
+        assertEquals(proposal.getPlanStartDate(),member.getValue().getJoinedDate());
         verify(mapper,never()).updateProject(any());
         verify(mapper,never()).insertTask(any());
         verify(mapper,never()).insertWorkPeriod(any());
@@ -3368,6 +3373,33 @@ class BusinessProjectServiceImplTest
         verify(mapper).insertProjectStaffAllocation(saved.capture());
         assertEquals(94L,saved.getValue().getProjectId());assertEquals(new BigDecimal("40"),saved.getValue().getAllocationValue());
         verify(memberDays).synchronizeAllocationChange(94L,effective,"负责人九");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void launchAppliesOneBoundedScheduleForCurrentAndUpcomingProjects()
+    {
+        BusinessHistoricalAllocationService schedules=mock(BusinessHistoricalAllocationService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"historicalAllocations",schedules);
+        Map<String,Object> prior=row("projectId",93L,"ownerUserId",9L,"allocationId",1L,"allocationVersion",0,"allocationValue",100,"confirmationStatus","CONFIRMED");
+        when(mapper.selectUserAllocationWorkspace(eq(11L),any(Date.class))).thenAnswer(call->
+            ((Date)call.getArgument(1)).before(java.sql.Date.valueOf("2026-10-01"))?Collections.emptyList():Collections.singletonList(prior));
+        when(schedules.scheduleWorkspace(eq(94L),anyMap(),eq(9L))).thenAnswer(call->row("versionToken","workspace:"+((Map<?,?>)call.getArgument(1)).get("dateFrom")));
+        when(schedules.previewSchedule(eq(94L),anyMap(),eq(9L))).thenReturn(row("previewToken","checked"));
+        BusinessProject created=project(94L,9L,"ACTIVE","APPROVED");created.setMainOwnerName("负责人九");
+        Map<String,Object> plan=row("reason","按实际参与分段","segments",Arrays.asList(
+            row("dateFrom","2026-09-01","dateTo","2026-09-30","inputQuantity",100,"versionToken","","allocations",Collections.emptyList()),
+            row("dateFrom","2026-10-01","dateTo","2026-11-05","inputQuantity",50,"versionToken","93:1:0:9:100:CONFIRMED:null;","allocations",Collections.singletonList(row("projectId",93L,"allocationValue",50)))));
+        BusinessProjectProposal proposal=new BusinessProjectProposal();proposal.setStaffingLines(Collections.singletonList(row("userId",11L,"inputQuantity",100,"allocationPlan",plan)));
+        BusinessProjectMember member=new BusinessProjectMember();member.setUserId(11L);member.setJoinedDate(java.sql.Date.valueOf("2026-09-01"));
+        org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"applyProposalProjectWeight",created,member,proposal,"负责人九",true);
+        ArgumentCaptor<Map<String,Object>> saved=ArgumentCaptor.forClass(Map.class);verify(schedules).saveSchedule(eq(94L),saved.capture(),eq(9L),eq("负责人九"));
+        assertEquals(true,saved.getValue().get("initialAllocation"));assertEquals("checked",saved.getValue().get("previewToken"));
+        List<Map<String,Object>> segments=(List<Map<String,Object>>)saved.getValue().get("segments");
+        assertEquals("2026-09-30",segments.get(0).get("dateTo"));assertEquals("2026-11-05",segments.get(1).get("dateTo"));
+        assertEquals(100,((List<Map<String,Object>>)segments.get(0).get("allocations")).get(0).get("allocationValue"));
+        assertEquals(2,((List<?>)segments.get(1).get("allocations")).size());
+        verify(mapper,never()).insertProjectStaffAllocation(any());
     }
 
     @Test

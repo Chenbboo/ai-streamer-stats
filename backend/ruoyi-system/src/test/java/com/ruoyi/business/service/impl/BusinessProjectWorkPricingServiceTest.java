@@ -52,7 +52,7 @@ class BusinessProjectWorkPricingServiceTest
         service.process(5L,"pricing");
         ArgumentCaptor<Map<String,Object>> cost=ArgumentCaptor.forClass(Map.class);verify(mapper).upsertWorkCost(cost.capture());
         assertEquals(new BigDecimal("75.86"),cost.getValue().get("amount"));
-        assertTrue(String.valueOf(cost.getValue().get("basisJson")).contains("REGION_STANDARD_PROJECT_DAY_V4"));
+        assertTrue(String.valueOf(cost.getValue().get("basisJson")).contains("NATURAL_MONTH_AND_REGIONAL_DAYS_V5"));
         verify(mapper,never()).selectCalendar(any());
     }
     @Test void missingRateIsPersistedAsPendingWithNullAmount(){service.process(5L,"pricing");ArgumentCaptor<Map<String,Object>> cost=ArgumentCaptor.forClass(Map.class);verify(mapper).upsertWorkCost(cost.capture());assertEquals("PENDING",cost.getValue().get("pricingStatus"));assertNull(cost.getValue().get("amount"));assertTrue(String.valueOf(cost.getValue().get("basisJson")).contains("MISSING_RATE"));verify(accountingService,never()).recalculatePersonnelCost(any(),any(),any());}

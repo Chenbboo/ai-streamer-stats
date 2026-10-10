@@ -13,8 +13,8 @@ import com.ruoyi.common.exception.ServiceException;
 public final class BusinessPersonnelCost
 {
     public static final String MONTHLY_RULE = "CALENDAR_MONTH_V1";
-    public static final String PROJECT_MONTHLY_RULE = "REGION_STANDARD_PROJECT_DAY_V4";
-    public static final String PROJECT_FORMULA = "月成本 ÷ 地区标准天数（国内21.75天、越南26天） × 当日项目投入比例，按计费工作日累计（跨项目分配尾差到分）";
+    public static final String PROJECT_MONTHLY_RULE = "NATURAL_MONTH_AND_REGIONAL_DAYS_V5";
+    public static final String PROJECT_FORMULA = "完整自然月按月成本及当日投入比例分摊；不足整月按月成本 ÷ 地区标准天数（国内21.75天、越南26天） × 当日投入比例，按计费工作日累计（尾差到分）";
     private static final BigDecimal HUNDRED = new BigDecimal("100");
     private static final ObjectMapper JSON = new ObjectMapper();
     private final Map<Map<String,Object>, Map<YearMonth,List<LocalDate>>> months = new IdentityHashMap<>();
@@ -40,6 +40,35 @@ public final class BusinessPersonnelCost
     }
 
     public int monthWorkingDays(Map<String,Object> calendar, LocalDate date) { return month(calendar, date).size(); }
+    public void useMonthDays(Map<String,Object> calendar,LocalDate date,List<LocalDate> dates) {
+        months.computeIfAbsent(calendar,key->new HashMap<>()).put(YearMonth.from(date),new ArrayList<>(new TreeSet<>(dates)));
+    }
+
+    public static boolean fullMonth(LocalDate date, LocalDate from, LocalDate to) {
+        YearMonth period=YearMonth.from(date);
+        return from!=null&&!from.isAfter(period.atDay(1))&&to!=null&&!to.isBefore(period.atEndOfMonth());
+    }
+
+    /** Cumulative cents keep a complete calendar month equal to the configured monthly cost. */
+    public BigDecimal amount(Map<String,Object> rate, Map<String,Object> calendar, LocalDate date,
+        BigDecimal percent, boolean fullMonth) {
+        if(!fullMonth||!"MONTHLY".equals(rate.get("costMode")))return amount(rate,calendar,date,percent);
+        if(percent==null||percent.signum()<0||percent.compareTo(HUNDRED)>0)throw new ServiceException("项目投入权重必须在0%至100%之间");
+        List<LocalDate> days=month(calendar,date);int index=Collections.binarySearch(days,date);
+        if(index<0)return BigDecimal.ZERO.setScale(2);
+        BigDecimal salary;
+        try{salary=new BigDecimal(String.valueOf(rate.get("unitCost")));if(salary.signum()<0)throw new NumberFormatException();}
+        catch(RuntimeException ex){throw new ServiceException("缺少有效用人成本");}
+        BigDecimal numerator=salary.multiply(percent),denominator=HUNDRED.multiply(BigDecimal.valueOf(days.size()));
+        return numerator.multiply(BigDecimal.valueOf(index+1)).divide(denominator,2,RoundingMode.HALF_UP)
+            .subtract(numerator.multiply(BigDecimal.valueOf(index)).divide(denominator,2,RoundingMode.HALF_UP));
+    }
+
+    public BigDecimal projectAmount(Map<String,Object> rate, Map<String,Object> calendar, LocalDate date,
+        BigDecimal percent, BigDecimal shareFrom, boolean fullMonth) {
+        if(shareFrom==null||!"MONTHLY".equals(rate.get("costMode")))return amount(rate,calendar,date,percent,fullMonth);
+        return amount(rate,calendar,date,shareFrom.add(percent),fullMonth).subtract(amount(rate,calendar,date,shareFrom,fullMonth));
+    }
 
     /** Cumulative project shares assign rounding cents once across projects. */
     public BigDecimal projectAmount(Map<String,Object> rate, Map<String,Object> calendar, LocalDate date,

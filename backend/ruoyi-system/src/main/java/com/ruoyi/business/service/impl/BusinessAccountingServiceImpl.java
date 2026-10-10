@@ -1047,8 +1047,14 @@ public class BusinessAccountingServiceImpl implements IBusinessAccountingService
             if(row.get("monthlyCost")==null||row.get("appliedPercent")==null)continue;
             Map<String,Object> rate=new HashMap<>();rate.put("costMode","MONTHLY");rate.put("unitCost",row.get("monthlyCost"));
             rate.put("countryRegion",row.get("countryRegion"));rate.put("standardWorkDays",row.get("standardWorkDays"));
-            BigDecimal amount="LEAVE".equals(row.get("inputSource"))||!com.ruoyi.business.support.BusinessPersonnelCost.workingDay(calendar,date)?BigDecimal.ZERO.setScale(2):pricing.amount(rate,calendar,date,decimal(row.get("appliedPercent")));
-            row.put("standardDailyCost",row.get("dailyCost"));row.put("dailyCost",pricing.amount(rate,calendar,date,new BigDecimal("100")));
+            java.time.LocalDate from=personnelCalendarDate(row.get("personnelStartDate")),joined=personnelCalendarDate(row.get("personnelJoinedDate")),to=java.time.LocalDate.now();
+            if(joined!=null&&(from==null||joined.isAfter(from)))from=joined;
+            for(String key:java.util.Arrays.asList("personnelEndDate","personnelPlanEndDate","personnelLeftDate")){
+                java.time.LocalDate boundary=personnelCalendarDate(row.get(key));if(boundary!=null&&boundary.isBefore(to))to=boundary;
+            }
+            boolean fullMonth=com.ruoyi.business.support.BusinessPersonnelCost.fullMonth(date,from,to);
+            BigDecimal amount="LEAVE".equals(row.get("inputSource"))||!com.ruoyi.business.support.BusinessPersonnelCost.workingDay(calendar,date)?BigDecimal.ZERO.setScale(2):pricing.amount(rate,calendar,date,decimal(row.get("appliedPercent")),fullMonth);
+            row.put("fullMonthBilling",fullMonth);row.put("standardDailyCost",row.get("dailyCost"));row.put("dailyCost",pricing.amount(rate,calendar,date,new BigDecimal("100"),fullMonth));
             row.put("monthWorkingDays",pricing.monthWorkingDays(calendar,date));row.put("amount",amount);row.put("personnelCost",amount);
             row.put("calculationDetail",com.ruoyi.business.support.BusinessPersonnelCost.PROJECT_FORMULA);
         }

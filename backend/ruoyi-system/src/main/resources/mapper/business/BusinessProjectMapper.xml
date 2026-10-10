@@ -769,6 +769,8 @@
           and a.effective_from&lt;=#{effectiveDate}
           and (a.effective_to is null or a.effective_to&gt;=#{effectiveDate})
         where m.user_id=#{userId} and m.status='0' and m.member_role in ('OWNER','DEPUTY','MEMBER')
+          and (coalesce(p.actual_start_date,p.plan_start_date) is null or coalesce(p.actual_start_date,p.plan_start_date)&lt;=#{effectiveDate})
+          and (coalesce(p.actual_end_date,p.plan_end_date) is null or coalesce(p.actual_end_date,p.plan_end_date)&gt;=#{effectiveDate})
           and (m.joined_date is null or m.joined_date&lt;=#{effectiveDate})
           and (m.left_date is null or m.left_date&gt;=#{effectiveDate})
         order by p.project_id

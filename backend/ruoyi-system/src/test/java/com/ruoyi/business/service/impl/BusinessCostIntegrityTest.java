@@ -66,7 +66,7 @@ class BusinessCostIntegrityTest {
         when(f.proposals.selectProposalStaff(eq(10L),any())).thenReturn(row("userId",10L,"companyDeptId",10L,"nickName","负责人"));
         Map<String,Object> budget=f.service.estimate(f.p);assertEquals("PENDING",budget.get("status"));assertNull(budget.get("personnelAmount"));assertEquals(2,f.p.getStaffingLines().size());
         when(f.mapper.selectBudgetRates(eq(10L),anyString(),anyString())).thenReturn(Collections.singletonList(f.rate));
-        // September has 22 billable weekdays: 1011.49 per day for exactly two people.
-        budget=f.service.estimate(f.p);assertEquals("READY",budget.get("status"));assertEquals(new BigDecimal("44505.56"),budget.get("personnelAmount"));assertEquals(2,f.p.getStaffingLines().size());
+        // A complete natural month uses the monthly cost: 22000 for exactly two people.
+        budget=f.service.estimate(f.p);assertEquals("READY",budget.get("status"));assertEquals(new BigDecimal("44000.00"),budget.get("personnelAmount"));assertEquals(2,f.p.getStaffingLines().size());
     }
 }

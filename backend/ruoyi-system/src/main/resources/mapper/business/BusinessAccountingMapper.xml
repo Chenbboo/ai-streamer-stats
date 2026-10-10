@@ -293,6 +293,7 @@
       round(c.unit_cost/(case when c.country_region_snapshot='VN' or (c.country_region_snapshot is null and c.standard_work_days=26) then 26 else 21.75 end),4) dailyCost,
       a.allocation_value plannedPercent,e.actual_percent actualPercent,
       coalesce(e.actual_percent,a.allocation_value) appliedPercent,
+      coalesce(p.actual_start_date,p.plan_start_date) personnelStartDate,p.plan_end_date personnelPlanEndDate,p.actual_end_date personnelEndDate,m.joined_date personnelJoinedDate,m.left_date personnelLeftDate,
       case when leave_record.leave_id is not null then 'LEAVE'
            when e.effort_id is not null then 'ACTUAL' else 'PLAN' end inputSource,
       leave_record.leave_type leaveType,
@@ -655,6 +656,7 @@
       round(c.unit_cost/(case when c.country_region_snapshot='VN' or (c.country_region_snapshot is null and c.standard_work_days=26) then 26 else 21.75 end),4) dailyCost,
       a.allocation_id allocationId,a.allocation_value plannedPercent,e.actual_percent actualPercent,
       coalesce(e.actual_percent,a.allocation_value) appliedPercent,
+      coalesce(p.actual_start_date,p.plan_start_date) personnelStartDate,p.plan_end_date personnelPlanEndDate,p.actual_end_date personnelEndDate,m.joined_date personnelJoinedDate,m.left_date personnelLeftDate,
       coalesce(total_plan.total_planned_percent,0) totalPlannedPercent,
       case when leave_record.leave_id is not null then 'LEAVE'
            when e.effort_id is not null then 'ACTUAL' else 'PLAN' end inputSource,

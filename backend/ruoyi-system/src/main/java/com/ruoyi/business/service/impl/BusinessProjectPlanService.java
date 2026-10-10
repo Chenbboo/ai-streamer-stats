@@ -45,7 +45,7 @@ public class BusinessProjectPlanService
             if(String.valueOf(p.getBaselineVersion()).equals(String.valueOf(baseline.get("baselineVersion")))){
                 source=readSnapshot(baseline.get("snapshotJson"));break;
             }
-        current.put("budget",displayBudget(p,source,p.getBudget()));result.put("currentPlan",current);
+        current.put("budget",personnelDisplayDetails(p,displayBudget(p,source,p.getBudget())));result.put("currentPlan",current);
         result.put("canRequestChange",actor.equals(p.getMainOwnerUserId())&&mutable(p));result.put("version",p.getVersion());result.put("baselineVersion",p.getBaselineVersion());return result;
     }
 
@@ -54,7 +54,9 @@ public class BusinessProjectPlanService
     {
         BusinessProject p=projectMapper.selectProjectById(projectId);requireProject(p);requireMutable(p);
         if(!actor.equals(p.getMainOwnerUserId()))throw new ServiceException("只有项目负责人可以测算计划变更");
-        return normalize(p,body);
+        Map<String,Object> result=normalize(p,body);
+        if(result.get("budget") instanceof Map)result.put("budget",personnelDisplayDetails(p,(Map<String,Object>)result.get("budget")));
+        return result;
     }
 
     @Transactional(isolation=Isolation.READ_COMMITTED)
@@ -116,7 +118,21 @@ public class BusinessProjectPlanService
         row.put("projectName",projectName);row.put("objective",objective);row.put("applicationReason",applicationReason);row.put("priority",priority);
         row.put("acceptanceCriteria",criteria);row.put("revenueModel",revenueModel);row.put("revenueLines",revenueLines);row.put("expenseLines",expenseLines);row.put("targetLines",targetLines);
         row.put("planStartDate",DateUtils.parseDateToStr("yyyy-MM-dd",from));row.put("planEndDate",to==null?null:DateUtils.parseDateToStr("yyyy-MM-dd",to));row.put("budgetLimit",money(input.get("budgetLimit")));
-        if(p.getBudget()!=null)
+        if(p.getBudget()!=null && !budgetInputsChanged(p,previous,input,from,to,revenueLines,expenseLines))
+        {
+            // Nonfinancial edits retain the approved dated budget, including its personnel inputs.
+            // They still pass normal field, lifecycle, permission and version validation.
+            row.put("budget",new LinkedHashMap<>(p.getBudget()));row.put("budgetRetained",true);
+            row.put("budgetLimit",p.getBudgetLimit());row.put("budgetMode",p.getBudgetMode());
+            row.put("budgetScope",p.getBudgetScope());row.put("dailyBudgetLimit",p.getDailyBudgetLimit());
+            row.put("startupBudgetLimit",p.getStartupBudgetLimit());row.put("budgetReason",p.getBudgetReason());
+            if(previous.containsKey("staffingLines"))row.put("staffingLines",previous.get("staffingLines"));
+            try {
+                Map<String,Object> snapshot=json.readValue(p.getTemplateSnapshotJson(),new TypeReference<Map<String,Object>>(){});
+                snapshot.put("targetLines",targetLines);row.put("templateSnapshotJson",write(snapshot));
+            } catch(Exception ex){throw new ServiceException("预算快照无法保存");}
+        }
+        else if(p.getBudget()!=null)
         {
             BusinessProjectProposal estimate=new BusinessProjectProposal();
             estimate.setPlanStartDate(from);estimate.setPlanEndDate(to);estimate.setTemplateVersion(p.getTemplateVersion());estimate.setCompanyDeptId(p.getCompanyDeptId());estimate.setBaseCurrency(p.getBaseCurrency());
@@ -149,7 +165,37 @@ public class BusinessProjectPlanService
         return row;
     }
 
+    private boolean budgetInputsChanged(BusinessProject p,Map<String,Object> previous,Map<String,Object> input,
+        Date from,Date to,List<Map<String,Object>> revenue,List<Map<String,Object>> expense)
+    {
+        if(Arrays.asList("REGION_STANDARD_PROJECT_DAY_V4","PROJECT_MONTH_SHARE_DAY_V3","CALENDAR_MONTH_V1").contains(p.getBudget().get("personnelCostRule")))return true;
+        if(!java.util.Objects.equals(dayText(from),dayText(p.getPlanStartDate()))
+            ||!java.util.Objects.equals(dayText(to),dayText(p.getPlanEndDate())))return true;
+        if(!canonical(revenue).equals(canonical(planLines(previous.get("revenueLines"),true,from,to)))
+            ||!canonical(expense).equals(canonical(planLines(previous.get("expenseLines"),false,from,to))))return true;
+        Map<String,Object> requested=input.get("budget") instanceof Map?(Map<String,Object>)input.get("budget"):p.getBudget();
+        for(String field:java.util.Arrays.asList("mode","scope","businessAmount","cycle","anchorDate","dailyLimit","startupLimit","reason"))
+        {
+            if(to!=null&&(field.equals("cycle")||field.equals("anchorDate")))continue;
+            Object next=requested.get(field),old=p.getBudget().get(field);
+            if(field.equals("reason")){next=next==null?"":text(next);old=old==null?"":text(old);}
+            if(!canonical(next).equals(canonical(old)))return true;
+        }
+        return false;
+    }
+    private String dayText(Date value){return value==null?null:DateUtils.parseDateToStr("yyyy-MM-dd",value);}
+    private String canonical(Object value)
+    {
+        if(value==null)return "null";
+        if(value instanceof Number)return new java.math.BigDecimal(value.toString()).stripTrailingZeros().toPlainString();
+        if(value instanceof Map){java.util.SortedMap<String,String> fields=new java.util.TreeMap<>();((Map<?,?>)value).forEach((k,v)->fields.put(String.valueOf(k),canonical(v)));return fields.toString();}
+        if(value instanceof List){List<String> values=new ArrayList<>();for(Object item:(List<?>)value)values.add(canonical(item));return values.toString();}
+        return String.valueOf(value);
+    }
+
     private List<Map<String,Object>> memberStaffing(BusinessProject p,Date from,Date to)
+    {return memberStaffing(p,from,to,true);}
+    private List<Map<String,Object>> memberStaffing(BusinessProject p,Date from,Date to,boolean includeAllocations)
     {
         List<Map<String,Object>> members=new ArrayList<>(mapper.selectMembers(p.getProjectId()));
         members.addAll(memberCosts.selectPastMemberships(p.getProjectId()));
@@ -166,7 +212,7 @@ public class BusinessProjectPlanService
                 value.put("membershipPeriods",new ArrayList<Map<String,Object>>());
                 value.put("rolePeriods",datedRows(roles,key));value.put("assignmentPeriods",datedRows(assignments,key));
                 value.put("calendars",datedRows(calendars,null));
-                List<Map<String,Object>> timeline=datedRows(projectMapper.selectUserAllocationTimeline(key),null);
+                List<Map<String,Object>> timeline=includeAllocations?datedRows(projectMapper.selectUserAllocationTimeline(key),null):Collections.emptyList();
                 for(Map<String,Object> allocation:timeline)if(p.getProjectId().equals(id(allocation.get("projectId")))){
                     allocation.put("projectStartDate",DateUtils.parseDateToStr("yyyy-MM-dd",from));
                     allocation.put("projectEndDate",to==null?null:DateUtils.parseDateToStr("yyyy-MM-dd",to));
@@ -177,6 +223,62 @@ public class BusinessProjectPlanService
         }
         return new ArrayList<>(people.values());
     }
+
+    /** Read-only metadata overlay. Never re-estimate a saved amount or write allocations/day costs. */
+    private Map<String,Object> personnelDisplayDetails(BusinessProject p,Map<String,Object> budget)
+    {
+        if(budget==null||!BusinessMemberDayCostService.enabled(p))return budget;
+        boolean hasRows=!snapshotRows(budget.get("staffingStatus")).isEmpty();
+        for(Map<String,Object> month:snapshotRows(budget.get("monthlyForecasts")))hasRows|=!snapshotRows(month.get("staffingStatus")).isEmpty();
+        if(!hasRows)return budget;
+        Map<Long,Map<String,Object>> staff=new LinkedHashMap<>();
+        for(Map<String,Object> person:memberStaffing(p,p.getPlanStartDate(),p.getPlanEndDate(),false))staff.put(id(person.get("userId")),person);
+        Map<String,Object> result=personnelDisplayPeriod(p,budget,staff);
+        if(budget.get("monthlyForecasts") instanceof List){
+            List<Map<String,Object>> months=new ArrayList<>();
+            for(Map<String,Object> month:snapshotRows(budget.get("monthlyForecasts")))months.add(personnelDisplayPeriod(p,month,staff));
+            result.put("monthlyForecasts",months);
+        }
+        return result;
+    }
+    private Map<String,Object> personnelDisplayPeriod(BusinessProject p,Map<String,Object> budget,Map<Long,Map<String,Object>> staff)
+    {
+        Map<String,Object> result=new LinkedHashMap<>(budget);List<Map<String,Object>> rows=new ArrayList<>();
+        java.time.LocalDate from=displayDay(budget.get("startDate")),to=displayDay(budget.get("endDate"));
+        java.time.LocalDate projectFrom=displayDay(p.getPlanStartDate()),projectTo=displayDay(p.getPlanEndDate());
+        if(from!=null&&projectFrom!=null&&from.isBefore(projectFrom))from=projectFrom;
+        if(to!=null&&projectTo!=null&&to.isAfter(projectTo))to=projectTo;
+        for(Map<String,Object> saved:snapshotRows(budget.get("staffingStatus"))){
+            Map<String,Object> row=new LinkedHashMap<>(saved),person=staff.get(id(saved.get("userId")));
+            if(person!=null&&(text(row.get("userName"))==null||text(row.get("userName")).isEmpty()))row.put("userName",person.get("userName"));
+            List<String> displayIssues=new ArrayList<>();
+            if(person!=null&&from!=null&&to!=null){
+                List<Map<String,Object>> periods=new ArrayList<>();
+                for(Map<String,Object> membership:snapshotRows(person.get("membershipPeriods"))){
+                    java.time.LocalDate joined=displayDay(membership.get("joinedDate")),left=displayDay(membership.get("leftDate"));
+                    java.time.LocalDate start=joined==null||joined.isBefore(from)?from:joined,end=left==null||left.isAfter(to)?to:left;
+                    if(!end.isBefore(start)){
+                        Map<String,Object> period=new LinkedHashMap<>();period.put("startDate",start.toString());period.put("endDate",end.toString());periods.add(period);
+                    }
+                }
+                periods.sort(Comparator.comparing(period->String.valueOf(period.get("startDate"))));
+                row.put("participationPeriods",periods);row.put("noParticipation",periods.isEmpty());
+                try{
+                    int days=to.isBefore(from)?0:com.ruoyi.business.support.BusinessPlannedMemberDays.days(person,from,to).size();
+                    row.put("participationWorkingDays",days);
+                }catch(ServiceException ex){displayIssues.add(ex.getMessage());}
+            }
+            if(person==null)displayIssues.add("未找到对应的项目成员参与记录，请核对人员资料");
+            if("PENDING".equals(row.get("status"))&&!(row.get("issues") instanceof List&&!((List<?>)row.get("issues")).isEmpty()))
+                displayIssues.add("原测算未保存具体缺项原因，请重新测算确认");
+            row.put("displayIssues",displayIssues);
+            row.put("sourceDetailsMissing",!saved.containsKey("allocationPeriods"));
+            rows.add(row);
+        }
+        if(budget.get("staffingStatus") instanceof List)result.put("staffingStatus",rows);
+        return result;
+    }
+    private java.time.LocalDate displayDay(Object value){Date date=snapshotDate(value);return date==null?null:java.time.LocalDate.parse(dayText(date));}
     private List<Map<String,Object>> datedRows(List<Map<String,Object>> source,Long userId){
         List<Map<String,Object>> result=new ArrayList<>();
         if(source!=null)for(Map<String,Object> row:source)if(userId==null||userId.equals(id(row.get("userId"))))result.add(datedRow(row));
@@ -202,9 +304,9 @@ public class BusinessProjectPlanService
             String itemName=required(input.get("itemName"),160,(revenue?"收入":"支出")+"项目",rowNo);
             String occurrence=text(input.get("occurrenceType"));if(occurrence==null)occurrence="ONE_TIME";
             if(!Arrays.asList("ONE_TIME","DAILY","WEEKLY","MONTHLY").contains(occurrence))throw new ServiceException("第"+rowNo+"行发生方式不正确");
-            Object rawDate=input.get(revenue?"expectedDate":"occurDate");Date date=DateUtils.parseDate(rawDate);
+            Object rawDate=input.get(revenue?"expectedDate":"occurDate");Date date=snapshotDate(rawDate);
             if(date==null)throw new ServiceException("第"+rowNo+"行"+(revenue?"收入":"支出")+"月份不能为空");
-            String dateIssue=revenue?com.ruoyi.business.support.BusinessProposalPlanDates.revenueIssue(rawDate,from,to,"收入测算",rowNo):com.ruoyi.business.support.BusinessProposalPlanDates.expenseIssue(rawDate,from,to,"支出计划",rowNo);
+            String dateIssue=revenue?com.ruoyi.business.support.BusinessProposalPlanDates.revenueIssue(dayText(date),from,to,"收入测算",rowNo):com.ruoyi.business.support.BusinessProposalPlanDates.expenseIssue(dayText(date),from,to,"支出计划",rowNo);
             if(dateIssue!=null)throw new ServiceException(dateIssue);
             line.put("itemName",itemName);line.put("occurrenceType",occurrence);
             if(revenue)
@@ -248,9 +350,10 @@ public class BusinessProjectPlanService
             }
             else if(unit.equalsIgnoreCase(currency))line.put("targetType","FINANCIAL");
             line.put("unit",unit);
-            Object rawDate=input.get("dueDate");String dateIssue=com.ruoyi.business.support.BusinessProposalPlanDates.issue(rawDate,from,to,"验收目标",rowNo);
+            Object rawDate=input.get("dueDate");Date date=snapshotDate(rawDate);
+            String dateIssue=com.ruoyi.business.support.BusinessProposalPlanDates.issue(date==null?rawDate:dayText(date),from,to,"验收目标",rowNo);
             if(dateIssue!=null)throw new ServiceException(dateIssue);
-            Date date=DateUtils.parseDate(rawDate);line.put("dueDate",date==null?null:DateUtils.parseDateToStr("yyyy-MM-dd",date));
+            line.put("dueDate",dayText(date));
             line.put("acceptanceEvidence",required(input.get("acceptanceEvidence"),500,"验收依据",rowNo));
             if(input.get("weight")!=null)line.put("weight",input.get("weight"));
             result.add(line);
@@ -271,9 +374,11 @@ public class BusinessProjectPlanService
         {
             Map<String,Object> snapshot=json.readValue(text(baseline.get("snapshotJson")),new TypeReference<Map<String,Object>>(){});
             if(!result.containsKey("revenueModel")&&snapshot.get("revenueModel")!=null)result.put("revenueModel",snapshot.get("revenueModel"));
-            if(!result.containsKey("revenueLines")&&snapshot.get("revenueLines") instanceof List)result.put("revenueLines",snapshot.get("revenueLines"));
-            if(!result.containsKey("expenseLines")&&snapshot.get("expenseLines") instanceof List)result.put("expenseLines",snapshot.get("expenseLines"));
-            if(!result.containsKey("targetLines")&&snapshot.get("targetLines") instanceof List)result.put("targetLines",snapshot.get("targetLines"));
+            // Archived proposals may contain epoch milliseconds; the editing response uses date strings.
+            if(!result.containsKey("revenueLines")&&snapshot.get("revenueLines") instanceof List)result.put("revenueLines",displayLines(snapshot.get("revenueLines"),"expectedDate"));
+            if(!result.containsKey("expenseLines")&&snapshot.get("expenseLines") instanceof List)result.put("expenseLines",displayLines(snapshot.get("expenseLines"),"occurDate"));
+            if(!result.containsKey("targetLines")&&snapshot.get("targetLines") instanceof List)result.put("targetLines",displayLines(snapshot.get("targetLines"),"dueDate"));
+            if(!result.containsKey("staffingLines")&&snapshot.get("staffingLines") instanceof List)result.put("staffingLines",snapshot.get("staffingLines"));
             if(result.containsKey("revenueLines")&&result.containsKey("expenseLines")&&result.containsKey("targetLines"))break;
         }catch(Exception ignored){}
         result.putIfAbsent("revenueLines",Collections.emptyList());result.putIfAbsent("expenseLines",Collections.emptyList());result.putIfAbsent("targetLines",Collections.emptyList());return result;

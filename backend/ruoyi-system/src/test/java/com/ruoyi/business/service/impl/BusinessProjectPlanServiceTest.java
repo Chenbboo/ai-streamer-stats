@@ -273,5 +273,116 @@ class BusinessProjectPlanServiceTest
         assertEquals(staff,result.get("staffingLines"));
         verify(mapper,never()).applyPlanChange(anyMap());verify(mapper,never()).insertPlanChange(anyMap());
     }
+    @Test void nameAndObjectiveChangesRetainApprovedBudgetDespiteHistoricalGaps() throws Exception {
+        project.setPlanEndDate(Date.valueOf("2026-06-01"));project.setBudgetLimit(new java.math.BigDecimal("1100"));
+        project.setTemplateSnapshotJson("{\"budget\":{\"mode\":\"TOTAL\",\"scope\":\"FULL_COST\",\"cycle\":\"PROJECT\",\"businessAmount\":100,\"personnelAmount\":1000,\"totalAmount\":1100}}");
+        when(projectMapper.selectProjectById(1L)).thenReturn(project);
+        when(mapper.selectBaselines(1L)).thenReturn(java.util.Collections.singletonList(row("snapshotJson","{\"staffingLines\":[{\"userId\":30,\"inputQuantity\":50,\"planStartDate\":\"2026-01-01\"}]}")));
+        Map<String,Object> input=change();input.put("projectName","调整名称");input.put("budget",row("mode","TOTAL","scope","FULL_COST","cycle","MONTH","businessAmount",100.00));
+        Map<String,Object> preview=service.preview(1L,input,10L);
+        assertEquals(true,preview.get("budgetRetained"));assertEquals(1100,((Map<?,?>)preview.get("budget")).get("totalAmount"));
+        assertEquals(30,((Map<?,?>)((java.util.List<?>)preview.get("staffingLines")).get(0)).get("userId"));
+        verify(budgets,never()).estimate(any());
+        when(mapper.applyPlanChange(anyMap())).thenReturn(1);service.request(1L,input,10L,"owner");
+        ArgumentCaptor<Map<String,Object>> applied=ArgumentCaptor.forClass(Map.class);verify(mapper).applyPlanChange(applied.capture());assertEquals(new java.math.BigDecimal("1100"),applied.getValue().get("budgetLimit"));
+    }
+    @Test void financialChangesStillRequireCompleteDatedCostEstimate(){
+        project.setPlanEndDate(Date.valueOf("2026-06-01"));project.setTemplateSnapshotJson("{\"budget\":{\"mode\":\"TOTAL\",\"businessAmount\":100}}");
+        when(projectMapper.selectProjectById(1L)).thenReturn(project);when(budgets.estimate(any())).thenReturn(row("status","INCOMPLETE","issues","成员甲缺少历史投入"));
+        Map<String,Object> input=change();input.put("planEndDate","2026-07-01");assertTrue(assertThrows(ServiceException.class,()->service.preview(1L,input,10L)).getMessage().contains("缺少历史投入"));
+        input.put("planEndDate","2026-06-01");input.put("budget",row("mode","TOTAL","businessAmount",200));assertThrows(ServiceException.class,()->service.preview(1L,input,10L));verify(budgets,times(2)).estimate(any());verify(mapper,never()).applyPlanChange(anyMap());
+    }
+    @Test void unchangedFinancialLinesIgnoreDatabaseMetadataButChangedAmountRecalculates() throws Exception {
+        project.setPlanEndDate(Date.valueOf("2026-06-01"));project.setTemplateSnapshotJson("{\"budget\":{\"mode\":\"TOTAL\",\"businessAmount\":100}}");when(projectMapper.selectProjectById(1L)).thenReturn(project);
+        Map<String,Object> line=row("lineId",9,"itemName","服务","revenueType","SERVICE","expectedAmount",1000,"expectedDate","2026-03-01","occurrenceType","MONTHLY","scenario","BASE","amountUnit","CNY","assumptionText","");
+        String savedLines=json.writeValueAsString(row("revenueLines",java.util.Collections.singletonList(line)));
+        when(mapper.selectBaselines(1L)).thenReturn(java.util.Collections.singletonList(row("snapshotJson",savedLines)));
+        Map<String,Object> input=change();input.put("revenueLines",java.util.Collections.singletonList(line));assertEquals(true,service.preview(1L,input,10L).get("budgetRetained"));verify(budgets,never()).estimate(any());
+        line.put("expectedAmount",2000);when(budgets.estimate(any())).thenReturn(row("status","READY","totalAmount",100));service.preview(1L,input,10L);verify(budgets).estimate(any());
+    }
+    @Test void retainedPersonnelSummariesGainNamesParticipationAndExactIssuesWithoutChangingAmountsOrRecords() throws Exception {
+        project.setCostPolicyVersion("MEMBER_DAYS_V1");project.setPlanStartDate(Date.valueOf("2026-09-01"));
+        String issue="2026-09-01 至 2026-09-17（期间共 13 个工作日） 缺少有效的项目投入比例";
+        Map<String,Object> september=row("startDate","2026-09-01","endDate","2026-09-30","status","PENDING","personnelAmount",null,"issues",java.util.Collections.singletonList("蔡新武："+issue),"staffingStatus",java.util.Arrays.asList(
+            row("userId",132,"status","PENDING","issues",java.util.Collections.singletonList(issue)),
+            row("userId",138,"status","READY","amount",2545.45,"issues",java.util.Collections.emptyList()),
+            row("userId",135,"status","READY","amount",0,"issues",java.util.Collections.emptyList())));
+        Map<String,Object> original=row("mode","TOTAL","scope","FULL_COST","cycle","MONTH","businessAmount",100,"startDate","2026-10-01","endDate","2026-10-31","personnelAmount",11745.13,"totalAmount",11845.13,"monthlyForecasts",java.util.Collections.singletonList(september));
+        project.setTemplateSnapshotJson(json.writeValueAsString(row("budget",original)));String before=project.getTemplateSnapshotJson();
+        when(projectMapper.selectProjectById(1L)).thenReturn(project);
+        when(mapper.selectMembers(1L)).thenReturn(java.util.Arrays.asList(
+            row("userId",132L,"userName","蔡新武","joinedDate","2026-09-01","memberRole","OWNER","status","0"),
+            row("userId",138L,"userName","刘鑫","joinedDate","2026-09-20","memberRole","MEMBER","status","0"),
+            row("userId",135L,"userName","蒋豪","joinedDate","2026-09-20","leftDate","2026-09-19","memberRole","MEMBER","status","1")));
+        when(mapper.selectCalendars()).thenReturn(java.util.Collections.singletonList(row("calendarId",1,"workingWeekdays","1,2,3,4,5","dailyMinutes",480,"effectiveFrom","2020-01-01")));
+        Map<String,Object> input=change();input.put("planStartDate","2026-09-01");input.put("planEndDate",null);
+        Map<String,Object> result=service.preview(1L,input,10L),budget=(Map<String,Object>)result.get("budget");
+        java.util.List<Map<String,Object>> people=(java.util.List<Map<String,Object>>)((Map<?,?>)((java.util.List<?>)budget.get("monthlyForecasts")).get(0)).get("staffingStatus");
+        assertEquals(true,result.get("budgetRetained"));assertEquals(11745.13,budget.get("personnelAmount"));assertEquals(before,project.getTemplateSnapshotJson());
+        assertEquals("蔡新武",people.get(0).get("userName"));assertEquals(22,people.get(0).get("participationWorkingDays"));assertEquals(java.util.Collections.singletonList(issue),people.get(0).get("issues"));assertNull(people.get(0).get("amount"));
+        assertEquals("2026-09-20",((Map<?,?>)((java.util.List<?>)people.get(1).get("participationPeriods")).get(0)).get("startDate"));assertEquals(8,people.get(1).get("participationWorkingDays"));assertEquals(2545.45,people.get(1).get("amount"));
+        assertEquals(0,people.get(2).get("participationWorkingDays"));assertEquals(true,people.get(2).get("noParticipation"));
+        verify(budgets,never()).estimate(any());verify(projectMapper,never()).selectUserAllocationTimeline(anyLong());verify(mapper,never()).applyPlanChange(anyMap());verify(mapper,never()).insertBaseline(anyMap());
+    }
+    @Test void missingCalendarInOldCostDetailsIsExplainedWithoutGuessingDaysOrDiscardingAmount() throws Exception {
+        project.setCostPolicyVersion("MEMBER_DAYS_V1");project.setPlanStartDate(Date.valueOf("2026-09-01"));
+        project.setTemplateSnapshotJson("{\"budget\":{\"mode\":\"TOTAL\",\"cycle\":\"MONTH\",\"startDate\":\"2026-09-01\",\"endDate\":\"2026-09-30\",\"staffingStatus\":[{\"userId\":132,\"status\":\"READY\",\"amount\":3300}]}}");
+        when(projectMapper.selectProjectById(1L)).thenReturn(project);when(mapper.selectMembers(1L)).thenReturn(java.util.Collections.singletonList(row("userId",132L,"userName","蔡新武","joinedDate","2026-09-01","memberRole","OWNER","status","0")));
+        Map<String,Object> input=change();input.put("planStartDate","2026-09-01");input.put("planEndDate",null);
+        Map<String,Object> budget=(Map<String,Object>)service.preview(1L,input,10L).get("budget"),person=(Map<String,Object>)((java.util.List<?>)budget.get("staffingStatus")).get(0);
+        assertEquals(3300,person.get("amount"));assertEquals("READY",person.get("status"));assertFalse(person.containsKey("participationWorkingDays"));assertTrue(person.get("displayIssues").toString().contains("2026-09-01 缺少有效工作日历"));
+        verify(budgets,never()).estimate(any());verify(mapper,never()).applyPlanChange(anyMap());
+    }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"TIMESTAMP","DATE","STRING"})
+    void archivedMonthDatesAreEditableAndPreviewAndSaveRetainUnchangedBudget(String representation) throws Exception {
+        project.setBaseCurrency("CNY");project.setPlanEndDate(Date.valueOf("2026-06-01"));
+        project.setTemplateSnapshotJson("{\"budget\":{\"mode\":\"TOTAL\",\"businessAmount\":100,\"totalAmount\":1100}}");
+        when(projectMapper.selectProjectById(1L)).thenReturn(project);
+        Object date="TIMESTAMP".equals(representation)?Date.valueOf("2026-03-01").getTime():"DATE".equals(representation)?Date.valueOf("2026-03-01"):"2026-03-01";
+        Map<String,Object> revenue=row("itemName","服务","revenueType","SERVICE","expectedAmount",1000,"expectedDate",date,"occurrenceType","ONE_TIME");
+        Map<String,Object> expense=row("itemName","外包","expenseCategory","OTHER","purpose","交付","amount",100,"occurDate",date,"occurrenceType","ONE_TIME");
+        Map<String,Object> target=row("targetType","FINANCIAL","targetName","合同额","targetValue",1000,"unit","元","acceptanceEvidence","合同","dueDate",date);
+        String archived=json.writeValueAsString(row("revenueLines",java.util.Collections.singletonList(revenue),"expenseLines",java.util.Collections.singletonList(expense),"targetLines",java.util.Collections.singletonList(target)));
+        when(mapper.selectBaselines(1L)).thenReturn(java.util.Collections.singletonList(row("baselineVersion",1,"snapshotJson",archived)));
+
+        Map<String,Object> result=service.plan(1L,10L,false),current=(Map<String,Object>)result.get("currentPlan");
+        for(String[] fields:new String[][]{{"revenueLines","expectedDate"},{"expenseLines","occurDate"},{"targetLines","dueDate"}})
+            assertEquals("2026-03-01",((Map<?,?>)((java.util.List<?>)current.get(fields[0])).get(0)).get(fields[1]));
+        assertEquals(archived,((Map<?,?>)((java.util.List<?>)result.get("baselines")).get(0)).get("snapshotJson"));
+        Map<String,Object> input=change();input.put("revenueLines",java.util.Collections.singletonList(revenue));input.put("expenseLines",java.util.Collections.singletonList(expense));input.put("targetLines",java.util.Collections.singletonList(target));
+        Map<String,Object> preview=service.preview(1L,input,10L);assertEquals(true,preview.get("budgetRetained"));
+        assertEquals("2026-03-01",((Map<?,?>)((java.util.List<?>)preview.get("targetLines")).get(0)).get("dueDate"));
+        verify(mapper,never()).insertPlanChange(anyMap());
+        when(mapper.applyPlanChange(anyMap())).thenReturn(1);service.request(1L,input,10L,"owner");
+        ArgumentCaptor<Map<String,Object>> applied=ArgumentCaptor.forClass(Map.class);verify(mapper).applyPlanChange(applied.capture());
+        assertEquals("2026-03-01",((Map<?,?>)((java.util.List<?>)applied.getValue().get("revenueLines")).get(0)).get("expectedDate"));
+        assertEquals("2026-03-01",((Map<?,?>)((java.util.List<?>)applied.getValue().get("expenseLines")).get(0)).get("occurDate"));
+        verify(budgets,never()).estimate(any());
+    }
+    @Test void archivedMonthDatesStillRejectMissingAndOutOfRangeInputsAndRecalculateChangedAmounts() throws Exception {
+        project.setBaseCurrency("CNY");project.setPlanEndDate(Date.valueOf("2026-06-01"));
+        project.setTemplateSnapshotJson("{\"budget\":{\"mode\":\"TOTAL\",\"businessAmount\":100}}");
+        when(projectMapper.selectProjectById(1L)).thenReturn(project);
+        Map<String,Object> line=row("itemName","服务","revenueType","SERVICE","expectedAmount",1000,"expectedDate",Date.valueOf("2026-03-01").getTime(),"occurrenceType","ONE_TIME");
+        String archived=json.writeValueAsString(row("revenueLines",java.util.Collections.singletonList(line)));
+        when(mapper.selectBaselines(1L)).thenReturn(java.util.Collections.singletonList(row("snapshotJson",archived)));
+        Map<String,Object> input=change();input.put("revenueLines",java.util.Collections.singletonList(line));
+        line.put("expectedDate",null);assertTrue(assertThrows(ServiceException.class,()->service.preview(1L,input,10L)).getMessage().contains("月份不能为空"));
+        line.put("expectedDate",Date.valueOf("2027-01-01").getTime());assertTrue(assertThrows(ServiceException.class,()->service.preview(1L,input,10L)).getMessage().contains("结束月后6个月"));
+        line.put("expectedDate","2026-03-01");line.put("expectedAmount",2000);
+        when(budgets.estimate(any())).thenReturn(row("status","READY","totalAmount",100));
+        service.preview(1L,input,10L);verify(budgets).estimate(any());
+        verify(mapper,never()).insertPlanChange(anyMap());verify(mapper,never()).applyPlanChange(anyMap());
+    }
+    @Test void oldRegionalBudgetPreviewUsesNewMonthRuleWithoutRewritingApprovedSnapshot(){
+        project.setPlanEndDate(Date.valueOf("2026-06-01"));
+        String approved="{\"budget\":{\"mode\":\"TOTAL\",\"businessAmount\":100,\"personnelCostRule\":\"REGION_STANDARD_PROJECT_DAY_V4\",\"personnelAmount\":3337.84}}";
+        project.setTemplateSnapshotJson(approved);when(projectMapper.selectProjectById(1L)).thenReturn(project);
+        when(budgets.estimate(any())).thenReturn(row("status","READY","personnelCostRule","NATURAL_MONTH_AND_REGIONAL_DAYS_V5","personnelAmount",3300,"totalAmount",3400));
+        Map<String,Object> preview=service.preview(1L,change(),10L);
+        assertEquals(3300,((Map<?,?>)preview.get("budget")).get("personnelAmount"));assertNotEquals(true,preview.get("budgetRetained"));
+        assertEquals(approved,project.getTemplateSnapshotJson());verify(mapper,never()).applyPlanChange(anyMap());verify(mapper,never()).insertBaseline(anyMap());
+    }
     private Map<String,Object> change(){return row("version",3,"reason","增加交付验证","objective","完成成果交付","applicationReason","调整立项计划","planStartDate","2026-01-01","planEndDate","2026-06-01","acceptanceCriteria","检查成果清单");}
 }

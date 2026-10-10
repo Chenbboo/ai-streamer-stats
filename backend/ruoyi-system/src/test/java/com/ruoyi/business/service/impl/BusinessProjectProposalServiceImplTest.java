@@ -2,6 +2,7 @@ package com.ruoyi.business.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -14,6 +15,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -124,15 +126,47 @@ class BusinessProjectProposalServiceImplTest
         assertEquals(new BigDecimal("65"),preview.get("totalPercent"));
         assertEquals(Collections.singletonList(project),preview.get("projects"));
         assertEquals("88:9:2:23:65:CONFIRMED:1:9:2;",preview.get("versionToken"));
-        assertEquals(com.ruoyi.common.utils.DateUtils.getDate(),preview.get("effectiveDate"));
+        assertEquals("2026-09-01",preview.get("effectiveDate"));
         ArgumentCaptor<Date> effectiveDate=ArgumentCaptor.forClass(Date.class);
         verify(mapper).selectStaffAllocationPreview(eq(12L),effectiveDate.capture());
-        assertEquals(com.ruoyi.common.utils.DateUtils.getDate(),
+        assertEquals("2026-09-01",
             com.ruoyi.common.utils.DateUtils.parseDateToStr("yyyy-MM-dd",effectiveDate.getValue()));
         java.util.List<Map<String,Object>> periodProjects=(java.util.List<Map<String,Object>>)preview.get("periodProjects");
         assertEquals(2,periodProjects.size());
         assertEquals(Boolean.TRUE,periodProjects.get(0).get("editable"));
-        assertEquals("ENDED",periodProjects.get(1).get("periodState"));
+        assertEquals("UPCOMING",periodProjects.get(1).get("periodState"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void proposalCanSaveFutureProjectSharesWithoutChangingTheEarlierMonth()
+    {
+        when(mapper.selectActiveUser(9L)).thenReturn(user(9L,"planner","立项人员"));
+        when(mapper.selectCompany(111L)).thenReturn(Collections.singletonMap("deptId",111L));
+        when(mapper.selectProposalStaff(eq(12L),any(Date.class))).thenReturn(BusinessProjectWorkServiceTest.row("userId",12L,"companyDeptId",111L));
+        Map<String,Object> future=BusinessProjectWorkServiceTest.row("projectId",88L,"projectName","claude","ownerUserId",9L,
+            "allocationValue",new BigDecimal("100"),"allocationId",9L,"allocationVersion",2,"confirmationStatus","CONFIRMED","allocationHistoryToken","1:9:2");
+        when(mapper.selectStaffAllocationPreview(eq(12L),any(Date.class))).thenAnswer(call->
+            ((Date)call.getArgument(1)).before(java.sql.Date.valueOf("2026-10-01"))?Collections.emptyList():Collections.singletonList(future));
+        when(mapper.selectStaffAllocationPeriodProjects(eq(12L),any(),any())).thenReturn(Collections.singletonList(BusinessProjectWorkServiceTest.row(
+            "projectId",88L,"projectStatus","ACTIVE","projectStartDate","2026-10-01","projectEndDate","2026-11-05","allocationValue",100)));
+        when(mapper.selectStaffAllocationTimeline(12L)).thenReturn(Collections.emptyList());
+        Map<String,Object> preview=service.staffAllocationPreview(111L,12L,"2026-09-01","2026-11-05",9L);
+        List<Map<String,Object>> segments=(List<Map<String,Object>>)preview.get("segments");
+        assertEquals(2,segments.size());assertEquals("2026-09-30",segments.get(0).get("dateTo"));
+        assertTrue(((List<?>)segments.get(0).get("allocations")).isEmpty());
+        segments.get(0).put("inputQuantity",100);segments.get(1).put("inputQuantity",50);
+        segments.get(1).put("allocations",Collections.singletonList(BusinessProjectWorkServiceTest.row("projectId",88L,"allocationValue",50)));
+        Map<String,Object> line=BusinessProjectWorkServiceTest.row("userId",12L,"allocationPlan",BusinessProjectWorkServiceTest.row("segments",segments,"reason","十月起两个项目各投入一半"));
+        org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeAllocationPlan",line,new BigDecimal("100"),java.sql.Date.valueOf("2026-09-01"),java.sql.Date.valueOf("2026-11-05"));
+        assertTrue(String.valueOf(line.get("allocationPlanJson")).contains("2026-10-01"));
+        Map<String,Object> safe=(Map<String,Object>)line.get("allocationPlan");List<Map<String,Object>> saved=(List<Map<String,Object>>)safe.get("segments");
+        assertEquals(new BigDecimal("50"),saved.get(1).get("inputQuantity"));
+        assertEquals(new BigDecimal("100"),((List<Map<String,Object>>)saved.get(1).get("allocations")).get(0).get("originalValue"));
+        saved.get(1).put("inputQuantity",60);
+        assertThrows(com.ruoyi.common.exception.ServiceException.class,()->org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeAllocationPlan",line,new BigDecimal("100"),java.sql.Date.valueOf("2026-09-01"),java.sql.Date.valueOf("2026-11-05")));
+        saved.get(1).put("inputQuantity",50);future.put("allocationVersion",3);
+        assertTrue(assertThrows(com.ruoyi.common.exception.ServiceException.class,()->org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeAllocationPlan",line,new BigDecimal("100"),java.sql.Date.valueOf("2026-09-01"),java.sql.Date.valueOf("2026-11-05"))).getMessage().contains("其他项目投入已变化"));
     }
 
     @Test

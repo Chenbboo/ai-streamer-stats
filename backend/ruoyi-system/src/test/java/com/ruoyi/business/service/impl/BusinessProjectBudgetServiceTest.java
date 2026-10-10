@@ -16,6 +16,35 @@ import com.ruoyi.common.exception.ServiceException;
 
 class BusinessProjectBudgetServiceTest
 {
+    @Test void proposalPeriodsPriceOnlyTheRequestedDatedShare(){
+        p.setPlanStartDate(Date.valueOf("2026-09-01"));p.setPlanEndDate(Date.valueOf("2026-11-05"));
+        p.getBudget().put("cycle","PROJECT");staff.put("participationMode","FOLLOW_PROJECT");rate.put("unitCost",7500);
+        Map<String,Object> later=row("dateFrom","2026-10-01","dateTo","2026-11-05","inputQuantity",50);
+        staff.put("allocationPlan",row("segments",Arrays.asList(row("dateFrom","2026-09-01","dateTo","2026-09-30","inputQuantity",100),later)));
+        Map<String,Object> budget=service.estimate(p);
+        List<Map<String,Object>> months=(List<Map<String,Object>>)budget.get("monthlyForecasts");
+        assertEquals(new BigDecimal("7500.00"),months.get(0).get("personnelAmount"));
+        assertEquals(new BigDecimal("3750.00"),months.get(1).get("personnelAmount"));
+        assertEquals(new BigDecimal("689.64"),months.get(2).get("personnelAmount"));
+        assertEquals(new BigDecimal("11939.64"),budget.get("personnelAmount"));
+        later.put("inputQuantity",0);assertEquals(new BigDecimal("7500.00"),service.estimate(p).get("personnelAmount"));
+        later.put("dateFrom","2026-09-30");assertEquals("PENDING",service.estimate(p).get("status"));
+    }
+    @Test void completeMonthPlusLooseWeekdaysHasMatchingTotalAndMonthlySources(){
+        p.setPlanStartDate(Date.valueOf("2026-10-01"));p.setPlanEndDate(Date.valueOf("2026-11-10"));staff.put("participationMode","FOLLOW_PROJECT");rate.put("unitCost",7500);
+        Map<String,Object> budget=service.estimate(p);List<Map<String,Object>> months=(List<Map<String,Object>>)budget.get("monthlyForecasts");
+        assertEquals(new BigDecimal("7500.00"),months.get(0).get("personnelAmount"));
+        assertEquals(new BigDecimal("2413.81"),months.get(1).get("personnelAmount"));
+        assertEquals(new BigDecimal("9913.81"),budget.get("personnelAmount"));
+        assertEquals("FULL_MONTH",((List<Map<String,Object>>)((List<Map<String,Object>>)months.get(0).get("staffingStatus")).get(0).get("allocationPeriods")).get(0).get("billingMode"));
+        assertEquals("REGIONAL_DAYS",((List<Map<String,Object>>)((List<Map<String,Object>>)months.get(1).get("staffingStatus")).get(0).get("allocationPeriods")).get(0).get("billingMode"));
+        p.setPlanStartDate(Date.valueOf("2026-10-09"));
+        assertEquals(new BigDecimal("7931.09"),service.estimate(p).get("personnelAmount"));
+    }
+    @Test void vietnamCompleteMonthPlusLooseWeekdaysUsesTwentySixDayRate(){
+        p.setPlanStartDate(Date.valueOf("2026-10-01"));p.setPlanEndDate(Date.valueOf("2026-11-10"));staff.put("participationMode","FOLLOW_PROJECT");rate.put("unitCost",2600);rate.put("countryRegion","VN");
+        assertEquals(new BigDecimal("3300.00"),service.estimate(p).get("personnelAmount"));
+    }
     private com.ruoyi.business.service.BusinessCompanyAccessService companyAccess;
 
     BusinessProjectBudgetService service=new BusinessProjectBudgetService();
@@ -88,10 +117,10 @@ class BusinessProjectBudgetServiceTest
     @Test void monthlyBudgetUsesCalendarAndRateAndIgnoresClientTotals()
     {
         p.getBudget().put("totalAmount",1);p.getBudget().put("personnelAmount",1);p.setBudgetLimit(BigDecimal.ONE);
-        service.apply(p);assertEquals(new BigDecimal("22252.78"),p.getEstimatedPersonnelCost());assertEquals(new BigDecimal("22752.78"),p.getBudgetLimit());assertEquals("READY",p.getBudget().get("status"));
+        service.apply(p);assertEquals(new BigDecimal("22000.00"),p.getEstimatedPersonnelCost());assertEquals(new BigDecimal("22500.00"),p.getBudgetLimit());assertEquals("READY",p.getBudget().get("status"));
         assertFalse(p.getBudget().toString().contains("unitCost"));assertFalse(p.getBudget().toString().contains("monthlyCost"));
     }
-    @Test void screenshotBudgetAccumulatesTheTwoRegionalDailyCosts(){
+    @Test void screenshotFullMonthUsesTheTwoMonthlySalaries(){
         p.setPlanStartDate(Date.valueOf("2026-10-01"));p.setPlanEndDate(Date.valueOf("2026-10-31"));
         staff.put("participationMode","FOLLOW_PROJECT");rate.put("unitCost",3300);
         Map<String,Object> second=new HashMap<>(staff);second.put("userId",8L);
@@ -103,9 +132,9 @@ class BusinessProjectBudgetServiceTest
         p.setExpenseLines(Collections.singletonList(row("amount",10000,"occurrenceType","ONE_TIME","occurDate","2026-10-01")));
         Map<String,Object> budget=service.estimate(p);
         assertEquals("READY",budget.get("status"));
-        assertEquals(new BigDecimal("12441.22"),budget.get("personnelAmount"));
-        assertEquals(new BigDecimal("22441.22"),budget.get("plannedTotalCost"));
-        assertEquals(new BigDecimal("57558.78"),budget.get("profit"));
+        assertEquals(new BigDecimal("12300.00"),budget.get("personnelAmount"));
+        assertEquals(new BigDecimal("22300.00"),budget.get("plannedTotalCost"));
+        assertEquals(new BigDecimal("57700.00"),budget.get("profit"));
     }
     @Test void firstPeriodIsClippedToProjectStart()
     {p.setPlanStartDate(Date.valueOf("2026-09-15"));staff.put("planStartDate","2026-09-15");Map<String,Object> b=service.estimate(p);assertEquals("2026-09-15",b.get("startDate"));assertEquals("2026-09-30",b.get("endDate"));assertEquals(new BigDecimal("12137.88"),b.get("personnelAmount"));}
@@ -131,7 +160,7 @@ class BusinessProjectBudgetServiceTest
         staff.put("participationMode","FOLLOW_PROJECT");
         Map<String,Object> b=service.estimate(p);
         assertEquals("2026-11-01",b.get("anchorDate"));assertEquals("2026-11-01",b.get("startDate"));assertEquals("2027-01-31",b.get("endDate"));
-        assertEquals(new BigDecimal("65746.85"),b.get("personnelAmount"));
+        assertEquals(new BigDecimal("66000.00"),b.get("personnelAmount"));
     }
     @Test void rollingQuarterIncludesLeapDayAndClipsOnlyProjectStart()
     {
@@ -156,10 +185,10 @@ class BusinessProjectBudgetServiceTest
     {p.setPlanEndDate(Date.valueOf("2026-10-31"));Map<String,Object> b=service.estimate(p);assertEquals("PROJECT",b.get("cycle"));assertEquals("2026-10-31",b.get("endDate"));}
     @Test void proposalInputRatioControlsPersonnelBudget()
     {staff.put("planStartDate","2026-09-30");staff.put("planEndDate","2026-10-01");staff.put("inputUnit","HOUR");staff.put("inputQuantity",8);Map<String,Object> b=service.estimate(p);assertEquals(new BigDecimal("80.92"),b.get("personnelAmount"),b.toString());Map<String,Object> status=(Map<String,Object>)((List<?>)b.get("staffingStatus")).get(0);assertEquals(new BigDecimal("80.92"),status.get("amount"));assertEquals("CNY",status.get("currency"));}
-    @Test void holidayRemovesOneRegionalDailyCost()
-    {calendar.put("exceptionsJson","[{\"bizDate\":\"2026-09-01\",\"minutes\":0}]");assertEquals(new BigDecimal("21241.29"),service.estimate(p).get("personnelAmount"));}
+    @Test void holidayDoesNotReduceACompleteMonthlySalary()
+    {calendar.put("exceptionsJson","[{\"bizDate\":\"2026-09-01\",\"minutes\":0}]");assertEquals(new BigDecimal("22000.00"),service.estimate(p).get("personnelAmount"));}
     @Test void changesOfRateDuringMonthArePricedByDay()
-    {rate.put("effectiveTo","2026-09-15");Map<String,Object> next=new HashMap<>(rate);next.remove("effectiveTo");next.put("effectiveFrom","2026-09-16");next.put("unitCost",new BigDecimal("44000"));when(mapper.selectBudgetRates(eq(7L),anyString(),anyString())).thenReturn(Arrays.asList(rate,next));assertEquals(new BigDecimal("33379.28"),service.estimate(p).get("personnelAmount"));}
+    {rate.put("effectiveTo","2026-09-15");Map<String,Object> next=new HashMap<>(rate);next.remove("effectiveTo");next.put("effectiveFrom","2026-09-16");next.put("unitCost",new BigDecimal("44000"));when(mapper.selectBudgetRates(eq(7L),anyString(),anyString())).thenReturn(Arrays.asList(rate,next));assertEquals(new BigDecimal("33000.00"),service.estimate(p).get("personnelAmount"));}
     @Test void hourlyRatesConvertToStandardDayAndDailyRatesIgnoreCalendarHours()
     {staff.put("inputUnit","HOUR");staff.put("inputQuantity",8);staff.put("planEndDate","2026-09-01");rate.put("costMode","HOURLY");rate.put("unitCost",100);assertEquals(new BigDecimal("64.00"),service.estimate(p).get("personnelAmount"));rate.put("costMode","DAILY");rate.put("unitCost",600);rate.put("rateMinutesPerDay",360);assertEquals(new BigDecimal("48.00"),service.estimate(p).get("personnelAmount"));}
     @Test void missingOrOverlappingRateCannotBecomeZeroBudget()
@@ -167,7 +196,7 @@ class BusinessProjectBudgetServiceTest
     @Test void currencyMismatchAndDuplicateMembersAreNotSilentlyAccepted()
     {rate.put("currency","USD");assertEquals("PENDING",service.estimate(p).get("status"));rate.put("currency","CNY");p.setStaffingLines(Arrays.asList(staff,new HashMap<>(staff)));assertEquals("PENDING",service.estimate(p).get("status"));}
     @Test void crossCompanyStaffCanBeIncludedInProposalBudget()
-    {p.setCompanyDeptId(99L);Map<String,Object> budget=service.estimate(p);assertEquals("READY",budget.get("status"));assertEquals(new BigDecimal("22252.78"),budget.get("personnelAmount"));}
+    {p.setCompanyDeptId(99L);Map<String,Object> budget=service.estimate(p);assertEquals("READY",budget.get("status"));assertEquals(new BigDecimal("22000.00"),budget.get("personnelAmount"));}
     @Test void datedExpensesOutsidePeriodAreExcludedUndatedExpensesCount()
     {p.setExpenseLines(Arrays.asList(row("amount",100,"occurDate","2026-10-01"),row("amount",300)));Map<String,Object> b=service.estimate(p);assertEquals(new BigDecimal("300.00"),b.get("plannedBusinessAmount"));p.getBudget().put("businessAmount",200);assertEquals("PENDING",service.estimate(p).get("status"));}
     @Test void emptyPersonnelPlanMeansZeroAndInvalidMoneyIsRejected()
@@ -236,7 +265,7 @@ class BusinessProjectBudgetServiceTest
         p.setBudgetMode("NONE");assertEquals("PENDING",service.estimate(p).get("status"));
         p.setBudgetReason("持续探索，按月复盘");service.apply(p);
         assertNull(p.getBudgetLimit());assertEquals("1",p.getNoBudget());assertEquals("READY",p.getBudget().get("status"));
-        assertEquals(new BigDecimal("22252.78"),p.getEstimatedTotalCost());
+        assertEquals(new BigDecimal("22000.00"),p.getEstimatedTotalCost());
     }
     @Test void monthlyForecastSeparatesStartupFromSteadyMonthAndConvertsRecurringFrequencies()
     {
@@ -259,10 +288,10 @@ class BusinessProjectBudgetServiceTest
     {
         p.setBudgetMode("DAILY");p.setDailyBudgetLimit(new BigDecimal("900"));
         Map<String,Object> b=service.estimate(p);
-        assertEquals("PENDING",b.get("status"));assertEquals(new BigDecimal("1011.49"),b.get("peakDailyCost"));
+        assertEquals("PENDING",b.get("status"));assertEquals(new BigDecimal("1000.00"),b.get("peakDailyCost"));
         rate.put("effectiveTo","2026-09-10");b=service.estimate(p);
         assertNull(b.get("personnelAmount"));assertNull(b.get("peakDailyCost"));assertNull(b.get("expectedDailyCost"));
-        assertEquals(new BigDecimal("1011.49"),b.get("knownPeakDailyCost"));
+        assertEquals(new BigDecimal("1000.00"),b.get("knownPeakDailyCost"));
         assertTrue(b.get("issues").toString().contains("缺少有效成本费率"));assertTrue(b.get("issues").toString().contains("最高日成本至少"));
     }
     @Test void weeklyAndMonthlyCostsAreSpreadPerDayAndStartupIsSeparate()
@@ -317,22 +346,22 @@ class BusinessProjectBudgetServiceTest
         assertEquals(new BigDecimal("100.00"),service.estimate(p).get("plannedBusinessAmount"));
         p.getExpenseLines().get(0).put("occurrenceType","YEARLY");assertThrows(ServiceException.class,()->service.estimate(p));
     }
-    @Test void regionalDailyCostsAccumulateForTwentyTwentyTwoAndTwentyThreeWorkingDays()
+    @Test void completeMonthsWithDifferentWorkingDayCountsUseTheMonthlySalary()
     {
         rate.put("unitCost",new BigDecimal("8000"));rate.put("standardWorkDays",new BigDecimal("21.75"));
         p.setPlanStartDate(Date.valueOf("2026-01-01"));staff.put("participationMode","FOLLOW_PROJECT");
-        Map<String,String> expected=new LinkedHashMap<>();expected.put("2026-02-01","7356.40");expected.put("2026-07-01","8459.86");expected.put("2026-10-01","8092.04");
+        Map<String,String> expected=new LinkedHashMap<>();expected.put("2026-02-01","8000.00");expected.put("2026-07-01","8000.00");expected.put("2026-10-01","8000.00");
         for(String month:expected.keySet()){
             p.getBudget().put("anchorDate",month);
             assertEquals(new BigDecimal(expected.get(month)),service.estimate(p).get("personnelAmount"),month);
         }
     }
-    @Test void vietnamMonthlyBudgetUsesTwentySixDayDivisor()
+    @Test void vietnamCompleteMonthUsesMonthlySalary()
     {
         rate.put("unitCost",2600);rate.put("standardWorkDays",21.75);rate.put("countryRegion","VN");
         staff.put("participationMode","FOLLOW_PROJECT");staff.put("inputQuantity",50);
         p.setPlanStartDate(Date.valueOf("2026-10-01"));p.getBudget().put("anchorDate","2026-10-01");
-        assertEquals(new BigDecimal("1100.00"),service.estimate(p).get("personnelAmount"));
+        assertEquals(new BigDecimal("1300.00"),service.estimate(p).get("personnelAmount"));
     }
     @Test void partialMonthUsesRegionalDailyCostsAndDailyFeesRemainDaily()
     {
@@ -353,7 +382,7 @@ class BusinessProjectBudgetServiceTest
         service.refreshMonthlyForecast(p);
         assertEquals(123,p.getBudget().get("totalAmount"));assertEquals(100,p.getBudget().get("personnelAmount"));
         assertSame(oldForecast,saved.get("steadyMonth"));
-        assertEquals(new BigDecimal("8092.04"),p.getRecurringEstimatedTotalCost());
+        assertEquals(new BigDecimal("8000.00"),p.getRecurringEstimatedTotalCost());
         assertEquals("2026-10-01",((Map<?,?>)p.getBudget().get("steadyMonth")).get("startDate"));
         assertSame(staff,p.getStaffingLines().get(0));
     }
@@ -388,8 +417,8 @@ class BusinessProjectBudgetServiceTest
         assertEquals(originalFirstCost,first.get("personnelAmount"));
         assertEquals(saved.get("personnelAmount"),p.getBudget().get("personnelAmount"));
         assertEquals(saved.get("totalAmount"),p.getBudget().get("totalAmount"));
-        assertEquals(new BigDecimal("33379.28"),((Map<?,?>)p.getBudget().get("steadyMonth")).get("personnelAmount"));
-        assertEquals(new BigDecimal("33379.28"),p.getRecurringEstimatedTotalCost());
+        assertEquals(new BigDecimal("33000.00"),((Map<?,?>)p.getBudget().get("steadyMonth")).get("personnelAmount"));
+        assertEquals(new BigDecimal("33000.00"),p.getRecurringEstimatedTotalCost());
     }
     @Test void finiteForecastClipsStaffParticipationAcrossYearsWithoutChangingPlanDates()
     {
@@ -415,7 +444,7 @@ class BusinessProjectBudgetServiceTest
         staff.put("participationMode","FOLLOW_PROJECT");rate.put("unitCost",new BigDecimal("12345.67"));
         Map<String,Object> budget=service.estimate(p);
         assertEquals(budget.get("personnelAmount"),sum(months(budget),"personnelAmount"));
-        assertEquals(new BigDecimal("12487.64"),months(budget).get(1).get("personnelAmount"));
+        assertEquals(new BigDecimal("12345.67"),months(budget).get(1).get("personnelAmount"));
         rate.put("effectiveTo","2026-10-31");budget=service.estimate(p);
         assertNull(budget.get("personnelAmount"));assertEquals("READY",months(budget).get(1).get("status"));
         assertNull(months(budget).get(2).get("personnelAmount"));assertNull(months(budget).get(2).get("profit"));
@@ -541,7 +570,7 @@ class BusinessProjectBudgetServiceTest
         Map<String,Object> budget=service.estimate(p);List<Map<String,Object>> forecast=months(budget);
         assertEquals(3,forecast.size());
         assertEquals(new BigDecimal("0.00"),forecast.get(0).get("personnelAmount"));
-        assertEquals(new BigDecimal("22252.78"),forecast.get(1).get("personnelAmount"));
+        assertEquals(new BigDecimal("22000.00"),forecast.get(1).get("personnelAmount"));
         assertEquals(new BigDecimal("0.00"),forecast.get(2).get("personnelAmount"));
         assertEquals(new BigDecimal("200.00"),forecast.get(0).get("plannedBusinessAmount"));
         assertEquals(new BigDecimal("900.00"),forecast.get(1).get("plannedBusinessAmount"));
@@ -633,8 +662,8 @@ class BusinessProjectBudgetServiceTest
             row("projectId",1L,"allocationId",1L,"allocationValue",30,"effectiveFrom","2026-10-01","effectiveTo","2026-10-07"),
             row("projectId",1L,"allocationId",2L,"allocationValue",5,"effectiveFrom","2026-10-08")));
         Map<String,Object> budget=service.estimate(p);
-        assertEquals("READY",budget.get("status"));assertEquals(new BigDecimal("2376.94"),budget.get("personnelAmount"));
-        assertEquals(new BigDecimal("1061.97"),months(budget).get(1).get("personnelAmount"));
+        assertEquals("READY",budget.get("status"));assertEquals(new BigDecimal("2350.00"),budget.get("personnelAmount"));
+        assertEquals(new BigDecimal("1100.00"),months(budget).get(1).get("personnelAmount"));
         List<Map<String,Object>> basis=(List<Map<String,Object>>)budget.get("basis");
         assertEquals(new BigDecimal("30"),basis.get(0).get("allocationPercent"));
         assertEquals(new BigDecimal("5"),basis.get(5).get("allocationPercent"));
@@ -684,7 +713,7 @@ class BusinessProjectBudgetServiceTest
         staff.put("allocationTimeline",Arrays.asList(
             row("projectId",1L,"allocationId",1L,"allocationValue",30,"effectiveFrom","2026-10-01"),
             row("projectId",2L,"allocationId",2L,"allocationValue",70,"effectiveFrom","2026-10-01","projectEndDate","2026-10-07")));
-        assertEquals(new BigDecimal("18712.58"),service.estimate(p).get("personnelAmount"));
+        assertEquals(new BigDecimal("18500.00"),service.estimate(p).get("personnelAmount"));
     }
     @Test void cashSourcesExplainDatedContributionsAndExcludeAlternativeRevenueScenarios() {
         p.setPlanStartDate(Date.valueOf("2026-09-15"));p.setPlanEndDate(Date.valueOf("2026-10-31"));p.setStaffingLines(Collections.emptyList());
